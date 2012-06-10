@@ -1,10 +1,13 @@
 language: java
+jdk:
+  - openjdk7
+  - oraclejdk7
 branches:
   only:
     - master
 notifications:
   email:
-    on_success: never
+    on_success: always
     on_failure: always
     recipients:
       - lichtenberger.johannes@gmail.com
