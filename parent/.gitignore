@@ -1,0 +1,13 @@
+syntax: glob
+
+.DS_Store
+build
+dist
+classes
+target
+.settings
+.project
+
+syntax: regexp
+
+.*/\..+

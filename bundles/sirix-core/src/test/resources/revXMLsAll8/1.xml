@@ -1,0 +1,16 @@
+<article>
+	<title>A Test Document</title>
+	<para>This is para 1.</para>
+	<para>
+		This is para 2
+		<emphasis>with emphasis</emphasis>
+		in it.
+	</para>
+	<para>This is para 3.</para>
+	<para id="p4">This is para 4.</para>
+	<para id="p5">This is para 5.</para>
+	<para>This is para 6.</para>
+	<para>This is para 7.</para>
+	<para>This is para 8.</para>
+	<para>This is para 9.</para>
+</article>
