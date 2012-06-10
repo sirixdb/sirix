@@ -5,19 +5,20 @@ Sirix stores data securely by applying different layers on the stored data. Flex
 Secure in this context includes integrity-checks, confidentiality with tree-aware key handling, versioning to provide accountability.
 Furthermore, different backends are provided while a binding to different cloud-infrastructures is in progress.
 
-[![Build Status](https://secure.travis-ci.org/johannes.lichtenberger/sirix.png)](http://travis-ci.org/johannes.lichtenberger/sirix)
+Note that it is based on Treetank (http://treetank.org / http://github.com/disy/treetank).
+
+[![Build Status](https://secure.travis-ci.org/johanneslichtenberger/sirix.png)](http://travis-ci.org/johanneslichtenberger/sirix)
 
 ##Content
 
 * README:					this readme file
 * LICENSE:	 				license file
-* coremodules:				Bundles containing main treetank functionality
-* interfacemodules:			Bundles implementing third-party interfaces
-* studentmodules:			Bundles containing student projects
-* scripts:					bash scripts for syncing against disy-internal repo.
+* bundles					all available bundles
 * pom.xml:					Simple pom (yes we do use Maven)
 
 ##Further information
+
+As Sirix is based on Treetank current documentation thus is currently only available from this location.
 
 The documentation so far is accessible under http://treetank.org (pointing to http://disy.github.com/treetank/).
 
@@ -31,7 +32,7 @@ The framework was presented at various conferences and acted as base for multipl
 * JAX-RX - Unified REST Access to XML Resources; TechReport'10: http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-opus-120511
 * Distributing XML with focus on parallel evaluation; DBISP2P'08: http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-opus-84487
 
-Any questions, just contact sebastian.graf AT uni-konstanz.de
+Any questions, just contact lichtenberger.johannes AT gmail.com
 
 ##License
 
@@ -40,21 +41,6 @@ This work is released in the public domain under the BSD 3-clause license
 
 ##Involved People
 
-Treetank is maintained by:
+Sirix is maintained by:
 
-* Sebastian Graf (Treetank Core & Project Lead)
-
-Current subprojects are:
-
-* Patrick Lang (Encryption layer)
-* Johannes Lichtenberger (Visualization of temporal trees)
-* Wolfgang Miller (Binding of Treetank to cloud backends)
-
-Concluded subprojects were:
-
-* Johannes Lichtenberger (Evaluation of several versioning approaches)
-* Patrick Lang (Encryption layer)
-* Lukas Lewandowski (Jax-RX binding)
-* Tina Scherer (native XPath2 engine)
-* Marc Kramis (first drafts of Treetank core)
-
+* Johannes Lichtenberger (Sirix Core & Project Lead based on Treetank Core)
