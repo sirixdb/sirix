@@ -1,0 +1,5 @@
+#surefire
+#Fri Jan 06 23:42:39 CET 2012
+user.dir=/home/johannes/workspace/treetank/bundles/treetank-core
+localRepository=/home/johannes/.m2/repository
+basedir=/home/johannes/workspace/treetank/bundles/treetank-core

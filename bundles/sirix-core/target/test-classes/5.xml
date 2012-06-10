@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+
+    Copyright (c) 2011, University of Konstanz, Distributed Systems Group
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are met:
+        * Redistributions of source code must retain the above copyright
+          notice, this list of conditions and the following disclaimer.
+        * Redistributions in binary form must reproduce the above copyright
+          notice, this list of conditions and the following disclaimer in the
+          documentation and/or other materials provided with the distribution.
+        * Neither the name of the University of Konstanz nor the
+          names of its contributors may be used to endorse or promote products
+          derived from this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+    ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+    WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+    DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+    DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+    (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+    LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+    ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+-->
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:y="http://www.yworks.com/xml/graphml" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://www.yworks.com/xml/schema/graphml/1.1/ygraphml.xsd">
+  <!--Created by yFiles for Java 2.7-->
+  <key for="graphml" id="d0" yfiles.type="resources"/>
+  <key attr.name="url" attr.type="string" for="node" id="d1"/>
+  <key attr.name="description" attr.type="string" for="node" id="d2"/>
+  <key for="node" id="d3" yfiles.type="nodegraphics"/>
+  <key attr.name="url" attr.type="string" for="edge" id="d4"/>
+  <key attr.name="description" attr.type="string" for="edge" id="d5"/>
+  <key for="edge" id="d6" yfiles.type="edgegraphics"/>
+  <graph edgedefault="directed" parse.edges="8" parse.nodes="5" id="G">
+<node id="n1">
+	<data key="d2" />
+	<data key="d3">
+		<y:ShapeNode>
+			<y:Geometry height="30.0" width="30.0" x="-314.0" y="-28.5"/>
+			<y:Fill color="#FFCC00" transparent="false"/>
+			<y:BorderStyle color="#000000" type="line" width="1.0"/>
+			<y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="13" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="19.92626953125" modelName="internal" modelPosition="c" textColor="#000000" visible="true" width="11.22998046875" x="9.385009765625" y="5.036865234375">0</y:NodeLabel>
+			<y:Shape type="rectangle"/>
+		</y:ShapeNode>
+	</data>
+</node>
+<node id="n2">
+	<data key="d2" />
+	<data key="d3">
+		<y:ShapeNode>
+			<y:Geometry height="30.0" width="30.0" x="-564.0" y="-231.5"/>
+			<y:Fill color="#FFCC00" transparent="false"/>
+			<y:BorderStyle color="#000000" type="line" width="1.0"/>
+			<y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="13" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="19.92626953125" modelName="internal" modelPosition="c" textColor="#000000" visible="true" width="11.22998046875" x="9.385009765625" y="5.036865234375">0</y:NodeLabel>
+			<y:Shape type="rectangle"/>
+		</y:ShapeNode>
+	</data>
+</node>
+<node id="n3">
+	<data key="d2" />
+	<data key="d3">
+		<y:ShapeNode>
+			<y:Geometry height="30.0" width="30.0" x="-313.0" y="-234.5"/>
+			<y:Fill color="#FFCC00" transparent="false"/>
+			<y:BorderStyle color="#000000" type="line" width="1.0"/>
+			<y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="13" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="19.92626953125" modelName="internal" modelPosition="c" textColor="#000000" visible="true" width="11.22998046875" x="9.385009765625" y="5.036865234375">0</y:NodeLabel>
+			<y:Shape type="rectangle"/>
+		</y:ShapeNode>
+	</data>
+</node>
+<node id="n4">
+	<data key="d2" />
+	<data key="d3">
+		<y:ShapeNode>
+			<y:Geometry height="30.0" width="30.0" x="-437.0" y="121.5"/>
+			<y:Fill color="#FFCC00" transparent="false"/>
+			<y:BorderStyle color="#000000" type="line" width="1.0"/>
+			<y:NodeLabel alignment="center" autoSizePolicy="content" fontFamily="Dialog" fontSize="13" fontStyle="plain" hasBackgroundColor="false" hasLineColor="false" height="19.92626953125" modelName="internal" modelPosition="c" textColor="#000000" visible="true" width="11.22998046875" x="9.385009765625" y="5.036865234375">0</y:NodeLabel>
+			<y:Shape type="rectangle"/>
+		</y:ShapeNode>
+	</data>
+</node>
+<edge id="e1" source="n0" target="n2"> 
+	<data key="d5" />
+	<data key="d6">
+		<y:PolyLineEdge>
+			<y:Path sx="0.0" sy="0.0" tx="0.0" ty="0.0"/>
+			<y:LineStyle color="#000000" type="line" width="1.0"/>
+			<y:Arrows source="none" target="standard"/>
+			<y:BendStyle smoothed="false"/>
+		</y:PolyLineEdge>
+	</data>
+</edge>
+<edge id="e2" source="n3" target="n0"> 
+	<data key="d5" />
+	<data key="d6">
+		<y:PolyLineEdge>
+			<y:Path sx="0.0" sy="0.0" tx="0.0" ty="0.0"/>
+			<y:LineStyle color="#000000" type="line" width="1.0"/>
+			<y:Arrows source="none" target="standard"/>
+			<y:BendStyle smoothed="false"/>
+		</y:PolyLineEdge>
+	</data>
+</edge>
+<edge id="e3" source="n2" target="n3"> 
+	<data key="d5" />
+	<data key="d6">
+		<y:PolyLineEdge>
+			<y:Path sx="0.0" sy="0.0" tx="0.0" ty="0.0"/>
+			<y:LineStyle color="#000000" type="line" width="1.0"/>
+			<y:Arrows source="none" target="standard"/>
+			<y:BendStyle smoothed="false"/>
+		</y:PolyLineEdge>
+	</data>
+</edge>
+  </graph>
+  <data key="d0">
+    <y:Resources/>
+  </data>
+</graphml>
