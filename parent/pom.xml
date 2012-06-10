@@ -27,24 +27,6 @@
 	<packaging>pom</packaging>
 	<name>sirix-pom</name>
 	<version>1.0.5-SNAPSHOT</version>
-	<url>http://www.informatik.uni-konstanz.de/arbeitsgruppen/disy/forschung/treetank/</url>
-	<scm>
-		<connection>scm:svn:https://svn.uni-konstanz.de/disy/Treetank/trunk/treetank</connection>
-		<developerConnection>scm:svn:https://svn.uni-konstanz.de/disy/Treetank/trunk/treetank</developerConnection>
-		<url>scm:svn:https://svn.uni-konstanz.de/disy/Treetank/trunk/treetank</url>
-	</scm>
-	<issueManagement>
-		<system>Redmine</system>
-		<url>https://projects.uni-konstanz.de/projects/treetank/</url>
-	</issueManagement>
-	<ciManagement>
-		<system>jenkins</system>
-		<url>http://ci.disy.inf.uni-konstanz.de</url>
-	</ciManagement>
-	<organization>
-		<name>University of Konstanz, Distributed Systems Group</name>
-		<url>http://www.informatik.uni-konstanz.de/ags/disy</url>
-	</organization>
 	<licenses>
 		<license>
 			<name>New BSD</name>

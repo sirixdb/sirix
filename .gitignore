@@ -1,5 +1,21 @@
-.DS_Store
-target
+# Generic files to ignore
+*~
+*.lock
+*.DS_Store
+*.swp
+*.out
+
+# Eclipse files 
 .settings
 .project
 .classpath
+
+# Java classfiles
+*.class
+
+# Maven target dir
+/.settings/org.maven.ide.eclipse.prefs
+/.idea/workspace.xml
+/doc
+/lib
+/target

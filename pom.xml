@@ -32,27 +32,18 @@
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
 		<artifactId>pom</artifactId>
-		<groupId>treetank</groupId>
+		<groupId>sirix</groupId>
 		<version>1.0.4-SNAPSHOT</version>
 	</parent>
 
 	<artifactId>complete</artifactId>
 	<packaging>pom</packaging>
-	<name>treetank-complete</name>
+	<name>sirix-complete</name>
 	<version>1.0.2-SNAPSHOT</version>
-	<description>Treetank is a fully java-implemented native XML-Database. 
+	<description>Sirix is a fully java-implemented native XML-Database. 
 	It supports cursorlike access to all nodes stored in the tree plus XPath 2.0 as query engine. Furthermore, Treetank is completely versionable. That means that each update-operation results in a new version. 
 	These versions can be easily retrieved within the database itself.</description>
-	<url>http://www.informatik.uni-konstanz.de/arbeitsgruppen/disy/forschung/treetank/</url>
-	<scm>
-		<connection>scm:hg:http://treetank.hg.sourceforge.net:8000/hgroot/treetank/treetank</connection>
-		<url>http://treetank.hg.sourceforge.net:8000/hgroot/treetank/treetank/</url>
-	</scm>
 	<distributionManagement>
-	     <site>
-                <id>sf</id>
-                <url>scp://shell.sourceforge.net/home/groups/t/tr/treetank/htdocs</url>
-            </site>
 		<repository>
 			<id>disyInternal</id>
 			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternal</url>
@@ -66,12 +57,7 @@
 	</distributionManagement>
 	<modules>
 		<module>parent</module>
-		<module>bundles/treetank-core</module>
-		<module>bundles/treetank-jax-rx</module>
-		<module>bundles/treetank-saxon</module>
-        	<module>bundles/treetank-eclipse</module>
-		<module>bundles/treetank-gui</module>
-		<module>bundles/treetank-temporalxpath</module>
+		<module>bundles/sirix-core</module>
 	</modules>
 <repositories>
 <repository>
