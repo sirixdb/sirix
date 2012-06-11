@@ -30,6 +30,8 @@ package org.sirix.axis;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.settings.EFixed;
@@ -67,7 +69,7 @@ public final class DescendantAxis extends AbsAxis {
    * @param pIncludeSelf
    *          Is self included?
    */
-  public DescendantAxis(final INodeReadTrx pRtx, final EIncludeSelf pIncludeSelf) {
+  public DescendantAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final EIncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
   }
 

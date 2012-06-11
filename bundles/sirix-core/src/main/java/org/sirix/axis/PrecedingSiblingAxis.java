@@ -42,7 +42,7 @@ import org.sirix.node.interfaces.IStructNode;
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public class PrecedingSiblingAxis extends AbsAxis {
+public final class PrecedingSiblingAxis extends AbsAxis {
 
   /** Determines if it's the first call. */
   private boolean mIsFirst;
@@ -58,13 +58,13 @@ public class PrecedingSiblingAxis extends AbsAxis {
   }
 
   @Override
-  public final void reset(final long pNodeKey) {
+  public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
     mIsFirst = true;
   }
 
   @Override
-  public final boolean hasNext() {
+  public boolean hasNext() {
     if (isNext()) {
       return true;
     } else {

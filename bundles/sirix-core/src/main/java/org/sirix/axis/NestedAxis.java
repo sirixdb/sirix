@@ -40,7 +40,7 @@ import org.sirix.api.IAxis;
  * Chains two axis operations.
  * </p>
  */
-public class NestedAxis extends AbsAxis {
+public final class NestedAxis extends AbsAxis {
 
   /** Parent axis. */
   private final IAxis mParentAxis;
@@ -67,7 +67,7 @@ public class NestedAxis extends AbsAxis {
   }
 
   @Override
-  public final void reset(final long pNodeKey) {
+  public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
     if (mParentAxis != null) {
       mParentAxis.reset(pNodeKey);
@@ -79,7 +79,7 @@ public class NestedAxis extends AbsAxis {
   }
 
   @Override
-  public final boolean hasNext() {
+  public boolean hasNext() {
     if (isNext()) {
       return true;
     } else {

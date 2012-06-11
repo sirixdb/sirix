@@ -31,6 +31,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.ENode;
 import org.sirix.node.ElementNode;
@@ -72,15 +74,15 @@ public final class LevelOrderAxis extends AbsAxis {
    * @param pIncludeSelf
    *          determines if self included
    */
-  public LevelOrderAxis(final INodeReadTrx pRtx, final EIncludeNodes pIncludeNodes,
+  public LevelOrderAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final EIncludeNodes pIncludeNodes,
     final EIncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
     mIncludeNodes = checkNotNull(pIncludeNodes);
   }
 
   @Override
-  public void reset(final long paramNodeKey) {
-    super.reset(paramNodeKey);
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     mFirst = true;
     mFirstChilds = new ArrayDeque<>();
   }

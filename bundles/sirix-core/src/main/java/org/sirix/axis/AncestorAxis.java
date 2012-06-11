@@ -27,6 +27,8 @@
 
 package org.sirix.axis;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.ENode;
 import org.sirix.settings.EFixed;
@@ -38,7 +40,7 @@ import org.sirix.settings.EFixed;
  * Iterate over all descendants of kind ELEMENT or TEXT starting at a given node. Self is not included.
  * </p>
  */
-public class AncestorAxis extends AbsAxis {
+public final class AncestorAxis extends AbsAxis {
 
   /**
    * First touch of node.
@@ -63,18 +65,18 @@ public class AncestorAxis extends AbsAxis {
    * @param pIncludeSelf
    *          Is self included?
    */
-  public AncestorAxis(final INodeReadTrx pRtx, final EIncludeSelf pIncludeSelf) {
+  public AncestorAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final EIncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
   }
 
   @Override
-  public final void reset(final long paramNodeKey) {
-    super.reset(paramNodeKey);
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     mFirst = true;
   }
 
   @Override
-  public final boolean hasNext() {
+  public boolean hasNext() {
     if (isNext()) {
       return true;
     } else {
@@ -89,7 +91,6 @@ public class AncestorAxis extends AbsAxis {
       if (getTransaction().getNode().getKind() != ENode.ROOT_KIND && getTransaction().getNode().hasParent()
         && getTransaction().getNode().getParentKey() != EFixed.ROOT_NODE_KEY.getStandardProperty()) {
         mKey = getTransaction().getStructuralNode().getParentKey();
-        // getTransaction().moveToParent();
         return true;
       }
       resetToStartKey();

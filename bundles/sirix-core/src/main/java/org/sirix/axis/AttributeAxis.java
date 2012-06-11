@@ -27,6 +27,8 @@
 
 package org.sirix.axis;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.ENode;
 import org.sirix.node.ElementNode;
@@ -38,7 +40,7 @@ import org.sirix.node.ElementNode;
  * Iterate over all attibutes of a given node.
  * </p>
  */
-public class AttributeAxis extends AbsAxis {
+public final class AttributeAxis extends AbsAxis {
 
   /** Remember next key to visit. */
   private int mNextIndex;
@@ -49,18 +51,18 @@ public class AttributeAxis extends AbsAxis {
    * @param paramRtx
    *          exclusive (immutable) mTrx to iterate with
    */
-  public AttributeAxis(final INodeReadTrx paramRtx) {
-    super(paramRtx);
+  public AttributeAxis(@Nonnull final INodeReadTrx pRtx) {
+    super(pRtx);
   }
 
   @Override
-  public final void reset(final long paramNodeKey) {
-    super.reset(paramNodeKey);
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     mNextIndex = 0;
   }
 
   @Override
-  public final boolean hasNext() {
+  public boolean hasNext() {
     if (isNext()) {
       return true;
     } else {

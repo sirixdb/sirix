@@ -27,6 +27,8 @@
 
 package org.sirix.axis;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 
 /**
@@ -36,7 +38,7 @@ import org.sirix.api.INodeReadTrx;
  * Iterate to parent node starting at a given node. Self is not included.
  * </p>
  */
-public class SelfAxis extends AbsAxis {
+public final class SelfAxis extends AbsAxis {
 
   /** Track number of calls of next. */
   private boolean mFirst;
@@ -44,24 +46,21 @@ public class SelfAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
+   * @param pRtx
+   *          exclusive (immutable) trx to iterate with
    */
-  public SelfAxis(final INodeReadTrx paramRtx) {
-    super(paramRtx);
+  public SelfAxis(@Nonnull final INodeReadTrx pRtx) {
+    super(pRtx);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public final void reset(final long paramNodeKey) {
-    super.reset(paramNodeKey);
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     mFirst = true;
   }
 
   @Override
-  public final boolean hasNext() {
+  public boolean hasNext() {
     if (isNext()) {
       return true;
     } else {

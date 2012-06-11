@@ -45,6 +45,8 @@ import org.sirix.settings.EFixed;
  * <p>
  * Iterate over all descendants of kind ELEMENT or TEXT starting at a given node. Self is not included.
  * </p>
+ * 
+ * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class VisitorDescendantAxis extends AbsAxis {
 
@@ -226,7 +228,6 @@ public final class VisitorDescendantAxis extends AbsAxis {
    * 
    * @param pCurrKey
    *          node key of current node
-   *  
    */
   private boolean hasNextNode(final long pCurrKey) {
     // Fail if the subtree is finished.

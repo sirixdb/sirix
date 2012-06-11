@@ -27,6 +27,8 @@
 
 package org.sirix.axis;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.IAxis;
 
 /**
@@ -49,7 +51,7 @@ import org.sirix.api.IAxis;
  * binding sequence from which they were derived.
  * </p>
  */
-public class ForAxis extends AbsAxis {
+public final class ForAxis extends AbsAxis {
 
   /** The range expression. */
   private final IAxis mRange;
@@ -68,7 +70,7 @@ public class ForAxis extends AbsAxis {
    * @param pReturnExpr
    *          the return expression of the for expression
    */
-  public ForAxis(final IAxis pRange, final IAxis pReturnExpr) {
+  public ForAxis(@Nonnull final IAxis pRange, @Nonnull final IAxis pReturnExpr) {
     super(pRange.getTransaction());
     mRange = pRange;
     mReturn = pReturnExpr;

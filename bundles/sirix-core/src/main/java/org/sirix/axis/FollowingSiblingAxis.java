@@ -27,6 +27,8 @@
 
 package org.sirix.axis;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.ENode;
 import org.sirix.node.interfaces.IStructNode;
@@ -38,7 +40,7 @@ import org.sirix.node.interfaces.IStructNode;
  * Iterate over all following siblings of kind ELEMENT or TEXT starting at a given node. Self is not included.
  * </p>
  */
-public class FollowingSiblingAxis extends AbsAxis {
+public final class FollowingSiblingAxis extends AbsAxis {
 
   /** Determines if it's the first call to hasNext(). */
   private boolean mIsFirst;
@@ -49,19 +51,19 @@ public class FollowingSiblingAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public FollowingSiblingAxis(final INodeReadTrx pRtx) {
+  public FollowingSiblingAxis(@Nonnull final INodeReadTrx pRtx) {
     super(pRtx);
     mIsFirst = true;
   }
 
   @Override
-  public final void reset(final long paramNodeKey) {
-    super.reset(paramNodeKey);
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     mIsFirst = true;
   }
 
   @Override
-  public final boolean hasNext() {
+  public boolean hasNext() {
     if (isNext()) {
       return true;
     } else {

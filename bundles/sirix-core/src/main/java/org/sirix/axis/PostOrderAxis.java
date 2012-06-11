@@ -27,6 +27,8 @@
 
 package org.sirix.axis;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.settings.EFixed;
 
@@ -37,7 +39,7 @@ import org.sirix.settings.EFixed;
  * Iterate over the whole tree starting with the last node.
  * </p>
  */
-public class PostOrderAxis extends AbsAxis {
+public final class PostOrderAxis extends AbsAxis {
 
   private boolean mMovedToParent;
 
@@ -49,12 +51,12 @@ public class PostOrderAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PostOrderAxis(final INodeReadTrx pRtx) {
+  public PostOrderAxis(@Nonnull final INodeReadTrx pRtx) {
     super(pRtx);
   }
 
   @Override
-  public final void reset(final long pNodeKey) {
+  public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
     mKey = pNodeKey;
     mMovedToParent = false;

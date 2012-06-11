@@ -30,6 +30,8 @@ package org.sirix.axis;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.ENode;
 import org.sirix.node.interfaces.IStructNode;
@@ -41,7 +43,7 @@ import org.sirix.node.interfaces.IStructNode;
  * Iterate over all preceding nodes of kind ELEMENT or TEXT starting at a given node. Self is not included.
  * </p>
  */
-public class PrecedingAxis extends AbsAxis {
+public final class PrecedingAxis extends AbsAxis {
 
   /** Determines if it's the first call or not. */
   private boolean mIsFirst;
@@ -52,24 +54,24 @@ public class PrecedingAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param paramRtx
+   * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PrecedingAxis(final INodeReadTrx paramRtx) {
-    super(paramRtx);
+  public PrecedingAxis(@Nonnull final INodeReadTrx pRtx) {
+    super(pRtx);
     mIsFirst = true;
-    mStack = new ArrayDeque<Long>();
+    mStack = new ArrayDeque<>();
   }
 
   @Override
-  public final void reset(final long paramNodeKey) {
-    super.reset(paramNodeKey);
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     mIsFirst = true;
-    mStack = new ArrayDeque<Long>();
+    mStack = new ArrayDeque<>();
   }
 
   @Override
-  public final boolean hasNext() {
+  public boolean hasNext() {
     if (isNext()) {
       return true;
     } else {

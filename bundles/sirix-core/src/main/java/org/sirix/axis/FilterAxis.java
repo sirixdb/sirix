@@ -37,7 +37,7 @@ import org.sirix.api.IFilter;
  * Perform a test on a given axis.
  * </p>
  */
-public class FilterAxis extends AbsAxis {
+public final class FilterAxis extends AbsAxis {
 
   /** Axis to test. */
   private final IAxis mAxis;
@@ -53,28 +53,22 @@ public class FilterAxis extends AbsAxis {
    * @param paramAxisTest
    *          test to perform for each node found with axis
    */
-  public FilterAxis(final IAxis paramAxis, final IFilter... paramAxisTest) {
-    super(paramAxis.getTransaction());
-    mAxis = paramAxis;
-    mAxisFilter = paramAxisTest;
+  public FilterAxis(final IAxis pAxis, final IFilter... pAxisTest) {
+    super(pAxis.getTransaction());
+    mAxis = pAxis;
+    mAxisFilter = pAxisTest;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public final void reset(final long paramNodeKey) {
-    super.reset(paramNodeKey);
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     if (mAxis != null) {
-      mAxis.reset(paramNodeKey);
+      mAxis.reset(pNodeKey);
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public final boolean hasNext() {
+  public boolean hasNext() {
     if (isNext()) {
       return true;
     }
@@ -98,8 +92,7 @@ public class FilterAxis extends AbsAxis {
    * 
    * @return the axis
    */
-  public final IAxis getAxis() {
+  public IAxis getAxis() {
     return mAxis;
   }
-
 }

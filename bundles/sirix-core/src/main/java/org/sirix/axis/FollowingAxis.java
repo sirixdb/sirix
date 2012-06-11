@@ -38,7 +38,7 @@ import org.sirix.api.INodeReadTrx;
  * Iterate over all following nodes of kind ELEMENT or TEXT starting at a given node. Self is not included.
  * </p>
  */
-public class FollowingAxis extends AbsAxis {
+public final class FollowingAxis extends AbsAxis {
 
   /** Determines if it's the first node. */
   private boolean mIsFirst;
@@ -55,21 +55,18 @@ public class FollowingAxis extends AbsAxis {
   public FollowingAxis(final INodeReadTrx paramRtx) {
     super(paramRtx);
     mIsFirst = true;
-    mRightSiblingStack = new ArrayDeque<Long>();
+    mRightSiblingStack = new ArrayDeque<>();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public final void reset(final long paramNodeKey) {
-    super.reset(paramNodeKey);
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     mIsFirst = true;
-    mRightSiblingStack = new ArrayDeque<Long>();
+    mRightSiblingStack = new ArrayDeque<>();
   }
 
   @Override
-  public final boolean hasNext() {
+  public boolean hasNext() {
     if (isNext()) {
       return true;
     } else {

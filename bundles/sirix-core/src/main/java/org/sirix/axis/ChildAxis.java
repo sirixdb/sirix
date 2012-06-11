@@ -27,6 +27,8 @@
 
 package org.sirix.axis;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.interfaces.IStructNode;
 
@@ -37,7 +39,7 @@ import org.sirix.node.interfaces.IStructNode;
  * Iterate over all children of kind ELEMENT or TEXT starting at a given node. Self is not included.
  * </p>
  */
-public class ChildAxis extends AbsAxis {
+public final class ChildAxis extends AbsAxis {
 
   /** Has another child node. */
   private boolean mFirst;
@@ -45,21 +47,21 @@ public class ChildAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param paramRtx
+   * @param pRtx
    *          exclusive (immutable) trx to iterate with.
    */
-  public ChildAxis(final INodeReadTrx paramRtx) {
-    super(paramRtx);
+  public ChildAxis(@Nonnull final INodeReadTrx pRtx) {
+    super(pRtx);
   }
 
   @Override
-  public final void reset(final long paramNodeKey) {
-    super.reset(paramNodeKey);
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     mFirst = true;
   }
 
   @Override
-  public final boolean hasNext() {
+  public boolean hasNext() {
     if (isNext()) {
       return true;
     } else {
