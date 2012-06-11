@@ -1,0 +1,89 @@
+K 25
+svn:wc:ra_dav:version-url
+V 113
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui
+END
+ExceptionReporting.java
+K 25
+svn:wc:ra_dav:version-url
+V 137
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/ExceptionReporting.java
+END
+GUIProp.java
+K 25
+svn:wc:ra_dav:version-url
+V 126
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/GUIProp.java
+END
+GUI.java
+K 25
+svn:wc:ra_dav:version-url
+V 122
+/disy/Treetank/!svn/ver/6776/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/GUI.java
+END
+XMLFileFilter.java
+K 25
+svn:wc:ra_dav:version-url
+V 132
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/XMLFileFilter.java
+END
+EShredder.java
+K 25
+svn:wc:ra_dav:version-url
+V 128
+/disy/Treetank/!svn/ver/6776/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/EShredder.java
+END
+IGUICommand.java
+K 25
+svn:wc:ra_dav:version-url
+V 130
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/IGUICommand.java
+END
+GUIMenuBar.java
+K 25
+svn:wc:ra_dav:version-url
+V 129
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/GUIMenuBar.java
+END
+ProgressGlassPane.java
+K 25
+svn:wc:ra_dav:version-url
+V 136
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/ProgressGlassPane.java
+END
+package-info.java
+K 25
+svn:wc:ra_dav:version-url
+V 131
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/package-info.java
+END
+GUIConstants.java
+K 25
+svn:wc:ra_dav:version-url
+V 131
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/GUIConstants.java
+END
+ReadDB.java
+K 25
+svn:wc:ra_dav:version-url
+V 125
+/disy/Treetank/!svn/ver/6776/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/ReadDB.java
+END
+WrapLayout.java
+K 25
+svn:wc:ra_dav:version-url
+V 129
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/WrapLayout.java
+END
+EMenu.java
+K 25
+svn:wc:ra_dav:version-url
+V 124
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/EMenu.java
+END
+GUICommands.java
+K 25
+svn:wc:ra_dav:version-url
+V 130
+/disy/Treetank/!svn/ver/6776/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/GUICommands.java
+END

@@ -1,0 +1,7 @@
+<query>
+ <text>//name</text>
+ <properties>
+  <property name="wrap" value="true"/>
+  <property name="output" value="true"/>
+ </properties>
+ </query>

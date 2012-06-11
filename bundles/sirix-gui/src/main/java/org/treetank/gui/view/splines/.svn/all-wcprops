@@ -1,0 +1,23 @@
+K 25
+svn:wc:ra_dav:version-url
+V 126
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/splines
+END
+BezierSpline.java
+K 25
+svn:wc:ra_dav:version-url
+V 144
+/disy/Treetank/!svn/ver/6426/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/splines/BezierSpline.java
+END
+ISpline.java
+K 25
+svn:wc:ra_dav:version-url
+V 139
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/splines/ISpline.java
+END
+BSpline.java
+K 25
+svn:wc:ra_dav:version-url
+V 139
+/disy/Treetank/!svn/ver/6776/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/splines/BSpline.java
+END

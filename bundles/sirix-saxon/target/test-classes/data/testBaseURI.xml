@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<foo xml:base="http://treetank.org">
+  <bar>
+    test
+  </bar>
+  <oops xml:base="http://example.org">
+    <baz/>
+    <bla>lala</bla>
+  </oops>
+</foo>

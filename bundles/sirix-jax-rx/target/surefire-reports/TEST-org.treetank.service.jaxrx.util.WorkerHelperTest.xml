@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite failures="0" time="4.187" errors="0" skipped="0" tests="6" name="org.treetank.service.jaxrx.util.WorkerHelperTest">
+  <properties>
+    <property name="java.runtime.name" value="Java(TM) SE Runtime Environment"/>
+    <property name="sun.boot.library.path" value="/usr/lib/jvm/jdk1.7.0/jre/lib/amd64"/>
+    <property name="java.vm.version" value="21.0-b17"/>
+    <property name="java.vm.vendor" value="Oracle Corporation"/>
+    <property name="java.vendor.url" value="http://java.oracle.com/"/>
+    <property name="path.separator" value=":"/>
+    <property name="java.vm.name" value="Java HotSpot(TM) 64-Bit Server VM"/>
+    <property name="file.encoding.pkg" value="sun.io"/>
+    <property name="user.country" value="US"/>
+    <property name="sun.java.launcher" value="SUN_STANDARD"/>
+    <property name="sun.os.patch.level" value="unknown"/>
+    <property name="java.vm.specification.name" value="Java Virtual Machine Specification"/>
+    <property name="user.dir" value="/home/johannes/workspace/treetank/bundles/treetank-jax-rx"/>
+    <property name="java.runtime.version" value="1.7.0-b147"/>
+    <property name="java.awt.graphicsenv" value="sun.awt.X11GraphicsEnvironment"/>
+    <property name="basedir" value="/home/johannes/workspace/treetank/bundles/treetank-jax-rx"/>
+    <property name="java.endorsed.dirs" value="/usr/lib/jvm/jdk1.7.0/jre/lib/endorsed"/>
+    <property name="os.arch" value="amd64"/>
+    <property name="surefire.real.class.path" value="/home/johannes/workspace/treetank/bundles/treetank-jax-rx/target/surefire/surefirebooter251816125462150389.jar"/>
+    <property name="java.io.tmpdir" value="/tmp"/>
+    <property name="line.separator" value="
+"/>
+    <property name="java.vm.specification.vendor" value="Oracle Corporation"/>
+    <property name="os.name" value="Linux"/>
+    <property name="sun.jnu.encoding" value="UTF-8"/>
+    <property name="java.library.path" value="/usr/java/packages/lib/amd64:/usr/lib64:/lib64:/lib:/usr/lib"/>
+    <property name="surefire.test.class.path" value="/home/johannes/workspace/treetank/bundles/treetank-jax-rx/target/test-classes:/home/johannes/workspace/treetank/bundles/treetank-jax-rx/target/classes:/home/johannes/.m2/repository/treetank/core/5.3.4/core-5.3.4.jar:/home/johannes/.m2/repository/com/sleepycat/je/3.3.87/je-3.3.87.jar:/home/johannes/.m2/repository/perfidix/perfidix/3.6.3/perfidix-3.6.3.jar:/home/johannes/.m2/repository/commons-primitives/commons-primitives/1.0/commons-primitives-1.0.jar:/home/johannes/.m2/repository/commons-math/commons-math/1.2/commons-math-1.2.jar:/home/johannes/.m2/repository/xmlunit/xmlunit/1.3/xmlunit-1.3.jar:/home/johannes/.m2/repository/ch/qos/logback/logback-classic/0.9.24/logback-classic-0.9.24.jar:/home/johannes/.m2/repository/ch/qos/logback/logback-core/0.9.24/logback-core-0.9.24.jar:/home/johannes/.m2/repository/org/slf4j/slf4j-api/1.6.1/slf4j-api-1.6.1.jar:/home/johannes/.m2/repository/org/jaxrx/jax-rx/1.2.7/jax-rx-1.2.7.jar:/home/johannes/.m2/repository/com/sun/jersey/jersey-server/1.4/jersey-server-1.4.jar:/home/johannes/.m2/repository/com/sun/jersey/jersey-core/1.4/jersey-core-1.4.jar:/home/johannes/.m2/repository/asm/asm/3.1/asm-3.1.jar:/home/johannes/.m2/repository/org/mortbay/jetty/jetty/6.1.25/jetty-6.1.25.jar:/home/johannes/.m2/repository/org/mortbay/jetty/jetty-util/6.1.25/jetty-util-6.1.25.jar:/home/johannes/.m2/repository/org/mortbay/jetty/servlet-api/2.5-20081211/servlet-api-2.5-20081211.jar:/home/johannes/.m2/repository/com/sun/jersey/jersey-client/1.4/jersey-client-1.4.jar:/home/johannes/.m2/repository/junit/junit/4.8.1/junit-4.8.1.jar:/home/johannes/.m2/repository/org/easymock/easymock/3.0/easymock-3.0.jar:/home/johannes/.m2/repository/cglib/cglib-nodep/2.2/cglib-nodep-2.2.jar:/home/johannes/.m2/repository/org/objenesis/objenesis/1.2/objenesis-1.2.jar:"/>
+    <property name="java.specification.name" value="Java Platform API Specification"/>
+    <property name="java.class.version" value="51.0"/>
+    <property name="sun.management.compiler" value="HotSpot 64-Bit Tiered Compilers"/>
+    <property name="os.version" value="2.6.38-10-generic"/>
+    <property name="user.home" value="/home/johannes"/>
+    <property name="user.timezone" value="Europe/Berlin"/>
+    <property name="java.awt.printerjob" value="sun.print.PSPrinterJob"/>
+    <property name="file.encoding" value="UTF-8"/>
+    <property name="java.specification.version" value="1.7"/>
+    <property name="user.name" value="johannes"/>
+    <property name="java.class.path" value="/home/johannes/workspace/treetank/bundles/treetank-jax-rx/target/test-classes:/home/johannes/workspace/treetank/bundles/treetank-jax-rx/target/classes:/home/johannes/.m2/repository/treetank/core/5.3.4/core-5.3.4.jar:/home/johannes/.m2/repository/com/sleepycat/je/3.3.87/je-3.3.87.jar:/home/johannes/.m2/repository/perfidix/perfidix/3.6.3/perfidix-3.6.3.jar:/home/johannes/.m2/repository/commons-primitives/commons-primitives/1.0/commons-primitives-1.0.jar:/home/johannes/.m2/repository/commons-math/commons-math/1.2/commons-math-1.2.jar:/home/johannes/.m2/repository/xmlunit/xmlunit/1.3/xmlunit-1.3.jar:/home/johannes/.m2/repository/ch/qos/logback/logback-classic/0.9.24/logback-classic-0.9.24.jar:/home/johannes/.m2/repository/ch/qos/logback/logback-core/0.9.24/logback-core-0.9.24.jar:/home/johannes/.m2/repository/org/slf4j/slf4j-api/1.6.1/slf4j-api-1.6.1.jar:/home/johannes/.m2/repository/org/jaxrx/jax-rx/1.2.7/jax-rx-1.2.7.jar:/home/johannes/.m2/repository/com/sun/jersey/jersey-server/1.4/jersey-server-1.4.jar:/home/johannes/.m2/repository/com/sun/jersey/jersey-core/1.4/jersey-core-1.4.jar:/home/johannes/.m2/repository/asm/asm/3.1/asm-3.1.jar:/home/johannes/.m2/repository/org/mortbay/jetty/jetty/6.1.25/jetty-6.1.25.jar:/home/johannes/.m2/repository/org/mortbay/jetty/jetty-util/6.1.25/jetty-util-6.1.25.jar:/home/johannes/.m2/repository/org/mortbay/jetty/servlet-api/2.5-20081211/servlet-api-2.5-20081211.jar:/home/johannes/.m2/repository/com/sun/jersey/jersey-client/1.4/jersey-client-1.4.jar:/home/johannes/.m2/repository/junit/junit/4.8.1/junit-4.8.1.jar:/home/johannes/.m2/repository/org/easymock/easymock/3.0/easymock-3.0.jar:/home/johannes/.m2/repository/cglib/cglib-nodep/2.2/cglib-nodep-2.2.jar:/home/johannes/.m2/repository/org/objenesis/objenesis/1.2/objenesis-1.2.jar:"/>
+    <property name="java.vm.specification.version" value="1.7"/>
+    <property name="sun.arch.data.model" value="64"/>
+    <property name="java.home" value="/usr/lib/jvm/jdk1.7.0/jre"/>
+    <property name="sun.java.command" value="/home/johannes/workspace/treetank/bundles/treetank-jax-rx/target/surefire/surefirebooter251816125462150389.jar /home/johannes/workspace/treetank/bundles/treetank-jax-rx/target/surefire/surefire8213919924241549672tmp /home/johannes/workspace/treetank/bundles/treetank-jax-rx/target/surefire/surefire1450731877499336583tmp"/>
+    <property name="java.specification.vendor" value="Oracle Corporation"/>
+    <property name="user.language" value="en"/>
+    <property name="awt.toolkit" value="sun.awt.X11.XToolkit"/>
+    <property name="java.vm.info" value="mixed mode"/>
+    <property name="java.version" value="1.7.0"/>
+    <property name="java.ext.dirs" value="/usr/lib/jvm/jdk1.7.0/jre/lib/ext:/usr/java/packages/lib/ext"/>
+    <property name="sun.boot.class.path" value="/usr/lib/jvm/jdk1.7.0/jre/lib/resources.jar:/usr/lib/jvm/jdk1.7.0/jre/lib/rt.jar:/usr/lib/jvm/jdk1.7.0/jre/lib/sunrsasign.jar:/usr/lib/jvm/jdk1.7.0/jre/lib/jsse.jar:/usr/lib/jvm/jdk1.7.0/jre/lib/jce.jar:/usr/lib/jvm/jdk1.7.0/jre/lib/charsets.jar:/usr/lib/jvm/jdk1.7.0/jre/classes"/>
+    <property name="java.vendor" value="Oracle Corporation"/>
+    <property name="localRepository" value="/home/johannes/.m2/repository"/>
+    <property name="file.separator" value="/"/>
+    <property name="java.vendor.url.bug" value="http://bugreport.sun.com/bugreport/"/>
+    <property name="sun.cpu.endian" value="little"/>
+    <property name="sun.io.unicode.encoding" value="UnicodeLittle"/>
+    <property name="sun.desktop" value="gnome"/>
+    <property name="sun.cpu.isalist" value=""/>
+  </properties>
+  <testcase time="1.009" classname="org.treetank.service.jaxrx.util.WorkerHelperTest" name="testClose"/>
+  <testcase time="0.591" classname="org.treetank.service.jaxrx.util.WorkerHelperTest" name="testCheckExistingResource"/>
+  <testcase time="0.489" classname="org.treetank.service.jaxrx.util.WorkerHelperTest" name="testCreateTreeTankObject"/>
+  <testcase time="0.523" classname="org.treetank.service.jaxrx.util.WorkerHelperTest" name="testCreateStringBuilderObject"/>
+  <testcase time="0.566" classname="org.treetank.service.jaxrx.util.WorkerHelperTest" name="testSerializeXML"/>
+  <testcase time="0.992" classname="org.treetank.service.jaxrx.util.WorkerHelperTest" name="testShredInputStream"/>
+</testsuite>

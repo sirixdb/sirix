@@ -1,0 +1,41 @@
+K 25
+svn:wc:ra_dav:version-url
+V 131
+/disy/Treetank/!svn/ver/6221/branches/treetank-java7/treetank/bundles/treetank-jax-rx/src/main/java/org/treetank/service/jaxrx/util
+END
+RESTProps.java
+K 25
+svn:wc:ra_dav:version-url
+V 146
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-jax-rx/src/main/java/org/treetank/service/jaxrx/util/RESTProps.java
+END
+WorkerHelper.java
+K 25
+svn:wc:ra_dav:version-url
+V 149
+/disy/Treetank/!svn/ver/6778/branches/treetank-java7/treetank/bundles/treetank-jax-rx/src/main/java/org/treetank/service/jaxrx/util/WorkerHelper.java
+END
+RestXPathProcessor.java
+K 25
+svn:wc:ra_dav:version-url
+V 155
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-jax-rx/src/main/java/org/treetank/service/jaxrx/util/RestXPathProcessor.java
+END
+RESTXMLShredder.java
+K 25
+svn:wc:ra_dav:version-url
+V 152
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-jax-rx/src/main/java/org/treetank/service/jaxrx/util/RESTXMLShredder.java
+END
+package-info.java
+K 25
+svn:wc:ra_dav:version-url
+V 149
+/disy/Treetank/!svn/ver/6221/branches/treetank-java7/treetank/bundles/treetank-jax-rx/src/main/java/org/treetank/service/jaxrx/util/package-info.java
+END
+RESTResponseHelper.java
+K 25
+svn:wc:ra_dav:version-url
+V 155
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-jax-rx/src/main/java/org/treetank/service/jaxrx/util/RESTResponseHelper.java
+END

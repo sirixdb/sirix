@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: org.treetank.service.jaxrx.util.WorkerHelperTest
+-------------------------------------------------------------------------------
+Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.188 sec

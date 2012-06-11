@@ -1,0 +1,2927 @@
+<?xml version="1.0" encoding="UTF-8"?>
+ <mondial >
+   <continent id='f0_119' 
+     name='Europe'/>
+   <continent id='f0_123' 
+     name='Asia'/>
+   <continent id='f0_126' 
+     name='America'/>
+   <continent id='f0_129' 
+     name='Australia/Oceania'/>
+   <continent id='f0_132' 
+     name='Africa'/>
+   <country id='f0_136' 
+     name='Albania'
+     capital='f0_1461'
+     population='3249136'
+     datacode='AL'
+     total_area='28750'
+     population_growth='1.34'
+     infant_mortality='49.2'
+     gdp_agri='55'
+     gdp_total='4100'
+     inflation='16'
+     indep_date='28 11 1912'
+     government='emerging democracy'
+     car_code='AL'>
+     <name >
+       Albania
+     </name>
+     <city id='f0_1461' 
+       country='f0_136'
+       longitude='10.7'
+       latitude='46.2'>
+       <name >
+         Tirane
+       </name>
+       <population  year='87'>
+         192000
+       </population>
+     </city>
+     <city id='f0_36498' 
+       country='f0_136'
+       longitude='19.2'
+       latitude='42.2'>
+       <name >
+         Shkoder
+       </name>
+       <population  year='87'>
+         62000
+       </population>
+       <located_at 
+         type='lake'
+         water='f0_39058'/>
+     </city>
+     <city id='f0_36504' 
+       country='f0_136'
+       longitude='19.3'
+       latitude='41.2'>
+       <name >
+         Durres
+       </name>
+       <population  year='87'>
+         60000
+       </population>
+       <located_at 
+         type='sea'
+         water='f0_38042'/>
+     </city>
+     <city id='f0_36509' 
+       country='f0_136'
+       longitude='19.3'
+       latitude='40.3'>
+       <name >
+         Vlore
+       </name>
+       <population  year='87'>
+         56000
+       </population>
+       <located_at 
+         type='sea'
+         water='f0_38042'/>
+     </city>
+     <city id='f0_36514' 
+       country='f0_136'
+       longitude='20.1'
+       latitude='41.1'>
+       <name >
+         Elbasan
+       </name>
+       <population  year='87'>
+         53000
+       </population>
+     </city>
+     <city id='f0_36518' 
+       country='f0_136'
+       longitude='20.5'
+       latitude='40.4'>
+       <name >
+         Korce
+       </name>
+       <population  year='87'>
+         52000
+       </population>
+     </city>
+     <ethnicgroups  percentage='3'>
+       Greeks
+     </ethnicgroups>
+     <ethnicgroups  percentage='95'>
+       Albanian
+     </ethnicgroups>
+     <religions  percentage='70'>
+       Muslim
+     </religions>
+     <religions  percentage='10'>
+       Roman Catholic
+     </religions>
+     <religions  percentage='20'>
+       Albanian Orthodox
+     </religions>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='282' country='f0_232'/>
+     <border  length='151' country='f0_300'/>
+     <border  length='287' country='f0_370'/>
+   </country>
+   <country id='f0_144' 
+     name='Andorra'
+     capital='f0_1464'
+     population='72766'
+     datacode='AN'
+     total_area='450'
+     population_growth='2.96'
+     infant_mortality='2.2'
+     gdp_total='1000'
+     government='
+    parliamentary democracy that retains as its heads of state a coprincipality'
+     car_code='AND'>
+     <name >
+       Andorra
+     </name>
+     <city id='f0_1464' 
+       country='f0_144'
+       longitude='1.3'
+       latitude='42.3'>
+       <name >
+         Andorra la Vella
+       </name>
+       <population  year='87'>
+         15600
+       </population>
+     </city>
+     <ethnicgroups  percentage='6'>
+       French
+     </ethnicgroups>
+     <ethnicgroups  percentage='61'>
+       Spanish
+     </ethnicgroups>
+     <ethnicgroups  percentage='30'>
+       Andorran
+     </ethnicgroups>
+     <religions  percentage='100'>
+       Roman Catholic
+     </religions>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='60' country='f0_213'/>
+     <border  length='65' country='f0_385'/>
+   </country>
+   <country id='f0_149' 
+     name='Austria'
+     capital='f0_1467'
+     population='8023244'
+     datacode='AU'
+     total_area='83850'
+     population_growth='0.41'
+     infant_mortality='6.2'
+     gdp_agri='2'
+     gdp_total='152000'
+     inflation='2.3'
+     indep_date='12 11 1918'
+     government='federal republic'
+     gdp_ind='34'
+     gdp_serv='64'
+     car_code='A'>
+     <name >
+       Austria
+     </name>
+     <province id='f0_17440' 
+       name='Burgenland'
+       country='f0_149'
+       capital='f0_2291'
+       population='273000'
+       area='3965'>
+       <city id='f0_2291' 
+         country='f0_149'
+         province='f0_17440'
+         longitude='16'
+         latitude='48'>
+         <name >
+           Eisenstadt
+         </name>
+         <population  year='87'>
+           10102
+         </population>
+       </city>
+     </province>
+     <province id='f0_17443' 
+       name='Carinthia'
+       country='f0_149'
+       capital='f0_2296'
+       population='559000'
+       area='9533'>
+       <city id='f0_2296' 
+         country='f0_149'
+         province='f0_17443'
+         longitude='14.21'
+         latitude='46.38'>
+         <name >
+           Klagenfurt
+         </name>
+         <population  year='87'>
+           87321
+         </population>
+       </city>
+     </province>
+     <province id='f0_17445' 
+       name='Vorarlberg'
+       country='f0_149'
+       capital='f0_2301'
+       population='341000'
+       area='2601'>
+       <city id='f0_2301' 
+         country='f0_149'
+         province='f0_17445'
+         longitude='9.45'
+         latitude='47.3'>
+         <name >
+           Bregenz
+         </name>
+       </city>
+     </province>
+     <province id='f0_17447' 
+       name='Vienna'
+       country='f0_149'
+       capital='f0_1467'
+       population='1583000'
+       area='415'>
+       <city id='f0_1467' 
+         country='f0_149'
+         province='f0_17447'
+         longitude='16.3667'
+         latitude='48.25'>
+         <name >
+           Vienna
+         </name>
+         <population  year='94'>
+           1583000
+         </population>
+       </city>
+     </province>
+     <province id='f0_17448' 
+       name='Upper Austria'
+       country='f0_149'
+       capital='f0_2267'
+       population='1373000'
+       area='11979'>
+       <city id='f0_2267' 
+         country='f0_149'
+         province='f0_17448'
+         longitude='14.18'
+         latitude='48.18'>
+         <name >
+           Linz
+         </name>
+         <population  year='94'>
+           203000
+         </population>
+       </city>
+     </province>
+     <province id='f0_17450' 
+       name='Tyrol'
+       country='f0_149'
+       capital='f0_2273'
+       population='649000'
+       area='12647'>
+       <city id='f0_2273' 
+         country='f0_149'
+         province='f0_17450'
+         longitude='11.22'
+         latitude='47.17'>
+         <name >
+           Innsbruck
+         </name>
+         <population  year='94'>
+           118000
+         </population>
+       </city>
+     </province>
+     <province id='f0_17452' 
+       name='Styria'
+       country='f0_149'
+       capital='f0_2279'
+       population='1203000'
+       area='16386'>
+       <city id='f0_2279' 
+         country='f0_149'
+         province='f0_17452'
+         longitude='15.26'
+         latitude='47.4'>
+         <name >
+           Graz
+         </name>
+         <population  year='94'>
+           238000
+         </population>
+       </city>
+     </province>
+     <province id='f0_17454' 
+       name='Salzburg'
+       country='f0_149'
+       capital='f0_2285'
+       population='501000'
+       area='7154'>
+       <city id='f0_2285' 
+         country='f0_149'
+         province='f0_17454'
+         longitude='13.2'
+         latitude='47.49'>
+         <name >
+           Salzburg
+         </name>
+         <population  year='94'>
+           144000
+         </population>
+       </city>
+     </province>
+     <province id='f0_17455' 
+       name='Lower Austria'
+       country='f0_149'
+       capital='f0_2306'
+       population='1507000'
+       area='19170'>
+       <city id='f0_2306' 
+         country='f0_149'
+         province='f0_17455'
+         longitude='15.38'
+         latitude='48.13'>
+         <name >
+           St. Polten
+         </name>
+         <population  year='87'>
+           51102
+         </population>
+       </city>
+     </province>
+     <ethnicgroups  percentage='99.4'>
+       German
+     </ethnicgroups>
+     <ethnicgroups  percentage='0.2'>
+       Slovene
+     </ethnicgroups>
+     <ethnicgroups  percentage='0.3'>
+       Croatian
+     </ethnicgroups>
+     <religions  percentage='85'>
+       Roman Catholic
+     </religions>
+     <religions  percentage='6'>
+       Protestant
+     </religions>
+     <languages  percentage='100'>
+       German
+     </languages>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='362' country='f0_184'/>
+     <border  length='784' country='f0_220'/>
+     <border  length='366' country='f0_251'/>
+     <border  length='430' country='f0_268'/>
+     <border  length='37' country='f0_285'/>
+     <border  length='91' country='f0_375'/>
+     <border  length='324' country='f0_380'/>
+     <border  length='164' country='f0_404'/>
+   </country>
+   <country id='f0_157' 
+     name='Belarus'
+     capital='f0_1474'
+     population='10415973'
+     datacode='BO'
+     total_area='207600'
+     population_growth='0.2'
+     infant_mortality='13.4'
+     gdp_agri='21'
+     gdp_total='49200'
+     inflation='244'
+     indep_date='25 08 1991'
+     government='republic'
+     gdp_ind='49'
+     gdp_serv='30'
+     car_code='BY'>
+     <name >
+       Belarus
+     </name>
+     <city id='f0_1474' 
+       country='f0_157'
+       longitude='27.55'
+       latitude='53.9'>
+       <name >
+         Minsk
+       </name>
+       <population  year='87'>
+         1540000
+       </population>
+     </city>
+     <ethnicgroups  percentage='4.1'>
+       Polish
+     </ethnicgroups>
+     <ethnicgroups  percentage='2.9'>
+       Ukrainian
+     </ethnicgroups>
+     <ethnicgroups  percentage='13.2'>
+       Russian
+     </ethnicgroups>
+     <ethnicgroups  percentage='77.9'>
+       Byelorussian
+     </ethnicgroups>
+     <religions  percentage='60'>
+       Eastern Orthodox
+     </religions>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='141' country='f0_280'/>
+     <border  length='502' country='f0_290'/>
+     <border  length='605' country='f0_337'/>
+     <border  length='891' country='f0_411'/>
+     <border  length='959' country='f0_358'/>
+   </country>
+   <country id='f0_162' 
+     name='Belgium'
+     capital='f0_1477'
+     population='10170241'
+     datacode='BE'
+     total_area='30510'
+     population_growth='0.33'
+     infant_mortality='6.4'
+     gdp_agri='2'
+     gdp_total='197000'
+     inflation='1.6'
+     indep_date='04 10 1830'
+     government='constitutional monarchy'
+     gdp_ind='28'
+     gdp_serv='70'
+     car_code='B'>
+     <name >
+       Belgium
+     </name>
+     <province id='f0_17457' 
+       name='Antwerp'
+       country='f0_162'
+       capital='f0_2311'
+       population='1610695'
+       area='2867'>
+       <city id='f0_2311' 
+         country='f0_162'
+         province='f0_17457'
+         longitude='4.23'
+         latitude='51.1'>
+         <name >
+           Antwerp
+         </name>
+         <population  year='95'>
+           459072
+         </population>
+       </city>
+     </province>
+     <province id='f0_17458' 
+       name='Brabant'
+       country='f0_162'
+       capital='f0_1477'
+       population='2253794'
+       area='3358'>
+       <city id='f0_1477' 
+         country='f0_162'
+         province='f0_17458'
+         longitude='4.35'
+         latitude='50.8'>
+         <name >
+           Brussels
+         </name>
+         <name >
+           Agglomeration
+         </name>
+         <population  year='95'>
+           951580
+         </population>
+       </city>
+     </province>
+     <province id='f0_17460' 
+       name='East Flanders'
+       country='f0_162'
+       capital='f0_2317'
+       population='1340056'
+       area='2982'>
+       <city id='f0_2317' 
+         country='f0_162'
+         province='f0_17460'
+         longitude='3.5'
+         latitude='51.4'>
+         <name >
+           Ghent
+         </name>
+         <population  year='95'>
+           227483
+         </population>
+       </city>
+     </province>
+     <province id='f0_17462' 
+       name='Hainaut'
+       country='f0_162'
+       capital='f0_2345'
+       population='1283252'
+       area='3787'>
+       <city id='f0_2335' 
+         country='f0_162'
+         province='f0_17462'>
+         <name >
+           Charleroi
+         </name>
+         <population  year='95'>
+           206491
+         </population>
+       </city>
+       <city id='f0_2345' 
+         country='f0_162'
+         province='f0_17462'
+         longitude='3.6'
+         latitude='50.3'>
+         <name >
+           Mons
+         </name>
+         <population  year='87'>
+           90720
+         </population>
+       </city>
+     </province>
+     <province id='f0_17464' 
+       name='Liege'
+       country='f0_162'
+       capital='f0_2323'
+       population='1006081'
+       area='3862'>
+       <city id='f0_2323' 
+         country='f0_162'
+         province='f0_17464'
+         longitude='5.5'
+         latitude='50.5'>
+         <name >
+           Liege
+         </name>
+         <population  year='95'>
+           192393
+         </population>
+       </city>
+     </province>
+     <province id='f0_17465' 
+       name='Limburg'
+       country='f0_162'
+       capital='f0_2350'
+       population='755593'
+       area='2422'>
+       <city id='f0_2350' 
+         country='f0_162'
+         province='f0_17465'
+         longitude='5.2'
+         latitude='50.7'>
+         <name >
+           Hasselt
+         </name>
+         <population  year='87'>
+           65348
+         </population>
+       </city>
+     </province>
+     <province id='f0_17467' 
+       name='Luxembourg'
+       country='f0_162'
+       capital='f0_2355'
+       population='234664'
+       area='4441'>
+       <city id='f0_2355' 
+         country='f0_162'
+         province='f0_17467'
+         longitude='5.5'
+         latitude='49.4'>
+         <name >
+           Arlon
+         </name>
+         <population  year='87'>
+           23150
+         </population>
+       </city>
+     </province>
+     <province id='f0_17468' 
+       name='Namur'
+       country='f0_162'
+       capital='f0_2329'
+       population='426305'
+       area='3665'>
+       <city id='f0_2329' 
+         country='f0_162'
+         province='f0_17468'
+         longitude='4.5'
+         latitude='50.3'>
+         <name >
+           Namur
+         </name>
+         <population  year='95'>
+           105014
+         </population>
+       </city>
+     </province>
+     <province id='f0_17469' 
+       name='West Flanders'
+       country='f0_162'
+       capital='f0_2360'
+       population='1111557'
+       area='3134'>
+       <city id='f0_2340' 
+         country='f0_162'
+         province='f0_17469'>
+         <name >
+           Bruges
+         </name>
+         <population  year='95'>
+           116273
+         </population>
+       </city>
+       <city id='f0_2360' 
+         country='f0_162'
+         province='f0_17469'>
+         <name >
+           Brugge
+         </name>
+       </city>
+       <city id='f0_36771' 
+         country='f0_162'
+         province='f0_17469'
+         longitude='2.08'
+         latitude='51.1'>
+         <name >
+           Bruegge
+         </name>
+         <population  year='87'>
+           117799
+         </population>
+       </city>
+     </province>
+     <ethnicgroups  percentage='55'>
+       Fleming
+     </ethnicgroups>
+     <ethnicgroups  percentage='33'>
+       Walloon
+     </ethnicgroups>
+     <religions  percentage='75'>
+       Roman Catholic
+     </religions>
+     <religions  percentage='25'>
+       Protestant
+     </religions>
+     <languages  percentage='32'>
+       French
+     </languages>
+     <languages  percentage='1'>
+       German
+     </languages>
+     <languages  percentage='56'>
+       Dutch
+     </languages>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='620' country='f0_213'/>
+     <border  length='167' country='f0_220'/>
+     <border  length='148' country='f0_295'/>
+     <border  length='450' country='f0_325'/>
+   </country>
+   <country id='f0_169' 
+     name='Bosnia and Herzegovina'
+     capital='f0_1484'
+     population='2656240'
+     datacode='BK'
+     total_area='51233'
+     population_growth='-2.84'
+     infant_mortality='43.2'
+     gdp_total='1000'
+     indep_date='01 04 1992'
+     government='emerging democracy'
+     car_code='BIH'>
+     <name >
+       Bosnia and Herzegovina
+     </name>
+     <city id='f0_1484' 
+       country='f0_169'>
+       <name >
+         Sarajevo
+       </name>
+     </city>
+     <ethnicgroups  percentage='38'>
+       Muslim
+     </ethnicgroups>
+     <ethnicgroups  percentage='40'>
+       Serb
+     </ethnicgroups>
+     <ethnicgroups  percentage='22'>
+       Croat
+     </ethnicgroups>
+     <religions  percentage='40'>
+       Muslim
+     </religions>
+     <religions  percentage='4'>
+       Protestant
+     </religions>
+     <religions  percentage='31'>
+       Orthodox
+     </religions>
+     <religions  percentage='15'>
+       Catholic
+     </religions>
+     <languages  percentage='99'>
+       Serbo-Croatian
+     </languages>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='932' country='f0_179'/>
+     <border  length='527' country='f0_370'/>
+   </country>
+   <country id='f0_174' 
+     name='Bulgaria'
+     capital='f0_1487'
+     population='8612757'
+     datacode='BU'
+     total_area='110910'
+     population_growth='0.46'
+     infant_mortality='15.7'
+     gdp_agri='12'
+     gdp_total='43200'
+     inflation='35'
+     indep_date='22 09 1908'
+     government='emerging democracy'
+     gdp_ind='36'
+     gdp_serv='52'
+     car_code='BG'>
+     <name >
+       Bulgaria
+     </name>
+     <city id='f0_1487' 
+       country='f0_174'
+       longitude='23.3333'
+       latitude='42.7'>
+       <name >
+         Sofia
+       </name>
+       <population  year='87'>
+         1300000
+       </population>
+     </city>
+     <ethnicgroups  percentage='0.2'>
+       Russian
+     </ethnicgroups>
+     <ethnicgroups  percentage='2.6'>
+       Gypsy
+     </ethnicgroups>
+     <ethnicgroups  percentage='8.5'>
+       Turk
+     </ethnicgroups>
+     <ethnicgroups  percentage='85.3'>
+       Bulgarian
+     </ethnicgroups>
+     <ethnicgroups  percentage='0.3'>
+       Armenian
+     </ethnicgroups>
+     <ethnicgroups  percentage='2.5'>
+       Macedonian
+     </ethnicgroups>
+     <religions  percentage='13'>
+       Muslim
+     </religions>
+     <religions  percentage='0.8'>
+       Jewish
+     </religions>
+     <religions  percentage='0.5'>
+       Roman Catholic
+     </religions>
+     <religions  percentage='85'>
+       Bulgarian Orthodox
+     </religions>
+     <religions  percentage='0.2'>
+       Uniate Catholic
+     </religions>
+     <languages  percentage='100'>
+       Bulgarian
+     </languages>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='494' country='f0_232'/>
+     <border  length='148' country='f0_300'/>
+     <border  length='608' country='f0_351'/>
+     <border  length='318' country='f0_370'/>
+     <border  length='240' country='f0_670'/>
+   </country>
+   <country id='f0_179' 
+     name='Croatia'
+     capital='f0_1490'
+     population='5004112'
+     datacode='HR'
+     total_area='56538'
+     population_growth='0.58'
+     infant_mortality='10.2'
+     gdp_agri='12.7'
+     gdp_total='20100'
+     inflation='3.7'
+     indep_date='25 06 1991'
+     government='parliamentary democracy'
+     gdp_ind='30.6'
+     gdp_serv='56.7'
+     car_code='HR'>
+     <name >
+       Croatia
+     </name>
+     <city id='f0_1490' 
+       country='f0_179'>
+       <name >
+         Zagreb
+       </name>
+     </city>
+     <ethnicgroups  percentage='0.9'>
+       Muslim
+     </ethnicgroups>
+     <ethnicgroups  percentage='12'>
+       Serb
+     </ethnicgroups>
+     <ethnicgroups  percentage='78'>
+       Croat
+     </ethnicgroups>
+     <ethnicgroups  percentage='0.5'>
+       Hungarian
+     </ethnicgroups>
+     <ethnicgroups  percentage='0.5'>
+       Slovenian
+     </ethnicgroups>
+     <religions  percentage='0.4'>
+       Protestant
+     </religions>
+     <religions  percentage='11.1'>
+       Orthodox
+     </religions>
+     <religions  percentage='76.5'>
+       Catholic
+     </religions>
+     <religions  percentage='1.2'>
+       Slavic Muslim
+     </religions>
+     <languages  percentage='96'>
+       Serbo-Croatian
+     </languages>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='932' country='f0_169'/>
+     <border  length='329' country='f0_251'/>
+     <border  length='266' country='f0_370'/>
+     <border  length='546' country='f0_380'/>
+   </country>
+   <country id='f0_184' 
+     name='Czech Republic'
+     capital='f0_1493'
+     population='10321120'
+     datacode='EZ'
+     total_area='78703'
+     population_growth='-0.03'
+     infant_mortality='8.4'
+     gdp_agri='5.8'
+     gdp_total='106200'
+     inflation='9.1'
+     indep_date='01 01 1993'
+     government='parliamentary democracy'
+     gdp_ind='40.7'
+     gdp_serv='53.5'
+     car_code='CZ'>
+     <name >
+       Czech Rep.
+     </name>
+     <name >
+       Czech Republic
+     </name>
+     <province id='f0_17471' 
+       name='Jihocesky'
+       country='f0_184'
+       capital='f0_2365'
+       population='702000'
+       area='11345'>
+       <city id='f0_2365' 
+         country='f0_184'
+         province='f0_17471'>
+         <name >
+           Ceske Budejovice
+         </name>
+         <population  year='90'>
+           174000
+         </population>
+       </city>
+     </province>
+     <province id='f0_17473' 
+       name='Jihomoravsky'
+       country='f0_184'
+       capital='f0_2371'
+       population='2059000'
+       area='15028'>
+       <city id='f0_2371' 
+         country='f0_184'
+         province='f0_17473'>
+         <name >
+           Brno
+         </name>
+         <population  year='90'>
+           393000
+         </population>
+       </city>
+       <city id='f0_2394' 
+         country='f0_184'
+         province='f0_17473'>
+         <name >
+           Zlin
+         </name>
+         <population  year='90'>
+           198000
+         </population>
+       </city>
+     </province>
+     <province id='f0_17475' 
+       name='Severocesky'
+       country='f0_184'
+       capital='f0_2415'
+       population='1190000'
+       area='7819'>
+       <city id='f0_2410' 
+         country='f0_184'
+         province='f0_17475'>
+         <name >
+           Liberec
+         </name>
+         <population  year='90'>
+           160000
+         </population>
+       </city>
+       <city id='f0_2415' 
+         country='f0_184'
+         province='f0_17475'>
+         <name >
+           Usti nad Labem
+         </name>
+       </city>
+     </province>
+     <province id='f0_17477' 
+       name='Severomoravsky'
+       country='f0_184'
+       capital='f0_2377'
+       population='1976000'
+       area='11067'>
+       <city id='f0_2377' 
+         country='f0_184'
+         province='f0_17477'>
+         <name >
+           Ostrava
+         </name>
+         <population  year='90'>
+           332000
+         </population>
+       </city>
+       <city id='f0_2389' 
+         country='f0_184'
+         province='f0_17477'>
+         <name >
+           Olomouc
+         </name>
+         <population  year='90'>
+           225000
+         </population>
+       </city>
+     </province>
+     <province id='f0_17479' 
+       name='Praha'
+       country='f0_184'
+       capital='f0_1493'
+       population='2329000'
+       area='11490'>
+       <city id='f0_1493' 
+         country='f0_184'
+         province='f0_17479'
+         longitude='14.4167'
+         latitude='50.0833'>
+         <name >
+           Prague
+         </name>
+         <population  year='90'>
+           1215000
+         </population>
+       </city>
+     </province>
+     <province id='f0_17481' 
+       name='Vychodocesky'
+       country='f0_184'
+       capital='f0_2399'
+       population='1240000'
+       area='11240'>
+       <city id='f0_2399' 
+         country='f0_184'
+         province='f0_17481'>
+         <name >
+           Hradec Kralove
+         </name>
+         <population  year='90'>
+           164000
+         </population>
+       </city>
+       <city id='f0_2405' 
+         country='f0_184'
+         province='f0_17481'>
+         <name >
+           Pardubice
+         </name>
+         <population  year='90'>
+           163000
+         </population>
+       </city>
+     </province>
+     <province id='f0_17483' 
+       name='Zapadocesky'
+       country='f0_184'
+       capital='f0_2383'
+       population='869000'
+       area='10875'>
+       <city id='f0_2383' 
+         country='f0_184'
+         province='f0_17483'>
+         <name >
+           Plzen
+         </name>
+         <population  year='90'>
+           175000
+         </population>
+       </city>
+     </province>
+     <ethnicgroups  percentage='0.5'>
+       German
+     </ethnicgroups>
+     <ethnicgroups  percentage='0.6'>
+       Polish
+     </ethnicgroups>
+     <ethnicgroups  percentage='0.3'>
+       Gypsy
+     </ethnicgroups>
+     <ethnicgroups  percentage='0.2'>
+       Hungarian
+     </ethnicgroups>
+     <ethnicgroups  percentage='94.4'>
+       Czech
+     </ethnicgroups>
+     <ethnicgroups  percentage='3'>
+       Slovak
+     </ethnicgroups>
+     <religions  percentage='39.2'>
+       Roman Catholic
+     </religions>
+     <religions  percentage='4.6'>
+       Protestant
+     </religions>
+     <religions  percentage='3'>
+       Orthodox
+     </religions>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='362' country='f0_149'/>
+     <border  length='646' country='f0_220'/>
+     <border  length='658' country='f0_337'/>
+     <border  length='214' country='f0_375'/>
+   </country>
+   <country id='f0_193' 
+     name='Denmark'
+     capital='f0_1498'
+     population='5249632'
+     datacode='DA'
+     total_area='43070'
+     population_growth='0.38'
+     infant_mortality='4.8'
+     gdp_agri='3'
+     gdp_total='112800'
+     inflation='2.4'
+     government='constitutional monarchy'
+     gdp_ind='23.5'
+     gdp_serv='73.5'
+     car_code='DK'>
+     <name >
+       Denmark
+     </name>
+     <city id='f0_1498' 
+       country='f0_193'
+       longitude='12.55'
+       latitude='55.6833'>
+       <name >
+         Copenhagen
+       </name>
+       <population  year='87'>
+         1358540
+       </population>
+       <located_at 
+         type='sea'
+         water='f0_38203'/>
+     </city>
+     <city id='f0_36445' 
+       country='f0_193'
+       longitude='10.1'
+       latitude='56.1'>
+       <name >
+         Aarhus
+       </name>
+       <population  year='87'>
+         194345
+       </population>
+       <located_at 
+         type='sea'
+         water='f0_38203'/>
+     </city>
+     <city id='f0_36450' 
+       country='f0_193'
+       longitude='10.2'
+       latitude='55.3'>
+       <name >
+         Odense
+       </name>
+       <population  year='87'>
+         136803
+       </population>
+     </city>
+     <city id='f0_36454' 
+       country='f0_193'
+       longitude='10'
+       latitude='57'>
+       <name >
+         Aalborg
+       </name>
+       <population  year='87'>
+         113865
+       </population>
+     </city>
+     <city id='f0_36458' 
+       country='f0_193'
+       longitude='8.3'
+       latitude='55.3'>
+       <name >
+         Esbjerg
+       </name>
+       <population  year='87'>
+         70975
+       </population>
+       <located_at 
+         type='sea'
+         water='f0_38020'/>
+     </city>
+     <city id='f0_36463' 
+       country='f0_193'
+       longitude='10'
+       latitude='56.3'>
+       <name >
+         Randers
+       </name>
+       <population  year='87'>
+         55780
+       </population>
+     </city>
+     <religions  percentage='91'>
+       Evangelical Lutheran
+     </religions>
+     <religions  percentage='2'>
+       Protestant Roman Catholic
+     </religions>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='68' country='f0_220'/>
+   </country>
+   <country id='f0_198' 
+     name='Estonia'
+     capital='f0_1501'
+     population='1459428'
+     datacode='EN'
+     total_area='45100'
+     population_growth='-1.13'
+     infant_mortality='17.4'
+     gdp_agri='10'
+     gdp_total='12300'
+     inflation='29'
+     indep_date='06 09 1991'
+     government='republic'
+     gdp_ind='37'
+     gdp_serv='53'
+     car_code='EW'>
+     <name >
+       Estonia
+     </name>
+     <city id='f0_1501' 
+       country='f0_198'
+       longitude='25'
+       latitude='59.3'>
+       <name >
+         Tallinn
+       </name>
+       <population  year='87'>
+         478000
+       </population>
+       <located_at 
+         type='sea'
+         water='f0_38203'/>
+     </city>
+     <ethnicgroups  percentage='3.2'>
+       Ukrainian
+     </ethnicgroups>
+     <ethnicgroups  percentage='30.3'>
+       Russian
+     </ethnicgroups>
+     <ethnicgroups  percentage='1.8'>
+       Byelorussian
+     </ethnicgroups>
+     <ethnicgroups  percentage='1.1'>
+       Finn
+     </ethnicgroups>
+     <ethnicgroups  percentage='61.5'>
+       Estonian
+     </ethnicgroups>
+     <encompassed 
+       continent='f0_119'
+       percentage='100'/>
+     <border  length='267' country='f0_280'/>
+     <border  length='290' country='f0_358'/>
+   </country>
+   <country id='f0_1455' 
+     name='Zimbabwe'
+     capital='f0_2264'
+     population='11271314'
+     datacode='ZI'
+     total_area='390580'
+     population_growth='1.41'
+     infant_mortality='72.8'
+     gdp_agri='18.3'
+     gdp_total='18100'
+     inflation='25.8'
+     indep_date='18 04 1980'
+     government='parliamentary democracy'
+     gdp_ind='35.3'
+     gdp_serv='46.4'
+     car_code='ZW'>
+     <name >
+       Zimbabwe
+     </name>
+     <city id='f0_2264' 
+       country='f0_1455'
+       longitude='31.2'
+       latitude='-17.5'>
+       <name >
+         Harare
+       </name>
+     </city>
+     <ethnicgroups  percentage='1'>
+       Asian
+     </ethnicgroups>
+     <ethnicgroups  percentage='98'>
+       African
+     </ethnicgroups>
+     <religions  percentage='1'>
+       Muslim
+     </religions>
+     <religions  percentage='25'>
+       Christian
+     </religions>
+     <encompassed 
+       continent='f0_132'
+       percentage='100'/>
+     <border  length='813' country='f0_1184'/>
+     <border  length='1231' country='f0_1341'/>
+     <border  length='225' country='f0_1391'/>
+     <border  length='797' country='f0_1448'/>
+   </country>
+   <organization id='f0_23709' 
+     name='African, Caribbean, and Pacific Countries'
+     abbrev='ACP'
+     established='01 04 1976'
+     headq='f0_1477'>
+     <members 
+       type='member'
+       country='f0_613'/>
+     <members 
+       type='member'
+       country='f0_728'/>
+     <members 
+       type='member'
+       country='f0_745'/>
+     <members 
+       type='member'
+       country='f0_750'/>
+     <members 
+       type='member'
+       country='f0_755'/>
+     <members 
+       type='member'
+       country='f0_815'/>
+     <members 
+       type='member'
+       country='f0_820'/>
+     <members 
+       type='member'
+       country='f0_842'/>
+     <members 
+       type='member'
+       country='f0_858'/>
+     <members 
+       type='member'
+       country='f0_863'/>
+     <members 
+       type='member'
+       country='f0_875'/>
+     <members 
+       type='member'
+       country='f0_932'/>
+     <members 
+       type='member'
+       country='f0_937'/>
+     <members 
+       type='member'
+       country='f0_947'/>
+     <members 
+       type='member'
+       country='f0_952'/>
+     <members 
+       type='member'
+       country='f0_957'/>
+     <members 
+       type='member'
+       country='f0_1032'/>
+     <members 
+       type='member'
+       country='f0_1052'/>
+     <members 
+       type='member'
+       country='f0_1067'/>
+     <members 
+       type='member'
+       country='f0_1127'/>
+     <members 
+       type='member'
+       country='f0_1132'/>
+     <members 
+       type='member'
+       country='f0_1141'/>
+     <members 
+       type='member'
+       country='f0_1146'/>
+     <members 
+       type='member'
+       country='f0_1151'/>
+     <members 
+       type='member'
+       country='f0_1161'/>
+     <members 
+       type='member'
+       country='f0_1172'/>
+     <members 
+       type='member'
+       country='f0_1179'/>
+     <members 
+       type='member'
+       country='f0_1184'/>
+     <members 
+       type='member'
+       country='f0_1189'/>
+     <members 
+       type='member'
+       country='f0_1194'/>
+     <members 
+       type='member'
+       country='f0_1199'/>
+     <members 
+       type='member'
+       country='f0_1206'/>
+     <members 
+       type='member'
+       country='f0_1211'/>
+     <members 
+       type='member'
+       country='f0_1216'/>
+     <members 
+       type='member'
+       country='f0_1221'/>
+     <members 
+       type='member'
+       country='f0_1226'/>
+     <members 
+       type='member'
+       country='f0_1231'/>
+     <members 
+       type='member'
+       country='f0_1236'/>
+     <members 
+       type='member'
+       country='f0_1248'/>
+     <members 
+       type='member'
+       country='f0_1253'/>
+     <members 
+       type='member'
+       country='f0_1258'/>
+     <members 
+       type='member'
+       country='f0_1264'/>
+     <members 
+       type='member'
+       country='f0_1269'/>
+     <members 
+       type='member'
+       country='f0_1275'/>
+     <members 
+       type='member'
+       country='f0_1280'/>
+     <members 
+       type='member'
+       country='f0_1285'/>
+     <members 
+       type='member'
+       country='f0_1292'/>
+     <members 
+       type='member'
+       country='f0_1297'/>
+     <members 
+       type='member'
+       country='f0_1307'/>
+     <members 
+       type='member'
+       country='f0_1314'/>
+     <members 
+       type='member'
+       country='f0_1319'/>
+     <members 
+       type='member'
+       country='f0_1324'/>
+     <members 
+       type='member'
+       country='f0_1341'/>
+     <members 
+       type='member'
+       country='f0_1348'/>
+     <members 
+       type='member'
+       country='f0_1353'/>
+     <members 
+       type='member'
+       country='f0_1358'/>
+     <members 
+       type='member'
+       country='f0_1364'/>
+     <members 
+       type='member'
+       country='f0_1369'/>
+     <members 
+       type='member'
+       country='f0_1374'/>
+     <members 
+       type='member'
+       country='f0_1381'/>
+     <members 
+       type='member'
+       country='f0_1386'/>
+     <members 
+       type='member'
+       country='f0_1398'/>
+     <members 
+       type='member'
+       country='f0_1405'/>
+     <members 
+       type='member'
+       country='f0_1410'/>
+     <members 
+       type='member'
+       country='f0_1417'/>
+     <members 
+       type='member'
+       country='f0_1422'/>
+     <members 
+       type='member'
+       country='f0_1432'/>
+     <members 
+       type='member'
+       country='f0_1441'/>
+     <members 
+       type='member'
+       country='f0_1448'/>
+     <members 
+       type='member'
+       country='f0_1455'/>
+   </organization>
+   <organization id='f0_23790' 
+     name='African Development Bank'
+     abbrev='AfDB'
+     established='04 08 1963'>
+     <members 
+       type='regional member'
+       country='f0_1067'/>
+     <members 
+       type='regional member'
+       country='f0_1127'/>
+     <members 
+       type='regional member'
+       country='f0_1166'/>
+     <members 
+       type='regional member'
+       country='f0_1172'/>
+     <members 
+       type='regional member'
+       country='f0_1179'/>
+     <members 
+       type='regional member'
+       country='f0_1184'/>
+     <members 
+       type='regional member'
+       country='f0_1189'/>
+     <members 
+       type='regional member'
+       country='f0_1194'/>
+     <members 
+       type='regional member'
+       country='f0_1199'/>
+     <members 
+       type='regional member'
+       country='f0_1206'/>
+     <members 
+       type='regional member'
+       country='f0_1211'/>
+     <members 
+       type='regional member'
+       country='f0_1216'/>
+     <members 
+       type='regional member'
+       country='f0_1221'/>
+     <members 
+       type='regional member'
+       country='f0_1226'/>
+     <members 
+       type='regional member'
+       country='f0_1231'/>
+     <members 
+       type='regional member'
+       country='f0_1236'/>
+     <members 
+       type='regional member'
+       country='f0_1241'/>
+     <members 
+       type='regional member'
+       country='f0_1248'/>
+     <members 
+       type='regional member'
+       country='f0_1253'/>
+     <members 
+       type='regional member'
+       country='f0_1258'/>
+     <members 
+       type='regional member'
+       country='f0_1264'/>
+     <members 
+       type='regional member'
+       country='f0_1269'/>
+     <members 
+       type='regional member'
+       country='f0_1275'/>
+     <members 
+       type='regional member'
+       country='f0_1280'/>
+     <members 
+       type='regional member'
+       country='f0_1285'/>
+     <members 
+       type='regional member'
+       country='f0_1292'/>
+     <members 
+       type='regional member'
+       country='f0_1297'/>
+     <members 
+       type='regional member'
+       country='f0_1302'/>
+     <members 
+       type='regional member'
+       country='f0_1307'/>
+     <members 
+       type='regional member'
+       country='f0_1314'/>
+     <members 
+       type='regional member'
+       country='f0_1319'/>
+     <members 
+       type='regional member'
+       country='f0_1324'/>
+     <members 
+       type='regional member'
+       country='f0_1334'/>
+     <members 
+       type='regional member'
+       country='f0_1341'/>
+     <members 
+       type='regional member'
+       country='f0_1348'/>
+     <members 
+       type='regional member'
+       country='f0_1353'/>
+     <members 
+       type='regional member'
+       country='f0_1358'/>
+     <members 
+       type='regional member'
+       country='f0_1364'/>
+     <members 
+       type='regional member'
+       country='f0_1369'/>
+     <members 
+       type='regional member'
+       country='f0_1374'/>
+     <members 
+       type='regional member'
+       country='f0_1381'/>
+     <members 
+       type='regional member'
+       country='f0_1386'/>
+     <members 
+       type='regional member'
+       country='f0_1398'/>
+     <members 
+       type='regional member'
+       country='f0_1405'/>
+     <members 
+       type='regional member'
+       country='f0_1410'/>
+     <members 
+       type='regional member'
+       country='f0_1417'/>
+     <members 
+       type='regional member'
+       country='f0_1422'/>
+     <members 
+       type='regional member'
+       country='f0_1427'/>
+     <members 
+       type='regional member'
+       country='f0_1432'/>
+     <members 
+       type='regional member'
+       country='f0_1441'/>
+     <members 
+       type='regional member'
+       country='f0_1448'/>
+     <members 
+       type='regional member'
+       country='f0_1455'/>
+     <members 
+       type='nonregional member'
+       country='f0_149'/>
+     <members 
+       type='nonregional member'
+       country='f0_162'/>
+     <members 
+       type='nonregional member'
+       country='f0_193'/>
+     <members 
+       type='nonregional member'
+       country='f0_208'/>
+     <members 
+       type='nonregional member'
+       country='f0_213'/>
+     <members 
+       type='nonregional member'
+       country='f0_220'/>
+     <members 
+       type='nonregional member'
+       country='f0_268'/>
+     <members 
+       type='nonregional member'
+       country='f0_325'/>
+     <members 
+       type='nonregional member'
+       country='f0_332'/>
+     <members 
+       type='nonregional member'
+       country='f0_344'/>
+     <members 
+       type='nonregional member'
+       country='f0_385'/>
+     <members 
+       type='nonregional member'
+       country='f0_397'/>
+     <members 
+       type='nonregional member'
+       country='f0_404'/>
+     <members 
+       type='nonregional member'
+       country='f0_418'/>
+     <members 
+       type='nonregional member'
+       country='f0_475'/>
+     <members 
+       type='nonregional member'
+       country='f0_492'/>
+     <members 
+       type='nonregional member'
+       country='f0_526'/>
+     <members 
+       type='nonregional member'
+       country='f0_553'/>
+     <members 
+       type='nonregional member'
+       country='f0_560'/>
+     <members 
+       type='nonregional member'
+       country='f0_629'/>
+     <members 
+       type='nonregional member'
+       country='f0_684'/>
+     <members 
+       type='nonregional member'
+       country='f0_733'/>
+     <members 
+       type='nonregional member'
+       country='f0_765'/>
+     <members 
+       type='nonregional member'
+       country='f0_777'/>
+     <members 
+       type='nonregional member'
+       country='f0_967'/>
+   </organization>
+   <organization id='f0_23875' 
+     name='Agency for Cultural and Technical Cooperation'
+     abbrev='ACCT'
+     established='21 03 1970'
+     headq='f0_1510'>
+     <members 
+       type='member'
+       country='f0_162'/>
+     <members 
+       type='member'
+       country='f0_174'/>
+     <members 
+       type='member'
+       country='f0_213'/>
+     <members 
+       type='member'
+       country='f0_295'/>
+     <members 
+       type='member'
+       country='f0_320'/>
+     <members 
+       type='member'
+       country='f0_351'/>
+     <members 
+       type='member'
+       country='f0_470'/>
+     <members 
+       type='member'
+       country='f0_570'/>
+     <members 
+       type='member'
+       country='f0_575'/>
+     <members 
+       type='member'
+       country='f0_700'/>
+     <members 
+       type='member'
+       country='f0_777'/>
+     <members 
+       type='member'
+       country='f0_815'/>
+     <members 
+       type='member'
+       country='f0_863'/>
+     <members 
+       type='member'
+       country='f0_1067'/>
+     <members 
+       type='member'
+       country='f0_1127'/>
+     <members 
+       type='member'
+       country='f0_1151'/>
+     <members 
+       type='member'
+       country='f0_1179'/>
+     <members 
+       type='member'
+       country='f0_1189'/>
+     <members 
+       type='member'
+       country='f0_1194'/>
+     <members 
+       type='member'
+       country='f0_1199'/>
+     <members 
+       type='member'
+       country='f0_1211'/>
+     <members 
+       type='member'
+       country='f0_1216'/>
+     <members 
+       type='member'
+       country='f0_1221'/>
+     <members 
+       type='member'
+       country='f0_1226'/>
+     <members 
+       type='member'
+       country='f0_1231'/>
+     <members 
+       type='member'
+       country='f0_1236'/>
+     <members 
+       type='member'
+       country='f0_1248'/>
+     <members 
+       type='member'
+       country='f0_1264'/>
+     <members 
+       type='member'
+       country='f0_1275'/>
+     <members 
+       type='member'
+       country='f0_1307'/>
+     <members 
+       type='member'
+       country='f0_1319'/>
+     <members 
+       type='member'
+       country='f0_1353'/>
+     <members 
+       type='member'
+       country='f0_1364'/>
+     <members 
+       type='member'
+       country='f0_1374'/>
+     <members 
+       type='member'
+       country='f0_1422'/>
+     <members 
+       type='member'
+       country='f0_1427'/>
+     <members 
+       type='member'
+       country='f0_1441'/>
+   </organization>
+   <organization id='f0_23926' 
+     name='
+    Agency for the Prohibition of Nuclear Weapons in Latin America and the Caribbean'
+     abbrev='OPANAL'
+     established='14 02 1967'
+     headq='f0_1924'>
+     <members 
+       type='member'
+       country='f0_728'/>
+     <members 
+       type='member'
+       country='f0_733'/>
+     <members 
+       type='member'
+       country='f0_745'/>
+     <members 
+       type='member'
+       country='f0_750'/>
+     <members 
+       type='member'
+       country='f0_755'/>
+     <members 
+       type='member'
+       country='f0_760'/>
+     <members 
+       type='member'
+       country='f0_765'/>
+     <members 
+       type='member'
+       country='f0_789'/>
+     <members 
+       type='member'
+       country='f0_794'/>
+     <members 
+       type='member'
+       country='f0_801'/>
+     <members 
+       type='member'
+       country='f0_815'/>
+     <members 
+       type='member'
+       country='f0_820'/>
+     <members 
+       type='member'
+       country='f0_825'/>
+     <members 
+       type='member'
+       country='f0_830'/>
+     <members 
+       type='member'
+       country='f0_842'/>
+     <members 
+       type='member'
+       country='f0_852'/>
+     <members 
+       type='member'
+       country='f0_863'/>
+     <members 
+       type='member'
+       country='f0_868'/>
+     <members 
+       type='member'
+       country='f0_875'/>
+     <members 
+       type='member'
+       country='f0_885'/>
+     <members 
+       type='member'
+       country='f0_902'/>
+     <members 
+       type='member'
+       country='f0_908'/>
+     <members 
+       type='member'
+       country='f0_915'/>
+     <members 
+       type='member'
+       country='f0_920'/>
+     <members 
+       type='member'
+       country='f0_947'/>
+     <members 
+       type='member'
+       country='f0_952'/>
+     <members 
+       type='member'
+       country='f0_957'/>
+     <members 
+       type='member'
+       country='f0_978'/>
+     <members 
+       type='member'
+       country='f0_983'/>
+   </organization>
+   <organization id='f0_23960' 
+     name='Andean Group'
+     abbrev='AG'
+     established='26 05 1969'
+     headq='f0_1941'>
+     <members 
+       type='member'
+       country='f0_760'/>
+     <members 
+       type='member'
+       country='f0_794'/>
+     <members 
+       type='member'
+       country='f0_825'/>
+     <members 
+       type='member'
+       country='f0_920'/>
+     <members 
+       type='member'
+       country='f0_983'/>
+   </organization>
+   <organization id='f0_23998' 
+     name='Arab Bank for Economic Development in Africa'
+     abbrev='ABEDA'
+     established='18 02 1974'
+     headq='f0_2229'>
+     <members 
+       type='member'
+       country='f0_440'/>
+     <members 
+       type='member'
+       country='f0_512'/>
+     <members 
+       type='member'
+       country='f0_533'/>
+     <members 
+       type='member'
+       country='f0_560'/>
+     <members 
+       type='member'
+       country='f0_575'/>
+     <members 
+       type='member'
+       country='f0_602'/>
+     <members 
+       type='member'
+       country='f0_624'/>
+     <members 
+       type='member'
+       country='f0_629'/>
+     <members 
+       type='member'
+       country='f0_644'/>
+     <members 
+       type='member'
+       country='f0_684'/>
+     <members 
+       type='member'
+       country='f0_1166'/>
+     <members 
+       type='member'
+       country='f0_1241'/>
+     <members 
+       type='member'
+       country='f0_1302'/>
+     <members 
+       type='member'
+       country='f0_1324'/>
+     <members 
+       type='member'
+       country='f0_1334'/>
+     <members 
+       type='member'
+       country='f0_1398'/>
+     <members 
+       type='member'
+       country='f0_1427'/>
+   </organization>
+   <organization id='f0_32301' 
+     name='World Tourism Organization'
+     abbrev='WToO'
+     established='02 01 1975'
+     headq='f0_1614'>
+     <members 
+       type='member'
+       country='f0_136'/>
+     <members 
+       type='member'
+       country='f0_149'/>
+     <members 
+       type='member'
+       country='f0_162'/>
+     <members 
+       type='member'
+       country='f0_169'/>
+     <members 
+       type='member'
+       country='f0_174'/>
+     <members 
+       type='member'
+       country='f0_179'/>
+     <members 
+       type='member'
+       country='f0_184'/>
+     <members 
+       type='member'
+       country='f0_208'/>
+     <members 
+       type='member'
+       country='f0_213'/>
+     <members 
+       type='member'
+       country='f0_220'/>
+     <members 
+       type='member'
+       country='f0_232'/>
+     <members 
+       type='member'
+       country='f0_251'/>
+     <members 
+       type='member'
+       country='f0_268'/>
+     <members 
+       type='member'
+       country='f0_305'/>
+     <members 
+       type='member'
+       country='f0_315'/>
+     <members 
+       type='member'
+       country='f0_325'/>
+     <members 
+       type='member'
+       country='f0_337'/>
+     <members 
+       type='member'
+       country='f0_344'/>
+     <members 
+       type='member'
+       country='f0_351'/>
+     <members 
+       type='member'
+       country='f0_358'/>
+     <members 
+       type='member'
+       country='f0_365'/>
+     <members 
+       type='member'
+       country='f0_375'/>
+     <members 
+       type='member'
+       country='f0_380'/>
+     <members 
+       type='member'
+       country='f0_385'/>
+     <members 
+       type='member'
+       country='f0_404'/>
+     <members 
+       type='member'
+       country='f0_425'/>
+     <members 
+       type='member'
+       country='f0_445'/>
+     <members 
+       type='member'
+       country='f0_470'/>
+     <members 
+       type='member'
+       country='f0_475'/>
+     <members 
+       type='member'
+       country='f0_482'/>
+     <members 
+       type='member'
+       country='f0_487'/>
+     <members 
+       type='member'
+       country='f0_492'/>
+     <members 
+       type='member'
+       country='f0_499'/>
+     <members 
+       type='member'
+       country='f0_505'/>
+     <members 
+       type='member'
+       country='f0_512'/>
+     <members 
+       type='member'
+       country='f0_519'/>
+     <members 
+       type='member'
+       country='f0_526'/>
+     <members 
+       type='member'
+       country='f0_533'/>
+     <members 
+       type='member'
+       country='f0_538'/>
+     <members 
+       type='member'
+       country='f0_545'/>
+     <members 
+       type='member'
+       country='f0_553'/>
+     <members 
+       type='member'
+       country='f0_560'/>
+     <members 
+       type='member'
+       country='f0_565'/>
+     <members 
+       type='member'
+       country='f0_570'/>
+     <members 
+       type='member'
+       country='f0_575'/>
+     <members 
+       type='member'
+       country='f0_585'/>
+     <members 
+       type='member'
+       country='f0_592'/>
+     <members 
+       type='member'
+       country='f0_597'/>
+     <members 
+       type='member'
+       country='f0_607'/>
+     <members 
+       type='member'
+       country='f0_639'/>
+     <members 
+       type='member'
+       country='f0_644'/>
+     <members 
+       type='member'
+       country='f0_670'/>
+     <members 
+       type='member'
+       country='f0_677'/>
+     <members 
+       type='member'
+       country='f0_684'/>
+     <members 
+       type='member'
+       country='f0_693'/>
+     <members 
+       type='member'
+       country='f0_700'/>
+     <members 
+       type='member'
+       country='f0_707'/>
+     <members 
+       type='member'
+       country='f0_733'/>
+     <members 
+       type='member'
+       country='f0_760'/>
+     <members 
+       type='member'
+       country='f0_765'/>
+     <members 
+       type='member'
+       country='f0_777'/>
+     <members 
+       type='member'
+       country='f0_789'/>
+     <members 
+       type='member'
+       country='f0_794'/>
+     <members 
+       type='member'
+       country='f0_808'/>
+     <members 
+       type='member'
+       country='f0_820'/>
+     <members 
+       type='member'
+       country='f0_825'/>
+     <members 
+       type='member'
+       country='f0_830'/>
+     <members 
+       type='member'
+       country='f0_842'/>
+     <members 
+       type='member'
+       country='f0_852'/>
+     <members 
+       type='member'
+       country='f0_863'/>
+     <members 
+       type='member'
+       country='f0_875'/>
+     <members 
+       type='member'
+       country='f0_885'/>
+     <members 
+       type='member'
+       country='f0_902'/>
+     <members 
+       type='member'
+       country='f0_908'/>
+     <members 
+       type='member'
+       country='f0_915'/>
+     <members 
+       type='member'
+       country='f0_920'/>
+     <members 
+       type='member'
+       country='f0_967'/>
+     <members 
+       type='member'
+       country='f0_978'/>
+     <members 
+       type='member'
+       country='f0_983'/>
+     <members 
+       type='member'
+       country='f0_1057'/>
+     <members 
+       type='member'
+       country='f0_1067'/>
+     <members 
+       type='member'
+       country='f0_1127'/>
+     <members 
+       type='member'
+       country='f0_1166'/>
+     <members 
+       type='member'
+       country='f0_1172'/>
+     <members 
+       type='member'
+       country='f0_1179'/>
+     <members 
+       type='member'
+       country='f0_1189'/>
+     <members 
+       type='member'
+       country='f0_1194'/>
+     <members 
+       type='member'
+       country='f0_1199'/>
+     <members 
+       type='member'
+       country='f0_1216'/>
+     <members 
+       type='member'
+       country='f0_1226'/>
+     <members 
+       type='member'
+       country='f0_1231'/>
+     <members 
+       type='member'
+       country='f0_1241'/>
+     <members 
+       type='member'
+       country='f0_1258'/>
+     <members 
+       type='member'
+       country='f0_1264'/>
+     <members 
+       type='member'
+       country='f0_1269'/>
+     <members 
+       type='member'
+       country='f0_1275'/>
+     <members 
+       type='member'
+       country='f0_1280'/>
+     <members 
+       type='member'
+       country='f0_1285'/>
+     <members 
+       type='member'
+       country='f0_1292'/>
+     <members 
+       type='member'
+       country='f0_1302'/>
+     <members 
+       type='member'
+       country='f0_1307'/>
+     <members 
+       type='member'
+       country='f0_1314'/>
+     <members 
+       type='member'
+       country='f0_1319'/>
+     <members 
+       type='member'
+       country='f0_1324'/>
+     <members 
+       type='member'
+       country='f0_1334'/>
+     <members 
+       type='member'
+       country='f0_1353'/>
+     <members 
+       type='member'
+       country='f0_1358'/>
+     <members 
+       type='member'
+       country='f0_1364'/>
+     <members 
+       type='member'
+       country='f0_1369'/>
+     <members 
+       type='member'
+       country='f0_1374'/>
+     <members 
+       type='member'
+       country='f0_1381'/>
+     <members 
+       type='member'
+       country='f0_1398'/>
+     <members 
+       type='member'
+       country='f0_1410'/>
+     <members 
+       type='member'
+       country='f0_1417'/>
+     <members 
+       type='member'
+       country='f0_1422'/>
+     <members 
+       type='member'
+       country='f0_1427'/>
+     <members 
+       type='member'
+       country='f0_1432'/>
+     <members 
+       type='member'
+       country='f0_1441'/>
+     <members 
+       type='member'
+       country='f0_1448'/>
+     <members 
+       type='member'
+       country='f0_1455'/>
+   </organization>
+   <organization id='f0_32432' 
+     name='World Trade Organization'
+     abbrev='WTrO'
+     established='15 04 1994'>
+     <members 
+       type='member'
+       country='f0_149'/>
+     <members 
+       type='member'
+       country='f0_162'/>
+     <members 
+       type='member'
+       country='f0_184'/>
+     <members 
+       type='member'
+       country='f0_193'/>
+     <members 
+       type='member'
+       country='f0_208'/>
+     <members 
+       type='member'
+       country='f0_213'/>
+     <members 
+       type='member'
+       country='f0_220'/>
+     <members 
+       type='member'
+       country='f0_232'/>
+     <members 
+       type='member'
+       country='f0_251'/>
+     <members 
+       type='member'
+       country='f0_258'/>
+     <members 
+       type='member'
+       country='f0_263'/>
+     <members 
+       type='member'
+       country='f0_268'/>
+     <members 
+       type='member'
+       country='f0_285'/>
+     <members 
+       type='member'
+       country='f0_295'/>
+     <members 
+       type='member'
+       country='f0_305'/>
+     <members 
+       type='member'
+       country='f0_325'/>
+     <members 
+       type='member'
+       country='f0_332'/>
+     <members 
+       type='member'
+       country='f0_337'/>
+     <members 
+       type='member'
+       country='f0_344'/>
+     <members 
+       type='member'
+       country='f0_351'/>
+     <members 
+       type='member'
+       country='f0_375'/>
+     <members 
+       type='member'
+       country='f0_380'/>
+     <members 
+       type='member'
+       country='f0_385'/>
+     <members 
+       type='member'
+       country='f0_397'/>
+     <members 
+       type='member'
+       country='f0_404'/>
+     <members 
+       type='member'
+       country='f0_418'/>
+     <members 
+       type='member'
+       country='f0_440'/>
+     <members 
+       type='member'
+       country='f0_445'/>
+     <members 
+       type='member'
+       country='f0_456'/>
+     <members 
+       type='member'
+       country='f0_461'/>
+     <members 
+       type='member'
+       country='f0_482'/>
+     <members 
+       type='member'
+       country='f0_492'/>
+     <members 
+       type='member'
+       country='f0_499'/>
+     <members 
+       type='member'
+       country='f0_519'/>
+     <members 
+       type='member'
+       country='f0_526'/>
+     <members 
+       type='member'
+       country='f0_553'/>
+     <members 
+       type='member'
+       country='f0_560'/>
+     <members 
+       type='member'
+       country='f0_580'/>
+     <members 
+       type='member'
+       country='f0_585'/>
+     <members 
+       type='member'
+       country='f0_607'/>
+     <members 
+       type='member'
+       country='f0_618'/>
+     <members 
+       type='member'
+       country='f0_624'/>
+     <members 
+       type='member'
+       country='f0_634'/>
+     <members 
+       type='member'
+       country='f0_639'/>
+     <members 
+       type='member'
+       country='f0_663'/>
+     <members 
+       type='member'
+       country='f0_670'/>
+     <members 
+       type='member'
+       country='f0_728'/>
+     <members 
+       type='member'
+       country='f0_733'/>
+     <members 
+       type='member'
+       country='f0_750'/>
+     <members 
+       type='member'
+       country='f0_755'/>
+     <members 
+       type='member'
+       country='f0_760'/>
+     <members 
+       type='member'
+       country='f0_765'/>
+     <members 
+       type='member'
+       country='f0_777'/>
+     <members 
+       type='member'
+       country='f0_789'/>
+     <members 
+       type='member'
+       country='f0_794'/>
+     <members 
+       type='member'
+       country='f0_801'/>
+     <members 
+       type='member'
+       country='f0_808'/>
+     <members 
+       type='member'
+       country='f0_815'/>
+     <members 
+       type='member'
+       country='f0_820'/>
+     <members 
+       type='member'
+       country='f0_830'/>
+     <members 
+       type='member'
+       country='f0_852'/>
+     <members 
+       type='member'
+       country='f0_858'/>
+     <members 
+       type='member'
+       country='f0_868'/>
+     <members 
+       type='member'
+       country='f0_875'/>
+     <members 
+       type='member'
+       country='f0_885'/>
+     <members 
+       type='member'
+       country='f0_902'/>
+     <members 
+       type='member'
+       country='f0_915'/>
+     <members 
+       type='member'
+       country='f0_920'/>
+     <members 
+       type='member'
+       country='f0_937'/>
+     <members 
+       type='member'
+       country='f0_947'/>
+     <members 
+       type='member'
+       country='f0_952'/>
+     <members 
+       type='member'
+       country='f0_957'/>
+     <members 
+       type='member'
+       country='f0_967'/>
+     <members 
+       type='member'
+       country='f0_978'/>
+     <members 
+       type='member'
+       country='f0_983'/>
+     <members 
+       type='member'
+       country='f0_1000'/>
+     <members 
+       type='member'
+       country='f0_1032'/>
+     <members 
+       type='member'
+       country='f0_1057'/>
+     <members 
+       type='member'
+       country='f0_1067'/>
+     <members 
+       type='member'
+       country='f0_1087'/>
+     <members 
+       type='member'
+       country='f0_1184'/>
+     <members 
+       type='member'
+       country='f0_1189'/>
+     <members 
+       type='member'
+       country='f0_1194'/>
+     <members 
+       type='member'
+       country='f0_1199'/>
+     <members 
+       type='member'
+       country='f0_1211'/>
+     <members 
+       type='member'
+       country='f0_1231'/>
+     <members 
+       type='member'
+       country='f0_1236'/>
+     <members 
+       type='member'
+       country='f0_1241'/>
+     <members 
+       type='member'
+       country='f0_1264'/>
+     <members 
+       type='member'
+       country='f0_1269'/>
+     <members 
+       type='member'
+       country='f0_1275'/>
+     <members 
+       type='member'
+       country='f0_1280'/>
+     <members 
+       type='member'
+       country='f0_1285'/>
+     <members 
+       type='member'
+       country='f0_1292'/>
+     <members 
+       type='member'
+       country='f0_1307'/>
+     <members 
+       type='member'
+       country='f0_1314'/>
+     <members 
+       type='member'
+       country='f0_1319'/>
+     <members 
+       type='member'
+       country='f0_1324'/>
+     <members 
+       type='member'
+       country='f0_1334'/>
+     <members 
+       type='member'
+       country='f0_1341'/>
+     <members 
+       type='member'
+       country='f0_1348'/>
+     <members 
+       type='member'
+       country='f0_1358'/>
+     <members 
+       type='member'
+       country='f0_1374'/>
+     <members 
+       type='member'
+       country='f0_1381'/>
+     <members 
+       type='member'
+       country='f0_1391'/>
+     <members 
+       type='member'
+       country='f0_1405'/>
+     <members 
+       type='member'
+       country='f0_1410'/>
+     <members 
+       type='member'
+       country='f0_1422'/>
+     <members 
+       type='member'
+       country='f0_1427'/>
+     <members 
+       type='member'
+       country='f0_1432'/>
+     <members 
+       type='member'
+       country='f0_1448'/>
+     <members 
+       type='member'
+       country='f0_1455'/>
+   </organization>
+   <organization id='f0_32591' 
+     name='Zangger Committee'
+     abbrev='ZC'>
+     <members 
+       type='member'
+       country='f0_149'/>
+     <members 
+       type='member'
+       country='f0_162'/>
+     <members 
+       type='member'
+       country='f0_174'/>
+     <members 
+       type='member'
+       country='f0_184'/>
+     <members 
+       type='member'
+       country='f0_193'/>
+     <members 
+       type='member'
+       country='f0_208'/>
+     <members 
+       type='member'
+       country='f0_213'/>
+     <members 
+       type='member'
+       country='f0_220'/>
+     <members 
+       type='member'
+       country='f0_232'/>
+     <members 
+       type='member'
+       country='f0_251'/>
+     <members 
+       type='member'
+       country='f0_263'/>
+     <members 
+       type='member'
+       country='f0_268'/>
+     <members 
+       type='member'
+       country='f0_295'/>
+     <members 
+       type='member'
+       country='f0_325'/>
+     <members 
+       type='member'
+       country='f0_332'/>
+     <members 
+       type='member'
+       country='f0_337'/>
+     <members 
+       type='member'
+       country='f0_344'/>
+     <members 
+       type='member'
+       country='f0_351'/>
+     <members 
+       type='member'
+       country='f0_358'/>
+     <members 
+       type='member'
+       country='f0_375'/>
+     <members 
+       type='member'
+       country='f0_385'/>
+     <members 
+       type='member'
+       country='f0_397'/>
+     <members 
+       type='member'
+       country='f0_404'/>
+     <members 
+       type='member'
+       country='f0_418'/>
+     <members 
+       type='member'
+       country='f0_526'/>
+     <members 
+       type='member'
+       country='f0_777'/>
+     <members 
+       type='member'
+       country='f0_967'/>
+     <members 
+       type='member'
+       country='f0_1000'/>
+     <members 
+       type='member'
+       country='f0_1391'/>
+   </organization>
+   <mountain id='f0_36835' 
+     name='Kilimanjaro'
+     longitude='37'
+     latitude='-3'
+     height='5895'>
+     <located 
+       country='f0_1410'
+       province='f0_20031'/>
+   </mountain>
+   <mountain id='f0_36842' 
+     name='Cathkin Peak'
+     longitude='29.3'
+     latitude='-29.2'
+     height='3660'>
+     <located 
+       country='f0_1391'
+       province='f0_19999'/>
+   </mountain>
+   <mountain id='f0_36846' 
+     name='Kenia'
+     longitude='7.4'
+     latitude='0'
+     height='5194'>
+     <located 
+       country='f0_1285'
+       province='f0_19929'/>
+   </mountain>
+   <mountain id='f0_36849' 
+     name='Jezerce'
+     longitude='19.4'
+     latitude='42.3'
+     height='2694'/>
+   <mountain id='f0_36853' 
+     name='Korab'
+     longitude='20.3'
+     latitude='41.4'
+     height='2751'/>
+   <mountain id='f0_36858' 
+     name='Kebnekaise'
+     longitude='18.3'
+     latitude='67.5'
+     height='2114'>
+     <located 
+       country='f0_397'
+       province='f0_18150'/>
+   </mountain>
+   <mountain id='f0_36862' 
+     name='Sarektjokko'
+     longitude='17.4'
+     latitude='67.3'
+     height='2090'>
+     <located 
+       country='f0_397'
+       province='f0_18150'/>
+   </mountain>
+   <lake id='f0_39401' 
+     name='Lake Urumiyeh'
+     area='4868'>
+     <located 
+       country='f0_505'
+       province='f0_18569'/>
+     <located 
+       country='f0_505'
+       province='f0_18571'/>
+   </lake>
+   <lake id='f0_39405' 
+     name='Daryacheh ye Namak'
+     area='1806'>
+     <located 
+       country='f0_505'
+       province='f0_18604'/>
+   </lake>
+   <lake id='f0_39409' 
+     name='Hamun e Jaz Murian'
+     area='1097'>
+     <located 
+       country='f0_505'
+       province='f0_18588'/>
+     <located 
+       country='f0_505'
+       province='f0_18602'/>
+   </lake>
+   <lake id='f0_39413' 
+     name='Barrage de Mbakaou'>
+     <located 
+       country='f0_1199'
+       province='f0_19866'/>
+   </lake>
+ </mondial>

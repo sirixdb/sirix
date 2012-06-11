@@ -1,0 +1,41 @@
+K 25
+svn:wc:ra_dav:version-url
+V 127
+/disy/Treetank/!svn/ver/6221/branches/treetank-java7/treetank/bundles/treetank-saxon/src/main/java/org/treetank/saxon/evaluator
+END
+XQueryEvaluator.java
+K 25
+svn:wc:ra_dav:version-url
+V 148
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-saxon/src/main/java/org/treetank/saxon/evaluator/XQueryEvaluator.java
+END
+package-info.java
+K 25
+svn:wc:ra_dav:version-url
+V 145
+/disy/Treetank/!svn/ver/6221/branches/treetank-java7/treetank/bundles/treetank-saxon/src/main/java/org/treetank/saxon/evaluator/package-info.java
+END
+XPathEvaluator.java
+K 25
+svn:wc:ra_dav:version-url
+V 147
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-saxon/src/main/java/org/treetank/saxon/evaluator/XPathEvaluator.java
+END
+XQueryEvaluatorSAXHandler.java
+K 25
+svn:wc:ra_dav:version-url
+V 158
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-saxon/src/main/java/org/treetank/saxon/evaluator/XQueryEvaluatorSAXHandler.java
+END
+XQueryEvaluatorOutputStream.java
+K 25
+svn:wc:ra_dav:version-url
+V 160
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-saxon/src/main/java/org/treetank/saxon/evaluator/XQueryEvaluatorOutputStream.java
+END
+XSLTEvaluator.java
+K 25
+svn:wc:ra_dav:version-url
+V 146
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-saxon/src/main/java/org/treetank/saxon/evaluator/XSLTEvaluator.java
+END

@@ -1,0 +1,107 @@
+K 25
+svn:wc:ra_dav:version-url
+V 118
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view
+END
+IView.java
+K 25
+svn:wc:ra_dav:version-url
+V 129
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/IView.java
+END
+ViewNotifier.java
+K 25
+svn:wc:ra_dav:version-url
+V 136
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/ViewNotifier.java
+END
+TransactionTuple.java
+K 25
+svn:wc:ra_dav:version-url
+V 140
+/disy/Treetank/!svn/ver/6776/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/TransactionTuple.java
+END
+AbsObservableComponent.java
+K 25
+svn:wc:ra_dav:version-url
+V 146
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/AbsObservableComponent.java
+END
+DiffAxis.java
+K 25
+svn:wc:ra_dav:version-url
+V 132
+/disy/Treetank/!svn/ver/6776/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/DiffAxis.java
+END
+ViewUtilities.java
+K 25
+svn:wc:ra_dav:version-url
+V 137
+/disy/Treetank/!svn/ver/6786/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/ViewUtilities.java
+END
+ProcessingEmbeddedView.java
+K 25
+svn:wc:ra_dav:version-url
+V 146
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/ProcessingEmbeddedView.java
+END
+IProcessingView.java
+K 25
+svn:wc:ra_dav:version-url
+V 139
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/IProcessingView.java
+END
+DiffDatabase.java
+K 25
+svn:wc:ra_dav:version-url
+V 136
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/DiffDatabase.java
+END
+IProcessingGUI.java
+K 25
+svn:wc:ra_dav:version-url
+V 138
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/IProcessingGUI.java
+END
+IVisualItem.java
+K 25
+svn:wc:ra_dav:version-url
+V 135
+/disy/Treetank/!svn/ver/6776/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/IVisualItem.java
+END
+ViewContainer.java
+K 25
+svn:wc:ra_dav:version-url
+V 137
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/ViewContainer.java
+END
+AbsDiffAxis.java
+K 25
+svn:wc:ra_dav:version-url
+V 135
+/disy/Treetank/!svn/ver/6786/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/AbsDiffAxis.java
+END
+AbsView.java
+K 25
+svn:wc:ra_dav:version-url
+V 131
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/AbsView.java
+END
+EHover.java
+K 25
+svn:wc:ra_dav:version-url
+V 130
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/EHover.java
+END
+package-info.java
+K 25
+svn:wc:ra_dav:version-url
+V 136
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/package-info.java
+END
+VisualItemAxis.java
+K 25
+svn:wc:ra_dav:version-url
+V 138
+/disy/Treetank/!svn/ver/6776/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/VisualItemAxis.java
+END

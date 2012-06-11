@@ -1,0 +1,35 @@
+K 25
+svn:wc:ra_dav:version-url
+V 135
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/model/interfaces
+END
+IChangeModel.java
+K 25
+svn:wc:ra_dav:version-url
+V 153
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/model/interfaces/IChangeModel.java
+END
+IModel.java
+K 25
+svn:wc:ra_dav:version-url
+V 147
+/disy/Treetank/!svn/ver/6776/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/model/interfaces/IModel.java
+END
+ITraverseModel.java
+K 25
+svn:wc:ra_dav:version-url
+V 155
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/model/interfaces/ITraverseModel.java
+END
+IObservable.java
+K 25
+svn:wc:ra_dav:version-url
+V 152
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/model/interfaces/IObservable.java
+END
+IContainer.java
+K 25
+svn:wc:ra_dav:version-url
+V 151
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-gui/src/main/java/org/treetank/gui/view/model/interfaces/IContainer.java
+END
