@@ -29,6 +29,9 @@ package org.sirix.axis;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 
 /**
@@ -52,8 +55,8 @@ public final class FollowingAxis extends AbsAxis {
    * @param paramRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public FollowingAxis(final INodeReadTrx paramRtx) {
-    super(paramRtx);
+  public FollowingAxis(@Nonnull final INodeReadTrx pRtx) {
+    super(pRtx);
     mIsFirst = true;
     mRightSiblingStack = new ArrayDeque<>();
   }

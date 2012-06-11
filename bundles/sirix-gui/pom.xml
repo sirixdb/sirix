@@ -73,7 +73,7 @@
 					</descriptors>
 					<archive>
 						<manifest>
-							<mainClass>org.treetank.gui.GUI</mainClass>
+							<mainClass>org.sirix.gui.GUI</mainClass>
 						</manifest>
 					</archive>
 				</configuration>
@@ -95,8 +95,8 @@
 				<configuration>
 					<archive>
 						<manifest>
-							<mainClass>org.treetank.gui.GUI</mainClass>
-							<packageName>org.treetank.gui</packageName>
+							<mainClass>org.sirix.gui.GUI</mainClass>
+							<packageName>org.sirix.gui</packageName>
 						</manifest>
 						<manifestEntries>
 							<SplashScreen-Image>images/idefix.jpeg</SplashScreen-Image>
