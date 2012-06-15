@@ -31,15 +31,15 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
-		<artifactId>pom</artifactId>
 		<groupId>sirix</groupId>
+		<artifactId>pom</artifactId>
 		<version>1.0.5-SNAPSHOT</version>
 	</parent>
 
 	<artifactId>complete</artifactId>
 	<packaging>pom</packaging>
 	<name>sirix-complete</name>
-	<version>1.0.2-SNAPSHOT</version>
+	<version>1.0.5-SNAPSHOT</version>
 	<description>Sirix is a fully java-implemented native XML-Database. 
 	It supports cursorlike access to all nodes stored in the tree plus XPath 2.0 as query engine. Furthermore, Treetank is completely versionable. That means that each update-operation results in a new version. 
 	These versions can be easily retrieved within the database itself.</description>
@@ -49,11 +49,11 @@
 			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternal</url>
 			<uniqueVersion>false</uniqueVersion>
 		</repository>
-		<snapshotRepository>
+		<!-- <snapshotRepository>
 			<id>disyInternalSnapshot</id>
 			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternalSnapshot</url>
 			<uniqueVersion>false</uniqueVersion>
-		</snapshotRepository>
+		</snapshotRepository> -->
 	</distributionManagement>
 	<modules>
 		<module>parent</module>

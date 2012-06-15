@@ -67,7 +67,7 @@ public enum EStorage {
     }
   },
 
-  Berkeley(2, BerkeleyKey.class) {
+  BerkeleyDB(2, BerkeleyKey.class) {
     @Override
     public IKey deserialize(@Nonnull final ITTSource pSource) {
       return new BerkeleyKey(pSource.readLong());

@@ -45,7 +45,7 @@ public class BerkeleyTest {
   public void setUp() throws AbsTTException {
     TestHelper.deleteEverything();
     Holder.generateSession().close();
-    resourceConf = IOTestHelper.registerIO(EStorage.Berkeley);
+    resourceConf = IOTestHelper.registerIO(EStorage.BerkeleyDB);
   }
 
   @Test
