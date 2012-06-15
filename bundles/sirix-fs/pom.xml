@@ -31,7 +31,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
 		<groupId>sirix</groupId>
-		<artifactId>pom</artifactId>
+		<artifactId>parent</artifactId>
 		<version>1.0.5-SNAPSHOT</version>
 	</parent>
 

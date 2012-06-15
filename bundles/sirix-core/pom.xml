@@ -24,7 +24,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
 		<groupId>sirix</groupId>
-		<artifactId>pom</artifactId>
+		<artifactId>parent</artifactId>
 		<version>1.0.5-SNAPSHOT</version>
 	</parent>
 	<artifactId>core</artifactId>
@@ -38,35 +38,6 @@
 		version.
 		These versions can be easily retrieved within the database itself.
 	</description>
-	<scm>
-		<connection>scm:svn:https://svn.uni-konstanz.de/disy/Treetank/trunk/treetank/bundles/treetank-core</connection>
-		<developerConnection>scm:svn:https://svn.uni-konstanz.de/disy/Treetank/trunk/treetank/bundles/treetank-core</developerConnection>
-		<url>scm:svn:https://svn.uni-konstanz.de/disy/Treetank/trunk/treetank/bundles/treetank-core</url>
-	</scm>
-	<repositories>
-		<repository>
-			<id>disyInternal</id>
-			<name>Internal Repository for the Distributed System Group</name>
-			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternal/</url>
-			<releases>
-				<enabled>true</enabled>
-			</releases>
-			<snapshots>
-				<enabled>false</enabled>
-			</snapshots>
-		</repository>
-		<repository>
-			<id>disyInternalSnapshot</id>
-			<name>Internal Snapshot Repository for the Distributed System Group</name>
-			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternalSnapshot/</url>
-			<releases>
-				<enabled>true</enabled>
-			</releases>
-			<snapshots>
-				<enabled>true</enabled>
-			</snapshots>
-		</repository>
-	</repositories>
 	<build>
 		<plugins>
 			<plugin>
@@ -78,7 +49,7 @@
 					</descriptors>
 					<archive>
 						<manifest>
-							<mainClass>org.treetank.utils.TreeTankCommandoLineExplorer</mainClass>
+							<mainClass>org.sirix.utils.TreeTankCommandoLineExplorer</mainClass>
 						</manifest>
 					</archive>
 				</configuration>

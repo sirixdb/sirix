@@ -23,8 +23,8 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
-		<artifactId>pom</artifactId>
 		<groupId>sirix</groupId>
+		<artifactId>parent</artifactId>
 		<version>1.0.5-SNAPSHOT</version>
 	</parent>
 
@@ -34,45 +34,6 @@
 	<version>1.0.2-SNAPSHOT</version>
 	<description>This project is the jax-rx interface to jax-rx.
 	</description>
-	<repositories>
-		<repository>
-			<id>javamaven2</id>
-			<name>Repository for Maven2</name>
-			<url>http://download.java.net/maven/2</url>
-		</repository>
-		<repository>
-			<id>disyInternal</id>
-			<name>Internal Repository for the Distributed System Group</name>
-			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternal/</url>
-			<releases>
-				<enabled>true</enabled>
-			</releases>
-			<snapshots>
-				<enabled>false</enabled>
-			</snapshots>
-		</repository>
-		<repository>
-			<id>disyInternalSnapshot</id>
-			<name>Internal Snapshot Repository for the Distributed System Group</name>
-			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternalSnapshot/</url>
-			<releases>
-				<enabled>true</enabled>
-			</releases>
-			<snapshots>
-				<enabled>true</enabled>
-			</snapshots>
-		</repository>
-		<repository>
-			<id>basex</id>
-			<name>basex Maven Repository</name>
-			<url>http://files.basex.org/maven</url>
-		</repository>
-	</repositories>
-	<scm>
-		<connection>scm:svn:https://svn.uni-konstanz.de/disy/Treetank/</connection>
-		<developerConnection>scm:svn:https://svn.uni-konstanz.de/disy/Treetank/</developerConnection>
-		<url>https://svn.uni-konstanz.de/disy/Treetank/</url>
-	</scm>
 	<dependencies>
 		<dependency>
 			<groupId>sirix</groupId>
