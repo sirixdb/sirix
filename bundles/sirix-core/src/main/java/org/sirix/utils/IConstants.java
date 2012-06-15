@@ -51,17 +51,8 @@ public final class IConstants {
   // --- Varia
   // ------------------------------------------------------------------
 
-  /** Start of beacon. */
-  public static final int BEACON_START = 0;
-
-  /** Length of beacon in bytes. */
-  public static final int BEACON_LENGTH = 12;
-
   /** Default internal encoding. */
   public static final Charset DEFAULT_ENCODING = Charsets.UTF_8;
-
-  /** Length of encryption key. */
-  public static final int ENCRYPTION_KEY_LENGTH = 16;
 
   /** Read-only random access file. */
   public static final String READ_ONLY = "r";

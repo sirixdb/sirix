@@ -57,7 +57,7 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   private static final long serialVersionUID = 1790483717305421672L;
 
   /**
-   * Paths for a {@link Session}. Each resource has the same folder.layout.
+   * Paths for a {@link Session}. Each resource has the same folder layout.
    */
   public enum Paths {
 
@@ -130,7 +130,7 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   /** Standard storage. */
   public static final EStorage STORAGE = EStorage.Berkeley;
   /** Standard Versioning Approach. */
-  public static final ERevisioning VERSIONING = ERevisioning.DIFFERENTIAL;
+  public static final ERevisioning VERSIONING = ERevisioning.INCREMENTAL;
   /** Type of hashing. */
   public static final EHashKind HASHKIND = EHashKind.Rolling;
   /** Versions to restore. */

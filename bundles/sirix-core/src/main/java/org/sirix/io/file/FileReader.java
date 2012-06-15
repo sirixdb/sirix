@@ -50,14 +50,17 @@ import org.sirix.utils.IConstants;
  */
 public final class FileReader implements IReader {
 
+  /** Beacon of first references. */
+  final static int FIRST_BEACON = 12;
+
+  /** Beacon of the other references. */
+  final static int OTHER_BEACON = 4;
+  
   /** Random access mFile to work on. */
   private final RandomAccessFile mFile;
 
   /** Inflater to decompress. */
   private final CryptoJavaImpl mDecompressor;
-
-  /** Temporary data buffer. */
-  private transient ByteBufferSinkAndSource mBuffer;
 
   /**
    * Constructor.
@@ -76,7 +79,7 @@ public final class FileReader implements IReader {
 
       mFile = new RandomAccessFile(pConcreteStorage, IConstants.READ_ONLY);
       mDecompressor = new CryptoJavaImpl();
-      mBuffer = new ByteBufferSinkAndSource();
+//      mBuffer = new ByteBufferSinkAndSource();
     } catch (final IOException exc) {
       throw new TTIOException(exc);
     }
@@ -97,34 +100,31 @@ public final class FileReader implements IReader {
       return null;
     }
 
+    final ByteBufferSinkAndSource buffer = new ByteBufferSinkAndSource();
     try {
       final FileKey fileKey = (FileKey)pKey;
 
       // Prepare environment for read.
-      final int inputLength = fileKey.getLength() + IConstants.BEACON_LENGTH;
-      mBuffer.position(12);
+      buffer.position(OTHER_BEACON);
 
       // Read page from file.
-      final byte[] page = new byte[fileKey.getLength()];
-      mFile.seek(fileKey.getOffset());
+      mFile.seek(fileKey.getIdentifier());
+      final int dataLength = fileKey.getLength() + OTHER_BEACON;
+      final byte[] page = new byte[dataLength];
       mFile.read(page);
       for (final byte byteVal : page) {
-        mBuffer.writeByte(byteVal);
+        buffer.writeByte(byteVal);
       }
 
       // Perform crypto operations.
-      final int outputLength = mDecompressor.decrypt(inputLength, mBuffer);
-      if (outputLength == 0) {
-        throw new TTIOException("Page decrypt error.");
-      }
-
+      mDecompressor.decrypt(dataLength, buffer);
     } catch (final IOException exc) {
       throw new TTIOException(exc);
     }
 
     // Return reader required to instantiate and deserialize page.
-    mBuffer.position(12);
-    return PagePersistenter.deserializePage(mBuffer);
+    buffer.position(OTHER_BEACON);
+    return PagePersistenter.deserializePage(buffer);
   }
 
   @Override
@@ -132,14 +132,13 @@ public final class FileReader implements IReader {
     final PageReference uberPageReference = new PageReference();
     try {
       // Read primary beacon.
-      mFile.seek(IConstants.BEACON_START);
+      mFile.seek(0);
       final FileKey key = new FileKey(mFile.readLong(), mFile.readInt());
       uberPageReference.setKey(key);
 
       // Check to writer ensure writing after the Beacon_Start
-      if (mFile.getFilePointer() < IConstants.BEACON_START
-        + IConstants.BEACON_LENGTH) {
-        mFile.setLength(IConstants.BEACON_START + IConstants.BEACON_LENGTH);
+      if (mFile.getFilePointer() < FIRST_BEACON) {
+        mFile.setLength(FIRST_BEACON);
       }
 
       final UberPage page = (UberPage)read(uberPageReference.getKey());

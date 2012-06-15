@@ -72,11 +72,11 @@ public class CryptoJavaImpl {
    *          of the data to be compressed
    * @param pBuffer
    *          data that should be compressed
-   * @return compressed data, null if failed
+   * @return compressed data
    */
   public int crypt(final int pLength, final ByteBufferSinkAndSource pBuffer) {
-    pBuffer.position(IConstants.BEACON_LENGTH);
-    final byte[] tmp = new byte[pLength - IConstants.BEACON_LENGTH];
+    pBuffer.position(FileReader.OTHER_BEACON);
+    final byte[] tmp = new byte[pLength - FileReader.OTHER_BEACON];
     pBuffer.get(tmp, 0, tmp.length);
     mCompressor.reset();
     mOut.reset();
@@ -88,7 +88,7 @@ public class CryptoJavaImpl {
       mOut.write(mTmp, 0, count);
     }
     final byte[] result = mOut.toByteArray();
-    pBuffer.position(12);
+    pBuffer.position(FileReader.OTHER_BEACON);
     for (final byte byteVal : result) {
       pBuffer.writeByte(byteVal);
     }
@@ -102,11 +102,11 @@ public class CryptoJavaImpl {
    *          data that should be decompressed
    * @param pLength
    *          of the data to be decompressed
-   * @return Decompressed data, null if failed
+   * @return decompressed data
    */
   public int decrypt(final int pLength, final ByteBufferSinkAndSource pBuffer) {
-    pBuffer.position(IConstants.BEACON_LENGTH);
-    final byte[] tmp = new byte[pLength - IConstants.BEACON_LENGTH];
+    pBuffer.position(FileReader.OTHER_BEACON);
+    final byte[] tmp = new byte[pLength - FileReader.OTHER_BEACON];
     pBuffer.get(tmp, 0, tmp.length);
     mDecompressor.reset();
     mOut.reset();
@@ -121,11 +121,11 @@ public class CryptoJavaImpl {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     final byte[] result = mOut.toByteArray();
-    pBuffer.position(IConstants.BEACON_LENGTH);
+    pBuffer.position(FileReader.OTHER_BEACON);
     for (final byte byteVal : result) {
       pBuffer.writeByte(byteVal);
     }
-    return result.length + IConstants.BEACON_LENGTH;
+    return result.length + FileReader.OTHER_BEACON;
   }
 
 }
