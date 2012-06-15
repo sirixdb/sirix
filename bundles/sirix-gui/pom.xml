@@ -26,6 +26,7 @@
 		<groupId>sirix</groupId>
 		<artifactId>parent</artifactId>
 		<version>1.0.5-SNAPSHOT</version>
+		<relativePath>../../pom.xml</relativePath>
 	</parent>
 
 	<artifactId>gui</artifactId>

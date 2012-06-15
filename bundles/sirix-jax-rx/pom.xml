@@ -26,6 +26,7 @@
 		<groupId>sirix</groupId>
 		<artifactId>parent</artifactId>
 		<version>1.0.5-SNAPSHOT</version>
+		<relativePath>../../pom.xml</relativePath>
 	</parent>
 
 	<artifactId>jax-rx</artifactId>
@@ -69,7 +70,7 @@
 					</descriptors>
 					<archive>
 						<manifest>
-							<mainClass>org.treetank.service.jaxrx.server.StartServer</mainClass>
+							<mainClass>org.sirix.service.jaxrx.server.StartServer</mainClass>
 						</manifest>
 					</archive>
 				</configuration>

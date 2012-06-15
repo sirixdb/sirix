@@ -1,8 +1,0 @@
-Doesn't work when inserting a node with a name/value, then reverting
-and then inserting a node with the same name/value at the same level
-and comparing these two revisions since they both have the same node key
-and same QNames or text values and thus nodes are regarded as being deleted
-between the old node and the new node (if the new node is a right sibling).
-
-Proposed fix:
-Load maximum node key of newest revision and add 1 for the first added node.
