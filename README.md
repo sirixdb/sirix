@@ -7,7 +7,7 @@ Furthermore, different backends are provided while a binding to different cloud-
 
 Note that it is based on Treetank (http://treetank.org / http://github.com/disy/treetank).
 
-[![Build Status](https://secure.travis-ci.org/johanneslichtenberger/sirix.png)](http://travis-ci.org/johanneslichtenberger/sirix)
+[![Build Status](https://secure.travis-ci.org/JohannesLichtenberger/sirix.png)](http://travis-ci.org/JohannesLichtenberger/sirix)
 
 ##Content
 

@@ -89,14 +89,14 @@ public final class FileWriter implements IWriter {
   @Override
   public IKey write(final PageReference pPageReference) throws TTIOException {
     // Serialise page.
-    final ByteBufferSinkAndSource buffer = new ByteBufferSinkAndSource();
-    buffer.position(FileReader.OTHER_BEACON);
+    final ByteBufferSinkAndSource mBuffer = new ByteBufferSinkAndSource();
+    mBuffer.position(FileReader.OTHER_BEACON);
     final IPage page = pPageReference.getPage();
-    PagePersistenter.serializePage(buffer, page);
-    final int inputLength = buffer.position();
+    PagePersistenter.serializePage(mBuffer, page);
+    final int inputLength = mBuffer.position();
 
     // Perform crypto operations.
-    final int outputLength = mCompressor.crypt(inputLength, buffer);
+    final int outputLength = mCompressor.crypt(inputLength, mBuffer);
     if (outputLength == 0) {
       throw new TTIOException("Page crypt error.");
     }
@@ -105,11 +105,11 @@ public final class FileWriter implements IWriter {
     // final byte[] tmp = new byte[outputLength-FileReader.OTHER_BEACON];
     final byte[] tmp = new byte[outputLength];
     // mBuffer.position(FileReader.OTHER_BEACON);
-    buffer.position(0);
+    mBuffer.position(0);
     // Because of the missing offset, we can write the length directly at the front of the buffer to see
     // it afterwards in the byte array as well.
-    buffer.writeInt(outputLength);
-    buffer.get(tmp, 0, tmp.length);
+    mBuffer.writeInt(outputLength);
+    mBuffer.get(tmp, 0, tmp.length);
 
     try {
         // Getting actual offset and appending to the end of the current

@@ -58,6 +58,8 @@
 	<modules>
 		<module>parent</module>
 		<module>bundles/sirix-core</module>
+		<module>bundles/sirix-saxon</module>
+		<module>bundles/sirix-jax-rx</module>
 	</modules>
 <repositories>
 <repository>
