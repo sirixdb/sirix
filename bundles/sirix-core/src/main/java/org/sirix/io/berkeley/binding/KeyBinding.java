@@ -27,6 +27,8 @@
 
 package org.sirix.io.berkeley.binding;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.io.EStorage;
 import org.sirix.io.IKey;
 import org.sirix.io.KeyDelegate;
@@ -44,15 +46,14 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * 
  */
 public final class KeyBinding extends TupleBinding<IKey> {
-
   @Override
-  public IKey entryToObject(final TupleInput pInput) {
+  public IKey entryToObject(@Nonnull final TupleInput pInput) {
     final int kind = pInput.readInt();
     return EStorage.getInstance(kind).deserialize(new TupleInputSink(pInput));
   }
 
   @Override
-  public void objectToEntry(final IKey pKey, final TupleOutput pOutput) {
+  public void objectToEntry(@Nonnull final IKey pKey, @Nonnull final TupleOutput pOutput) {
     EStorage.getInstance(pKey.getClass()).serialize(new TupleOutputSink(pOutput), pKey);
   }
 }

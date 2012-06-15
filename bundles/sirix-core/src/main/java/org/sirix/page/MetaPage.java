@@ -36,8 +36,7 @@ public class MetaPage extends AbsForwardingPage {
    *          input bytes to read from
    */
   protected MetaPage(@Nonnull final ITTSource pIn) {
-    mDelegate = new PageDelegate(0, pIn.readLong());
-    mDelegate.initialize(pIn);
+    mDelegate = new PageDelegate(0, pIn);
   }
 
   @Override

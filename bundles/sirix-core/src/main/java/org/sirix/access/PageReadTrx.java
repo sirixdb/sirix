@@ -40,6 +40,7 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.cache.GuavaCache;
 import org.sirix.cache.ICache;
@@ -106,8 +107,8 @@ class PageReadTrx implements IPageReadTrx {
    * @throws TTIOException
    *           if reading of the persistent storage fails
    */
-  PageReadTrx(final Session pSession, final UberPage pUberPage, final long pRevision, final IReader pReader)
-    throws TTIOException {
+  PageReadTrx(final Session pSession, final UberPage pUberPage,
+    final long pRevision, final IReader pReader) throws TTIOException {
     checkArgument(pRevision >= 0, "Revision must be >= 0!");
     mSession = checkNotNull(pSession);
     mPageReader = checkNotNull(pReader);
@@ -118,7 +119,8 @@ class PageReadTrx implements IPageReadTrx {
   }
 
   @Override
-  public Optional<INode> getNode(@Nonnegative final long pNodeKey) throws TTIOException {
+  public Optional<INode> getNode(@Nonnegative final long pNodeKey)
+    throws TTIOException {
     checkArgument(pNodeKey >= 0);
 
     final long nodePageKey = nodePageKey(pNodeKey);
@@ -155,7 +157,8 @@ class PageReadTrx implements IPageReadTrx {
   }
 
   @Override
-  public final byte[] getRawName(final int pNameKey, @Nonnull final ENode pNodeKind) {
+  public final byte[] getRawName(final int pNameKey,
+    @Nonnull final ENode pNodeKind) {
     return mNamePage.getRawName(pNameKey, checkNotNull(pNodeKind));
   }
 
@@ -176,9 +179,11 @@ class PageReadTrx implements IPageReadTrx {
    * @throws TTIOException
    *           if something odd happens within the creation process
    */
-  final RevisionRootPage loadRevRoot(final long pRevisionKey) throws TTIOException {
+  final RevisionRootPage loadRevRoot(final long pRevisionKey)
+    throws TTIOException {
     checkArgument(pRevisionKey >= 0, "pRevisionKey must be >= 0!");
-    final PageReference ref = dereferenceLeafOfTree(mUberPage.getIndirectPageReference(), pRevisionKey);
+    final PageReference ref =
+      dereferenceLeafOfTree(mUberPage.getIndirectPageReference(), pRevisionKey);
     RevisionRootPage page = (RevisionRootPage)ref.getPage();
 
     // If there is no page, get it from the storage and cache it.
@@ -210,7 +215,7 @@ class PageReadTrx implements IPageReadTrx {
   }
 
   /**
-   * Dereference node page reference and get all leaves, the nodepages from the revision-trees..
+   * Dereference node page reference and get all leaves, the {@link NodePage}s from the revision-trees.
    * 
    * @param pNodePageKey
    *          key of node page
@@ -219,34 +224,43 @@ class PageReadTrx implements IPageReadTrx {
    * @throws TTIOException
    *           if an I/O-error occurs within the creation process
    */
-  final NodePage[] getSnapshotPages(@Nonnegative final long pNodePageKey) throws TTIOException {
+  final NodePage[] getSnapshotPages(@Nonnegative final long pNodePageKey)
+    throws TTIOException {
     final List<PageReference> revs = new ArrayList<>();
     final Set<Long> keys = new HashSet<>();
-
+    final ResourceConfiguration config = mSession.getResourceConfig();
+    final int revsToRestore = config.mRevisionsToRestore;
     for (long i = mRootPage.getRevision(); i >= 0; i--) {
       final PageReference ref =
-        dereferenceLeafOfTree(loadRevRoot(i).getIndirectPageReference(), pNodePageKey);
+        dereferenceLeafOfTree(loadRevRoot(i).getIndirectPageReference(),
+          pNodePageKey);
       if (ref != null && (ref.getPage() != null || ref.getKey() != null)) {
-        if (ref.getKey() == null || (!keys.contains(ref.getKey().getIdentifier()))) {
+        if (ref.getKey() == null
+          || (!keys.contains(ref.getKey().getIdentifier()))) {
           revs.add(ref);
           if (ref.getKey() != null) {
             keys.add(ref.getKey().getIdentifier());
           }
         }
-        if (revs.size() == mSession.getResourceConfig().mRevisionsToRestore) {
+        if (revs.size() == revsToRestore
+          || config.mRevisionKind == ERevisioning.FULLDUMP) {
           break;
+        }
+        if (config.mRevisionKind == ERevisioning.DIFFERENTIAL) {
+          i = -revsToRestore + 1;
         }
       } else {
         break;
       }
     }
 
-    // Afterwards read the nodepages if they are not dereferences...
+    // Afterwards read the NodePages if they are not dereferences...
     final NodePage[] pages = new NodePage[revs.size()];
     for (int i = 0; i < pages.length; i++) {
       final PageReference rev = revs.get(i);
       pages[i] = (NodePage)rev.getPage();
       if (pages[i] == null) {
+        assert rev.getKey() != null : "key must not be null!";
         pages[i] = (NodePage)mPageReader.read(rev.getKey());
       }
     }
@@ -256,20 +270,21 @@ class PageReadTrx implements IPageReadTrx {
   /**
    * Dereference indirect page reference.
    * 
-   * @param reference
-   *          Reference to dereference.
-   * @return Dereferenced page.
+   * @param pReference
+   *          reference to dereference
+   * @return dereferenced page
    * 
    * @throws TTIOException
    *           if something odd happens within the creation process.
    */
-  final IndirectPage dereferenceIndirectPage(@Nonnull final PageReference reference) throws TTIOException {
-    IndirectPage page = (IndirectPage)reference.getPage();
+  final IndirectPage dereferenceIndirectPage(
+    @Nonnull final PageReference pReference) throws TTIOException {
+    IndirectPage page = (IndirectPage)pReference.getPage();
 
     // If there is no page, get it from the storage and cache it.
-    if (page == null) {
-      page = (IndirectPage)mPageReader.read(reference.getKey());
-      reference.setPage(page);
+    if (page == null && pReference.getKey() != null) {
+      page = (IndirectPage)mPageReader.read(pReference.getKey());
+      pReference.setPage(page);
     }
 
     return page;
@@ -287,7 +302,8 @@ class PageReadTrx implements IPageReadTrx {
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  final PageReference dereferenceLeafOfTree(@Nonnull final PageReference pStartReference, final long pKey)
+  final PageReference dereferenceLeafOfTree(
+    @Nonnull final PageReference pStartReference, @Nonnegative final long pKey)
     throws TTIOException {
 
     // Initial state pointing to the indirect page of level 0.
@@ -296,8 +312,10 @@ class PageReadTrx implements IPageReadTrx {
     long levelKey = pKey;
 
     // Iterate through all levels.
-    for (int level = 0, height = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; level < height; level++) {
-      offset = (int)(levelKey >> IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT[level]);
+    for (int level = 0, height =
+      IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; level < height; level++) {
+      offset =
+        (int)(levelKey >> IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT[level]);
       levelKey -= offset << IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT[level];
       final IPage page = dereferenceIndirectPage(reference);
       if (page == null) {
@@ -345,20 +363,24 @@ class PageReadTrx implements IPageReadTrx {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("Session: ", mSession).add("PageReader: ", mPageReader).add(
-      "UberPage: ", mUberPage).add("RevRootPage: ", mRootPage).toString();
+    return Objects.toStringHelper(this).add("Session: ", mSession).add(
+      "PageReader: ", mPageReader).add("UberPage: ", mUberPage).add(
+      "RevRootPage: ", mRootPage).toString();
   }
 
   @Override
-  public NodePageContainer getNodeFromPage(final long pNodePageKey) throws TTIOException {
+  public NodePageContainer getNodeFromPage(final long pNodePageKey)
+    throws TTIOException {
     final NodePage[] revs = getSnapshotPages(pNodePageKey);
     if (revs.length == 0) {
       return NodePageContainer.EMPTY_INSTANCE;
     }
 
-    final int mileStoneRevision = mSession.getResourceConfig().mRevisionsToRestore;
-    final ERevisioning revision = mSession.getResourceConfig().mRevisionKind;
-    final NodePage completePage = revision.combinePages(revs, mileStoneRevision);
+    final int mileStoneRevision =
+      mSession.getResourceConfig().mRevisionsToRestore;
+    final ERevisioning revisioning = mSession.getResourceConfig().mRevisionKind;
+    final NodePage completePage =
+      revisioning.combinePages(revs, mileStoneRevision);
     return new NodePageContainer(completePage);
   }
 

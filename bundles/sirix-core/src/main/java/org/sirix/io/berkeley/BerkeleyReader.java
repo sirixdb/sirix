@@ -29,6 +29,8 @@ package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import javax.annotation.Nonnull;
+
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.DatabaseException;
@@ -88,7 +90,7 @@ public final class BerkeleyReader implements IReader {
   }
 
   @Override
-  public IPage read(final IKey pKey) throws TTIOException {
+  public IPage read(@Nonnull final IKey pKey) throws TTIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
 
@@ -104,7 +106,6 @@ public final class BerkeleyReader implements IReader {
     } catch (final DatabaseException exc) {
       throw new TTIOException(exc);
     }
-
   }
 
   @Override
@@ -129,7 +130,6 @@ public final class BerkeleyReader implements IReader {
     } catch (final DatabaseException e) {
       throw new TTIOException(e);
     }
-
   }
 
   @Override

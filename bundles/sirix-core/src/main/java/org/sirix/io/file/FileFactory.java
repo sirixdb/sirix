@@ -61,25 +61,16 @@ public final class FileFactory implements IStorage {
     mFile = paramFile;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public IReader getReader() throws TTIOException {
     return new FileReader(getConcreteStorage());
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public IWriter getWriter() throws TTIOException {
     return new FileWriter(getConcreteStorage());
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void close() {
     // not used over here
@@ -95,9 +86,6 @@ public final class FileFactory implements IStorage {
       File.separator).append(FILENAME).toString());
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean exists() throws TTIOException {
     final File file = getConcreteStorage();
@@ -105,12 +93,8 @@ public final class FileFactory implements IStorage {
     return returnVal;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void truncate() throws TTIOException {
     EStorage.recursiveDelete(mFile);
   }
-
 }

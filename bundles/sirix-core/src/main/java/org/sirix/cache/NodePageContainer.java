@@ -83,7 +83,7 @@ public final class NodePageContainer {
    * @param pComplete
    *          to be used as a base for this container
    */
-  public NodePageContainer(final NodePage pComplete) {
+  public NodePageContainer(@Nonnull final NodePage pComplete) {
     this(checkNotNull(pComplete), new NodePage(pComplete.getNodePageKey(), pComplete.getRevision()));
   }
 
@@ -95,7 +95,7 @@ public final class NodePageContainer {
    * @param pModifying
    *          to be used as a base for this container
    */
-  public NodePageContainer(final NodePage pComplete, final NodePage pModifying) {
+  public NodePageContainer(@Nonnull final NodePage pComplete, @Nonnull final NodePage pModifying) {
     mComplete = checkNotNull(pComplete);
     mModified = checkNotNull(pModifying);
   }

@@ -45,13 +45,13 @@ public final class FileKey implements IKey {
   /**
    * Constructor for direct data.
    * 
-   * @param paramOffset
+   * @param pOffset
    *          Offset of data
-   * @param paramLength
+   * @param pLength
    *          Length of data
    */
-  public FileKey(final long paramOffset, final long paramLength) {
-    mKey = new KeyDelegate(paramOffset, paramLength);
+  public FileKey(final long pOffset, final long pLength) {
+    mKey = new KeyDelegate(pOffset, pLength);
   }
 
   /**
@@ -72,25 +72,16 @@ public final class FileKey implements IKey {
     return getKeys()[0];
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public long getIdentifier() {
     return getKeys()[0];
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public long[] getKeys() {
     return mKey.getKeys();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String toString() {
     return mKey.toString();

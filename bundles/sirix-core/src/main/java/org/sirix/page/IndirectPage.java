@@ -68,8 +68,7 @@ public final class IndirectPage extends AbsForwardingPage {
    *          input source
    */
   protected IndirectPage(@Nonnull final ITTSource pIn) {
-    mDelegate = new PageDelegate(IConstants.INP_REFERENCE_COUNT, pIn.readLong());
-    mDelegate.initialize(pIn);
+    mDelegate = new PageDelegate(IConstants.INP_REFERENCE_COUNT, pIn);
   }
 
   /**

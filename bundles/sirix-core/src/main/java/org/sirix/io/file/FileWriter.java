@@ -93,7 +93,7 @@ public final class FileWriter implements IWriter {
    *           due to errors during writing.
    */
   @Override
-  public void write(final PageReference pageReference) throws TTIOException {
+  public IKey write(final PageReference pageReference) throws TTIOException {
 
     // Serialise page.
     // mBuffer.position(24);
@@ -124,6 +124,8 @@ public final class FileWriter implements IWriter {
 
       // Remember page coordinates.
       pageReference.setKey(key);
+      
+      return key;
     } catch (final IOException paramExc) {
       throw new TTIOException(paramExc);
     }

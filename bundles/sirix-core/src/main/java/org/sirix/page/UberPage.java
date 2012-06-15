@@ -125,8 +125,7 @@ public final class UberPage extends AbsForwardingPage {
    *          input bytes
    */
   protected UberPage(@Nonnull final ITTSource pIn) {
-    mDelegate = new PageDelegate(1, pIn.readLong());
-    mDelegate.initialize(pIn);
+    mDelegate = new PageDelegate(1, pIn);
     mRevisionCount = pIn.readLong();
     mBootstrap = false;
   }

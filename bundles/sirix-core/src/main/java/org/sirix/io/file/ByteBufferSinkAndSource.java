@@ -27,7 +27,6 @@
 
 package org.sirix.io.file;
 
-import java.io.OutputStream;
 import java.nio.ByteBuffer;
 
 import org.sirix.io.ITTSink;
@@ -44,8 +43,8 @@ import org.sirix.utils.IConstants;
  */
 public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
 
-  /** internal buffer. */
-  private transient ByteBuffer mBuffer;
+  /** Internal buffer. */
+  private ByteBuffer mBuffer;
 
   /**
    * Constructor.
@@ -54,23 +53,16 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
     mBuffer = ByteBuffer.allocate(IConstants.BUFFER_SIZE);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public void writeByte(final byte mByteVal) {
+  public void writeByte(final byte pByteVal) {
     checkAndIncrease(1);
-    mBuffer.put(mByteVal);
+    mBuffer.put(pByteVal);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public void writeLong(final long paramLongVal) {
+  public void writeLong(final long pLongVal) {
     checkAndIncrease(8);
-    mBuffer.putLong(paramLongVal);
-
+    mBuffer.putLong(pLongVal);
   }
 
   /**
@@ -106,25 +98,16 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
     mBuffer.get(mDst, mOffset, mLength);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public byte readByte() {
     return mBuffer.get();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public long readLong() {
     return mBuffer.getLong();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void writeInt(final int paramIntVal) {
     checkAndIncrease(4);
@@ -132,9 +115,6 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
 
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int readInt() {
     return mBuffer.getInt();
@@ -143,12 +123,12 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
   /**
    * Checking of length is sufficient, if not, increase the bytebuffer.
    * 
-   * @param mLength
+   * @param pLength
    *          for the bytes which have to be inserted
    */
-  private void checkAndIncrease(final int mLength) {
+  private void checkAndIncrease(final int pLength) {
     final int position = mBuffer.position();
-    if (mBuffer.position() + mLength >= mBuffer.capacity()) {
+    if (mBuffer.position() + pLength >= mBuffer.capacity()) {
       mBuffer.position(0);
       final ByteBuffer newBuffer = ByteBuffer.allocate(mBuffer.capacity() + IConstants.BUFFER_SIZE);
       newBuffer.put(mBuffer);

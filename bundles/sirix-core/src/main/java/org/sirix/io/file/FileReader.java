@@ -62,17 +62,19 @@ public final class FileReader implements IReader {
   /**
    * Constructor.
    * 
+   * @param pConcreteStorage
+   *          storage file
    * @throws TTIOException
    *           if something bad happens
    */
-  public FileReader(final File mConcreteStorage) throws TTIOException {
+  public FileReader(final File pConcreteStorage) throws TTIOException {
     try {
-      if (!mConcreteStorage.exists()) {
-        mConcreteStorage.getParentFile().mkdirs();
-        mConcreteStorage.createNewFile();
+      if (!pConcreteStorage.exists()) {
+        pConcreteStorage.getParentFile().mkdirs();
+        pConcreteStorage.createNewFile();
       }
 
-      mFile = new RandomAccessFile(mConcreteStorage, IConstants.READ_ONLY);
+      mFile = new RandomAccessFile(pConcreteStorage, IConstants.READ_ONLY);
       mDecompressor = new CryptoJavaImpl();
       mBuffer = new ByteBufferSinkAndSource();
     } catch (final IOException exc) {
@@ -123,7 +125,6 @@ public final class FileReader implements IReader {
     // Return reader required to instantiate and deserialize page.
     mBuffer.position(12);
     return PagePersistenter.deserializePage(mBuffer);
-
   }
 
   @Override
@@ -132,19 +133,17 @@ public final class FileReader implements IReader {
     try {
       // Read primary beacon.
       mFile.seek(IConstants.BEACON_START);
-
       final FileKey key = new FileKey(mFile.readLong(), mFile.readInt());
-
       uberPageReference.setKey(key);
 
       // Check to writer ensure writing after the Beacon_Start
-      if (mFile.getFilePointer() < IConstants.BEACON_START + IConstants.BEACON_LENGTH) {
+      if (mFile.getFilePointer() < IConstants.BEACON_START
+        + IConstants.BEACON_LENGTH) {
         mFile.setLength(IConstants.BEACON_START + IConstants.BEACON_LENGTH);
       }
 
       final UberPage page = (UberPage)read(uberPageReference.getKey());
       uberPageReference.setPage(page);
-
       return uberPageReference;
     } catch (final IOException exc) {
       throw new TTIOException(exc);
@@ -157,8 +156,6 @@ public final class FileReader implements IReader {
       mFile.close();
     } catch (final IOException exc) {
       throw new TTIOException(exc);
-
     }
   }
-
 }

@@ -28,19 +28,31 @@
 package org.sirix.io.file;
 
 import java.io.ByteArrayOutputStream;
+import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
 
+import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.utils.IConstants;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 public class CryptoJavaImpl {
 
+  /** Logger. */
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
+    .getLogger(FMSE.class));
+
+  /** {@link Deflater} reference. */
   private final Deflater mCompressor;
 
+  /** {@link Inflater} reference. */
   private final Inflater mDecompressor;
 
+  /** Temp data. */
   private final byte[] mTmp;
 
+  /** {@link ByteArrayOutputStream} reference. */
   private final ByteArrayOutputStream mOut;
 
   /**
@@ -56,68 +68,62 @@ public class CryptoJavaImpl {
   /**
    * Compress data.
    * 
-   * @param paramLength
+   * @param pLength
    *          of the data to be compressed
-   * @param paramBuffer
+   * @param pBuffer
    *          data that should be compressed
    * @return compressed data, null if failed
    */
-  public int crypt(final int paramLength, final ByteBufferSinkAndSource paramBuffer) {
-    try {
-      paramBuffer.position(IConstants.BEACON_LENGTH);
-      final byte[] tmp = new byte[paramLength - IConstants.BEACON_LENGTH];
-      paramBuffer.get(tmp, 0, tmp.length);
-      mCompressor.reset();
-      mOut.reset();
-      mCompressor.setInput(tmp);
-      mCompressor.finish();
-      int count;
-      while (!mCompressor.finished()) {
-        count = mCompressor.deflate(mTmp);
-        mOut.write(mTmp, 0, count);
-      }
-    } catch (final Exception exc) {
-      exc.printStackTrace();
-      return 0;
+  public int crypt(final int pLength, final ByteBufferSinkAndSource pBuffer) {
+    pBuffer.position(IConstants.BEACON_LENGTH);
+    final byte[] tmp = new byte[pLength - IConstants.BEACON_LENGTH];
+    pBuffer.get(tmp, 0, tmp.length);
+    mCompressor.reset();
+    mOut.reset();
+    mCompressor.setInput(tmp);
+    mCompressor.finish();
+    int count;
+    while (!mCompressor.finished()) {
+      count = mCompressor.deflate(mTmp);
+      mOut.write(mTmp, 0, count);
     }
     final byte[] result = mOut.toByteArray();
-    paramBuffer.position(12);
+    pBuffer.position(12);
     for (final byte byteVal : result) {
-      paramBuffer.writeByte(byteVal);
+      pBuffer.writeByte(byteVal);
     }
-    return paramBuffer.position();
+    return pBuffer.position();
   }
 
   /**
    * Decompress data.
    * 
-   * @param paramBuffer
+   * @param pBuffer
    *          data that should be decompressed
-   * @param paramLength
+   * @param pLength
    *          of the data to be decompressed
    * @return Decompressed data, null if failed
    */
-  public int decrypt(final int paramLength, final ByteBufferSinkAndSource paramBuffer) {
+  public int decrypt(final int pLength, final ByteBufferSinkAndSource pBuffer) {
+    pBuffer.position(IConstants.BEACON_LENGTH);
+    final byte[] tmp = new byte[pLength - IConstants.BEACON_LENGTH];
+    pBuffer.get(tmp, 0, tmp.length);
+    mDecompressor.reset();
+    mOut.reset();
+    mDecompressor.setInput(tmp);
+    int count;
     try {
-      paramBuffer.position(IConstants.BEACON_LENGTH);
-      final byte[] tmp = new byte[paramLength - IConstants.BEACON_LENGTH];
-      paramBuffer.get(tmp, 0, tmp.length);
-      mDecompressor.reset();
-      mOut.reset();
-      mDecompressor.setInput(tmp);
-      int count;
       while (!mDecompressor.finished()) {
         count = mDecompressor.inflate(mTmp);
         mOut.write(mTmp, 0, count);
       }
-    } catch (Exception exc) {
-      exc.printStackTrace();
-      return 0;
+    } catch (final DataFormatException e) {
+      LOGWRAPPER.error(e.getMessage(), e);
     }
     final byte[] result = mOut.toByteArray();
-    paramBuffer.position(IConstants.BEACON_LENGTH);
+    pBuffer.position(IConstants.BEACON_LENGTH);
     for (final byte byteVal : result) {
-      paramBuffer.writeByte(byteVal);
+      pBuffer.writeByte(byteVal);
     }
     return result.length + IConstants.BEACON_LENGTH;
   }

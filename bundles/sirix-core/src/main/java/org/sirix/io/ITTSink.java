@@ -27,8 +27,6 @@
 
 package org.sirix.io;
 
-import java.io.OutputStream;
-
 /**
  * Interface for providing byteAccess to the write-process in the storage. That
  * means that every serialization process in sirix is using this interface
@@ -40,7 +38,7 @@ import java.io.OutputStream;
  * 
  */
 public interface ITTSink {
-
+  
   /**
    * Writing a long to the storage.
    * 
@@ -64,17 +62,5 @@ public interface ITTSink {
    *          to be written
    */
   void writeByte(final byte pByteVal);
-
-  // /**
-  // * Flush underlying {@link OutputStream} if it writes to any, otherwise it's an empty implementation.
-  // */
-  // void flush();
-  //
-  // /**
-  // * Get the underlying {@link OutputStream} if any is available, otherwise return {@code null}.
-  // *
-  // * @return the underlying {@link OutputStream} if any is available, otherwise {@code null}
-  // */
-  // OutputStream getOutputStream();
-
+  
 }

@@ -28,16 +28,17 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import com.google.common.base.Objects;
+import org.sirix.api.IPageWriteTrx;
+import org.sirix.exception.AbsTTException;
 import org.sirix.indexes.Names;
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
 import org.sirix.node.ENode;
-import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
 
 /**
@@ -47,10 +48,7 @@ import org.sirix.page.interfaces.IPage;
  * Name page holds all names and their keys for a revision.
  * </p>
  */
-public final class NamePage extends AbsForwardingPage {
-
-  /** {@link PageDelegate} reference. */
-  private final PageDelegate mDelegate;
+public final class NamePage implements IPage {
 
   /** Attribute names. */
   private final Names mAttributes;
@@ -60,6 +58,9 @@ public final class NamePage extends AbsForwardingPage {
 
   /** Namespace URIs. */
   private final Names mNamespaces;
+  
+  /** Revision number. */
+  private final long mRevision;
 
   /**
    * Create name page.
@@ -69,7 +70,7 @@ public final class NamePage extends AbsForwardingPage {
    */
   public NamePage(@Nonnegative final long pRevision) {
     checkArgument(pRevision >= 0, "pRevision must be >= 0!");
-    mDelegate = new PageDelegate(0, pRevision);
+    mRevision = pRevision;
     mAttributes = Names.getInstance();
     mElements = Names.getInstance();
     mNamespaces = Names.getInstance();
@@ -82,8 +83,7 @@ public final class NamePage extends AbsForwardingPage {
    *          input bytes to read from
    */
   protected NamePage(@Nonnull final ITTSource pIn) {
-    mDelegate = new PageDelegate(0, pIn.readLong());
-    mDelegate.initialize(pIn);
+    mRevision = pIn.readLong();
     mElements = Names.clone(pIn);
     mNamespaces = Names.clone(pIn);
     mAttributes = Names.clone(pIn);
@@ -165,7 +165,6 @@ public final class NamePage extends AbsForwardingPage {
 
   @Override
   public void serialize(final ITTSink pOut) {
-    mDelegate.serialize(pOut);
     mElements.serialize(pOut);
     mNamespaces.serialize(pOut);
     mAttributes.serialize(pOut);
@@ -173,7 +172,7 @@ public final class NamePage extends AbsForwardingPage {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("delegate", mDelegate).add("elements", mElements).add(
+    return Objects.toStringHelper(this).add("revision", mRevision).add("elements", mElements).add(
       "attributes", mAttributes).add("URIs", mNamespaces).toString();
   }
 
@@ -200,7 +199,16 @@ public final class NamePage extends AbsForwardingPage {
   }
 
   @Override
-  protected IPage delegate() {
-    return mDelegate;
+  public long getRevision() {
+    return mRevision;
+  }
+
+  @Override
+  public PageReference[] getReferences() {
+    return null;
+  }
+
+  @Override
+  public void commit(final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
   }
 }

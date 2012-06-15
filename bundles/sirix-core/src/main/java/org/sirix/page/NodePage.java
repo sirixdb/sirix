@@ -27,7 +27,6 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
 
@@ -35,7 +34,10 @@ import java.util.Arrays;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
+import org.sirix.api.IPageWriteTrx;
+import org.sirix.exception.AbsTTException;
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
 import org.sirix.node.ENode;
@@ -51,7 +53,7 @@ import org.sirix.utils.IConstants;
  * A node page stores a set of nodes.
  * </p>
  */
-public class NodePage extends AbsForwardingPage {
+public class NodePage implements IPage {
 
   /** Key of node page. This is the base key of all contained nodes. */
   private final long mNodePageKey;
@@ -60,9 +62,7 @@ public class NodePage extends AbsForwardingPage {
   private final INode[] mNodes;
 
   /** {@link PageDelegate} reference. */
-  private final PageDelegate mDelegate;
-
-  // private boolean mHasDeleted;
+  private final long mRevision;
 
   /**
    * Create node page.
@@ -75,7 +75,7 @@ public class NodePage extends AbsForwardingPage {
   public NodePage(@Nonnegative final long pNodePageKey, @Nonnegative final long pRevision) {
     checkArgument(pNodePageKey >= 0, "pNodePageKey must not be negative!");
     checkArgument(pRevision >= 0, "pRevision must not be negative!");
-    mDelegate = new PageDelegate(0, pRevision);
+    mRevision = pRevision;
     mNodePageKey = pNodePageKey;
     mNodes = new INode[IConstants.NDP_NODE_COUNT];
   }
@@ -87,103 +87,16 @@ public class NodePage extends AbsForwardingPage {
    *          input bytes to read page from
    */
   protected NodePage(@Nonnull final ITTSource pIn) {
-    mDelegate = new PageDelegate(0, pIn.readLong());
-    mDelegate.initialize(pIn);
-
+    mRevision = pIn.readLong();
     mNodePageKey = pIn.readLong();
     mNodes = new INode[IConstants.NDP_NODE_COUNT];
-
-//    final EncryptionController enController = EncryptionController.getInstance();
-//
-//    if (enController.checkEncryption()) {
-//      for (int i = 0; i < mNodes.length; i++) {
-//        final long mRightKey = getRightKey(pIn);
-//
-//        final List<Long> mUserKeys = enController.getKeyCache().get(enController.getUser());
-//        byte[] mSecretKey = null;
-//
-//        if (mUserKeys.contains(mRightKey) || mRightKey == -1) {
-//          final byte mElementKind = pIn.readByte();
-//
-//          if (mRightKey != -1) {
-//
-//            // get secret key
-//            mSecretKey = enController.getSelDb().getEntry(mRightKey).getSecretKey();
-//
-//            final int mNodeBytes = pIn.readInt();
-//            final int mPointerBytes = pIn.readInt();
-//
-//            final byte[] mDecryptedNode;
-//
-//            if (mPointerBytes == 0) {
-//
-//              final byte[] mEncryptedNode = new byte[mNodeBytes];
-//
-//              for (int j = 0; j < mNodeBytes; j++) {
-//                mEncryptedNode[j] = pIn.readByte();
-//              }
-//
-//              mDecryptedNode = NodeEncryption.decrypt(mEncryptedNode, mSecretKey);
-//
-//            } else {
-//
-//              final byte[] mEncryptedPointer = new byte[mPointerBytes];
-//              for (int j = 0; j < mPointerBytes; j++) {
-//                mEncryptedPointer[j] = pIn.readByte();
-//              }
-//
-//              final int mDataBytes = mNodeBytes - mPointerBytes;
-//              final byte[] mEncryptedData = new byte[mDataBytes];
-//              for (int j = 0; j < mDataBytes; j++) {
-//                mEncryptedData[j] = pIn.readByte();
-//              }
-//
-//              final byte[] mDecryptedPointer = NodeEncryption.decrypt(mEncryptedPointer, mSecretKey);
-//
-//              final byte[] mDecryptedData = NodeEncryption.decrypt(mEncryptedData, mSecretKey);
-//
-//              mDecryptedNode = new byte[mDecryptedPointer.length + mDecryptedData.length];
-//
-//              int mCounter = 0;
-//              for (int j = 0; j < mDecryptedPointer.length; j++) {
-//                mDecryptedNode[mCounter] = mDecryptedPointer[j];
-//                mCounter++;
-//              }
-//              for (int j = 0; j < mDecryptedData.length; j++) {
-//                mDecryptedNode[mCounter] = mDecryptedData[j];
-//                mCounter++;
-//              }
-//
-//            }
-//
-//            final NodeInputSource mNodeInput = new NodeInputSource(mDecryptedNode);
-//
-//            final ENode mEnumKind = ENode.getKind(mElementKind);
-//
-//            if (mEnumKind != ENode.UNKOWN_KIND) {
-//              getNodes()[i] = mEnumKind.deserialize(mNodeInput);
-//            }
-//          }
-//
-//        } else {
-//          try {
-//            throw new TTUsageException("User has no permission to access the node");
-//
-//          } catch (final TTUsageException mExp) {
-//            mExp.printStackTrace();
-//          }
-//        }
-//      }
-//    } else {
-      // mHasDeleted = pIn.readByte() == (byte)1 ? true : false;
-      for (int offset = 0; offset < mNodes.length; offset++) {
-        final byte id = pIn.readByte();
-        final ENode enumKind = ENode.getKind(id);
-        if (enumKind != ENode.UNKOWN_KIND) {
-          mNodes[offset] = enumKind.deserialize(pIn);
-        }
+    for (int offset = 0; offset < mNodes.length; offset++) {
+      final byte id = pIn.readByte();
+      final ENode enumKind = ENode.getKind(id);
+      if (enumKind != ENode.UNKOWN_KIND) {
+        mNodes[offset] = enumKind.deserialize(pIn);
       }
-//    }
+    }
   }
 
   /**
@@ -193,13 +106,6 @@ public class NodePage extends AbsForwardingPage {
    */
   public final long getNodePageKey() {
     return mNodePageKey;
-  }
-
-  private long getRightKey(@Nonnull final ITTSource pIn) {
-    final long rightKey = pIn.readLong();
-    pIn.readInt();
-    pIn.readInt();
-    return rightKey;
   }
 
   /**
@@ -212,12 +118,6 @@ public class NodePage extends AbsForwardingPage {
   public INode getNode(@Nonnegative final int pOffset) {
     checkArgument(pOffset >= 0 && pOffset < IConstants.NDP_NODE_COUNT,
       "offset must not be negative and less than the max. nodes per node page!");
-    // if (mHasDeleted) {
-    // final int offset =
-    // mNodes.length < IConstants.NDP_NODE_COUNT ? (pOffset >> (IConstants.NDP_NODE_COUNT - 1))
-    // * (mNodes.length - 1) : pOffset;
-    // return mNodes[offset];
-    // } else {
     if (pOffset < mNodes.length) {
       return mNodes[pOffset];
     } else {
@@ -233,122 +133,23 @@ public class NodePage extends AbsForwardingPage {
    * @param pNode
    *          node to store at given nodeOffset
    */
-  public void setNode(@Nonnegative final int pOffset, @Nonnull final INode pNode) {
+  public void setNode(@Nonnegative final int pOffset, @Nullable final INode pNode) {
     checkArgument(pOffset >= 0, "pOffset may not be negative!");
-    // int offset = pOffset;
-    // if (mHasDeleted) {
-    // offset =
-    // mNodes.length < IConstants.NDP_NODE_COUNT ? (pOffset >> (IConstants.NDP_NODE_COUNT - 1))
-    // * (mNodes.length - 1) : pOffset;
-    // }
-    mNodes[pOffset] = checkNotNull(pNode);
+    mNodes[pOffset] = pNode;
   }
 
   @Override
-  public void serialize(final ITTSink pOut) {
-    mDelegate.serialize(checkNotNull(pOut));
+  public void serialize(@Nonnull final ITTSink pOut) {
     pOut.writeLong(mNodePageKey);
-
-//    final EncryptionController enController = EncryptionController.getInstance();
-//
-//    if (enController.checkEncryption()) {
-//      NodeOutputSink mNodeOut = null;
-//      for (final INode node : mNodes) {
-//        if (node != null) {
-//          mNodeOut = new NodeOutputSink();
-//
-//          final long mDek = enController.getDataEncryptionKey();
-//
-//          final KeySelector mKeySel = enController.getSelDb().getEntry(mDek);
-//          final byte[] mSecretKey = mKeySel.getSecretKey();
-//
-//          pOut.writeLong(mKeySel.getPrimaryKey());
-//          pOut.writeInt(mKeySel.getRevision());
-//          pOut.writeInt(mKeySel.getVersion());
-//          final byte kind = node.getKind().getId();
-//          pOut.writeByte(kind);
-//          ENode.getKind(kind).serialize(pOut, node);
-//
-//          final byte[] mStream = ((ByteArrayOutputStream)mNodeOut.getOutputStream()).toByteArray();
-//
-//          byte[] mEncrypted = null;
-//          final int pointerEnSize;
-//
-//          if (mStream.length > 0) {
-//
-//            final byte[] mPointer = new byte[mStream.length];
-//
-//            for (int i = 0; i < mPointer.length; i++) {
-//              mPointer[i] = mStream[i];
-//            }
-//
-//            final byte[] mData = new byte[mStream.length - mPointer.length];
-//            for (int i = 0; i < mData.length; i++) {
-//              mData[i] = mStream[mPointer.length + i];
-//            }
-//
-//            final byte[] mEnPointer = NodeEncryption.encrypt(mPointer, mSecretKey);
-//            pointerEnSize = mEnPointer.length;
-//            final byte[] mEnData = NodeEncryption.encrypt(mData, mSecretKey);
-//
-//            mEncrypted = new byte[mEnPointer.length + mEnData.length];
-//
-//            int mCounter = 0;
-//            for (int i = 0; i < mEnPointer.length; i++) {
-//              mEncrypted[mCounter] = mEnPointer[i];
-//              mCounter++;
-//            }
-//            for (int i = 0; i < mEnData.length; i++) {
-//              mEncrypted[mCounter] = mEnData[i];
-//              mCounter++;
-//            }
-//
-//          } else {
-//            pointerEnSize = 0;
-//            mEncrypted = NodeEncryption.encrypt(mStream, mSecretKey);
-//          }
-//
-//          pOut.writeInt(mEncrypted.length);
-//          pOut.writeInt(pointerEnSize);
-//
-//          for (byte aByte : mEncrypted) {
-//            pOut.writeByte(aByte);
-//          }
-//
-//        } else {
-//          pOut.writeLong(-1);
-//          pOut.writeInt(-1);
-//          pOut.writeInt(-1);
-//          pOut.writeInt(ENode.UNKOWN_KIND.getId());
-//        }
-//      }
-//    } else {
-      // int length = 0;
-      // // boolean hasDeleted = false;
-      // for (int i = 0; i < mNodes.length; i++) {
-      // if (mNodes[i] != null) {
-      // length = i + 1;
-      // }
-      // }
-      // // if (mNodes[i].getKind() == ENode.DELETE_KIND) {
-      // // hasDeleted = true;
-      // // }
-      // // length++;
-      // // }
-      // // }
-      // pOut.writeInt(IConstants.NDP_NODE_COUNT);
-      // pOut.writeByte(hasDeleted ? (byte)1 : (byte)0);
-      // for (int i = 0; i < IConstants.NDP_NODE_COUNT; i++) {
-      for (final INode node : mNodes) {
-        if (node == null) {
-          pOut.writeByte(getLastByte(ENode.UNKOWN_KIND.getId()));
-        } else {
-          final byte id = node.getKind().getId();
-          pOut.writeByte(id);
-          ENode.getKind(node.getClass()).serialize(pOut, node);
-        }
+    for (final INode node : mNodes) {
+      if (node == null) {
+        pOut.writeByte(getLastByte(ENode.UNKOWN_KIND.getId()));
+      } else {
+        final byte id = node.getKind().getId();
+        pOut.writeByte(id);
+        ENode.getKind(node.getClass()).serialize(pOut, node);
       }
-//    }
+    }
   }
 
   /**
@@ -418,7 +219,16 @@ public class NodePage extends AbsForwardingPage {
   }
 
   @Override
-  protected IPage delegate() {
-    return mDelegate;
+  public long getRevision() {
+    return mRevision;
+  }
+
+  @Override
+  public PageReference[] getReferences() {
+    return null;
+  }
+
+  @Override
+  public void commit(final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
   }
 }

@@ -419,7 +419,6 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
   private PageReference prepareLeafOfTree(final PageReference pStartReference, final long pKey)
     throws TTIOException {
-
     // Initial state pointing to the indirect nodePageReference of level 0.
     PageReference reference = pStartReference;
     int offset = 0;

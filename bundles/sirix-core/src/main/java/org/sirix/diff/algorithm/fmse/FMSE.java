@@ -366,7 +366,6 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     final List<Long> second = commonChildren(pX, pW, pRtx, pWtx, EReverseMap.TRUE);
     // 3 && 4
     final List<Pair<Long, Long>> s = Util.longestCommonSubsequence(first, second, new IComparator<Long>() {
-      /** {@inheritDoc} */
       @Override
       public boolean isEqual(final Long pX, final Long pY) {
         return mTotalMatching.contains(pX, pY);

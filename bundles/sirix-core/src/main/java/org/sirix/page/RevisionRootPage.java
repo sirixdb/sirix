@@ -80,11 +80,10 @@ public final class RevisionRootPage extends AbsForwardingPage {
    * Read revision root page.
    * 
    * @param pIn
-   *          Input bytes.
+   *          input stream
    */
   protected RevisionRootPage(@Nonnull final ITTSource pIn) {
-    mDelegate = new PageDelegate(2, pIn.readLong());
-    mDelegate.initialize(pIn);
+    mDelegate = new PageDelegate(2, pIn);
     mRevisionSize = pIn.readLong();
     mMaxNodeKey = pIn.readLong();
     mRevisionTimestamp = pIn.readLong();
@@ -108,7 +107,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
   /**
    * Get name page reference.
    * 
-   * @return Name page reference.
+   * @return name page reference
    */
   public PageReference getNamePageReference() {
     return getReferences()[NAME_REFERENCE_OFFSET];

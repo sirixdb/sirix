@@ -69,12 +69,22 @@ public class PageDelegate implements IPage {
     }
   }
 
-  public void initialize(@Nonnull final ITTSource pIn) {
+  /**
+   * Constructor to initialize instance.
+   * 
+   * @param pReferenceCount
+   *          number of references of page
+   * @param pIn
+   *          input stream to read from
+   */
+  public PageDelegate(@Nonnegative final int pReferenceCount, @Nonnull final ITTSource pIn) {
+    mReferences = new PageReference[pReferenceCount];
+    mRevision = pIn.readLong();
     for (int offset = 0; offset < mReferences.length; offset++) {
-      getReferences()[offset] = new PageReference();
+      mReferences[offset] = new PageReference();
       final EStorage storage = EStorage.getInstance(pIn.readInt());
       if (storage != null) {
-        getReferences()[offset].setKey(storage.deserialize(pIn));
+        mReferences[offset].setKey(storage.deserialize(pIn));
       }
     }
   }
@@ -105,7 +115,6 @@ public class PageDelegate implements IPage {
    * @throws AbsTTException
    *           if a write-error occured
    */
-
   @Override
   public final void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
     for (final PageReference reference : getReferences()) {
@@ -121,8 +130,6 @@ public class PageDelegate implements IPage {
    */
   @Override
   public void serialize(@Nonnull final ITTSink pOut) {
-    pOut.writeLong(mRevision);
-
     for (final PageReference reference : getReferences()) {
       if (reference.getKey() == null) {
         pOut.writeInt(0);

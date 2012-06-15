@@ -6,16 +6,16 @@
 *.out
 
 # Eclipse files 
-.settings
-.project
-.classpath
+*.settings
+*.project
+*.classpath
 
 # Java classfiles
 *.class
 
 # Maven target dir
-/.settings/org.maven.ide.eclipse.prefs
-/.idea/workspace.xml
-/doc
-/lib
-/target
+*/.settings/org.maven.ide.eclipse.prefs
+*/.idea/workspace.xml
+*/doc
+*/lib
+*/target

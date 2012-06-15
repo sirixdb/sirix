@@ -138,7 +138,6 @@ public enum ERevisioning {
             }
           }
         }
-
       }
 
       final NodePageContainer cont = new NodePageContainer(returnVal[0], returnVal[1]);
@@ -208,26 +207,26 @@ public enum ERevisioning {
   };
 
   /**
-   * Method to reconstruct a complete NodePage with the help of partly filled
+   * Method to reconstruct a complete {@link NodePage} with the help of partly filled
    * pages plus a revision-delta which determines the necessary steps back.
    * 
    * @param pages
-   *          the base of the complete Nodepage
+   *          the base of the complete {@link NodePage}
    * @param revToRestore
-   *          the revision needed to build up the complete milestone.
-   * @return the complete NodePage
+   *          the revision needed to build up the complete milestone
+   * @return the complete {@link NodePage}
    */
   public abstract NodePage combinePages(final NodePage[] pages, final int revToRestore);
 
   /**
-   * Method to reconstruct a complete NodePage for reading as well as a
+   * Method to reconstruct a complete {@link NodePage} for reading as well as a
    * NodePage for serializing with the Nodes to write already on there.
    * 
    * @param pages
-   *          the base of the complete Nodepage
+   *          the base of the complete {@link NodePage}
    * @param mileStoneRevision
-   *          the revision needed to build up the complete milestone.
-   * @return a NodePageContainer holding a complete NodePage for reading a one
+   *          the revision needed to build up the complete milestone
+   * @return a {@link NodePageContainer} holding a complete {@link NodePage} for reading and one
    *         for writing
    */
   public abstract NodePageContainer combinePagesForModification(final NodePage[] pages,

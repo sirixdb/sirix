@@ -144,7 +144,16 @@ public final class PagePersistenter {
       }
     };
     
+    /**
+     * Serialize a page to disk.
+     * 
+     * @param pSink
+     *          reference to storage
+     * @param pPage
+     *          the current {@link IPage}
+     */
     private static final void serialize(final ITTSink pSink, final IPage pPage) {
+      pSink.writeLong(pPage.getRevision());
       pPage.serialize(pSink);
     }
 
@@ -227,7 +236,7 @@ public final class PagePersistenter {
    * 
    * @param pSource
    *          source to read from
-   * @return the created page
+   * @return the created {@link IPage}
    */
   public static IPage deserializePage(@Nonnull final ITTSource pSource) {
     return EPage.getKind(pSource.readByte()).deserializePage(pSource);
@@ -239,7 +248,7 @@ public final class PagePersistenter {
    * @param pSink
    *          output sink
    * @param pPage
-   *          the page to serialize
+   *          the {@link IPage} to serialize
    */
   public static void serializePage(@Nonnull final ITTSink pSink, @Nonnull final IPage pPage) {
     EPage.getKind(pPage.getClass()).serializePage(pSink, pPage);
