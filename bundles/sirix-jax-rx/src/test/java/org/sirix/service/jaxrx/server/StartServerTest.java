@@ -36,6 +36,7 @@ import com.sun.jersey.api.client.WebResource;
 
 import org.sirix.service.jaxrx.server.StartServer;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -55,6 +56,7 @@ public class StartServerTest {
    *           Exception occurred.
    */
   @Test
+  @Ignore
   public void startServer() throws Exception {
     StartServer.main(new String[] {
       "8093"
