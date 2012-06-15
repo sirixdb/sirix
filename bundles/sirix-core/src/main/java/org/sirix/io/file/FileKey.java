@@ -46,9 +46,9 @@ public final class FileKey implements IKey {
    * Constructor for direct data.
    * 
    * @param pOffset
-   *          Offset of data
+   *          offset of data
    * @param pLength
-   *          Length of data
+   *          length of data
    */
   public FileKey(final long pOffset, final long pLength) {
     mKey = new KeyDelegate(pOffset, pLength);

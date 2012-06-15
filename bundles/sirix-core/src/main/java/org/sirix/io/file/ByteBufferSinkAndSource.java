@@ -68,11 +68,11 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
   /**
    * Setting position in buffer.
    * 
-   * @param paramVal
+   * @param pVal
    *          new position to set
    */
-  public void position(final int paramVal) {
-    mBuffer.position(paramVal);
+  public void position(final int pVal) {
+    mBuffer.position(pVal);
   }
 
   /**
@@ -87,15 +87,15 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
   /**
    * Getting more bytes and fill it in the buffer.
    * 
-   * @param mDst
+   * @param pDst
    *          to fill
-   * @param mOffset
+   * @param pOffset
    *          offset in buffer
-   * @param mLength
+   * @param pLength
    *          length of bytes
    */
-  public void get(final byte[] mDst, final int mOffset, final int mLength) {
-    mBuffer.get(mDst, mOffset, mLength);
+  public void get(final byte[] pDst, final int pOffset, final int pLength) {
+    mBuffer.get(pDst, pOffset, pLength);
   }
 
   @Override
@@ -109,10 +109,9 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
   }
 
   @Override
-  public void writeInt(final int paramIntVal) {
+  public void writeInt(final int pIntVal) {
     checkAndIncrease(4);
-    mBuffer.putInt(paramIntVal);
-
+    mBuffer.putInt(pIntVal);
   }
 
   @Override

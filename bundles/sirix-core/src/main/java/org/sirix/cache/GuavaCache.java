@@ -87,17 +87,17 @@ public class GuavaCache implements ICache<Long, NodePageContainer> {
         return pPageReadTransaction.getNodeFromPage(key);
       }
     });
-    if (pPageReadTransaction.getUberPage().getRevisionNumber() == 0) {
-      mPool.submit(new Callable<Void>() {
-        @Override
-        public Void call() throws ExecutionException {
-          // Preload 20 nodePages.
-          mCache.getAll(Arrays.asList(0l, 1l, 2l, 3l, 4l, 5l, 6l, 7l, 8l, 9l, 10l, 11l, 12l, 13l, 14l, 15l,
-            16l, 17l, 18l, 19l));
-          return null;
-        }
-      });
-    }
+//    if (pPageReadTransaction.getUberPage().getRevisionNumber() == 0) {
+//      mPool.submit(new Callable<Void>() {
+//        @Override
+//        public Void call() throws ExecutionException {
+//          // Preload 20 nodePages.
+//          mCache.getAll(Arrays.asList(0l, 1l, 2l, 3l, 4l, 5l, 6l, 7l, 8l, 9l, 10l, 11l, 12l, 13l, 14l, 15l,
+//            16l, 17l, 18l, 19l));
+//          return null;
+//        }
+//      });
+//    }
   }
 
   @Override
@@ -113,7 +113,7 @@ public class GuavaCache implements ICache<Long, NodePageContainer> {
   }
 
   @Override
-  public NodePageContainer get(final Long pKey) {
+  public synchronized NodePageContainer get(final Long pKey) {
     try {
       if (pKey < 0) {
         return NodePageContainer.EMPTY_INSTANCE;
@@ -122,8 +122,7 @@ public class GuavaCache implements ICache<Long, NodePageContainer> {
       if (container != null && container.equals(NodePageContainer.EMPTY_INSTANCE)) {
         mCache.invalidate(pKey);
         container = mCache.get(pKey);
-      }
-      if (container == null) {
+      } else if (container == null) {
         container = mCache.get(pKey);
       }
       return container;

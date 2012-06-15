@@ -114,6 +114,7 @@ class PageReadTrx implements IPageReadTrx {
     mPageReader = checkNotNull(pReader);
     mUberPage = checkNotNull(pUberPage);
     mRootPage = loadRevRoot(pRevision);
+    assert mRootPage != null : "root page must not be null!";
     mNamePage = initializeNamePage();
     mCache = new GuavaCache(this);
   }
@@ -204,6 +205,7 @@ class PageReadTrx implements IPageReadTrx {
   final NamePage initializeNamePage() throws TTIOException {
     final PageReference ref = mRootPage.getNamePageReference();
     if (ref.getPage() == null) {
+      assert ref.getKey() != null : "key must not be null!";
       ref.setPage(mPageReader.read(ref.getKey()));
     }
     return (NamePage)ref.getPage();

@@ -33,7 +33,7 @@
 	<parent>
 		<artifactId>pom</artifactId>
 		<groupId>sirix</groupId>
-		<version>1.0.4-SNAPSHOT</version>
+		<version>1.0.5-SNAPSHOT</version>
 	</parent>
 
 	<artifactId>complete</artifactId>

@@ -79,7 +79,6 @@ public final class FileReader implements IReader {
 
       mFile = new RandomAccessFile(pConcreteStorage, IConstants.READ_ONLY);
       mDecompressor = new CryptoJavaImpl();
-//      mBuffer = new ByteBufferSinkAndSource();
     } catch (final IOException exc) {
       throw new TTIOException(exc);
     }
