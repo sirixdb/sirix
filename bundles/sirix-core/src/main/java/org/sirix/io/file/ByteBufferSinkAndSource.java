@@ -50,7 +50,7 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
    * Constructor.
    */
   public ByteBufferSinkAndSource() {
-    mBuffer = ByteBuffer.allocate(IConstants.BUFFER_SIZE);
+    mBuffer = ByteBuffer.allocate(FileFactory.BUFFER_SIZE);
   }
 
   @Override
@@ -129,7 +129,7 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
     final int position = mBuffer.position();
     if (mBuffer.position() + pLength >= mBuffer.capacity()) {
       mBuffer.position(0);
-      final ByteBuffer newBuffer = ByteBuffer.allocate(mBuffer.capacity() + IConstants.BUFFER_SIZE);
+      final ByteBuffer newBuffer = ByteBuffer.allocate(mBuffer.capacity() + FileFactory.BUFFER_SIZE);
       newBuffer.put(mBuffer);
       mBuffer = newBuffer;
       mBuffer.position(position);

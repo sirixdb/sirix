@@ -73,12 +73,4 @@ public interface IStorage {
    */
   boolean exists() throws TTIOException;
 
-  /**
-   * Truncate database completely.
-   * 
-   * @throws TTIOException
-   *           if storage is not accessible
-   */
-  void truncate() throws TTIOException;
-
 }

@@ -348,7 +348,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   private IndirectPage prepareIndirectPage(@Nonnull final PageReference pReference) throws TTIOException {
     IndirectPage page = (IndirectPage)pReference.getPage();
     if (page == null) {
-      if (pReference.getKey() == null) {
+      if (pReference.getKey() == IConstants.NULL_ID) {
         page = new IndirectPage(getUberPage().getRevision());
       } else {
         page = new IndirectPage(mPageRtx.dereferenceIndirectPage(pReference), mNewRoot.getRevision() + 1);
@@ -375,7 +375,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
       NodePage page = (NodePage)reference.getPage();
 
       if (page == null) {
-        if (reference.getKey() == null) {
+        if (reference.getKey() == IConstants.NULL_ID) {
           cont = new NodePageContainer(new NodePage(pNodePageKey, IConstants.UBP_ROOT_REVISION_NUMBER));
         } else {
           cont = dereferenceNodePageForModification(pNodePageKey);

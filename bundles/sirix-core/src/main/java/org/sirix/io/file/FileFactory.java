@@ -31,7 +31,6 @@ import java.io.File;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.TTIOException;
-import org.sirix.io.EStorage;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
 import org.sirix.io.IWriter;
@@ -44,7 +43,10 @@ import org.sirix.io.IWriter;
  */
 public final class FileFactory implements IStorage {
 
-  /** private constant for fileName. */
+  
+  public static final int BUFFER_SIZE = 32767;
+  
+  /** File name. */
   private static final String FILENAME = "tt.tnk";
 
   /** Instance to storage. */
@@ -91,10 +93,5 @@ public final class FileFactory implements IStorage {
     final File file = getConcreteStorage();
     final boolean returnVal = file.length() > 0;
     return returnVal;
-  }
-
-  @Override
-  public void truncate() throws TTIOException {
-    EStorage.recursiveDelete(mFile);
   }
 }

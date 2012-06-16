@@ -140,10 +140,10 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   // END FIXED STANDARD FIELDS
 
   // MEMBERS FOR FIXED FIELDS
-  /** Type of Storage (File, Berkeley). */
+  /** Type of Storage (File, BerkeleyDB). */
   public final EStorage mType;
 
-  /** Kind of revisioning (Incremental, Differential). */
+  /** Kind of revisioning (Full, Incremental, Differential). */
   public final ERevisioning mRevisionKind;
 
   /** Kind of integrity hash (rolling, postorder). */

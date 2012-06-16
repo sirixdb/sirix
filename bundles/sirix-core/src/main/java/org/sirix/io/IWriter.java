@@ -47,7 +47,7 @@ public interface IWriter extends IReader {
    * @throws TTIOException
    *           execption to be thrown if something bad happens
    */
-  IKey write(final PageReference pageReference) throws TTIOException;
+  long write(final PageReference pageReference) throws TTIOException;
 
   /**
    * Write Beacon for the first reference.

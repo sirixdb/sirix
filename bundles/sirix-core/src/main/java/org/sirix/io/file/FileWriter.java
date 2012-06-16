@@ -33,12 +33,10 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 
 import org.sirix.exception.TTIOException;
-import org.sirix.io.IKey;
 import org.sirix.io.IWriter;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.IPage;
-import org.sirix.utils.IConstants;
 
 /**
  * File Writer for providing read/write access for file as a sirix backend.
@@ -69,7 +67,7 @@ public final class FileWriter implements IWriter {
    */
   public FileWriter(final File pStorage) throws TTIOException {
     try {
-      mFile = new RandomAccessFile(pStorage, IConstants.READ_WRITE);
+      mFile = new RandomAccessFile(pStorage, "rw");
     } catch (final FileNotFoundException fileExc) {
       throw new TTIOException(fileExc);
     }
@@ -87,44 +85,43 @@ public final class FileWriter implements IWriter {
    *           due to errors during writing.
    */
   @Override
-  public IKey write(final PageReference pPageReference) throws TTIOException {
+  public long write(final PageReference pPageReference) throws TTIOException {
     // Serialise page.
-    final ByteBufferSinkAndSource mBuffer = new ByteBufferSinkAndSource();
-    mBuffer.position(FileReader.OTHER_BEACON);
+    final ByteBufferSinkAndSource buffer = new ByteBufferSinkAndSource();
+    buffer.position(FileReader.OTHER_BEACON);
     final IPage page = pPageReference.getPage();
-    PagePersistenter.serializePage(mBuffer, page);
-    final int inputLength = mBuffer.position();
+    PagePersistenter.serializePage(buffer, page);
+    final int inputLength = buffer.position();
 
     // Perform crypto operations.
-    final int outputLength = mCompressor.crypt(inputLength, mBuffer);
+    final int outputLength = mCompressor.crypt(inputLength, buffer);
     if (outputLength == 0) {
       throw new TTIOException("Page crypt error.");
     }
 
     // Normally, the first bytes until FileReader.OTHERBEACON are reserved and cut of resulting in
-    // final byte[] tmp = new byte[outputLength-FileReader.OTHER_BEACON];
     final byte[] tmp = new byte[outputLength];
-    // mBuffer.position(FileReader.OTHER_BEACON);
-    mBuffer.position(0);
+    buffer.position(0);
     // Because of the missing offset, we can write the length directly at the front of the buffer to see
-    // it afterwards in the byte array as well.
-    mBuffer.writeInt(outputLength);
-    mBuffer.get(tmp, 0, tmp.length);
+    // it afterwards in the byte array as well. Do not forget to reset the position before transition to
+    // the array
+    buffer.writeInt(outputLength);
+    buffer.position(0);
+    buffer.get(tmp, 0, tmp.length);
 
     try {
-        // Getting actual offset and appending to the end of the current
-        // file
-        final long fileSize = mFile.length();
-        final long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
-        mFile.seek(offset);
-        mFile.write(tmp);
-        final FileKey key = new FileKey(offset, tmp.length);
+      // Getting actual offset and appending to the end of the current
+      // file
+      final long fileSize = mFile.length();
+      final long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
+      mFile.seek(offset);
+      mFile.write(tmp);
+      // Remember page coordinates.
+      pPageReference.setKey(offset);
 
-        // Remember page coordinates.
-        pPageReference.setKey(key);
-        return key;
+      return offset;
     } catch (final IOException paramExc) {
-        throw new TTIOException(paramExc);
+      throw new TTIOException(paramExc);
     }
   }
 
@@ -156,26 +153,19 @@ public final class FileWriter implements IWriter {
   }
 
   @Override
-  public void writeFirstReference(final PageReference pPageReference) throws TTIOException {
+  public void writeFirstReference(final PageReference pPageReference)
+    throws TTIOException {
     try {
-      // Check to writer ensure writing after the Beacon_Start
-      if (mFile.getFilePointer() < FileReader.FIRST_BEACON) {
-        mFile.setLength(FileReader.FIRST_BEACON);
-      }
-
       write(pPageReference);
-
       mFile.seek(0);
-      final FileKey key = (FileKey)pPageReference.getKey();
-      mFile.writeLong(key.getIdentifier());
-      mFile.writeInt(key.getLength());
+      mFile.writeLong(pPageReference.getKey());
     } catch (final IOException exc) {
       throw new TTIOException(exc);
     }
   }
 
   @Override
-  public IPage read(final IKey pKey) throws TTIOException {
+  public IPage read(final long pKey) throws TTIOException {
     return reader.read(pKey);
   }
 

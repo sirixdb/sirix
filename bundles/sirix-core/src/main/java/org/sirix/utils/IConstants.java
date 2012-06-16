@@ -54,15 +54,6 @@ public final class IConstants {
   /** Default internal encoding. */
   public static final Charset DEFAULT_ENCODING = Charsets.UTF_8;
 
-  /** Read-only random access file. */
-  public static final String READ_ONLY = "r";
-
-  /** Read-write random access file. */
-  public static final String READ_WRITE = "rw";
-
-  /** Size of write buffer. */
-  public static final int BUFFER_SIZE = 32767;
-
   // --- Indirect Page
   // ----------------------------------------------------------
 
@@ -95,5 +86,10 @@ public final class IConstants {
 
   /** 2^NDP_NODE_COUNT_EXPONENT = NDP_NODE_COUNT. */
   public static final int NDP_NODE_COUNT_EXPONENT = 7;
+
+  // --- Reference Page
+  // -------------------------------------------------------------
+  
+  public static final long NULL_ID = -15;
 
 }

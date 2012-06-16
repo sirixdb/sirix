@@ -49,7 +49,9 @@ import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTUsageException;
-import org.sirix.io.EStorage;
+import org.sirix.utils.Files;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /**
  * This class represents one concrete database for enabling several {@link ISession} objects.
@@ -59,8 +61,12 @@ import org.sirix.io.EStorage;
  */
 public final class Database implements IDatabase {
 
+  /** {@link LogWrapper} reference. */
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(Database.class));
+  
   /** Central repository of all running databases. */
-  private static final ConcurrentMap<File, Database> DATABASEMAP = new ConcurrentHashMap<>();
+  private static final ConcurrentMap<File, Database> DATABASEMAP =
+    new ConcurrentHashMap<>();
 
   /** Central repository of all running sessions. */
   private final ConcurrentMap<File, Session> mSessions;
@@ -76,7 +82,8 @@ public final class Database implements IDatabase {
    * @throws AbsTTException
    *           if something weird happens
    */
-  private Database(@Nonnull final DatabaseConfiguration pDBConf) throws AbsTTException {
+  private Database(@Nonnull final DatabaseConfiguration pDBConf)
+    throws AbsTTException {
     mDBConfig = checkNotNull(pDBConf);
     mSessions = new ConcurrentHashMap<>();
   }
@@ -94,8 +101,8 @@ public final class Database implements IDatabase {
    * @throws TTIOException
    *           if something odd happens within the creation process.
    */
-  public static synchronized boolean createDatabase(@Nonnull final DatabaseConfiguration pDBConfig)
-    throws TTIOException {
+  public static synchronized boolean createDatabase(
+    @Nonnull final DatabaseConfiguration pDBConfig) throws TTIOException {
     boolean returnVal = true;
     // if file is existing, skipping
     if (pDBConfig.getFile().exists()) {
@@ -104,8 +111,11 @@ public final class Database implements IDatabase {
       returnVal = pDBConfig.getFile().mkdirs();
       if (returnVal) {
         // creation of folder structure
-        for (DatabaseConfiguration.Paths paths : DatabaseConfiguration.Paths.values()) {
-          final File toCreate = new File(pDBConfig.getFile().getAbsoluteFile(), paths.getFile().getName());
+        for (DatabaseConfiguration.Paths paths : DatabaseConfiguration.Paths
+          .values()) {
+          final File toCreate =
+            new File(pDBConfig.getFile().getAbsoluteFile(), paths.getFile()
+              .getName());
           if (paths.isFolder()) {
             returnVal = toCreate.mkdir();
           } else {
@@ -144,14 +154,19 @@ public final class Database implements IDatabase {
    * @throws AbsTTException
    *           any kind of false sirix behaviour
    */
-  public static synchronized void truncateDatabase(@Nonnull final DatabaseConfiguration pConf)
-    throws AbsTTException {
+  public static synchronized void truncateDatabase(
+    @Nonnull final DatabaseConfiguration pConf) throws AbsTTException {
     // check that database must be closed beforehand
     if (!DATABASEMAP.containsKey(pConf.getFile())) {
       // if file is existing and folder is a tt-dataplace, delete it
-      if (pConf.getFile().exists() && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
+      if (pConf.getFile().exists()
+        && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
         // instantiate the database for deletion
-        EStorage.recursiveDelete(pConf.getFile());
+        try {
+          Files.recursiveRemove(pConf.getFile().toPath());
+        } catch (final IOException e) {
+          throw new TTIOException(e);
+        }
       }
     }
   }
@@ -165,14 +180,15 @@ public final class Database implements IDatabase {
   // //////////////////////////////////////////////////////////
 
   @Override
-  public synchronized boolean createResource(@Nonnull final ResourceConfiguration pResConf)
-    throws TTIOException {
+  public synchronized boolean createResource(
+    @Nonnull final ResourceConfiguration pResConf) throws TTIOException {
     boolean returnVal = true;
     // Setting the missing parameters in the settings, this overrides already
     // set data.
     final File path =
-      new File(new File(mDBConfig.getFile().getAbsoluteFile(), DatabaseConfiguration.Paths.Data.getFile()
-        .getName()), pResConf.mPath.getName());
+      new File(new File(mDBConfig.getFile().getAbsoluteFile(),
+        DatabaseConfiguration.Paths.Data.getFile().getName()), pResConf.mPath
+        .getName());
     // if file is existing, skipping
     if (path.exists()) {
       return false;
@@ -180,7 +196,8 @@ public final class Database implements IDatabase {
       returnVal = path.mkdir();
       if (returnVal) {
         // creation of the folder structure
-        for (ResourceConfiguration.Paths paths : ResourceConfiguration.Paths.values()) {
+        for (ResourceConfiguration.Paths paths : ResourceConfiguration.Paths
+          .values()) {
           final File toCreate = new File(path, paths.getFile().getName());
           if (paths.isFolder()) {
             returnVal = toCreate.mkdir();
@@ -212,16 +229,22 @@ public final class Database implements IDatabase {
   }
 
   @Override
-  public synchronized void truncateResource(final ResourceConfiguration pResConf) {
+  public synchronized void
+    truncateResource(final ResourceConfiguration pResConf) {
     final File resourceFile =
-      new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data.getFile().getName()),
-        pResConf.mPath.getName());
+      new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
+        .getFile().getName()), pResConf.mPath.getName());
     // check that database must be closed beforehand
     if (!mSessions.containsKey(resourceFile)) {
       // if file is existing and folder is a tt-dataplace, delete it
-      if (resourceFile.exists() && ResourceConfiguration.Paths.compareStructure(resourceFile) == 0) {
+      if (resourceFile.exists()
+        && ResourceConfiguration.Paths.compareStructure(resourceFile) == 0) {
         // instantiate the database for deletion
-        EStorage.recursiveDelete(resourceFile);
+        try {
+          Files.recursiveRemove(resourceFile.toPath());
+        } catch (final IOException e) {
+          LOGWRAPPER.error(e.getMessage(), e);
+        }
       }
     }
   }
@@ -244,17 +267,19 @@ public final class Database implements IDatabase {
    * @throws AbsTTException
    *           if something odd happens
    */
-  public static synchronized IDatabase openDatabase(@Nonnull final File pFile) throws AbsTTException {
+  public static synchronized IDatabase openDatabase(@Nonnull final File pFile)
+    throws AbsTTException {
     if (!pFile.exists()) {
-      throw new TTUsageException("DB could not be opened (since it was not created?) at location", pFile
-        .toString());
+      throw new TTUsageException(
+        "DB could not be opened (since it was not created?) at location", pFile
+          .toString());
     }
     FileInputStream is = null;
     DatabaseConfiguration config = null;
     try {
       is =
-        new FileInputStream(new File(pFile.getAbsoluteFile(), DatabaseConfiguration.Paths.ConfigBinary
-          .getFile().getName()));
+        new FileInputStream(new File(pFile.getAbsoluteFile(),
+          DatabaseConfiguration.Paths.ConfigBinary.getFile().getName()));
       final ObjectInputStream de = new ObjectInputStream(is);
       config = (DatabaseConfiguration)de.readObject();
       de.close();
@@ -282,22 +307,24 @@ public final class Database implements IDatabase {
   // /////////////////////////////////////////////////////////
 
   @Override
-  public synchronized ISession getSession(final SessionConfiguration pSessionConf) throws AbsTTException {
+  public synchronized ISession getSession(
+    final SessionConfiguration pSessionConf) throws AbsTTException {
     final File resourceFile =
-      new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data.getFile().getName()),
-        pSessionConf.getResource());
+      new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
+        .getFile().getName()), pSessionConf.getResource());
     Session returnVal = mSessions.get(resourceFile);
     if (returnVal == null) {
       if (!resourceFile.exists()) {
-        throw new TTUsageException("Resource could not be opened (since it was not created?) at location",
+        throw new TTUsageException(
+          "Resource could not be opened (since it was not created?) at location",
           resourceFile.toString());
       }
       FileInputStream is = null;
       ResourceConfiguration config = null;
       try {
         is =
-          new FileInputStream(new File(resourceFile, ResourceConfiguration.Paths.ConfigBinary.getFile()
-            .getName()));
+          new FileInputStream(new File(resourceFile,
+            ResourceConfiguration.Paths.ConfigBinary.getFile().getName()));
         final ObjectInputStream de = new ObjectInputStream(is);
         config = (ResourceConfiguration)de.readObject();
         de.close();
@@ -309,7 +336,8 @@ public final class Database implements IDatabase {
       }
 
       // Resource of session must be associated to this database
-      assert config.mPath.getParentFile().getParentFile().equals(mDBConfig.getFile());
+      assert config.mPath.getParentFile().getParentFile().equals(
+        mDBConfig.getFile());
       returnVal = new Session(this, config, pSessionConf);
       mSessions.put(resourceFile, returnVal);
     }
@@ -356,7 +384,8 @@ public final class Database implements IDatabase {
    * @throws IOException
    *           if serialization fails
    */
-  private static void serializeConfiguration(@Nonnull final IConfigureSerializable pConf) throws IOException {
+  private static void serializeConfiguration(
+    @Nonnull final IConfigureSerializable pConf) throws IOException {
     FileOutputStream os = null;
     os = new FileOutputStream(pConf.getConfigFile());
     final ObjectOutputStream en = new ObjectOutputStream(os);

@@ -28,6 +28,7 @@
 package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.DatabaseException;
@@ -36,7 +37,6 @@ import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.Transaction;
 import org.sirix.exception.TTIOException;
-import org.sirix.io.IKey;
 import org.sirix.io.IWriter;
 import org.sirix.page.NodePage;
 import org.sirix.page.PageReference;
@@ -74,7 +74,8 @@ public final class BerkeleyWriter implements IWriter {
    * @throws TTIOException
    *           if something odd happens
    */
-  public BerkeleyWriter(final Environment pEnv, final Database pDatabase) throws TTIOException {
+  public BerkeleyWriter(final Environment pEnv, final Database pDatabase)
+    throws TTIOException {
     try {
       mTxn = pEnv.beginTransaction(null, null);
       mDatabase = checkNotNull(pDatabase);
@@ -97,7 +98,7 @@ public final class BerkeleyWriter implements IWriter {
   }
 
   @Override
-  public IKey write(final PageReference pageReference) throws TTIOException {
+  public long write(final PageReference pageReference) throws TTIOException {
     final IPage page = pageReference.getPage();
 
     final DatabaseEntry valueEntry = new DatabaseEntry();
@@ -105,19 +106,19 @@ public final class BerkeleyWriter implements IWriter {
 
     // TODO make this better
     mNodepagekey++;
-    final BerkeleyKey key = new BerkeleyKey(mNodepagekey);
-
+    
     BerkeleyFactory.PAGE_VAL_B.objectToEntry(page, valueEntry);
-    BerkeleyFactory.KEY.objectToEntry(key, keyEntry);
+    TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(mNodepagekey,
+      keyEntry);
 
     final OperationStatus status = mDatabase.put(mTxn, keyEntry, valueEntry);
     if (status != OperationStatus.SUCCESS) {
-      throw new TTIOException(new StringBuilder("Write of ").append(pageReference.toString()).append(
-        " failed!").toString());
+      throw new TTIOException(new StringBuilder("Write of ").append(
+        pageReference.toString()).append(" failed!").toString());
     }
 
-    pageReference.setKey(key);
-    return key;
+    pageReference.setKey(mNodepagekey);
+    return mNodepagekey;
   }
 
   /**
@@ -132,9 +133,10 @@ public final class BerkeleyWriter implements IWriter {
     final DatabaseEntry keyEntry = new DatabaseEntry();
     final DatabaseEntry valueEntry = new DatabaseEntry();
 
-    final BerkeleyKey key = BerkeleyKey.getDataInfoKey();
-    BerkeleyFactory.KEY.objectToEntry(key, keyEntry);
-    BerkeleyFactory.DATAINFO_VAL_B.objectToEntry(pData, valueEntry);
+    TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-2l, keyEntry);
+    TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(pData,
+      valueEntry);
+
     try {
       mDatabase.put(mTxn, keyEntry, valueEntry);
     } catch (final DatabaseException exc) {
@@ -153,27 +155,29 @@ public final class BerkeleyWriter implements IWriter {
     final DatabaseEntry keyEntry = new DatabaseEntry();
     final DatabaseEntry valueEntry = new DatabaseEntry();
 
-    final BerkeleyKey key = BerkeleyKey.getDataInfoKey();
-    BerkeleyFactory.KEY.objectToEntry(key, keyEntry);
+    TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-2l, keyEntry);
 
     try {
-      final OperationStatus status = mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
-      return status == OperationStatus.SUCCESS ? BerkeleyFactory.DATAINFO_VAL_B.entryToObject(valueEntry)
-        : 0L;
+      final OperationStatus status =
+        mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
+      return status == OperationStatus.SUCCESS ? BerkeleyFactory.DATAINFO_VAL_B
+        .entryToObject(valueEntry) : 0L;
     } catch (final DatabaseException exc) {
       throw new TTIOException(exc);
     }
   }
 
   @Override
-  public void writeFirstReference(final PageReference pPageReference) throws TTIOException {
+  public void writeFirstReference(final PageReference pPageReference)
+    throws TTIOException {
     write(pPageReference);
 
     final DatabaseEntry keyEntry = new DatabaseEntry();
-    BerkeleyFactory.KEY.objectToEntry(BerkeleyKey.getFirstRevKey(), keyEntry);
+    TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
 
     final DatabaseEntry valueEntry = new DatabaseEntry();
-    BerkeleyFactory.FIRST_REV_VAL_B.objectToEntry(pPageReference, valueEntry);
+    TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(
+      pPageReference.getKey(), valueEntry);
 
     try {
       mDatabase.put(mTxn, keyEntry, valueEntry);
@@ -184,7 +188,7 @@ public final class BerkeleyWriter implements IWriter {
   }
 
   @Override
-  public IPage read(final IKey pKey) throws TTIOException {
+  public IPage read(final long pKey) throws TTIOException {
     return mReader.read(pKey);
   }
 

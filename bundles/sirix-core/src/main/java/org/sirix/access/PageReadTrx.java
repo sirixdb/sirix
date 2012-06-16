@@ -180,7 +180,7 @@ class PageReadTrx implements IPageReadTrx {
    * @throws TTIOException
    *           if something odd happens within the creation process
    */
-  final RevisionRootPage loadRevRoot(final long pRevisionKey)
+  final RevisionRootPage loadRevRoot(@Nonnegative final long pRevisionKey)
     throws TTIOException {
     checkArgument(pRevisionKey >= 0, "pRevisionKey must be >= 0!");
     final PageReference ref =
@@ -205,7 +205,6 @@ class PageReadTrx implements IPageReadTrx {
   final NamePage initializeNamePage() throws TTIOException {
     final PageReference ref = mRootPage.getNamePageReference();
     if (ref.getPage() == null) {
-      assert ref.getKey() != null : "key must not be null!";
       ref.setPage(mPageReader.read(ref.getKey()));
     }
     return (NamePage)ref.getPage();
@@ -236,12 +235,13 @@ class PageReadTrx implements IPageReadTrx {
       final PageReference ref =
         dereferenceLeafOfTree(loadRevRoot(i).getIndirectPageReference(),
           pNodePageKey);
-      if (ref != null && (ref.getPage() != null || ref.getKey() != null)) {
-        if (ref.getKey() == null
-          || (!keys.contains(ref.getKey().getIdentifier()))) {
+      if (ref != null
+        && (ref.getPage() != null || ref.getKey() != IConstants.NULL_ID)) {
+        if (ref.getKey() == IConstants.NULL_ID
+          || (!keys.contains(ref.getKey()))) {
           revs.add(ref);
-          if (ref.getKey() != null) {
-            keys.add(ref.getKey().getIdentifier());
+          if (ref.getKey() != IConstants.NULL_ID) {
+            keys.add(ref.getKey());
           }
         }
         if (revs.size() == revsToRestore
@@ -262,7 +262,6 @@ class PageReadTrx implements IPageReadTrx {
       final PageReference rev = revs.get(i);
       pages[i] = (NodePage)rev.getPage();
       if (pages[i] == null) {
-        assert rev.getKey() != null : "key must not be null!";
         pages[i] = (NodePage)mPageReader.read(rev.getKey());
       }
     }
@@ -284,7 +283,7 @@ class PageReadTrx implements IPageReadTrx {
     IndirectPage page = (IndirectPage)pReference.getPage();
 
     // If there is no page, get it from the storage and cache it.
-    if (page == null && pReference.getKey() != null) {
+    if (page == null && pReference.getKey() != IConstants.NULL_ID) {
       page = (IndirectPage)mPageReader.read(pReference.getKey());
       pReference.setPage(page);
     }

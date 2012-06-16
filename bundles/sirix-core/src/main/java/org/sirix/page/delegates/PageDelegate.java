@@ -82,10 +82,7 @@ public class PageDelegate implements IPage {
     mRevision = pIn.readLong();
     for (int offset = 0; offset < mReferences.length; offset++) {
       mReferences[offset] = new PageReference();
-      final EStorage storage = EStorage.getInstance(pIn.readInt());
-      if (storage != null) {
-        mReferences[offset].setKey(storage.deserialize(pIn));
-      }
+      mReferences[offset].setKey(pIn.readLong());
     }
   }
 
@@ -131,11 +128,7 @@ public class PageDelegate implements IPage {
   @Override
   public void serialize(@Nonnull final ITTSink pOut) {
     for (final PageReference reference : getReferences()) {
-      if (reference.getKey() == null) {
-        pOut.writeInt(0);
-      } else {
-        EStorage.getInstance(reference.getKey().getClass()).serialize(pOut, reference.getKey());
-      }
+      pOut.writeLong(reference.getKey());
     }
   }
 
@@ -162,7 +155,7 @@ public class PageDelegate implements IPage {
       builder.append("References: ");
       for (final PageReference ref : getReferences()) {
         if (ref != null) {
-          builder.append(ref.getKey().getIdentifier()).append(",");
+          builder.append(ref.getKey()).append(",");
         }
       }
     } else {

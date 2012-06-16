@@ -26,20 +26,12 @@
  */
 package org.sirix.io;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.io.File;
-import java.util.HashMap;
-import java.util.Map;
-
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.berkeley.BerkeleyFactory;
-import org.sirix.io.berkeley.BerkeleyKey;
 import org.sirix.io.file.FileFactory;
-import org.sirix.io.file.FileKey;
 
 /**
  * Utility methods for the storage. Those methods included common deletion
@@ -50,34 +42,14 @@ import org.sirix.io.file.FileKey;
  * 
  */
 public enum EStorage {
-  File(1, FileKey.class) {
-    @Override
-    public IKey deserialize(@Nonnull final ITTSource pSource) {
-      return new FileKey(pSource.readLong(), pSource.readLong());
-    }
-
-    @Override
-    public void serialize(@Nonnull final ITTSink pSink, @Nonnull final IKey pKey) {
-      serializeKey(pKey, getIdentifier(), pSink);
-    }
-
+  File {
     @Override
     public IStorage getInstance(@Nonnull final ResourceConfiguration pResourceConf) throws TTIOException {
       return new FileFactory(pResourceConf.mPath);
     }
   },
 
-  BerkeleyDB(2, BerkeleyKey.class) {
-    @Override
-    public IKey deserialize(@Nonnull final ITTSource pSource) {
-      return new BerkeleyKey(pSource.readLong());
-    }
-
-    @Override
-    public void serialize(@Nonnull final ITTSink pSink, @Nonnull final IKey pKey) {
-      serializeKey(pKey, getIdentifier(), checkNotNull(pSink));
-    }
-
+  BerkeleyDB {
     @Override
     public IStorage getInstance(@Nonnull final ResourceConfiguration pResourceConf) throws TTIOException {
       return new BerkeleyFactory(pResourceConf.mPath);
@@ -96,81 +68,6 @@ public enum EStorage {
   public abstract IStorage getInstance(@Nonnull final ResourceConfiguration pResourceConf)
     throws TTIOException;
 
-  /** Getting identifier mapping. */
-  private static final Map<Integer, EStorage> INSTANCEFORID = new HashMap<>();
-  private static final Map<Class<? extends IKey>, EStorage> INSTANCEFORCLASS = new HashMap<>();
-  static {
-    for (EStorage storage : values()) {
-      INSTANCEFORID.put(storage.mIdent, storage);
-      INSTANCEFORCLASS.put(storage.mClass, storage);
-    }
-  }
-
-  /** Identifier for the storage. */
-  private final int mIdent;
-
-  /** Class for Key. */
-  private final Class<? extends IKey> mClass;
-
-  /**
-   * Constructor.
-   * 
-   * @param pIdent
-   *          identifier to be set.
-   */
-  EStorage(final int pIdent, final Class<? extends IKey> pClass) {
-    mIdent = pIdent;
-    mClass = pClass;
-  }
-
-  /**
-   * Get the identifier.
-   * 
-   * @return the identifier of the storage
-   */
-  public int getIdentifier() {
-    return mIdent;
-  }
-
-  /**
-   * Deserialization of a key
-   * 
-   * @param pSource
-   *          where the key should be serialized from.
-   * @return the {@link IKey} retrieved from the storage.
-   */
-  public abstract IKey deserialize(@Nonnull final ITTSource pSource);
-
-  /**
-   * Serialization of a key
-   * 
-   * @param pSink
-   *          where the key should be serialized to
-   * @param pKey
-   *          which should be serialized.
-   */
-  public abstract void serialize(@Nonnull final ITTSink pSink, @Nonnull final IKey pKey);
-
-  /**
-   * Deleting a storage recursive. Used for deleting a database.
-   * 
-   * @param pFile
-   *          which should be deleted included descendants
-   * @return {@code true} if delete is valid, {@code false} otherwise
-   * @throws NullPointerException
-   *           if {@code pFile} is {@code null}
-   */
-  public static boolean recursiveDelete(@Nonnull final File pFile) {
-    if (pFile.isDirectory()) {
-      for (final File child : pFile.listFiles()) {
-        if (!recursiveDelete(child)) {
-          return false;
-        }
-      }
-    }
-    return pFile.delete();
-  }
-
   /**
    * Factory method to retrieve suitable {@link IStorage} instances based upon
    * the suitable {@link ResourceConfiguration}.
@@ -186,44 +83,5 @@ public enum EStorage {
   public static final IStorage getStorage(@Nonnull final ResourceConfiguration pResourceConf)
     throws TTIOException {
     return pResourceConf.mType.getInstance(pResourceConf);
-  }
-
-  /**
-   * Getting an instance of this enum for the identifier.
-   * 
-   * @param pId
-   *          the identifier of the enum
-   * @return a concrete enum
-   */
-  public static final EStorage getInstance(final int pId) {
-    return INSTANCEFORID.get(pId);
-  }
-
-  /**
-   * Getting an instance of this enum for the identifier.
-   * 
-   * @param pKey
-   *          the identifier of the enum
-   * @return a concrete enum
-   */
-  public static final EStorage getInstance(@Nonnull final Class<? extends IKey> pKey) {
-    return INSTANCEFORCLASS.get(pKey);
-  }
-
-  /**
-   * Serializing the keys.
-   * 
-   * @param pKey
-   *          to serialize
-   * @param pId
-   *          to serialize
-   * @param pSink
-   *          to be serialized to
-   */
-  private static void serializeKey(@Nonnull final IKey pKey, final int pId, @Nonnull final ITTSink pSink) {
-    pSink.writeInt(pId);
-    for (final long val : pKey.getKeys()) {
-      pSink.writeLong(val);
-    }
   }
 }

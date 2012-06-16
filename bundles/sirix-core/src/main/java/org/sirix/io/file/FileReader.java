@@ -32,13 +32,11 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 
 import org.sirix.exception.TTIOException;
-import org.sirix.io.IKey;
 import org.sirix.io.IReader;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.IPage;
-import org.sirix.utils.IConstants;
 
 /**
  * File Reader. Used for ReadTransaction to provide read only access on a
@@ -77,7 +75,7 @@ public final class FileReader implements IReader {
         pConcreteStorage.createNewFile();
       }
 
-      mFile = new RandomAccessFile(pConcreteStorage, IConstants.READ_ONLY);
+      mFile = new RandomAccessFile(pConcreteStorage, "r");
       mDecompressor = new CryptoJavaImpl();
     } catch (final IOException exc) {
       throw new TTIOException(exc);
@@ -89,26 +87,20 @@ public final class FileReader implements IReader {
    * 
    * @param pageReference
    *          to read.
-   * @return Byte array reader to read bytes from.o
+   * @return byte array reader to read bytes from
    * @throws TTIOException
    *           if there was an error during reading.
    */
   @Override
-  public IPage read(final IKey pKey) throws TTIOException {
-    if (pKey == null) {
-      return null;
-    }
-
+  public IPage read(final long pKey) throws TTIOException {
     final ByteBufferSinkAndSource buffer = new ByteBufferSinkAndSource();
     try {
-      final FileKey fileKey = (FileKey)pKey;
-
       // Prepare environment for read.
       buffer.position(OTHER_BEACON);
 
       // Read page from file.
-      mFile.seek(fileKey.getIdentifier());
-      final int dataLength = fileKey.getLength() + OTHER_BEACON;
+      mFile.seek(pKey);
+      final int dataLength = mFile.readInt();
       final byte[] page = new byte[dataLength];
       mFile.read(page);
       for (final byte byteVal : page) {
@@ -132,14 +124,7 @@ public final class FileReader implements IReader {
     try {
       // Read primary beacon.
       mFile.seek(0);
-      final FileKey key = new FileKey(mFile.readLong(), mFile.readInt());
-      uberPageReference.setKey(key);
-
-      // Check to writer ensure writing after the Beacon_Start
-      if (mFile.getFilePointer() < FIRST_BEACON) {
-        mFile.setLength(FIRST_BEACON);
-      }
-
+      uberPageReference.setKey(mFile.readLong());
       final UberPage page = (UberPage)read(uberPageReference.getKey());
       uberPageReference.setPage(page);
       return uberPageReference;

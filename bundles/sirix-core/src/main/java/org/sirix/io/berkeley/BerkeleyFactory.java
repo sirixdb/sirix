@@ -28,24 +28,6 @@
 package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.io.File;
-
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.exception.TTIOException;
-import org.sirix.io.IKey;
-import org.sirix.io.IReader;
-import org.sirix.io.IStorage;
-import org.sirix.io.IWriter;
-import org.sirix.io.KeyDelegate;
-import org.sirix.io.berkeley.binding.AbstractPageBinding;
-import org.sirix.io.berkeley.binding.KeyBinding;
-import org.sirix.io.berkeley.binding.PageBinding;
-import org.sirix.io.berkeley.binding.PageReferenceUberPageBinding;
-import org.sirix.page.PageReference;
-import org.sirix.page.interfaces.IPage;
-
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
@@ -55,6 +37,17 @@ import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
+
+import java.io.File;
+
+import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.exception.TTIOException;
+import org.sirix.io.IReader;
+import org.sirix.io.IStorage;
+import org.sirix.io.IWriter;
+import org.sirix.io.berkeley.binding.PageBinding;
+import org.sirix.page.delegates.PageDelegate;
 
 /**
  * Factory class to build up {@link IReader}/{@link IWriter} instances for the
@@ -68,14 +61,8 @@ import com.sleepycat.je.OperationStatus;
  */
 public final class BerkeleyFactory implements IStorage {
 
-  /** Binding for {@link KeyDelegate}. */
-  public static final TupleBinding<IKey> KEY = new KeyBinding();
-
   /** Binding for {@link PageDelegate}. */
   public static final PageBinding PAGE_VAL_B = new PageBinding();
-
-  /** Binding for {@link PageReference}. */
-  public static final TupleBinding<PageReference> FIRST_REV_VAL_B = new PageReferenceUberPageBinding();
 
   /** Binding for {@link Long}. */
   public static final TupleBinding<Long> DATAINFO_VAL_B = TupleBinding.getPrimitiveBinding(Long.class);
@@ -95,9 +82,6 @@ public final class BerkeleyFactory implements IStorage {
    */
   private final Database mDatabase;
 
-  /** Storage of DB. */
-  private final File mFile;
-
   /**
    * Constructor.
    * 
@@ -113,9 +97,7 @@ public final class BerkeleyFactory implements IStorage {
    *           if {@code pFile} is {@code null}
    */
   public BerkeleyFactory(final File pFile) throws TTIOException {
-    mFile = checkNotNull(pFile);
-
-    final File repoFile = new File(pFile, ResourceConfiguration.Paths.Data.getFile().getName());
+    final File repoFile = new File(checkNotNull(pFile), ResourceConfiguration.Paths.Data.getFile().getName());
     if (!repoFile.exists()) {
       repoFile.mkdirs();
     }
@@ -131,7 +113,6 @@ public final class BerkeleyFactory implements IStorage {
 
     try {
       mEnv = new Environment(repoFile, config);
-
       mDatabase = mEnv.openDatabase(null, NAME, conf);
     } catch (final DatabaseException exc) {
       throw new TTIOException(exc);
@@ -170,7 +151,7 @@ public final class BerkeleyFactory implements IStorage {
     boolean returnVal = false;
     try {
       final IReader reader = new BerkeleyReader(mEnv, mDatabase);
-      BerkeleyFactory.KEY.objectToEntry(BerkeleyKey.getFirstRevKey(), keyEntry);
+      TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
 
       final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
       if (status == OperationStatus.SUCCESS) {
@@ -181,21 +162,6 @@ public final class BerkeleyFactory implements IStorage {
       throw new TTIOException(exc);
     }
     return returnVal;
-
-  }
-
-  @Override
-  public void truncate() throws TTIOException {
-    try {
-      final Environment env =
-        new Environment(new File(mFile, ResourceConfiguration.Paths.Data.getFile().getName()),
-          generateEnvConf());
-      if (env.getDatabaseNames().contains(NAME)) {
-        env.removeDatabase(null, NAME);
-      }
-    } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
-    }
 
   }
 

@@ -33,7 +33,6 @@ import java.util.zip.Deflater;
 import java.util.zip.Inflater;
 
 import org.sirix.diff.algorithm.fmse.FMSE;
-import org.sirix.utils.IConstants;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -61,7 +60,7 @@ public class CryptoJavaImpl {
   public CryptoJavaImpl() {
     mCompressor = new Deflater();
     mDecompressor = new Inflater();
-    mTmp = new byte[IConstants.BUFFER_SIZE];
+    mTmp = new byte[FileFactory.BUFFER_SIZE];
     mOut = new ByteArrayOutputStream();
   }
 
@@ -125,7 +124,7 @@ public class CryptoJavaImpl {
     for (final byte byteVal : result) {
       pBuffer.writeByte(byteVal);
     }
-    return result.length + FileReader.OTHER_BEACON;
+    return pBuffer.position();
   }
 
 }

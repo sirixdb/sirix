@@ -29,8 +29,6 @@ package org.sirix.page;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.sirix.io.EStorage;
-import org.sirix.io.ITTSource;
 import org.sirix.page.interfaces.IPage;
 
 public enum EPage {
@@ -71,9 +69,9 @@ public enum EPage {
    * @param paramIdent
    *          identifier to be set.
    */
-  EPage(final int paramIdent, final Class<? extends IPage> paramClass) {
-    mIdent = paramIdent;
-    mClass = paramClass;
+  EPage(final int pIdent, final Class<? extends IPage> pClass) {
+    mIdent = pIdent;
+    mClass = pClass;
   }
 
   /**
@@ -96,18 +94,6 @@ public enum EPage {
    */
   public static final EPage getInstance(final Class<? extends IPage> paramKey) {
     return INSTANCEFORCLASS.get(paramKey);
-  }
-
-  public static final PageReference[] deserializeRef(final int paramRefSize, final ITTSource paramIn) {
-    final PageReference[] refs = new PageReference[paramRefSize];
-    for (int offset = 0; offset < refs.length; offset++) {
-      refs[offset] = new PageReference();
-      final EStorage storage = EStorage.getInstance(paramIn.readInt());
-      if (storage != null) {
-        refs[offset].setKey(storage.deserialize(paramIn));
-      }
-    }
-    return refs;
   }
 
 }

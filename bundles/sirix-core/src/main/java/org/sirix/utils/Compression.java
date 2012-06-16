@@ -37,6 +37,7 @@ import java.util.zip.Inflater;
 
 import javax.annotation.Nonnull;
 
+import org.sirix.io.file.FileFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -91,7 +92,7 @@ public class Compression {
      */
     try (ByteArrayOutputStream bos = new ByteArrayOutputStream(pToCompress.length)) {
       // Compress the data.
-      final byte[] buf = new byte[IConstants.BUFFER_SIZE];
+      final byte[] buf = new byte[FileFactory.BUFFER_SIZE];
       while (!mCompressor.finished()) {
         final int count = mCompressor.deflate(buf);
         bos.write(buf, 0, count);
@@ -128,7 +129,7 @@ public class Compression {
     // Create an expandable byte array to hold the decompressed data.
     try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(pCompressed.length)) {
       // Decompress the data.
-      final byte[] buf = new byte[IConstants.BUFFER_SIZE];
+      final byte[] buf = new byte[FileFactory.BUFFER_SIZE];
       while (!mDecompressor.finished()) {
         try {
           final int count = mDecompressor.inflate(buf);

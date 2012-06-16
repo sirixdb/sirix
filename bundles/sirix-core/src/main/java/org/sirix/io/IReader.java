@@ -57,7 +57,7 @@ public interface IReader {
    * @throws TTIOException
    *           if something bad happens during read
    */
-  IPage read(final IKey pKey) throws TTIOException;
+  IPage read(final long pKey) throws TTIOException;
 
   /**
    * Closing the storage.
