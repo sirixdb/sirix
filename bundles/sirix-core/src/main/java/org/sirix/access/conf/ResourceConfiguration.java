@@ -128,7 +128,7 @@ public final class ResourceConfiguration implements IConfigureSerializable {
 
   // FIXED STANDARD FIELDS
   /** Standard storage. */
-  public static final EStorage STORAGE = EStorage.BerkeleyDB;
+  public static final EStorage STORAGE = EStorage.File;
   /** Standard Versioning Approach. */
   public static final ERevisioning VERSIONING = ERevisioning.DIFFERENTIAL;
   /** Type of hashing. */
