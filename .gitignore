@@ -14,8 +14,8 @@
 *.class
 
 # Maven target dir
-*/.settings/org.maven.ide.eclipse.prefs
-*/.idea/workspace.xml
-*/doc
-*/lib
-*/target
+.settings/org.maven.ide.eclipse.prefs
+.idea/workspace.xml
+doc
+lib
+target
