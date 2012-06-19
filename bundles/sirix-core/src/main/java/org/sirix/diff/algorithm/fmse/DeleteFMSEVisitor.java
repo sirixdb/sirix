@@ -6,6 +6,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.slf4j.LoggerFactory;
 import org.sirix.access.AbsVisitorSupport;
 import org.sirix.api.INodeWriteTrx;
@@ -20,7 +23,7 @@ import org.sirix.node.interfaces.IStructNode;
 import org.sirix.utils.LogWrapper;
 
 /**
- * Visitor implementation for use with the {@link DescendantAxis} to delete
+ * Visitor implementation for use with the {@link VisitorDescendantAxis} to delete
  * unmatched nodes in the FSME implementation in the second step.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -52,7 +55,8 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
    * @param pStartKey
    *          start key
    */
-  public DeleteFMSEVisitor(final INodeWriteTrx pWtx, final Matching pMatching, final long pStartKey) {
+  public DeleteFMSEVisitor(@Nonnull final INodeWriteTrx pWtx,
+    @Nonnull final Matching pMatching, @Nonnegative final long pStartKey) {
     mWtx = checkNotNull(pWtx);
     mMatching = checkNotNull(pMatching);
     checkArgument(pStartKey >= 0, "start key must be >= 0!");
@@ -60,7 +64,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
   }
 
   @Override
-  public EVisitResult visit(final ElementNode pNode) {
+  public EVisitResult visit(@Nonnull final ElementNode pNode) {
     final Long partner = mMatching.partner(pNode.getNodeKey());
     if (partner == null) {
       EVisitResult retVal = delete(pNode);
@@ -71,7 +75,8 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
     } else {
       final long nodeKey = pNode.getNodeKey();
       final List<Long> keysToDelete =
-        new ArrayList<Long>(pNode.getAttributeCount() + pNode.getNamespaceCount());
+        new ArrayList<Long>(pNode.getAttributeCount()
+          + pNode.getNamespaceCount());
       for (int i = 0; i < pNode.getAttributeCount(); i++) {
         mWtx.moveToAttribute(i);
         final long attNodeKey = mWtx.getNode().getNodeKey();
@@ -104,7 +109,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
   }
 
   @Override
-  public EVisitResult visit(final TextNode pNode) {
+  public EVisitResult visit(@Nonnull final TextNode pNode) {
     final Long partner = mMatching.partner(pNode.getNodeKey());
     if (partner == null) {
       EVisitResult retVal = delete(pNode);
@@ -127,14 +132,16 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
    *          the node to check and possibly delete
    * @return {@code EVisitResult} how to move the transaction subsequently
    */
-  private EVisitResult delete(final INode pNode) {
+  private EVisitResult delete(@Nonnull final INode pNode) {
     try {
       mWtx.moveTo(pNode.getNodeKey());
       final long nodeKey = mWtx.getNode().getNodeKey();
       boolean removeTextNode = false;
       if (mWtx.getStructuralNode().hasLeftSibling() && mWtx.moveToLeftSibling()
-        && mWtx.getNode().getKind() == ENode.TEXT_KIND && mWtx.moveToRightSibling()
-        && mWtx.getStructuralNode().hasRightSibling() && mWtx.moveToRightSibling()
+        && mWtx.getNode().getKind() == ENode.TEXT_KIND
+        && mWtx.moveToRightSibling()
+        && mWtx.getStructuralNode().hasRightSibling()
+        && mWtx.moveToRightSibling()
         && mWtx.getStructuralNode().getKind() == ENode.TEXT_KIND) {
         removeTextNode = true;
       }
@@ -151,25 +158,18 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
       mWtx.moveTo(nodeKey);
 
       // Case: Has left sibl. but no right sibl.
-      if (!mWtx.getStructuralNode().hasRightSibling() && mWtx.getStructuralNode().hasLeftSibling()) {
+      if (!mWtx.getStructuralNode().hasRightSibling()
+        && mWtx.getStructuralNode().hasLeftSibling()) {
         mWtx.remove();
         return EVisitResult.CONTINUE;
       }
 
       // Case: Has right sibl. and left sibl.
-      if (mWtx.getStructuralNode().hasRightSibling() && mWtx.getStructuralNode().hasLeftSibling()) {
+      if (mWtx.getStructuralNode().hasRightSibling()
+        && mWtx.getStructuralNode().hasLeftSibling()) {
         if (removeTextNode) {
-          mWtx.moveToRightSibling();
-          if (mWtx.getStructuralNode().hasRightSibling()) {
-            mWtx.moveToLeftSibling();
-            mWtx.remove();
-            mWtx.moveToLeftSibling();
-            return EVisitResult.SKIPSUBTREE;
-          } else {
-            mWtx.moveToLeftSibling();
-            mWtx.remove();
-            return EVisitResult.CONTINUE;
-          }
+          mWtx.remove();
+          return EVisitResult.CONTINUE;
         } else {
           mWtx.remove();
           mWtx.moveToLeftSibling();
@@ -178,24 +178,11 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
       }
 
       // Case: Has right sibl. but no left sibl.
-      if (mWtx.getStructuralNode().hasRightSibling() && !mWtx.getStructuralNode().hasLeftSibling()) {
-        if (removeTextNode) {
-          mWtx.moveToRightSibling();
-          if (mWtx.getStructuralNode().hasRightSibling()) {
-            mWtx.moveToLeftSibling();
-            mWtx.remove();
-            mWtx.moveToParent();
-            return EVisitResult.CONTINUE;
-          } else {
-            mWtx.moveToLeftSibling();
-            mWtx.remove();
-            return EVisitResult.CONTINUE;
-          }
-        } else {
-          mWtx.remove();
-          mWtx.moveToParent();
-          return EVisitResult.CONTINUE;
-        }
+      if (mWtx.getStructuralNode().hasRightSibling()
+        && !mWtx.getStructuralNode().hasLeftSibling()) {
+        mWtx.remove();
+        mWtx.moveToParent();
+        return EVisitResult.CONTINUE;
       }
 
       // Case: Has no right and no left sibl.

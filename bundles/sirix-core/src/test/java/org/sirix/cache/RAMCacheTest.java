@@ -42,7 +42,7 @@ import org.sirix.exception.AbsTTException;
  */
 public class RAMCacheTest {
 
-  private ICache<Long, NodePageContainer> cache;
+  private ICache<Long, PageContainer> cache;
 
   @Before
   public void setUp() throws AbsTTException {

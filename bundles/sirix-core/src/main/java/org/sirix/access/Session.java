@@ -57,7 +57,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.cache.NodePageContainer;
+import org.sirix.cache.PageContainer;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTThreadedException;
@@ -66,6 +66,7 @@ import org.sirix.io.EStorage;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
 import org.sirix.io.IWriter;
+import org.sirix.page.NodePage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
@@ -340,7 +341,7 @@ public final class Session implements ISession {
     return mSessionConfig.mUser;
   }
 
-  protected synchronized void syncLogs(final NodePageContainer mContToSync, final long mTransactionId)
+  protected synchronized void syncLogs(final PageContainer mContToSync, final long mTransactionId)
     throws TTThreadedException {
     final ExecutorService exec = Executors.newCachedThreadPool();
     final Collection<Future<Void>> returnVals = new ArrayList<Future<Void>>();
@@ -354,7 +355,7 @@ public final class Session implements ISession {
       mSyncTransactionsReturns.put(mTransactionId, new ConcurrentHashMap<Long, Collection<Future<Void>>>());
     }
 
-    if (mSyncTransactionsReturns.get(mTransactionId).put(mContToSync.getComplete().getNodePageKey(),
+    if (mSyncTransactionsReturns.get(mTransactionId).put(((NodePage)mContToSync.getComplete()).getNodePageKey(),
       returnVals) != null) {
       throw new TTThreadedException("only one commit and therefore sync per id and nodepage is allowed!");
     }
@@ -386,10 +387,10 @@ public final class Session implements ISession {
     /** {@link IPageWriteTrx} to interact with the page layer. */
     private final IPageWriteTrx mPageWriteTrx;
 
-    /** {@link NodePageContainer} reference. */
-    private final NodePageContainer mCont;
+    /** {@link PageContainer} reference. */
+    private final PageContainer mCont;
 
-    LogSyncer(final IPageWriteTrx pPageWriteTransaction, final NodePageContainer pNodePageCont) {
+    LogSyncer(final IPageWriteTrx pPageWriteTransaction, final PageContainer pNodePageCont) {
       mPageWriteTrx = checkNotNull(pPageWriteTransaction);
       mCont = checkNotNull(pNodePageCont);
     }

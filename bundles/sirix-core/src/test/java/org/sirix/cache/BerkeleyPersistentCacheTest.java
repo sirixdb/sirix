@@ -41,7 +41,7 @@ import org.sirix.page.NodePage;
 
 public class BerkeleyPersistentCacheTest {
 
-  private ICache<Long, NodePageContainer> cache;
+  private ICache<Long, PageContainer> cache;
 
   @Before
   public void setUp() throws AbsTTException {
@@ -56,8 +56,8 @@ public class BerkeleyPersistentCacheTest {
   @Test
   public void test() {
     for (long i = 0; i < CacheTestHelper.PAGES.length; i++) {
-      final NodePageContainer cont = cache.get(i);
-      final NodePage current = cont.getComplete();
+      final PageContainer cont = cache.get(i);
+      final NodePage current = (NodePage)cont.getComplete();
       assertEquals(CacheTestHelper.PAGES[(int)i][0], current);
     }
     cache.clear();

@@ -32,7 +32,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.io.EStorage;
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
 import org.sirix.page.PageReference;
@@ -98,10 +97,10 @@ public class PageDelegate implements IPage {
    * @return {@link PageReference} at given offset
    */
   public final PageReference getChildren(@Nonnegative final int pOffset) {
-    if (getReferences()[pOffset] == null) {
-      getReferences()[pOffset] = new PageReference();
+    if (mReferences[pOffset] == null) {
+      mReferences[pOffset] = new PageReference();
     }
-    return getReferences()[pOffset];
+    return mReferences[pOffset];
   }
 
   /**
@@ -114,7 +113,7 @@ public class PageDelegate implements IPage {
    */
   @Override
   public final void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
-    for (final PageReference reference : getReferences()) {
+    for (final PageReference reference : mReferences) {
       pPageWriteTrx.commit(reference);
     }
   }
@@ -127,17 +126,21 @@ public class PageDelegate implements IPage {
    */
   @Override
   public void serialize(@Nonnull final ITTSink pOut) {
-    for (final PageReference reference : getReferences()) {
+    for (final PageReference reference : mReferences) {
       pOut.writeLong(reference.getKey());
     }
   }
 
   /**
-   * @return the mReferences
+   * Get all references.
+   * 
+   * @return copied references
    */
   @Override
   public final PageReference[] getReferences() {
-    return mReferences;
+    final PageReference[] copiedRefs = new PageReference[mReferences.length];
+    System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
+    return copiedRefs;
   }
 
   /**

@@ -24,7 +24,7 @@ import org.sirix.exception.TTIOException;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class GuavaCache implements ICache<Long, NodePageContainer> {
+public class GuavaCache implements ICache<Long, PageContainer> {
 
   /**
    * Pool for prefetching.
@@ -44,7 +44,7 @@ public class GuavaCache implements ICache<Long, NodePageContainer> {
   /**
    * {@link LoadingCache} reference.
    */
-  private final LoadingCache<Long, NodePageContainer> mCache;
+  private final LoadingCache<Long, PageContainer> mCache;
 
   /**
    * Constructor with no second cache.
@@ -53,7 +53,7 @@ public class GuavaCache implements ICache<Long, NodePageContainer> {
    *          {@link IPageReadTrx} implementation
    */
   public GuavaCache(final IPageReadTrx pPageReadTransaction) {
-    this(pPageReadTransaction, new NullCache<Long, NodePageContainer>());
+    this(pPageReadTransaction, new NullCache<Long, PageContainer>());
   }
 
   /**
@@ -65,25 +65,25 @@ public class GuavaCache implements ICache<Long, NodePageContainer> {
    *          second fallback cache
    */
   public GuavaCache(final IPageReadTrx pPageReadTransaction,
-    final ICache<Long, NodePageContainer> pSecondCache) {
+    final ICache<Long, PageContainer> pSecondCache) {
     checkNotNull(pPageReadTransaction);
     checkNotNull(pSecondCache);
 
     final CacheBuilder<Object, Object> builder =
       CacheBuilder.newBuilder().maximumSize(MAX_SIZE).expireAfterAccess(EXPIRE_AFTER, TimeUnit.SECONDS);
     if (!(pSecondCache instanceof NullCache)) {
-      RemovalListener<Long, NodePageContainer> removalListener =
-        new RemovalListener<Long, NodePageContainer>() {
+      RemovalListener<Long, PageContainer> removalListener =
+        new RemovalListener<Long, PageContainer>() {
           @Override
-          public void onRemoval(final RemovalNotification<Long, NodePageContainer> pRemoval) {
+          public void onRemoval(final RemovalNotification<Long, PageContainer> pRemoval) {
             pSecondCache.put(pRemoval.getKey(), pRemoval.getValue());
           }
         };
       builder.removalListener(removalListener);
     }
-    mCache = builder.build(new CacheLoader<Long, NodePageContainer>() {
+    mCache = builder.build(new CacheLoader<Long, PageContainer>() {
       @Override
-      public NodePageContainer load(final Long key) throws TTIOException {
+      public PageContainer load(final Long key) throws TTIOException {
         return pPageReadTransaction.getNodeFromPage(key);
       }
     });
@@ -113,13 +113,13 @@ public class GuavaCache implements ICache<Long, NodePageContainer> {
   }
 
   @Override
-  public synchronized NodePageContainer get(final Long pKey) {
+  public synchronized PageContainer get(final Long pKey) {
     try {
       if (pKey < 0) {
-        return NodePageContainer.EMPTY_INSTANCE;
+        return PageContainer.EMPTY_INSTANCE;
       }
-      NodePageContainer container = mCache.getIfPresent(pKey);
-      if (container != null && container.equals(NodePageContainer.EMPTY_INSTANCE)) {
+      PageContainer container = mCache.getIfPresent(pKey);
+      if (container != null && container.equals(PageContainer.EMPTY_INSTANCE)) {
         mCache.invalidate(pKey);
         container = mCache.get(pKey);
       } else if (container == null) {
@@ -132,12 +132,12 @@ public class GuavaCache implements ICache<Long, NodePageContainer> {
   }
 
   @Override
-  public void put(final Long pKey, final NodePageContainer pValue) {
+  public void put(final Long pKey, final PageContainer pValue) {
     mCache.put(pKey, pValue);
   }
 
   @Override
-  public ImmutableMap<Long, NodePageContainer> getAll(Iterable<? extends Long> keys) {
+  public ImmutableMap<Long, PageContainer> getAll(Iterable<? extends Long> keys) {
     try {
       return mCache.getAll(keys);
     } catch (final ExecutionException e) {

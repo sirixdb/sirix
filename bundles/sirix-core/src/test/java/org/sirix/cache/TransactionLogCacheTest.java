@@ -34,7 +34,7 @@ import org.sirix.TestHelper;
 import org.sirix.exception.AbsTTException;
 
 public class TransactionLogCacheTest {
-  private ICache<Long, NodePageContainer> cache;
+  private ICache<Long, PageContainer> cache;
 
   @Before
   public void setUp() throws AbsTTException {

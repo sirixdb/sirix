@@ -55,13 +55,13 @@ public interface ICache<K, V> {
    * Getting a page related to a given nodepagekey.
    * 
    * @param pKey
-   *          the key for the requested {@link NodePageContainer}
-   * @return {@link NodePageContainer} instance related to this key
+   *          the key for the requested {@link PageContainer}
+   * @return {@link PageContainer} instance related to this key
    */
   V get(@Nonnull final K pKey);
 
   /**
-   * Putting an {@link NodePageContainer} into the cache with a corresponding
+   * Putting an {@link PageContainer} into the cache with a corresponding
    * nodepagekey.
    * 
    * @param pKey

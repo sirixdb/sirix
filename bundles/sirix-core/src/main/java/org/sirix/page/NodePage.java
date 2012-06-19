@@ -229,6 +229,7 @@ public class NodePage implements IPage {
   }
 
   @Override
-  public void commit(final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
+  public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
   }
+
 }

@@ -41,7 +41,7 @@ import org.sirix.page.NodePage;
  */
 public class LRUCacheTest {
 
-  private ICache<Long, NodePageContainer> cache;
+  private ICache<Long, PageContainer> cache;
 
   @Before
   public void setUp() throws AbsTTException {
@@ -52,12 +52,12 @@ public class LRUCacheTest {
   @Test
   public void test() {
     for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
-      final NodePageContainer cont = cache.get((long)i);
-      final NodePage current = cont.getComplete();
+      final PageContainer cont = cache.get((long)i);
+      final NodePage current = (NodePage)cont.getComplete();
       assertEquals(CacheTestHelper.PAGES[i][0], current);
     }
 
-    final NodePageContainer page = cache.get(0L);
+    final PageContainer page = cache.get(0L);
     assertNull(page);
 
   }

@@ -1,11 +1,13 @@
 package org.sirix.indexes;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.collect.HashBiMap;
 
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+
+import javax.annotation.Nonnull;
 
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
@@ -29,8 +31,8 @@ public final class Names {
    * Constructor creating a new index structure.
    */
   private Names() {
-    mNameMap = new LinkedHashMap<>();
-    mCountNameMapping = new LinkedHashMap<>();
+    mNameMap = new HashMap<>();
+    mCountNameMapping = new HashMap<>();
   }
 
   /**
@@ -41,7 +43,7 @@ public final class Names {
    */
   private Names(final ITTSource pIn) {
     final int mapSize = pIn.readInt();
-    mNameMap = new HashMap<>(mapSize);
+    mNameMap = HashBiMap.create(mapSize);
     mCountNameMapping = new HashMap<>(mapSize);
     for (int i = 0, l = mapSize; i < l; i++) {
       final int key = pIn.readInt();
@@ -61,7 +63,7 @@ public final class Names {
    * @param pOut
    *          the persistent storage
    */
-  public void serialize(final ITTSink pOut) {
+  public void serialize(@Nonnull final ITTSink pOut) {
     pOut.writeInt(mNameMap.size());
     for (final Entry<Integer, String> entry : mNameMap.entrySet()) {
       pOut.writeInt(entry.getKey());
@@ -80,8 +82,8 @@ public final class Names {
    * @param pKey
    *          the key to remove
    */
-  public void removeName(final Integer pKey) {
-    final Integer prevValue = mCountNameMapping.get(checkNotNull(pKey));
+  public void removeName(final int pKey) {
+    final Integer prevValue = mCountNameMapping.get(pKey);
     if (prevValue != null) {
       if (prevValue - 1 == 0) {
         mNameMap.remove(pKey);
@@ -99,7 +101,7 @@ public final class Names {
    *          the string representation
    * @return byte representation of a string value in a map
    */
-  private byte[] getBytes(final String pName) {
+  private byte[] getBytes(@Nonnull final String pName) {
     return pName.getBytes(IConstants.DEFAULT_ENCODING);
   }
 
@@ -111,7 +113,7 @@ public final class Names {
    * @param pName
    *          name to create key for
    */
-  public void setName(final int pKey, final String pName) {
+  public void setName(final int pKey, @Nonnull final String pName) {
     mNameMap.put(pKey, checkNotNull(pName));
     final Integer prevValue = mCountNameMapping.get(pKey);
     if (prevValue == null) {
@@ -130,7 +132,7 @@ public final class Names {
    */
   public String getName(final int pKey) {
     return mNameMap.get(pKey);
-  }
+  }  
 
   /**
    * Get the name for the key.
@@ -156,10 +158,10 @@ public final class Names {
    * Clone an instance.
    * 
    * @param pIn
-   *          from the persistent storage
+   *          input source, the persistent storage
    * @return cloned index
    */
-  public static Names clone(final ITTSource pIn) {
+  public static Names clone(@Nonnull final ITTSource pIn) {
     return new Names(pIn);
   }
 }

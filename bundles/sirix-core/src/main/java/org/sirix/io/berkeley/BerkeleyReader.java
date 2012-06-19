@@ -46,7 +46,7 @@ import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.IPage;
 
 /**
- * This class represents an reading instance of the sirix-Application
+ * This class represents an reading instance of the Sirix-Application
  * implementing the {@link IReader}-interface.
  * 
  * @author Sebastian Graf, University of Konstanz
@@ -85,12 +85,13 @@ public final class BerkeleyReader implements IReader {
    * @throws DatabaseException
    *           if something weird happens
    */
-  public BerkeleyReader(final Environment pEnv, final Database pDatabase) throws DatabaseException {
+  public BerkeleyReader(@Nonnull final Environment pEnv,
+    @Nonnull final Database pDatabase) throws DatabaseException {
     this(pDatabase, pEnv.beginTransaction(null, null));
   }
 
   @Override
-  public IPage read(@Nonnull final long pKey) throws TTIOException {
+  public IPage read(final long pKey) throws TTIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
 
@@ -98,7 +99,8 @@ public final class BerkeleyReader implements IReader {
 
     IPage page = null;
     try {
-      final OperationStatus status = mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
+      final OperationStatus status =
+        mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
       if (status == OperationStatus.SUCCESS) {
         page = BerkeleyFactory.PAGE_VAL_B.entryToObject(valueEntry);
       }
@@ -115,10 +117,12 @@ public final class BerkeleyReader implements IReader {
     TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
 
     try {
-      final OperationStatus status = mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
+      final OperationStatus status =
+        mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
       PageReference uberPageReference = new PageReference();
       if (status == OperationStatus.SUCCESS) {
-        uberPageReference.setKey(TupleBinding.getPrimitiveBinding(Long.class).entryToObject(valueEntry));
+        uberPageReference.setKey(TupleBinding.getPrimitiveBinding(Long.class)
+          .entryToObject(valueEntry));
       }
       final UberPage page = (UberPage)read(uberPageReference.getKey());
 

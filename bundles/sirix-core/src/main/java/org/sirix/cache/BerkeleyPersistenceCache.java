@@ -55,7 +55,7 @@ import org.sirix.exception.TTIOException;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, NodePageContainer> {
+public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, PageContainer> {
 
   /**
    * Flush after defined value.
@@ -85,7 +85,7 @@ public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, No
   /**
    * Binding for the value which is a page with related Nodes.
    */
-  private final NodePageContainerBinding mValueBinding;
+  private final PageContainerBinding mValueBinding;
 
   /** Cache entries. */
   private long mEntries;
@@ -116,7 +116,7 @@ public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, No
       mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
       mKeyBinding = TupleBinding.getPrimitiveBinding(Long.class);
-      mValueBinding = new NodePageContainerBinding();
+      mValueBinding = new PageContainerBinding();
       mEntries = 0;
     } catch (final DatabaseException exc) {
       throw new TTIOException(exc);
@@ -124,7 +124,7 @@ public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, No
   }
 
   @Override
-  public void putPersistent(@Nonnull final Long pKey, @Nonnull final NodePageContainer pPage)
+  public void putPersistent(@Nonnull final Long pKey, @Nonnull final PageContainer pPage)
     throws TTIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -154,13 +154,13 @@ public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, No
   }
 
   @Override
-  public NodePageContainer getPersistent(@Nonnull final Long pKey) throws TTIOException {
+  public PageContainer getPersistent(@Nonnull final Long pKey) throws TTIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
     mKeyBinding.objectToEntry(checkNotNull(pKey), keyEntry);
     try {
       final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
-      NodePageContainer val = null;
+      PageContainer val = null;
       if (status == OperationStatus.SUCCESS) {
         val = mValueBinding.entryToObject(valueEntry);
       }
@@ -171,7 +171,7 @@ public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, No
   }
 
   @Override
-  public ImmutableMap<Long, NodePageContainer> getAll(@Nonnull Iterable<? extends Long> keys) {
+  public ImmutableMap<Long, PageContainer> getAll(@Nonnull Iterable<? extends Long> keys) {
     throw new UnsupportedOperationException();
   }
 }

@@ -29,71 +29,238 @@ package org.sirix.page;
 import java.util.HashMap;
 import java.util.Map;
 
+import javax.annotation.Nonnull;
+
+import org.sirix.io.ITTSink;
+import org.sirix.io.ITTSource;
 import org.sirix.page.interfaces.IPage;
 
+/**
+ * All Page types.
+ */
 public enum EPage {
+  /**
+   * {@link NodePage}.
+   */
+  NODEPAGE((byte)1, NodePage.class) {
+    @Override
+    IPage deserializePage(final ITTSource pSource) {
+      return new NodePage(pSource);
+    }
 
-  Node(1, NodePage.class) {
+    @Override
+    void serializePage(final ITTSink pSink, final IPage pPage) {
+      pSink.writeByte(NODEPAGE.mId);
+      serialize(pSink, pPage);
+    }
 
+    @Override
+    public IPage getInstance(final IPage pPage) {
+      assert pPage instanceof NodePage;
+      final NodePage page = (NodePage)pPage;
+      return new NodePage(page.getNodePageKey(), page.getRevision());
+    }
   },
 
-  Name(2, NamePage.class) {
+  /**
+   * {@link NamePage}.
+   */
+  NAMEPAGE((byte)2, NamePage.class) {
+    @Override
+    IPage deserializePage(final ITTSource pSource) {
+      return new NamePage(pSource);
+    }
 
+    @Override
+    void serializePage(final ITTSink pSink, final IPage pPage) {
+      pSink.writeByte(NAMEPAGE.mId);
+      serialize(pSink, pPage);
+    }
+
+    @Override
+    public IPage getInstance(final IPage pPage) {
+      return new NamePage(pPage.getRevision());
+    }
   },
-  Uber(3, UberPage.class) {
+
+  /**
+   * {@link UberPage}.
+   */
+  UBERPAGE((byte)3, UberPage.class) {
+    @Override
+    IPage deserializePage(final ITTSource pSource) {
+      return new UberPage(pSource);
+    }
+
+    @Override
+    void serializePage(final ITTSink pSink, final IPage pPage) {
+      pSink.writeByte(UBERPAGE.mId);
+      serialize(pSink, pPage);
+    }
+
+    @Override
+    public IPage getInstance(final IPage pPage) {
+      return new UberPage();
+    }
   },
-  Indirect(4, IndirectPage.class) {
+
+  /**
+   * {@link IndirectPage}.
+   */
+  INDIRECTPAGE((byte)4, IndirectPage.class) {
+    @Override
+    IPage deserializePage(final ITTSource pSource) {
+      return new IndirectPage(pSource);
+    }
+
+    @Override
+    void serializePage(final ITTSink pSink, final IPage pPage) {
+      pSink.writeByte(INDIRECTPAGE.mId);
+      serialize(pSink, pPage);
+    }
+
+    @Override
+    public IPage getInstance(final IPage pPage) {
+      return new IndirectPage(pPage.getRevision());
+    }
   },
-  Revision(5, RevisionRootPage.class) {
+
+  /**
+   * {@link RevisionRootPage}.
+   */
+  REVISIONROOTPAGE((byte)5, RevisionRootPage.class) {
+    @Override
+    IPage deserializePage(final ITTSource pSource) {
+      return new RevisionRootPage(pSource);
+    }
+
+    @Override
+    void serializePage(final ITTSink pSink, final IPage pPage) {
+      pSink.writeByte(REVISIONROOTPAGE.mId);
+      serialize(pSink, pPage);
+    }
+
+    @Override
+    public IPage getInstance(final IPage pPage) {
+      return new RevisionRootPage();
+    }
+  },
+
+  /**
+   * {@link MetaPage}.
+   */
+  METAPAGE((byte)6, MetaPage.class) {
+    @Override
+    IPage deserializePage(final ITTSource pSource) {
+      return new MetaPage(pSource);
+    }
+
+    @Override
+    void serializePage(final ITTSink pSink, final IPage pPage) {
+      pSink.writeByte(METAPAGE.mId);
+      serialize(pSink, pPage);
+    }
+
+    @Override
+    public IPage getInstance(final IPage pPage) {
+      return new RevisionRootPage();
+    }
   };
 
-  /** Getting identifier mapping. */
-  private static final Map<Integer, EPage> INSTANCEFORID = new HashMap<>();
-  private static final Map<Class<? extends IPage>, EPage> INSTANCEFORCLASS = new HashMap<>();
+  /**
+   * Serialize a page to disk.
+   * 
+   * @param pSink
+   *          reference to storage
+   * @param pPage
+   *          the current {@link IPage}
+   */
+  private static final void serialize(final ITTSink pSink, final IPage pPage) {
+    pSink.writeLong(pPage.getRevision());
+    pPage.serialize(pSink);
+  }
+
+  /** Mapping of keys -> page */
+  private static final Map<Byte, EPage> INSTANCEFORID = new HashMap<>();
+
+  /** Mapping of class -> page. */
+  private static final Map<Class<? extends IPage>, EPage> INSTANCEFORCLASS =
+    new HashMap<>();
+
   static {
-    for (EPage page : values()) {
-      INSTANCEFORID.put(page.mIdent, page);
-      INSTANCEFORCLASS.put(page.mClass, page);
+    for (final EPage node : values()) {
+      INSTANCEFORID.put(node.mId, node);
+      INSTANCEFORCLASS.put(node.mClass, node);
     }
   }
 
-  /** Identifier for the storage. */
-  final int mIdent;
+  /** Unique ID. */
+  private final byte mId;
 
-  /** Class for Key. */
-  final Class<? extends IPage> mClass;
+  /** Class. */
+  private final Class<? extends IPage> mClass;
 
   /**
    * Constructor.
    * 
-   * @param paramIdent
-   *          identifier to be set.
+   * @param pId
+   *          unique identifier
+   * @param pClass
+   *          class
    */
-  EPage(final int pIdent, final Class<? extends IPage> pClass) {
-    mIdent = pIdent;
+  EPage(final byte pId, final Class<? extends IPage> pClass) {
+    mId = pId;
     mClass = pClass;
   }
 
   /**
-   * Getting an instance of this enum for the identifier.
+   * Serialize page.
    * 
-   * @param paramId
-   *          the identifier of the enum.
-   * @return a concrete enum
+   * @param pSink
+   *          {@link ITTSink} implementation
+   * @param pPage
+   *          {@link IPage} implementation
    */
-  public static final EPage getInstance(final Integer paramId) {
-    return INSTANCEFORID.get(paramId);
+  abstract void serializePage(@Nonnull final ITTSink pSink,
+    @Nonnull final IPage pPage);
+
+  /**
+   * Deserialize page.
+   * 
+   * @param pSource
+   *          {@link ITTSource} implementation
+   * @return page instance implementing the {@link IPage} interface
+   */
+  abstract IPage deserializePage(@Nonnull final ITTSource pSource);
+
+  /**
+   * Public method to get the related page based on the identifier.
+   * 
+   * @param pId
+   *          the identifier for the page
+   * @return the related page
+   */
+  public static EPage getKind(final byte pId) {
+    return INSTANCEFORID.get(pId);
   }
 
   /**
-   * Getting an instance of this enum for the identifier.
+   * Public method to get the related page based on the class.
    * 
-   * @param paramKey
-   *          the identifier of the enum.
-   * @return a concrete enum
+   * @param pClass
+   *          the class for the page
+   * @return the related page
    */
-  public static final EPage getInstance(final Class<? extends IPage> paramKey) {
-    return INSTANCEFORCLASS.get(paramKey);
+  public static EPage getKind(final Class<? extends IPage> pClass) {
+    return INSTANCEFORCLASS.get(pClass);
   }
 
+  /**
+   * New page instance.
+   * 
+   * @param pPage
+   *          {@link IPage} implementation
+   * @return new page instance
+   */
+  public abstract IPage getInstance(final IPage pPage);
 }

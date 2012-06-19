@@ -1,7 +1,7 @@
 package org.sirix.api;
 
 import com.google.common.base.Optional;
-import org.sirix.cache.NodePageContainer;
+import org.sirix.cache.PageContainer;
 import org.sirix.exception.TTIOException;
 import org.sirix.node.ENode;
 import org.sirix.node.interfaces.INode;
@@ -68,7 +68,7 @@ public interface IPageReadTrx extends AutoCloseable {
    * @throws TTIOException
    *           if can't read nodePage
    */
-  NodePageContainer getNodeFromPage(long key) throws TTIOException;
+  PageContainer getNodeFromPage(long key) throws TTIOException;
 
   /**
    * Get the {@link UberPage}.

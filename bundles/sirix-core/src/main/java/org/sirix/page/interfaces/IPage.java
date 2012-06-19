@@ -33,6 +33,8 @@ import org.sirix.page.PageReference;
 
 public interface IPage {
 
+  
+  
   void serialize(final ITTSink pOut);
 
   long getRevision();
@@ -40,5 +42,7 @@ public interface IPage {
   PageReference[] getReferences();
 
   void commit(final IPageWriteTrx pPageWriteTrx) throws AbsTTException;
+  
+  
 
 }

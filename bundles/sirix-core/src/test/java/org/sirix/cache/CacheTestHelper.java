@@ -41,7 +41,7 @@ public class CacheTestHelper {
 
   protected static NodePage[][] PAGES;
 
-  public static void setUp(final ICache<Long, NodePageContainer> cache) throws AbsTTException {
+  public static void setUp(final ICache<Long, PageContainer> cache) throws AbsTTException {
     PAGES = new NodePage[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
       final NodePage page = new NodePage(i, 0);
@@ -52,7 +52,7 @@ public class CacheTestHelper {
         revs[j] = PAGES[i][j + 1];
       }
       PAGES[i][0] = page;
-      cache.put((long)i, new NodePageContainer(page));
+      cache.put((long)i, new PageContainer(page));
     }
   }
 

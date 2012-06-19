@@ -48,12 +48,12 @@ import org.sirix.exception.TTIOException;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class TransactionLogCache implements ICache<Long, NodePageContainer> {
+public final class TransactionLogCache implements ICache<Long, PageContainer> {
 
   /**
    * RAM-Based first cache.
    */
-  private final LRUCache<Long, NodePageContainer> mFirstCache;
+  private final LRUCache<Long, PageContainer> mFirstCache;
 
   /**
    * Constructor including the {@link DatabaseConfiguration} for persistent
@@ -78,9 +78,9 @@ public final class TransactionLogCache implements ICache<Long, NodePageContainer
   }
 
   @Override
-  public ImmutableMap<Long, NodePageContainer> getAll(@Nonnull final Iterable<? extends Long> pKeys) {
-    final ImmutableMap.Builder<Long, NodePageContainer> builder =
-      new ImmutableMap.Builder<Long, NodePageContainer>();
+  public ImmutableMap<Long, PageContainer> getAll(@Nonnull final Iterable<? extends Long> pKeys) {
+    final ImmutableMap.Builder<Long, PageContainer> builder =
+      new ImmutableMap.Builder<Long, PageContainer>();
     for (final Long key : pKeys) {
       if (mFirstCache.get(key) != null) {
         builder.put(key, mFirstCache.get(key));
@@ -95,12 +95,12 @@ public final class TransactionLogCache implements ICache<Long, NodePageContainer
   }
 
   @Override
-  public NodePageContainer get(Long pKey) {
+  public PageContainer get(Long pKey) {
     return mFirstCache.get(pKey);
   }
 
   @Override
-  public void put(@Nonnull Long pKey, @Nonnull NodePageContainer pValue) {
+  public void put(@Nonnull Long pKey, @Nonnull PageContainer pValue) {
     mFirstCache.put(pKey, pValue);
   }
 }

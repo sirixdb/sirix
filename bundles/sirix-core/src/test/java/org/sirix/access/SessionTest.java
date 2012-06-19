@@ -233,13 +233,11 @@ public class SessionTest {
     rtx.close();
     rtx.close();
     holder.getSession().close();
-
   }
 
   @Test
   public void testAutoCommit() throws AbsTTException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-
     DocumentCreater.create(wtx);
   }
 

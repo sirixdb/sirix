@@ -130,7 +130,7 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   /** Standard storage. */
   public static final EStorage STORAGE = EStorage.File;
   /** Standard Versioning Approach. */
-  public static final ERevisioning VERSIONING = ERevisioning.DIFFERENTIAL;
+  public static final ERevisioning VERSIONING = ERevisioning.INCREMENTAL;
   /** Type of hashing. */
   public static final EHashKind HASHKIND = EHashKind.Rolling;
   /** Versions to restore. */

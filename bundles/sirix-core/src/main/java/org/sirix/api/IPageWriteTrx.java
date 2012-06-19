@@ -1,6 +1,6 @@
 package org.sirix.api;
 
-import org.sirix.cache.NodePageContainer;
+import org.sirix.cache.PageContainer;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTThreadedException;
@@ -88,9 +88,9 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * Update log.
    * 
    * @param pNodePageCont
-   *          {@link NodePageContainer} reference to synchronize
+   *          {@link PageContainer} reference to synchronize
    */
-  void updateDateContainer(NodePageContainer pNodePageCont);
+  void updateDateContainer(PageContainer pNodePageCont);
 
   /**
    * Committing a {@link INodeWriteTrx}. This method is recursively invoked by all {@link PageReference}s.
