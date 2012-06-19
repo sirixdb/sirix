@@ -85,6 +85,7 @@ public class GuavaCache implements ICache<Long, PageContainer> {
         return pPageReadTransaction.getNodeFromPage(key);
       }
     });
+    
 //    if (pPageReadTransaction.getUberPage().getRevisionNumber() == 0) {
 //      mPool.submit(new Callable<Void>() {
 //        @Override
