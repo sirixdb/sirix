@@ -28,6 +28,10 @@
 package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -98,7 +102,7 @@ public final class BerkeleyWriter implements IWriter {
   }
 
   @Override
-  public long write(final PageReference pageReference) throws TTIOException {
+  public long write(@Nonnull final PageReference pageReference) throws TTIOException {
     final IPage page = pageReference.getPage();
 
     final DatabaseEntry valueEntry = new DatabaseEntry();
@@ -129,7 +133,7 @@ public final class BerkeleyWriter implements IWriter {
    * @throws TTIOException
    *           if can't set last {@link NodePage}
    */
-  private void setLastNodePage(final long pData) throws TTIOException {
+  private void setLastNodePage(@Nonnegative final long pData) throws TTIOException {
     final DatabaseEntry keyEntry = new DatabaseEntry();
     final DatabaseEntry valueEntry = new DatabaseEntry();
 
@@ -168,7 +172,7 @@ public final class BerkeleyWriter implements IWriter {
   }
 
   @Override
-  public void writeFirstReference(final PageReference pPageReference)
+  public void writeFirstReference(@Nonnull final PageReference pPageReference)
     throws TTIOException {
     write(pPageReference);
 

@@ -93,13 +93,14 @@ public final class RevisionRootPage extends AbsForwardingPage {
    * Clone revision root page.
    * 
    * @param pCommittedRevisionRootPage
-   *          Page to clone.
+   *          page to clone
    * @param pRevisionToUse
-   *          Revision number to use.
+   *          revision number to use
    */
-  public RevisionRootPage(@Nonnull final RevisionRootPage pCommittedRevisionRootPage, final long pRevisionToUse) {
-    mDelegate = new PageDelegate(2, pRevisionToUse);
-    mDelegate.initialize(pCommittedRevisionRootPage);
+  public RevisionRootPage(
+    @Nonnull final RevisionRootPage pCommittedRevisionRootPage,
+    final long pRevisionToUse) {
+    mDelegate = new PageDelegate(pCommittedRevisionRootPage, pRevisionToUse);
     mRevisionSize = pCommittedRevisionRootPage.mRevisionSize;
     mMaxNodeKey = pCommittedRevisionRootPage.mMaxNodeKey;
   }
@@ -156,6 +157,12 @@ public final class RevisionRootPage extends AbsForwardingPage {
     mMaxNodeKey += 1;
   }
 
+  /**
+   * Set the maximum node key in the revision.
+   * 
+   * @param pMaxNodeKey
+   *          new maximum node key
+   */
   public void setMaxNodeKey(final long pMaxNodeKey) {
     mMaxNodeKey = pMaxNodeKey;
   }
@@ -171,8 +178,9 @@ public final class RevisionRootPage extends AbsForwardingPage {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("revisionSize", mRevisionSize).add("revisionTimestamp",
-      mRevisionTimestamp).add("namePage", getReferences()[NAME_REFERENCE_OFFSET]).add("indirectPage",
+    return Objects.toStringHelper(this).add("revisionSize", mRevisionSize).add(
+      "revisionTimestamp", mRevisionTimestamp).add("namePage",
+      getReferences()[NAME_REFERENCE_OFFSET]).add("indirectPage",
       getReferences()[INDIRECT_REFERENCE_OFFSET]).toString();
   }
 

@@ -447,9 +447,6 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
     LOGWRAPPER.debug("oldMaxDepth: " + mDepthMax);
 
     mLock.acquireUninterruptibly();
-    if (mPrune != EPruning.NO) {
-      mModel.setMinMax();
-    }
 
     // Order of property changes is significant.
     firePropertyChange("oldRev", null, mOldRevision);

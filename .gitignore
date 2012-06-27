@@ -19,3 +19,6 @@
 doc
 lib
 target
+
+# Sirix project
+sirix-performance

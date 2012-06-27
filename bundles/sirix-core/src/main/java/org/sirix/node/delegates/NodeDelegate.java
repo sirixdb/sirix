@@ -27,6 +27,10 @@
 package org.sirix.node.delegates;
 
 import static com.google.common.base.Preconditions.checkArgument;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.ENode;
@@ -46,7 +50,8 @@ import org.sirix.utils.NamePageHash;
 public class NodeDelegate implements INode {
 
   /** Untyped type. */
-  private static final int TYPE_KEY = NamePageHash.generateHashForString("xs:untyped");
+  private static final int TYPE_KEY = NamePageHash
+    .generateHashForString("xs:untyped");
 
   /** Key of the current node. Must be unique for all nodes. */
   private long mNodeKey;
@@ -73,11 +78,27 @@ public class NodeDelegate implements INode {
    * @param pHash
    *          to be represented by this delegate
    */
-  public NodeDelegate(final long pNodeKey, final long pParentKey, final long pHash) {
+  public NodeDelegate(@Nonnegative final long pNodeKey,
+    @Nonnegative final long pParentKey, final long pHash) {
+    checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
+    checkArgument(pParentKey >= (EFixed.NULL_NODE_KEY.getStandardProperty()));
     mNodeKey = pNodeKey;
     mParentKey = pParentKey;
     mHash = pHash;
     mTypeKey = TYPE_KEY;
+  }
+
+  /**
+   * Copy constructor.
+   * 
+   * @param pNodeDel
+   *          old node delegate
+   */
+  public NodeDelegate(@Nonnull final NodeDelegate pNodeDel) {
+    mNodeKey = pNodeDel.mNodeKey;
+    mParentKey = pNodeDel.mParentKey;
+    mHash = pNodeDel.mHash;
+    mTypeKey = NodeDelegate.TYPE_KEY;
   }
 
   @Override
@@ -88,12 +109,6 @@ public class NodeDelegate implements INode {
   @Override
   public long getNodeKey() {
     return mNodeKey;
-  }
-
-  @Override
-  public void setNodeKey(final long pKey) {
-    checkArgument(pKey >= 0, "pKey must be >= 0!");
-    mNodeKey = pKey;
   }
 
   @Override
@@ -173,7 +188,7 @@ public class NodeDelegate implements INode {
   }
 
   @Override
-  public void setTypeKey(int pTypeKey) {
+  public void setTypeKey(final int pTypeKey) {
     mTypeKey = pTypeKey;
   }
 

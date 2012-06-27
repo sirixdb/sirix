@@ -29,6 +29,8 @@ package org.sirix.gui.view.sunburst;
 
 import java.util.Deque;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 
 /**
@@ -59,9 +61,9 @@ public enum EMoved {
   /** Next node is a child of the current node. */
   CHILD {
     @Override
-    public void processMove(final INodeReadTrx pRtx, final Item pItem, final Deque<Float> pAngleStack,
-      final Deque<Float> pExtensionStack, final Deque<Integer> pParentStack,
-      final Deque<Integer> pDescendantsStack) {
+    public void processMove(@Nonnull final INodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
+      @Nonnull final Deque<Integer> pDescendantsStack) {
       assert !pAngleStack.isEmpty();
       pItem.mAngle = pAngleStack.peek();
       assert !pExtensionStack.isEmpty();
@@ -73,9 +75,9 @@ public enum EMoved {
     }
 
     @Override
-    public void processCompareMove(final INodeReadTrx pRtx, final Item pItem, final Deque<Float> pAngleStack,
-      final Deque<Float> pExtensionStack, final Deque<Integer> pDescendantsStack,
-      final Deque<Integer> pParentStack, final Deque<Integer> pModificationStack) {
+    public void processCompareMove(@Nonnull final INodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendantsStack,
+      @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack) {
       assert !pAngleStack.isEmpty();
       pItem.mAngle = pAngleStack.peek();
       assert !pExtensionStack.isEmpty();
@@ -92,9 +94,9 @@ public enum EMoved {
   /** Next node is the rightsibling of the first anchestor node which has one. */
   ANCHESTSIBL {
     @Override
-    public void processMove(final INodeReadTrx pRtx, final Item pItem, final Deque<Float> pAngleStack,
-      final Deque<Float> pExtensionStack, final Deque<Integer> pParentStack,
-      final Deque<Integer> pDescendantsStack) {
+    public void processMove(@Nonnull final INodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
+      @Nonnull final Deque<Integer> pDescendantsStack) {
       assert !pAngleStack.isEmpty();
       pItem.mAngle = pAngleStack.pop();
       assert !pExtensionStack.isEmpty();
@@ -112,9 +114,9 @@ public enum EMoved {
     }
 
     @Override
-    public void processCompareMove(final INodeReadTrx pRtx, final Item pItem, final Deque<Float> pAngleStack,
-      final Deque<Float> pExtensionStack, final Deque<Integer> pDescendantsStack,
-      final Deque<Integer> pParentStack, final Deque<Integer> pModificationStack) {
+    public void processCompareMove(@Nonnull final INodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendantsStack,
+      @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack) {
       assert !pAngleStack.isEmpty();
       pItem.mAngle = pAngleStack.pop();
       assert !pExtensionStack.isEmpty();
@@ -152,9 +154,9 @@ public enum EMoved {
    * @param pDescendantsStack
    *          Deque for descendants
    */
-  public abstract void processMove(final INodeReadTrx pRtx, final Item pItem, final Deque<Float> pAngleStack,
-    final Deque<Float> pExtensionStack, final Deque<Integer> pParentStack,
-    final Deque<Integer> pDescendantsStack);
+  public abstract void processMove(@Nonnull final INodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+    @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
+    @Nonnull final Deque<Integer> pDescendantsStack);
 
   /**
    * Process movement of sirix {@link INodeReadTrx}, while comparing revisions.
@@ -174,8 +176,7 @@ public enum EMoved {
    * @param pModificationStack
    *          Deque for modifications
    */
-  public abstract void processCompareMove(final INodeReadTrx pRtx, final Item pItem,
-    final Deque<Float> pAngleStack, final Deque<Float> pExtensionStack,
-    final Deque<Integer> pDescendantsStack, final Deque<Integer> pParentStack,
-    final Deque<Integer> pModificationStack);
+  public abstract void processCompareMove(@Nonnull final INodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+    @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendantsStack,
+    @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack);
 }

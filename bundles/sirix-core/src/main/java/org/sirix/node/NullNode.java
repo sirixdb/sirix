@@ -93,11 +93,6 @@ public final class NullNode implements IStructNode {
   }
 
   @Override
-  public void setNodeKey(final long pNodeKey) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public long getNodeKey() {
     return mNode.getNodeKey();
   }

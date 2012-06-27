@@ -29,8 +29,8 @@ public final class XMLToken {
    * @return result of comparison
    */
   public static boolean valid(final int ch) {
-    return ch >= 0x20 && ch <= 0xD7FF || ch == 0xA || ch == 0x9 || ch == 0xD || ch >= 0xE000 && ch <= 0xFFFD
-      || ch >= 0x10000 && ch <= 0x10ffff;
+    return ch >= 0x20 && ch <= 0xD7FF || ch == 0xA || ch == 0x9 || ch == 0xD
+      || ch >= 0xE000 && ch <= 0xFFFD || ch >= 0x10000 && ch <= 0x10ffff;
   }
 
   /**
@@ -42,10 +42,12 @@ public final class XMLToken {
    * @return result of check
    */
   public static boolean isNCStartChar(final int ch) {
-    return ch < 0x80 ? ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z' || ch == '_' : ch < 0x300
-      ? ch >= 0xC0 && ch != 0xD7 && ch != 0xF7 : ch >= 0x370 && ch <= 0x37D || ch >= 0x37F && ch <= 0x1FFF
-        || ch >= 0x200C && ch <= 0x200D || ch >= 0x2070 && ch <= 0x218F || ch >= 0x2C00 && ch <= 0x2EFF
-        || ch >= 0x3001 && ch <= 0xD7FF || ch >= 0xF900 && ch <= 0xFDCF || ch >= 0xFDF0 && ch <= 0xFFFD
+    return ch < 0x80 ? ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z'
+      || ch == '_' : ch < 0x300 ? ch >= 0xC0 && ch != 0xD7 && ch != 0xF7
+      : ch >= 0x370 && ch <= 0x37D || ch >= 0x37F && ch <= 0x1FFF
+        || ch >= 0x200C && ch <= 0x200D || ch >= 0x2070 && ch <= 0x218F
+        || ch >= 0x2C00 && ch <= 0x2EFF || ch >= 0x3001 && ch <= 0xD7FF
+        || ch >= 0xF900 && ch <= 0xFDCF || ch >= 0xFDF0 && ch <= 0xFFFD
         || ch >= 0x10000 && ch <= 0xEFFFF;
   }
 
@@ -58,8 +60,8 @@ public final class XMLToken {
    */
   public static boolean isNCChar(final int ch) {
     return isNCStartChar(ch)
-      || (ch < 0x100 ? digit(ch) || ch == '-' || ch == '.' || ch == 0xB7 : ch >= 0x300 && ch <= 0x36F
-        || ch == 0x203F || ch == 0x2040);
+      || (ch < 0x100 ? digit(ch) || ch == '-' || ch == '.' || ch == 0xB7
+        : ch >= 0x300 && ch <= 0x36F || ch == 0x203F || ch == 0x2040);
   }
 
   /**
@@ -177,14 +179,14 @@ public final class XMLToken {
   /**
    * Determines if the provided {@code namespaceURI} is a valid {@code URI}.
    * 
-   * @param namespaceURI
+   * @param pNamespaceURI
    *          the {@code URI} to check
    * @return {@code true} if {@code namespaceURI} is valid, {@code false} otherwise
    */
-  private static boolean isUrl(final String namespaceURI) {
+  private static boolean isUrl(final String pNamespaceURI) {
     // NamespaceURI is never null.
     try {
-      new URL(namespaceURI).toURI();
+      new URL(pNamespaceURI).toURI();
     } catch (final MalformedURLException | URISyntaxException e) {
       return false;
     }
@@ -216,10 +218,11 @@ public final class XMLToken {
       return (v & 0x1F) << 6 | token[pos + 1] & 0x3F;
     // 1110xxxx 10xxxxxx 10xxxxxx
     if (vl == 3)
-      return (v & 0x0F) << 12 | (token[pos + 1] & 0x3F) << 6 | token[pos + 2] & 0x3F;
+      return (v & 0x0F) << 12 | (token[pos + 1] & 0x3F) << 6 | token[pos + 2]
+        & 0x3F;
     // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-    return (v & 0x07) << 18 | (token[pos + 1] & 0x3F) << 12 | (token[pos + 2] & 0x3F) << 6 | token[pos + 3]
-      & 0x3F;
+    return (v & 0x07) << 18 | (token[pos + 1] & 0x3F) << 12
+      | (token[pos + 2] & 0x3F) << 6 | token[pos + 3] & 0x3F;
   }
 
   /**
@@ -292,7 +295,7 @@ public final class XMLToken {
    */
   public static String escape(final String pValue) {
     checkNotNull(pValue);
-    final StringBuilder escape = new StringBuilder();
+    final StringBuilder escape = new StringBuilder(pValue.length());
     for (final char i : pValue.toCharArray()) {
       switch (i) {
       case '&':

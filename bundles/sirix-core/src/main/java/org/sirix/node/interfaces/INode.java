@@ -54,14 +54,14 @@ public interface INode {
    */
   void setTypeKey(int pTypeKey);
 
-  /**
-   * Sets unique item key.
-   * 
-   * @param pNodeKey
-   *          unique key of item, maybe negative when atomics from the
-   *          XPath-engine
-   */
-  void setNodeKey(long pNodeKey);
+//  /**
+//   * Sets unique item key.
+//   * 
+//   * @param pNodeKey
+//   *          unique key of item, maybe negative when atomics from the
+//   *          XPath-engine
+//   */
+//  void setNodeKey(long pNodeKey);
 
   /**
    * Get unique item key.

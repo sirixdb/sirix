@@ -27,6 +27,9 @@
 
 package org.sirix.page.delegates;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
@@ -61,6 +64,8 @@ public class PageDelegate implements IPage {
    *          revision number
    */
   public PageDelegate(@Nonnegative final int pReferenceCount, @Nonnegative final long pRevision) {
+    checkArgument(pReferenceCount >= 0);
+    checkArgument(pRevision >= 0);
     mReferences = new PageReference[pReferenceCount];
     mRevision = pRevision;
     for (int i = 0; i < pReferenceCount; i++) {
@@ -77,6 +82,7 @@ public class PageDelegate implements IPage {
    *          input stream to read from
    */
   public PageDelegate(@Nonnegative final int pReferenceCount, @Nonnull final ITTSource pIn) {
+    checkArgument(pReferenceCount >= 0);
     mReferences = new PageReference[pReferenceCount];
     mRevision = pIn.readLong();
     for (int offset = 0; offset < mReferences.length; offset++) {
@@ -84,9 +90,19 @@ public class PageDelegate implements IPage {
       mReferences[offset].setKey(pIn.readLong());
     }
   }
-
-  public void initialize(@Nonnull final IPage pCommittedPage) {
-    mReferences = pCommittedPage.getReferences();
+  
+  /**
+   * Constructor to initialize instance.
+   * 
+   * @param pReferenceCount
+   *          number of references of page
+   * @param pIn
+   *          input stream to read from
+   */
+  public PageDelegate(@Nonnull final IPage pCommitedPage, @Nonnegative final long pRevision) {
+    checkArgument(pRevision >= 0);
+    mReferences = pCommitedPage.getReferences();
+    mRevision = pRevision;
   }
 
   /**
@@ -144,7 +160,9 @@ public class PageDelegate implements IPage {
   }
 
   /**
-   * @return the mRevision
+   * Get the revision.
+   * 
+   * @return the revision
    */
   @Override
   public final long getRevision() {

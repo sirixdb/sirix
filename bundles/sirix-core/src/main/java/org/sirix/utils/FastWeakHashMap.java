@@ -65,7 +65,6 @@ public final class FastWeakHashMap<K, V> extends AbstractMap<K, V> {
 
   /**
    * Default constructor internally using 32 strong references.
-   * 
    */
   public FastWeakHashMap() {
     mInternalMap = new ConcurrentHashMap();

@@ -69,7 +69,7 @@ import org.sirix.utils.IConstants;
  * transaction.
  * </p>
  */
-class PageReadTrx implements IPageReadTrx {
+final class PageReadTrx implements IPageReadTrx {
 
   /** Page reader exclusively assigned to this transaction. */
   private final IReader mPageReader;
@@ -103,8 +103,9 @@ class PageReadTrx implements IPageReadTrx {
    * @throws TTIOException
    *           if reading of the persistent storage fails
    */
-  PageReadTrx(final Session pSession, final UberPage pUberPage,
-    final long pRevision, final IReader pReader) throws TTIOException {
+  PageReadTrx(@Nonnull final Session pSession,
+    @Nonnull final UberPage pUberPage, @Nonnegative final long pRevision,
+    @Nonnull final IReader pReader) throws TTIOException {
     checkArgument(pRevision >= 0, "Revision must be >= 0!");
     mSession = checkNotNull(pSession);
     mPageReader = checkNotNull(pReader);
@@ -112,7 +113,6 @@ class PageReadTrx implements IPageReadTrx {
     mRootPage = loadRevRoot(pRevision);
     assert mRootPage != null : "root page must not be null!";
     mNamePage = initializeNamePage();
-    ;
     mCache = new GuavaCache(this);
   }
 
@@ -295,8 +295,8 @@ class PageReadTrx implements IPageReadTrx {
         }
         if (refs.size() == revsToRestore
           || config.mRevisionKind == ERevisioning.FULL
-          || config.mRevisionKind == ERevisioning.DIFFERENTIAL
-          && refs.size() == 2) {
+          || (config.mRevisionKind == ERevisioning.DIFFERENTIAL
+          && refs.size() == 2)) {
           break;
         }
         if (config.mRevisionKind == ERevisioning.DIFFERENTIAL) {

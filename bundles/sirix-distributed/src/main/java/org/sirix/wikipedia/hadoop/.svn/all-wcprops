@@ -1,0 +1,77 @@
+K 25
+svn:wc:ra_dav:version-url
+V 134
+/disy/Treetank/!svn/ver/6487/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop
+END
+XMLRecordReader.java
+K 25
+svn:wc:ra_dav:version-url
+V 155
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/XMLRecordReader.java
+END
+RootElemAddition.java
+K 25
+svn:wc:ra_dav:version-url
+V 156
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/RootElemAddition.java
+END
+package-info.java
+K 25
+svn:wc:ra_dav:version-url
+V 152
+/disy/Treetank/!svn/ver/6484/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/package-info.java
+END
+ListWritable.java
+K 25
+svn:wc:ra_dav:version-url
+V 152
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/ListWritable.java
+END
+DateWritable.java
+K 25
+svn:wc:ra_dav:version-url
+V 152
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/DateWritable.java
+END
+XMLReduce.java
+K 25
+svn:wc:ra_dav:version-url
+V 149
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/XMLReduce.java
+END
+XMLInputFormat.java
+K 25
+svn:wc:ra_dav:version-url
+V 154
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/XMLInputFormat.java
+END
+XMLOutputFormat.java
+K 25
+svn:wc:ra_dav:version-url
+V 155
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/XMLOutputFormat.java
+END
+SortWiki.java
+K 25
+svn:wc:ra_dav:version-url
+V 148
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/SortWiki.java
+END
+XMLEventWritable.java
+K 25
+svn:wc:ra_dav:version-url
+V 156
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/XMLEventWritable.java
+END
+XMLRecordWriter.java
+K 25
+svn:wc:ra_dav:version-url
+V 155
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/XMLRecordWriter.java
+END
+XMLMap.java
+K 25
+svn:wc:ra_dav:version-url
+V 146
+/disy/Treetank/!svn/ver/6760/branches/treetank-java7/treetank/bundles/treetank-distributed/src/main/java/org/treetank/wikipedia/hadoop/XMLMap.java
+END

@@ -100,7 +100,7 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(SunburstModel.class));
 
   /** {@link INodeWriteTrx} instance. */
-  private transient INodeWriteTrx mWtx;
+  private INodeWriteTrx mWtx;
 
   /**
    * Constructor.
@@ -114,7 +114,6 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
     super(pApplet, pDb);
   }
 
-  /** {@inheritDoc} */
   @Override
   public void update(final IContainer<SunburstContainer> pContainer) {
     Objects.requireNonNull(pContainer);
@@ -123,7 +122,6 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
     traverseTree(pContainer);
   }
 
-  /** {@inheritDoc} */
   @Override
   public void traverseTree(final IContainer<SunburstContainer> pContainer) {
     final SunburstContainer container = (SunburstContainer)Objects.requireNonNull(pContainer);
@@ -559,7 +557,6 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
         mDepth = pDepth;
       }
 
-      /** {@inheritDoc} */
       @Override
       public Integer call() throws Exception {
         assert mDepth < DEPTH_TO_PRUNE;
@@ -727,7 +724,6 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
     menu.show(pEvent.getComponent(), pEvent.getX(), pEvent.getY());
   }
 
-  /** {@inheritDoc} */
   @SuppressWarnings("unchecked")
   @Override
   public void propertyChange(final PropertyChangeEvent pEvent) {

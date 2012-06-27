@@ -31,7 +31,6 @@ import java.nio.ByteBuffer;
 
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
-import org.sirix.utils.IConstants;
 
 /**
  * This class represents the byte input/output mechanism for File-access. After
@@ -45,7 +44,7 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
 
   /** Internal buffer. */
   private ByteBuffer mBuffer;
-
+  
   /**
    * Constructor.
    */

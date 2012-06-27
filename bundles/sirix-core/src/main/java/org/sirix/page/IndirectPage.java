@@ -28,7 +28,6 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -81,8 +80,7 @@ public final class IndirectPage extends AbsForwardingPage {
    */
   public IndirectPage(@Nonnull final IndirectPage pPage, @Nonnegative final long pRevisionToUse) {
     checkArgument(pRevisionToUse >= 0, "pRevisionToUse must be >= 0!");
-    mDelegate = new PageDelegate(IConstants.INP_REFERENCE_COUNT, pRevisionToUse);
-    mDelegate.initialize(checkNotNull(pPage));
+    mDelegate = new PageDelegate(pPage, pRevisionToUse);
   }
 
   @Override

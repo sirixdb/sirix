@@ -166,6 +166,7 @@ public enum ERevisioning {
           if (fullDump.getNode(j) != null) {
             returnVal[0].setNode(j, fullDump.getNode(j));
             if ((latest.getRevision() + 1) % pRevToRestore == 0) {
+              // Fulldump.
               returnVal[1].setNode(j, fullDump.getNode(j));
             }
           }

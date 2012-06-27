@@ -48,11 +48,17 @@ import org.sirix.settings.EFixed;
  * Node representing a text node.
  * </p>
  */
-public final class TextNode extends AbsStructNode implements IValNode {
+public final class TextNode extends AbsStructForwardingNode implements IValNode {
 
   /** Delegate for common value node information. */
   private final ValNodeDelegate mValDel;
+  
+  /** {@link NodeDelegate} reference. */
+  private final NodeDelegate mNodeDel;
 
+  /** {@link StructNodeDelegate} reference. */
+  private final StructNodeDelegate mStructNodeDel;
+  
   /** Value of the node. */
   private byte[] mValue;
 
@@ -68,7 +74,8 @@ public final class TextNode extends AbsStructNode implements IValNode {
    */
   public TextNode(@Nonnull final NodeDelegate pDel, @Nonnull final ValNodeDelegate pValDel,
     @Nonnull final StructNodeDelegate pStructDel) {
-    super(pDel, pStructDel);
+    mNodeDel = checkNotNull(pDel);
+    mStructNodeDel = checkNotNull(pStructDel);
     mValDel = checkNotNull(pValDel);
   }
 
@@ -188,5 +195,15 @@ public final class TextNode extends AbsStructNode implements IValNode {
    */
   ValNodeDelegate getValNodeDelegate() {
     return mValDel;
+  }
+  
+  @Override
+  protected NodeDelegate delegate() {
+    return mNodeDel;
+  }
+
+  @Override
+  protected StructNodeDelegate structDelegate() {
+    return mStructNodeDel;
   }
 }

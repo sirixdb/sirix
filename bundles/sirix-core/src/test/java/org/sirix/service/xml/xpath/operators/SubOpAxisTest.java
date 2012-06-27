@@ -63,8 +63,8 @@ public class SubOpAxisTest {
 
   @Test
   public final void testOperate() throws AbsTTException {
-    INode item1 = new AtomicValue(1.0, Type.DOUBLE);
-    INode item2 = new AtomicValue(2.0, Type.DOUBLE);
+    AtomicValue item1 = new AtomicValue(1.0, Type.DOUBLE);
+    AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
     AbsAxis op1 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item1));
     AbsAxis op2 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item2));

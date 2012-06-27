@@ -79,7 +79,6 @@ public class ThreadTest {
     }
     taskExecutor.shutdown();
     taskExecutor.awaitTermination(1000000, TimeUnit.SECONDS);
-
   }
 
   private class Task implements Callable<Void> {

@@ -134,7 +134,7 @@ public abstract class AbsComparator extends AbsAxis {
             try {
               // get comparison result
               final boolean resultValue = compare(operandOne, operandTwo);
-              final INode result = new AtomicValue(resultValue);
+              final AtomicValue result = new AtomicValue(resultValue);
 
               // add retrieved AtomicValue to item list
               final int itemKey = getTransaction().getItemList().addItem(result);

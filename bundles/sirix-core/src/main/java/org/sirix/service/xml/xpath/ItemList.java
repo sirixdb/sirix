@@ -33,7 +33,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.sirix.api.IItemList;
-import org.sirix.node.interfaces.INode;
 
 /**
  * <h1>ItemList</h1>
@@ -51,12 +50,12 @@ import org.sirix.node.interfaces.INode;
  * structure.
  * </p>
  */
-public final class ItemList<T extends INode> implements IItemList<T> {
+public final class ItemList implements IItemList<AtomicValue> {
 
   /**
    * Internal storage of items.
    */
-  private final List<T> mList;
+  private final List<AtomicValue> mList;
 
   /**
    * Constructor. Initializes the list.
@@ -66,7 +65,7 @@ public final class ItemList<T extends INode> implements IItemList<T> {
   }
 
   @Override
-  public int addItem(final T pItem) {
+  public int addItem(final AtomicValue pItem) {
     final int key = mList.size();
     pItem.setNodeKey(key);
     // TODO: +2 is necessary, because key -1 is the NULL_NODE
@@ -78,7 +77,7 @@ public final class ItemList<T extends INode> implements IItemList<T> {
   }
 
   @Override
-  public Optional<T> getItem(final long mKey) {
+  public Optional<AtomicValue> getItem(final long mKey) {
     assert mKey <= Integer.MAX_VALUE;
 
     int index = (int)mKey; // cast to integer, because the list only

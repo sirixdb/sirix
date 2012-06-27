@@ -140,16 +140,8 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     mPruning = paramPruning;
     mModel = paramTraverseModel;
     mModel.addPropertyChangeListener(this);
-    // try {
-    // mModel.getDescendants(getTransaction());
-    // } catch (final InterruptedException | ExecutionException e) {
-    // LOGWRAPPER.error(e.getMessage(), e);
-    // }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
@@ -175,15 +167,12 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     mParDescendantCount = mDescendantCount;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean hasNext() {
     if (isNext()) {
       return true;
     }
-    // try {
+    
     resetToLastKey();
 
     // Fail if there is no node anymore.
@@ -271,10 +260,6 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
       mNextKey = (Long)EFixed.NULL_NODE_KEY.getStandardProperty();
       return true;
     }
-    // } catch (final InterruptedException | ExecutionException e) {
-    // LOGWRAPPER.error(e.getMessage(), e);
-    // return false;
-    // }
   }
 
   /**
@@ -347,7 +332,6 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     mIndex++;
   }
 
-  /** {@inheritDoc} */
   @SuppressWarnings("unchecked")
   @Override
   public void propertyChange(final PropertyChangeEvent paramEvent) {

@@ -11,6 +11,7 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
+import org.sirix.service.xml.xpath.AtomicValue;
 
 /**
  * Forwards all methods to the delegate.
@@ -28,7 +29,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject implemen
   protected abstract INodeReadTrx delegate();
 
   @Override
-  public IItemList<INode> getItemList() {
+  public IItemList<AtomicValue> getItemList() {
     return delegate().getItemList();
   }
 

@@ -1,0 +1,83 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>sirix</groupId>
+		<artifactId>parent</artifactId>
+		<version>1.0.5-SNAPSHOT</version>
+	</parent>
+
+	<artifactId>distributed</artifactId>
+	<packaging>jar</packaging>
+	<name>sirix-distributed</name>
+	<version>1.0.0-SNAPSHOT</version>
+	<description>Sirix distributed.</description>
+
+	<repositories>
+		<repository>
+			<id>cloudera</id>
+			<url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
+		</repository>
+	</repositories>
+
+	<dependencies>
+		<dependency>
+			<groupId>sirix</groupId>
+			<artifactId>core</artifactId>
+			<version>5.4.0-SNAPSHOT</version>
+		</dependency>
+		<dependency>
+			<groupId>sirix</groupId>
+			<artifactId>core</artifactId>
+			<version>5.4.0-SNAPSHOT</version>
+			<type>test-jar</type>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.hadoop</groupId>
+			<artifactId>hadoop-core</artifactId>
+			<version>0.20.2-cdh3u2</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.hadoop</groupId>
+			<artifactId>hadoop-test</artifactId>
+			<version>0.20.2-cdh3u2</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.cloudera.hadoop</groupId>
+			<artifactId>hadoop-mrunit</artifactId>
+			<version>0.20.2-737</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>xerces</groupId>
+			<artifactId>xercesImpl</artifactId>
+			<version>2.6.2</version>
+		</dependency>
+		<dependency>
+			<groupId>saxon</groupId>
+			<artifactId>saxon</artifactId>
+			<version>9.3</version>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<artifactId>maven-assembly-plugin</artifactId>
+				<configuration>
+					<descriptors>
+						<descriptor>src/main/assembly/jarAssembly.xml</descriptor>
+					</descriptors>
+					<archive>
+						<manifest>
+							<mainClass>org.sirix.wikipedia.hadoop.SortWiki</mainClass>
+						</manifest>
+					</archive>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>

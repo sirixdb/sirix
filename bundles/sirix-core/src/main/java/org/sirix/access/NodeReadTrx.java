@@ -38,6 +38,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.xml.namespace.QName;
 
+import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.api.IItemList;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.IPageReadTrx;
@@ -82,7 +83,7 @@ public final class NodeReadTrx implements INodeReadTrx {
   private boolean mClosed;
 
   /** Read-transaction-exclusive item list. */
-  private final ItemList<INode> mItemList;
+  private final ItemList mItemList;
 
   /**
    * Constructor.
@@ -109,7 +110,7 @@ public final class NodeReadTrx implements INodeReadTrx {
       throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
     }
     mClosed = false;
-    mItemList = new ItemList<>();
+    mItemList = new ItemList();
   }
 
   @Override
@@ -290,7 +291,7 @@ public final class NodeReadTrx implements INodeReadTrx {
   }
 
   @Override
-  public final IItemList<INode> getItemList() {
+  public final IItemList<AtomicValue> getItemList() {
     assertNotClosed();
     return mItemList;
   }

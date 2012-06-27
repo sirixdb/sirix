@@ -27,6 +27,8 @@
 
 package org.sirix.node;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NodeDelegate;
@@ -41,7 +43,14 @@ import org.sirix.node.interfaces.IStructNode;
  * removed.
  * </p>
  */
-public final class DocumentRootNode extends AbsStructNode implements IStructNode {
+public final class DocumentRootNode extends AbsStructForwardingNode implements
+  IStructNode {
+
+  /** {@link NodeDelegate} reference. */
+  private final NodeDelegate mNodeDel;
+
+  /** {@link StructNodeDelegate} reference. */
+  private final StructNodeDelegate mStructNodeDel;
 
   /**
    * Constructor.
@@ -51,8 +60,10 @@ public final class DocumentRootNode extends AbsStructNode implements IStructNode
    * @param pStructDel
    *          {@link StructNodeDelegate} reference
    */
-  public DocumentRootNode(final NodeDelegate pNodeDel, final StructNodeDelegate pStructDel) {
-    super(pNodeDel, pStructDel);
+  public DocumentRootNode(final NodeDelegate pNodeDel,
+    final StructNodeDelegate pStructDel) {
+    mNodeDel = checkNotNull(pNodeDel);
+    mStructNodeDel = checkNotNull(pStructDel);
   }
 
   @Override
@@ -68,5 +79,15 @@ public final class DocumentRootNode extends AbsStructNode implements IStructNode
   @Override
   public String toString() {
     return super.toString();
+  }
+
+  @Override
+  protected NodeDelegate delegate() {
+    return mNodeDel;
+  }
+
+  @Override
+  protected StructNodeDelegate structDelegate() {
+    return mStructNodeDel;
   }
 }

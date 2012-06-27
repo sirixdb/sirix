@@ -30,10 +30,6 @@ package org.sirix.io.berkeley;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.sleepycat.bind.tuple.TupleOutput;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-
 import javax.annotation.Nonnull;
 
 import org.sirix.io.ITTSink;
@@ -49,9 +45,6 @@ public final class TupleOutputSink implements ITTSink {
 
   /** {@link TupleOutput} to be wrapped. */
   private final TupleOutput mOutput;
-
-  // /** {@link OutputStream} reference to write to. */
-  // private final OutputStream mOut;
 
   /**
    * Constructor.

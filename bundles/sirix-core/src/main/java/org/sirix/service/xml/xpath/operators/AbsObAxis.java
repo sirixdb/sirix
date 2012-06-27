@@ -112,7 +112,7 @@ public abstract class AbsObAxis extends AbsAxis {
           // atomize operand
           final AtomicValue mItem2 = atomize(mOperand2);
           try {
-            final INode result = operate(mItem1, mItem2);
+            final AtomicValue result = (AtomicValue)operate(mItem1, mItem2);
             // add retrieved AtomicValue to item list
             final int itemKey = getTransaction().getItemList().addItem(result);
             mKey = itemKey;
@@ -125,7 +125,7 @@ public abstract class AbsObAxis extends AbsAxis {
       }
 
       if (XPATH_10_COMP) { // and empty sequence, return NaN
-        final INode result = new AtomicValue(Double.NaN, Type.DOUBLE);
+        final AtomicValue result = new AtomicValue(Double.NaN, Type.DOUBLE);
         final int itemKey = getTransaction().getItemList().addItem(result);
         mKey = itemKey;
         return true;

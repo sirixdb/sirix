@@ -139,8 +139,7 @@ public final class UberPage extends AbsForwardingPage {
    *          Revision number to use.
    */
   public UberPage(@Nonnull final UberPage pCommittedUberPage, @Nonnegative final long pRevisionToUse) {
-    mDelegate = new PageDelegate(1, pRevisionToUse);
-    mDelegate.initialize(pCommittedUberPage);
+    mDelegate = new PageDelegate(pCommittedUberPage, pRevisionToUse);
     if (pCommittedUberPage.isBootstrap()) {
       mRevisionCount = pCommittedUberPage.mRevisionCount;
       mBootstrap = pCommittedUberPage.mBootstrap;

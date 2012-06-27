@@ -26,8 +26,12 @@
  */
 package org.sirix.node.delegates;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.Arrays;
 import java.util.zip.Deflater;
+
+import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -63,128 +67,58 @@ public class ValNodeDelegate implements IValNode {
    * @param pVal
    *          the own value.
    */
-  public ValNodeDelegate(final NodeDelegate pNodeDel, final byte[] pVal, final boolean pCompressed) {
-    mDelegate = pNodeDel;
-    mVal = pVal;
+  public ValNodeDelegate(@Nonnull final NodeDelegate pNodeDel,
+    @Nonnull final byte[] pVal, final boolean pCompressed) {
+    mDelegate = checkNotNull(pNodeDel);
+    mVal = checkNotNull(pVal);
     mCompressed = pCompressed;
   }
 
-  /**
-   * Delegate method for getKind.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getKind()
-   */
   @Override
   public ENode getKind() {
     return mDelegate.getKind();
   }
 
-  /**
-   * Delegate method for getKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getNodeKey()
-   */
   @Override
   public long getNodeKey() {
     return mDelegate.getNodeKey();
   }
 
-  /**
-   * Delegate method for setKey.
-   * 
-   * @param pNodeKey
-   * @see org.sirix.node.delegates.NodeDelegate#setNodeKey(long)
-   */
-  @Override
-  public void setNodeKey(long pNodeKey) {
-    mDelegate.setNodeKey(pNodeKey);
-  }
-
-  /**
-   * Delegate method for getParentKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getParentKey()
-   */
   @Override
   public long getParentKey() {
     return mDelegate.getParentKey();
   }
 
-  /**
-   * Delegate method for setParentKey.
-   * 
-   * @param pParentKey
-   * @see org.sirix.node.delegates.NodeDelegate#setParentKey(long)
-   */
   @Override
   public void setParentKey(long pParentKey) {
     mDelegate.setParentKey(pParentKey);
   }
 
-  /**
-   * Delegate method for getHash.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getHash()
-   */
   @Override
   public long getHash() {
     return mDelegate.getHash();
   }
 
-  /**
-   * Delegate method for setHash.
-   * 
-   * @param pHash
-   * @see org.sirix.node.delegates.NodeDelegate#setHash(long)
-   */
   @Override
   public void setHash(long pHash) {
     mDelegate.setHash(pHash);
   }
 
-  /**
-   * Delegate method for acceptVisitor.
-   * 
-   * @param pVisitor
-   * @see org.sirix.node.delegates.NodeDelegate#acceptVisitor(org.sirix.api.visitor.IVisitor)
-   */
   @Override
   public EVisitResult acceptVisitor(IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 
-  /**
-   * Delegate method for getTypeKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getTypeKey()
-   */
   @Override
   public int getTypeKey() {
     return mDelegate.getTypeKey();
   }
 
-  /**
-   * Delegate method for setTypeKey.
-   * 
-   * @param pTypeKey
-   * @see org.sirix.node.delegates.NodeDelegate#setTypeKey(int)
-   */
   @Override
   public void setTypeKey(int pTypeKey) {
     mDelegate.setTypeKey(pTypeKey);
   }
 
-  /**
-   * Delegate method for hasParent.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#hasParent()
-   */
   @Override
   public boolean hasParent() {
     return mDelegate.hasParent();
@@ -207,7 +141,9 @@ public class ValNodeDelegate implements IValNode {
   @Override
   public void setValue(final byte[] pVal) {
     mCompressed = new String(pVal).length() > 10 ? true : false;
-    mVal = mCompressed ? Compression.compress(pVal, Deflater.DEFAULT_COMPRESSION) : pVal;
+    mVal =
+      mCompressed ? Compression.compress(pVal, Deflater.DEFAULT_COMPRESSION)
+        : pVal;
   }
 
   /**

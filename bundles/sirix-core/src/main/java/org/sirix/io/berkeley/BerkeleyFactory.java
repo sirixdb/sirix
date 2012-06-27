@@ -46,7 +46,7 @@ import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
 import org.sirix.io.IWriter;
-import org.sirix.io.berkeley.binding.PageBinding;
+import org.sirix.io.berkeley.binding.SnappyPageBinding;
 import org.sirix.page.delegates.PageDelegate;
 
 /**
@@ -62,7 +62,7 @@ import org.sirix.page.delegates.PageDelegate;
 public final class BerkeleyFactory implements IStorage {
 
   /** Binding for {@link PageDelegate}. */
-  public static final PageBinding PAGE_VAL_B = new PageBinding();
+  public static final SnappyPageBinding PAGE_VAL_B = new SnappyPageBinding();
 
   /** Binding for {@link Long}. */
   public static final TupleBinding<Long> DATAINFO_VAL_B = TupleBinding.getPrimitiveBinding(Long.class);

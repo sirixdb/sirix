@@ -74,7 +74,8 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
    *          determines how to insert a node
    */
   @Nonnull
-  InsertSubtreeVisitor(final INodeReadTrx pRtx, final INodeWriteTrx pWtx, final EInsertPos pInsert) {
+  InsertSubtreeVisitor(final INodeReadTrx pRtx, final INodeWriteTrx pWtx,
+    final EInsertPos pInsert) {
     mRtx = checkNotNull(pRtx);
     mWtx = checkNotNull(pWtx);
     mInsert = checkNotNull(pInsert);
@@ -82,7 +83,7 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
   }
 
   @Override
-  public EVisitResult visit(final ElementNode pNode) {
+  public EVisitResult visit(@Nonnull final ElementNode pNode) {
     mRtx.moveTo(pNode.getNodeKey());
     try {
       mInsert.insertNode(mWtx, mRtx);
@@ -120,7 +121,7 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
   }
 
   @Override
-  public EVisitResult visit(final TextNode pNode) {
+  public EVisitResult visit(@Nonnull final TextNode pNode) {
     mRtx.moveTo(pNode.getNodeKey());
     try {
       mInsert.insertNode(mWtx, mRtx);

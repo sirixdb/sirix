@@ -35,7 +35,6 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxis;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.interfaces.INode;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.types.Type;
 
@@ -64,8 +63,8 @@ public class LiteralExprTest {
   @Test
   public void testLiteralExpr() throws AbsTTException {
     // Build simple test tree.
-    final INode item1 = new AtomicValue(false);
-    final INode item2 = new AtomicValue(14, Type.INTEGER);
+    final AtomicValue item1 = new AtomicValue(false);
+    final AtomicValue item2 = new AtomicValue(14, Type.INTEGER);
 
     final int key1 = holder.getRtx().getItemList().addItem(item1);
     final int key2 = holder.getRtx().getItemList().addItem(item2);

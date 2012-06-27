@@ -27,6 +27,10 @@
 
 package org.sirix.node;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import javax.annotation.Nonnull;
+
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -40,21 +44,26 @@ import org.sirix.node.interfaces.INameNode;
  * Node representing a namespace.
  * </p>
  */
-public final class NamespaceNode extends AbsNode implements INameNode {
+public final class NamespaceNode extends AbsForwardingNode implements INameNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
+
+  /** {@link NodeDelegate} reference. */
+  private final NodeDelegate mNodeDel;
 
   /**
    * Constructor.
    * 
    * @param pDel
-   * @param mIntBuilder
-   *          building int data
+   *          {@link NodeDelegate} reference
+   * @param pNameDel
+   *          {@link NameNodeDelegate} reference
    */
-  public NamespaceNode(final NodeDelegate pDel, final NameNodeDelegate pNameDel) {
-    super(pDel);
-    mNameDel = pNameDel;
+  public NamespaceNode(@Nonnull final NodeDelegate pDel,
+    @Nonnull final NameNodeDelegate pNameDel) {
+    mNodeDel = checkNotNull(pDel);
+    mNameDel = checkNotNull(pNameDel);
   }
 
   @Override
@@ -91,7 +100,9 @@ public final class NamespaceNode extends AbsNode implements INameNode {
   public int hashCode() {
     final int prime = 31;
     int result = 1;
-    result = prime * result + ((getNodeDelegate() == null) ? 0 : getNodeDelegate().hashCode());
+    result =
+      prime * result
+        + ((getNodeDelegate() == null) ? 0 : getNodeDelegate().hashCode());
     result = prime * result + ((mNameDel == null) ? 0 : mNameDel.hashCode());
     return result;
   }
@@ -134,5 +145,10 @@ public final class NamespaceNode extends AbsNode implements INameNode {
    */
   NameNodeDelegate getNameNodeDelegate() {
     return mNameDel;
+  }
+
+  @Override
+  protected NodeDelegate delegate() {
+    return mNodeDel;
   }
 }

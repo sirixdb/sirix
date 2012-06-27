@@ -34,6 +34,7 @@ import org.sirix.exception.TTIOException;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
+import org.sirix.service.xml.xpath.AtomicValue;
 
 /**
  * <h1>IReadTransaction</h1>
@@ -295,7 +296,7 @@ public interface INodeReadTrx extends AutoCloseable {
    * 
    * @return item list
    */
-  IItemList<INode> getItemList();
+  IItemList<AtomicValue> getItemList();
 
   /**
    * Getting the current node.

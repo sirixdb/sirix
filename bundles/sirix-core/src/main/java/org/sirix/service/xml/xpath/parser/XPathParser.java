@@ -1872,7 +1872,7 @@ public final class XPathParser {
 
     is(TokenType.SPACE, true);
 
-    final INode intLiteral = new AtomicValue(TypedValue.getBytes(value), getTransaction().keyForName(type));
+    final AtomicValue intLiteral = new AtomicValue(TypedValue.getBytes(value), getTransaction().keyForName(type));
     return getTransaction().getItemList().addItem(intLiteral);
   }
 
@@ -1982,7 +1982,7 @@ public final class XPathParser {
 
     }
 
-    final INode mStringLiteral =
+    final AtomicValue mStringLiteral =
       new AtomicValue(TypedValue.getBytes(mValue.toString()), getTransaction().keyForName("xs:string"));
     return (getTransaction().getItemList().addItem(mStringLiteral));
   }

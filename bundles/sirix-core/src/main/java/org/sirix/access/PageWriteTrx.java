@@ -75,6 +75,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
   /** Last references to the Nodepage, needed for pre/postcondition check. */
   private PageContainer mNodePageCon;
+  
+  private PageContainer mNamePageCon;
 
   /** Last reference to the actual revRoot. */
   private final RevisionRootPage mNewRoot;
@@ -179,10 +181,10 @@ public final class PageWriteTrx implements IPageWriteTrx {
     final INode delNode =
       new DeletedNode(new NodeDelegate(pNode.getNodeKey(),
         pNode.getParentKey(), pNode.getHash()));
-    ((NodePage)mNodePageCon.getModified()).setNode(
-      mPageRtx.nodePageOffset(pNode.getNodeKey()), delNode);
-    ((NodePage)mNodePageCon.getComplete()).setNode(
-      mPageRtx.nodePageOffset(pNode.getNodeKey()), delNode);
+    ((NodePage)mNodePageCon.getModified()).setNode(mPageRtx
+      .nodePageOffset(pNode.getNodeKey()), delNode);
+    ((NodePage)mNodePageCon.getComplete()).setNode(mPageRtx
+      .nodePageOffset(pNode.getNodeKey()), delNode);
     finishNodeModification(pNode);
   }
 
@@ -212,7 +214,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public String getName(final int pNameKey, final ENode pNodeKind) {
+  public String getName(final int pNameKey, @Nonnull final ENode pNodeKind) {
     final NamePage currentNamePage =
       (NamePage)mNewRoot.getNamePageReference().getPage();
     // if currentNamePage == null -> state was commited and no prepareNodepage was invoked yet
@@ -234,7 +236,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public void commit(final PageReference pReference) throws AbsTTException {
+  public void commit(@Nullable final PageReference pReference)
+    throws AbsTTException {
     IPage page = null;
 
     // if reference is not null, get one from the persistent storage.

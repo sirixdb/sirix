@@ -52,8 +52,10 @@ public class NameNodeDelegate implements INameNode {
 
   /** Node delegate, containing basic node information. */
   private final NodeDelegate mDelegate;
+  
   /** Key of the name. The name contains the prefix as well. */
   private int mNameKey;
+  
   /** URI of the related namespace. */
   private int mUriKey;
 
@@ -67,107 +69,60 @@ public class NameNodeDelegate implements INameNode {
    * @param pUriKey
    *          urikey to be stored
    */
-  public NameNodeDelegate(@Nonnull final NodeDelegate pDel, final int pNameKey, final int pUriKey) {
+  public NameNodeDelegate(@Nonnull final NodeDelegate pDel, final int pNameKey,
+    final int pUriKey) {
     mDelegate = checkNotNull(pDel);
     mNameKey = pNameKey;
     mUriKey = pUriKey;
   }
 
   /**
-   * Delegate method for setHash.
+   * Copy constructor.
    * 
-   * @param pHash
-   * @see org.sirix.node.delegates.NodeDelegate#setHash(long)
+   * @param pNameDel
+   *          old name node delegate
    */
+  public NameNodeDelegate(@Nonnull NameNodeDelegate pNameDel) {
+    mDelegate = pNameDel.mDelegate;
+    mNameKey = pNameDel.mNameKey;
+    mUriKey = pNameDel.mUriKey;
+  }
+
   @Override
   public void setHash(final long pHash) {
     mDelegate.setHash(pHash);
   }
 
-  /**
-   * Delegate method for getHash.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getHash()
-   */
   @Override
   public long getHash() {
     return mDelegate.getHash();
   }
 
-  /**
-   * Delegate method for setKey.
-   * 
-   * @param pKey
-   *            key to set
-   * @see org.sirix.node.delegates.NodeDelegate#setNodeKey(long)
-   */
-  @Override
-  public void setNodeKey(final long pKey) {
-    mDelegate.setNodeKey(pKey);
-  }
-
-  /**
-   * Delegate method for getKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getNodeKey()
-   */
   @Override
   public long getNodeKey() {
     return mDelegate.getNodeKey();
   }
 
-  /**
-   * Delegate method for getParentKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getParentKey()
-   */
   @Override
   public long getParentKey() {
     return mDelegate.getParentKey();
   }
 
-  /**
-   * Delegate method for hasParent.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#hasParent()
-   */
   @Override
   public boolean hasParent() {
     return mDelegate.hasParent();
   }
 
-  /**
-   * Delegate method for getTypeKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getTypeKey()
-   */
   @Override
   public int getTypeKey() {
     return mDelegate.getTypeKey();
   }
 
-  /**
-   * Delegate method for setParentKey.
-   * 
-   * @param pNodeKey
-   * @see org.sirix.node.delegates.NodeDelegate#setParentKey(long)
-   */
   @Override
   public void setParentKey(final long pNodeKey) {
     mDelegate.setParentKey(pNodeKey);
   }
 
-  /**
-   * Delegate method for setType.
-   * 
-   * @param pTypeKey
-   * @see org.sirix.node.delegates.NodeDelegate#setTypeKey(int)
-   */
   @Override
   public void setTypeKey(final int pTypeKey) {
     mDelegate.setTypeKey(pTypeKey);
@@ -175,7 +130,7 @@ public class NameNodeDelegate implements INameNode {
 
   @Override
   public ENode getKind() {
-    return ENode.NAMESPACE_KIND;
+    return ENode.UNKOWN_KIND;
   }
 
   @Override
@@ -227,13 +182,7 @@ public class NameNodeDelegate implements INameNode {
       return false;
     return true;
   }
-
-  /**
-   * Delegate method for toString.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#toString()
-   */
+  
   @Override
   public String toString() {
     final StringBuilder builder = new StringBuilder();
@@ -243,7 +192,7 @@ public class NameNodeDelegate implements INameNode {
     builder.append(mNameKey);
     return builder.toString();
   }
-  
+
   @Override
   public boolean isSameItem(final INode pOther) {
     return mDelegate.isSameItem(pOther);

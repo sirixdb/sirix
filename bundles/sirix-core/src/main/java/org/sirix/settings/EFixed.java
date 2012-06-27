@@ -28,7 +28,7 @@
 package org.sirix.settings;
 
 /**
- * Fixed constants for sirix stuff. These constants should never be changed.
+ * Fixed constants for Sirix stuff. These constants should never be changed.
  * 
  * @author Sebastian Graf, University of Konstanz
  */
@@ -36,23 +36,28 @@ public enum EFixed {
 
   // --- File Version
   // ----------------------------------------------------------------
-    /** Major version number of this release. */
-    VERSION_MAJOR(5),
-    /** Minor version number of this release. */
-    VERSION_MINOR(1),
-    /** Last major version to which this version is binary compatible. */
-    LAST_VERSION_MAJOR(5),
-    /** Last minor version to which this version is binary compatible. */
-    LAST_VERSION_MINOR(1),
+  /** Major version number of this release. */
+  VERSION_MAJOR(5),
+  
+  /** Minor version number of this release. */
+  VERSION_MINOR(1),
+  
+  /** Last major version to which this version is binary compatible. */
+  LAST_VERSION_MAJOR(5),
+  
+  /** Last minor version to which this version is binary compatible. */
+  LAST_VERSION_MINOR(1),
 
-    // --- Keys
-    // -------------------------------------------------------------
-    /** Root node page key constant. */
-    ROOT_PAGE_KEY(0L),
-    /** Root node key constant. */
-    ROOT_NODE_KEY(0L),
-    /** Null key for nodes. */
-    NULL_NODE_KEY(-1L);
+  // --- Keys
+  // -------------------------------------------------------------
+  /** Root node page key constant. */
+  ROOT_PAGE_KEY(0L),
+    
+  /** Root node key constant. */
+  ROOT_NODE_KEY(0L),
+  
+  /** Null key for nodes. */
+  NULL_NODE_KEY(-1L);
 
   /**
    * Standard property.
@@ -62,11 +67,11 @@ public enum EFixed {
   /**
    * Private constructor.
    * 
-   * @param paramProperty
-   *          property to set.
+   * @param pProperty
+   *          property to set
    */
-  private EFixed(final long paramProperty) {
-    mStandardProperty = paramProperty;
+  private EFixed(final long pProperty) {
+    mStandardProperty = pProperty;
   }
 
   /**

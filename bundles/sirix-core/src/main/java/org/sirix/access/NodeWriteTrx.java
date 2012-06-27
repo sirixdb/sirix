@@ -1446,7 +1446,7 @@ public final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements INod
    * 
    * @return the page transaction.
    */
-  public IPageWriteTrx getPageTransaction() {
+  public synchronized IPageWriteTrx getPageTransaction() {
     return (IPageWriteTrx)mNodeReadRtx.getPageTransaction();
   }
 

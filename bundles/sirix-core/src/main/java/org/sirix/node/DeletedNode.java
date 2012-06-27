@@ -27,6 +27,10 @@
 
 package org.sirix.node;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import javax.annotation.Nonnull;
+
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NodeDelegate;
@@ -53,8 +57,8 @@ public final class DeletedNode implements INode {
    * @param paramParent
    *          parent of this key.
    */
-  public DeletedNode(final NodeDelegate pDel) {
-    mDel = pDel;
+  public DeletedNode(@Nonnull final NodeDelegate pDel) {
+    mDel = checkNotNull(pDel);
   }
 
   /**
@@ -74,17 +78,6 @@ public final class DeletedNode implements INode {
   @Override
   public long getNodeKey() {
     return mDel.getNodeKey();
-  }
-
-  /**
-   * Delegate method for setKey.
-   * 
-   * @param pNodeKey
-   * @see org.sirix.node.delegates.NodeDelegate#setNodeKey(long)
-   */
-  @Override
-  public void setNodeKey(final long pNodeKey) {
-    mDel.setNodeKey(pNodeKey);
   }
 
   /**

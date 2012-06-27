@@ -231,9 +231,9 @@ public class Function {
   }
 
   public static boolean fnnot(final INodeReadTrx rtx, final AbsAxis axis) {
-
     if (axis.hasNext()) {
-      final INode item = new AtomicValue(((IValNode)rtx.getNode()).getRawValue()[0] == 0);
+      axis.next();
+      final AtomicValue item = new AtomicValue(((IValNode)rtx.getNode()).getRawValue()[0] == 0);
       final int itemKey = rtx.getItemList().addItem(item);
       rtx.moveTo(itemKey);
       return true;
@@ -254,7 +254,7 @@ public class Function {
   public static boolean fnnumber(final INodeReadTrx rtx) {
 
     // TODO: add error handling
-    final INode item = new AtomicValue(rtx.getValueOfCurrentNode().getBytes(), rtx.keyForName("xs:double"));
+    final AtomicValue item = new AtomicValue(rtx.getValueOfCurrentNode().getBytes(), rtx.keyForName("xs:double"));
     final int itemKey = rtx.getItemList().addItem(item);
     rtx.moveTo(itemKey);
 

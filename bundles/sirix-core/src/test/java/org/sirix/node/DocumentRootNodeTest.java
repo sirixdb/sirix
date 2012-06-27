@@ -52,7 +52,7 @@ public class DocumentRootNodeTest {
 
     // Serialize and deserialize node.
     final ByteBufferSinkAndSource out = new ByteBufferSinkAndSource();
-    ENode.getKind(node1.getClass()).serialize(out, node1);
+    node1.getKind().serialize(out, node1);
     out.position(0);
     final DocumentRootNode node2 = (DocumentRootNode)ENode.ROOT_KIND.deserialize(out);
     check(node2);

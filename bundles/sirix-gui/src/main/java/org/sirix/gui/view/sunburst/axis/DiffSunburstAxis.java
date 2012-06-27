@@ -260,8 +260,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
     // Move to next key.
     getTransaction().moveTo(nodeKey);
 
-    if (mDiff == EDiff.UPDATED || mDiff == EDiff.REPLACEDNEW || mDiff == EDiff.REPLACEDOLD) {
-      // For EDiff.UPDATE or EDiff.REPLACED the transaction needs to be on the right node.
+    if (mDiff == EDiff.UPDATED) {
       mOldRtx.moveTo(mDiffCont.getOldNodeKey());
     }
 
@@ -367,7 +366,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
    *          depth of next diff
    * @return {@code true} if axis has more nodes, {@code false} otherwise
    */
-  private boolean processRightSibling(final int pNextDepth) {
+  private boolean processRightSibling(@Nonnegative final int pNextDepth) {
     processLastItem(pNextDepth);
 
     mAngle += mExtension;
@@ -455,43 +454,9 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
   private void calculateDepth() {
     if (mDiff != EDiff.SAME && mDiff != EDiff.SAMEHASH && mDepth <= mMaxDepth + 2) {
       mDepth = mMaxDepth + 2;
-
-      // if (mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES) {
       setTempKey();
-      // } else {
-      // final long nodeKey = getTransaction().getItem().getKey();
-      // if (mDiff == EDiff.DELETED || mDiff == EDiff.MOVEDFROM || mDiff == EDiff.REPLACEDOLD) {
-      // getTransaction().moveTo(mDiffCont.getOldNodeKey());
-      // } else {
-      // getTransaction().moveTo(mDiffCont.getNewNodeKey());
-      // }
-      // setTempKey(getTransaction().getStructuralNode());
-      // getTransaction().moveTo(nodeKey);
-      // }
     } else if ((mDiff == EDiff.SAME || mDiff == EDiff.SAMEHASH) && mDiffCont.getNewNodeKey() == mTempKey) {
       mDepth = mDiffCont.getDepth().getNewDepth() - mInitDepth;
-    }
-  }
-
-  /**
-   * Set temporal key which is the next following node of an {@code inserted}, {@code deleted},
-   * {@code updated} or {@code same} node.
-   * 
-   * @param pNode
-   *          node from which to get the next following node from
-   */
-  private void setTempKey(@Nonnull final IStructNode pNode) {
-    assert pNode != null;
-    if (pNode.hasRightSibling()) {
-      mTempKey = pNode.getRightSiblingKey();
-    } else {
-      final long key = pNode.getNodeKey();
-      while (!getTransaction().getStructuralNode().hasRightSibling()
-        && getTransaction().getNode().getKind() != ENode.ROOT_KIND) {
-        getTransaction().moveToParent();
-      }
-      mTempKey = getTransaction().getStructuralNode().getRightSiblingKey();
-      getTransaction().moveTo(key);
     }
   }
 

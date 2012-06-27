@@ -230,11 +230,10 @@ public class FileSystemWatcher implements AutoCloseable {
          * The filename is the context of the event. Cast is safe because
          * we registered a path instance.
          */
-        @SuppressWarnings("unchecked")
-        WatchEvent<Path> ev = (WatchEvent<Path>)event;
+        WatchEvent<?> ev = event;
 
         for (int i = 0; i < ev.count(); i++) {
-          final Path name = ev.context();
+          final Path name = (Path)ev.context();
           final Path child = dir.resolve(name);
 
           if (kind == ENTRY_CREATE && Files.isDirectory(child, NOFOLLOW_LINKS)) {
@@ -308,13 +307,13 @@ public class FileSystemWatcher implements AutoCloseable {
    * @throws IOException
    *           if an I/O error occurs
    */
-  private void processEvent(@Nonnull final WatchEvent<Path> pEvent,
+  private void processEvent(@Nonnull final WatchEvent<?> pEvent,
     @Nonnull final Optional<IVisitor<INodeWriteTrx>> pVisitor, @Nonnull final Map<Path, EPath> pIndex,
     @Nonnull final WatchService pWatcher, @Nonnull final Path pPath) throws IOException {
     assert pEvent != null;
-    final Kind<Path> type = pEvent.kind();
+    final Kind<?> type = pEvent.kind();
 
-    Optional<Path> optional = Optional.fromNullable(pEvent.context());
+    Optional<?> optional = Optional.fromNullable(pEvent.context());
     if (optional.isPresent()) {
       if (type == ENTRY_CREATE) {
         entryCreated(pVisitor, pIndex, pPath);

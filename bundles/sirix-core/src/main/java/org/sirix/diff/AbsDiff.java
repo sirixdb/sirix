@@ -42,7 +42,9 @@ import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.diff.DiffFactory.EDiffOptimized;
 import org.sirix.exception.AbsTTException;
 import org.sirix.node.ENode;
+import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.IStructNode;
+import org.sirix.utils.EKind;
 
 /**
  * Abstract diff class which implements common functionality.
@@ -580,14 +582,16 @@ abstract class AbsDiff extends AbsDiffObservable {
    *          {@link INodeReadTrx} on new revision
    * @param pOldRtx
    *          {@link INodeReadTrx} on old revision
-   * @return true if nodes are "equal" according to their {@link QName}s, otherwise false
+   * @return {@code true} if nodes are "equal" according to their {@link QName}s, {@code false
    */
   boolean checkName(final INodeReadTrx pNewRtx, final INodeReadTrx pOldRtx) {
     boolean found = false;
     if (pNewRtx.getNode().getKind() == pOldRtx.getNode().getKind()) {
       switch (pNewRtx.getNode().getKind()) {
       case ELEMENT_KIND:
-        if (pNewRtx.getQNameOfCurrentNode().equals(pOldRtx.getQNameOfCurrentNode())) {
+        final ElementNode newElement = (ElementNode) pNewRtx.getNode();
+        final ElementNode oldElement = (ElementNode) pOldRtx.getNode();
+        if (newElement.getNameKey() == oldElement.getNameKey()) {
           found = true;
         }
         break;

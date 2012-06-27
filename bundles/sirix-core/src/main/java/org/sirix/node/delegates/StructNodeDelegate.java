@@ -27,8 +27,11 @@
 package org.sirix.node.delegates;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -50,14 +53,19 @@ public class StructNodeDelegate implements IStructNode {
 
   /** Pointer to the first child of the current node. */
   private long mFirstChild;
+
   /** Pointer to the right sibling of the current node. */
   private long mRightSibling;
+
   /** Pointer to the left sibling of the current node. */
   private long mLeftSibling;
+
   /** Number of children. */
   private long mChildCount;
+
   /** Number of descendants. */
   private long mDescendantCount;
+
   /** Delegate for common node information. */
   private final NodeDelegate mDelegate;
 
@@ -77,9 +85,13 @@ public class StructNodeDelegate implements IStructNode {
    * @param pDescendantCount
    *          number of descendants of the node
    */
-  public StructNodeDelegate(final NodeDelegate pDel, final long pFirstChild, final long pRightSib,
-    final long pLeftSib, final long pChildCount, final long pDescendantCount) {
-    mDelegate = pDel;
+  public StructNodeDelegate(@Nonnull final NodeDelegate pDel,
+    final long pFirstChild, final long pRightSib, final long pLeftSib,
+    @Nonnegative final long pChildCount,
+    @Nonnegative final long pDescendantCount) {
+    checkArgument(pChildCount >= 0, "pChildCount must be >= 0!");
+    checkArgument(pDescendantCount >= 0, "pDescendantCount must be >= 0!");
+    mDelegate = checkNotNull(pDel);
     mFirstChild = pFirstChild;
     mRightSibling = pRightSib;
     mLeftSibling = pLeftSib;
@@ -88,222 +100,130 @@ public class StructNodeDelegate implements IStructNode {
   }
 
   /**
-   * {@inheritDoc}
+   * Copy constructor.
+   * 
+   * @param pStructDel
+   *          old structural node delegate
    */
+  public StructNodeDelegate(@Nonnull final StructNodeDelegate pStructDel) {
+    mDelegate = pStructDel.mDelegate;
+    mFirstChild = pStructDel.mFirstChild;
+    mRightSibling = pStructDel.mRightSibling;
+    mLeftSibling = pStructDel.mLeftSibling;
+    mChildCount = pStructDel.mChildCount;
+    mDescendantCount = pStructDel.mDescendantCount;
+  }
+
   @Override
   public ENode getKind() {
     return mDelegate.getKind();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean hasFirstChild() {
     return mFirstChild != EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean hasLeftSibling() {
     return mLeftSibling != EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean hasRightSibling() {
     return mRightSibling != EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public long getChildCount() {
     return mChildCount;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public long getFirstChildKey() {
     return mFirstChild;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public long getLeftSiblingKey() {
     return mLeftSibling;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public long getRightSiblingKey() {
     return mRightSibling;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void setRightSiblingKey(final long pKey) {
     mRightSibling = pKey;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void setLeftSiblingKey(final long pKey) {
     mLeftSibling = pKey;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void setFirstChildKey(final long pKey) {
     mFirstChild = pKey;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void decrementChildCount() {
     mChildCount--;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void incrementChildCount() {
     mChildCount++;
   }
 
-  /**
-   * Delegate method for getKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getNodeKey()
-   */
   @Override
   public long getNodeKey() {
     return mDelegate.getNodeKey();
   }
 
-  /**
-   * Delegate method for setKey.
-   * 
-   * @param pNodeKey
-   * @see org.sirix.node.delegates.NodeDelegate#setNodeKey(long)
-   */
-  @Override
-  public void setNodeKey(long pNodeKey) {
-    mDelegate.setNodeKey(pNodeKey);
-  }
-
-  /**
-   * Delegate method for getParentKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getParentKey()
-   */
   @Override
   public long getParentKey() {
     return mDelegate.getParentKey();
   }
-
-  /**
-   * Delegate method for setParentKey.
-   * 
-   * @param pParentKey
-   * @see org.sirix.node.delegates.NodeDelegate#setParentKey(long)
-   */
+  
   @Override
   public void setParentKey(long pParentKey) {
     mDelegate.setParentKey(pParentKey);
   }
 
-  /**
-   * Delegate method for getHash.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getHash()
-   */
   @Override
   public long getHash() {
     return mDelegate.getHash();
   }
 
-  /**
-   * Delegate method for setHash.
-   * 
-   * @param pHash
-   * @see org.sirix.node.delegates.NodeDelegate#setHash(long)
-   */
   @Override
   public void setHash(final long pHash) {
     mDelegate.setHash(pHash);
   }
 
-  /**
-   * Delegate method for acceptVisitor.
-   * 
-   * @param pVisitor
-   * @see org.sirix.node.delegates.NodeDelegate#acceptVisitor(org.sirix.api.visitor.IVisitor)
-   */
   @Override
   public EVisitResult acceptVisitor(final IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 
-  /**
-   * Delegate method for getTypeKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getTypeKey()
-   */
   @Override
   public int getTypeKey() {
     return mDelegate.getTypeKey();
   }
 
-  /**
-   * Delegate method for setTypeKey.
-   * 
-   * @param pTypeKey
-   * @see org.sirix.node.delegates.NodeDelegate#setTypeKey(int)
-   */
   @Override
   public void setTypeKey(final int pTypeKey) {
     mDelegate.setTypeKey(pTypeKey);
   }
 
-  /**
-   * Delegate method for hasParent.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#hasParent()
-   */
   @Override
   public boolean hasParent() {
     return mDelegate.hasParent();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int hashCode() {
     final int prime = 31;
@@ -346,20 +266,11 @@ public class StructNodeDelegate implements IStructNode {
 
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder();
-    builder.append("\nfirst child: ");
-    builder.append(getFirstChildKey());
-    builder.append("\nleft sib: ");
-    builder.append(getLeftSiblingKey());
-    builder.append("\nright sib: ");
-    builder.append(getRightSiblingKey());
-    builder.append("\nfirst child: ");
-    builder.append(getFirstChildKey());
-    builder.append("\nchild count: ");
-    builder.append(getChildCount());
-    builder.append("\ndescendant count: ");
-    builder.append(getDescendantCount());
-    return builder.toString();
+    return Objects.toStringHelper(this).add("first child", getFirstChildKey())
+      .add("left sib", getLeftSiblingKey()).add("right sib",
+        getRightSiblingKey()).add("first child", getFirstChildKey()).add(
+        "child count", getChildCount()).add("descendant count",
+        getDescendantCount()).toString();
   }
 
   @Override

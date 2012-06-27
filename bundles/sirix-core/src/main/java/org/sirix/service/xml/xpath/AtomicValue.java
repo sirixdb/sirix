@@ -115,12 +115,13 @@ public class AtomicValue implements INode, IValNode {
   }
 
   /**
-   * {@inheritDoc}
+   * Set node key.
+   * 
+   * @param pItemKey
+   *          unique item key
    */
-  @Override
-  public void setNodeKey(final long mItemKey) {
-
-    this.mItemKey = mItemKey;
+  public void setNodeKey(final long pItemKey) {
+    mItemKey = pItemKey;
   }
 
   /**

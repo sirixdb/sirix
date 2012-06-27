@@ -27,6 +27,8 @@
 
 package org.sirix.node;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.base.Objects;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -44,13 +46,16 @@ import org.sirix.node.interfaces.IValNode;
  * Node representing an attribute.
  * </p>
  */
-public final class AttributeNode extends AbsNode implements IValNode, INameNode {
+public final class AttributeNode extends AbsForwardingNode implements IValNode, INameNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
 
   /** Delegate for val node information. */
   private final ValNodeDelegate mValDel;
+  
+  /** Node delegate. */
+  private final NodeDelegate mDel;
 
   /**
    * Creating an attribute.
@@ -64,8 +69,8 @@ public final class AttributeNode extends AbsNode implements IValNode, INameNode 
    * 
    */
   public AttributeNode(final NodeDelegate pDel, final NameNodeDelegate pNameDel, final ValNodeDelegate pValDel) {
-    super(pDel);
-    mNameDel = pNameDel;
+    mDel = checkNotNull(pDel);
+    mNameDel = checkNotNull(pNameDel);
     mValDel = pValDel;
   }
 
@@ -201,6 +206,11 @@ public final class AttributeNode extends AbsNode implements IValNode, INameNode 
    */
   ValNodeDelegate getValNodeDelegate() {
     return mValDel;
+  }
+
+  @Override
+  protected NodeDelegate delegate() {
+    return mDel;
   }
 
 }

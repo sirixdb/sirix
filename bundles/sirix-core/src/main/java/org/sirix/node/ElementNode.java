@@ -52,7 +52,8 @@ import org.sirix.settings.EFixed;
  * Node representing an XML element.
  * </p>
  */
-public final class ElementNode extends AbsStructNode implements INameNode {
+public final class ElementNode extends AbsStructForwardingNode implements
+  INameNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
@@ -65,6 +66,12 @@ public final class ElementNode extends AbsStructNode implements INameNode {
 
   /** Keys of namespace declarations. */
   private final List<Long> mNamespaceKeys;
+
+  /** {@link NodeDelegate} reference. */
+  private final NodeDelegate mNodeDel;
+
+  /** {@link StructNodeDelegate} reference. */
+  private final StructNodeDelegate mStructNodeDel;
 
   /**
    * Constructor
@@ -80,10 +87,14 @@ public final class ElementNode extends AbsStructNode implements INameNode {
    * @param pNamespaceKeys
    *          keys of namespaces to be set
    */
-  public ElementNode(@Nonnull final NodeDelegate pNodeDel, @Nonnull final StructNodeDelegate pStructDel,
-    @Nonnull final NameNodeDelegate pNameDel, @Nonnull final List<Long> pAttributeKeys,
-    @Nonnull final BiMap<Integer, Long> pAttributes, @Nonnull final List<Long> pNamespaceKeys) {
-    super(pNodeDel, pStructDel);
+  public ElementNode(@Nonnull final NodeDelegate pNodeDel,
+    @Nonnull final StructNodeDelegate pStructDel,
+    @Nonnull final NameNodeDelegate pNameDel,
+    @Nonnull final List<Long> pAttributeKeys,
+    @Nonnull final BiMap<Integer, Long> pAttributes,
+    @Nonnull final List<Long> pNamespaceKeys) {
+    mNodeDel = checkNotNull(pNodeDel);
+    mStructNodeDel = checkNotNull(pStructDel);
     mNameDel = checkNotNull(pNameDel);
     mAttributeKeys = checkNotNull(pAttributeKeys);
     mAttributes = checkNotNull(pAttributes);
@@ -200,12 +211,12 @@ public final class ElementNode extends AbsStructNode implements INameNode {
   }
 
   @Override
-  public void setNameKey(int pNameKey) {
+  public void setNameKey(final int pNameKey) {
     mNameDel.setNameKey(pNameKey);
   }
 
   @Override
-  public void setURIKey(int pUriKey) {
+  public void setURIKey(final int pUriKey) {
     mNameDel.setURIKey(pUriKey);
   }
 
@@ -234,7 +245,8 @@ public final class ElementNode extends AbsStructNode implements INameNode {
   public int hashCode() {
     final int prime = 31;
     int result = 1;
-    result = prime * result + ((getNodeDelegate() == null) ? 0 : getNodeDelegate().hashCode());
+    result =
+      prime * result + ((delegate() == null) ? 0 : delegate().hashCode());
     result = prime * result + ((mNameDel == null) ? 0 : mNameDel.hashCode());
     return result;
   }
@@ -248,7 +260,7 @@ public final class ElementNode extends AbsStructNode implements INameNode {
     if (getClass() != pObj.getClass())
       return false;
     ElementNode other = (ElementNode)pObj;
-    return Objects.equal(getNodeDelegate(), other.getNodeDelegate())
+    return Objects.equal(delegate(), other.delegate())
       && Objects.equal(mNameDel, other.mNameDel);
   }
 
@@ -270,12 +282,22 @@ public final class ElementNode extends AbsStructNode implements INameNode {
     return Collections.unmodifiableList(mNamespaceKeys);
   }
 
+  @Override
+  protected NodeDelegate delegate() {
+    return mNodeDel;
+  }
+
+  @Override
+  protected StructNodeDelegate structDelegate() {
+    return mStructNodeDel;
+  }
+
   /**
-   * Getting the inlying {@link NameNodeDelegate}.
+   * Get name node delegate.
    * 
-   * @return the inlying {@link NameNodeDelegate} instance
+   * @return snapshot of the name node delegate (new instance)
    */
-  NameNodeDelegate getNameNodeDelegate() {
-    return mNameDel;
+  public NameNodeDelegate getNameNodeDelegate() {
+    return new NameNodeDelegate(mNameDel);
   }
 }

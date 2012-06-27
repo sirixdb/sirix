@@ -130,9 +130,6 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
     mRevision = pBuilder.mRevision;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public XPathSelector call() throws Exception {
     final Processor proc = new Processor(false);

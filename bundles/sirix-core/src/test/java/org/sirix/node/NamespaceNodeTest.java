@@ -39,7 +39,6 @@ public class NamespaceNodeTest {
 
   @Test
   public void testNamespaceNode() {
-
     final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 15, 14);
     // Create empty node.
@@ -51,7 +50,6 @@ public class NamespaceNodeTest {
     out.position(0);
     final NamespaceNode node2 = (NamespaceNode)ENode.NAMESPACE_KIND.deserialize(out);
     check(node2);
-
   }
 
   private final static void check(final NamespaceNode node) {
