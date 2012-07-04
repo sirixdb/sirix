@@ -29,7 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeTraversal;
 import org.sirix.node.interfaces.IStructNode;
 
 /**
@@ -50,7 +50,7 @@ public final class ChildAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with.
    */
-  public ChildAxis(@Nonnull final INodeReadTrx pRtx) {
+  public ChildAxis(@Nonnull final INodeTraversal pRtx) {
     super(pRtx);
   }
 
@@ -64,20 +64,19 @@ public final class ChildAxis extends AbsAxis {
   public boolean hasNext() {
     if (isNext()) {
       return true;
+    }
+    resetToLastKey();
+    final IStructNode node = getTransaction().getStructuralNode();
+    if (!mFirst && node.hasRightSibling()) {
+      mKey = node.getRightSiblingKey();
+      return true;
+    } else if (mFirst && getTransaction().getStructuralNode().hasFirstChild()) {
+      mFirst = false;
+      mKey = node.getFirstChildKey();
+      return true;
     } else {
-      resetToLastKey();
-      final IStructNode node = getTransaction().getStructuralNode();
-      if (!mFirst && node.hasRightSibling()) {
-        mKey = node.getRightSiblingKey();
-        return true;
-      } else if (mFirst && getTransaction().getStructuralNode().hasFirstChild()) {
-        mFirst = false;
-        mKey = node.getFirstChildKey();
-        return true;
-      } else {
-        resetToStartKey();
-        return false;
-      }
+      resetToStartKey();
+      return false;
     }
   }
 

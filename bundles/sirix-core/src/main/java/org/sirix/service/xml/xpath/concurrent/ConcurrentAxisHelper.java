@@ -27,18 +27,14 @@
 
 package org.sirix.service.xml.xpath.concurrent;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.concurrent.BlockingQueue;
 
+import javax.annotation.Nonnull;
+
+import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.AbsAxis;
-import org.sirix.service.xml.xpath.XPathAxis;
-import org.sirix.service.xml.xpath.comparators.AbsComparator;
-import org.sirix.service.xml.xpath.expr.ExceptAxis;
-import org.sirix.service.xml.xpath.expr.IntersectAxis;
-import org.sirix.service.xml.xpath.expr.LiteralExpr;
-import org.sirix.service.xml.xpath.expr.SequenceAxis;
-import org.sirix.service.xml.xpath.expr.UnionAxis;
-import org.sirix.service.xml.xpath.filter.DupFilterAxis;
 import org.sirix.settings.EFixed;
 
 /**
@@ -55,8 +51,8 @@ import org.sirix.settings.EFixed;
  */
 public class ConcurrentAxisHelper implements Runnable {
 
-  /** Axis that computes the results. */
-  private final AbsAxis mAxis;
+  /** {@link IAxis} that computes the results. */
+  private final IAxis mAxis;
 
   /**
    * Queue that stores result keys already computed by this axis. End of the
@@ -66,12 +62,6 @@ public class ConcurrentAxisHelper implements Runnable {
   private BlockingQueue<Long> mResults;
 
   /**
-   * True, if next() has to be called for the given axis after calling
-   * hasNext().
-   */
-  private final boolean callNext;
-
-  /**
    * Bind axis step to transaction. Make sure to create a new ReadTransaction
    * instead of using the parameter rtx. Because of concurrency every axis has
    * to have it's own transaction.
@@ -79,14 +69,9 @@ public class ConcurrentAxisHelper implements Runnable {
    * @param rtx
    *          Transaction to operate with.
    */
-  public ConcurrentAxisHelper(final INodeReadTrx rtx, final AbsAxis axis, final BlockingQueue<Long> results) {
-    mAxis = axis;
-    mResults = results;
-    callNext =
-      !(mAxis instanceof UnionAxis || mAxis instanceof ExceptAxis || mAxis instanceof ConcurrentExceptAxis
-        || mAxis instanceof IntersectAxis || mAxis instanceof LiteralExpr || mAxis instanceof AbsComparator
-        || mAxis instanceof SequenceAxis || mAxis instanceof XPathAxis || mAxis instanceof DupFilterAxis
-        || mAxis instanceof ConcurrentUnionAxis || mAxis instanceof ConcurrentIntersectAxis);
+  public ConcurrentAxisHelper(@Nonnull final IAxis pAxis, @Nonnull final BlockingQueue<Long> pResults) {
+    mAxis = checkNotNull(pAxis);
+    mResults = checkNotNull(pResults);
   }
 
   @Override
@@ -94,24 +79,18 @@ public class ConcurrentAxisHelper implements Runnable {
     // Compute all results of the given axis and store the results in the
     // queue.
     while (mAxis.hasNext()) {
-      // for some axis next(( has to be called here
-      if (callNext) {
-        mAxis.next();
-      }
+      final long nodeKey = mAxis.next();
       try {
-        // store result in queue as soon as there is space left
-        // System.out.println("put: " +
-        // mAxis.getTransaction().getItem().getKey());
-        mResults.put(mAxis.getTransaction().getNode().getNodeKey());
-        // wait until next thread arrives and exchange blocking queue
+        // Store result in queue as soon as there is space left.
+        mResults.put(nodeKey);
+        // Wait until next thread arrives and exchange blocking queue.
       } catch (final InterruptedException mExp) {
         mExp.printStackTrace();
-
       }
     }
 
     try {
-      // Mark end of result sequence by the NULL_NODE_KEY
+      // Mark end of result sequence by the NULL_NODE_KEY.
       mResults.put(EFixed.NULL_NODE_KEY.getStandardProperty());
     } catch (final InterruptedException mExp) {
       mExp.printStackTrace();

@@ -37,7 +37,7 @@ import java.util.Map;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.indexes.PathSynopsisNode;
+import org.sirix.indexes.PathNode;
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -325,7 +325,7 @@ public enum ENode implements IKind {
   },
   
   /** Node kind is path node. */
-  PATH_KIND((byte) 16, PathSynopsisNode.class) {
+  PATH_KIND((byte) 16, PathNode.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       

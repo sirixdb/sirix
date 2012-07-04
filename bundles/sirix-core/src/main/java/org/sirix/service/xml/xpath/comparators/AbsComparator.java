@@ -31,7 +31,6 @@ import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.exception.TTXPathException;
-import org.sirix.node.interfaces.INode;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.expr.LiteralExpr;
 import org.sirix.service.xml.xpath.types.Type;
@@ -70,7 +69,6 @@ public abstract class AbsComparator extends AbsAxis {
    */
   public AbsComparator(final INodeReadTrx mRtx, final IAxis mOperand1, final IAxis mOperand2,
     final CompKind mComp) {
-
     super(mRtx);
     this.mComp = mComp;
     this.mOperand1 = mOperand1;
@@ -78,12 +76,8 @@ public abstract class AbsComparator extends AbsAxis {
     mIsFirst = true;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public final void reset(final long mNodeKey) {
-
     super.reset(mNodeKey);
     mIsFirst = true;
     if (mOperand1 != null) {
@@ -95,12 +89,8 @@ public abstract class AbsComparator extends AbsAxis {
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public final boolean hasNext() {
-
     resetToLastKey();
 
     if (mIsFirst) {
@@ -164,7 +154,6 @@ public abstract class AbsComparator extends AbsAxis {
    *          second operand
    */
   protected void hook(final AtomicValue[] paramOperandOne, final AtomicValue[] paramOperandTwo) {
-
     // do nothing
   }
 

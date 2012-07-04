@@ -27,6 +27,8 @@
 
 package org.sirix.service.xml.xpath.filter;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.settings.EFixed;
@@ -45,30 +47,21 @@ public class DocumentNodeAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param rtx
-   *          Exclusive (immutable) transaction to iterate with.
+   * @param pRtx
+   *          exclusive (immutable) transaction to iterate with
    */
-  public DocumentNodeAxis(final INodeReadTrx rtx) {
-
-    super(rtx);
+  public DocumentNodeAxis(@Nonnull final INodeReadTrx pRtx) {
+    super(pRtx);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public final void reset(final long mNodeKey) {
-
-    super.reset(mNodeKey);
+  public final void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     mFirst = true;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public final boolean hasNext() {
-
     resetToLastKey();
 
     if (mFirst) {

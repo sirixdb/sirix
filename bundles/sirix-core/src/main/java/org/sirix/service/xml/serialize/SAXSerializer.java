@@ -30,6 +30,7 @@ package org.sirix.service.xml.serialize;
 import java.io.File;
 import java.io.IOException;
 
+import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.xml.sax.*;
@@ -65,20 +66,19 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
   /**
    * Constructor.
    * 
-   * @param paramSession
-   *          sirix session {@link ISession}.
-   * @param paramHandler
-   *          SAX ContentHandler {@link ContentHandler}.
-   * @param paramVersions
-   *          Revisions to serialize.
+   * @param pSession
+   *          Sirix {@link ISession}
+   * @param pHandler
+   *          SAX {@link ContentHandler}
+   * @param pVersions
+   *          revisions to serialize
    */
-  public SAXSerializer(final ISession paramSession, final ContentHandler paramHandler,
-    final long... paramVersions) {
-    super(paramSession, paramVersions);
-    mContHandler = paramHandler;
+  public SAXSerializer(@Nonnull final ISession pSession, @Nonnull final ContentHandler pHandler,
+    final long... pVersions) {
+    super(pSession, pVersions);
+    mContHandler = pHandler;
   }
 
-  /** {@inheritDoc} */
   @Override
   protected void emitStartElement(final INodeReadTrx rtx) {
     switch (rtx.getNode().getKind()) {
@@ -95,10 +95,9 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
     }
   }
 
-  /** {@inheritDoc} */
   @Override
-  protected void emitEndElement(final INodeReadTrx rtx) {
-    final QName qName = rtx.getQNameOfCurrentNode();
+  protected void emitEndElement(final INodeReadTrx pRtx) {
+    final QName qName = pRtx.getQNameOfCurrentNode();
     final String mURI = qName.getNamespaceURI();
     try {
       mContHandler.endElement(mURI, qName.getLocalPart(), PageWriteTrx.buildName(qName));
@@ -107,11 +106,10 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
     }
   }
 
-  /** {@inheritDoc} */
   @Override
-  protected void emitStartManualElement(final long revision) {
+  protected void emitStartManualElement(final long pRevision) {
     final AttributesImpl atts = new AttributesImpl();
-    atts.addAttribute("", "revision", "tt", "", Long.toString(revision));
+    atts.addAttribute("", "revision", "tt", "", Long.toString(pRevision));
     try {
       mContHandler.startElement("", "tt", "tt", atts);
     } catch (final SAXException exc) {
@@ -120,9 +118,8 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 
   }
 
-  /** {@inheritDoc} */
   @Override
-  protected void emitEndManualElement(final long revision) {
+  protected void emitEndManualElement(final long pRevision) {
     try {
       mContHandler.endElement("", "tt", "tt");
     } catch (final SAXException exc) {
@@ -133,47 +130,47 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
   /**
    * Generate a start element event.
    * 
-   * @param paramRtx
+   * @param pRtx
    *          Read Transaction
    */
-  private void generateElement(final INodeReadTrx paramRtx) {
+  private void generateElement(@Nonnull final INodeReadTrx pRtx) {
     final AttributesImpl atts = new AttributesImpl();
-    final long key = paramRtx.getNode().getNodeKey();
+    final long key = pRtx.getNode().getNodeKey();
 
     try {
       // Process namespace nodes.
-      for (int i = 0, namesCount = ((ElementNode)paramRtx.getNode()).getNamespaceCount(); i < namesCount; i++) {
-        paramRtx.moveToNamespace(i);
-        final QName qName = paramRtx.getQNameOfCurrentNode();
+      for (int i = 0, namesCount = ((ElementNode)pRtx.getNode()).getNamespaceCount(); i < namesCount; i++) {
+        pRtx.moveToNamespace(i);
+        final QName qName = pRtx.getQNameOfCurrentNode();
         mContHandler.startPrefixMapping(qName.getPrefix(), qName.getNamespaceURI());
         final String mURI = qName.getNamespaceURI();
         if (qName.getLocalPart().length() == 0) {
           // if (qName.getPrefix() == null || qName.getPrefix() == "") {
           atts.addAttribute(mURI, "xmlns", "xmlns", "CDATA", mURI);
         } else {
-          atts.addAttribute(mURI, "xmlns", "xmlns:" + paramRtx.getQNameOfCurrentNode().getLocalPart(),
+          atts.addAttribute(mURI, "xmlns", "xmlns:" + pRtx.getQNameOfCurrentNode().getLocalPart(),
             "CDATA", mURI);
         }
-        paramRtx.moveTo(key);
+        pRtx.moveTo(key);
       }
 
       // Process attributes.
-      for (int i = 0, attCount = ((ElementNode)paramRtx.getNode()).getAttributeCount(); i < attCount; i++) {
-        paramRtx.moveToAttribute(i);
-        final QName qName = paramRtx.getQNameOfCurrentNode();
+      for (int i = 0, attCount = ((ElementNode)pRtx.getNode()).getAttributeCount(); i < attCount; i++) {
+        pRtx.moveToAttribute(i);
+        final QName qName = pRtx.getQNameOfCurrentNode();
         final String mURI = qName.getNamespaceURI();
-        atts.addAttribute(mURI, qName.getLocalPart(), PageWriteTrx.buildName(qName), paramRtx
-          .getTypeOfCurrentNode(), paramRtx.getValueOfCurrentNode());
-        paramRtx.moveTo(key);
+        atts.addAttribute(mURI, qName.getLocalPart(), PageWriteTrx.buildName(qName), pRtx
+          .getTypeOfCurrentNode(), pRtx.getValueOfCurrentNode());
+        pRtx.moveTo(key);
       }
 
       // Create SAX events.
-      final QName qName = paramRtx.getQNameOfCurrentNode();
+      final QName qName = pRtx.getQNameOfCurrentNode();
       mContHandler.startElement(qName.getNamespaceURI(), qName.getLocalPart(), PageWriteTrx.buildName(qName),
         atts);
 
       // Empty elements.
-      if (!((ElementNode)paramRtx.getNode()).hasFirstChild()) {
+      if (!((ElementNode)pRtx.getNode()).hasFirstChild()) {
         mContHandler.endElement(qName.getNamespaceURI(), qName.getLocalPart(), PageWriteTrx.buildName(qName));
       }
     } catch (final SAXException exc) {
@@ -187,9 +184,9 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
    * @param mRtx
    *          Read Transaction.
    */
-  private void generateText(final INodeReadTrx paramRtx) {
+  private void generateText(final INodeReadTrx pRtx) {
     try {
-      mContHandler.characters(XMLToken.escape(paramRtx.getValueOfCurrentNode()).toCharArray(), 0, paramRtx
+      mContHandler.characters(XMLToken.escape(pRtx.getValueOfCurrentNode()).toCharArray(), 0, pRtx
         .getValueOfCurrentNode().length());
     } catch (final SAXException exc) {
       exc.printStackTrace();
@@ -206,7 +203,6 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
    *           handling sirix exception
    */
   public static void main(final String... args) throws Exception {
-
     final DatabaseConfiguration config = new DatabaseConfiguration(new File(args[0]));
     Database.createDatabase(config);
     final IDatabase database = Database.openDatabase(new File(args[0]));
@@ -295,39 +291,39 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 
   /* Implements XMLReader method. */
   @Override
-  public void setContentHandler(final ContentHandler paramContentHandler) {
-    mContHandler = paramContentHandler;
+  public void setContentHandler(final ContentHandler pContentHandler) {
+    mContHandler = pContentHandler;
   }
 
   /* Implements XMLReader method. */
   @Override
-  public void setDTDHandler(final DTDHandler paramHandler) {
+  public void setDTDHandler(final DTDHandler pHandler) {
     throw new UnsupportedOperationException("Not supported by sirix!");
   }
 
   /* Implements XMLReader method. */
   @Override
-  public void setEntityResolver(final EntityResolver paramResolver) {
+  public void setEntityResolver(final EntityResolver pResolver) {
     throw new UnsupportedOperationException("Not supported by sirix!");
 
   }
 
   /* Implements XMLReader method. */
   @Override
-  public void setErrorHandler(final ErrorHandler paramHandler) {
+  public void setErrorHandler(final ErrorHandler pHandler) {
     throw new UnsupportedOperationException("Not supported by sirix!");
   }
 
   /* Implements XMLReader method. */
   @Override
-  public void setFeature(final String paramName, final boolean paramValue) throws SAXNotRecognizedException,
+  public void setFeature(final String pName, final boolean pValue) throws SAXNotRecognizedException,
     SAXNotSupportedException {
     throw new UnsupportedOperationException("Not supported by sirix!");
   }
 
   /* Implements XMLReader method. */
   @Override
-  public void setProperty(final String paramName, final Object paramValue) throws SAXNotRecognizedException,
+  public void setProperty(final String pName, final Object pValue) throws SAXNotRecognizedException,
     SAXNotSupportedException {
     throw new UnsupportedOperationException("Not supported by sirix!");
   }

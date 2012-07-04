@@ -27,6 +27,7 @@
 
 package org.sirix.page;
 
+import com.google.common.base.Objects;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.utils.IConstants;
 
@@ -46,7 +47,7 @@ public final class PageReference {
 
   /** Corresponding mKey of the related node page. */
   private long mNodePageKey = -1;
-  
+
   /** Key in persistent storage. */
   private long mKey = IConstants.NULL_ID;;
 
@@ -96,13 +97,8 @@ public final class PageReference {
 
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder(super.toString());
-      builder.append(": key=");
-      builder.append(mKey);
-    builder.append(", page=(");
-    builder.append(mPage);
-    builder.append(")");
-    return builder.toString();
+    return Objects.toStringHelper(this).add("key", mKey).add("page", mPage)
+      .toString();
   }
 
   /**

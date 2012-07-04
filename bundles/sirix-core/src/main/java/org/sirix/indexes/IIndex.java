@@ -1,6 +1,5 @@
 package org.sirix.indexes;
 
-public class PathSynopsis {
+public interface IIndex {
 
-  
 }

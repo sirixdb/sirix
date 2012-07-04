@@ -27,7 +27,7 @@
 
 package org.sirix.axis;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeTraversal;
 import org.sirix.node.ENode;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
@@ -53,7 +53,7 @@ public final class PrecedingSiblingAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PrecedingSiblingAxis(final INodeReadTrx pRtx) {
+  public PrecedingSiblingAxis(final INodeTraversal pRtx) {
     super(pRtx);
   }
 
@@ -67,46 +67,46 @@ public final class PrecedingSiblingAxis extends AbsAxis {
   public boolean hasNext() {
     if (isNext()) {
       return true;
-    } else {
-      resetToLastKey();
-      final INodeReadTrx rtx = getTransaction();
-      if (mIsFirst) {
-        mIsFirst = false;
-        /*
-         * If the context node is an attribute or namespace node,
-         * the following-sibling axis is empty.
-         */
-        final INode node = rtx.getNode();
-        final ENode kind = node.getKind();
-        if (kind == ENode.ATTRIBUTE_KIND || kind == ENode.NAMESPACE_KIND) {
-          resetToStartKey();
-          return false;
-        } else {
-          if (node.hasParent()) {
-            final long startNodeKey = rtx.getNode().getNodeKey();
-            rtx.moveToParent();
-            rtx.moveToFirstChild();
+    }
+    
+    resetToLastKey();
+    final INodeTraversal rtx = getTransaction();
+    if (mIsFirst) {
+      mIsFirst = false;
+      /*
+       * If the context node is an attribute or namespace node,
+       * the following-sibling axis is empty.
+       */
+      final INode node = rtx.getNode();
+      final ENode kind = node.getKind();
+      if (kind == ENode.ATTRIBUTE_KIND || kind == ENode.NAMESPACE_KIND) {
+        resetToStartKey();
+        return false;
+      } else {
+        if (node.hasParent()) {
+          final long startNodeKey = rtx.getNode().getNodeKey();
+          rtx.moveToParent();
+          rtx.moveToFirstChild();
 
-            if (rtx.getNode().getNodeKey() == startNodeKey) {
-              resetToStartKey();
-              return false;
-            } else {
-              mKey = rtx.getNode().getNodeKey();
-              rtx.moveTo(startNodeKey);
-              return true;
-            }
+          if (rtx.getNode().getNodeKey() == startNodeKey) {
+            resetToStartKey();
+            return false;
+          } else {
+            mKey = rtx.getNode().getNodeKey();
+            rtx.moveTo(startNodeKey);
+            return true;
           }
         }
       }
-
-      final IStructNode node = rtx.getStructuralNode();
-      if (node.hasRightSibling() && node.getRightSiblingKey() != getStartKey()) {
-        mKey = node.getRightSiblingKey();
-        return true;
-      }
-      resetToStartKey();
-      return false;
     }
+
+    final IStructNode node = rtx.getStructuralNode();
+    if (node.hasRightSibling() && node.getRightSiblingKey() != getStartKey()) {
+      mKey = node.getRightSiblingKey();
+      return true;
+    }
+    resetToStartKey();
+    return false;
   }
 
 }

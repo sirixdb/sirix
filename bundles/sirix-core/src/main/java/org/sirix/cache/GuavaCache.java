@@ -8,8 +8,6 @@ import com.google.common.cache.RemovalListener;
 import com.google.common.cache.RemovalNotification;
 import com.google.common.collect.ImmutableMap;
 
-import java.util.Arrays;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -24,7 +22,7 @@ import org.sirix.exception.TTIOException;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class GuavaCache implements ICache<Long, PageContainer> {
+public class GuavaCache implements ICache<Tuple, PageContainer> {
 
   /**
    * Pool for prefetching.
@@ -44,7 +42,7 @@ public class GuavaCache implements ICache<Long, PageContainer> {
   /**
    * {@link LoadingCache} reference.
    */
-  private final LoadingCache<Long, PageContainer> mCache;
+  private final LoadingCache<Tuple, PageContainer> mCache;
 
   /**
    * Constructor with no second cache.
@@ -53,7 +51,7 @@ public class GuavaCache implements ICache<Long, PageContainer> {
    *          {@link IPageReadTrx} implementation
    */
   public GuavaCache(final IPageReadTrx pPageReadTransaction) {
-    this(pPageReadTransaction, new NullCache<Long, PageContainer>());
+    this(pPageReadTransaction, new NullCache<Tuple, PageContainer>());
   }
 
   /**
@@ -65,26 +63,26 @@ public class GuavaCache implements ICache<Long, PageContainer> {
    *          second fallback cache
    */
   public GuavaCache(final IPageReadTrx pPageReadTransaction,
-    final ICache<Long, PageContainer> pSecondCache) {
+    final ICache<Tuple, PageContainer> pSecondCache) {
     checkNotNull(pPageReadTransaction);
     checkNotNull(pSecondCache);
 
     final CacheBuilder<Object, Object> builder =
       CacheBuilder.newBuilder().maximumSize(MAX_SIZE).expireAfterAccess(EXPIRE_AFTER, TimeUnit.SECONDS);
     if (!(pSecondCache instanceof NullCache)) {
-      RemovalListener<Long, PageContainer> removalListener =
-        new RemovalListener<Long, PageContainer>() {
+      RemovalListener<Tuple, PageContainer> removalListener =
+        new RemovalListener<Tuple, PageContainer>() {
           @Override
-          public void onRemoval(final RemovalNotification<Long, PageContainer> pRemoval) {
+          public void onRemoval(final RemovalNotification<Tuple, PageContainer> pRemoval) {
             pSecondCache.put(pRemoval.getKey(), pRemoval.getValue());
           }
         };
       builder.removalListener(removalListener);
     }
-    mCache = builder.build(new CacheLoader<Long, PageContainer>() {
+    mCache = builder.build(new CacheLoader<Tuple, PageContainer>() {
       @Override
-      public PageContainer load(final Long key) throws TTIOException {
-        return pPageReadTransaction.getNodeFromPage(key);
+      public PageContainer load(final Tuple key) throws TTIOException {
+        return pPageReadTransaction.getNodeFromPage(key.getKey(), key.getPage());
       }
     });
     
@@ -114,9 +112,9 @@ public class GuavaCache implements ICache<Long, PageContainer> {
   }
 
   @Override
-  public synchronized PageContainer get(final Long pKey) {
+  public synchronized PageContainer get(final Tuple pKey) {
     try {
-      if (pKey < 0) {
+      if (pKey.getKey() < 0) {
         return PageContainer.EMPTY_INSTANCE;
       }
       PageContainer container = mCache.getIfPresent(pKey);
@@ -133,12 +131,12 @@ public class GuavaCache implements ICache<Long, PageContainer> {
   }
 
   @Override
-  public void put(final Long pKey, final PageContainer pValue) {
+  public void put(final Tuple pKey, final PageContainer pValue) {
     mCache.put(pKey, pValue);
   }
 
   @Override
-  public ImmutableMap<Long, PageContainer> getAll(Iterable<? extends Long> keys) {
+  public ImmutableMap<Tuple, PageContainer> getAll(Iterable<? extends Tuple> keys) {
     try {
       return mCache.getAll(keys);
     } catch (final ExecutionException e) {

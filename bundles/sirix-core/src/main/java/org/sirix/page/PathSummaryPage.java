@@ -1,3 +1,4 @@
+package org.sirix.page;
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
@@ -24,41 +25,71 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 
-package org.sirix.service.xml.xpath.concurrent;
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Exchanger;
+import org.sirix.io.ITTSink;
+import org.sirix.io.ITTSource;
+import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.interfaces.IPage;
 
 /**
- * <h1>ConcurrentExchanger</h1>
- * <p>
- * This class is a Exchanger singleton to exchange content of threads.
- * </p>
+ * Page to hold references to a path summary.
  * 
- * @author Patrick Lang, Konstanz University
+ * @author Johannes Lichtenberger, University of Konstanz
+ *
  */
-public class ConcurrentExchanger {
+public class PathSummaryPage extends AbsForwardingPage {
+
+  /** {@link PageDelegate} instance. */
+  private final PageDelegate mDelegate;
+  
+  /** Offset of indirect page reference. */
+  private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
   /**
-   * Singleton instance that is initialized only once on first class access
-   * through JVM.
+   * Metadata for the revision.
+   * 
+   * @param pRevision
+   *          revision number
+   * @throws IllegalArgumentException
+   *           if {@code pRevision} < 0
    */
-  private static Exchanger<BlockingQueue<Long>> EXCHANGER = new Exchanger<BlockingQueue<Long>>();
-
+  public PathSummaryPage(@Nonnegative final long pRevision) {
+    checkArgument(pRevision >= 0, "pRevision must be >= 0!");
+    mDelegate = new PageDelegate(1, pRevision);
+  }
+  
   /**
-   * Default constructor.
+   * Get indirect page reference.
+   * 
+   * @return indirect page reference
    */
-  private ConcurrentExchanger() {
+  public PageReference getIndirectPageReference() {
+    return getReferences()[INDIRECT_REFERENCE_OFFSET];
+  }
+  
+  /**
+   * Read meta page.
+   * 
+   * @param pIn
+   *          input bytes to read from
+   */
+  protected PathSummaryPage(@Nonnull final ITTSource pIn) {
+    mDelegate = new PageDelegate(1, pIn);
   }
 
-  /**
-   * Return exchanger instance.
-   * 
-   * @return exchanger instance
-   */
-  public static Exchanger<BlockingQueue<Long>> getInstance() {
-    return EXCHANGER;
+  @Override
+  public void serialize(@Nonnull final ITTSink pOut) {
+    mDelegate.serialize(checkNotNull(pOut));
+  }
+
+  @Override
+  protected IPage delegate() {
+    return mDelegate;
   }
 
 }

@@ -85,7 +85,7 @@ public interface IFilter {
   /**
    * Apply filter on current node of transaction.
    * 
-   * @return True if node passes filter. False else.
+   * @return {@code true} if node passes filter, {@code false} otherwise
    */
   boolean filter();
 
@@ -93,8 +93,7 @@ public interface IFilter {
    * Set transaction to which this filter is bound.
    * 
    * @param pRtx
-   *          read transaction which is bound to transaction.
-   * 
+   *          read transaction which is bound to transaction
    */
   void setTransaction(final INodeReadTrx pRtx);
 

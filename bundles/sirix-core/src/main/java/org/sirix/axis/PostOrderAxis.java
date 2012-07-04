@@ -29,7 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeTraversal;
 import org.sirix.settings.EFixed;
 
 /**
@@ -51,7 +51,7 @@ public final class PostOrderAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PostOrderAxis(@Nonnull final INodeReadTrx pRtx) {
+  public PostOrderAxis(@Nonnull final INodeTraversal pRtx) {
     super(pRtx);
   }
 
@@ -67,45 +67,48 @@ public final class PostOrderAxis extends AbsAxis {
   public boolean hasNext() {
     if (isNext()) {
       return true;
-    } else {
-      resetToLastKey();
+    }
+    
+    resetToLastKey();
 
-      if (mDone) {
-        resetToStartKey();
-        return false;
+    if (mDone) {
+      resetToStartKey();
+      return false;
+    }
+
+    final long currKey = mKey;
+    if ((!mMovedToParent && getTransaction().getStructuralNode()
+      .hasFirstChild())
+      || (getTransaction().getStructuralNode().hasRightSibling() && getTransaction()
+        .moveToRightSibling())) {
+      while (getTransaction().getStructuralNode().hasFirstChild()) {
+        getTransaction().moveTo(
+          getTransaction().getStructuralNode().getFirstChildKey());
       }
 
-      final long currKey = mKey;
-      if ((!mMovedToParent && getTransaction().getStructuralNode().hasFirstChild())
-        || (getTransaction().getStructuralNode().hasRightSibling() && getTransaction().moveToRightSibling())) {
-        while (getTransaction().getStructuralNode().hasFirstChild()) {
-          getTransaction().moveTo(getTransaction().getStructuralNode().getFirstChildKey());
-        }
-
-        mKey = getTransaction().getNode().getNodeKey();
-        getTransaction().moveTo(currKey);
-        return true;
-      }
-
-      if (getTransaction().getStructuralNode().hasRightSibling()) {
-        mKey = getTransaction().getStructuralNode().getRightSiblingKey();
-      } else {
-        mKey = getTransaction().getNode().getParentKey();
-        mMovedToParent = true;
-      }
-
-      if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-        resetToStartKey();
-        return false;
-      }
-
-      if (mKey == getStartKey()) {
-        mDone = true;
-      }
-
+      mKey = getTransaction().getNode().getNodeKey();
       getTransaction().moveTo(currKey);
       return true;
     }
+
+    if (getTransaction().getStructuralNode().hasRightSibling()) {
+      mKey = getTransaction().getStructuralNode().getRightSiblingKey();
+    } else {
+      mKey = getTransaction().getNode().getParentKey();
+      mMovedToParent = true;
+    }
+
+    if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+      resetToStartKey();
+      return false;
+    }
+
+    if (mKey == getStartKey()) {
+      mDone = true;
+    }
+
+    getTransaction().moveTo(currKey);
+    return true;
   }
 
 }

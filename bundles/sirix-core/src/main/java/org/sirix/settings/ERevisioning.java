@@ -31,7 +31,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.cache.PageContainer;
-import org.sirix.page.NamePage;
 import org.sirix.page.NodePage;
 
 /**
@@ -85,20 +84,6 @@ public enum ERevisioning {
         new PageContainer(returnVal[0], returnVal[1]);
       return cont;
     }
-
-    @Override
-    public NamePage combineNamePages(@Nonnull final NamePage[] pPages,
-      @Nonnegative final int pRevToRestore) {
-      assert pPages.length == 1 : "Only one version of the page!";
-      return pPages[0];
-    }
-
-    @Override
-    public NamePage combinePagesForModification(
-      @Nonnull final NamePage[] pPages,
-      @Nonnegative final int pMileStoneRevision) {
-      return null;
-    }
   },
 
   /**
@@ -114,7 +99,7 @@ public enum ERevisioning {
       final NodePage returnVal =
         new NodePage(nodePageKey, pPages[0].getRevision());
       final NodePage latest = pPages[0];
-      NodePage referencePage = pPages.length == 1 ? pPages[0] : pPages[1];
+      NodePage fullDump = pPages.length == 1 ? pPages[0] : pPages[1];
 
 //      for (int i = 1; i < pPages.length; i++) {
 //        if (pPages[i].getRevision() % pRevToRestore == 0) {
@@ -123,12 +108,12 @@ public enum ERevisioning {
 //        }
 //      }
       assert latest.getNodePageKey() == nodePageKey;
-      assert referencePage.getNodePageKey() == nodePageKey;
-      for (int i = 0; i < referencePage.getNodes().length; i++) {
+      assert fullDump.getNodePageKey() == nodePageKey;
+      for (int i = 0; i < fullDump.getNodes().length; i++) {
         if (latest.getNode(i) != null) {
           returnVal.setNode(i, latest.getNode(i));
-        } else {
-          returnVal.setNode(i, referencePage.getNode(i));
+        } else if (fullDump.getNode(i) != null){
+          returnVal.setNode(i, fullDump.getNode(i));
         }
       }
       return returnVal;
@@ -177,19 +162,6 @@ public enum ERevisioning {
         new PageContainer(returnVal[0], returnVal[1]);
       return cont;
     }
-
-    @Override
-    public NamePage combineNamePages(@Nonnull final NamePage[] pPages,
-      @Nonnegative final int pRevToRestore) {
-      return null;
-    }
-
-    @Override
-    public NamePage combinePagesForModification(
-      @Nonnull final NamePage[] pPages,
-      @Nonnegative final int pMileStoneRevision) {
-      return null;
-    }
   },
 
   /**
@@ -200,6 +172,7 @@ public enum ERevisioning {
     @Override
     public NodePage combineNodePages(final NodePage[] pPages,
       final int pRevToRestore) {
+      assert pPages.length <= pRevToRestore;
       final long nodePageKey = pPages[0].getNodePageKey();
       final NodePage returnVal =
         new NodePage(nodePageKey, pPages[0].getRevision());
@@ -210,7 +183,7 @@ public enum ERevisioning {
             returnVal.setNode(i, page.getNode(i));
           }
         }
-
+        
         if (page.getRevision() % pRevToRestore == 0) {
           break;
         }
@@ -232,7 +205,7 @@ public enum ERevisioning {
       for (final NodePage page : pPages) {
         assert page.getNodePageKey() == nodePageKey;
         for (int i = 0, length = page.getNodes().length; i < length; i++) {
-          // Caching the complete page
+          // Caching the complete page.
           if (page.getNode(i) != null && returnVal[0].getNode(i) == null) {
             returnVal[0].setNode(i, page.getNode(i));
 
@@ -247,28 +220,8 @@ public enum ERevisioning {
         new PageContainer(returnVal[0], returnVal[1]);
       return cont;
     }
-
-    @Override
-    public NamePage combineNamePages(@Nonnull final NamePage[] pPages,
-      @Nonnegative final int pRevToRestore) {
-      return null;
-    }
-
-    @Override
-    public NamePage combinePagesForModification(
-      @Nonnull final NamePage[] pPages,
-      @Nonnegative final int pMileStoneRevision) {
-      return null;
-    }
   };
-
-  public abstract NamePage combineNamePages(@Nonnull final NamePage[] pPages,
-    @Nonnegative final int pRevToRestore);
-
-  public abstract NamePage
-    combinePagesForModification(@Nonnull final NamePage[] pPages,
-      @Nonnegative final int pMileStoneRevision);
-
+  
   /**
    * Method to reconstruct a complete {@link NodePage} with the help of partly filled
    * pages plus a revision-delta which determines the necessary steps back.

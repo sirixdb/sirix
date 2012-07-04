@@ -27,6 +27,7 @@
 
 package org.sirix.service.xml.xpath.concurrent;
 
+import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.exception.TTXPathException;
@@ -68,19 +69,15 @@ public class ConcurrentIntersectAxis extends AbsAxis {
    * @param operand2
    *          Second operand
    */
-  public ConcurrentIntersectAxis(final INodeReadTrx rtx, final AbsAxis operand1, final AbsAxis operand2) {
-
-    super(rtx);
-    mOp1 = new ConcurrentAxis(rtx, operand1);
-    mOp2 = new ConcurrentAxis(rtx, operand2);
+  public ConcurrentIntersectAxis(final INodeReadTrx pRtx, final IAxis pOperand1, final IAxis operand2) {
+    super(pRtx);
+    mOp1 = new ConcurrentAxis(pRtx, pOperand1);
+    mOp2 = new ConcurrentAxis(pRtx, operand2);
     mFirst = true;
     mCurrentResult1 = EFixed.NULL_NODE_KEY.getStandardProperty();
     mCurrentResult2 = EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public synchronized void reset(final long nodeKey) {
 
@@ -98,12 +95,8 @@ public class ConcurrentIntersectAxis extends AbsAxis {
     mCurrentResult2 = EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public synchronized boolean hasNext() {
-
     resetToLastKey();
 
     if (mFirst) {
@@ -144,7 +137,7 @@ public class ConcurrentIntersectAxis extends AbsAxis {
           if (isValid(nodeKey)) {
             mCurrentResult1 = getNext(mOp1);
             mCurrentResult2 = getNext(mOp2);
-            getTransaction().moveTo(nodeKey);
+            mKey = nodeKey;
             return true;
           }
           // should never come here!
@@ -169,7 +162,6 @@ public class ConcurrentIntersectAxis extends AbsAxis {
    */
   private long getNext(final AbsAxis axis) {
     return (axis.hasNext()) ? axis.next() : (Long)EFixed.NULL_NODE_KEY.getStandardProperty();
-
   }
 
   /**

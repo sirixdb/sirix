@@ -34,7 +34,7 @@ import java.io.File;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.NodeWriteTrx.EHashKind;
+import org.sirix.access.EHashKind;
 import org.sirix.access.Session;
 import org.sirix.access.conf.ResourceConfiguration.Builder.EConsistency;
 import org.sirix.io.EStorage;
@@ -130,11 +130,11 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   /** Standard storage. */
   public static final EStorage STORAGE = EStorage.BerkeleyDB;
   /** Standard Versioning Approach. */
-  public static final ERevisioning VERSIONING = ERevisioning.INCREMENTAL;
+  public static final ERevisioning VERSIONING = ERevisioning.DIFFERENTIAL;
   /** Type of hashing. */
   public static final EHashKind HASHKIND = EHashKind.Rolling;
   /** Versions to restore. */
-  public static final int VERSIONSTORESTORE = 4;
+  public static final int VERSIONSTORESTORE = 3;
   /** Folder for tmp-database. */
   public static final String INTRINSICTEMP = "tmp";
   // END FIXED STANDARD FIELDS

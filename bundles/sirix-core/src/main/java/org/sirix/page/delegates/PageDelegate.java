@@ -28,7 +28,7 @@
 package org.sirix.page.delegates;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -63,7 +63,8 @@ public class PageDelegate implements IPage {
    * @param pRevision
    *          revision number
    */
-  public PageDelegate(@Nonnegative final int pReferenceCount, @Nonnegative final long pRevision) {
+  public PageDelegate(@Nonnegative final int pReferenceCount,
+    @Nonnegative final long pRevision) {
     checkArgument(pReferenceCount >= 0);
     checkArgument(pRevision >= 0);
     mReferences = new PageReference[pReferenceCount];
@@ -81,7 +82,8 @@ public class PageDelegate implements IPage {
    * @param pIn
    *          input stream to read from
    */
-  public PageDelegate(@Nonnegative final int pReferenceCount, @Nonnull final ITTSource pIn) {
+  public PageDelegate(@Nonnegative final int pReferenceCount,
+    @Nonnull final ITTSource pIn) {
     checkArgument(pReferenceCount >= 0);
     mReferences = new PageReference[pReferenceCount];
     mRevision = pIn.readLong();
@@ -90,7 +92,7 @@ public class PageDelegate implements IPage {
       mReferences[offset].setKey(pIn.readLong());
     }
   }
-  
+
   /**
    * Constructor to initialize instance.
    * 
@@ -99,7 +101,8 @@ public class PageDelegate implements IPage {
    * @param pIn
    *          input stream to read from
    */
-  public PageDelegate(@Nonnull final IPage pCommitedPage, @Nonnegative final long pRevision) {
+  public PageDelegate(@Nonnull final IPage pCommitedPage,
+    @Nonnegative final long pRevision) {
     checkArgument(pRevision >= 0);
     mReferences = pCommitedPage.getReferences();
     mRevision = pRevision;
@@ -128,7 +131,8 @@ public class PageDelegate implements IPage {
    *           if a write-error occured
    */
   @Override
-  public final void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
+  public final void commit(@Nonnull final IPageWriteTrx pPageWriteTrx)
+    throws AbsTTException {
     for (final PageReference reference : mReferences) {
       pPageWriteTrx.commit(reference);
     }
@@ -171,18 +175,11 @@ public class PageDelegate implements IPage {
 
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder();
-    if (getReferences().length > 0) {
-      builder.append("References: ");
-      for (final PageReference ref : getReferences()) {
-        if (ref != null) {
-          builder.append(ref.getKey()).append(",");
-        }
-      }
-    } else {
-      builder.append("No references");
+    final Objects.ToStringHelper helper =  Objects.toStringHelper(this);
+    for (final PageReference ref : mReferences) {
+      helper.add("reference", ref);
     }
-    return builder.toString();
+    return helper.toString();
   }
 
 }

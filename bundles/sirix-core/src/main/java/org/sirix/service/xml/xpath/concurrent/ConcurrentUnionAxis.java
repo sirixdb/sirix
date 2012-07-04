@@ -27,6 +27,9 @@
 
 package org.sirix.service.xml.xpath.concurrent;
 
+import javax.annotation.Nonnull;
+
+import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.exception.TTXPathException;
@@ -59,27 +62,21 @@ public class ConcurrentUnionAxis extends AbsAxis {
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param operand1
-   *          First operand
-   * @param operand2
-   *          Second operand
+   * @param pOperand1
+   *          first operand
+   * @param pOperand2
+   *          second operand
    */
-  public ConcurrentUnionAxis(final INodeReadTrx rtx, final AbsAxis operand1, final AbsAxis operand2) {
-
-    super(rtx);
-    mOp1 = new ConcurrentAxis(rtx, operand1);
-    mOp2 = new ConcurrentAxis(rtx, operand2);
+  public ConcurrentUnionAxis(final INodeReadTrx pRtx, final IAxis pOperand1,
+    final IAxis pOperand2) {
+    super(pRtx);
+    mOp1 = new ConcurrentAxis(pRtx, pOperand1);
+    mOp2 = new ConcurrentAxis(pRtx, pOperand2);
     mFirst = true;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public synchronized void reset(final long nodeKey) {
-
     super.reset(nodeKey);
 
     if (mOp1 != null) {
@@ -92,19 +89,14 @@ public class ConcurrentUnionAxis extends AbsAxis {
     mFirst = true;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public synchronized boolean hasNext() {
-
     resetToLastKey();
 
     if (mFirst) {
       mFirst = false;
       mCurrentResult1 = getNext(mOp1);
       mCurrentResult2 = getNext(mOp2);
-
     }
 
     final long nodeKey;
@@ -134,7 +126,7 @@ public class ConcurrentUnionAxis extends AbsAxis {
             mExp.printStackTrace();
           }
         }
-        getTransaction().moveTo(nodeKey);
+        mKey = nodeKey;
         return true;
       }
 
@@ -142,7 +134,7 @@ public class ConcurrentUnionAxis extends AbsAxis {
       nodeKey = mCurrentResult1;
       if (isValid(nodeKey)) {
         mCurrentResult1 = getNext(mOp1);
-        getTransaction().moveTo(nodeKey);
+        mKey = nodeKey;
         return true;
       }
       // should never come here!
@@ -154,7 +146,7 @@ public class ConcurrentUnionAxis extends AbsAxis {
       nodeKey = mCurrentResult2;
       if (isValid(nodeKey)) {
         mCurrentResult2 = getNext(mOp2);
-        getTransaction().moveTo(nodeKey);
+        mKey = nodeKey;
         return true;
       }
       // should never come here!
@@ -168,12 +160,14 @@ public class ConcurrentUnionAxis extends AbsAxis {
   }
 
   /**
+   * Get next result from axis.
+   * 
    * @return the next result of the axis. If the axis has no next result, the
    *         null node key is returned.
    */
-  private long getNext(final AbsAxis axis) {
-    return (axis.hasNext()) ? axis.next() : (Long)EFixed.NULL_NODE_KEY.getStandardProperty();
-
+  private long getNext(@Nonnull final IAxis axis) {
+    return (axis.hasNext()) ? axis.next() : EFixed.NULL_NODE_KEY
+      .getStandardProperty();
   }
 
   /**
@@ -189,8 +183,9 @@ public class ConcurrentUnionAxis extends AbsAxis {
     if (nodeKey < 0) {
       // throw new XPathError(ErrorType.XPTY0004);
       try {
-        throw new TTXPathException("err:XPTY0004 The type is not appropriate the expression or the "
-          + "typedoes not match a required type as specified by the matching rules.");
+        throw new TTXPathException(
+          "err:XPTY0004 The type is not appropriate the expression or the "
+            + "typedoes not match a required type as specified by the matching rules.");
       } catch (TTXPathException mExp) {
         mExp.printStackTrace();
       }

@@ -27,6 +27,9 @@
 
 package org.sirix.service.xml.xpath.concurrent;
 
+import javax.annotation.Nonnull;
+
+import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.exception.TTXPathException;
@@ -61,36 +64,31 @@ public class ConcurrentExceptAxis extends AbsAxis {
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param operand1
-   *          First operand
-   * @param operand2
-   *          Second operand
+   * @param pRtx
+   *          exclusive (immutable) trx to iterate with
+   * @param pOperand1
+   *          first operand
+   * @param pOperand2
+   *          second operand
    */
-  public ConcurrentExceptAxis(final INodeReadTrx rtx, final AbsAxis operand1, final AbsAxis operand2) {
-
-    super(rtx);
-    mOp1 = new ConcurrentAxis(rtx, operand1);
-    mOp2 = new ConcurrentAxis(rtx, operand2);
+  public ConcurrentExceptAxis(final INodeReadTrx pRtx, final IAxis pOperand1, final IAxis pOperand2) {
+    super(pRtx);
+    mOp1 = new ConcurrentAxis(pRtx, pOperand1);
+    mOp2 = new ConcurrentAxis(pRtx, pOperand2);
     mFirst = true;
     mCurrentResult1 = EFixed.NULL_NODE_KEY.getStandardProperty();
     mCurrentResult2 = EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public synchronized void reset(final long nodeKey) {
-
-    super.reset(nodeKey);
+  public synchronized void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
 
     if (mOp1 != null) {
-      mOp1.reset(nodeKey);
+      mOp1.reset(pNodeKey);
     }
     if (mOp2 != null) {
-      mOp2.reset(nodeKey);
+      mOp2.reset(pNodeKey);
     }
 
     mFirst = true;
@@ -98,12 +96,11 @@ public class ConcurrentExceptAxis extends AbsAxis {
     mCurrentResult2 = EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public synchronized boolean hasNext() {
-
+    if (isNext()) {
+      return true;
+    }
     resetToLastKey();
 
     if (mFirst) {
@@ -141,7 +138,7 @@ public class ConcurrentExceptAxis extends AbsAxis {
           nodeKey = mCurrentResult1;
           if (isValid(nodeKey)) {
             mCurrentResult1 = getNext(mOp1);
-            getTransaction().moveTo(nodeKey);
+            mKey = nodeKey;
             return true;
           }
           // should never come here!
@@ -154,7 +151,7 @@ public class ConcurrentExceptAxis extends AbsAxis {
         nodeKey = mCurrentResult1;
         if (isValid(nodeKey)) {
           mCurrentResult1 = getNext(mOp1);
-          getTransaction().moveTo(nodeKey);
+          mKey = nodeKey;
           return true;
         }
         // should never come here!
@@ -172,9 +169,8 @@ public class ConcurrentExceptAxis extends AbsAxis {
    * @return the next result of the axis. If the axis has no next result, the
    *         null node key is returned.
    */
-  private long getNext(final AbsAxis axis) {
-    return (axis.hasNext()) ? axis.next() : (Long)EFixed.NULL_NODE_KEY.getStandardProperty();
-
+  private long getNext(@Nonnull final IAxis axis) {
+    return (axis.hasNext()) ? axis.next() : EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   /**

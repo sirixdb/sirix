@@ -27,6 +27,10 @@
 
 package org.sirix.service.xml.xpath.filter;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import javax.annotation.Nonnull;
+
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
@@ -51,26 +55,29 @@ public class PredicateFilterAxis extends AbsAxis {
    * 
    * @param rtx
    *          Exclusive (immutable) trx to iterate with.
-   * @param predicate
+   * @param pPredicate
    *          predicate expression
    */
-  public PredicateFilterAxis(final INodeReadTrx rtx, final IAxis predicate) {
-    super(rtx);
+  public PredicateFilterAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final IAxis pPredicate) {
+    super(pRtx);
     mIsFirst = true;
-    mPredicate = predicate;
+    mPredicate = checkNotNull(pPredicate);
   }
 
   @Override
-  public final void reset(final long mNodeKey) {
-    super.reset(mNodeKey);
+  public final void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     if (mPredicate != null) {
-      mPredicate.reset(mNodeKey);
+      mPredicate.reset(pNodeKey);
     }
     mIsFirst = true;
   }
 
   @Override
   public final boolean hasNext() {
+    if (isNext()) {
+      return true;
+    }
     resetToLastKey();
 
     // a predicate has to evaluate to true only once.
@@ -110,7 +117,6 @@ public class PredicateFilterAxis extends AbsAxis {
         // atomic value of type boolean
         // return true, if atomic values's value is false
         return !(Boolean.parseBoolean(getTransaction().getValueOfCurrentNode()));
-
       } else {
         return false;
       }

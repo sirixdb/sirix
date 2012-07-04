@@ -27,6 +27,8 @@
 
 package org.sirix.service.xml.xpath.expr;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 
 /**
@@ -42,26 +44,20 @@ public class LiteralExpr extends AbsExpression {
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
+   * @param pRtx
+   *          exclusive (immutable) trx to iterate with
    * @param mItemKey
    *          itemKey of the literal
    */
-  public LiteralExpr(final INodeReadTrx rtx, final long mItemKey) {
-    super(rtx);
-
-    mLiteralKey = mItemKey;
+  public LiteralExpr(@Nonnull final INodeReadTrx pRtx, final long pItemKey) {
+    super(pRtx);
+    mLiteralKey = pItemKey;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void evaluate() {
-
-    // set transaction to literal
+    // Set transaction to literal.
     mKey = mLiteralKey;
-
   }
 
 }

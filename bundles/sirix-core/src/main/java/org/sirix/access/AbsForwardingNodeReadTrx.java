@@ -157,4 +157,9 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject implemen
   public byte[] rawNameForKey(int pKey) {
     return delegate().rawNameForKey(pKey);
   }
+  
+  @Override
+  public INodeReadTrx cloneInstance() throws AbsTTException {
+    return delegate().cloneInstance();
+  }
 }

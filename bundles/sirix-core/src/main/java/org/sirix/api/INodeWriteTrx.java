@@ -33,7 +33,7 @@ import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 
-import org.sirix.access.NodeWriteTrx.EMove;
+import org.sirix.access.EMove;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTUsageException;
@@ -48,14 +48,14 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * 
  * <p>
  * Interface to access nodes based on the
- * Key/ParentKey/FirstChildKey/LeftSiblingKey/RightSiblingKey/ChildCount encoding. This encoding keeps the
- * children ordered but has no knowledge of the global node ordering. The underlying tree is accessed in a
- * cursor-like fashion.
+ * Key/ParentKey/FirstChildKey/LeftSiblingKey/RightSiblingKey/ChildCount/DescendantCount encoding. This
+ * encoding keeps the children ordered but has no knowledge of the global node ordering. The underlying tree
+ * is accessed in a cursor-like fashion.
  * </p>
  * 
  * <p>
- * Each commit at least adds <code>10kB</code> to the sirix file. It is thus recommended to work with the
- * auto commit mode only committing after a given amount of node modifications or elapsed time. For very
+ * Each commit at least adds <code>10kB</code> to the sirix file. It is thus recommended to work with the auto
+ * commit mode only committing after a given amount of node modifications or elapsed time. For very
  * update-intensive data, a value of one million modifications and ten seconds is recommended. Note that this
  * might require to increment the available heap.
  * </p>
@@ -84,19 +84,22 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * wtx.close();
  * 
  * // With auto commit after every 10th modification.
- * final INodeWriteTransaction wtx = session.beginNodeWriteTrx(10, TimeUnit.MINUTES, 0);
+ * final INodeWriteTransaction wtx =
+ *   session.beginNodeWriteTrx(10, TimeUnit.MINUTES, 0);
  * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
  * // Implicit commit.
  * wtx.close();
  * 
  * // With auto commit after every minute.
- * final INodeWriteTransaction wtx = session.beginNodeWriteTrx(0, TimeUnit.MINUTES, 1);
+ * final INodeWriteTransaction wtx =
+ *   session.beginNodeWriteTrx(0, TimeUnit.MINUTES, 1);
  * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
  * // Implicit commit.
  * wtx.close();
  * 
  * // With auto commit after every 10th modification and every second.
- * final INodeWriteTransaction wtx = session.beginNodeWriteTrx(10, TimeUnit.SECONDS, 1);
+ * final INodeWriteTransaction wtx =
+ *   session.beginNodeWriteTrx(10, TimeUnit.SECONDS, 1);
  * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
  * // Implicit commit.
  * wtx.close();
@@ -137,7 +140,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    * @throws NullpointerException
    *           if {@code pRtx} is {@code null}
    */
-  INodeWriteTrx copySubtreeAsFirstChild(INodeReadTrx pRtx) throws AbsTTException;
+  INodeWriteTrx copySubtreeAsFirstChild(INodeReadTrx pRtx)
+    throws AbsTTException;
 
   /**
    * Copy subtree from another {@code database/resource/revision} and insert as left sibling of the current
@@ -151,7 +155,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    * @throws NullpointerException
    *           if {@code pRtx} is {@code null}
    */
-  INodeWriteTrx copySubtreeAsLeftSibling(INodeReadTrx pRtx) throws AbsTTException;
+  INodeWriteTrx copySubtreeAsLeftSibling(INodeReadTrx pRtx)
+    throws AbsTTException;
 
   /**
    * Copy subtree from another {@code database/resource/revision} and insert as right sibling of the current
@@ -165,7 +170,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    * @throws NullpointerException
    *           if {@code pRtx} is {@code null}
    */
-  INodeWriteTrx copySubtreeAsRightSibling(INodeReadTrx pRtx) throws AbsTTException;
+  INodeWriteTrx copySubtreeAsRightSibling(INodeReadTrx pRtx)
+    throws AbsTTException;
 
   /**
    * Replace a node with another node or subtree, depending whether the replaced node is an {@code element}-
@@ -183,7 +189,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    * @throws AbsTTException
    *           if anything in sirix fails
    */
-  INodeWriteTrx replaceNode(String pXML) throws AbsTTException, IOException, XMLStreamException;
+  INodeWriteTrx replaceNode(String pXML) throws AbsTTException, IOException,
+    XMLStreamException;
 
   /**
    * Replace a node with another node or subtree, depending whether the replaced node is an {@code element}-
@@ -230,7 +237,7 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           {@code pFromKey}
    */
   INodeWriteTrx moveSubtreeToRightSibling(long pFromKey) throws AbsTTException;
-  
+
   /**
    * Move a subtree rooted at {@code pFromKey} to the left sibling of the current node. In case of the moved
    * node is a text-node the value of the current node is prepended to the moved node and deleted afterwards.
@@ -345,7 +352,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if attribute couldn't be inserted.
    * @return the transaction instance
    */
-  INodeWriteTrx insertAttribute(QName pName, String pValue) throws AbsTTException;
+  INodeWriteTrx insertAttribute(QName pName, String pValue)
+    throws AbsTTException;
 
   /**
    * Insert attribute in currently selected node. The cursor is moved depending on the value of {@code pMove}.
@@ -358,7 +366,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if attribute couldn't be inserted.
    * @return the transaction instance
    */
-  INodeWriteTrx insertAttribute(QName pName, String pValue, EMove pMove) throws AbsTTException;
+  INodeWriteTrx insertAttribute(QName pName, String pValue, EMove pMove)
+    throws AbsTTException;
 
   /**
    * Insert namespace declaration in currently selected node. The cursor is
@@ -382,7 +391,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    * @throws AbsTTException
    *           if attribute couldn't be inserted.
    */
-  INodeWriteTrx insertNamespace(QName pQName, EMove pMove) throws AbsTTException;
+  INodeWriteTrx insertNamespace(QName pQName, EMove pMove)
+    throws AbsTTException;
 
 /**
    * Insert a subtree.
@@ -399,7 +409,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    * @throws NullPointerException
    *          if {@code pReader} or {@code pInsert} is {@code null}
    */
-  INodeWriteTrx insertSubtree(XMLEventReader pReader, EInsert pInsert) throws AbsTTException;
+  INodeWriteTrx insertSubtree(XMLEventReader pReader, EInsert pInsert)
+    throws AbsTTException;
 
   /**
    * Remove currently selected node. This does automatically remove
@@ -487,4 +498,20 @@ public interface INodeWriteTrx extends INodeReadTrx {
    */
   @Override
   void close() throws AbsTTException;
+
+  /**
+   * Add pre commit hook.
+   * 
+   * @param pHook
+   *          pre commit hook
+   */
+  void addPreCommitHook(IPreCommitHook hook);
+
+  /**
+   * Add a post commit hook.
+   * 
+   * @param pHook
+   *          post commit hook
+   */
+  void addPostCommitHook(IPostCommitHook pHook);
 }

@@ -248,7 +248,7 @@ public final class Session implements ISession {
 
     final IWriter writer = mFac.getWriter();
     final long lastCommitedRev =
-      mLastCommittedUberPage.getLastCommitedRevisionNumber() >= 0 ? mLastCommittedUberPage
+      mLastCommittedUberPage.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage
         .getLastCommitedRevisionNumber() : 0;
     return new PageWriteTrx(this, new UberPage(mLastCommittedUberPage, pStoreRevision + 1), writer, pId,
       pRepresentRevision, pStoreRevision, lastCommitedRev);
@@ -258,11 +258,12 @@ public final class Session implements ISession {
   public synchronized void close() throws AbsTTException {
     if (!mClosed) {
       // Forcibly close all open transactions.
-      for (final INodeReadTrx rtx : mTransactionMap.values()) {
+      for (INodeReadTrx rtx : mTransactionMap.values()) {
         if (rtx instanceof INodeWriteTrx) {
           ((INodeWriteTrx)rtx).abort();
         }
         rtx.close();
+        rtx = null;
       }
 
       // Immediately release all ressources.

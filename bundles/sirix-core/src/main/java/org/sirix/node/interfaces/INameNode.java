@@ -45,7 +45,7 @@ public interface INameNode extends INode {
    * Setting the name key.
    * 
    * @param pNameKey
-   *          the namekey to be set.
+   *          the namekey to be set
    */
   void setNameKey(int pNameKey);
 
@@ -53,7 +53,7 @@ public interface INameNode extends INode {
    * Setting the uri key.
    * 
    * @param pUriKey
-   *          the urikey to be set.
+   *          the urikey to be set
    */
   void setURIKey(int pUriKey);
 }

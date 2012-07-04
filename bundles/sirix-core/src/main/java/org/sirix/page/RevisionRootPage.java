@@ -50,8 +50,11 @@ public final class RevisionRootPage extends AbsForwardingPage {
   /** Offset of name page reference. */
   private static final int NAME_REFERENCE_OFFSET = 0;
 
+  /** Offset of path summary page reference. */
+  private static final int PATH_SUMMARY_REFERENCE_OFFSET = 1;
+
   /** Offset of indirect page reference. */
-  private static final int INDIRECT_REFERENCE_OFFSET = 1;
+  private static final int INDIRECT_REFERENCE_OFFSET = 2;
 
   /** Number of nodes of this revision. */
   private long mRevisionSize;
@@ -69,7 +72,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
    * Create revision root page.
    */
   public RevisionRootPage() {
-    mDelegate = new PageDelegate(2, IConstants.UBP_ROOT_REVISION_NUMBER);
+    mDelegate = new PageDelegate(3, IConstants.UBP_ROOT_REVISION_NUMBER);
     mRevisionSize = 0L;
     final PageReference ref = getReferences()[NAME_REFERENCE_OFFSET];
     ref.setPage(new NamePage(IConstants.UBP_ROOT_REVISION_NUMBER));
@@ -83,7 +86,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
    *          input stream
    */
   protected RevisionRootPage(@Nonnull final ITTSource pIn) {
-    mDelegate = new PageDelegate(2, pIn);
+    mDelegate = new PageDelegate(3, pIn);
     mRevisionSize = pIn.readLong();
     mMaxNodeKey = pIn.readLong();
     mRevisionTimestamp = pIn.readLong();
@@ -103,6 +106,15 @@ public final class RevisionRootPage extends AbsForwardingPage {
     mDelegate = new PageDelegate(pCommittedRevisionRootPage, pRevisionToUse);
     mRevisionSize = pCommittedRevisionRootPage.mRevisionSize;
     mMaxNodeKey = pCommittedRevisionRootPage.mMaxNodeKey;
+  }
+
+  /**
+   * Get path summary page reference.
+   * 
+   * @return path summary page reference
+   */
+  public PageReference getPathSummaryPageReference() {
+    return getReferences()[PATH_SUMMARY_REFERENCE_OFFSET];
   }
 
   /**
@@ -179,9 +191,10 @@ public final class RevisionRootPage extends AbsForwardingPage {
   @Override
   public String toString() {
     return Objects.toStringHelper(this).add("revisionSize", mRevisionSize).add(
-      "revisionTimestamp", mRevisionTimestamp).add("namePage",
-      getReferences()[NAME_REFERENCE_OFFSET]).add("indirectPage",
-      getReferences()[INDIRECT_REFERENCE_OFFSET]).toString();
+      "revisionTimestamp", mRevisionTimestamp).add("maxNodeKey", mMaxNodeKey)
+      .add("delegate", mDelegate).add("namePage",
+        getReferences()[NAME_REFERENCE_OFFSET]).add("indirectPage",
+        getReferences()[INDIRECT_REFERENCE_OFFSET]).toString();
   }
 
   @Override

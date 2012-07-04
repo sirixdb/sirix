@@ -3,7 +3,6 @@ package org.sirix.access;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 
-import org.sirix.access.NodeWriteTrx.EMove;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.exception.AbsTTException;

@@ -15,9 +15,9 @@ import org.sirix.axis.EIncludeSelf;
  */
 public interface IAxis extends Iterator<Long>, Iterable<Long> {
   /**
-   * Get the transaction associated with the axis.
+   * Get the transaction associated with the axis. 
    * 
-   * @return the transaction
+   * @return the transaction or {@code null}
    */
   INodeReadTrx getTransaction();
 

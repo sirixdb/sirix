@@ -52,7 +52,7 @@ public class XPathStringChecker {
 
   public static void testIAxisConventions(final AbsAxis axis, final String[] expectedValues) {
 
-    final INodeReadTrx rtx = axis.getTransaction();
+    final INodeReadTrx rtx = ((INodeReadTrx)axis.getTransaction());
 
     // IAxis Convention 1.
     final long startKey = rtx.getNode().getNodeKey();

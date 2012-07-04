@@ -27,6 +27,8 @@
 
 package org.sirix.service.xml.serialize;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.Callable;
@@ -67,28 +69,28 @@ abstract class AbsSerializer implements Callable<Void> {
    * @param paramVersions
    *          versions which should be serialized: -
    */
-  public AbsSerializer(final ISession paramSession, final long... paramVersions) {
+  public AbsSerializer(final ISession pSession, final long... pVersions) {
     mStack = new ArrayDeque<Long>();
-    mVersions = paramVersions;
-    mSession = paramSession;
+    mVersions = pVersions;
+    mSession = checkNotNull(pSession);
     mNodeKey = 0;
   }
 
   /**
    * Constructor.
    * 
-   * @param paramSession
-   *          {@link ISession}.
-   * @param paramKey
-   *          Key of root node from which to shredder the subtree.
+   * @param pSession
+   *          Sirix {@link ISession}
+   * @param pKey
+   *          key of root node from which to shredder the subtree
    * @param paramVersions
-   *          versions which should be serialized: -
+   *          versions which should be serialized
    */
-  public AbsSerializer(final ISession paramSession, final long paramKey, final long... paramVersions) {
+  public AbsSerializer(final ISession pSession, final long pKey, final long... pVersions) {
     mStack = new ArrayDeque<Long>();
-    mVersions = paramVersions;
-    mSession = paramSession;
-    mNodeKey = paramKey;
+    mVersions = pVersions;
+    mSession = checkNotNull(pSession);
+    mNodeKey = pKey;
   }
 
   /**

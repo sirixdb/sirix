@@ -32,7 +32,7 @@ import java.util.Deque;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeTraversal;
 
 /**
  * <h1>FollowingAxis</h1>
@@ -55,7 +55,7 @@ public final class FollowingAxis extends AbsAxis {
    * @param paramRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public FollowingAxis(@Nonnull final INodeReadTrx pRtx) {
+  public FollowingAxis(@Nonnull final INodeTraversal pRtx) {
     super(pRtx);
     mIsFirst = true;
     mRightSiblingStack = new ArrayDeque<>();
@@ -72,108 +72,112 @@ public final class FollowingAxis extends AbsAxis {
   public boolean hasNext() {
     if (isNext()) {
       return true;
-    } else {
-      // Assure, that preceding is not evaluated on an attribute or a
-      // namespace.
-      if (mIsFirst) {
-        switch (getTransaction().getNode().getKind()) {
-        case ATTRIBUTE_KIND:
-        case NAMESPACE_KIND:
-          resetToStartKey();
-          return false;
-        }
+    }
+    // Assure, that preceding is not evaluated on an attribute or a
+    // namespace.
+    if (mIsFirst) {
+      switch (getTransaction().getNode().getKind()) {
+      case ATTRIBUTE_KIND:
+      case NAMESPACE_KIND:
+        resetToStartKey();
+        return false;
       }
+    }
 
-      resetToLastKey();
-      final long currKey = getTransaction().getNode().getNodeKey();
+    resetToLastKey();
+    final long currKey = getTransaction().getNode().getNodeKey();
 
-      if (mIsFirst) {
-        mIsFirst = false;
+    if (mIsFirst) {
+      mIsFirst = false;
 
-        /*
-         * The first following is either a right sibling, or the right
-         * sibling of the first ancestor that has a right sibling. Note:
-         * ancestors and descendants are no following node!
-         */
+      /*
+       * The first following is either a right sibling, or the right
+       * sibling of the first ancestor that has a right sibling. Note:
+       * ancestors and descendants are no following node!
+       */
+      if (getTransaction().getStructuralNode().hasRightSibling()) {
+        getTransaction().moveToRightSibling();
+        mKey = getTransaction().getNode().getNodeKey();
+
+        if (getTransaction().getStructuralNode().hasRightSibling()) {
+          // Push right sibling on a stack to reduce path traversal.
+          mRightSiblingStack.push(getTransaction().getStructuralNode()
+            .getRightSiblingKey());
+        }
+
+        getTransaction().moveTo(currKey);
+        return true;
+      }
+      // Try to find the right sibling of one of the ancestors.
+      while (getTransaction().getNode().hasParent()) {
+        getTransaction().moveToParent();
         if (getTransaction().getStructuralNode().hasRightSibling()) {
           getTransaction().moveToRightSibling();
           mKey = getTransaction().getNode().getNodeKey();
 
           if (getTransaction().getStructuralNode().hasRightSibling()) {
-            // Push right sibling on a stack to reduce path traversal.
-            mRightSiblingStack.push(getTransaction().getStructuralNode().getRightSiblingKey());
+            mRightSiblingStack.push(getTransaction().getStructuralNode()
+              .getRightSiblingKey());
+          }
+          getTransaction().moveTo(currKey);
+          return true;
+        }
+      }
+      // CurrentNode is last key in the document order.
+      resetToStartKey();
+      return false;
+
+    }
+    // Step down the tree in document order.
+    if (getTransaction().getStructuralNode().hasFirstChild()) {
+      getTransaction().moveToFirstChild();
+      mKey = getTransaction().getNode().getNodeKey();
+
+      if (getTransaction().getStructuralNode().hasRightSibling()) {
+        // Push right sibling on a stack to reduce path traversal.
+        mRightSiblingStack.push(getTransaction().getStructuralNode()
+          .getRightSiblingKey());
+      }
+
+      getTransaction().moveTo(currKey);
+      return true;
+    }
+    if (mRightSiblingStack.isEmpty()) {
+      // Try to find the right sibling of one of the ancestors.
+      while (getTransaction().getNode().hasParent()) {
+        getTransaction().moveToParent();
+        if (getTransaction().getStructuralNode().hasRightSibling()) {
+          getTransaction().moveToRightSibling();
+          mKey = getTransaction().getNode().getNodeKey();
+
+          if (getTransaction().getStructuralNode().hasRightSibling()) {
+            // Push right sibling on a stack to reduce path
+            // traversal.
+            mRightSiblingStack.push(getTransaction().getStructuralNode()
+              .getRightSiblingKey());
           }
 
           getTransaction().moveTo(currKey);
           return true;
         }
-        // Try to find the right sibling of one of the ancestors.
-        while (getTransaction().getNode().hasParent()) {
-          getTransaction().moveToParent();
-          if (getTransaction().getStructuralNode().hasRightSibling()) {
-            getTransaction().moveToRightSibling();
-            mKey = getTransaction().getNode().getNodeKey();
-
-            if (getTransaction().getStructuralNode().hasRightSibling()) {
-              mRightSiblingStack.push(getTransaction().getStructuralNode().getRightSiblingKey());
-            }
-            getTransaction().moveTo(currKey);
-            return true;
-          }
-        }
-        // CurrentNode is last key in the document order.
-        resetToStartKey();
-        return false;
-
       }
-      // Step down the tree in document order.
-      if (getTransaction().getStructuralNode().hasFirstChild()) {
-        getTransaction().moveToFirstChild();
-        mKey = getTransaction().getNode().getNodeKey();
 
-        if (getTransaction().getStructuralNode().hasRightSibling()) {
-          // Push right sibling on a stack to reduce path traversal.
-          mRightSiblingStack.push(getTransaction().getStructuralNode().getRightSiblingKey());
-        }
+    } else {
+      // Get root key of sibling subtree.
+      getTransaction().moveTo(mRightSiblingStack.pop());
+      mKey = getTransaction().getNode().getNodeKey();
 
-        getTransaction().moveTo(currKey);
-        return true;
+      if (getTransaction().getStructuralNode().hasRightSibling()) {
+        // Push right sibling on a stack to reduce path traversal.
+        mRightSiblingStack.push(getTransaction().getStructuralNode()
+          .getRightSiblingKey());
       }
-      if (mRightSiblingStack.isEmpty()) {
-        // Try to find the right sibling of one of the ancestors.
-        while (getTransaction().getNode().hasParent()) {
-          getTransaction().moveToParent();
-          if (getTransaction().getStructuralNode().hasRightSibling()) {
-            getTransaction().moveToRightSibling();
-            mKey = getTransaction().getNode().getNodeKey();
 
-            if (getTransaction().getStructuralNode().hasRightSibling()) {
-              // Push right sibling on a stack to reduce path
-              // traversal.
-              mRightSiblingStack.push(getTransaction().getStructuralNode().getRightSiblingKey());
-            }
+      getTransaction().moveTo(currKey);
+      return true;
 
-            getTransaction().moveTo(currKey);
-            return true;
-          }
-        }
-
-      } else {
-        // Get root key of sibling subtree.
-        getTransaction().moveTo(mRightSiblingStack.pop());
-        mKey = getTransaction().getNode().getNodeKey();
-
-        if (getTransaction().getStructuralNode().hasRightSibling()) {
-          // Push right sibling on a stack to reduce path traversal.
-          mRightSiblingStack.push(getTransaction().getStructuralNode().getRightSiblingKey());
-        }
-
-        getTransaction().moveTo(currKey);
-        return true;
-
-      }
-      resetToStartKey();
-      return false;
     }
+    resetToStartKey();
+    return false;
   }
 }

@@ -50,17 +50,18 @@ public class ERevisioningTest {
     TestHelper.closeEverything();
   }
 
-  @Test(expected = AssertionError.class)
+//  @Test(expected = AssertionError.class)
+  @Test
   public void testFulldumpCombinePages() {
-    final NodePage[] pages = new NodePage[2];
+    final NodePage[] pages = new NodePage[1];
     pages[0] = getNodePage(1, 0, 128, 0);
-    pages[1] = getNodePage(0, 0, 128, 0);
+//    pages[1] = getNodePage(0, 0, 128, 0);
 
     final NodePage page = ERevisioning.FULL.combineNodePages(pages, ResourceConfiguration.VERSIONSTORESTORE);
 
-//    for (int j = 0; j < page.getNodes().length; j++) {
-//      assertEquals(pages[0].getNode(j), page.getNode(j));
-//    }
+    for (int j = 0; j < page.getNodes().length; j++) {
+      assertEquals(pages[0].getNode(j), page.getNode(j));
+    }
 
   }
 
@@ -83,7 +84,7 @@ public class ERevisioningTest {
   public void testIncrementalCombinePages() {
     final NodePage[] pages = prepareNormal(4);
     final NodePage page =
-      ERevisioning.INCREMENTAL.combineNodePages(pages, ResourceConfiguration.VERSIONSTORESTORE);
+      ERevisioning.INCREMENTAL.combineNodePages(pages, 4);
     checkCombined(pages, page);
   }
 
@@ -109,7 +110,7 @@ public class ERevisioningTest {
   // }
 
   private static void checkCombined(final NodePage[] toCheck, final NodePage page) {
-    for (int i = 0; i < toCheck.length; i++) {
+    for (int i = 0; i < 4; i++) {
       for (int j = i * 32; j < (i * 32) + 32; j++) {
         assertEquals(toCheck[i].getNode(j), page.getNode(j));
       }

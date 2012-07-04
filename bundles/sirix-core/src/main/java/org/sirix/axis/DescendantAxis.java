@@ -32,7 +32,7 @@ import java.util.Deque;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeTraversal;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.settings.EFixed;
 
@@ -57,7 +57,7 @@ public final class DescendantAxis extends AbsAxis {
    * @param pRtx
    *          Exclusive (immutable) trx to iterate with.
    */
-  public DescendantAxis(final INodeReadTrx pRtx) {
+  public DescendantAxis(final INodeTraversal pRtx) {
     super(pRtx);
   }
 
@@ -69,7 +69,8 @@ public final class DescendantAxis extends AbsAxis {
    * @param pIncludeSelf
    *          Is self included?
    */
-  public DescendantAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final EIncludeSelf pIncludeSelf) {
+  public DescendantAxis(@Nonnull final INodeTraversal pRtx,
+    @Nonnull final EIncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
   }
 
@@ -84,55 +85,55 @@ public final class DescendantAxis extends AbsAxis {
   public boolean hasNext() {
     if (isNext()) {
       return true;
-    } else {
-      resetToLastKey();
-
-      // Determines if first call to hasNext().
-      if (mFirst) {
-        mFirst = false;
-
-        if (isSelfIncluded() == EIncludeSelf.YES) {
-          mKey = getTransaction().getNode().getNodeKey();
-        } else {
-          mKey = getTransaction().getStructuralNode().getFirstChildKey();
-        }
-
-        if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-          resetToStartKey();
-          return false;
-        }
-        return true;
-      }
-
-      final IStructNode node = getTransaction().getStructuralNode();
-
-      // Always follow first child if there is one.
-      if (node.hasFirstChild()) {
-        mKey = node.getFirstChildKey();
-        if (node.hasRightSibling()) {
-          mRightSiblingKeyStack.push(node.getRightSiblingKey());
-        }
-        return true;
-      }
-
-      // Then follow right sibling if there is one.
-      if (node.hasRightSibling()) {
-        final long currKey = getTransaction().getNode().getNodeKey();
-        mKey = node.getRightSiblingKey();
-        return hasNextNode(currKey);
-      }
-
-      // Then follow right sibling on stack.
-      if (mRightSiblingKeyStack.size() > 0) {
-        final long currKey = getTransaction().getNode().getNodeKey();
-        mKey = mRightSiblingKeyStack.pop();
-        return hasNextNode(currKey);
-      }
-
-      // Then end.
-      resetToStartKey();
-      return false;
     }
+    
+    resetToLastKey();
+
+    // Determines if first call to hasNext().
+    if (mFirst) {
+      mFirst = false;
+
+      if (isSelfIncluded() == EIncludeSelf.YES) {
+        mKey = getTransaction().getNode().getNodeKey();
+      } else {
+        mKey = getTransaction().getStructuralNode().getFirstChildKey();
+      }
+
+      if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+        resetToStartKey();
+        return false;
+      }
+      return true;
+    }
+
+    final IStructNode node = getTransaction().getStructuralNode();
+
+    // Always follow first child if there is one.
+    if (node.hasFirstChild()) {
+      mKey = node.getFirstChildKey();
+      if (node.hasRightSibling()) {
+        mRightSiblingKeyStack.push(node.getRightSiblingKey());
+      }
+      return true;
+    }
+
+    // Then follow right sibling if there is one.
+    if (node.hasRightSibling()) {
+      final long currKey = getTransaction().getNode().getNodeKey();
+      mKey = node.getRightSiblingKey();
+      return hasNextNode(currKey);
+    }
+
+    // Then follow right sibling on stack.
+    if (mRightSiblingKeyStack.size() > 0) {
+      final long currKey = getTransaction().getNode().getNodeKey();
+      mKey = mRightSiblingKeyStack.pop();
+      return hasNextNode(currKey);
+    }
+
+    // Then end.
+    resetToStartKey();
+    return false;
   }
 
   private boolean hasNextNode(final long pCurrKey) {

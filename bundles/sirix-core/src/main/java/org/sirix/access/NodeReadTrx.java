@@ -38,7 +38,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.xml.namespace.QName;
 
-import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.api.IItemList;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.IPageReadTrx;
@@ -53,9 +52,12 @@ import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.node.interfaces.IValNode;
+import org.sirix.page.EPage;
+import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.ItemList;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
+import org.sirix.utils.Util;
 
 /**
  * <h1>ReadTransaction</h1>
@@ -74,7 +76,7 @@ public final class NodeReadTrx implements INodeReadTrx {
   protected final Session mSession;
 
   /** State of transaction including all cached stuff. */
-  private IPageReadTrx mPageReadTransaction;
+  private IPageReadTrx mPageReadTrx;
 
   /** Strong reference to currently selected node. */
   private INode mCurrentNode;
@@ -97,17 +99,21 @@ public final class NodeReadTrx implements INodeReadTrx {
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  NodeReadTrx(@Nonnull final Session pSession, @Nonnegative final long pTransactionID,
+  NodeReadTrx(@Nonnull final Session pSession,
+    @Nonnegative final long pTransactionID,
     @Nonnull final IPageReadTrx pPageReadTransaction) throws TTIOException {
     mSession = checkNotNull(pSession);
     checkArgument(pTransactionID >= 0);
     mId = pTransactionID;
-    mPageReadTransaction = checkNotNull(pPageReadTransaction);
-    final Optional<INode> node = getPageTransaction().getNode(EFixed.ROOT_NODE_KEY.getStandardProperty());
+    mPageReadTrx = checkNotNull(pPageReadTransaction);
+    final Optional<INode> node =
+      getPageTransaction().getNode(EFixed.ROOT_NODE_KEY.getStandardProperty(),
+        EPage.NODEPAGE);
     if (node.isPresent()) {
       mCurrentNode = node.get();
     } else {
-      throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
+      throw new IllegalStateException(
+        "Node couldn't be fetched from persistent storage!");
     }
     mClosed = false;
     mItemList = new ItemList();
@@ -122,13 +128,13 @@ public final class NodeReadTrx implements INodeReadTrx {
   @Override
   public final long getRevisionNumber() throws TTIOException {
     assertNotClosed();
-    return mPageReadTransaction.getActualRevisionRootPage().getRevision();
+    return mPageReadTrx.getActualRevisionRootPage().getRevision();
   }
 
   @Override
   public final long getRevisionTimestamp() throws TTIOException {
     assertNotClosed();
-    return mPageReadTransaction.getActualRevisionRootPage().getRevisionTimestamp();
+    return mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp();
   }
 
   @Override
@@ -136,32 +142,32 @@ public final class NodeReadTrx implements INodeReadTrx {
     assertNotClosed();
     if (pNodeKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
       return false;
-    } else {
-      // Remember old node and fetch new one.
-      final INode oldNode = mCurrentNode;
-      Optional<? extends INode> newNode;
-      try {
-        // Immediately return node from item list if node key negative.
-        if (pNodeKey < 0) {
-          if (mItemList.size() > 0) {
-            newNode = mItemList.getItem(pNodeKey);
-          } else {
-            newNode = Optional.absent();
-          }
-        } else {
-          newNode = mPageReadTransaction.getNode(pNodeKey);
-        }
-      } catch (final TTIOException e) {
-        newNode = Optional.absent();
-      }
+    }
 
-      if (newNode.isPresent()) {
-        mCurrentNode = newNode.get();
-        return true;
+    // Remember old node and fetch new one.
+    final INode oldNode = mCurrentNode;
+    Optional<? extends INode> newNode;
+    try {
+      // Immediately return node from item list if node key negative.
+      if (pNodeKey < 0) {
+        if (mItemList.size() > 0) {
+          newNode = mItemList.getItem(pNodeKey);
+        } else {
+          newNode = Optional.absent();
+        }
       } else {
-        mCurrentNode = oldNode;
-        return false;
+        newNode = mPageReadTrx.getNode(pNodeKey, EPage.NODEPAGE);
       }
+    } catch (final TTIOException e) {
+      newNode = Optional.absent();
+    }
+
+    if (newNode.isPresent()) {
+      mCurrentNode = newNode.get();
+      return true;
+    } else {
+      mCurrentNode = oldNode;
+      return false;
     }
   }
 
@@ -245,7 +251,8 @@ public final class NodeReadTrx implements INodeReadTrx {
       returnVal = new String(((IValNode)mCurrentNode).getRawValue());
     } else if (mCurrentNode.getKind() == ENode.NAMESPACE_KIND) {
       returnVal =
-        mPageReadTransaction.getName(((NamespaceNode)mCurrentNode).getURIKey(), ENode.NAMESPACE_KIND);
+        mPageReadTrx.getName(((NamespaceNode)mCurrentNode).getURIKey(),
+          ENode.NAMESPACE_KIND);
     } else {
       returnVal = "";
     }
@@ -255,12 +262,14 @@ public final class NodeReadTrx implements INodeReadTrx {
   @Override
   public final QName getQNameOfCurrentNode() {
     assertNotClosed();
-    String name = "";
-    String uri = "";
     if (mCurrentNode instanceof INameNode) {
-      name = mPageReadTransaction.getName(((INameNode)mCurrentNode).getNameKey(), mCurrentNode.getKind());
-      uri = mPageReadTransaction.getName(((INameNode)mCurrentNode).getURIKey(), ENode.NAMESPACE_KIND);
-      return buildQName(uri, name);
+      final String name =
+        mPageReadTrx.getName(((INameNode)mCurrentNode).getNameKey(),
+          mCurrentNode.getKind());
+      final String uri =
+        mPageReadTrx.getName(((INameNode)mCurrentNode).getURIKey(),
+          ENode.NAMESPACE_KIND);
+      return Util.buildQName(uri, name);
     } else {
       return null;
     }
@@ -269,7 +278,7 @@ public final class NodeReadTrx implements INodeReadTrx {
   @Override
   public final String getTypeOfCurrentNode() {
     assertNotClosed();
-    return mPageReadTransaction.getName(mCurrentNode.getTypeKey(), getNode().getKind());
+    return mPageReadTrx.getName(mCurrentNode.getTypeKey(), getNode().getKind());
   }
 
   @Override
@@ -281,13 +290,13 @@ public final class NodeReadTrx implements INodeReadTrx {
   @Override
   public final String nameForKey(final int pKey) {
     assertNotClosed();
-    return mPageReadTransaction.getName(pKey, getNode().getKind());
+    return mPageReadTrx.getName(pKey, getNode().getKind());
   }
 
   @Override
   public final byte[] rawNameForKey(final int pKey) {
     assertNotClosed();
-    return mPageReadTransaction.getRawName(pKey, getNode().getKind());
+    return mPageReadTrx.getRawName(pKey, getNode().getKind());
   }
 
   @Override
@@ -300,15 +309,16 @@ public final class NodeReadTrx implements INodeReadTrx {
   public void close() throws AbsTTException {
     if (!mClosed) {
       // Close own state.
-      mPageReadTransaction.close();
+      mPageReadTrx.close();
 
       // Callback on session to make sure everything is cleaned up.
       mSession.closeReadTransaction(mId);
 
       // Immediately release all references.
-      mPageReadTransaction = null;
+      mPageReadTrx = null;
       mCurrentNode = null;
 
+      // Close state.
       mClosed = true;
     }
   }
@@ -321,11 +331,13 @@ public final class NodeReadTrx implements INodeReadTrx {
     } catch (final TTIOException e) {
     }
 
-    if (getNode().getKind() == ENode.ATTRIBUTE_KIND || getNode().getKind() == ENode.ELEMENT_KIND) {
+    if (getNode().getKind() == ENode.ATTRIBUTE_KIND
+      || getNode().getKind() == ENode.ELEMENT_KIND) {
       helper.add("Name of Node", getQNameOfCurrentNode().toString());
     }
 
-    if (getNode().getKind() == ENode.ATTRIBUTE_KIND || getNode().getKind() == ENode.TEXT_KIND) {
+    if (getNode().getKind() == ENode.ATTRIBUTE_KIND
+      || getNode().getKind() == ENode.TEXT_KIND) {
       helper.add("Value of Node", getValueOfCurrentNode());
     }
 
@@ -355,7 +367,7 @@ public final class NodeReadTrx implements INodeReadTrx {
   }
 
   /**
-   * Make sure that the session is not yet closed when calling this method.
+   * Make sure that the transaction is not yet closed when calling this method.
    */
   final void assertNotClosed() {
     if (mClosed) {
@@ -370,7 +382,7 @@ public final class NodeReadTrx implements INodeReadTrx {
    */
   public IPageReadTrx getPageTransaction() {
     assertNotClosed();
-    return mPageReadTransaction;
+    return mPageReadTrx;
   }
 
   /**
@@ -379,9 +391,10 @@ public final class NodeReadTrx implements INodeReadTrx {
    * @param pPageReadTransaction
    *          {@link PageReadTrx} instance
    */
-  protected final void setPageReadTransaction(@Nullable final IPageReadTrx pPageReadTransaction) {
+  protected final void setPageReadTransaction(
+    @Nullable final IPageReadTrx pPageReadTransaction) {
     assertNotClosed();
-    mPageReadTransaction = pPageReadTransaction;
+    mPageReadTrx = pPageReadTransaction;
   }
 
   /**
@@ -405,26 +418,6 @@ public final class NodeReadTrx implements INodeReadTrx {
   public final long getMaxNodeKey() throws TTIOException {
     assertNotClosed();
     return getPageTransaction().getActualRevisionRootPage().getMaxNodeKey();
-  }
-
-  /**
-   * Building a {@link QName} from a URI and a name. The name can have a prefix denoted
-   * by a ":" delimiter.
-   * 
-   * @param pUri
-   *          the namespaceuri
-   * @param pName
-   *          the name including a possible prefix
-   * @return {@link QName} instance
-   */
-  protected static final QName buildQName(@Nonnull final String pUri, @Nonnull final String pName) {
-    QName qname;
-    if (pName.contains(":")) {
-      qname = new QName(pUri, pName.split(":")[1], pName.split(":")[0]);
-    } else {
-      qname = new QName(pUri, pName);
-    }
-    return qname;
   }
 
   @Override
@@ -462,5 +455,31 @@ public final class NodeReadTrx implements INodeReadTrx {
       }
     }
     return false;
+  }
+
+  @Override
+  public INodeReadTrx cloneInstance() throws AbsTTException {
+    final INodeReadTrx rtx =
+      mSession.beginNodeReadTrx(mPageReadTrx.getActualRevisionRootPage()
+        .getRevision());
+    rtx.moveTo(mCurrentNode.getNodeKey());
+    return rtx;
+  }
+
+  @Override
+  public boolean equals(final Object pObj) {
+    if (pObj instanceof NodeReadTrx) {
+      final NodeReadTrx rtx = (NodeReadTrx)pObj;
+      return Objects.equal(mId, rtx.mId)
+        && Objects.equal(mCurrentNode, rtx.mCurrentNode)
+        && Objects.equal(mPageReadTrx, rtx.mPageReadTrx)
+        && Objects.equal(mSession, rtx.mSession);
+    }
+    return false;
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(mId, mCurrentNode, mPageReadTrx, mSession);
   }
 }

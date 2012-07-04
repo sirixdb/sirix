@@ -33,7 +33,7 @@ import com.google.common.base.Optional;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeTraversal;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.interfaces.IStructNode;
@@ -64,8 +64,8 @@ public final class VisitorDescendantAxis extends AbsAxis {
     /** Optional visitor. */
     private Optional<? extends IVisitor> mVisitor = Optional.absent();
 
-    /** sirix {@link INodeReadTrx}. */
-    private final INodeReadTrx mRtx;
+    /** Sirix {@link INodeTraversal}. */
+    private final INodeTraversal mRtx;
 
     /** Determines if current node should be included or not. */
     private EIncludeSelf mIncludeSelf = EIncludeSelf.NO;
@@ -74,9 +74,9 @@ public final class VisitorDescendantAxis extends AbsAxis {
      * Constructor.
      * 
      * @param pRtx
-     *          sirix {@link INodeReadTrx}
+     *          Sirix {@link INodeTraversal}
      */
-    public Builder(final INodeReadTrx pRtx) {
+    public Builder(final INodeTraversal pRtx) {
       mRtx = checkNotNull(pRtx);
     }
 
@@ -103,19 +103,6 @@ public final class VisitorDescendantAxis extends AbsAxis {
       mVisitor = checkNotNull(pVisitor);
       return this;
     }
-
-//    /**
-//     * Set maximum depth.
-//     * 
-//     * @param pMaxDepth
-//     *          maximum depth
-//     * @return this builder instance
-//     */
-//    public Builder setMaxDepth(final int pMaxDepth) {
-//      checkArgument(pMaxDepth >= 0, "max depth must be >= 0!");
-//      mMaxDepth = pMaxDepth;
-//      return this;
-//    }
 
     /**
      * Build a new instance.
@@ -149,78 +136,81 @@ public final class VisitorDescendantAxis extends AbsAxis {
   public boolean hasNext() {
     if (isNext()) {
       return true;
-    } else {
-      resetToLastKey();
+    }
+    resetToLastKey();
 
-      // Visitor.
-      Optional<EVisitResult> result = Optional.absent();
-      if (mVisitor.isPresent()) {
-        result = Optional.fromNullable(getTransaction().getNode().acceptVisitor(mVisitor.get()));
-      }
+    // Visitor.
+    Optional<EVisitResult> result = Optional.absent();
+    if (mVisitor.isPresent()) {
+      result =
+        Optional.fromNullable(getTransaction().getNode().acceptVisitor(
+          mVisitor.get()));
+    }
 
-      // If visitor is present and the return value is EVisitResult.TERMINATE than return false.
-      if (result.isPresent() && result.get() == EVisitResult.TERMINATE) {
-        resetToStartKey();
-        return false;
-      }
-
-      // Determines if first call to hasNext().
-      if (mFirst) {
-        mFirst = false;
-
-        if (isSelfIncluded() == EIncludeSelf.YES) {
-          mKey = getTransaction().getNode().getNodeKey();
-        } else {
-          mKey = getTransaction().getStructuralNode().getFirstChildKey();
-        }
-
-        if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-          resetToStartKey();
-          return false;
-        }
-        return true;
-      }
-
-      // If visitor is present and the the righ sibling stack must be adapted.
-      if (result.isPresent() && result.get() == EVisitResult.SKIPSUBTREEPOPSTACK) {
-        mRightSiblingKeyStack.pop();
-      }
-
-      final IStructNode node = getTransaction().getStructuralNode();
-
-      // If visitor is present and result is not
-      // EVisitResult.SKIPSUBTREE/EVisitResult.SKIPSUBTREEPOPSTACK or visitor is not present.
-      if ((result.isPresent() && result.get() != EVisitResult.SKIPSUBTREE && result.get() != EVisitResult.SKIPSUBTREEPOPSTACK)
-        || !result.isPresent()) {
-        // Always follow first child if there is one.
-        if (node.hasFirstChild()) {
-          mKey = node.getFirstChildKey();
-          if (node.hasRightSibling()) {
-            mRightSiblingKeyStack.push(node.getRightSiblingKey());
-          }
-          return true;
-        }
-      }
-
-      // If visitor is present and result is not EVisitResult.SKIPSIBLINGS or visitor is not present.
-      if ((result.isPresent() && result.get() != EVisitResult.SKIPSIBLINGS) || !result.isPresent()) {
-        // Then follow right sibling if there is one.
-        if (node.hasRightSibling()) {
-          mKey = node.getRightSiblingKey();
-          return hasNextNode(node.getNodeKey());
-        }
-      }
-
-      // Then follow right sibling on stack.
-      if (mRightSiblingKeyStack.size() > 0) {
-        mKey = mRightSiblingKeyStack.pop();
-        return hasNextNode(node.getNodeKey());
-      }
-
-      // Then end.
+    // If visitor is present and the return value is EVisitResult.TERMINATE than return false.
+    if (result.isPresent() && result.get() == EVisitResult.TERMINATE) {
       resetToStartKey();
       return false;
     }
+
+    // Determines if first call to hasNext().
+    if (mFirst) {
+      mFirst = false;
+
+      if (isSelfIncluded() == EIncludeSelf.YES) {
+        mKey = getTransaction().getNode().getNodeKey();
+      } else {
+        mKey = getTransaction().getStructuralNode().getFirstChildKey();
+      }
+
+      if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+        resetToStartKey();
+        return false;
+      }
+      return true;
+    }
+
+    // If visitor is present and the the righ sibling stack must be adapted.
+    if (result.isPresent() && result.get() == EVisitResult.SKIPSUBTREEPOPSTACK) {
+      mRightSiblingKeyStack.pop();
+    }
+
+    final IStructNode node = getTransaction().getStructuralNode();
+
+    // If visitor is present and result is not
+    // EVisitResult.SKIPSUBTREE/EVisitResult.SKIPSUBTREEPOPSTACK or visitor is not present.
+    if ((result.isPresent() && result.get() != EVisitResult.SKIPSUBTREE && result
+      .get() != EVisitResult.SKIPSUBTREEPOPSTACK)
+      || !result.isPresent()) {
+      // Always follow first child if there is one.
+      if (node.hasFirstChild()) {
+        mKey = node.getFirstChildKey();
+        if (node.hasRightSibling()) {
+          mRightSiblingKeyStack.push(node.getRightSiblingKey());
+        }
+        return true;
+      }
+    }
+
+    // If visitor is present and result is not EVisitResult.SKIPSIBLINGS or visitor is not present.
+    if ((result.isPresent() && result.get() != EVisitResult.SKIPSIBLINGS)
+      || !result.isPresent()) {
+      // Then follow right sibling if there is one.
+      if (node.hasRightSibling()) {
+        mKey = node.getRightSiblingKey();
+        return hasNextNode(node.getNodeKey());
+      }
+    }
+
+    // Then follow right sibling on stack.
+    if (mRightSiblingKeyStack.size() > 0) {
+      mKey = mRightSiblingKeyStack.pop();
+      return hasNextNode(node.getNodeKey());
+    }
+
+    // Then end.
+    resetToStartKey();
+    return false;
   }
 
   /**

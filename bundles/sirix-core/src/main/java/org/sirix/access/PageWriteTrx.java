@@ -27,6 +27,7 @@
 
 package org.sirix.access;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Optional;
 
@@ -46,6 +47,7 @@ import org.sirix.node.DeletedNode;
 import org.sirix.node.ENode;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.INode;
+import org.sirix.page.EPage;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.NodePage;
@@ -53,6 +55,7 @@ import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.IPage;
+import org.sirix.settings.EFixed;
 import org.sirix.settings.ERevisioning;
 import org.sirix.utils.IConstants;
 import org.sirix.utils.NamePageHash;
@@ -75,8 +78,6 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
   /** Last references to the Nodepage, needed for pre/postcondition check. */
   private PageContainer mNodePageCon;
-  
-  private PageContainer mNamePageCon;
 
   /** Last reference to the actual revRoot. */
   private final RevisionRootPage mNewRoot;
@@ -109,7 +110,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
     final IWriter pWriter, final long pId, final long pRepresentRev,
     final long pStoreRev, final long pLastCommitedRev) throws TTIOException {
     mPageRtx = new PageReadTrx(pSession, pUberPage, pRepresentRev, pWriter);
-    final RevisionRootPage lastCommitedRoot =
+    final RevisionRootPage lastCommitedRoot = 
       preparePreviousRevisionRootPage(pRepresentRev, pLastCommitedRev);
     mNewRoot = preparePreviousRevisionRootPage(pRepresentRev, pStoreRev);
     mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
@@ -139,7 +140,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
       final INode oldNode =
         ((NodePage)mNodePageCon.getComplete()).getNode(nodePageOffset);
       if (oldNode == null) {
-        throw new TTIOException("Cannot retrieve node from cache");
+        throw new TTIOException("Cannot retrieve node from cache!");
       }
       node = oldNode;
       ((NodePage)mNodePageCon.getModified()).setNode(nodePageOffset, node);
@@ -189,15 +190,17 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public Optional<INode> getNode(@Nonnegative final long pNodeKey)
+  public Optional<INode> getNode(@Nonnegative final long pNodeKey, @Nonnull final EPage pPage)
     throws TTIOException {
+    checkArgument(pNodeKey >= EFixed.NULL_NODE_KEY.getStandardProperty());
+    checkNotNull(pPage);
     // Calculate page and node part for given nodeKey.
     final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
     final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
 
     final PageContainer pageCont = mLog.get(nodePageKey);
     if (pageCont == null) {
-      return mPageRtx.getNode(pNodeKey);
+      return mPageRtx.getNode(pNodeKey, pPage);
     } else {
       final INode node =
         ((NodePage)pageCont.getModified()).getNode(nodePageOffset);
@@ -481,7 +484,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
    */
   private PageContainer dereferenceNodePageForModification(
     final long pNodePageKey) throws TTIOException {
-    final NodePage[] revs = mPageRtx.getSnapshotPages(pNodePageKey);
+    final NodePage[] revs = mPageRtx.getSnapshotPages(pNodePageKey, EPage.NODEPAGE);
     final ERevisioning revisioning =
       mPageRtx.mSession.mResourceConfig.mRevisionKind;
     final int mileStoneRevision =
@@ -533,8 +536,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public PageContainer getNodeFromPage(final long pKey) throws TTIOException {
-    return mPageRtx.getNodeFromPage(pKey);
+  public PageContainer getNodeFromPage(final long pKey, final EPage pPage) throws TTIOException {
+    return mPageRtx.getNodeFromPage(pKey, pPage);
   }
 
   @Override

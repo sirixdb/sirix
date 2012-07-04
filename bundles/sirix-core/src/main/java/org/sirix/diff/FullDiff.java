@@ -27,15 +27,12 @@
 
 package org.sirix.diff;
 
-import com.google.common.base.Optional;
-
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.exception.AbsTTException;
 import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.INode;
 
 /**

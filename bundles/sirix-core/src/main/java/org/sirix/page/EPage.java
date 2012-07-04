@@ -147,17 +147,17 @@ public enum EPage {
   },
 
   /**
-   * {@link MetaPage}.
+   * {@link PathSummaryPage}.
    */
-  METAPAGE((byte)6, MetaPage.class) {
+  PATHSUMMARY((byte)6, PathSummaryPage.class) {
     @Override
     IPage deserializePage(final ITTSource pSource) {
-      return new MetaPage(pSource);
+      return new PathSummaryPage(pSource);
     }
 
     @Override
     void serializePage(final ITTSink pSink, final IPage pPage) {
-      pSink.writeByte(METAPAGE.mId);
+      pSink.writeByte(PATHSUMMARY.mId);
       serialize(pSink, pPage);
     }
 

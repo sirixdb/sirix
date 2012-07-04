@@ -37,23 +37,20 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeTraversal;
 import org.sirix.api.visitor.IVisitor;
 
 /**
- * <h1>AbstractAxis</h1>
+ * <h1>AbsAxis</h1>
  * 
  * <p>
  * Provide standard Java iterator capability compatible with the new enhanced for loop available since Java 5.
- * </p>
- * 
- * <p>
- * All users must make sure to call {@code next()} after {@code hasNext()} evaluated to true.
  * </p>
  */
 public abstract class AbsAxis implements IAxis {
 
   /** Iterate over transaction exclusive to this step. */
-  private final INodeReadTrx mRtx;
+  private final INodeTraversal mRtx;
 
   /** Key of last found node. */
   protected long mKey;
@@ -66,6 +63,8 @@ public abstract class AbsAxis implements IAxis {
 
   /** Include self? */
   private final EIncludeSelf mIncludeSelf;
+  
+  private boolean mHasNext;
 
   /**
    * Bind axis step to transaction.
@@ -75,9 +74,10 @@ public abstract class AbsAxis implements IAxis {
    * @throws NullPointerException
    *           if {@code paramRtx} is {@code null}
    */
-  public AbsAxis(@Nonnull final INodeReadTrx pRtx) {
+  public AbsAxis(@Nonnull final INodeTraversal pRtx) {
     mRtx = checkNotNull(pRtx);
     mIncludeSelf = EIncludeSelf.NO;
+    mHasNext = true;
     reset(pRtx.getNode().getNodeKey());
   }
 
@@ -89,9 +89,11 @@ public abstract class AbsAxis implements IAxis {
    * @param pIncludeSelf
    *          determines if self is included
    */
-  public AbsAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final EIncludeSelf pIncludeSelf) {
+  public AbsAxis(@Nonnull final INodeTraversal pRtx,
+    @Nonnull final EIncludeSelf pIncludeSelf) {
     mRtx = checkNotNull(pRtx);
     mIncludeSelf = checkNotNull(pIncludeSelf);
+    mHasNext = true;
     reset(pRtx.getNode().getNodeKey());
   }
 
@@ -102,6 +104,9 @@ public abstract class AbsAxis implements IAxis {
 
   @Override
   public final Long next() {
+    if (!mHasNext) {
+      throw new NoSuchElementException("No more nodes in the axis!");
+    }
     if (!mNext) {
       if (!hasNext()) {
         throw new NoSuchElementException("No more nodes in the axis!");
@@ -128,6 +133,7 @@ public abstract class AbsAxis implements IAxis {
     mStartKey = pNodeKey;
     mKey = pNodeKey;
     mNext = false;
+    mHasNext = true;
   }
 
   /**
@@ -137,7 +143,11 @@ public abstract class AbsAxis implements IAxis {
    */
   @Override
   public INodeReadTrx getTransaction() {
-    return mRtx;
+    if (mRtx instanceof INodeReadTrx) {
+      return (INodeReadTrx)mRtx;
+    } else {
+      return null;
+    }
   }
 
   /**
@@ -150,6 +160,7 @@ public abstract class AbsAxis implements IAxis {
     // No check because of IAxis Convention 4.
     mRtx.moveTo(mStartKey);
     mNext = false;
+    mHasNext = false;
     return mStartKey;
   }
 
@@ -181,9 +192,11 @@ public abstract class AbsAxis implements IAxis {
   }
 
   /**
-   * Get mNext which determines if hasNext() has at least been called once before next().
+   * Get mNext which determines if {@code hasNext()} has at least been called once before the call to
+   * {@code next()}.
    * 
-   * @return mNext
+   * @return {@code true} if {@code hasNext()} has been called before calling {@code next()}, {@code false}
+   *         otherwise
    */
   public final boolean isNext() {
     return mNext;

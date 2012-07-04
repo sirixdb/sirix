@@ -78,7 +78,8 @@ import org.sirix.utils.Pair;
 public final class FMSE implements IImportDiff, AutoCloseable {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(FMSE.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
+    .getLogger(FMSE.class));
 
   /** Determines if a reverse lookup has to be made. */
   enum EReverseMap {
@@ -183,7 +184,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
   private static final Levenshtein mLevenshtein = new Levenshtein();
 
   @Override
-  public void diff(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException {
+  public void diff(final INodeWriteTrx pWtx, final INodeReadTrx pRtx)
+    throws AbsTTException {
     mWtx = checkNotNull(pWtx);
     mRtx = checkNotNull(pRtx);
     mOldStartKey = mWtx.getNode().getNodeKey();
@@ -230,7 +232,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     pRtx.moveTo(mNewStartKey);
 
     // 2. Iterate over new shreddered file
-    for (final IAxis axis = new LevelOrderAxis(pRtx, EIncludeNodes.NONSTRUCTURAL, EIncludeSelf.YES); axis
+    for (final IAxis axis =
+      new LevelOrderAxis(pRtx, EIncludeNodes.NONSTRUCTURAL, EIncludeSelf.YES); axis
       .hasNext();) {
       axis.next();
       final INode node = axis.getTransaction().getNode();
@@ -252,7 +255,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    * @throws AbsTTException
    *           if anything in sirix fails
    */
-  private void doFirstFSMEStep(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
+  private void
+    doFirstFSMEStep(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
     assert pWtx != null;
     assert pRtx != null;
     // 2(a) - Parent of x.
@@ -322,14 +326,16 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    *          {@link INodeReadTrx} implementation reference on new
    *          revision
    */
-  private void secondFMESStep(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException {
+  private void
+    secondFMESStep(final INodeWriteTrx pWtx, final INodeReadTrx pRtx)
+      throws AbsTTException {
     assert pWtx != null;
     assert pRtx != null;
     pWtx.moveTo(mOldStartKey);
     for (final IAxis axis =
       new VisitorDescendantAxis.Builder(pWtx).includeSelf().visitor(
-        Optional.<DeleteFMSEVisitor> of(new DeleteFMSEVisitor(pWtx, mTotalMatching, mOldStartKey))).build(); axis
-      .hasNext();) {
+        Optional.<DeleteFMSEVisitor> of(new DeleteFMSEVisitor(pWtx,
+          mTotalMatching, mOldStartKey))).build(); axis.hasNext();) {
       axis.next();
     }
   }
@@ -348,7 +354,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    *          {@link INodeReadTrx} implementation reference on new
    *          revision
    */
-  private void alignChildren(final long pW, final long pX, final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
+  private void alignChildren(final long pW, final long pX,
+    final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
     assert pW >= 0;
     assert pX >= 0;
     assert pWtx != null;
@@ -362,15 +369,18 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     markOutOfOrder(pRtx, mInOrderNewRev);
 
     // 2
-    final List<Long> first = commonChildren(pW, pX, pWtx, pRtx, EReverseMap.FALSE);
-    final List<Long> second = commonChildren(pX, pW, pRtx, pWtx, EReverseMap.TRUE);
+    final List<Long> first =
+      commonChildren(pW, pX, pWtx, pRtx, EReverseMap.FALSE);
+    final List<Long> second =
+      commonChildren(pX, pW, pRtx, pWtx, EReverseMap.TRUE);
     // 3 && 4
-    final List<Pair<Long, Long>> s = Util.longestCommonSubsequence(first, second, new IComparator<Long>() {
-      @Override
-      public boolean isEqual(final Long pX, final Long pY) {
-        return mTotalMatching.contains(pX, pY);
-      }
-    });
+    final List<Pair<Long, Long>> s =
+      Util.longestCommonSubsequence(first, second, new IComparator<Long>() {
+        @Override
+        public boolean isEqual(final Long pX, final Long pY) {
+          return mTotalMatching.contains(pX, pY);
+        }
+      });
     // 5
     final Map<Long, Long> seen = new HashMap<>();
     for (final Pair<Long, Long> p : s) {
@@ -404,7 +414,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    * @param pInOrder
    *          {@link Map} to put all children out of order
    */
-  private void markOutOfOrder(final INodeReadTrx pRtx, final Map<Long, Boolean> pInOrder) {
+  private void markOutOfOrder(final INodeReadTrx pRtx,
+    final Map<Long, Boolean> pInOrder) {
     for (final AbsAxis axis = new ChildAxis(pRtx); axis.hasNext();) {
       axis.next();
       pInOrder.put(axis.getTransaction().getNode().getNodeKey(), false);
@@ -427,8 +438,9 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    *          determines if reverse partners need to be found
    * @return {@link List} of common child nodes
    */
-  private List<Long> commonChildren(final long pN, final long pO, final INodeReadTrx pFirstRtx,
-    final INodeReadTrx pSecondRtx, final EReverseMap pReverse) {
+  private List<Long> commonChildren(final long pN, final long pO,
+    final INodeReadTrx pFirstRtx, final INodeReadTrx pSecondRtx,
+    final EReverseMap pReverse) {
     assert pN >= 0;
     assert pO >= 0;
     assert pFirstRtx != null;
@@ -442,7 +454,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
       do {
         Long partner;
         if (pReverse == EReverseMap.TRUE) {
-          partner = mTotalMatching.reversePartner(pFirstRtx.getNode().getNodeKey());
+          partner =
+            mTotalMatching.reversePartner(pFirstRtx.getNode().getNodeKey());
         } else {
           partner = mTotalMatching.partner(pFirstRtx.getNode().getNodeKey());
         }
@@ -453,7 +466,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
             retVal.add(pFirstRtx.getNode().getNodeKey());
           }
         }
-      } while (pFirstRtx.getStructuralNode().hasRightSibling() && pFirstRtx.moveToRightSibling());
+      } while (pFirstRtx.getStructuralNode().hasRightSibling()
+        && pFirstRtx.moveToRightSibling());
     }
     return retVal;
   }
@@ -474,8 +488,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    *          {@link INodeReadTrx} implementation reference on new
    *          revision
    */
-  private long emitMove(final long pChild, final long pParent, int pPos, final INodeWriteTrx pWtx,
-    final INodeReadTrx pRtx) {
+  private long emitMove(final long pChild, final long pParent, int pPos,
+    final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
     assert pChild >= 0;
     assert pParent >= 0;
     assert pWtx != null;
@@ -484,7 +498,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     boolean moved = pWtx.moveTo(pChild);
     assert moved;
 
-    if (pWtx.getNode().getKind() == ENode.ATTRIBUTE_KIND || pWtx.getNode().getKind() == ENode.NAMESPACE_KIND) {
+    if (pWtx.getNode().getKind() == ENode.ATTRIBUTE_KIND
+      || pWtx.getNode().getKind() == ENode.NAMESPACE_KIND) {
       // Attribute- and namespace-nodes can't be moved.
       return -1;
     }
@@ -498,7 +513,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         assert pWtx.getStructuralNode().getKind() == ENode.ELEMENT_KIND
           || pWtx.getStructuralNode().getKind() == ENode.ROOT_KIND;
         if (pWtx.getStructuralNode().getFirstChildKey() == pChild) {
-          LOGWRAPPER.error("Something went wrong: First child and child may never be the same!");
+          LOGWRAPPER
+            .error("Something went wrong: First child and child may never be the same!");
         } else {
           if (pWtx.moveTo(pChild)) {
             boolean isTextKind = false;
@@ -508,7 +524,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 
             checkFromNodeForTextRemoval(pWtx, pChild);
             pWtx.moveTo(pParent);
-            if (isTextKind && pWtx.getStructuralNode().getFirstChildKey() != pChild) {
+            if (isTextKind
+              && pWtx.getStructuralNode().getFirstChildKey() != pChild) {
               if (pWtx.getStructuralNode().hasFirstChild()) {
                 pWtx.moveToFirstChild();
                 if (pWtx.getStructuralNode().getKind() == ENode.TEXT_KIND) {
@@ -521,9 +538,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 
             if (pWtx.getNode().getKind() == ENode.ROOT_KIND) {
               pRtx.moveTo(pChild);
-              pWtx.moveTo(pWtx.copySubtreeAsFirstChild(pRtx).getNode().getNodeKey());
+              pWtx.moveTo(pWtx.copySubtreeAsFirstChild(pRtx).getNode()
+                .getNodeKey());
             } else {
-              pWtx.moveTo(pWtx.moveSubtreeToFirstChild(pChild).getNode().getNodeKey());
+              pWtx.moveTo(pWtx.moveSubtreeToFirstChild(pChild).getNode()
+                .getNodeKey());
             }
           }
         }
@@ -549,7 +568,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         pWtx.moveTo(nodeKey);
         if (pWtx.moveToRightSibling()) {
           final long rightNodeKey = pWtx.getNode().getNodeKey();
-          if (pWtx.getNode().getKind() == ENode.TEXT_KIND && pWtx.moveTo(pChild)
+          if (pWtx.getNode().getKind() == ENode.TEXT_KIND
+            && pWtx.moveTo(pChild)
             && pWtx.getNode().getKind() == ENode.TEXT_KIND) {
             pWtx.moveTo(rightNodeKey);
             mTotalMatching.remove(pWtx.getNode().getNodeKey());
@@ -562,7 +582,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         assert moved;
         assert pWtx.getNode().getNodeKey() != pChild;
 
-        pWtx.moveTo(pWtx.moveSubtreeToRightSibling(pChild).getNode().getNodeKey());
+        pWtx.moveTo(pWtx.moveSubtreeToRightSibling(pChild).getNode()
+          .getNodeKey());
       }
     } catch (final AbsTTException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -571,8 +592,10 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     return pWtx.getNode().getNodeKey();
   }
 
-  private void checkFromNodeForTextRemoval(final INodeWriteTrx pWtx, final long pChild) {
-    boolean maybeRemoveLeftSibling = pWtx.getStructuralNode().getLeftSiblingKey() == pChild ? true : false;
+  private void checkFromNodeForTextRemoval(final INodeWriteTrx pWtx,
+    final long pChild) {
+    boolean maybeRemoveLeftSibling =
+      pWtx.getStructuralNode().getLeftSiblingKey() == pChild ? true : false;
     if (pWtx.moveTo(pChild)) {
       boolean isText = false;
       if (pWtx.getStructuralNode().hasLeftSibling()) {
@@ -615,8 +638,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    *          revision
    * @return updated {@link INode}
    */
-  private long emitUpdate(final long pFromNode, final long pToNode, final INodeWriteTrx pWtx,
-    final INodeReadTrx pRtx) {
+  private long emitUpdate(final long pFromNode, final long pToNode,
+    final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
     assert pFromNode >= 0;
     assert pToNode >= 0;
     assert pWtx != null;
@@ -672,8 +695,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    * @throws AbsTTException
    *           if anything in sirix fails
    */
-  private long emitInsert(final long pChild, final long pParent, final int pPos, final INodeWriteTrx pWtx,
-    final INodeReadTrx pRtx) {
+  private long emitInsert(final long pChild, final long pParent,
+    final int pPos, final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
     assert pChild >= 0;
     assert pParent >= 0;
     assert pWtx != null;
@@ -691,7 +714,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
       switch (pRtx.getNode().getKind()) {
       case ATTRIBUTE_KIND:
         try {
-          pWtx.insertAttribute(pRtx.getQNameOfCurrentNode(), pRtx.getValueOfCurrentNode());
+          pWtx.insertAttribute(pRtx.getQNameOfCurrentNode(), pRtx
+            .getValueOfCurrentNode());
         } catch (final TTUsageException e) {
           mTotalMatching.remove(pWtx.getNode().getNodeKey());
           pWtx.setValue(pRtx.getValueOfCurrentNode());
@@ -701,8 +725,10 @@ public final class FMSE implements IImportDiff, AutoCloseable {
       case NAMESPACE_KIND:
         // Note that the insertion is right (localPart as prefix).
         try {
-          pWtx.insertNamespace(new QName(pRtx.getQNameOfCurrentNode().getNamespaceURI(), "", pRtx
-            .getQNameOfCurrentNode().getLocalPart()));
+          pWtx
+            .insertNamespace(new QName(pRtx.getQNameOfCurrentNode()
+              .getNamespaceURI(), "", pRtx.getQNameOfCurrentNode()
+              .getLocalPart()));
         } catch (final TTUsageException e) {
           mTotalMatching.remove(pWtx.getNode().getNodeKey());
         }
@@ -727,7 +753,9 @@ public final class FMSE implements IImportDiff, AutoCloseable {
               pWtx.moveTo(pParent);
             }
 
-            oldKey = pWtx.insertTextAsFirstChild(pRtx.getValueOfCurrentNode()).getNode().getNodeKey();
+            oldKey =
+              pWtx.insertTextAsFirstChild(pRtx.getValueOfCurrentNode())
+                .getNode().getNodeKey();
             break;
           default:
             // Already inserted.
@@ -744,10 +772,13 @@ public final class FMSE implements IImportDiff, AutoCloseable {
           removeRightSiblingTextNode(pWtx);
           switch (pRtx.getNode().getKind()) {
           case ELEMENT_KIND:
-            oldKey = pWtx.copySubtreeAsRightSibling(pRtx).getNode().getNodeKey();
+            oldKey =
+              pWtx.copySubtreeAsRightSibling(pRtx).getNode().getNodeKey();
             break;
           case TEXT_KIND:
-            oldKey = pWtx.insertTextAsRightSibling(pRtx.getValueOfCurrentNode()).getNode().getNodeKey();
+            oldKey =
+              pWtx.insertTextAsRightSibling(pRtx.getValueOfCurrentNode())
+                .getNode().getNodeKey();
             break;
           default:
             // Already inserted.
@@ -759,27 +790,31 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         pWtx.moveTo(oldKey);
         pRtx.moveTo(pChild);
         for (final IAxis oldAxis = new DescendantAxis(pWtx, EIncludeSelf.YES), newAxis =
-          new DescendantAxis(pRtx, EIncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext();) {
+          new DescendantAxis(pRtx, EIncludeSelf.YES); oldAxis.hasNext()
+          && newAxis.hasNext();) {
           oldAxis.next();
           newAxis.next();
           final INode node = newAxis.getTransaction().getNode();
-          process(oldAxis.getTransaction().getNode().getNodeKey(), newAxis.getTransaction().getNode()
-            .getNodeKey());
+          process(oldAxis.getTransaction().getNode().getNodeKey(), newAxis
+            .getTransaction().getNode().getNodeKey());
           final long newNodeKey = node.getNodeKey();
-          final long oldNodeKey = oldAxis.getTransaction().getNode().getNodeKey();
+          final long oldNodeKey =
+            oldAxis.getTransaction().getNode().getNodeKey();
           if (node.getKind() == ENode.ELEMENT_KIND) {
-            assert node.getKind() == oldAxis.getTransaction().getStructuralNode().getKind();
+            assert node.getKind() == oldAxis.getTransaction()
+              .getStructuralNode().getKind();
             final ElementNode element = (ElementNode)node;
-            final ElementNode oldElement = (ElementNode)oldAxis.getTransaction().getStructuralNode();
+            final ElementNode oldElement =
+              (ElementNode)oldAxis.getTransaction().getStructuralNode();
             if (element.getAttributeCount() > 0) {
               for (int i = 0, attCount = element.getAttributeCount(); i < attCount; i++) {
-                newAxis.getTransaction().moveToAttribute(i);
+                pRtx.moveToAttribute(i);
                 for (int j = 0, oldAttCount = oldElement.getAttributeCount(); i < oldAttCount; j++) {
-                  oldAxis.getTransaction().moveToAttribute(j);
-                  if (oldAxis.getTransaction().getQNameOfCurrentNode().equals(
-                    newAxis.getTransaction().getQNameOfCurrentNode())) {
-                    process(oldAxis.getTransaction().getNode().getNodeKey(), newAxis.getTransaction()
-                      .getNode().getNodeKey());
+                  pWtx.moveToAttribute(j);
+                  if (pWtx.getQNameOfCurrentNode().equals(
+                    pRtx.getQNameOfCurrentNode())) {
+                    process(oldAxis.getTransaction().getNode().getNodeKey(),
+                      newAxis.getTransaction().getNode().getNodeKey());
                     break;
                   }
                   oldAxis.getTransaction().moveTo(oldNodeKey);
@@ -789,15 +824,15 @@ public final class FMSE implements IImportDiff, AutoCloseable {
             }
             if (element.getNamespaceCount() > 0) {
               for (int i = 0, nspCount = element.getNamespaceCount(); i < nspCount; i++) {
-                newAxis.getTransaction().moveToNamespace(i);
+                pRtx.moveToNamespace(i);
                 for (int j = 0, oldNspCount = oldElement.getNamespaceCount(); j < oldNspCount; j++) {
-                  oldAxis.getTransaction().moveToNamespace(j);
-                  if (oldAxis.getTransaction().getQNameOfCurrentNode().getNamespaceURI().equals(
-                    newAxis.getTransaction().getQNameOfCurrentNode().getNamespaceURI())
-                    && oldAxis.getTransaction().getQNameOfCurrentNode().getPrefix().equals(
-                      oldAxis.getTransaction().getQNameOfCurrentNode().getPrefix())) {
-                    process(oldAxis.getTransaction().getNode().getNodeKey(), newAxis.getTransaction()
-                      .getNode().getNodeKey());
+                  pWtx.moveToNamespace(j);
+                  if (pWtx.getQNameOfCurrentNode().getNamespaceURI().equals(
+                    pRtx.getQNameOfCurrentNode().getNamespaceURI())
+                    && pWtx.getQNameOfCurrentNode().getPrefix().equals(
+                      pWtx.getQNameOfCurrentNode().getPrefix())) {
+                    process(pWtx.getNode().getNodeKey(), pRtx.getNode()
+                      .getNodeKey());
                     break;
                   }
                   oldAxis.getTransaction().moveTo(oldNodeKey);
@@ -825,7 +860,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    * @throws AbsTTException
    *           if removing of node in the storage fails
    */
-  private void removeRightSiblingTextNode(final INodeWriteTrx pWtx) throws AbsTTException {
+  private void removeRightSiblingTextNode(final INodeWriteTrx pWtx)
+    throws AbsTTException {
     assert pWtx != null;
     if (pWtx.getStructuralNode().hasRightSibling()) {
       final long nodeKey = pWtx.getNode().getNodeKey();
@@ -875,13 +911,15 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    *          revision
    * @return it's position, with respect to already inserted/deleted nodes
    */
-  private int findPos(final long pX, final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
+  private int findPos(final long pX, final INodeWriteTrx pWtx,
+    final INodeReadTrx pRtx) {
     assert pX > 0;
     assert pWtx != null;
     assert pRtx != null;
     pRtx.moveTo(pX);
 
-    if (pRtx.getNode().getKind() == ENode.ATTRIBUTE_KIND || pRtx.getNode().getKind() == ENode.NAMESPACE_KIND) {
+    if (pRtx.getNode().getKind() == ENode.ATTRIBUTE_KIND
+      || pRtx.getNode().getKind() == ENode.NAMESPACE_KIND) {
       return 0;
     } else {
       final long nodeKey = pRtx.getNode().getNodeKey();
@@ -912,8 +950,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
       pRtx.moveToLeftSibling();
       INode v = pRtx.getNode();
       while (pRtx.getStructuralNode().hasLeftSibling()
-        && (mInOrderNewRev.get(v.getNodeKey()) == null || (mInOrderNewRev.get(v.getNodeKey()) != null && !mInOrderNewRev
-          .get(v.getNodeKey())))) {
+        && (mInOrderNewRev.get(v.getNodeKey()) == null || (mInOrderNewRev.get(v
+          .getNodeKey()) != null && !mInOrderNewRev.get(v.getNodeKey())))) {
         pRtx.moveToLeftSibling();
         v = pRtx.getNode();
       }
@@ -943,7 +981,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
           // if (mInOrderOldRev.get(u) != null && mInOrderOldRev.get(u)) {
           i++;
           // }
-        } while (u != toNodeKey && pWtx.getStructuralNode().hasRightSibling() && pWtx.moveToRightSibling());
+        } while (u != toNodeKey && pWtx.getStructuralNode().hasRightSibling()
+          && pWtx.moveToRightSibling());
 
         // return i + 1;
       }
@@ -976,7 +1015,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     // Do the matching job on the leaf nodes.
     final Matching matching = new Matching(pWtx, pRtx);
     matching.reset();
-    match(mLabelOldRevVisitor.getLeafLabels(), mLabelNewRevVisitor.getLeafLabels(), matching, new LeafEqual());
+    match(mLabelOldRevVisitor.getLeafLabels(), mLabelNewRevVisitor
+      .getLeafLabels(), matching, new LeafEqual());
 
     // Remove roots ('/') from labels and append them to mapping.
     final Map<ENode, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
@@ -1009,8 +1049,9 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    * @param pCmp
    *          functional class
    */
-  private void match(final Map<ENode, List<Long>> pOldLabels, final Map<ENode, List<Long>> pNewLabels,
-    final Matching pMatching, final IComparator<Long> pCmp) {
+  private void match(final Map<ENode, List<Long>> pOldLabels,
+    final Map<ENode, List<Long>> pNewLabels, final Matching pMatching,
+    final IComparator<Long> pCmp) {
     final Set<ENode> labels = pOldLabels.keySet();
     labels.retainAll(pNewLabels.keySet()); // intersection
 
@@ -1020,7 +1061,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
       final List<Long> second = pNewLabels.get(label); // 2(b)
 
       // 2(c)
-      final List<Pair<Long, Long>> common = Util.longestCommonSubsequence(first, second, pCmp);
+      final List<Pair<Long, Long>> common =
+        Util.longestCommonSubsequence(first, second, pCmp);
       // Used to remove the nodes in common from s1 and s2 in step 2(e).
       final Map<Long, Boolean> seen = new HashMap<>();
 
@@ -1070,7 +1112,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    * @param pSeen
    *          {@link Map} of {@link INode}s
    */
-  private void removeCommonNodes(final List<Long> pList, final Map<Long, Boolean> pSeen) {
+  private void removeCommonNodes(final List<Long> pList,
+    final Map<Long, Boolean> pSeen) {
     assert pList != null;
     assert pSeen != null;
 
@@ -1119,7 +1162,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    * @param pVisitor
    *          {@link LabelFMSEVisitor} used to save node type/list
    */
-  private void getLabels(final INodeReadTrx pRtx, final LabelFMSEVisitor pVisitor) {
+  private void getLabels(final INodeReadTrx pRtx,
+    final LabelFMSEVisitor pVisitor) {
     assert pRtx != null;
     assert pVisitor != null;
 
@@ -1149,8 +1193,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    *          {@link INodeWriteTrx} implementation reference
    * @return true iff the values of the nodes are equal
    */
-  private boolean nodeValuesEqual(final long pX, final long pY, final INodeReadTrx pRtxOld,
-    final INodeReadTrx pRtxNew) {
+  private boolean nodeValuesEqual(final long pX, final long pY,
+    final INodeReadTrx pRtxOld, final INodeReadTrx pRtxNew) {
     assert pX >= 0;
     assert pY >= 0;
     assert pRtxOld != null;
@@ -1215,37 +1259,46 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 
       double ratio = 0;
 
-      if (oldNode.getKind() == ENode.ATTRIBUTE_KIND || oldNode.getKind() == ENode.NAMESPACE_KIND) {
+      if (oldNode.getKind() == ENode.ATTRIBUTE_KIND
+        || oldNode.getKind() == ENode.NAMESPACE_KIND) {
         if (mWtx.getQNameOfCurrentNode().equals(mRtx.getQNameOfCurrentNode())) {
           ratio = 1;
           if (mWtx.getNode().getKind() == ENode.ATTRIBUTE_KIND) {
-            ratio = calculateRatio(mWtx.getValueOfCurrentNode(), mRtx.getValueOfCurrentNode());
+            ratio =
+              calculateRatio(mWtx.getValueOfCurrentNode(), mRtx
+                .getValueOfCurrentNode());
           }
 
           // Also check QNames of the parents.
           if (ratio > FMESF) {
             mWtx.moveToParent();
             mRtx.moveToParent();
-//            final QName oldQName = mWtx.getQNameOfCurrentNode();
-//            final QName newQName = mRtx.getQNameOfCurrentNode();
-//            if (oldQName.equals(newQName) && oldQName.getPrefix().equals(newQName.getPrefix())) {
-//              ratio = checkAncestors(mWtx.getItem().getKey(), mRtx.getItem().getKey()) ? 1 : 0;
-//            } else {
-              ratio = calculateRatio(getNodeValue(pFirstNode, mWtx), getNodeValue(pSecondNode, mRtx));
-//              if (ratio > FMESF) {
-//                ratio = checkAncestors(mWtx.getItem().getKey(), mRtx.getItem().getKey()) ? 1 : 0;
-//              }
-//            }
+            // final QName oldQName = mWtx.getQNameOfCurrentNode();
+            // final QName newQName = mRtx.getQNameOfCurrentNode();
+            // if (oldQName.equals(newQName) && oldQName.getPrefix().equals(newQName.getPrefix())) {
+            // ratio = checkAncestors(mWtx.getItem().getKey(), mRtx.getItem().getKey()) ? 1 : 0;
+            // } else {
+            ratio =
+              calculateRatio(getNodeValue(pFirstNode, mWtx), getNodeValue(
+                pSecondNode, mRtx));
+            // if (ratio > FMESF) {
+            // ratio = checkAncestors(mWtx.getItem().getKey(), mRtx.getItem().getKey()) ? 1 : 0;
+            // }
+            // }
           }
         }
       } else {
         if (nodeValuesEqual(pFirstNode, pSecondNode, mWtx, mRtx)) {
           ratio = 1;
         } else {
-          ratio = calculateRatio(getNodeValue(pFirstNode, mWtx), getNodeValue(pSecondNode, mRtx));
+          ratio =
+            calculateRatio(getNodeValue(pFirstNode, mWtx), getNodeValue(
+              pSecondNode, mRtx));
         }
 
-        if (ratio <= FMESF && checkAncestors(mWtx.getNode().getNodeKey(), mRtx.getNode().getNodeKey())) {
+        if (ratio <= FMESF
+          && checkAncestors(mWtx.getNode().getNodeKey(), mRtx.getNode()
+            .getNodeKey())) {
           ratio = 1;
         }
       }
@@ -1298,13 +1351,17 @@ public final class FMSE implements IImportDiff, AutoCloseable {
       final ElementNode secondElement = (ElementNode)mRtx.getNode();
       if ((firstElement.hasFirstChild() || firstElement.getAttributeCount() > 0 || firstElement
         .getNamespaceCount() > 0)
-        && (secondElement.hasFirstChild() || secondElement.getAttributeCount() > 0 || secondElement
+        && (secondElement.hasFirstChild()
+          || secondElement.getAttributeCount() > 0 || secondElement
           .getNamespaceCount() > 0)) {
-        final long common = mMatching.containedDescendants(pFirstNode, pSecondNode);
+        final long common =
+          mMatching.containedDescendants(pFirstNode, pSecondNode);
         final long maxFamilySize =
-          Math.max(mDescendantsOldRev.get(pFirstNode), mDescendantsNewRev.get(pSecondNode));
+          Math.max(mDescendantsOldRev.get(pFirstNode), mDescendantsNewRev
+            .get(pSecondNode));
         if (common == 0 && maxFamilySize == 1) {
-          retVal = mWtx.getQNameOfCurrentNode().equals(mRtx.getQNameOfCurrentNode());
+          retVal =
+            mWtx.getQNameOfCurrentNode().equals(mRtx.getQNameOfCurrentNode());
         } else {
           retVal = ((double)common / (double)maxFamilySize) >= FMESTHRESHOLD;
         }
@@ -1313,7 +1370,9 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         final QName newName = mRtx.getQNameOfCurrentNode();
         if (oldName.getNamespaceURI().equals(newName.getNamespaceURI())
           && calculateRatio(oldName.getLocalPart(), newName.getLocalPart()) > 0.7) {
-          retVal = checkAncestors(mWtx.getNode().getNodeKey(), mRtx.getNode().getNodeKey());
+          retVal =
+            checkAncestors(mWtx.getNode().getNodeKey(), mRtx.getNode()
+              .getNodeKey());
         }
       }
 
@@ -1373,8 +1432,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         && mRtx.getNode().getNodeKey() != mNewStartKey
         && mWtx.getNode().hasParent()
         && mRtx.getNode().hasParent()
-        && calculateRatio(getNodeValue(mWtx.getNode().getNodeKey(), mWtx), getNodeValue(mRtx.getNode()
-          .getNodeKey(), mRtx)) >= 0.7f);
+        && calculateRatio(getNodeValue(mWtx.getNode().getNodeKey(), mWtx),
+          getNodeValue(mRtx.getNode().getNodeKey(), mRtx)) >= 0.7f);
       if ((mWtx.getNode().hasParent() && mWtx.getNode().getNodeKey() != mOldStartKey)
         || (mRtx.getNode().hasParent() && mRtx.getNode().getNodeKey() != mNewStartKey)) {
         retVal = false;

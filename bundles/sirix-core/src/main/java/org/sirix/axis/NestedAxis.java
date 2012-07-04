@@ -54,12 +54,13 @@ public final class NestedAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param parentAxis
-   *          Inner nested axis.
-   * @param mChildAxis
-   *          Outer nested axis.
+   * @param pParentAxis
+   *          inner nested axis
+   * @param pChildAxis
+   *          outer nested axis
    */
-  public NestedAxis(@Nonnull final IAxis pParentAxis, @Nonnull final IAxis pChildAxis) {
+  public NestedAxis(@Nonnull final IAxis pParentAxis,
+    @Nonnull final IAxis pChildAxis) {
     super(pParentAxis.getTransaction());
     mParentAxis = checkNotNull(pParentAxis);
     mChildAxis = checkNotNull(pChildAxis);
@@ -82,39 +83,39 @@ public final class NestedAxis extends AbsAxis {
   public boolean hasNext() {
     if (isNext()) {
       return true;
-    } else {
-      resetToLastKey();
-
-      // Make sure that parent axis is moved for the first time.
-      if (mIsFirst) {
-        mIsFirst = false;
-        if (mParentAxis.hasNext()) {
-          mKey = mParentAxis.next();
-          mChildAxis.reset(mKey);
-        } else {
-          resetToStartKey();
-          return false;
-        }
-      }
-
-      // Execute child axis for each node found with parent axis.
-      boolean hasNext = false;
-      while (!(hasNext = mChildAxis.hasNext())) {
-        if (mParentAxis.hasNext()) {
-          mKey = mParentAxis.next();
-          mChildAxis.reset(mKey);
-        } else {
-          break;
-        }
-      }
-      if (hasNext) {
-        mKey = mChildAxis.next();
-        return true;
-      }
-
-      resetToStartKey();
-      return false;
     }
+    
+    resetToLastKey();
+
+    // Make sure that parent axis is moved for the first time.
+    if (mIsFirst) {
+      mIsFirst = false;
+      if (mParentAxis.hasNext()) {
+        mKey = mParentAxis.next();
+        mChildAxis.reset(mKey);
+      } else {
+        resetToStartKey();
+        return false;
+      }
+    }
+
+    // Execute child axis for each node found with parent axis.
+    boolean hasNext = false;
+    while (!(hasNext = mChildAxis.hasNext())) {
+      if (mParentAxis.hasNext()) {
+        mKey = mParentAxis.next();
+        mChildAxis.reset(mKey);
+      } else {
+        break;
+      }
+    }
+    if (hasNext) {
+      mKey = mChildAxis.next();
+      return true;
+    }
+
+    resetToStartKey();
+    return false;
   }
 
 }

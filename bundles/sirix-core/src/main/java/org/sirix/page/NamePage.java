@@ -49,7 +49,7 @@ import org.sirix.page.interfaces.IPage;
  * </p>
  */
 public final class NamePage implements IPage {
-
+ 
   /** Attribute names. */
   private final Names mAttributes;
 

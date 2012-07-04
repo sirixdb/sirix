@@ -35,7 +35,7 @@ import java.util.List;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.access.NodeWriteTrx.EHashKind;
+import org.sirix.access.EHashKind;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.DescendantAxis;
@@ -727,7 +727,7 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
         // }
         fireDiff(EDiff.REPLACEDOLD, pNewRtx.getStructuralNode(), pOldRtx.getStructuralNode(), new DiffDepth(
           mDepth.getNewDepth(), mDepth.getOldDepth()));
-        adjustDepth(oldAxis.getTransaction(), oldNodeKey, ERevision.OLD);
+        adjustDepth(pOldRtx, oldNodeKey, ERevision.OLD);
         // if (moved) {
         // adjustDepth(newAxis.getTransaction(), newNodeKey, ERevision.NEW);
         // }
@@ -743,7 +743,7 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
         // }
         fireDiff(EDiff.REPLACEDNEW, pNewRtx.getStructuralNode(), pOldRtx.getStructuralNode(), new DiffDepth(
           mDepth.getNewDepth(), mDepth.getOldDepth()));
-        adjustDepth(newAxis.getTransaction(), newNodeKey, ERevision.NEW);
+        adjustDepth(pNewRtx, newNodeKey, ERevision.NEW);
         // if (moved) {
         // adjustDepth(oldAxis.getTransaction(), oldNodeKey, ERevision.OLD);
         // }

@@ -95,7 +95,7 @@ public final class LevelOrderAxis extends AbsAxis {
       resetToLastKey();
 
       // First move to next key.
-      final INodeReadTrx rtx = getTransaction();
+      final INodeReadTrx rtx = (INodeReadTrx)getTransaction();
       final IStructNode node = rtx.getStructuralNode();
 
       // Determines if it's the first call to hasNext().
@@ -159,7 +159,7 @@ public final class LevelOrderAxis extends AbsAxis {
 
   /** Process an element node. */
   private void processElement() {
-    final INodeReadTrx rtx = getTransaction();
+    final INodeReadTrx rtx = (INodeReadTrx)getTransaction();
     if (rtx.getStructuralNode().getKind() == ENode.ELEMENT_KIND
       && mIncludeNodes == EIncludeNodes.NONSTRUCTURAL) {
       final ElementNode element = (ElementNode)rtx.getNode();

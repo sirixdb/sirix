@@ -45,15 +45,18 @@ import org.sirix.api.IPageReadTrx;
 import org.sirix.cache.GuavaCache;
 import org.sirix.cache.ICache;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.Tuple;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.ENode;
 import org.sirix.node.interfaces.INode;
+import org.sirix.page.EPage;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.NodePage;
 import org.sirix.page.PageReference;
+import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.IPage;
@@ -64,7 +67,7 @@ import org.sirix.utils.IConstants;
  * <h1>PageReadTransaction</h1>
  * 
  * <p>
- * State of a reading transaction. The only thing shared amongst transactions is the page cache. Everything
+ * Page reading transaction. The only thing shared amongst transactions is the page cache. Everything
  * else is exclusive to this transaction. It is required that only a single thread has access to this
  * transaction.
  * </p>
@@ -81,7 +84,7 @@ final class PageReadTrx implements IPageReadTrx {
   private final RevisionRootPage mRootPage;
 
   /** Internal reference to cache. */
-  private final ICache<Long, PageContainer> mCache;
+  private final ICache<Tuple, PageContainer> mCache;
 
   /** {@link Session} reference. */
   protected final Session mSession;
@@ -117,14 +120,14 @@ final class PageReadTrx implements IPageReadTrx {
   }
 
   @Override
-  public Optional<INode> getNode(@Nonnegative final long pNodeKey)
+  public Optional<INode> getNode(@Nonnegative final long pNodeKey, final EPage pPage)
     throws TTIOException {
     checkArgument(pNodeKey >= 0);
 
     final long nodePageKey = nodePageKey(pNodeKey);
     final int nodePageOffset = nodePageOffset(pNodeKey);
 
-    final PageContainer cont = mCache.get(nodePageKey);
+    final PageContainer cont = mCache.get(new Tuple(nodePageKey, pPage));
     if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
       return Optional.<INode> absent();
     }
@@ -199,7 +202,7 @@ final class PageReadTrx implements IPageReadTrx {
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  final NamePage initializeNamePage() throws TTIOException {
+  private final NamePage initializeNamePage() throws TTIOException {
     final PageReference ref = mRootPage.getNamePageReference();
     if (ref.getPage() == null) {
       ref.setPage(mPageReader.read(ref.getKey()));
@@ -207,61 +210,24 @@ final class PageReadTrx implements IPageReadTrx {
     return (NamePage)ref.getPage();
   }
 
+  /**
+   * Initialize PathSummaryPage.
+   * 
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  private final PathSummaryPage getPathSummaryPage(
+    @Nonnull final RevisionRootPage pPage) throws TTIOException {
+    final PageReference ref = pPage.getPathSummaryPageReference();
+    if (ref.getPage() == null) {
+      ref.setPage(mPageReader.read(ref.getKey()));
+    }
+    return (PathSummaryPage)ref.getPage();
+  }
+
   @Override
   public final UberPage getUberPage() {
     return mUberPage;
-  }
-
-  /**
-   * Dereference name page reference.
-   * 
-   * @return dereferenced pages
-   * 
-   * @throws TTIOException
-   *           if an I/O-error occurs within the creation process
-   */
-  final NamePage[] getNamePages() throws TTIOException {
-    final List<PageReference> refs = new ArrayList<>();
-    final Set<Long> keys = new HashSet<>();
-    final ResourceConfiguration config = mSession.getResourceConfig();
-    final int revsToRestore = config.mRevisionsToRestore;
-    for (long i = mRootPage.getRevision(); i >= 0; i--) {
-      final PageReference ref = mRootPage.getNamePageReference();
-      if (ref != null
-        && (ref.getPage() != null || ref.getKey() != IConstants.NULL_ID)) {
-        if (ref.getKey() == IConstants.NULL_ID
-          || (!keys.contains(ref.getKey()))) {
-          refs.add(ref);
-          if (ref.getKey() != IConstants.NULL_ID) {
-            keys.add(ref.getKey());
-          }
-        }
-        if (refs.size() == revsToRestore
-          || config.mRevisionKind == ERevisioning.FULL) {
-          break;
-        }
-        if (config.mRevisionKind == ERevisioning.DIFFERENTIAL) {
-          if (i - revsToRestore > 0) {
-            i = i - revsToRestore + 1;
-          } else {
-            i = 0;
-          }
-        }
-      } else {
-        break;
-      }
-    }
-
-    // Afterwards read the NodePages if they are not dereferences...
-    final NamePage[] pages = new NamePage[refs.size()];
-    for (int i = 0; i < pages.length; i++) {
-      final PageReference ref = refs.get(i);
-      pages[i] = (NamePage)ref.getPage();
-      if (pages[i] == null) {
-        pages[i] = (NamePage)mPageReader.read(ref.getKey());
-      }
-    }
-    return pages;
   }
 
   /**
@@ -274,15 +240,16 @@ final class PageReadTrx implements IPageReadTrx {
    * @throws TTIOException
    *           if an I/O-error occurs within the creation process
    */
-  final NodePage[] getSnapshotPages(@Nonnegative final long pNodePageKey)
+  final NodePage[] getSnapshotPages(@Nonnegative final long pNodePageKey, @Nonnull final EPage pPage)
     throws TTIOException {
+    checkNotNull(pPage);
     final List<PageReference> refs = new ArrayList<>();
     final Set<Long> keys = new HashSet<>();
     final ResourceConfiguration config = mSession.getResourceConfig();
     final int revsToRestore = config.mRevisionsToRestore;
     for (long i = mRootPage.getRevision(); i >= 0; i--) {
-      final PageReference ref =
-        dereferenceLeafOfTree(loadRevRoot(i).getIndirectPageReference(),
+      final PageReference tmpRef = getPageReference(loadRevRoot(i), pPage);
+      final PageReference ref = dereferenceLeafOfTree(tmpRef,
           pNodePageKey);
       if (ref != null
         && (ref.getPage() != null || ref.getKey() != IConstants.NULL_ID)) {
@@ -323,6 +290,23 @@ final class PageReadTrx implements IPageReadTrx {
       }
     }
     return pages;
+  }
+
+  private PageReference getPageReference(@Nonnull final RevisionRootPage pRef,
+    @Nonnull final EPage pPage) throws TTIOException {
+    PageReference ref = null;
+    switch (pPage) {
+    case NODEPAGE:
+      ref = pRef.getIndirectPageReference();
+      break;
+    case PATHSUMMARY:
+      ref = getPathSummaryPage(pRef).getIndirectPageReference();
+      break;
+    default:
+      new IllegalStateException(
+        "Only defined for node pages and path summary pages!");
+    }
+    return ref;
   }
 
   /**
@@ -426,24 +410,10 @@ final class PageReadTrx implements IPageReadTrx {
       "RevRootPage: ", mRootPage).toString();
   }
 
-  public PageContainer getNameNodeFromPage() throws TTIOException {
-    final NamePage[] revs = getNamePages();
-    if (revs.length == 0) {
-      return PageContainer.EMPTY_INSTANCE;
-    }
-
-    final int mileStoneRevision =
-      mSession.getResourceConfig().mRevisionsToRestore;
-    final ERevisioning revisioning = mSession.getResourceConfig().mRevisionKind;
-    final NamePage completePage =
-      revisioning.combineNamePages(revs, mileStoneRevision);
-    return new PageContainer(completePage);
-  }
-
   @Override
-  public PageContainer getNodeFromPage(final long pNodePageKey)
+  public PageContainer getNodeFromPage(final long pNodePageKey, final EPage pPage)
     throws TTIOException {
-    final NodePage[] revs = getSnapshotPages(pNodePageKey);
+    final NodePage[] revs = getSnapshotPages(pNodePageKey, pPage);
     if (revs.length == 0) {
       return PageContainer.EMPTY_INSTANCE;
     }

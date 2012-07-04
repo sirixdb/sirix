@@ -27,7 +27,11 @@
 
 package org.sirix.service.xml.xpath.expr;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.List;
+
+import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
@@ -54,54 +58,45 @@ public class SomeExpr extends AbsExpression {
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param mVars
-   *          Variables for which the condition must be satisfied
-   * @param mSatisfy
+   * @param pRtx
+   *          exclusive (immutable) trx to iterate with.
+   * @param pVars
+   *          variables for which the condition must be satisfied
+   * @param pSatisfy
    *          condition that must be satisfied by at least one item of the
    *          variable results in order to evaluate expression to true
    */
-  public SomeExpr(final INodeReadTrx rtx, final List<IAxis> mVars, final IAxis mSatisfy) {
-
-    super(rtx);
-    this.mVars = mVars;
-    this.mSatisfy = mSatisfy;
+  public SomeExpr(@Nonnull final INodeReadTrx pRtx,
+    @Nonnull final List<IAxis> pVars, @Nonnull final IAxis pSatisfy) {
+    super(pRtx);
+    mVars = checkNotNull(pVars);
+    mSatisfy = checkNotNull(pSatisfy);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public void reset(final long mNodeKey) {
-
-    super.reset(mNodeKey);
-
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     if (mVars != null) {
       for (final IAxis var : mVars) {
-        var.reset(mNodeKey);
+        var.reset(pNodeKey);
       }
     }
 
     if (mSatisfy != null) {
-      mSatisfy.reset(mNodeKey);
+      mSatisfy.reset(pNodeKey);
     }
-
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void evaluate() {
-
     boolean satisfiesCond = false;
 
     for (final IAxis axis : mVars) {
       while (axis.hasNext()) {
-        axis.next();
+        mKey = axis.next();
+        mSatisfy.reset(mKey);
         if (mSatisfy.hasNext()) {
-          mSatisfy.next();
+          mKey = mSatisfy.next();
           // condition is satisfied for this item -> expression is
           // true
           satisfiesCond = true;
@@ -112,8 +107,8 @@ public class SomeExpr extends AbsExpression {
 
     final int itemKey =
       getTransaction().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)), getTransaction().keyForName(
-          "xs:boolean")));
+        new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
+          getTransaction().keyForName("xs:boolean")));
     mKey = itemKey;
 
   }

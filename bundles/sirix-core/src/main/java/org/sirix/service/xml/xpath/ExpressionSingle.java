@@ -85,31 +85,29 @@ public class ExpressionSingle {
    * to be stored till a second axis is added. When the second axis is added,
    * it is nested with the first one and builds the execution chain.
    * 
-   * @param mAx
-   *          ach The axis to add.
+   * @param pAx
+   *          the axis to add
    */
   public void add(final IAxis pAx) {
     IAxis axis = pAx;
+      if (isDupOrd(axis)) {
+        axis = new DupFilterAxis(axis.getTransaction(), axis);
+        DupState.nodup = true;
+      }
 
-    if (isDupOrd(axis)) {
-      axis = new DupFilterAxis(axis.getTransaction(), axis);
-      DupState.nodup = true;
-    }
-
-    switch (mNumber) {
-    case 0:
-      mFirstAxis = axis;
-      mNumber++;
-      break;
-    case 1:
-      mExpr = new NestedAxis(mFirstAxis, axis);
-      mNumber++;
-      break;
-    default:
-      final IAxis cache = mExpr;
-      mExpr = new NestedAxis(cache, axis);
-    }
-
+      switch (mNumber) {
+      case 0:
+        mFirstAxis = axis;
+        mNumber++;
+        break;
+      case 1:
+        mExpr = new NestedAxis(mFirstAxis, axis);
+        mNumber++;
+        break;
+      default:
+        final IAxis cache = mExpr;
+        mExpr = new NestedAxis(cache, axis);
+      }
   }
 
   /**
@@ -181,7 +179,8 @@ public class ExpressionSingle {
       mOrd = mOrd.updateOrdFollPre();
       mDup = mDup.updateDupFollPre();
 
-    } else if (axis instanceof FollowingSiblingAxis || axis instanceof PrecedingSiblingAxis) {
+    } else if (axis instanceof FollowingSiblingAxis
+      || axis instanceof PrecedingSiblingAxis) {
 
       mOrd = mOrd.updateOrdFollPreSib();
       mDup = mDup.updateDupFollPreSib();

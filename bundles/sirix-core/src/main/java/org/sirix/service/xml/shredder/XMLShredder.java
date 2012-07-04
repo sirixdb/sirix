@@ -50,20 +50,19 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.access.Database;
-import org.sirix.access.NodeWriteTrx;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
-import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTUsageException;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /**
  * This class appends a given {@link XMLStreamReader} to a {@link INodeWriteTrx}. The content of the
@@ -121,8 +120,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
    *          {@link XMLEventReader} to parse the xml fragment, which should be inserted
    * @param pAddAsFirstChild
    *          determines if the insert is occuring on a node in an existing tree. <code>false</code> is
-   *          not possible
-   *          when wtx is on root node
+   *          not possible when wtx is on root node
    * @param pCommit
    *          determines if inserted nodes should be commited right afterwards
    * @throws TTUsageException
@@ -286,7 +284,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
    * @throws XMLStreamException
    *           if any parsing error occurs
    */
-  public static synchronized XMLEventReader createFileReader(final File pFile) throws IOException,
+  public static synchronized XMLEventReader createFileReader(@Nonnull final File pFile) throws IOException,
     XMLStreamException {
     checkNotNull(pFile);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
@@ -307,7 +305,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
    * @throws XMLStreamException
    *           if any parsing error occurs
    */
-  public static synchronized XMLEventReader createStringReader(final String pString) throws IOException,
+  public static synchronized XMLEventReader createStringReader(@Nonnull final String pString) throws IOException,
     XMLStreamException {
     checkNotNull(pString);
     final XMLInputFactory factory = XMLInputFactory.newInstance();
@@ -328,7 +326,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
    * @throws XMLStreamException
    *           if any parsing error occurs
    */
-  public static synchronized XMLEventReader createQueueReader(final Queue<XMLEvent> pEvents)
+  public static synchronized XMLEventReader createQueueReader(@Nonnull final Queue<XMLEvent> pEvents)
     throws IOException, XMLStreamException {
     return new QueueEventReader(checkNotNull(pEvents));
   }

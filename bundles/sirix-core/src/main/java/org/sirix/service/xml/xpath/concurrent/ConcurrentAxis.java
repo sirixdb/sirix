@@ -27,11 +27,16 @@
 
 package org.sirix.service.xml.xpath.concurrent;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import javax.annotation.Nonnull;
+
+import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.settings.EFixed;
@@ -48,7 +53,7 @@ import org.sirix.settings.EFixed;
  * </p>
  * <p>
  * This framework is working according to the producer-consumer-principle, where the ConcurrentAxisHelper and
- * its encapsulated axis is the producer and the ConcurrentAxis with its callees is the consumer This can be
+ * its encapsulated axis is the producer and the ConcurrentAxis with its callees is the consumer. This can be
  * used by any class that implements the IAxis interface. Note: Make sure that the used class is thread-safe.
  * </p>
  */
@@ -57,7 +62,7 @@ public class ConcurrentAxis extends AbsAxis {
   /**
    * Axis that is running in an own thread and produces results for this axis.
    */
-  private final AbsAxis mProducer;
+  private final IAxis mProducer;
 
   /**
    * Queue that stores result keys already computed by the producer. End of
@@ -66,7 +71,7 @@ public class ConcurrentAxis extends AbsAxis {
   private final BlockingQueue<Long> mResults;
 
   /** Capacity of the mResults queue. */
-  private final int M_CAPACITY = 10;
+  private final int M_CAPACITY = 200;
 
   /** Has axis already been called? */
   private boolean mFirst;
@@ -77,36 +82,28 @@ public class ConcurrentAxis extends AbsAxis {
   /** Is axis already finished and has no results left? */
   private boolean mFinished;
 
-  /** Size of thread pool for executor service. */
-  private static int THREADPOOLSIZE = 2;
-
   /** Executor Service holding the execution plan for future tasks. */
-  public static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(THREADPOOLSIZE);
+  public final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
 
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param paramRtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param paramChildAxis
-   *          Producer axis.
+   * @param pRtx
+   *          exclusive (immutable) trx to iterate with
+   * @param pChildAxis
+   *          producer axis
    */
-  public ConcurrentAxis(final INodeReadTrx paramRtx, final AbsAxis paramChildAxis) {
-    super(paramRtx);
-    mResults = new ArrayBlockingQueue<Long>(M_CAPACITY);
+  public ConcurrentAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final IAxis pChildAxis) {
+    super(pRtx);
+    mResults = new ArrayBlockingQueue<>(M_CAPACITY);
     mFirst = true;
-    mProducer = paramChildAxis;
-    task = new ConcurrentAxisHelper(getTransaction(), mProducer, mResults);
+    mProducer = checkNotNull(pChildAxis);
+    task = new ConcurrentAxisHelper(mProducer, mResults);
     mFinished = false;
-
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public synchronized void reset(final long nodeKey) {
-
     super.reset(nodeKey);
     mFirst = true;
     mFinished = false;
@@ -119,22 +116,22 @@ public class ConcurrentAxis extends AbsAxis {
     }
 
     if (task != null) {
-      task = new ConcurrentAxisHelper(getTransaction(), mProducer, mResults);
+      task = new ConcurrentAxisHelper(mProducer, mResults);
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public synchronized boolean hasNext() {
+    if (isNext()) {
+      return true;
+    }
 
     resetToLastKey();
 
-    // start producer on first call
+    // Start producer on first call.
     if (mFirst) {
       mFirst = false;
-      ConcurrentAxis.EXECUTOR.submit(task);
+      EXECUTOR.submit(task);
     }
 
     if (mFinished) {
@@ -142,32 +139,30 @@ public class ConcurrentAxis extends AbsAxis {
       return false;
     }
 
-    // long result = IReadTransaction.NULL_NODE_KEY;
     long result = EFixed.NULL_NODE_KEY.getStandardProperty();
 
     try {
-      // get result from producer as soon as it is available
+      // Get result from producer as soon as it is available.
       result = mResults.take();
-      // System.out.println("get: " + d.getC() +" "+ result );
     } catch (final InterruptedException e) {
       e.printStackTrace();
     }
 
-    // NULL_NODE_KEY marks end of the sequence computed by the producer
+    // NULL_NODE_KEY marks end of the sequence computed by the producer.
     if (result != EFixed.NULL_NODE_KEY.getStandardProperty()) {
-      getTransaction().moveTo(result);
+      mKey = result;
       return true;
     }
 
     mFinished = true;
     resetToStartKey();
-    // EXECUTOR.shutdown();
     return false;
-
   }
 
   /**
-   * @return true, if axis still has results left
+   * Determines if axis has more results to deliver or not.
+   * 
+   * @return {@code true}, if axis still has results left, {@code false} otherwise
    */
   public boolean isFinished() {
     return mFinished;

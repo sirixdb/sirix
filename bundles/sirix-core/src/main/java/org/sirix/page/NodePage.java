@@ -27,6 +27,7 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
 
@@ -34,7 +35,6 @@ import java.util.Arrays;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
@@ -72,7 +72,8 @@ public class NodePage implements IPage {
    * @param pRevision
    *          revision the page belongs to
    */
-  public NodePage(@Nonnegative final long pNodePageKey, @Nonnegative final long pRevision) {
+  public NodePage(@Nonnegative final long pNodePageKey,
+    @Nonnegative final long pRevision) {
     checkArgument(pNodePageKey >= 0, "pNodePageKey must not be negative!");
     checkArgument(pRevision >= 0, "pRevision must not be negative!");
     mRevision = pRevision;
@@ -133,9 +134,10 @@ public class NodePage implements IPage {
    * @param pNode
    *          node to store at given nodeOffset
    */
-  public void setNode(@Nonnegative final int pOffset, @Nullable final INode pNode) {
+  public void
+    setNode(@Nonnegative final int pOffset, @Nonnull final INode pNode) {
     checkArgument(pOffset >= 0, "pOffset may not be negative!");
-    mNodes[pOffset] = pNode;
+    mNodes[pOffset] = checkNotNull(pNode);
   }
 
   @Override
@@ -170,7 +172,8 @@ public class NodePage implements IPage {
   @Override
   public final String toString() {
     final ToStringHelper helper =
-      Objects.toStringHelper(this).add("pagekey", mNodePageKey).add("nodes", mNodes.toString());
+      Objects.toStringHelper(this).add("revision", mRevision).add("pagekey",
+        mNodePageKey).add("nodes", mNodes.toString());
     for (int i = 0; i < mNodes.length; i++) {
       final INode node = mNodes[i];
       helper.add(String.valueOf(i), node == null ? "" : node.getNodeKey());
@@ -229,7 +232,8 @@ public class NodePage implements IPage {
   }
 
   @Override
-  public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
+  public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx)
+    throws AbsTTException {
   }
 
 }

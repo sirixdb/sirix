@@ -29,7 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeTraversal;
 import org.sirix.node.ENode;
 import org.sirix.node.interfaces.IStructNode;
 
@@ -51,7 +51,7 @@ public final class FollowingSiblingAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public FollowingSiblingAxis(@Nonnull final INodeReadTrx pRtx) {
+  public FollowingSiblingAxis(@Nonnull final INodeTraversal pRtx) {
     super(pRtx);
     mIsFirst = true;
   }
@@ -66,30 +66,30 @@ public final class FollowingSiblingAxis extends AbsAxis {
   public boolean hasNext() {
     if (isNext()) {
       return true;
-    } else {
-      if (mIsFirst) {
-        mIsFirst = false;
-        /*
-         * If the context node is an attribute or namespace node,
-         * the following-sibling axis is empty
-         */
-        if (getTransaction().getNode().getKind() == ENode.ATTRIBUTE_KIND
-          || getTransaction().getNode().getKind() == ENode.NAMESPACE_KIND) {
-          resetToStartKey();
-          return false;
-        }
-      }
-
-      resetToLastKey();
-
-      final IStructNode node = getTransaction().getStructuralNode();
-      if (node.hasRightSibling()) {
-        mKey = node.getRightSiblingKey();
-        return true;
-      }
-      resetToStartKey();
-      return false;
     }
+    
+    if (mIsFirst) {
+      mIsFirst = false;
+      /*
+       * If the context node is an attribute or namespace node,
+       * the following-sibling axis is empty
+       */
+      if (getTransaction().getNode().getKind() == ENode.ATTRIBUTE_KIND
+        || getTransaction().getNode().getKind() == ENode.NAMESPACE_KIND) {
+        resetToStartKey();
+        return false;
+      }
+    }
+
+    resetToLastKey();
+
+    final IStructNode node = getTransaction().getStructuralNode();
+    if (node.hasRightSibling()) {
+      mKey = node.getRightSiblingKey();
+      return true;
+    }
+    resetToStartKey();
+    return false;
   }
 
 }

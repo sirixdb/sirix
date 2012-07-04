@@ -108,6 +108,7 @@ public class NodeCompTest {
     IAxis axis = new LiteralExpr(holder.getRtx(), -2);
     axis.hasNext(); // this is needed, because hasNext() has already been
     // called
+    axis.next();
     AtomicValue[] value = comparator.atomize(axis);
     assertEquals(value.length, 1);
     assertEquals(holder.getRtx().getNode().getNodeKey(), value[0].getNodeKey());

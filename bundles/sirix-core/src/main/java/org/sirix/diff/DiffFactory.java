@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Set;
 
-import org.sirix.access.NodeWriteTrx.EHashKind;
+import org.sirix.access.EHashKind;
 import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;

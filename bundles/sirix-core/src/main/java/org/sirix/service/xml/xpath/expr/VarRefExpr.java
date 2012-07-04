@@ -27,6 +27,8 @@
 
 package org.sirix.service.xml.xpath.expr;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 
 /**
@@ -43,41 +45,29 @@ public class VarRefExpr extends AbsExpression implements IObserver {
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param mVariable
-   *          Reference the variable expression that computes the items the
-   *          variable holds.
+   * @param pRtx
+   *          exclusive (immutable) trx to iterate with
+   * @param pVariable
+   *          reference the variable expression that computes the items the
+   *          variable holds
    */
-  public VarRefExpr(final INodeReadTrx rtx, final VariableAxis mVariable) {
-
-    super(rtx);
-    mVariable.addObserver(this);
+  public VarRefExpr(@Nonnull final INodeReadTrx pRtx, @Nonnull final VariableAxis pVariable) {
+    super(pRtx);
+    pVariable.addObserver(this);
     mVarKey = -1;
-
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public void update(final long mVarKey) {
-
-    this.mVarKey = mVarKey;
-    reset(this.mVarKey);
-
+  public void update(final long pVarKey) {
+    mVarKey = pVarKey;
+    reset(mVarKey);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void evaluate() {
-
-    // assure that the transaction is set to the current context item of the
+    // Assure that the transaction is set to the current context item of the
     // variable's binding sequence.
     mKey = mVarKey;
-
   }
 
 }

@@ -30,7 +30,6 @@ package org.sirix.diff;
 import java.util.HashSet;
 import java.util.Set;
 
-import org.sirix.api.INodeReadTrx;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.exception.AbsTTException;
 import org.sirix.node.interfaces.IStructNode;

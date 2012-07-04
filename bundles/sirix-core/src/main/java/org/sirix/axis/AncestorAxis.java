@@ -29,7 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeTraversal;
 import org.sirix.node.ENode;
 import org.sirix.settings.EFixed;
 
@@ -53,8 +53,8 @@ public final class AncestorAxis extends AbsAxis {
    * @param paramRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public AncestorAxis(final INodeReadTrx paramRtx) {
-    super(paramRtx);
+  public AncestorAxis(final INodeTraversal pRtx) {
+    super(pRtx);
   }
 
   /**
@@ -65,7 +65,7 @@ public final class AncestorAxis extends AbsAxis {
    * @param pIncludeSelf
    *          Is self included?
    */
-  public AncestorAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final EIncludeSelf pIncludeSelf) {
+  public AncestorAxis(@Nonnull final INodeTraversal pRtx, @Nonnull final EIncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
   }
 

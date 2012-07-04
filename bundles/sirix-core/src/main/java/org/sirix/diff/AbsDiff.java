@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.access.NodeWriteTrx.EHashKind;
+import org.sirix.access.EHashKind;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.DescendantAxis;
@@ -44,7 +44,6 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.node.ENode;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.IStructNode;
-import org.sirix.utils.EKind;
 
 /**
  * Abstract diff class which implements common functionality.
@@ -667,14 +666,14 @@ abstract class AbsDiff extends AbsDiffObservable {
           oldAxis.next();
           fireDiff(EDiff.REPLACEDOLD, pNewRtx.getStructuralNode(), pOldRtx.getStructuralNode(),
             new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
-          adjustDepth(oldAxis.getTransaction(), oldNodeKey, ERevision.OLD);
+          adjustDepth(pOldRtx, oldNodeKey, ERevision.OLD);
         }
 
         while (newAxis.hasNext()) {
           newAxis.next();
           fireDiff(EDiff.REPLACEDNEW, pNewRtx.getStructuralNode(), pOldRtx.getStructuralNode(),
             new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
-          adjustDepth(newAxis.getTransaction(), newNodeKey, ERevision.NEW);
+          adjustDepth(pNewRtx, newNodeKey, ERevision.NEW);
         }
         pNewRtx.moveTo(newNodeKey);
         pOldRtx.moveTo(oldNodeKey);

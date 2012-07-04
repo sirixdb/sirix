@@ -183,21 +183,21 @@ public final class Matching {
     mRtxOld.moveTo(pNodeX);
     for (final IAxis axis = new DescendantAxis(mRtxOld, EIncludeSelf.YES); axis.hasNext();) {
       axis.next();
-      retVal += mIsInSubtree.get(pNodeY, partner(axis.getTransaction().getNode().getNodeKey())) ? 1 : 0;
+      retVal += mIsInSubtree.get(pNodeY, partner(mRtxOld.getNode().getNodeKey())) ? 1 : 0;
       final INode node = axis.getTransaction().getNode();
       if (node.getKind() == ENode.ELEMENT_KIND) {
         final ElementNode element = (ElementNode)node;
         for (int i = 0; i < element.getNamespaceCount(); i++) {
-          axis.getTransaction().moveToNamespace(i);
+          mRtxOld.moveToNamespace(i);
           retVal +=
             mIsInSubtree.get(pNodeY, partner(axis.getTransaction().getNode().getNodeKey())) ? 1 : 0;
-          axis.getTransaction().moveToParent();
+          mRtxOld.moveToParent();
         }
         for (int i = 0; i < element.getAttributeCount(); i++) {
-          axis.getTransaction().moveToAttribute(i);
+          mRtxOld.moveToAttribute(i);
           retVal +=
             mIsInSubtree.get(pNodeY, partner(axis.getTransaction().getNode().getNodeKey())) ? 1 : 0;
-          axis.getTransaction().moveToParent();
+          mRtxOld.moveToParent();
         }
       }
     }

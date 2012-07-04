@@ -5,6 +5,7 @@ import org.sirix.cache.PageContainer;
 import org.sirix.exception.TTIOException;
 import org.sirix.node.ENode;
 import org.sirix.node.interfaces.INode;
+import org.sirix.page.EPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 
@@ -16,7 +17,7 @@ import org.sirix.page.UberPage;
  */
 public interface IPageReadTrx extends AutoCloseable {
 
-  Optional<INode> getNode(final long pKey) throws TTIOException;
+  Optional<INode> getNode(final long pKey, final EPage pPage) throws TTIOException;
 
   /**
    * Current reference to actual rev-root page.
@@ -62,13 +63,13 @@ public interface IPageReadTrx extends AutoCloseable {
   /**
    * Get a node from the page layer.
    * 
-   * @param key
+   * @param pKey
    *          {@code nodeKey} of node
    * @return {@code the node} or {@code null} if it's not available
    * @throws TTIOException
    *           if can't read nodePage
    */
-  PageContainer getNodeFromPage(long key) throws TTIOException;
+  PageContainer getNodeFromPage(long pKey, EPage pPage) throws TTIOException;
 
   /**
    * Get the {@link UberPage}.

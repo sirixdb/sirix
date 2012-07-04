@@ -183,7 +183,7 @@ public final class XMLToken {
    *          the {@code URI} to check
    * @return {@code true} if {@code namespaceURI} is valid, {@code false} otherwise
    */
-  private static boolean isUrl(final String pNamespaceURI) {
+  private boolean isUrl(final String pNamespaceURI) {
     // NamespaceURI is never null.
     try {
       new URL(pNamespaceURI).toURI();

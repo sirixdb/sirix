@@ -520,22 +520,20 @@ public final class PipelineBuilder {
   /**
    * Adds a predicate to the pipeline.
    * 
-   * @param mTransaction
-   *          Transaction to operate with.
+   * @param pRtx
+   *          transaction to operate with
    */
-  public void addPredicate(final INodeReadTrx mTransaction) {
-
+  public void addPredicate(final INodeReadTrx pRtx) {
     assert getPipeStack().size() >= 2;
 
-    final IAxis mPredicate = getPipeStack().pop().getExpr();
+    final IAxis predicate = getPipeStack().pop().getExpr();
 
-    if (mPredicate instanceof LiteralExpr) {
-
-      mPredicate.hasNext();
+    if (predicate instanceof LiteralExpr) {
+      predicate.hasNext();
       // if is numeric literal -> abbrev for position()
-      final int type = mTransaction.getNode().getTypeKey();
-      if (type == mTransaction.keyForName("xs:integer") || type == mTransaction.keyForName("xs:double")
-        || type == mTransaction.keyForName("xs:float") || type == mTransaction.keyForName("xs:decimal")) {
+      final int type = pRtx.getNode().getTypeKey();
+      if (type == pRtx.keyForName("xs:integer") || type == pRtx.keyForName("xs:double")
+        || type == pRtx.keyForName("xs:float") || type == pRtx.keyForName("xs:decimal")) {
 
         throw new IllegalStateException("function fn:position() is not implemented yet.");
 
@@ -564,8 +562,7 @@ public final class PipelineBuilder {
       }
     }
 
-    getExpression().add(new PredicateFilterAxis(mTransaction, mPredicate));
-
+    getExpression().add(new PredicateFilterAxis(pRtx, predicate));
   }
 
   /**

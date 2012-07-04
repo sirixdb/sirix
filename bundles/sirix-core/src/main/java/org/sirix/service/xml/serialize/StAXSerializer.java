@@ -89,7 +89,7 @@ public final class StAXSerializer implements XMLEventReader {
   private transient boolean mNextTag;
 
   /** {@link IAxis} for iteration. */
-  private final transient IAxis mAxis;
+  private final IAxis mAxis;
 
   /** Stack for reading end element. */
   private final Deque<Long> mStack;
@@ -99,12 +99,6 @@ public final class StAXSerializer implements XMLEventReader {
    * getElementText().
    */
   private transient boolean mToLastKey;
-
-  // /**
-  // * Determines if the cursor has moved up and therefore has to move back
-  // * after to the right node (used in getElementText()).
-  // */
-  // private transient boolean mGoUp;
 
   /**
    * Last emitted key (start tags, text... except end tags; used in
@@ -229,7 +223,7 @@ public final class StAXSerializer implements XMLEventReader {
 
     while (textFilterAxis.hasNext()) {
       textFilterAxis.next();
-      strBuilder.append(mAxis.getTransaction().getValueOfCurrentNode());
+      strBuilder.append(rtx.getValueOfCurrentNode());
     }
 
     rtx.moveTo(nodeKey);

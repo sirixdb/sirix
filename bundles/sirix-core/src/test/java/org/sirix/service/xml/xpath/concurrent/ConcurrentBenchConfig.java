@@ -46,7 +46,7 @@ public class ConcurrentBenchConfig extends AbstractConfig {
   /**
    * Number of runs.
    */
-  private final static int RUNS = 20;
+  private final static int RUNS = 50;
 
   /**
    * Test units of time and memory.

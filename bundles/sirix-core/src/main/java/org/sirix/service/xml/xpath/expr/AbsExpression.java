@@ -27,6 +27,8 @@
 
 package org.sirix.service.xml.xpath.expr;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.IExpression;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
@@ -43,47 +45,39 @@ import org.sirix.exception.TTXPathException;
  * evaluated once. Therefore the axis returns true only for the first call and false for all others.
  * </p>
  */
-@Deprecated
 public abstract class AbsExpression extends AbsAxis implements IExpression {
 
-  /** Defines, whether hasNext() has already been called. */
+  /** Defines, whether {@code hasNext()} has already been called. */
   private boolean mIsFirst;
 
   /**
    * Constructor. Initializes the internal state.
    * 
    * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
+   *          exclusive (immutable) trx to iterate with
    */
-  public AbsExpression(final INodeReadTrx rtx) {
-
-    super(rtx);
+  public AbsExpression(@Nonnull final INodeReadTrx pRtx) {
+    super(pRtx);
     mIsFirst = true;
-
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public synchronized void reset(final long mNodeKey) {
-
-    super.reset(mNodeKey);
+  public synchronized void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     mIsFirst = true;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public synchronized boolean hasNext() {
-
+    if (isNext()) {
+      return true;
+    }
     resetToLastKey();
 
     if (mIsFirst) {
       mIsFirst = false;
 
-      // evaluate expression
+      // Evaluate expression.
       try {
         evaluate();
       } catch (final TTXPathException e) {
@@ -92,7 +86,6 @@ public abstract class AbsExpression extends AbsAxis implements IExpression {
 
       return true;
     } else {
-
       // only the first call yields to true, all further calls will yield
       // to
       // false. Calling hasNext() makes no sense, since evaluating the
@@ -108,7 +101,7 @@ public abstract class AbsExpression extends AbsAxis implements IExpression {
    * method)
    * 
    * @throws TTXPathException
-   *           if evaluation fails.
+   *           if evaluation fails
    */
   @Override
   public abstract void evaluate() throws TTXPathException;

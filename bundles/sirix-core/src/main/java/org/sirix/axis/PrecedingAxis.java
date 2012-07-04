@@ -32,7 +32,7 @@ import java.util.Deque;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeTraversal;
 import org.sirix.node.ENode;
 import org.sirix.node.interfaces.IStructNode;
 
@@ -57,7 +57,7 @@ public final class PrecedingAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PrecedingAxis(@Nonnull final INodeReadTrx pRtx) {
+  public PrecedingAxis(@Nonnull final INodeTraversal pRtx) {
     super(pRtx);
     mIsFirst = true;
     mStack = new ArrayDeque<>();
@@ -74,57 +74,56 @@ public final class PrecedingAxis extends AbsAxis {
   public boolean hasNext() {
     if (isNext()) {
       return true;
-    } else {
-      // Assure, that preceding is not evaluated on an attribute or a namespace.
-      if (mIsFirst) {
-        mIsFirst = false;
-        if (getTransaction().getNode().getKind() == ENode.ATTRIBUTE_KIND
-          || getTransaction().getNode().getKind() == ENode.NAMESPACE_KIND) {
-          resetToStartKey();
-          return false;
-        }
+    }
+    // Assure, that preceding is not evaluated on an attribute or a namespace.
+    if (mIsFirst) {
+      mIsFirst = false;
+      if (getTransaction().getNode().getKind() == ENode.ATTRIBUTE_KIND
+        || getTransaction().getNode().getKind() == ENode.NAMESPACE_KIND) {
+        resetToStartKey();
+        return false;
       }
+    }
 
-      resetToLastKey();
+    resetToLastKey();
 
-      // Current node key.
-      final long key = mKey;
+    // Current node key.
+    final long key = mKey;
 
-      if (!mStack.isEmpty()) {
-        // Return all nodes of the current subtree in reverse document order.
-        mKey = mStack.pop();
-        return true;
-      }
+    if (!mStack.isEmpty()) {
+      // Return all nodes of the current subtree in reverse document order.
+      mKey = mStack.pop();
+      return true;
+    }
 
+    if (getTransaction().getStructuralNode().hasLeftSibling()) {
+      getTransaction().moveToLeftSibling();
+      /*
+       * Because this axis return the precedings in reverse document
+       * order, we need to iterate to the node in the subtree, that comes last in
+       * document order.
+       */
+      getLastChild();
+      mKey = getTransaction().getNode().getNodeKey();
+      getTransaction().moveTo(key);
+      return true;
+    }
+
+    while (getTransaction().getNode().hasParent()) {
+      // Ancestors are not part of the preceding set.
+      getTransaction().moveToParent();
       if (getTransaction().getStructuralNode().hasLeftSibling()) {
         getTransaction().moveToLeftSibling();
-        /*
-         * Because this axis return the precedings in reverse document
-         * order, we need to iterate to the node in the subtree, that comes last in
-         * document order.
-         */
+        // Move to last node in the subtree.
         getLastChild();
         mKey = getTransaction().getNode().getNodeKey();
         getTransaction().moveTo(key);
         return true;
       }
-
-      while (getTransaction().getNode().hasParent()) {
-        // Ancestors are not part of the preceding set.
-        getTransaction().moveToParent();
-        if (getTransaction().getStructuralNode().hasLeftSibling()) {
-          getTransaction().moveToLeftSibling();
-          // Move to last node in the subtree.
-          getLastChild();
-          mKey = getTransaction().getNode().getNodeKey();
-          getTransaction().moveTo(key);
-          return true;
-        }
-      }
-
-      resetToStartKey();
-      return false;
     }
+
+    resetToStartKey();
+    return false;
   }
 
   /**
@@ -161,7 +160,8 @@ public final class PrecedingAxis extends AbsAxis {
        * Step up the path till the root of the current subtree and process
        * all right siblings and their descendants on each step.
        */
-      if (getTransaction().getNode().hasParent() && (getTransaction().getNode().getParentKey() != parent)) {
+      if (getTransaction().getNode().hasParent()
+        && (getTransaction().getNode().getParentKey() != parent)) {
 
         mStack.push(getTransaction().getNode().getNodeKey());
         while (getTransaction().getNode().hasParent()

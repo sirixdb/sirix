@@ -188,7 +188,7 @@ public final class UberPage extends AbsForwardingPage {
   /**
    * Flag to indicate whether this uber page is the first ever.
    * 
-   * @return {@code true} if this uber page is the first one of sirix, {@code false} otherwise.
+   * @return {@code true} if this uber page is the first oINDIRECT_REFERENCE_OFFSETne of sirix, {@code false} otherwise.
    */
   public boolean isBootstrap() {
     return mBootstrap;

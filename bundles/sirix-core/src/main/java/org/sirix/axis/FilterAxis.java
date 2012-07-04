@@ -27,8 +27,11 @@
 
 package org.sirix.axis;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.IAxis;
 import org.sirix.api.IFilter;
+import org.sirix.api.INodeReadTrx;
 
 /**
  * <h1>TestAxis</h1>
@@ -48,15 +51,23 @@ public final class FilterAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param paramAxis
+   * @param pAxis
    *          axis to iterate over
-   * @param paramAxisTest
+   * @param pFirstAxisTest
    *          test to perform for each node found with axis
+   * @param pAxisTest
+   *          tests to perform for each node found with axis
    */
-  public FilterAxis(final IAxis pAxis, final IFilter... pAxisTest) {
+  public FilterAxis(@Nonnull final IAxis pAxis,
+    @Nonnull final IFilter pFirstAxisTest, @Nonnull final IFilter... pAxisTest) {
     super(pAxis.getTransaction());
     mAxis = pAxis;
-    mAxisFilter = pAxisTest;
+    final int length = pAxisTest.length == 0 ? 1 : pAxisTest.length + 1;
+    mAxisFilter = new IFilter[length];
+    mAxisFilter[0] = pFirstAxisTest;
+    for (int i = 1; i < length; i++) {
+      mAxisFilter[i] = pAxisTest[i - 1];
+    }
   }
 
   @Override

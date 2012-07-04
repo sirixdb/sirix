@@ -32,7 +32,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,11 +41,10 @@ import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;
 import org.sirix.node.ENode;
-import org.sirix.node.interfaces.INode;
 import org.sirix.utils.DocumentCreater;
 import org.sirix.utils.IConstants;
 
@@ -87,10 +85,9 @@ public class SessionTest {
     rtx.close();
 
     try {
-      final INode node = rtx.getNode();
-      node.getNodeKey();
+      rtx.getNode();
       fail();
-    } catch (Exception e) {
+    } catch (final IllegalStateException e) {
       // Must fail.
     } finally {
       holder.getSession().close();

@@ -27,8 +27,12 @@
 
 package org.sirix.service.xml.xpath.expr;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
@@ -52,55 +56,49 @@ public class VariableAxis extends AbsAxis {
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param mInSeq
-   *          sequence, the variable is bound to.
+   * @param pRtx
+   *          exclusive (immutable) trx to iterate with
+   * @param pInSeq
+   *          sequence, the variable is bound to
    */
-  public VariableAxis(final INodeReadTrx rtx, final IAxis mInSeq) {
-
-    super(rtx);
-    mBindingSeq = mInSeq;
+  public VariableAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final IAxis pInSeq) {
+    super(pRtx);
+    mBindingSeq = checkNotNull(pInSeq);
     mVarRefs = new ArrayList<VarRefExpr>();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public void reset(final long mNodeKey) {
-    super.reset(mNodeKey);
+  public void reset(final long pNodeKey) {
+    super.reset(pNodeKey);
     if (mBindingSeq != null) {
-      mBindingSeq.reset(mNodeKey);
+      mBindingSeq.reset(pNodeKey);
     }
-
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean hasNext() {
-
+    if (isNext()) {
+      return true;
+    }
+    
     resetToLastKey();
 
     if (mBindingSeq.hasNext()) {
-      mBindingSeq.next();
+      mKey = mBindingSeq.next();
       notifyObs();
       return true;
     }
 
     resetToStartKey();
     return false;
-
   }
 
   /**
-   * Tell all observers that the a new item of the binding sequence has been
+   * Tell all observers that a new item of the binding sequence has been
    * evaluated.
    */
   private void notifyObs() {
-    for (VarRefExpr varRef : mVarRefs) {
+    for (final VarRefExpr varRef : mVarRefs) {
       varRef.update(getTransaction().getNode().getNodeKey());
     }
   }
@@ -111,8 +109,8 @@ public class VariableAxis extends AbsAxis {
    * @param mObserver
    *          axis that wants to be notified of any change of this axis
    */
-  public void addObserver(final VarRefExpr mObserver) {
-    mVarRefs.add(mObserver);
+  public void addObserver(@Nonnull final VarRefExpr pObserver) {
+    mVarRefs.add(checkNotNull(pObserver));
   }
 
 }
