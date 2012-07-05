@@ -174,7 +174,7 @@ public class ConcurrentAxisTest {
           firstConcurrRtx, new FilterAxis(new ChildAxis(secondRtx),
             new NameFilter(secondRtx, "africa")))), new ConcurrentAxis(
           firstConcurrRtx, new FilterAxis(new DescendantAxis(thirdRtx,
-            EIncludeSelf.YES), new NameFilter(thirdRtx, "name"))));
+            EIncludeSelf.YES), new NameFilter(thirdRtx, "location"))));
 
       for (int i = 0; i < resultNumber; i++) {
         assertEquals(true, axis.hasNext());
@@ -203,9 +203,9 @@ public class ConcurrentAxisTest {
         new NestedAxis(new NestedAxis(new ConcurrentAxis(firstConcurrRtx,
           new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
             new NameFilter(holder.getRtx(), "regions"))), new FilterAxis(
-          new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-            "africa"))), new FilterAxis(new DescendantAxis(holder.getRtx(),
-          EIncludeSelf.YES), new NameFilter(holder.getRtx(), "name")));
+          new ChildAxis(firstConcurrRtx), new NameFilter(firstConcurrRtx,
+            "africa"))), new FilterAxis(new DescendantAxis(firstConcurrRtx,
+          EIncludeSelf.YES), new NameFilter(firstConcurrRtx, "location")));
 
       for (int i = 0; i < resultNumber; i++) {
         assertEquals(true, axis.hasNext());
@@ -231,12 +231,12 @@ public class ConcurrentAxisTest {
       final INodeReadTrx firstConcurrRtx =
         holder.getSession().beginNodeReadTrx();
       final IAxis axis =
-        new NestedAxis(new NestedAxis(new FilterAxis(new DescendantAxis(holder
-          .getRtx(), EIncludeSelf.YES), new NameFilter(holder.getRtx(),
-          "regions")), new FilterAxis(new ChildAxis(holder.getRtx()),
-          new NameFilter(holder.getRtx(), "africa"))), new ConcurrentAxis(
+        new NestedAxis(new NestedAxis(new FilterAxis(new DescendantAxis(
+          firstConcurrRtx, EIncludeSelf.YES), new NameFilter(firstConcurrRtx,
+          "regions")), new FilterAxis(new ChildAxis(firstConcurrRtx),
+          new NameFilter(firstConcurrRtx, "africa"))), new ConcurrentAxis(
           firstConcurrRtx, new FilterAxis(new DescendantAxis(holder.getRtx(),
-            EIncludeSelf.YES), new NameFilter(holder.getRtx(), "name"))));
+            EIncludeSelf.YES), new NameFilter(holder.getRtx(), "location"))));
 
       for (int i = 0; i < resultNumber; i++) {
         assertEquals(true, axis.hasNext());
