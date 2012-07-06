@@ -67,19 +67,21 @@ public class SAXSerializerTest extends XMLTestCase {
   }
 
   @Test
-  public void testSAXSerializer() throws AbsTTException, SAXException, IOException {
+  public void testSAXSerializer() throws AbsTTException, SAXException,
+    IOException {
 
     final StringBuilder strBuilder = new StringBuilder();
     final ContentHandler contHandler = new XMLFilterImpl() {
 
       @Override
       public void startDocument() {
-        strBuilder.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+        strBuilder
+          .append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
       }
 
       @Override
-      public void startElement(final String uri, final String localName, final String qName,
-        final Attributes atts) throws SAXException {
+      public void startElement(final String uri, final String localName,
+        final String qName, final Attributes atts) throws SAXException {
         strBuilder.append("<" + qName);
 
         for (int i = 0; i < atts.getLength(); i++) {
@@ -97,19 +99,24 @@ public class SAXSerializerTest extends XMLTestCase {
       // };
 
       @Override
-      public void endElement(String uri, String localName, String qName) throws SAXException {
+      public void endElement(String uri, String localName, String qName)
+        throws SAXException {
         strBuilder.append("</" + qName + ">");
       }
 
       @Override
-      public void characters(final char[] ch, final int start, final int length) throws SAXException {
+      public void
+        characters(final char[] ch, final int start, final int length)
+          throws SAXException {
         for (int i = start; i < start + length; i++) {
           strBuilder.append(ch[i]);
         }
       }
     };
 
-    final SAXSerializer serializer = new SAXSerializer(holder.getSession(), contHandler);
+    final SAXSerializer serializer =
+      new SAXSerializer(holder.getSession(), contHandler, holder.getSession()
+        .getLastRevisionNumber());
     serializer.call();
     assertXMLEqual(DocumentCreater.XML, strBuilder.toString());
   }

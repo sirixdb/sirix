@@ -32,6 +32,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Collections;
 import java.util.Iterator;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.om.DocumentInfo;
@@ -43,17 +46,16 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.Value;
-import org.slf4j.LoggerFactory;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.axis.AbsAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>DocumentWrapper</h1>
@@ -71,7 +73,8 @@ import org.sirix.utils.LogWrapper;
 public final class DocumentWrapper implements DocumentInfo {
 
   /** {@link LogWrapper} instance. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(DocumentWrapper.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
+    .getLogger(DocumentWrapper.class));
 
   /** sirix database. */
   final ISession mSession;
@@ -89,11 +92,9 @@ public final class DocumentWrapper implements DocumentInfo {
   long mDocumentNumber;
 
   /**
-   * Instance to {@link NodeWrapper}-implementation
+   * Instance of {@link NodeWrapper}-implementation
    */
   private final NodeWrapper mNodeWrapper;
-
-  // IReadTransaction mRtx;
 
   /**
    * Wrap a sirix document.
@@ -107,11 +108,11 @@ public final class DocumentWrapper implements DocumentInfo {
    * @throws AbsTTException
    *           if sirix encounters an error
    */
-  public DocumentWrapper(final ISession pSession, final long pRevision, final Configuration pConfig)
+  public DocumentWrapper(@Nonnull final ISession pSession,
+    @Nonnegative final long pRevision, @Nonnull final Configuration pConfig)
     throws AbsTTException {
     mSession = checkNotNull(pSession);
     mRevision = checkNotNull(pRevision);
-    // mRtx = pSession.beginReadTransaction(pRevision);
     mBaseURI = pSession.getResourceConfig().getResource().getAbsolutePath();
     mConfig = checkNotNull(pConfig);
     mNodeWrapper = new NodeWrapper(this, 0);
@@ -121,19 +122,17 @@ public final class DocumentWrapper implements DocumentInfo {
    * Wrap a sirix document.
    * 
    * @param pSession
-   *          sirix {@link ISession}
+   *          Sirix {@link ISession}
    * @param pConfig
    *          Saxon {@link Configuration} instance
    * @throws AbsTTException
-   *           if sirix encounters an error
+   *           if Sirix encounters an error
    */
-  public DocumentWrapper(final ISession pSession, final Configuration pConfig) throws AbsTTException {
+  public DocumentWrapper(final ISession pSession, final Configuration pConfig)
+    throws AbsTTException {
     this(pSession, pSession.beginNodeReadTrx().getRevisionNumber(), pConfig);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String[] getUnparsedEntity(final String name) {
     throw new UnsupportedOperationException("Currently not supported by sirix!");
@@ -149,16 +148,13 @@ public final class DocumentWrapper implements DocumentInfo {
     return (Iterator<String>)Collections.EMPTY_LIST.iterator();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public NodeInfo selectID(final String ID, final boolean getParent) {
     try {
       final INodeReadTrx rtx = mSession.beginNodeReadTrx();
       final IAxis axis = new DescendantAxis(rtx, EIncludeSelf.YES);
       while (axis.hasNext()) {
-        if (rtx.getNode().getKind() == ENode.ELEMENT_KIND) {
+        if (rtx.getNode().getKind() == EKind.ELEMENT) {
           final int attCount = ((ElementNode)rtx.getNode()).getAttributeCount();
 
           if (attCount > 0) {
@@ -167,7 +163,8 @@ public final class DocumentWrapper implements DocumentInfo {
             for (int index = 0; index < attCount; index++) {
               rtx.moveToAttribute(index);
 
-              if ("xml:id".equalsIgnoreCase(rtx.getQNameOfCurrentNode().getLocalPart())
+              if ("xml:id".equalsIgnoreCase(rtx.getQNameOfCurrentNode()
+                .getLocalPart())
                 && ID.equals(rtx.getValueOfCurrentNode())) {
                 if (getParent) {
                   rtx.moveToParent();
@@ -187,9 +184,6 @@ public final class DocumentWrapper implements DocumentInfo {
     return null;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public NamePool getNamePool() {
     return mConfig.getNamePool();
@@ -204,22 +198,17 @@ public final class DocumentWrapper implements DocumentInfo {
    * @param config
    *          Saxon {@link Configuration} instance
    */
-  public void setConfiguration(final Configuration config) {
-    mConfig = config;
-    mDocumentNumber = config.getDocumentNumberAllocator().allocateDocumentNumber();
+  public void setConfiguration(final Configuration pConfig) {
+    mConfig = pConfig;
+    mDocumentNumber =
+      pConfig.getDocumentNumberAllocator().allocateDocumentNumber();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public Configuration getConfiguration() {
     return mConfig;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String getBaseURI() {
     return mBaseURI;
@@ -228,27 +217,20 @@ public final class DocumentWrapper implements DocumentInfo {
   /**
    * Set the baseURI of the current document.
    * 
-   * @param baseURI
+   * @param pBaseURI
    *          usually the absolute path of the document
    */
-  void setBaseURI(final String baseURI) {
-    mBaseURI = checkNotNull(baseURI);
+  void setBaseURI(@Nonnull final String pBaseURI) {
+    mBaseURI = checkNotNull(pBaseURI);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public Object getUserData(String arg0) {
     return null;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void setUserData(String arg0, Object arg1) {
-
   }
 
   @Override

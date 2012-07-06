@@ -30,7 +30,7 @@ package org.sirix.axis.filter;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeReadTrx;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 
 /**
  * <h1>NodeAxisTest</h1>
@@ -53,6 +53,6 @@ public class ElementFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getNode().getKind() == ENode.ELEMENT_KIND;
+    return getTransaction().getNode().getKind() == EKind.ELEMENT;
   }
 }

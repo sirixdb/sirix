@@ -27,7 +27,11 @@
 
 package org.sirix.saxon.evaluator;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.concurrent.Callable;
+
+import javax.annotation.Nonnull;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.NodeInfo;
@@ -36,12 +40,10 @@ import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.XQueryCompiler;
 import net.sf.saxon.s9api.XQueryExecutable;
 import net.sf.saxon.s9api.XdmValue;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.sirix.api.ISession;
 import org.sirix.saxon.wrapper.DocumentWrapper;
-import org.sirix.saxon.wrapper.NodeWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>XQuery evaluator</h1>
@@ -62,10 +64,10 @@ public final class XQueryEvaluator implements Callable<XdmValue> {
   private static final Logger LOGGER = LoggerFactory.getLogger(XQueryEvaluator.class);
 
   /** XQuery expression. */
-  private final transient String mExpression;
+  private final String mExpression;
 
-  /** sirix session. */
-  private final transient ISession mSession;
+  /** Sirix {@link ISession}. */
+  private final ISession mSession;
 
   /**
    * Constructor.
@@ -75,14 +77,11 @@ public final class XQueryEvaluator implements Callable<XdmValue> {
    * @param paramSession
    *          sirix database.
    */
-  public XQueryEvaluator(final String paramExpression, final ISession paramSession) {
-    mExpression = paramExpression;
-    mSession = paramSession;
+  public XQueryEvaluator(@Nonnull final String pExpression, @Nonnull final ISession pSession) {
+    mExpression = checkNotNull(pExpression);
+    mSession = checkNotNull(pSession);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public XdmValue call() throws Exception {
     XdmValue value = null;

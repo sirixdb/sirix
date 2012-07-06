@@ -29,6 +29,8 @@ package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Objects;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
@@ -102,7 +104,8 @@ public final class BerkeleyWriter implements IWriter {
   }
 
   @Override
-  public long write(@Nonnull final PageReference pageReference) throws TTIOException {
+  public long write(@Nonnull final PageReference pageReference)
+    throws TTIOException {
     final IPage page = pageReference.getPage();
 
     final DatabaseEntry valueEntry = new DatabaseEntry();
@@ -110,7 +113,7 @@ public final class BerkeleyWriter implements IWriter {
 
     // TODO make this better
     mNodepagekey++;
-    
+
     BerkeleyFactory.PAGE_VAL_B.objectToEntry(page, valueEntry);
     TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(mNodepagekey,
       keyEntry);
@@ -133,7 +136,8 @@ public final class BerkeleyWriter implements IWriter {
    * @throws TTIOException
    *           if can't set last {@link NodePage}
    */
-  private void setLastNodePage(@Nonnegative final long pData) throws TTIOException {
+  private void setLastNodePage(@Nonnegative final long pData)
+    throws TTIOException {
     final DatabaseEntry keyEntry = new DatabaseEntry();
     final DatabaseEntry valueEntry = new DatabaseEntry();
 
@@ -203,43 +207,18 @@ public final class BerkeleyWriter implements IWriter {
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + ((mDatabase == null) ? 0 : mDatabase.hashCode());
-    result = prime * result + ((mTxn == null) ? 0 : mTxn.hashCode());
-    result = prime * result + ((mReader == null) ? 0 : mReader.hashCode());
-    return result;
+    return Objects.hash(mDatabase, mTxn, mReader);
   }
 
   @Override
-  public boolean equals(final Object mObj) {
-    boolean returnVal = true;
-    if (mObj == null) {
-      returnVal = false;
-    } else if (getClass() != mObj.getClass()) {
-      returnVal = false;
-    }
-    final BerkeleyWriter other = (BerkeleyWriter)mObj;
-    if (mDatabase == null) {
-      if (other.mDatabase != null) {
-        returnVal = false;
-      }
-    } else if (!mDatabase.equals(other.mDatabase)) {
-      returnVal = false;
-    }
-    if (mTxn == null) {
-      if (other.mTxn != null) {
-        returnVal = false;
-      }
-    } else if (!mTxn.equals(other.mTxn)) {
-      returnVal = false;
-    }
-    if (mReader == null) {
-      if (other.mReader != null) {
-        returnVal = false;
-      }
-    } else if (!mReader.equals(other.mReader)) {
-      returnVal = false;
+  public boolean equals(final Object pObj) {
+    boolean returnVal = false;
+    if (pObj instanceof BerkeleyWriter) {
+      final BerkeleyWriter other = (BerkeleyWriter)pObj;
+      returnVal =
+        Objects.equals(mDatabase, other.mDatabase)
+          && Objects.equals(mTxn, other.mTxn)
+          && Objects.equals(mReader, other.mReader);
     }
     return returnVal;
   }

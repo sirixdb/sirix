@@ -29,7 +29,7 @@ package org.sirix.node.interfaces;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 
 /**
  * <h1>INode</h1>
@@ -85,7 +85,7 @@ public interface INode {
    * 
    * @return kind of item
    */
-  ENode getKind();
+  EKind getKind();
   
   /**
    * Accept a visitor and use double dispatching to invoke the visitor method.

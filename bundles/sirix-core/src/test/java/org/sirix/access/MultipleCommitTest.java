@@ -44,7 +44,7 @@ import org.sirix.axis.AbsAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.DocumentCreater;
 
@@ -110,7 +110,7 @@ public class MultipleCommitTest {
     final AbsAxis postorderAxis = new PostOrderAxis(holder.getWtx());
     while (postorderAxis.hasNext()) {
       postorderAxis.next();
-      if (holder.getWtx().getNode().getKind() == ENode.ELEMENT_KIND
+      if (holder.getWtx().getNode().getKind() == EKind.ELEMENT
         && ((ElementNode)holder.getWtx().getNode()).getAttributeCount() > 0) {
         for (int i = 0, attrCount = ((ElementNode)holder.getWtx().getNode()).getAttributeCount(); i < attrCount; i++) {
           holder.getWtx().moveToAttribute(i);
@@ -125,7 +125,7 @@ public class MultipleCommitTest {
     final IAxis descAxis = new DescendantAxis(holder.getWtx());
     while (descAxis.hasNext()) {
       descAxis.next();
-      if (holder.getWtx().getNode().getKind() == ENode.ELEMENT_KIND) {
+      if (holder.getWtx().getNode().getKind() == EKind.ELEMENT) {
         for (int i = 0, attrCount = ((ElementNode)holder.getWtx().getNode()).getAttributeCount(); i < attrCount; i++) {
           if (holder.getWtx().moveToAttribute(i)) {
             attrTouch++;

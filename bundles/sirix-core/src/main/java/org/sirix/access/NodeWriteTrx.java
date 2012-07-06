@@ -68,7 +68,7 @@ import org.sirix.indexes.PathNode;
 import org.sirix.indexes.PathSummary;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.DocumentRootNode;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.TextNode;
@@ -222,7 +222,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     final INode nodeToMove = node.get();
 
     if (nodeToMove instanceof IStructNode
-      && getNode().getKind() == ENode.ELEMENT_KIND) {
+      && getNode().getKind() == EKind.ELEMENT) {
       // Safe to cast (because IStructNode is a subtype of INode).
       checkAncestors(nodeToMove);
       checkAccessAndCommit();
@@ -386,11 +386,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     // Merge text nodes.
     if (pFromNode.hasLeftSibling() && pFromNode.hasRightSibling()) {
       moveTo(pFromNode.getLeftSiblingKey());
-      if (getNode() != null && getNode().getKind() == ENode.TEXT_KIND) {
+      if (getNode() != null && getNode().getKind() == EKind.TEXT) {
         final StringBuilder builder =
           new StringBuilder(getValueOfCurrentNode()).append(" ");
         moveTo(pFromNode.getRightSiblingKey());
-        if (getNode() != null && getNode().getKind() == ENode.TEXT_KIND) {
+        if (getNode() != null && getNode().getKind() == EKind.TEXT) {
           builder.append(getValueOfCurrentNode());
           if (pFromNode.getRightSiblingKey() == pToNode.getNodeKey()) {
             moveTo(pFromNode.getLeftSiblingKey());
@@ -516,8 +516,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     if (!XMLToken.isValidQName(checkNotNull(pQName))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
-    final ENode kind = getNode().getKind();
-    if (kind == ENode.ELEMENT_KIND || kind == ENode.ROOT_KIND) {
+    final EKind kind = getNode().getKind();
+    if (kind == EKind.ELEMENT || kind == EKind.DOCUMENT_ROOT) {
       checkAccessAndCommit();
 
       final long parentKey = getNode().getNodeKey();
@@ -626,7 +626,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     @Nonnull final String pValue) throws AbsTTException {
     checkNotNull(pValue);
     if (getNode() instanceof IStructNode
-      && getNode().getKind() != ENode.ROOT_KIND) {
+      && getNode().getKind() != EKind.DOCUMENT_ROOT) {
       checkAccessAndCommit();
 
       final long parentKey = getNode().getNodeKey();
@@ -635,7 +635,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
       // Update value in case of adjacent text nodes.
       if (moveTo(rightSibKey)) {
-        if (getNode().getKind() == ENode.TEXT_KIND) {
+        if (getNode().getKind() == EKind.TEXT) {
           setValue(new StringBuilder(pValue).append(" ").append(
             getValueOfCurrentNode()).toString());
           adaptHashedWithUpdate(getNode().getHash());
@@ -675,7 +675,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
       // Update value in case of adjacent text nodes.
       final StringBuilder builder = new StringBuilder();
-      if (getNode().getKind() == ENode.TEXT_KIND) {
+      if (getNode().getKind() == EKind.TEXT) {
         builder.append(pValue).append(" ");
       }
 
@@ -687,7 +687,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       }
       if (moveTo(leftSibKey)) {
         final StringBuilder value = new StringBuilder();
-        if (getNode().getKind() == ENode.TEXT_KIND) {
+        if (getNode().getKind() == EKind.TEXT) {
           value.append(getValueOfCurrentNode()).append(" ").append(builder);
         }
         if (!pValue.equals(value.toString())) {
@@ -726,7 +726,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
       // Update value in case of adjacent text nodes.
       final StringBuilder builder = new StringBuilder();
-      if (getNode().getKind() == ENode.TEXT_KIND) {
+      if (getNode().getKind() == EKind.TEXT) {
         builder.append(getValueOfCurrentNode()).append(" ");
       }
       builder.append(pValue);
@@ -735,7 +735,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         return this;
       }
       if (moveTo(rightSibKey)) {
-        if (getNode().getKind() == ENode.TEXT_KIND) {
+        if (getNode().getKind() == EKind.TEXT) {
           builder.append(" ").append(getValueOfCurrentNode());
         }
         if (!pValue.equals(builder.toString())) {
@@ -787,7 +787,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     if (!XMLToken.isValidQName(checkNotNull(pQName))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
-    if (getNode().getKind() == ENode.ELEMENT_KIND) {
+    if (getNode().getKind() == EKind.ELEMENT) {
       checkAccessAndCommit();
 
       /*
@@ -846,7 +846,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     if (!XMLToken.isValidQName(checkNotNull(pQName))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
-    if (getNode().getKind() == ENode.ELEMENT_KIND) {
+    if (getNode().getKind() == EKind.ELEMENT) {
       checkAccessAndCommit();
 
       for (int i = 0, namespCount =
@@ -861,10 +861,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
       final int uriKey =
         getPageTransaction().createNameKey(pQName.getNamespaceURI(),
-          ENode.NAMESPACE_KIND);
+          EKind.NAMESPACE);
       final int prefixKey =
-        getPageTransaction().createNameKey(pQName.getPrefix(),
-          ENode.NAMESPACE_KIND);
+        getPageTransaction().createNameKey(pQName.getPrefix(), EKind.NAMESPACE);
       final long elementKey = getNode().getNodeKey();
 
       final NamespaceNode node =
@@ -911,7 +910,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   @Override
   public synchronized void remove() throws AbsTTException {
     checkAccessAndCommit();
-    if (getNode().getKind() == ENode.ROOT_KIND) {
+    if (getNode().getKind() == EKind.DOCUMENT_ROOT) {
       throw new TTUsageException("Document root can not be removed.");
     } else if (getNode() instanceof IStructNode) {
       final IStructNode node = (IStructNode)getNode();
@@ -921,7 +920,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         axis.next();
         final IStructNode nodeToDelete =
           axis.getTransaction().getStructuralNode();
-        if (nodeToDelete.getKind() == ENode.ELEMENT_KIND) {
+        if (nodeToDelete.getKind() == EKind.ELEMENT) {
           final ElementNode element = (ElementNode)nodeToDelete;
           removeName();
           final int attCount = element.getAttributeCount();
@@ -945,7 +944,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       adaptHashesWithRemove();
       adaptForRemove(node);
       mNodeReadRtx.setCurrentNode(node);
-      if (node.getKind() == ENode.ELEMENT_KIND) {
+      if (node.getKind() == EKind.ELEMENT) {
         removeName();
       }
 
@@ -957,7 +956,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       } else {
         moveTo(node.getParentKey());
       }
-    } else if (getNode().getKind() == ENode.ATTRIBUTE_KIND) {
+    } else if (getNode().getKind() == EKind.ATTRIBUTE) {
       final INode node = getNode();
 
       final ElementNode parent =
@@ -969,7 +968,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       getPageTransaction().removeNode(node);
       removeName();
       moveToParent();
-    } else if (getNode().getKind() == ENode.NAMESPACE_KIND) {
+    } else if (getNode().getKind() == EKind.NAMESPACE) {
       final INode node = getNode();
 
       final ElementNode parent =
@@ -993,7 +992,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   private void removeName() throws TTIOException {
     assert getNode() instanceof INameNode;
     final INameNode node = ((INameNode)getNode());
-    final ENode nodeKind = node.getKind();
+    final EKind nodeKind = node.getKind();
     final NamePage page =
       ((NamePage)getPageTransaction().getActualRevisionRootPage()
         .getNamePageReference().getPage());
@@ -1039,10 +1038,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         final NamePage page =
           (NamePage)getPageTransaction().getActualRevisionRootPage()
             .getNamePageReference().getPage();
-        page
-          .removeName(NamePageHash
-            .generateHashForString(getValueOfCurrentNode()),
-            ENode.NAMESPACE_KIND);
+        page.removeName(NamePageHash
+          .generateHashForString(getValueOfCurrentNode()), EKind.NAMESPACE);
         final INameNode node =
           (INameNode)getPageTransaction().prepareNodeForModification(
             mNodeReadRtx.getNode().getNodeKey());
@@ -1160,7 +1157,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     for (final IAxis axis = new PostOrderAxis(this); axis.hasNext();) {
       axis.next();
       final IStructNode node = getStructuralNode();
-      if (node.getKind() == ENode.ELEMENT_KIND) {
+      if (node.getKind() == EKind.ELEMENT) {
         final ElementNode element = (ElementNode)node;
         for (int i = 0, nspCount = element.getNamespaceCount(); i < nspCount; i++) {
           moveToNamespace(i);
@@ -1363,9 +1360,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     boolean concatenated = false;
     if (pOldNode.hasLeftSibling() && pOldNode.hasRightSibling()
       && moveTo(pOldNode.getRightSiblingKey())
-      && getNode().getKind() == ENode.TEXT_KIND
+      && getNode().getKind() == EKind.TEXT
       && moveTo(pOldNode.getLeftSiblingKey())
-      && getNode().getKind() == ENode.TEXT_KIND) {
+      && getNode().getKind() == EKind.TEXT) {
       final StringBuilder builder =
         new StringBuilder(getValueOfCurrentNode()).append(" ");
       moveTo(pOldNode.getRightSiblingKey());
@@ -1441,7 +1438,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       }
     }
 
-    if (pOldNode.getKind() == ENode.ELEMENT_KIND) {
+    if (pOldNode.getKind() == EKind.ELEMENT) {
       // Removing attributes.
       for (int i = 0; i < ((ElementNode)pOldNode).getAttributeCount(); i++) {
         moveTo(((ElementNode)pOldNode).getAttributeKey(i));
@@ -1497,10 +1494,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     final IPageWriteTrx pageTransaction = getPageTransaction();
     final int nameKey =
       pageTransaction.createNameKey(PageWriteTrx.buildName(pName),
-        ENode.ELEMENT_KIND);
+        EKind.ELEMENT);
     final int namespaceKey =
-      pageTransaction.createNameKey(pName.getNamespaceURI(),
-        ENode.NAMESPACE_KIND);
+      pageTransaction.createNameKey(pName.getNamespaceURI(), EKind.NAMESPACE);
 
     final NodeDelegate nodeDel =
       new NodeDelegate(pageTransaction.getActualRevisionRootPage()
@@ -1538,10 +1534,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     final IPageWriteTrx pageTransaction = getPageTransaction();
     final int nameKey =
       pageTransaction.createNameKey(PageWriteTrx.buildName(pName),
-        ENode.ELEMENT_KIND);
+        EKind.ELEMENT);
     final int namespaceKey =
-      pageTransaction.createNameKey(pName.getNamespaceURI(),
-        ENode.NAMESPACE_KIND);
+      pageTransaction.createNameKey(pName.getNamespaceURI(), EKind.NAMESPACE);
 
     final NodeDelegate nodeDel =
       new NodeDelegate(pageTransaction.getActualRevisionRootPage()
@@ -1610,10 +1605,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     final IPageWriteTrx pageTransaction = getPageTransaction();
     final int nameKey =
       pageTransaction.createNameKey(PageWriteTrx.buildName(pName),
-        ENode.ATTRIBUTE_KIND);
+        EKind.ATTRIBUTE);
     final int namespaceKey =
-      pageTransaction.createNameKey(pName.getNamespaceURI(),
-        ENode.NAMESPACE_KIND);
+      pageTransaction.createNameKey(pName.getNamespaceURI(), EKind.NAMESPACE);
     final NodeDelegate nodeDel =
       new NodeDelegate(pageTransaction.getActualRevisionRootPage()
         .getMaxNodeKey() + 1, pParentKey, 0);
@@ -1787,7 +1781,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         hashCodeForParent =
           mNodeReadRtx.getNode().hashCode() + hashCodeForParent * PRIME;
         // Caring about attributes and namespaces if node is an element.
-        if (cursorToRoot.getKind() == ENode.ELEMENT_KIND) {
+        if (cursorToRoot.getKind() == EKind.ELEMENT) {
           final ElementNode currentElement = (ElementNode)cursorToRoot;
           // setting the attributes and namespaces
           final int attCount = ((ElementNode)cursorToRoot).getAttributeCount();
@@ -2040,11 +2034,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     assert rtx.getRevisionNumber() == pRtx.getRevisionNumber();
     rtx.moveTo(pRtx.getNode().getNodeKey());
     assert rtx.getNode().getNodeKey() == pRtx.getNode().getNodeKey();
-    if (rtx.getNode().getKind() == ENode.ROOT_KIND) {
+    if (rtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
       rtx.moveToFirstChild();
     }
-    if (rtx.getNode().getKind() != ENode.TEXT_KIND
-      && rtx.getNode().getKind() != ENode.ELEMENT_KIND) {
+    if (rtx.getNode().getKind() != EKind.TEXT
+      && rtx.getNode().getKind() != EKind.ELEMENT) {
       throw new IllegalStateException(
         "Node to insert must be a structural node (Text or Element)!");
     }
@@ -2101,7 +2095,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       }
     }
 
-    moveTo(insertedRootNode.getNodeKey());
+    if (insertedRootNode != null) {
+      moveTo(insertedRootNode.getNodeKey());
+    }
     return this;
   }
 
@@ -2110,20 +2106,20 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     replaceNode(@Nonnull final INodeReadTrx pRtx) throws AbsTTException {
     checkNotNull(pRtx);
     switch (pRtx.getNode().getKind()) {
-    case ELEMENT_KIND:
-    case TEXT_KIND:
+    case ELEMENT:
+    case TEXT:
       checkCurrentNode();
       replace(pRtx);
       break;
-    case ATTRIBUTE_KIND:
-      if (getNode().getKind() != ENode.ATTRIBUTE_KIND) {
+    case ATTRIBUTE:
+      if (getNode().getKind() != EKind.ATTRIBUTE) {
         throw new IllegalStateException(
           "Current node must be an attribute node!");
       }
       insertAttribute(pRtx.getQNameOfCurrentNode(), pRtx
         .getValueOfCurrentNode());
       break;
-    case NAMESPACE_KIND:
+    case NAMESPACE:
       if (mNodeReadRtx.getNode().getClass() != NamespaceNode.class) {
         throw new IllegalStateException(
           "Current node must be a namespace node!");

@@ -44,7 +44,7 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IWriter;
 import org.sirix.node.DeletedNode;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.INode;
 import org.sirix.page.EPage;
@@ -217,7 +217,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public String getName(final int pNameKey, @Nonnull final ENode pNodeKind) {
+  public String getName(final int pNameKey, @Nonnull final EKind pNodeKind) {
     final NamePage currentNamePage =
       (NamePage)mNewRoot.getNamePageReference().getPage();
     // if currentNamePage == null -> state was commited and no prepareNodepage was invoked yet
@@ -228,7 +228,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
   @Override
   public int createNameKey(@Nullable final String pName,
-    @Nonnull final ENode pNodeKind) throws TTIOException {
+    @Nonnull final EKind pNodeKind) throws TTIOException {
     checkNotNull(pNodeKind);
     final String string = (pName == null ? "" : pName);
     final int nameKey = NamePageHash.generateHashForString(string);
@@ -531,7 +531,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public byte[] getRawName(final int pNameKey, @Nonnull final ENode pKind) {
+  public byte[] getRawName(final int pNameKey, @Nonnull final EKind pKind) {
     return mPageRtx.getRawName(pNameKey, pKind);
   }
 

@@ -30,7 +30,7 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeTraversal;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.settings.EFixed;
 
 /**
@@ -88,7 +88,7 @@ public final class AncestorAxis extends AbsAxis {
         return true;
       }
 
-      if (getTransaction().getNode().getKind() != ENode.ROOT_KIND && getTransaction().getNode().hasParent()
+      if (getTransaction().getNode().getKind() != EKind.DOCUMENT_ROOT && getTransaction().getNode().hasParent()
         && getTransaction().getNode().getParentKey() != EFixed.ROOT_NODE_KEY.getStandardProperty()) {
         mKey = getTransaction().getStructuralNode().getParentKey();
         return true;

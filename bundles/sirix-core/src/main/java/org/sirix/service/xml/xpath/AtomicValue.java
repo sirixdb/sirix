@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IValNode;
 import org.sirix.service.xml.xpath.types.Type;
@@ -152,8 +152,8 @@ public class AtomicValue implements INode, IValNode {
    * {@inheritDoc}
    */
   @Override
-  public ENode getKind() {
-    return ENode.UNKOWN_KIND;
+  public EKind getKind() {
+    return EKind.UNKOWN;
   }
 
   /**

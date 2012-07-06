@@ -76,7 +76,7 @@ import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.SunburstItem.EStructType;
 import org.sirix.gui.view.sunburst.SunburstPopupMenu;
 import org.sirix.gui.view.sunburst.axis.SunburstDescendantAxis;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.service.xml.shredder.EShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -294,7 +294,7 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
       // Set node relations.
       String text = null;
       NodeRelations relations = null;
-      if (mRtx.getNode().getKind() == ENode.TEXT_KIND) {
+      if (mRtx.getNode().getKind() == EKind.TEXT) {
         relations =
           new NodeRelations(depth, depth, structKind, mRtx.getValueOfCurrentNode().length(), mMinTextLength,
             mMaxTextLength, indexToParent);
@@ -343,7 +343,7 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
       mMaxTextLength = Integer.MIN_VALUE;
       for (final IAxis axis = new DescendantAxis(pRtx, EIncludeSelf.YES); axis.hasNext();) {
         axis.next();
-        if (axis.getTransaction().getNode().getKind() == ENode.TEXT_KIND) {
+        if (axis.getTransaction().getNode().getKind() == EKind.TEXT) {
           final int length = axis.getTransaction().getValueOfCurrentNode().length();
           if (length < mMinTextLength) {
             mMinTextLength = length;
@@ -410,7 +410,7 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
           mDepth = 0;
           boolean first = true;
 
-          if (mRtx.getNode().getKind() == ENode.ROOT_KIND) {
+          if (mRtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
             mRtx.moveToFirstChild();
           }
           final long key = mRtx.getNode().getNodeKey();
@@ -483,7 +483,7 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
           // Get descendants for every node and save it to a list.
           boolean firstNode = true;
           for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis.hasNext(); axis.next()) {
-            if (axis.getTransaction().getNode().getKind() != ENode.ROOT_KIND) {
+            if (axis.getTransaction().getNode().getKind() != EKind.DOCUMENT_ROOT) {
               // try {
               final Future<Integer> futureSubmitted =
                 executor.submit(Callables.returning((int)mRtx.getStructuralNode().getDescendantCount() + 1));// */new

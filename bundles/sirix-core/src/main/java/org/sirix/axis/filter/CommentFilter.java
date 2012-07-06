@@ -28,7 +28,7 @@
 package org.sirix.axis.filter;
 
 import org.sirix.api.INodeReadTrx;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 
 /**
  * <h1>NodeAxisTest</h1>
@@ -51,7 +51,7 @@ public class CommentFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getNode().getKind() == ENode.COMMENT_KIND;
+    return getTransaction().getNode().getKind() == EKind.COMMENT;
 
     // TODO: As soon as an comment node is implemented, use the second
     // version,

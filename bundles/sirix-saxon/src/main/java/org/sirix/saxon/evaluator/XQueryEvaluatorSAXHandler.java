@@ -27,9 +27,11 @@
 
 package org.sirix.saxon.evaluator;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.concurrent.Callable;
 
-import org.xml.sax.ContentHandler;
+import javax.annotation.Nonnull;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.NodeInfo;
@@ -38,13 +40,12 @@ import net.sf.saxon.s9api.SAXDestination;
 import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.XQueryCompiler;
 import net.sf.saxon.s9api.XQueryExecutable;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
 import org.sirix.saxon.wrapper.DocumentWrapper;
-import org.sirix.saxon.wrapper.NodeWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.xml.sax.ContentHandler;
 
 /**
  * <h1>XQuery evaluator</h1>
@@ -60,7 +61,8 @@ public final class XQueryEvaluatorSAXHandler implements Callable<Void> {
   /**
    * Log wrapper for better output.
    */
-  private static final Logger LOGGER = LoggerFactory.getLogger(XQueryEvaluatorSAXHandler.class);
+  private static final Logger LOGGER = LoggerFactory
+    .getLogger(XQueryEvaluatorSAXHandler.class);
 
   /** XQuery expression. */
   private final String mExpression;
@@ -74,18 +76,18 @@ public final class XQueryEvaluatorSAXHandler implements Callable<Void> {
   /**
    * Constructor.
    * 
-   * @param expression
-   *          XQuery expression.
-   * @param paramSession
-   *          sirix database.
-   * @param handler
-   *          SAX content handler.
+   * @param pExpression
+   *          XQuery expression
+   * @param pSession
+   *          Sirix {@link ISession}
+   * @param pHandler
+   *          SAX content handler
    */
-  public XQueryEvaluatorSAXHandler(final String expression, final ISession paramSession,
-    final ContentHandler handler) {
-    mExpression = expression;
-    mSession = paramSession;
-    mHandler = handler;
+  public XQueryEvaluatorSAXHandler(@Nonnull final String pExpression,
+    @Nonnull final ISession pSession, @Nonnull final ContentHandler pHandler) {
+    mExpression = checkNotNull(pExpression);
+    mSession = checkNotNull(pSession);
+    mHandler = checkNotNull(pHandler);
   }
 
   @Override

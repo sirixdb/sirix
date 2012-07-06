@@ -30,7 +30,7 @@ package org.sirix.axis.filter;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.sirix.api.INodeReadTrx;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INameNode;
 
@@ -75,9 +75,9 @@ public class WildcardFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    final ENode kind = getTransaction().getNode().getKind();
+    final EKind kind = getTransaction().getNode().getKind();
     switch (kind) {
-    case ELEMENT_KIND:
+    case ELEMENT:
       if (mType == EType.LOCALNAME) { // local name is given
         return localNameMatch();
       } else { // namespace prefix is given
@@ -92,7 +92,7 @@ public class WildcardFilter extends AbsFilter {
         }
         return false;
       }
-    case ATTRIBUTE_KIND:
+    case ATTRIBUTE:
       if (mType == EType.LOCALNAME) { // local name is given
         return localNameMatch();
       } else {

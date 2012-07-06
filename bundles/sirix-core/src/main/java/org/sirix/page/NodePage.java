@@ -40,7 +40,7 @@ import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
@@ -93,8 +93,8 @@ public class NodePage implements IPage {
     mNodes = new INode[IConstants.NDP_NODE_COUNT];
     for (int offset = 0; offset < mNodes.length; offset++) {
       final byte id = pIn.readByte();
-      final ENode enumKind = ENode.getKind(id);
-      if (enumKind != ENode.UNKOWN_KIND) {
+      final EKind enumKind = EKind.getKind(id);
+      if (enumKind != EKind.UNKOWN) {
         mNodes[offset] = enumKind.deserialize(pIn);
       }
     }
@@ -145,11 +145,11 @@ public class NodePage implements IPage {
     pOut.writeLong(mNodePageKey);
     for (final INode node : mNodes) {
       if (node == null) {
-        pOut.writeByte(getLastByte(ENode.UNKOWN_KIND.getId()));
+        pOut.writeByte(getLastByte(EKind.UNKOWN.getId()));
       } else {
         final byte id = node.getKind().getId();
         pOut.writeByte(id);
-        ENode.getKind(node.getClass()).serialize(pOut, node);
+        EKind.getKind(node.getClass()).serialize(pOut, node);
       }
     }
   }

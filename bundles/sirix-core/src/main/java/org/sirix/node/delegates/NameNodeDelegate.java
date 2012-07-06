@@ -35,7 +35,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.INode;
 
@@ -129,8 +129,8 @@ public class NameNodeDelegate implements INameNode {
   }
 
   @Override
-  public ENode getKind() {
-    return ENode.UNKOWN_KIND;
+  public EKind getKind() {
+    return EKind.UNKOWN;
   }
 
   @Override

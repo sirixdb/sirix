@@ -67,8 +67,8 @@ public final class NamespaceNode extends AbsForwardingNode implements INameNode 
   }
 
   @Override
-  public ENode getKind() {
-    return ENode.NAMESPACE_KIND;
+  public EKind getKind() {
+    return EKind.NAMESPACE;
   }
 
   @Override

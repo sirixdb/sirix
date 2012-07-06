@@ -104,7 +104,7 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
     final long key = node.getNodeKey();
 
     switch (node.getKind()) {
-    case ELEMENT_KIND:
+    case ELEMENT:
       mRTX.moveTo(node.getNodeKey());
       final String prefix = mRTX.getQNameOfCurrentNode().getPrefix();
       final QName qName = mRTX.getQNameOfCurrentNode();
@@ -124,7 +124,7 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
       }
 
       break;
-    case ATTRIBUTE_KIND:
+    case ATTRIBUTE:
       // Move transaction to parent of the attribute node.
       mRTX.moveTo(node.getParentKey());
       final long aNodeKey = node.getNodeKey();
@@ -151,7 +151,7 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
       }
 
       break;
-    case NAMESPACE_KIND:
+    case NAMESPACE:
       // Move transaction to parent the namespace node.
       mRTX.moveTo(node.getParentKey());
       final long nNodeKey = node.getNodeKey();
@@ -174,22 +174,22 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
             .toString();
       }
       break;
-    case TEXT_KIND:
+    case TEXT:
       mRTX.moveTo(node.getNodeKey());
       pValue = mRTX.getValueOfCurrentNode();
       break;
-    case COMMENT_KIND:
+    case COMMENT:
       mRTX.moveTo(node.getNodeKey());
       pValue = new StringBuilder("<!-- ").append(mRTX.getValueOfCurrentNode()).append(" -->").toString();
       break;
-    case PROCESSING_KIND:
+    case PROCESSING:
       mRTX.moveTo(node.getNodeKey());
       pValue = new StringBuilder("<? ").append(mRTX.getValueOfCurrentNode()).append(" ?>").toString();
       break;
-    case ROOT_KIND:
+    case DOCUMENT_ROOT:
       pValue = "Doc: " + mPATH;
       break;
-    case WHITESPACE_KIND:
+    case WHITESPACE:
       break;
     default:
       throw new IllegalStateException("Node kind not known!");
@@ -203,13 +203,13 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
     setBackgroundSelectionColor(null);
     if (!selected) {
       switch (node.getKind()) {
-      case ROOT_KIND:
+      case DOCUMENT_ROOT:
         setForeground(DOC_COLOR);
         break;
-      case ELEMENT_KIND:
+      case ELEMENT:
         setForeground(ELEMENT_COLOR);
         break;
-      case ATTRIBUTE_KIND:
+      case ATTRIBUTE:
         setForeground(ATTRIBUTE_COLOR);
         break;
       default:

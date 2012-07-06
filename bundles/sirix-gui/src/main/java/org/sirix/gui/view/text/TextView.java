@@ -347,8 +347,8 @@ public final class TextView extends JScrollPane implements IView {
 
     try {
       switch (rtx.getNode().getKind()) {
-      case ROOT_KIND:
-      case ELEMENT_KIND:
+      case DOCUMENT_ROOT:
+      case ELEMENT:
         mText.setText("");
         if (mAxis == null) {
           mSerializer = new StAXSerializer(rtx);
@@ -359,12 +359,12 @@ public final class TextView extends JScrollPane implements IView {
         }
         processStAX(State.INITIAL);
         break;
-      case TEXT_KIND:
+      case TEXT:
         rtx.moveTo(nodeKey);
         mText.setText("");
         doc.insertString(doc.getLength(), new String(((IValNode)rtx.getNode()).getRawValue()), styleText);
         break;
-      case NAMESPACE_KIND:
+      case NAMESPACE:
         // Move transaction to parent of given namespace node.
         rtx.moveToParent();
         mText.setText("");
@@ -387,7 +387,7 @@ public final class TextView extends JScrollPane implements IView {
             rtx.nameForKey(((INameNode)rtx.getNode()).getURIKey())).append("'").toString(), styleNamespaces);
         }
         break;
-      case ATTRIBUTE_KIND:
+      case ATTRIBUTE:
         // Move transaction to parent of given attribute node.
         rtx.moveToParent();
         mText.setText("");

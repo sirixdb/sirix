@@ -35,7 +35,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.INode;
@@ -118,7 +118,7 @@ public final class FMSEVisitor extends AbsVisitorSupport {
       mRtx.moveToFirstChild();
       do {
         descendants += mDescendants.get(mRtx.getNode().getNodeKey());
-        if (mRtx.getNode().getKind() == ENode.ELEMENT_KIND) {
+        if (mRtx.getNode().getKind() == EKind.ELEMENT) {
           element = (ElementNode)mRtx.getNode();
           descendants += 1;
         }

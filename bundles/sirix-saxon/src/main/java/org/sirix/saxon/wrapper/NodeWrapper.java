@@ -30,6 +30,7 @@ package org.sirix.saxon.wrapper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import net.sf.saxon.Configuration;
@@ -74,7 +75,7 @@ import org.sirix.axis.PrecedingAxis;
 import org.sirix.axis.PrecedingSiblingAxis;
 import org.sirix.axis.filter.TextFilter;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INode;
 
@@ -104,7 +105,7 @@ import org.sirix.node.interfaces.INode;
 public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
 
   /** Kind of current node. */
-  private final ENode mNodeKind;
+  private final EKind mNodeKind;
 
   /** Document wrapper. */
   private final DocumentWrapper mDocWrapper;
@@ -112,7 +113,8 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
   /**
    * Log wrapper for better output.
    */
-  private static final Logger LOGGER = LoggerFactory.getLogger(NodeWrapper.class);
+  private static final Logger LOGGER = LoggerFactory
+    .getLogger(NodeWrapper.class);
 
   /** Key of node. */
   private final long mKey;
@@ -135,17 +137,19 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
    *          start noeKey to move to
    * @throws AbsTTException
    */
-  NodeWrapper(final DocumentWrapper pDocWrapper, final long pNodeKeyToStart) throws AbsTTException {
+  NodeWrapper(final DocumentWrapper pDocWrapper, final long pNodeKeyToStart)
+    throws AbsTTException {
     mDocWrapper = checkNotNull(pDocWrapper);
     checkArgument(pNodeKeyToStart >= 0, "pNodeKeyToStart must be >= 0!");
-    final INodeReadTrx rtx = mDocWrapper.mSession.beginNodeReadTrx(pDocWrapper.mRevision);
+    final INodeReadTrx rtx =
+      mDocWrapper.mSession.beginNodeReadTrx(pDocWrapper.mRevision);
     rtx.moveTo(pNodeKeyToStart);
     mNodeKind = rtx.getNode().getKind();
     mKey = rtx.getNode().getNodeKey();
     mNode = rtx.getNode();
     mRevision = pDocWrapper.mRevision;
 
-    if (mNodeKind == ENode.ELEMENT_KIND || mNodeKind == ENode.ATTRIBUTE_KIND) {
+    if (mNodeKind == EKind.ELEMENT || mNodeKind == EKind.ATTRIBUTE) {
       mQName = rtx.getQNameOfCurrentNode();
     } else {
       mQName = null;
@@ -161,8 +165,8 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     Value value = null;
 
     switch (mNodeKind) {
-    case COMMENT_KIND:
-    case PROCESSING_KIND:
+    case COMMENT:
+    case PROCESSING:
       // The content as an instance of the xs:string data type.
       value = new StringValue(getStringValueCS());
       break;
@@ -174,9 +178,6 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return value;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int compareOrder(final NodeInfo node) {
     if (getDocumentNumber() != node.getDocumentNumber()) {
@@ -190,26 +191,23 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
    * 
    * @see net.sf.saxon.om.NodeInfo#copy(Receiver, int, int)
    */
-  public void copy(final Receiver out, final int copyOption, final int locationId) throws XPathException {
-    Navigator.copy(this, out, mDocWrapper.getNamePool(), copyOption, locationId);
+  public void copy(final Receiver out, final int copyOption,
+    final int locationId) throws XPathException {
+    Navigator
+      .copy(this, out, mDocWrapper.getNamePool(), copyOption, locationId);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void generateId(final FastStringBuffer buf) {
     buf.append(String.valueOf(mKey));
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String getAttributeValue(final int fingerprint) {
     String attVal = null;
 
-    final NameTest test = new NameTest(Type.ATTRIBUTE, fingerprint, getNamePool());
+    final NameTest test =
+      new NameTest(Type.ATTRIBUTE, fingerprint, getNamePool());
     final AxisIterator iterator = iterateAxis(Axis.ATTRIBUTE, test);
     final NodeInfo attribute = (NodeInfo)iterator.next();
 
@@ -220,9 +218,6 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return attVal;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String getBaseURI() {
     String baseURI = null;
@@ -247,35 +242,27 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return baseURI;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int getColumnNumber() {
     throw new UnsupportedOperationException("Not supported by sirix.");
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public Configuration getConfiguration() {
     return mDocWrapper.getConfiguration();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int[] getDeclaredNamespaces(final int[] buffer) {
     int[] retVal = null;
-    if (mNodeKind == ENode.ELEMENT_KIND) {
+    if (mNodeKind == EKind.ELEMENT) {
       final int count = ((ElementNode)mNode).getNamespaceCount();
 
       if (count == 0) {
         retVal = EMPTY_NAMESPACE_LIST;
       } else {
-        retVal = (buffer == null || count > buffer.length ? new int[count] : buffer);
+        retVal =
+          (buffer == null || count > buffer.length ? new int[count] : buffer);
         final NamePool pool = getNamePool();
         int n = 0;
         try {
@@ -305,20 +292,19 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return retVal;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String getDisplayName() {
     String dName = "";
 
     switch (mNodeKind) {
-    case ELEMENT_KIND:
-    case ATTRIBUTE_KIND:
-      dName = getPrefix() + ":" + getLocalPart();
+    case ELEMENT:
+    case ATTRIBUTE:
+      dName =
+        new StringBuilder(getPrefix()).append(":").append(getLocalPart())
+          .toString();
       break;
-    case NAMESPACE_KIND:
-    case PROCESSING_KIND:
+    case NAMESPACE:
+    case PROCESSING:
       dName = getLocalPart();
       break;
     default:
@@ -328,25 +314,16 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return dName;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public long getDocumentNumber() {
     return mDocWrapper.getBaseURI().hashCode();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public DocumentInfo getDocumentRoot() {
     return mDocWrapper;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int getFingerprint() {
     int retVal;
@@ -361,24 +338,18 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return retVal;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int getLineNumber() {
     throw new UnsupportedOperationException("Not supported by sirix.");
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String getLocalPart() {
     String localPart = "";
 
     switch (mNodeKind) {
-    case ELEMENT_KIND:
-    case ATTRIBUTE_KIND:
+    case ELEMENT:
+    case ATTRIBUTE:
       localPart = mQName.getLocalPart();
       break;
     default:
@@ -388,19 +359,18 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return localPart;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int getNameCode() {
     int nameCode = -1;
 
     switch (mNodeKind) {
-    case ELEMENT_KIND:
-    case ATTRIBUTE_KIND:
-    case PROCESSING_KIND:
+    case ELEMENT:
+    case ATTRIBUTE:
+    case PROCESSING:
       // case NAMESPACE_KIND:
-      nameCode = mDocWrapper.getNamePool().allocate(getPrefix(), getURI(), getLocalPart());
+      nameCode =
+        mDocWrapper.getNamePool().allocate(getPrefix(), getURI(),
+          getLocalPart());
       break;
     default:
       // text, comment, document and namespace nodes.
@@ -409,25 +379,16 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return nameCode;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public NamePool getNamePool() {
     return mDocWrapper.getNamePool();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int getNodeKind() {
     return mNodeKind.getId();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public NodeInfo getParent() {
     try {
@@ -446,16 +407,13 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
 
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String getPrefix() {
     String prefix = "";
 
     switch (mNodeKind) {
-    case ELEMENT_KIND:
-    case ATTRIBUTE_KIND:
+    case ELEMENT:
+    case ATTRIBUTE:
       prefix = mQName.getPrefix();
       break;
     default:
@@ -468,9 +426,6 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return prefix;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public NodeInfo getRoot() {
     return (NodeInfo)mDocWrapper;
@@ -485,9 +440,6 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return getStringValueCS().toString();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public final CharSequence getStringValueCS() {
     String mValue = "";
@@ -495,18 +447,18 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
       final INodeReadTrx rtx = createRtxAndMove();
 
       switch (mNodeKind) {
-      case ROOT_KIND:
-      case ELEMENT_KIND:
+      case DOCUMENT_ROOT:
+      case ELEMENT:
         mValue = expandString();
         break;
-      case ATTRIBUTE_KIND:
+      case ATTRIBUTE:
         mValue = emptyIfNull(rtx.getValueOfCurrentNode());
         break;
-      case TEXT_KIND:
+      case TEXT:
         mValue = rtx.getValueOfCurrentNode();
         break;
-      case COMMENT_KIND:
-      case PROCESSING_KIND:
+      case COMMENT:
+      case PROCESSING:
         mValue = emptyIfNull(rtx.getValueOfCurrentNode());
         break;
       default:
@@ -524,16 +476,17 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
   /**
    * Filter text nodes.
    * 
-   * @return concatenated String of text node values.
+   * @return concatenated String of text node values
    */
   private String expandString() {
     final FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.SMALL);
     try {
       final INodeReadTrx rtx = createRtxAndMove();
-      final FilterAxis axis = new FilterAxis(new DescendantAxis(rtx), new TextFilter(rtx));
+      final FilterAxis axis =
+        new FilterAxis(new DescendantAxis(rtx), new TextFilter(rtx));
 
       while (axis.hasNext()) {
-        if (rtx.getNode().getKind() == ENode.TEXT_KIND) {
+        if (rtx.getNode().getKind() == EKind.TEXT) {
           fsb.append(rtx.getValueOfCurrentNode());
         }
         axis.next();
@@ -545,9 +498,6 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return fsb.condense().toString();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String getSystemId() {
     return mDocWrapper.getBaseURI();
@@ -560,7 +510,7 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
    */
   public int getTypeAnnotation() {
     int type = 0;
-    if (mNodeKind == ENode.ATTRIBUTE_KIND) {
+    if (mNodeKind == EKind.ATTRIBUTE) {
       type = StandardNames.XS_UNTYPED_ATOMIC;
     } else {
       type = StandardNames.XS_UNTYPED;
@@ -568,17 +518,14 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return type;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String getURI() {
     String URI = "";
 
     switch (mNodeKind) {
-    case ELEMENT_KIND:
-    case ATTRIBUTE_KIND:
-    case NAMESPACE_KIND:
+    case ELEMENT:
+    case ATTRIBUTE:
+    case NAMESPACE:
       if (!"".equals(mQName.getPrefix())) {
         URI = mQName.getNamespaceURI();
       }
@@ -591,9 +538,6 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return URI;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean hasChildNodes() {
     boolean hasChildNodes = false;
@@ -617,27 +561,16 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     return false;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean isIdref() {
-    throw new UnsupportedOperationException("Currently not supported by sirix!");
-    // return false;
+    throw new UnsupportedOperationException("Currently not supported by Sirix!");
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean isNilled() {
-    throw new UnsupportedOperationException("Currently not supported by sirix!");
-    // return false;
+    throw new UnsupportedOperationException("Currently not supported by Sirix!");
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean isSameNodeInfo(final NodeInfo pOther) {
     if (pOther == null) {
@@ -650,19 +583,14 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public AxisIterator iterateAxis(final byte axisNumber) {
     return iterateAxis(axisNumber, AnyNodeTest.getInstance());
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public AxisIterator iterateAxis(final byte axisNumber, final NodeTest nodeTest) {
+  public AxisIterator
+    iterateAxis(final byte axisNumber, final NodeTest nodeTest) {
     AxisIterator returnVal = null;
     try {
       final INodeReadTrx rtx = createRtxAndMove();
@@ -673,85 +601,105 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
 
       switch (axisNumber) {
       case Axis.ANCESTOR:
-        if (getNodeKind() == ENode.ROOT_KIND.getId()) {
+        if (getNodeKind() == EKind.DOCUMENT_ROOT.getId()) {
           returnVal = EmptyIterator.getInstance();
         } else {
-          returnVal = new Navigator.AxisFilter(new SaxonEnumeration(new AncestorAxis(rtx)), nodeTest);
+          returnVal =
+            new Navigator.AxisFilter(
+              new SaxonEnumeration(new AncestorAxis(rtx)), nodeTest);
         }
         break;
       case Axis.ANCESTOR_OR_SELF:
-        if (getNodeKind() == ENode.ROOT_KIND.getId()) {
+        if (getNodeKind() == EKind.DOCUMENT_ROOT.getId()) {
           returnVal = Navigator.filteredSingleton(this, nodeTest);
         } else {
           returnVal =
-            new Navigator.AxisFilter(new SaxonEnumeration(new AncestorAxis(rtx, EIncludeSelf.YES)), nodeTest);
+            new Navigator.AxisFilter(new SaxonEnumeration(new AncestorAxis(rtx,
+              EIncludeSelf.YES)), nodeTest);
         }
         break;
       case Axis.ATTRIBUTE:
-        if (getNodeKind() != ENode.ELEMENT_KIND.getId()) {
+        if (getNodeKind() != EKind.ELEMENT.getId()) {
           returnVal = EmptyIterator.getInstance();
         } else {
-          returnVal = new Navigator.AxisFilter(new SaxonEnumeration(new AttributeAxis(rtx)), nodeTest);
+          returnVal =
+            new Navigator.AxisFilter(new SaxonEnumeration(
+              new AttributeAxis(rtx)), nodeTest);
         }
         break;
       case Axis.CHILD:
         if (rtx.getStructuralNode().hasFirstChild()) {
-          returnVal = new Navigator.AxisFilter(new SaxonEnumeration(new ChildAxis(rtx)), nodeTest);
+          returnVal =
+            new Navigator.AxisFilter(new SaxonEnumeration(new ChildAxis(rtx)),
+              nodeTest);
         } else {
           returnVal = EmptyIterator.getInstance();
         }
         break;
       case Axis.DESCENDANT:
         if (hasChildNodes()) {
-          returnVal = new Navigator.AxisFilter(new SaxonEnumeration(new DescendantAxis(rtx)), nodeTest);
+          returnVal =
+            new Navigator.AxisFilter(new SaxonEnumeration(new DescendantAxis(
+              rtx)), nodeTest);
         } else {
           returnVal = EmptyIterator.getInstance();
         }
         break;
       case Axis.DESCENDANT_OR_SELF:
         returnVal =
-          new Navigator.AxisFilter(new SaxonEnumeration(new DescendantAxis(rtx, EIncludeSelf.YES)), nodeTest);
+          new Navigator.AxisFilter(new SaxonEnumeration(new DescendantAxis(rtx,
+            EIncludeSelf.YES)), nodeTest);
         break;
       case Axis.FOLLOWING:
-        returnVal = new Navigator.AxisFilter(new SaxonEnumeration(new FollowingAxis(rtx)), nodeTest);
+        returnVal =
+          new Navigator.AxisFilter(
+            new SaxonEnumeration(new FollowingAxis(rtx)), nodeTest);
         break;
       case Axis.FOLLOWING_SIBLING:
         switch (mNodeKind) {
-        case ROOT_KIND:
-        case ATTRIBUTE_KIND:
-        case NAMESPACE_KIND:
+        case DOCUMENT_ROOT:
+        case ATTRIBUTE:
+        case NAMESPACE:
           returnVal = EmptyIterator.getInstance();
           break;
         default:
-          returnVal = new Navigator.AxisFilter(new SaxonEnumeration(new FollowingSiblingAxis(rtx)), nodeTest);
+          returnVal =
+            new Navigator.AxisFilter(new SaxonEnumeration(
+              new FollowingSiblingAxis(rtx)), nodeTest);
           break;
         }
 
       case Axis.NAMESPACE:
-        if (getNodeKind() != ENode.ELEMENT_KIND.getId()) {
+        if (getNodeKind() != EKind.ELEMENT.getId()) {
           returnVal = EmptyIterator.getInstance();
         } else {
           returnVal = NamespaceIterator.makeIterator(this, nodeTest);
         }
         break;
       case Axis.PARENT:
-        if (rtx.getNode().getParentKey() == ENode.ROOT_KIND.getId()) {
+        if (rtx.getNode().getParentKey() == EKind.DOCUMENT_ROOT.getId()) {
           returnVal = EmptyIterator.getInstance();
         } else {
-          returnVal = new Navigator.AxisFilter(new SaxonEnumeration(new ParentAxis(rtx)), nodeTest);
+          returnVal =
+            new Navigator.AxisFilter(new SaxonEnumeration(new ParentAxis(rtx)),
+              nodeTest);
         }
       case Axis.PRECEDING:
-        returnVal = new Navigator.AxisFilter(new SaxonEnumeration(new PrecedingAxis(rtx)), nodeTest);
+        returnVal =
+          new Navigator.AxisFilter(
+            new SaxonEnumeration(new PrecedingAxis(rtx)), nodeTest);
         break;
       case Axis.PRECEDING_SIBLING:
         switch (mNodeKind) {
-        case ROOT_KIND:
-        case ATTRIBUTE_KIND:
-        case NAMESPACE_KIND:
+        case DOCUMENT_ROOT:
+        case ATTRIBUTE:
+        case NAMESPACE:
           returnVal = EmptyIterator.getInstance();
           break;
         default:
-          returnVal = new Navigator.AxisFilter(new SaxonEnumeration(new PrecedingSiblingAxis(rtx)), nodeTest);
+          returnVal =
+            new Navigator.AxisFilter(new SaxonEnumeration(
+              new PrecedingSiblingAxis(rtx)), nodeTest);
           break;
         }
 
@@ -760,7 +708,9 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
         break;
 
       case Axis.PRECEDING_OR_ANCESTOR:
-        returnVal = new Navigator.AxisFilter(new Navigator.PrecedingEnumeration(this, true), nodeTest);
+        returnVal =
+          new Navigator.AxisFilter(new Navigator.PrecedingEnumeration(this,
+            true), nodeTest);
         break;
       default:
         throw new IllegalArgumentException("Unknown axis number " + axisNumber);
@@ -770,42 +720,27 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
     }
     return returnVal;
   }
-
-  /**
-   * {@inheritDoc}
-   */
+  
   @Override
   public void setSystemId(final String systemId) {
     mDocWrapper.setBaseURI(systemId);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public SequenceIterator getTypedValue() throws XPathException {
     return SingletonIterator.makeIterator((AtomicValue)atomize());
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public Object getRealNode() {
     return getUnderlyingNode();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public Object getUnderlyingNode() {
     return mNode;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int getSiblingPosition() {
     int index = 0;
@@ -855,22 +790,19 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
    */
   public final class SaxonEnumeration extends Navigator.BaseEnumeration {
 
-    /** sirix axis iterator. */
+    /** Sirix {@link IAxis} iterator. */
     private final IAxis mAxis;
 
     /**
      * Constructor.
      * 
-     * @param paramAxis
-     *          sirix axis
+     * @param pAxis
+     *          Sirix {@link IAxis}
      */
-    public SaxonEnumeration(final IAxis paramAxis) {
-      mAxis = checkNotNull(paramAxis);
+    public SaxonEnumeration(@Nonnull final IAxis pAxis) {
+      mAxis = checkNotNull(pAxis);
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public void advance() {
       if (mAxis.hasNext()) {
@@ -895,9 +827,6 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
       }
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
     public SequenceIterator getAnother() {
       return new SaxonEnumeration(mAxis);

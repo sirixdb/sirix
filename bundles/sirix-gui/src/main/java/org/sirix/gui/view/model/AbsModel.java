@@ -59,7 +59,7 @@ import org.sirix.gui.view.model.interfaces.IModel;
 import org.sirix.gui.view.sunburst.EXPathState;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
@@ -387,7 +387,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
       try {
         mRTX = mSession.beginNodeReadTrx(mRtx.getRevisionNumber());
         mRTX.moveTo(mKey);
-        if (mRTX.getNode().getKind() == ENode.ROOT_KIND) {
+        if (mRTX.getNode().getKind() == EKind.DOCUMENT_ROOT) {
           mRTX.moveToFirstChild();
         }
       } catch (final AbsTTException exc) {

@@ -33,13 +33,16 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.Callable;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 
 /**
  * Class implements main serialization algorithm. Other classes can extend it.
@@ -47,16 +50,16 @@ import org.sirix.node.ENode;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-abstract class AbsSerializer implements Callable<Void> {
+public abstract class AbsSerializer implements Callable<Void> {
 
-  /** sirix session {@link ISession}. */
+  /** Sirix session {@link ISession}. */
   protected final ISession mSession;
 
   /** Stack for reading end element. */
   protected final Deque<Long> mStack;
 
   /** Array with versions to print. */
-  protected final long[] mVersions;
+  protected final long[] mRevisions;
 
   /** Root node key of subtree to shredder. */
   protected final long mNodeKey;
@@ -64,14 +67,19 @@ abstract class AbsSerializer implements Callable<Void> {
   /**
    * Constructor.
    * 
-   * @param paramSession
-   *          {@link ISession}.
-   * @param paramVersions
-   *          versions which should be serialized: -
+   * @param pSession
+   *          Sirix {@link ISession}
+   * @param pRevision
+   *          first revision to serialize
+   * @param pRevisions
+   *          revisions to serialize
    */
-  public AbsSerializer(final ISession pSession, final long... pVersions) {
-    mStack = new ArrayDeque<Long>();
-    mVersions = pVersions;
+  public AbsSerializer(@Nonnull final ISession pSession, final long pRevision,
+    final long... pRevisions) {
+    mStack = new ArrayDeque<>();
+    mRevisions =
+      pRevisions == null ? new long[1] : new long[pRevisions.length + 1];
+    initialize(pRevision, pRevisions);
     mSession = checkNotNull(pSession);
     mNodeKey = 0;
   }
@@ -83,14 +91,38 @@ abstract class AbsSerializer implements Callable<Void> {
    *          Sirix {@link ISession}
    * @param pKey
    *          key of root node from which to shredder the subtree
-   * @param paramVersions
-   *          versions which should be serialized
+   * @param pRevision
+   *          first revision to serialize
+   * @param pRevisions
+   *          revisions to serialize
    */
-  public AbsSerializer(final ISession pSession, final long pKey, final long... pVersions) {
-    mStack = new ArrayDeque<Long>();
-    mVersions = pVersions;
+  public AbsSerializer(@Nonnull final ISession pSession,
+    @Nonnegative final long pKey, final long pRevision,
+    final long... pRevisions) {
+    mStack = new ArrayDeque<>();
+    mRevisions =
+      pRevisions == null ? new long[1] : new long[pRevisions.length + 1];
+    initialize(pRevision, pRevisions);
     mSession = checkNotNull(pSession);
     mNodeKey = pKey;
+  }
+
+  /**
+   * Initialize.
+   * 
+   * @param pRevision
+   *          first revision to serialize
+   * @param pRevisions
+   *          revisions to serialize
+   */
+  private void initialize(@Nonnegative final long pRevision,
+    final long... pRevisions) {
+    mRevisions[0] = pRevision;
+    if (pRevisions != null) {
+      for (int i = 0; i < pRevisions.length; i++) {
+        mRevisions[i + 1] = pRevisions[i];
+      }
+    }
   }
 
   /**
@@ -104,87 +136,74 @@ abstract class AbsSerializer implements Callable<Void> {
   public Void call() throws AbsTTException {
     emitStartDocument();
 
-    long[] versionsToUse;
-    INodeReadTrx rtx = mSession.beginNodeReadTrx();
-    rtx.moveTo(mNodeKey);
-    final long lastRevisionNumber = rtx.getRevisionNumber();
-    rtx.close();
+    final int length =
+      (mRevisions.length == 1 && mRevisions[0] < 0) ? (int)mSession
+        .getLastRevisionNumber() : mRevisions.length;
+    for (int i = 0; i < length; i++) {
+      try (final INodeReadTrx rtx =
+        mSession.beginNodeReadTrx((mRevisions.length == 1 && mRevisions[0] < 0)
+          ? i : mRevisions[i])) {
+        if (length > 1) {
+          emitStartManualElement(i);
+        }
 
-    // if there is one negative number in there, serialize all versions
-    if (mVersions.length == 0) {
-      versionsToUse = new long[] {
-        lastRevisionNumber
-      };
-    } else {
-      if (mVersions.length == 1 && mVersions[0] < 0) {
-        versionsToUse = null;
-      } else {
-        versionsToUse = mVersions;
-      }
-    }
+        rtx.moveTo(mNodeKey);
 
-    for (long i = 0; versionsToUse == null ? i < lastRevisionNumber : i < versionsToUse.length; i++) {
+        final IAxis descAxis = new DescendantAxis(rtx, EIncludeSelf.YES);
 
-      rtx = mSession.beginNodeReadTrx(versionsToUse == null ? i : versionsToUse[(int)i]);
-      if (versionsToUse == null || mVersions.length > 1) {
-        emitStartManualElement(i);
-      }
+        // Setup primitives.
+        boolean closeElements = false;
+        long key = rtx.getNode().getNodeKey();
 
-      rtx.moveTo(mNodeKey);
+        // Iterate over all nodes of the subtree including self.
+        while (descAxis.hasNext()) {
+          key = descAxis.next();
 
-      final IAxis descAxis = new DescendantAxis(rtx, EIncludeSelf.YES);
-
-      // Setup primitives.
-      boolean closeElements = false;
-      long key = rtx.getNode().getNodeKey();
-
-      // Iterate over all nodes of the subtree including self.
-      while (descAxis.hasNext()) {
-        key = descAxis.next();
-
-        // Emit all pending end elements.
-        if (closeElements) {
-          while (!mStack.isEmpty() && mStack.peek() != rtx.getStructuralNode().getLeftSiblingKey()) {
-            rtx.moveTo(mStack.pop());
-            emitEndElement(rtx);
+          // Emit all pending end elements.
+          if (closeElements) {
+            while (!mStack.isEmpty()
+              && mStack.peek() != rtx.getStructuralNode().getLeftSiblingKey()) {
+              rtx.moveTo(mStack.pop());
+              emitEndElement(rtx);
+              rtx.moveTo(key);
+            }
+            if (!mStack.isEmpty()) {
+              rtx.moveTo(mStack.pop());
+              emitEndElement(rtx);
+            }
             rtx.moveTo(key);
+            closeElements = false;
           }
-          if (!mStack.isEmpty()) {
-            rtx.moveTo(mStack.pop());
-            emitEndElement(rtx);
+
+          // Emit node.
+          emitStartElement(rtx);
+
+          // Push end element to stack if we are a start element with
+          // children.
+          if (rtx.getNode().getKind() == EKind.ELEMENT
+            && rtx.getStructuralNode().hasFirstChild()) {
+            mStack.push(rtx.getNode().getNodeKey());
           }
-          rtx.moveTo(key);
-          closeElements = false;
+
+          // Remember to emit all pending end elements from stack if
+          // required.
+          if (!rtx.getStructuralNode().hasFirstChild()
+            && !rtx.getStructuralNode().hasRightSibling()) {
+            closeElements = true;
+          }
+
         }
 
-        // Emit node.
-        emitStartElement(rtx);
-
-        // Push end element to stack if we are a start element with
-        // children.
-        if (rtx.getNode().getKind() == ENode.ELEMENT_KIND && rtx.getStructuralNode().hasFirstChild()) {
-          mStack.push(rtx.getNode().getNodeKey());
+        // Finally emit all pending end elements.
+        while (!mStack.isEmpty()) {
+          rtx.moveTo(mStack.pop());
+          emitEndElement(rtx);
         }
 
-        // Remember to emit all pending end elements from stack if
-        // required.
-        if (!rtx.getStructuralNode().hasFirstChild() && !rtx.getStructuralNode().hasRightSibling()) {
-          closeElements = true;
+        if (length > 1) {
+          emitEndManualElement(i);
         }
-
       }
-
-      // Finally emit all pending end elements.
-      while (!mStack.isEmpty()) {
-        rtx.moveTo(mStack.pop());
-        emitEndElement(rtx);
-      }
-
-      if (versionsToUse == null || mVersions.length > 1) {
-        emitEndManualElement(i);
-      }
-
-      rtx.close();
     }
     emitEndDocument();
 
@@ -197,34 +216,34 @@ abstract class AbsSerializer implements Callable<Void> {
   /**
    * Emit start tag.
    * 
-   * @param paramRTX
-   *          sirix reading transaction {@link INodeReadTrx}.
+   * @param pRtx
+   *          Sirix {@link INodeReadTrx}
    */
-  protected abstract void emitStartElement(final INodeReadTrx paramRTX);
+  protected abstract void emitStartElement(final INodeReadTrx pRtx);
 
   /**
    * Emit end tag.
    * 
-   * @param paramRTX
-   *          sirix reading transaction {@link INodeReadTrx}.
+   * @param pRtx
+   *          Sirix {@link INodeReadTrx}
    */
-  protected abstract void emitEndElement(final INodeReadTrx paramRTX);
+  protected abstract void emitEndElement(final INodeReadTrx pRtx);
 
   /**
    * Emit a start tag, which specifies a revision.
    * 
-   * @param paramVersion
-   *          The revision to serialize.
+   * @param pRevision
+   *          the revision to serialize
    */
-  protected abstract void emitStartManualElement(final long paramVersion);
+  protected abstract void emitStartManualElement(final long pRevision);
 
   /**
    * Emit an end tag, which specifies a revision.
    * 
-   * @param paramVersion
-   *          The revision to serialize.
+   * @param pRevision
+   *          the revision to serialize
    */
-  protected abstract void emitEndManualElement(final long paramVersion);
+  protected abstract void emitEndManualElement(final long pRevision);
 
   /** Emit end document. */
   protected abstract void emitEndDocument();

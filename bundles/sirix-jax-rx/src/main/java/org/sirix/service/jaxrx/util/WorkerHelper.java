@@ -180,18 +180,17 @@ public final class WorkerHelper {
     final boolean serializeXMLDec, final boolean serializeRest, final Long nodekey, final Long revision) {
     final XMLSerializerProperties props = new XMLSerializerProperties();
     final XMLSerializerBuilder builder;
-    if (revision == null && nodekey == null)
+    if (revision == null && nodekey == null) {
       builder = new XMLSerializerBuilder(session, out);
-    else if (revision != null && nodekey == null)
+    } else if (revision != null && nodekey == null) {
       builder = new XMLSerializerBuilder(session, out, revision);
-    else if (revision == null && nodekey != null)
+    } else if (revision == null && nodekey != null) {
       builder = new XMLSerializerBuilder(session, nodekey, out, props);
-    else
+    } else {
+      assert revision != null;
       builder = new XMLSerializerBuilder(session, nodekey, out, props, revision);
-    builder.setREST(serializeRest);
-    builder.setID(serializeRest);
-    builder.setDeclaration(serializeXMLDec);
-    builder.setIndend(false);
+    }
+    builder.setREST(serializeRest).setID(serializeRest).setDeclaration(serializeXMLDec).setIndend(false);
     final XMLSerializer serializer = builder.build();
     return serializer;
   }

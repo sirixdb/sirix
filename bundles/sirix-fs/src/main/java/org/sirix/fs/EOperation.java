@@ -14,7 +14,7 @@ import javax.xml.namespace.QName;
 
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 
 /**
  * Determines the operation to perform on sirix.
@@ -32,7 +32,7 @@ enum EOperation implements IOperation<INodeWriteTrx> {
       checkNotNull(pChild);
       checkNotNull(pVisitor);
       checkNotNull(pIndex);
-      checkArgument(pWtx.getNode().getKind() == ENode.ELEMENT_KIND,
+      checkArgument(pWtx.getNode().getKind() == EKind.ELEMENT,
         "Transaction must be located at an element node!");
       if (Files.isDirectory(pChild)) {
         pIndex.put(pChild, EPath.ISDIRECTORY);
@@ -57,7 +57,7 @@ enum EOperation implements IOperation<INodeWriteTrx> {
       checkNotNull(pChild);
       checkNotNull(pVisitor);
       checkNotNull(pIndex);
-      checkArgument(pWtx.getNode().getKind() == ENode.ELEMENT_KIND,
+      checkArgument(pWtx.getNode().getKind() == EKind.ELEMENT,
         "Transaction must be located at an element node!");
       final long nodeKey = pWtx.getNode().getNodeKey();
       processVisitor(pVisitor, pWtx, pChild);
@@ -73,7 +73,7 @@ enum EOperation implements IOperation<INodeWriteTrx> {
       checkNotNull(pChild);
       checkNotNull(pVisitor);
       checkNotNull(pIndex);
-      checkArgument(pWtx.getNode().getKind() == ENode.ELEMENT_KIND,
+      checkArgument(pWtx.getNode().getKind() == EKind.ELEMENT,
         "Transaction must be located at an element node!");
       pWtx.remove();
     }

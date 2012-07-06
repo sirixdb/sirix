@@ -33,7 +33,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
@@ -102,8 +102,8 @@ public class NodeDelegate implements INode {
   }
 
   @Override
-  public ENode getKind() {
-    return ENode.UNKOWN_KIND;
+  public EKind getKind() {
+    return EKind.UNKOWN;
   }
 
   @Override

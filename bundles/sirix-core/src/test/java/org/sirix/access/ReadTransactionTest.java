@@ -42,7 +42,7 @@ import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 
 public class ReadTransactionTest {
@@ -79,7 +79,7 @@ public class ReadTransactionTest {
   @Test
   public void testDocumentRoot() throws AbsTTException {
     assertEquals(true, holder.getRtx().moveToDocumentRoot());
-    assertEquals(ENode.ROOT_KIND, holder.getRtx().getNode().getKind());
+    assertEquals(EKind.DOCUMENT_ROOT, holder.getRtx().getNode().getKind());
     assertEquals(false, holder.getRtx().getNode().hasParent());
     assertEquals(false, ((IStructNode)holder.getRtx().getNode()).hasLeftSibling());
     assertEquals(false, ((IStructNode)holder.getRtx().getNode()).hasRightSibling());

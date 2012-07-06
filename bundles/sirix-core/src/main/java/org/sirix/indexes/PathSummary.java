@@ -10,7 +10,7 @@ import org.sirix.api.INodeTraversal;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
@@ -78,7 +78,7 @@ public class PathSummary implements INodeTraversal {
           mCurrentNode.getKind());
       final String uri =
       mPageReadTrx.getName(((INameNode)mCurrentNode).getURIKey(),
-          ENode.NAMESPACE_KIND);
+          EKind.NAMESPACE);
       return Util.buildQName(uri, name);
     } else {
       return null;

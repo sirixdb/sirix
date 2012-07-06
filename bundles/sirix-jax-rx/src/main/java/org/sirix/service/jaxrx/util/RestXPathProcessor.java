@@ -35,6 +35,7 @@ import javax.ws.rs.core.Response;
 
 import org.sirix.access.Database;
 import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.api.IAxis;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
@@ -54,12 +55,13 @@ public class RestXPathProcessor {
   /**
    * This field the begin result element of a XQuery or XPath expression.
    */
-  private static transient String beginResult = "<jaxrx:result xmlns:jaxrx=\"http://jaxrx.org/\">";
+  private static String beginResult =
+    "<jaxrx:result xmlns:jaxrx=\"http://jaxrx.org/\">";
 
   /**
    * This field the end result element of a XQuery or XPath expression.
    */
-  private static transient String endResult = "</jaxrx:result>";
+  private static String endResult = "</jaxrx:result>";
 
   /**
    * Path to storage.
@@ -98,8 +100,9 @@ public class RestXPathProcessor {
    *           The exception occurred.
    * @throws AbsTTException
    */
-  public OutputStream getXpathResource(final String resourceName, final String xpath, final boolean nodeid,
-    final Long revision, final OutputStream output, final boolean wrapResult) throws IOException,
+  public OutputStream getXpathResource(final String resourceName,
+    final String xpath, final boolean nodeid, final Long revision,
+    final OutputStream output, final boolean wrapResult) throws IOException,
     AbsTTException {
 
     // work around because of query root char '/'
@@ -144,8 +147,9 @@ public class RestXPathProcessor {
    *          output of result elements
    * @throws AbsTTException
    */
-  public void getXpathResource(final File dbFile, final long rId, final String query, final boolean doNodeId,
-    final Long doRevision, final OutputStream output, final boolean doWrap) throws AbsTTException {
+  public void getXpathResource(final File dbFile, final long rId,
+    final String query, final boolean doNodeId, final Long doRevision,
+    final OutputStream output, final boolean doWrap) throws AbsTTException {
 
     // work around because of query root char '/'
     String qQuery = query;
@@ -157,7 +161,9 @@ public class RestXPathProcessor {
     INodeReadTrx rtx = null;
     try {
       database = Database.openDatabase(dbFile.getParentFile());
-      session = database.getSession(new SessionConfiguration.Builder(dbFile.getName()).build());
+      session =
+        database.getSession(new SessionConfiguration.Builder(dbFile.getName())
+          .build());
       // Creating a transaction
 
       if (doRevision == null) {
@@ -172,13 +178,15 @@ public class RestXPathProcessor {
         if (doWrap) {
           output.write(beginResult.getBytes());
           for (final long key : axis) {
-            WorkerHelper.serializeXML(session, output, false, doNodeId, key, doRevision).call();
+            WorkerHelper.serializeXML(session, output, false, doNodeId, key,
+              doRevision).call();
           }
 
           output.write(endResult.getBytes());
         } else {
           for (final long key : axis) {
-            WorkerHelper.serializeXML(session, output, false, doNodeId, key, doRevision).call();
+            WorkerHelper.serializeXML(session, output, false, doNodeId, key,
+              doRevision).call();
           }
 
         }
@@ -187,7 +195,8 @@ public class RestXPathProcessor {
       }
 
     } catch (final Exception globExcep) {
-      throw new WebApplicationException(globExcep, Response.Status.INTERNAL_SERVER_ERROR);
+      throw new WebApplicationException(globExcep,
+        Response.Status.INTERNAL_SERVER_ERROR);
     } finally {
       WorkerHelper.closeRTX(rtx, session, database);
     }
@@ -209,15 +218,17 @@ public class RestXPathProcessor {
    *          The XPath expression.
    * @throws AbsTTException
    */
-  private void doXPathRes(final String resource, final Long revision, final OutputStream output,
-    final boolean nodeid, final String xpath) throws AbsTTException {
+  private void doXPathRes(final String resource, final Long revision,
+    final OutputStream output, final boolean nodeid, final String xpath)
+    throws AbsTTException {
     // Database connection to sirix
     IDatabase database = null;
     ISession session = null;
     INodeReadTrx rtx = null;
     try {
       database = Database.openDatabase(mStoragePath);
-      session = database.getSession(new SessionConfiguration.Builder(resource).build());
+      session =
+        database.getSession(new SessionConfiguration.Builder(resource).build());
       // Creating a transaction
       if (revision == null) {
         rtx = session.beginNodeReadTrx();
@@ -225,16 +236,20 @@ public class RestXPathProcessor {
         rtx = session.beginNodeReadTrx(revision);
       }
 
-      final AbsAxis axis = new XPathAxis(rtx, xpath);
+      final IAxis axis = new XPathAxis(rtx, xpath);
       for (final long key : axis) {
-        WorkerHelper.serializeXML(session, output, false, nodeid, key, revision).call();
+        WorkerHelper
+          .serializeXML(session, output, false, nodeid, key, revision).call();
       }
 
     } catch (final Exception globExcep) {
-      throw new WebApplicationException(globExcep, Response.Status.INTERNAL_SERVER_ERROR);
+      throw new WebApplicationException(globExcep,
+        Response.Status.INTERNAL_SERVER_ERROR);
     } finally {
-      rtx.moveTo(EFixed.ROOT_NODE_KEY.getStandardProperty());
-      WorkerHelper.closeRTX(rtx, session, database);
+      if (rtx != null) {
+        rtx.moveTo(EFixed.ROOT_NODE_KEY.getStandardProperty());
+        WorkerHelper.closeRTX(rtx, session, database);
+      }
     }
   }
 

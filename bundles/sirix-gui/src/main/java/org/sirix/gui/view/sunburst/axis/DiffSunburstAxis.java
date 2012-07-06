@@ -54,7 +54,7 @@ import org.sirix.gui.view.sunburst.EPruning;
 import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.model.Modification;
 import org.sirix.gui.view.sunburst.model.Modifications;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.utils.LogWrapper;
 import processing.core.PConstants;

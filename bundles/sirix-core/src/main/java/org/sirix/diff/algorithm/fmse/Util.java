@@ -26,8 +26,12 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.annotation.Nonnull;
 
 import org.sirix.utils.Pair;
 
@@ -43,94 +47,34 @@ public final class Util {
     throw new AssertionError("May not be instantiated!");
   }
 
-  // /**
-  // * Longest common subsequence algorithm.
-  // * cf. E. Myers. An O(ND) difference algorithm and its variations.
-  // * Algorithmica, 1(2): 251-266, 1986
-  // *
-  // * @param <T>
-  // * type of data
-  // * @param x
-  // * first list
-  // * @param y
-  // * second list
-  // * @param cmp
-  // * function to compare the items in both lists (equality)
-  // * @return lcs, the items in the pairs are equal and taken from list x and list y.
-  // */
-  // public static <T> List<Pair<T, T>> longestCommonSubsequence(List<T> x, List<T> y, IComparator<T> cmp) {
-  // int n = x.size();
-  // int m = y.size();
-  // int max = n + m;
-  //
-  // if (x == null || y == null)
-  // return new ArrayList<Pair<T, T>>();
-  //
-  // if (x.size() == 0 && y.size() == 0)
-  // return new ArrayList<Pair<T, T>>();
-  //
-  // int v[] = new int[2 * max + 1];
-  // ArrayList<Pair<T, T>> common[] = new ArrayList[2 * max + 1];
-  // for (int i = 0; i <= 2 * max; i++) {
-  // v[i] = 0;
-  // common[i] = new ArrayList<Pair<T, T>>();
-  // }
-  //
-  // for (int i = 0; i <= max; i++) {
-  // for (int j = -i; j <= i; j += 2) {
-  // int idx_x;
-  // if (j == -i || j != i && v[max + j - 1] < v[max + j + 1]) {
-  // // System.err.printf("Array index: %d\n", max + j + 1);
-  // idx_x = v[max + j + 1];
-  // common[max + j] = new ArrayList<Pair<T, T>>(common[max + j + 1]);
-  // } else {
-  // idx_x = v[max + j - 1] + 1;
-  // common[max + j] = new ArrayList<Pair<T, T>>(common[max + j - 1]);
-  // }
-  // int idx_y = idx_x - j;
-  // while (idx_x < n && idx_y < m && cmp.isEqual(x.get(idx_x), y.get(idx_y))) {
-  // common[max + j].add(new Pair<T, T>(x.get(idx_x), y.get(idx_y)));
-  // idx_x++;
-  // idx_y++;
-  // }
-  //
-  // v[max + j] = idx_x;
-  // if (idx_x >= n && idx_y >= m)
-  // return common[max + j];
-  // }
-  // }
-  // throw new RuntimeException("We should never get to this point");
-  // }
-
   /**
    * Longest common subsequence algorithm.
    * cf. E. Myers. An O(ND) difference algorithm and its variations.
    * Algorithmica, 1(2): 251-266, 1986
    * 
-   * @param <T extends INode>
-   *        type of nodes
-   * @param paramX
+   * @param pX
    *          first list
-   * @param paramY
+   * @param pY
    *          second list
-   * @param paramCmp
+   * @param pCmp
    *          function to compare the items in both lists (equality)
    * @return lcs, the items in the pairs are equal and taken from list x and list y.
    */
-  public static <T> List<Pair<T, T>> longestCommonSubsequence(final List<T> paramX, final List<T> paramY,
-    final IComparator<T> paramCmp) {
-    final List<T> x = paramX;
-    final List<T> y = paramY;
+  public static <T> List<Pair<T, T>> longestCommonSubsequence(
+    @Nonnull final List<T> pX, @Nonnull final List<T> pY,
+    @Nonnull final IComparator<T> pCmp) {
+    final List<T> x = checkNotNull(pX);
+    final List<T> y = checkNotNull(pY);
     final int n = x.size();
     final int m = y.size();
     final int max = n + m;
 
-    if (paramX == null || paramY == null) {
-      return new ArrayList<Pair<T, T>>();
+    if (pX == null || pY == null) {
+      return new ArrayList<>();
     }
 
-    if (paramX.size() == 0 && paramY.size() == 0) {
-      return new ArrayList<Pair<T, T>>();
+    if (pX.size() == 0 && pY.size() == 0) {
+      return new ArrayList<>();
     }
 
     final int v[] = new int[2 * max + 1];
@@ -152,8 +96,8 @@ public final class Util {
           common.set(max + j, new ArrayList<>(common.get(max + j - 1)));
         }
         int idxY = idxX - j;
-        while (idxX < n && idxY < m && paramCmp.isEqual(x.get(idxX), y.get(idxY))) {
-          common.get(max + j).add(new Pair<T, T>(x.get(idxX), y.get(idxY)));
+        while (idxX < n && idxY < m && pCmp.isEqual(x.get(idxX), y.get(idxY))) {
+          common.get(max + j).add(new Pair<>(x.get(idxX), y.get(idxY)));
           idxX++;
           idxY++;
         }
@@ -172,14 +116,15 @@ public final class Util {
    * This is done by comparing the frequency of each
    * character occurs in both strings.
    * 
-   * @param paramFirst
+   * @param pFirst
    *          first string
-   * @param paramSecond
+   * @param pSecond
    *          second string
    * @return similarity of a and b, a value in [0, 1]
    */
-  public static float quickRatio(final String paramFirst, final String paramSecond) {
-    if ((paramFirst == null && paramSecond == null) || (paramFirst.isEmpty() && paramSecond.isEmpty())) {
+  public static float quickRatio(@Nonnull final String pFirst,
+    @Nonnull final String pSecond) {
+    if ((pFirst.isEmpty() && pSecond.isEmpty()) || (pFirst.equals(pSecond))) {
       return 1;
     }
 
@@ -187,21 +132,21 @@ public final class Util {
     // Use a sparse array to reduce the memory usage
     // for unicode characters.
     final int x[][] = new int[256][];
-    for (char c : paramSecond.toCharArray()) {
+    for (char c : pSecond.toCharArray()) {
       if (x[c >> 8] == null) {
         x[c >> 8] = new int[256];
       }
       x[c >> 8][c & 0xFF]++;
     }
 
-    for (char c : paramFirst.toCharArray()) {
+    for (char c : pFirst.toCharArray()) {
       final int n = (x[c >> 8] == null) ? 0 : x[c >> 8][c & 0xFF]--;
       if (n > 0) {
         matches++;
       }
     }
 
-    return (float)(2d * matches / (paramFirst.length() + paramSecond.length()));
+    return (float)(2d * matches / (pFirst.length() + pSecond.length()));
   }
 
 }

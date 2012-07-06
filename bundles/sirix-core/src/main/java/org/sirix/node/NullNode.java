@@ -108,7 +108,7 @@ public final class NullNode implements IStructNode {
   }
 
   @Override
-  public ENode getKind() {
+  public EKind getKind() {
     return mNode.getKind();
   }
 

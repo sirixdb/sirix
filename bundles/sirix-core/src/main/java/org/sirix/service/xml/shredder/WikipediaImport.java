@@ -66,7 +66,7 @@ import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
@@ -485,12 +485,12 @@ public final class WikipediaImport implements IImport<StartElement> {
     mWtx.moveToFirstChild();
     mWtx.moveToFirstChild();
 
-    assert mWtx.getNode().getKind() == ENode.ELEMENT_KIND;
+    assert mWtx.getNode().getKind() == EKind.ELEMENT;
     assert mWtx.getQNameOfCurrentNode().equals(pPage.getName());
     while (((ElementNode)mWtx.getNode()).hasRightSibling()) {
       mWtx.moveToRightSibling();
     }
-    assert mWtx.getNode().getKind() == ENode.ELEMENT_KIND;
+    assert mWtx.getNode().getKind() == EKind.ELEMENT;
     assert mWtx.getQNameOfCurrentNode().equals(pPage.getName());
   }
 

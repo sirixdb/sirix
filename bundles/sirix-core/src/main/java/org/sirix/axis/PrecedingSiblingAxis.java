@@ -28,7 +28,7 @@
 package org.sirix.axis;
 
 import org.sirix.api.INodeTraversal;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
 
@@ -78,8 +78,8 @@ public final class PrecedingSiblingAxis extends AbsAxis {
        * the following-sibling axis is empty.
        */
       final INode node = rtx.getNode();
-      final ENode kind = node.getKind();
-      if (kind == ENode.ATTRIBUTE_KIND || kind == ENode.NAMESPACE_KIND) {
+      final EKind kind = node.getKind();
+      if (kind == EKind.ATTRIBUTE || kind == EKind.NAMESPACE) {
         resetToStartKey();
         return false;
       } else {

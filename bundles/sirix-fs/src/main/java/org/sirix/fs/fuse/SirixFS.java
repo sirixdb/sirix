@@ -47,7 +47,7 @@ import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.LogWrapper;
 
@@ -207,7 +207,7 @@ public class SirixFS {
       return null;
     }
 
-    if (mWtx.getNode().getKind() == ENode.ELEMENT_KIND) {
+    if (mWtx.getNode().getKind() == EKind.ELEMENT) {
       return getLongFromElement();
     } else {
       return null;
@@ -226,7 +226,7 @@ public class SirixFS {
    * @return long-array filled with stat attribute values.
    */
   private long[] getLongFromElement() {
-    assert mWtx.getNode().getKind() == ENode.ELEMENT_KIND : "Transaction must be on an element!";
+    assert mWtx.getNode().getKind() == EKind.ELEMENT : "Transaction must be on an element!";
 
     // Safe to cast now.
     final ElementNode element = (ElementNode)mWtx.getNode();
@@ -318,7 +318,7 @@ public class SirixFS {
       for (final AbsAxis attAxis = new AttributeAxis(mWtx); !found && attAxis.hasNext(); attAxis.next()) {
         if (filter.filter()) {
           mWtx.moveToParent();
-          assert mWtx.getNode().getKind() == ENode.ELEMENT_KIND : "Transaction must be on an element!";
+          assert mWtx.getNode().getKind() == EKind.ELEMENT : "Transaction must be on an element!";
           nodeKey = mWtx.getNode().getNodeKey();
           found = true;
         }
@@ -328,7 +328,7 @@ public class SirixFS {
     if (found) {
       assert nodeKey != -1 : "NodeKey must be valid!";
       mWtx.moveTo(nodeKey);
-      assert mWtx.getNode().getKind() == ENode.ELEMENT_KIND : "Transaction must be on an element!";
+      assert mWtx.getNode().getKind() == EKind.ELEMENT : "Transaction must be on an element!";
       return getLongFromElement();
     } else {
       return null;

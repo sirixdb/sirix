@@ -80,8 +80,8 @@ public final class TextNode extends AbsStructForwardingNode implements IValNode 
   }
 
   @Override
-  public ENode getKind() {
-    return ENode.TEXT_KIND;
+  public EKind getKind() {
+    return EKind.TEXT;
   }
 
   @Override

@@ -61,7 +61,7 @@ public interface ISession extends AutoCloseable {
    * @param pRev
    *          revision key to read from
    * @throws AbsTTException
-   *           If can't begin Read Transaction.
+   *           if can't begin Read Transaction
    * @return {@link INodeReadTrx} instance
    */
   INodeReadTrx beginNodeReadTrx(final long pRev) throws AbsTTException;

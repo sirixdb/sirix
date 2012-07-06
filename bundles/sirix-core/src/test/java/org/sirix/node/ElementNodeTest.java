@@ -63,7 +63,7 @@ public class ElementNodeTest {
     final ByteBufferSinkAndSource out = new ByteBufferSinkAndSource();
     node1.getKind().serialize(out, node1);
     out.position(0);
-    final ElementNode node2 = (ElementNode)ENode.ELEMENT_KIND.deserialize(out);
+    final ElementNode node2 = (ElementNode)EKind.ELEMENT.deserialize(out);
     check(node2);
   }
 
@@ -80,7 +80,7 @@ public class ElementNodeTest {
     assertEquals(18, node.getNameKey());
     assertEquals(19, node.getURIKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-    assertEquals(ENode.ELEMENT_KIND, node.getKind());
+    assertEquals(EKind.ELEMENT, node.getKind());
     assertEquals(true, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

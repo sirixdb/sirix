@@ -30,7 +30,7 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeReadTrx;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 
 /**
@@ -71,11 +71,11 @@ public final class AttributeAxis extends AbsAxis {
       // this
       // case the current node was set to an attribute by resetToLastKey()
       if (mNextIndex > 0) {
-        assert getTransaction().getNode().getKind() == ENode.ATTRIBUTE_KIND;
+        assert getTransaction().getNode().getKind() == EKind.ATTRIBUTE;
         getTransaction().moveToParent();
       }
 
-      if (getTransaction().getNode().getKind() == ENode.ELEMENT_KIND) {
+      if (getTransaction().getNode().getKind() == EKind.ELEMENT) {
         final ElementNode element = (ElementNode)getTransaction().getNode();
         if (mNextIndex < ((ElementNode)getTransaction().getNode()).getAttributeCount()) {
           mKey = element.getAttributeKey(mNextIndex);

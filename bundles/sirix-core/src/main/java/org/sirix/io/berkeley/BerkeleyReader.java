@@ -28,6 +28,9 @@
 package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.util.Objects;
+
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -147,37 +150,19 @@ public final class BerkeleyReader implements IReader {
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + ((mDatabase == null) ? 0 : mDatabase.hashCode());
-    result = prime * result + ((mTxn == null) ? 0 : mTxn.hashCode());
-    return result;
+    return Objects.hash(mDatabase, mTxn);
   }
 
   @Override
   public boolean equals(final Object pObj) {
-    boolean returnVal = true;
-    if (pObj == null) {
-      returnVal = false;
-    } else if (getClass() != pObj.getClass()) {
-      returnVal = false;
+    boolean retVal = false;
+    if (pObj instanceof BerkeleyReader) {
+      final BerkeleyReader other = (BerkeleyReader)pObj;
+      retVal =
+        Objects.equals(mDatabase, other.mDatabase)
+          && Objects.equals(mTxn, other.mTxn);
     }
-    final BerkeleyReader other = (BerkeleyReader)pObj;
-    if (mDatabase == null) {
-      if (other.mDatabase != null) {
-        returnVal = false;
-      }
-    } else if (!mDatabase.equals(other.mDatabase)) {
-      returnVal = false;
-    }
-    if (mTxn == null) {
-      if (other.mTxn != null) {
-        returnVal = false;
-      }
-    } else if (!mTxn.equals(other.mTxn)) {
-      returnVal = false;
-    }
-    return returnVal;
+    return retVal;
   }
 
 }

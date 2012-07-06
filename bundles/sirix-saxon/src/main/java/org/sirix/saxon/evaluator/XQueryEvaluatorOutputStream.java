@@ -27,8 +27,13 @@
 
 package org.sirix.saxon.evaluator;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.OutputStream;
 import java.util.concurrent.Callable;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.NodeInfo;
@@ -37,19 +42,16 @@ import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.Serializer;
 import net.sf.saxon.s9api.XQueryCompiler;
 import net.sf.saxon.s9api.XQueryExecutable;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
 import org.sirix.saxon.wrapper.DocumentWrapper;
-import org.sirix.saxon.wrapper.NodeWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>XQuery evaluator</h1>
  * 
  * <p>
- * Evaluates an XQuery expression against a sirix storage. Output is available through an output stream.
+ * Evaluates an XQuery expression against a Sirix storage. Output is available through an output stream.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -62,13 +64,13 @@ public final class XQueryEvaluatorOutputStream implements Callable<Void> {
   private static final Logger LOGGER = LoggerFactory.getLogger(XQueryEvaluatorOutputStream.class);
 
   /** XQuery expression. */
-  private final transient String mExpression;
+  private final String mExpression;
 
-  /** sirix database. */
-  private final transient ISession mSession;
+  /** Sirix {@link ISession}. */
+  private final ISession mSession;
 
   /** Output Stream. */
-  private final transient OutputStream mOut;
+  private final OutputStream mOut;
 
   /** Serializer to specify serialization output properties. */
   private transient Serializer mSerializer;
@@ -76,41 +78,38 @@ public final class XQueryEvaluatorOutputStream implements Callable<Void> {
   /**
    * Constructor.
    * 
-   * @param paramExpression
-   *          XQuery expression.
-   * @param paramSession
-   *          sirix database.
+   * @param pExpression
+   *          XQuery expression
+   * @param pSession
+   *          Sirix {@link ISession}.
    * @param paramOut
-   *          Output Stream.
+   *          output Stream
    */
-  public XQueryEvaluatorOutputStream(final String paramExpression, final ISession paramSession,
-    final OutputStream paramOut) {
-    this(paramExpression, paramSession, paramOut, null);
+  public XQueryEvaluatorOutputStream(@Nonnull final String pExpression, @Nonnull final ISession pSession,
+    final OutputStream pOut) {
+    this(pExpression, pSession, pOut, null);
   }
 
   /**
    * Constructor.
    * 
-   * @param paramExpression
-   *          XQuery expression.
-   * @param paramSession
-   *          sirix database
-   * @param paramOut
-   *          Output Stream.
-   * @param paramSerializer
+   * @param pExpression
+   *          XQuery expression
+   * @param pSession
+   *          Sirix {@link ISession}
+   * @param pOut
+   *          output Stream
+   * @param pSerializer
    *          Serializer, for which one can specify output properties
    */
-  public XQueryEvaluatorOutputStream(final String paramExpression, final ISession paramSession,
-    final OutputStream paramOut, final Serializer paramSerializer) {
-    mExpression = paramExpression;
-    mSession = paramSession;
-    mOut = paramOut;
-    mSerializer = paramSerializer;
+  public XQueryEvaluatorOutputStream(@Nonnull final String pExpression, @Nonnull final ISession pSession,
+    @Nonnull final OutputStream pOut, @Nullable final Serializer pSerializer) {
+    mExpression = checkNotNull(pExpression);
+    mSession = checkNotNull(pSession);
+    mOut = checkNotNull(pOut);
+    mSerializer = pSerializer;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public Void call() throws Exception {
     try {

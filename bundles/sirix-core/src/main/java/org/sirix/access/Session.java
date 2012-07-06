@@ -130,7 +130,8 @@ public final class Session implements ISession {
    * @throws AbsTTException
    *           if sirix encounters an error
    */
-  Session(@Nonnull final Database pDatabase, @Nonnull final ResourceConfiguration pResourceConf,
+  Session(@Nonnull final Database pDatabase,
+    @Nonnull final ResourceConfiguration pResourceConf,
     @Nonnull final SessionConfiguration pSessionConf) throws AbsTTException {
     mDatabase = checkNotNull(pDatabase);
     mResourceConfig = checkNotNull(pResourceConf);
@@ -165,7 +166,8 @@ public final class Session implements ISession {
   }
 
   @Override
-  public synchronized INodeReadTrx beginNodeReadTrx(@Nonnegative final long pRevisionKey) throws AbsTTException {
+  public synchronized INodeReadTrx beginNodeReadTrx(
+    @Nonnegative final long pRevisionKey) throws AbsTTException {
     assertAccess(pRevisionKey);
     // Make sure not to exceed available number of read transactions.
     try {
@@ -176,12 +178,14 @@ public final class Session implements ISession {
 
     // Create new read transaction.
     final INodeReadTrx rtx =
-      new NodeReadTrx(this, mTransactionIDCounter.incrementAndGet(), new PageReadTrx(this,
-        mLastCommittedUberPage, pRevisionKey, mFac.getReader()));
+      new NodeReadTrx(this, mTransactionIDCounter.incrementAndGet(),
+        new PageReadTrx(this, mLastCommittedUberPage, pRevisionKey, mFac
+          .getReader()));
 
     // Remember transaction for debugging and safe close.
     if (mTransactionMap.put(rtx.getTransactionID(), rtx) != null) {
-      throw new TTUsageException("ID generation is bogus because of duplicate ID.");
+      throw new TTUsageException(
+        "ID generation is bogus because of duplicate ID.");
     }
     return rtx;
   }
@@ -192,8 +196,9 @@ public final class Session implements ISession {
   }
 
   @Override
-  public synchronized INodeWriteTrx beginNodeWriteTrx(@Nonnegative final int pMaxNodeCount,
-    @Nonnull final TimeUnit pTimeUnit, @Nonnegative final int pMaxTime) throws AbsTTException {
+  public synchronized INodeWriteTrx beginNodeWriteTrx(
+    @Nonnegative final int pMaxNodeCount, @Nonnull final TimeUnit pTimeUnit,
+    @Nonnegative final int pMaxTime) throws AbsTTException {
     // Checks.
     assertAccess(mLastCommittedUberPage.getRevision());
     if (pMaxNodeCount < 0 || pMaxTime < 0) {
@@ -203,7 +208,8 @@ public final class Session implements ISession {
 
     // Make sure not to exceed available number of write transactions.
     if (mWriteSemaphore.availablePermits() == 0) {
-      throw new IllegalStateException("There already is a running exclusive write transaction.");
+      throw new IllegalStateException(
+        "There already is a running exclusive write transaction.");
     }
     try {
       mWriteSemaphore.acquire();
@@ -213,15 +219,19 @@ public final class Session implements ISession {
 
     final long currentID = mTransactionIDCounter.incrementAndGet();
     final long lastRev = mLastCommittedUberPage.getRevisionNumber();
-    final IPageWriteTrx pageWtx = createPageWriteTransaction(currentID, lastRev, lastRev);
+    final IPageWriteTrx pageWtx =
+      createPageWriteTransaction(currentID, lastRev, lastRev);
 
     // Create new write transaction.
-    final INodeWriteTrx wtx = new NodeWriteTrx(currentID, this, pageWtx, pMaxNodeCount, pTimeUnit, pMaxTime);
+    final INodeWriteTrx wtx =
+      new NodeWriteTrx(currentID, this, pageWtx, pMaxNodeCount, pTimeUnit,
+        pMaxTime);
 
     // Remember transaction for debugging and safe close.
     if (mTransactionMap.put(currentID, wtx) != null
       || mWriteTransactionStateMap.put(currentID, pageWtx) != null) {
-      throw new TTThreadedException("ID generation is bogus because of duplicate ID.");
+      throw new TTThreadedException(
+        "ID generation is bogus because of duplicate ID.");
     }
 
     return wtx;
@@ -241,17 +251,19 @@ public final class Session implements ISession {
    *           if an I/O error occurs
    */
   IPageWriteTrx createPageWriteTransaction(@Nonnegative final long pId,
-    @Nonnegative final long pRepresentRevision, @Nonnegative final long pStoreRevision) throws TTIOException {
+    @Nonnegative final long pRepresentRevision,
+    @Nonnegative final long pStoreRevision) throws TTIOException {
     checkArgument(pId >= 0, "pId must be >= 0!");
     checkArgument(pRepresentRevision >= 0, "pRepresentRevision must be >= 0!");
     checkArgument(pStoreRevision >= 0, "pStoreRevision must be >= 0!");
 
     final IWriter writer = mFac.getWriter();
     final long lastCommitedRev =
-      mLastCommittedUberPage.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage
-        .getLastCommitedRevisionNumber() : 0;
-    return new PageWriteTrx(this, new UberPage(mLastCommittedUberPage, pStoreRevision + 1), writer, pId,
-      pRepresentRevision, pStoreRevision, lastCommitedRev);
+      mLastCommittedUberPage.getLastCommitedRevisionNumber() > 0
+        ? mLastCommittedUberPage.getLastCommitedRevisionNumber() : 0;
+    return new PageWriteTrx(this, new UberPage(mLastCommittedUberPage,
+      pStoreRevision + 1), writer, pId, pRepresentRevision, pStoreRevision,
+      lastCommitedRev);
   }
 
   @Override
@@ -289,13 +301,15 @@ public final class Session implements ISession {
    */
   protected void assertAccess(final long pRevision) {
     if (mClosed) {
-      throw new IllegalStateException("Session is already closed.");
+      throw new IllegalStateException("Session is already closed!");
     }
     if (pRevision < 0) {
-      throw new IllegalArgumentException("Revision must be at least 0");
+      throw new IllegalArgumentException("Revision must be at least 0!");
     } else if (pRevision > mLastCommittedUberPage.getRevision()) {
-      throw new IllegalArgumentException(new StringBuilder("Revision must not be bigger than").append(
-        Long.toString(mLastCommittedUberPage.getRevision())).toString());
+      throw new IllegalArgumentException(new StringBuilder(
+        "Revision must not be bigger than").append(
+        Long.toString(mLastCommittedUberPage.getRevision())).append("!")
+        .toString());
     }
   }
 
@@ -334,7 +348,8 @@ public final class Session implements ISession {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("sessionConf", mSessionConfig).add("resourceConf", mResourceConfig).toString();
+    return Objects.toStringHelper(this).add("sessionConf", mSessionConfig).add(
+      "resourceConf", mResourceConfig).toString();
   }
 
   @Override
@@ -342,29 +357,34 @@ public final class Session implements ISession {
     return mSessionConfig.mUser;
   }
 
-  protected synchronized void syncLogs(final PageContainer mContToSync, final long mTransactionId)
-    throws TTThreadedException {
+  protected synchronized void syncLogs(final PageContainer mContToSync,
+    final long mTransactionId) throws TTThreadedException {
     final ExecutorService exec = Executors.newCachedThreadPool();
     final Collection<Future<Void>> returnVals = new ArrayList<Future<Void>>();
     for (final Long key : mWriteTransactionStateMap.keySet()) {
       if (key != mTransactionId) {
-        returnVals.add(exec.submit(new LogSyncer(mWriteTransactionStateMap.get(key), mContToSync)));
+        returnVals.add(exec.submit(new LogSyncer(mWriteTransactionStateMap
+          .get(key), mContToSync)));
       }
     }
     exec.shutdown();
     if (!mSyncTransactionsReturns.containsKey(mTransactionId)) {
-      mSyncTransactionsReturns.put(mTransactionId, new ConcurrentHashMap<Long, Collection<Future<Void>>>());
+      mSyncTransactionsReturns.put(mTransactionId,
+        new ConcurrentHashMap<Long, Collection<Future<Void>>>());
     }
 
-    if (mSyncTransactionsReturns.get(mTransactionId).put(((NodePage)mContToSync.getComplete()).getNodePageKey(),
-      returnVals) != null) {
-      throw new TTThreadedException("only one commit and therefore sync per id and nodepage is allowed!");
+    if (mSyncTransactionsReturns.get(mTransactionId).put(
+      ((NodePage)mContToSync.getComplete()).getNodePageKey(), returnVals) != null) {
+      throw new TTThreadedException(
+        "only one commit and therefore sync per id and nodepage is allowed!");
     }
 
   }
 
-  protected synchronized void waitForFinishedSync(final long mTransactionKey) throws TTThreadedException {
-    final Map<Long, Collection<Future<Void>>> completeVals = mSyncTransactionsReturns.remove(mTransactionKey);
+  protected synchronized void waitForFinishedSync(final long mTransactionKey)
+    throws TTThreadedException {
+    final Map<Long, Collection<Future<Void>>> completeVals =
+      mSyncTransactionsReturns.remove(mTransactionKey);
     if (completeVals != null) {
       for (final Collection<Future<Void>> singleVals : completeVals.values()) {
         for (final Future<Void> returnVal : singleVals) {
@@ -391,7 +411,8 @@ public final class Session implements ISession {
     /** {@link PageContainer} reference. */
     private final PageContainer mCont;
 
-    LogSyncer(final IPageWriteTrx pPageWriteTransaction, final PageContainer pNodePageCont) {
+    LogSyncer(final IPageWriteTrx pPageWriteTransaction,
+      final PageContainer pNodePageCont) {
       mPageWriteTrx = checkNotNull(pPageWriteTransaction);
       mCont = checkNotNull(pNodePageCont);
     }

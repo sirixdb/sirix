@@ -221,8 +221,8 @@ public final class ElementNode extends AbsStructForwardingNode implements
   }
 
   @Override
-  public ENode getKind() {
-    return ENode.ELEMENT_KIND;
+  public EKind getKind() {
+    return EKind.ELEMENT;
   }
 
   @Override

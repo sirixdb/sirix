@@ -46,9 +46,9 @@ public class NamespaceNodeTest {
 
     // Serialize and deserialize node.
     final ByteBufferSinkAndSource out = new ByteBufferSinkAndSource();
-    ENode.getKind(node1.getClass()).serialize(out, node1);
+    EKind.getKind(node1.getClass()).serialize(out, node1);
     out.position(0);
-    final NamespaceNode node2 = (NamespaceNode)ENode.NAMESPACE_KIND.deserialize(out);
+    final NamespaceNode node2 = (NamespaceNode)EKind.NAMESPACE.deserialize(out);
     check(node2);
   }
 
@@ -59,7 +59,7 @@ public class NamespaceNodeTest {
 
     assertEquals(14, node.getURIKey());
     assertEquals(15, node.getNameKey());
-    assertEquals(ENode.NAMESPACE_KIND, node.getKind());
+    assertEquals(EKind.NAMESPACE, node.getKind());
     assertEquals(true, node.hasParent());
   }
 

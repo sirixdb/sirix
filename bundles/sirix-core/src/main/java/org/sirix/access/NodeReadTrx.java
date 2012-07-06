@@ -44,7 +44,7 @@ import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.NullNode;
@@ -216,7 +216,7 @@ public final class NodeReadTrx implements INodeReadTrx {
   @Override
   public final boolean moveToAttribute(final int pIndex) {
     assertNotClosed();
-    if (mCurrentNode.getKind() == ENode.ELEMENT_KIND) {
+    if (mCurrentNode.getKind() == EKind.ELEMENT) {
       final ElementNode element = ((ElementNode)mCurrentNode);
       if (element.getAttributeCount() > pIndex) {
         return moveTo(element.getAttributeKey(pIndex));
@@ -231,7 +231,7 @@ public final class NodeReadTrx implements INodeReadTrx {
   @Override
   public final boolean moveToNamespace(final int pIndex) {
     assertNotClosed();
-    if (mCurrentNode.getKind() == ENode.ELEMENT_KIND) {
+    if (mCurrentNode.getKind() == EKind.ELEMENT) {
       final ElementNode element = ((ElementNode)mCurrentNode);
       if (element.getNamespaceCount() > pIndex) {
         return moveTo(element.getNamespaceKey(pIndex));
@@ -249,10 +249,10 @@ public final class NodeReadTrx implements INodeReadTrx {
     String returnVal;
     if (mCurrentNode instanceof IValNode) {
       returnVal = new String(((IValNode)mCurrentNode).getRawValue());
-    } else if (mCurrentNode.getKind() == ENode.NAMESPACE_KIND) {
+    } else if (mCurrentNode.getKind() == EKind.NAMESPACE) {
       returnVal =
         mPageReadTrx.getName(((NamespaceNode)mCurrentNode).getURIKey(),
-          ENode.NAMESPACE_KIND);
+          EKind.NAMESPACE);
     } else {
       returnVal = "";
     }
@@ -268,7 +268,7 @@ public final class NodeReadTrx implements INodeReadTrx {
           mCurrentNode.getKind());
       final String uri =
         mPageReadTrx.getName(((INameNode)mCurrentNode).getURIKey(),
-          ENode.NAMESPACE_KIND);
+          EKind.NAMESPACE);
       return Util.buildQName(uri, name);
     } else {
       return null;
@@ -331,17 +331,17 @@ public final class NodeReadTrx implements INodeReadTrx {
     } catch (final TTIOException e) {
     }
 
-    if (getNode().getKind() == ENode.ATTRIBUTE_KIND
-      || getNode().getKind() == ENode.ELEMENT_KIND) {
+    if (getNode().getKind() == EKind.ATTRIBUTE
+      || getNode().getKind() == EKind.ELEMENT) {
       helper.add("Name of Node", getQNameOfCurrentNode().toString());
     }
 
-    if (getNode().getKind() == ENode.ATTRIBUTE_KIND
-      || getNode().getKind() == ENode.TEXT_KIND) {
+    if (getNode().getKind() == EKind.ATTRIBUTE
+      || getNode().getKind() == EKind.TEXT) {
       helper.add("Value of Node", getValueOfCurrentNode());
     }
 
-    if (getNode().getKind() == ENode.ROOT_KIND) {
+    if (getNode().getKind() == EKind.DOCUMENT_ROOT) {
       helper.addValue("Node is DocumentRoot");
     }
     helper.add("node", getNode().toString());
@@ -447,7 +447,7 @@ public final class NodeReadTrx implements INodeReadTrx {
   @Override
   public boolean moveToAttributeByNameKey(final int pNameKey) {
     assertNotClosed();
-    if (mCurrentNode.getKind() == ENode.ELEMENT_KIND) {
+    if (mCurrentNode.getKind() == EKind.ELEMENT) {
       final ElementNode element = ((ElementNode)mCurrentNode);
       final Optional<Long> attrKey = element.getAttributeKeyByName(pNameKey);
       if (attrKey.isPresent()) {

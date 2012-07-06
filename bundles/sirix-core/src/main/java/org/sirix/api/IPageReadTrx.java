@@ -3,7 +3,7 @@ package org.sirix.api;
 import com.google.common.base.Optional;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.TTIOException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.page.EPage;
 import org.sirix.page.RevisionRootPage;
@@ -38,7 +38,7 @@ public interface IPageReadTrx extends AutoCloseable {
    *          kind of node
    * @return the name
    */
-  String getName(int pKey, ENode pKind);
+  String getName(int pKey, EKind pKind);
 
   /**
    * Getting the raw name related to the name key and the node kind.
@@ -49,7 +49,7 @@ public interface IPageReadTrx extends AutoCloseable {
    *          kind of node
    * @return a byte array containing the raw name
    */
-  byte[] getRawName(int pKey, ENode pKind);
+  byte[] getRawName(int pKey, EKind pKind);
 
   /**
    * Close transaction.

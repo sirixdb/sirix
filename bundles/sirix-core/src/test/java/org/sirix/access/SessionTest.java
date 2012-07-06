@@ -44,7 +44,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.utils.DocumentCreater;
 import org.sirix.utils.IConstants;
 
@@ -106,10 +106,10 @@ public class SessionTest {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     assertNotNull(wtx.moveToDocumentRoot());
-    assertEquals(ENode.ROOT_KIND, wtx.getNode().getKind());
+    assertEquals(EKind.DOCUMENT_ROOT, wtx.getNode().getKind());
 
     assertNotNull(wtx.moveToFirstChild());
-    assertEquals(ENode.ELEMENT_KIND, wtx.getNode().getKind());
+    assertEquals(EKind.ELEMENT, wtx.getNode().getKind());
     assertEquals("p:a", new StringBuilder(wtx.getQNameOfCurrentNode().getPrefix()).append(":").append(
       wtx.getQNameOfCurrentNode().getLocalPart()).toString());
 

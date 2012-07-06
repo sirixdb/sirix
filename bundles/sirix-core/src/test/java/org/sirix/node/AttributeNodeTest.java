@@ -58,7 +58,7 @@ public class AttributeNodeTest {
     final ByteBufferSinkAndSource out = new ByteBufferSinkAndSource();
     node1.getKind().serialize(out, node1);
     out.position(0);
-    final AttributeNode node2 = (AttributeNode)ENode.ATTRIBUTE_KIND.deserialize(out);
+    final AttributeNode node2 = (AttributeNode)EKind.ATTRIBUTE.deserialize(out);
     check(node2);
 
   }
@@ -72,9 +72,9 @@ public class AttributeNodeTest {
     assertEquals(15, node.getURIKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(ENode.ATTRIBUTE_KIND, node.getKind());
+    assertEquals(EKind.ATTRIBUTE, node.getKind());
     assertEquals(true, node.hasParent());
-    assertEquals(ENode.ATTRIBUTE_KIND, node.getKind());
+    assertEquals(EKind.ATTRIBUTE, node.getKind());
   }
 
 }

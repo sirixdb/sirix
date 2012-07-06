@@ -29,7 +29,6 @@ package org.sirix.service.xml.serialize;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_ID;
 import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_INDENT;
 import static org.sirix.service.xml.serialize.XMLSerializerProperties.S_INDENT_SPACES;
@@ -44,7 +43,9 @@ import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.concurrent.ConcurrentMap;
 
-import org.slf4j.LoggerFactory;
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.access.Database;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -60,6 +61,7 @@ import org.sirix.utils.Files;
 import org.sirix.utils.IConstants;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>XMLSerializer</h1>
@@ -73,15 +75,17 @@ import org.sirix.utils.XMLToken;
 public final class XMLSerializer extends AbsSerializer {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLSerializer.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
+    .getLogger(XMLSerializer.class));
 
   /** Offset that must be added to digit to make it ASCII. */
   private static final int ASCII_OFFSET = 48;
 
   /** Precalculated powers of each available long digit. */
   private static final long[] LONG_POWERS = {
-    1L, 10L, 100L, 1000L, 10000L, 100000L, 1000000L, 10000000L, 100000000L, 1000000000L, 10000000000L,
-    100000000000L, 1000000000000L, 10000000000000L, 100000000000000L, 1000000000000000L, 10000000000000000L,
+    1L, 10L, 100L, 1000L, 10000L, 100000L, 1000000L, 10000000L, 100000000L,
+    1000000000L, 10000000000L, 100000000000L, 1000000000000L, 10000000000000L,
+    100000000000000L, 1000000000000000L, 10000000000000000L,
     100000000000000000L, 1000000000000000000L
   };
 
@@ -107,24 +111,28 @@ public final class XMLSerializer extends AbsSerializer {
    * Initialize XMLStreamReader implementation with transaction. The cursor
    * points to the node the XMLStreamReader starts to read.
    * 
-   * @param paramSession
-   *          Session for read XML
-   * @param paramNodeKey
-   *          Node Key
-   * @param paramBuilder
-   *          Builder of XML Serializer
-   * @param paramVersions
-   *          Version to serailze
+   * @param pSession
+   *          session for read XML
+   * @param pNodeKey
+   *          start node key
+   * @param pBuilder
+   *          builder of XML Serializer
+   * @param pRevision
+   *          revision to serialize
+   * @param pRevisions
+   *          further revisions to serialize
    */
-  private XMLSerializer(final ISession paramSession, final long paramNodeKey,
-    final XMLSerializerBuilder paramBuilder, final long... paramVersions) {
-    super(paramSession, paramNodeKey, paramVersions);
-    mOut = new BufferedOutputStream(paramBuilder.mStream, 4096);
-    mIndent = paramBuilder.mIndent;
-    mSerializeXMLDeclaration = paramBuilder.mDeclaration;
-    mSerializeRest = paramBuilder.mREST;
-    mSerializeId = paramBuilder.mID;
-    mIndentSpaces = paramBuilder.mIndentSpaces;
+  private XMLSerializer(@Nonnull final ISession pSession,
+    @Nonnegative final long pNodeKey,
+    @Nonnull final XMLSerializerBuilder pBuilder,
+    @Nonnegative final long pRevision, @Nonnull final long... pRevisions) {
+    super(pSession, pNodeKey, pRevision, pRevisions);
+    mOut = new BufferedOutputStream(pBuilder.mStream, 4096);
+    mIndent = pBuilder.mIndent;
+    mSerializeXMLDeclaration = pBuilder.mDeclaration;
+    mSerializeRest = pBuilder.mREST;
+    mSerializeId = pBuilder.mID;
+    mIndentSpaces = pBuilder.mIndentSpaces;
   }
 
   /**
@@ -134,21 +142,24 @@ public final class XMLSerializer extends AbsSerializer {
   protected void emitStartElement(final INodeReadTrx pRtx) {
     try {
       switch (pRtx.getNode().getKind()) {
-      case ROOT_KIND:
+      case DOCUMENT_ROOT:
         if (mIndent) {
           mOut.write(ECharsForSerializing.NEWLINE.getBytes());
         }
         break;
-      case ELEMENT_KIND:
+      case ELEMENT:
         // Emit start element.
         indent();
         mOut.write(ECharsForSerializing.OPEN.getBytes());
-        mOut.write(pRtx.rawNameForKey(((INameNode)pRtx.getNode()).getNameKey()));
+        mOut
+          .write(pRtx.rawNameForKey(((INameNode)pRtx.getNode()).getNameKey()));
         final long key = pRtx.getNode().getNodeKey();
         // Emit namespace declarations.
-        for (int index = 0, length = ((ElementNode)pRtx.getNode()).getNamespaceCount(); index < length; index++) {
+        for (int index = 0, length =
+          ((ElementNode)pRtx.getNode()).getNamespaceCount(); index < length; index++) {
           pRtx.moveToNamespace(index);
-          if (pRtx.nameForKey(((INameNode)pRtx.getNode()).getNameKey()).isEmpty()) {
+          if (pRtx.nameForKey(((INameNode)pRtx.getNode()).getNameKey())
+            .isEmpty()) {
             mOut.write(ECharsForSerializing.XMLNS.getBytes());
             write(pRtx.nameForKey(((INameNode)pRtx.getNode()).getURIKey()));
             mOut.write(ECharsForSerializing.QUOTE.getBytes());
@@ -176,13 +187,16 @@ public final class XMLSerializer extends AbsSerializer {
         }
 
         // Iterate over all persistent attributes.
-        for (int index = 0; index < ((ElementNode)pRtx.getNode()).getAttributeCount(); index++) {
+        for (int index = 0; index < ((ElementNode)pRtx.getNode())
+          .getAttributeCount(); index++) {
           pRtx.moveToAttribute(index);
           mOut.write(ECharsForSerializing.SPACE.getBytes());
-          mOut.write(pRtx.rawNameForKey(((INameNode)pRtx.getNode()).getNameKey()));
+          mOut.write(pRtx.rawNameForKey(((INameNode)pRtx.getNode())
+            .getNameKey()));
           mOut.write(ECharsForSerializing.EQUAL_QUOTE.getBytes());
           // XmlEscaper.xmlEscaper().escape(pRtx.getValueOfCurrentNode()).toBytes();
-          mOut.write(XMLToken.escape(pRtx.getValueOfCurrentNode()).getBytes(IConstants.DEFAULT_ENCODING));// pRtx.getItem().getRawValue());
+          mOut.write(XMLToken.escape(pRtx.getValueOfCurrentNode()).getBytes(
+            IConstants.DEFAULT_ENCODING));// pRtx.getItem().getRawValue());
           mOut.write(ECharsForSerializing.QUOTE.getBytes());
           pRtx.moveTo(key);
         }
@@ -195,11 +209,12 @@ public final class XMLSerializer extends AbsSerializer {
           mOut.write(ECharsForSerializing.NEWLINE.getBytes());
         }
         break;
-      case TEXT_KIND:
+      case TEXT:
         indent();
         // Guava 11 (not released)
         // XmlEscaper.xmlContentEscaper().escape(pRtx.getValueOfCurrentNode()).toBytes();
-        mOut.write(XMLToken.escape(pRtx.getValueOfCurrentNode()).getBytes(IConstants.DEFAULT_ENCODING)); // pRtx.getItem().getRawValue());
+        mOut.write(XMLToken.escape(pRtx.getValueOfCurrentNode()).getBytes(
+          IConstants.DEFAULT_ENCODING)); // pRtx.getItem().getRawValue());
         if (mIndent) {
           mOut.write(ECharsForSerializing.NEWLINE.getBytes());
         }
@@ -231,7 +246,6 @@ public final class XMLSerializer extends AbsSerializer {
     }
   }
 
-  /** {@inheritDoc} */
   @Override
   protected void emitStartDocument() {
     try {
@@ -246,7 +260,6 @@ public final class XMLSerializer extends AbsSerializer {
     }
   }
 
-  /** {@inheritDoc} */
   @Override
   protected void emitEndDocument() {
     try {
@@ -260,12 +273,11 @@ public final class XMLSerializer extends AbsSerializer {
 
   }
 
-  /** {@inheritDoc} */
   @Override
-  protected void emitStartManualElement(final long mVersion) {
+  protected void emitStartManualElement(final long pVersion) {
     try {
       write("<tt revision=\"");
-      write(Long.toString(mVersion));
+      write(Long.toString(pVersion));
       write("\">");
     } catch (final IOException exc) {
       exc.printStackTrace();
@@ -273,9 +285,8 @@ public final class XMLSerializer extends AbsSerializer {
 
   }
 
-  /** {@inheritDoc} */
   @Override
-  protected void emitEndManualElement(final long mVersion) {
+  protected void emitEndManualElement(final long pVersion) {
     try {
       write("</tt>");
     } catch (final IOException exc) {
@@ -300,29 +311,30 @@ public final class XMLSerializer extends AbsSerializer {
   /**
    * Write characters of string.
    * 
-   * @param mString
+   * @param pString
    *          String to write
    * @throws IOException
    *           if can't write to string
    * @throws UnsupportedEncodingException
    *           if unsupport encoding
    */
-  protected void write(final String mString) throws UnsupportedEncodingException, IOException {
-    mOut.write(mString.getBytes(IConstants.DEFAULT_ENCODING));
+  protected void write(@Nonnull final String pString)
+    throws UnsupportedEncodingException, IOException {
+    mOut.write(pString.getBytes(IConstants.DEFAULT_ENCODING));
   }
 
   /**
    * Write non-negative non-zero long as UTF-8 bytes.
    * 
-   * @param mValue
-   *          Value to write
+   * @param pValue
+   *          value to write
    * @throws IOException
    *           if can't write to string
    */
-  private void write(final long mValue) throws IOException {
-    final int length = (int)Math.log10(mValue);
+  private void write(final long pValue) throws IOException {
+    final int length = (int)Math.log10(pValue);
     int digit = 0;
-    long remainder = mValue;
+    long remainder = pValue;
     for (int i = length; i >= 0; i--) {
       digit = (byte)(remainder / LONG_POWERS[i]);
       mOut.write((byte)(digit + ASCII_OFFSET));
@@ -337,11 +349,12 @@ public final class XMLSerializer extends AbsSerializer {
    *          args[0] specifies the input-TT file/folder; args[1] specifies
    *          the output XML file.
    * @throws Exception
-   *           Any exception.
+   *           any exception
    */
   public static void main(final String... args) throws Exception {
     if (args.length < 2 || args.length > 3) {
-      throw new IllegalArgumentException("Usage: XMLSerializer input-TT output.xml");
+      throw new IllegalArgumentException(
+        "Usage: XMLSerializer input-TT output.xml");
     }
 
     LOGWRAPPER.info("Serializing '" + args[0] + "' to '" + args[1] + "' ... ");
@@ -350,22 +363,24 @@ public final class XMLSerializer extends AbsSerializer {
     Files.recursiveRemove(target.toPath());
     target.getParentFile().mkdirs();
     target.createNewFile();
-    final FileOutputStream outputStream = new FileOutputStream(target);
+    try (final FileOutputStream outputStream = new FileOutputStream(target)) {
+      final DatabaseConfiguration config =
+        new DatabaseConfiguration(new File(args[0]));
+      Database.createDatabase(config);
+      try (final IDatabase db = Database.openDatabase(new File(args[0]))) {
+        db.createResource(new ResourceConfiguration.Builder("shredded", config)
+          .build());
+        final ISession session =
+          db.getSession(new SessionConfiguration.Builder("shredded").build());
 
-    final DatabaseConfiguration config = new DatabaseConfiguration(new File(args[0]));
-    Database.createDatabase(config);
-    final IDatabase db = Database.openDatabase(new File(args[0]));
-    db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-    final ISession session = db.getSession(new SessionConfiguration.Builder("shredded").build());
+        final XMLSerializer serializer =
+          new XMLSerializerBuilder(session, outputStream).build();
+        serializer.call();
+      }
+    }
 
-    final XMLSerializer serializer = new XMLSerializerBuilder(session, outputStream).build();
-    serializer.call();
-
-    session.close();
-    outputStream.close();
-    db.close();
-
-    LOGWRAPPER.info(" done [" + (System.nanoTime() - time) / 1_000_000 + "ms].");
+    LOGWRAPPER
+      .info(" done [" + (System.nanoTime() - time) / 1_000_000 + "ms].");
   }
 
   /**
@@ -375,27 +390,27 @@ public final class XMLSerializer extends AbsSerializer {
     /**
      * Intermediate boolean for indendation, not necessary.
      */
-    private transient boolean mIndent;
+    private boolean mIndent;
 
     /**
      * Intermediate boolean for rest serialization, not necessary.
      */
-    private transient boolean mREST;
+    private boolean mREST;
 
     /**
      * Intermediate boolean for XML-Decl serialization, not necessary.
      */
-    private transient boolean mDeclaration = true;
+    private boolean mDeclaration = true;
 
     /**
      * Intermediate boolean for ids, not necessary.
      */
-    private transient boolean mID;
+    private boolean mID;
 
     /**
      * Intermediate number of spaces to indent, not necessary.
      */
-    private transient int mIndentSpaces = 2;
+    private int mIndentSpaces = 2;
 
     /** Stream to pipe to. */
     private final OutputStream mStream;
@@ -403,8 +418,11 @@ public final class XMLSerializer extends AbsSerializer {
     /** Session to use. */
     private final ISession mSession;
 
-    /** Versions to use. */
-    private transient long[] mVersions;
+    /** Further revisions to serialize. */
+    private long[] mRevisions;
+
+    /** Revision to serialize. */
+    private long mRevision;
 
     /** Node key of subtree to shredder. */
     private final long mNodeKey;
@@ -412,44 +430,59 @@ public final class XMLSerializer extends AbsSerializer {
     /**
      * Constructor, setting the necessary stuff.
      * 
-     * @param paramSession
-     *          {@link ISession} to Serialize
-     * @param paramStream
-     *          {@link OutputStream}
-     * @param paramVersions
-     *          version(s) to Serialize
+     * @param pSession
+     *          Sirix {@link ISession}
+     * @param pStream
+     *          {@link OutputStream} to write to
+     * @param pRevisions
+     *          revisions to serialize
      */
-    public XMLSerializerBuilder(final ISession paramSession, final OutputStream paramStream,
-      final long... paramVersions) {
+    public XMLSerializerBuilder(@Nonnull final ISession pSession,
+      @Nonnull final OutputStream pStream, final long... pRevisions) {
       mNodeKey = 0;
-      mStream = checkNotNull(paramStream);
-      mSession = checkNotNull(paramSession);
-      mVersions = checkNotNull(paramVersions);
+      mSession = checkNotNull(pSession);
+      mStream = checkNotNull(pStream);
+      if (pRevisions == null || pRevisions.length == 0) {
+        mRevision = mSession.getLastRevisionNumber();
+      } else {
+        mRevision = pRevisions[0];
+        mRevisions = new long[pRevisions.length - 1];
+        for (int i = 0; i < pRevisions.length - 1; i++) {
+          mRevisions[i] = pRevisions[i + 1];
+        }
+      }
     }
 
     /**
      * Constructor.
      * 
-     * @param paramSession
-     *          {@link ISession}
-     * @param paramNodeKey
+     * @param pSession
+     *          Sirix {@link ISession}
+     * @param pNodeKey
      *          root node key of subtree to shredder
-     * @param paramStream
-     *          {@link OutputStream}
-     * @param paramProperties
-     *          {@link XMLSerializerProperties}
+     * @param pStream
+     *          {@link OutputStream} to write to
+     * @param pProperties
+     *          {@link XMLSerializerProperties} to use
      * @param paramVersions
      *          version(s) to serialize
      */
-    public XMLSerializerBuilder(final ISession paramSession, final long paramNodeKey,
-      final OutputStream paramStream, final XMLSerializerProperties paramProperties,
-      final long... paramVersions) {
-      checkArgument(paramNodeKey >= 0, "paramNodeKey must be >= 0!");
-      mSession = checkNotNull(paramSession);
-      mNodeKey = paramNodeKey;
-      mStream = checkNotNull(paramStream);
-      mVersions = checkNotNull(paramVersions);
-      final ConcurrentMap<?, ?> map = checkNotNull(paramProperties.getProps());
+    public XMLSerializerBuilder(@Nonnull final ISession pSession, @Nonnegative final long pNodeKey,
+      @Nonnull final OutputStream pStream, @Nonnull final XMLSerializerProperties pProperties, final long... pRevisions) {
+      checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
+      mSession = checkNotNull(pSession);
+      mNodeKey = pNodeKey;
+      mStream = checkNotNull(pStream);
+      if (pRevisions == null || pRevisions.length == 0) {
+        mRevision = mSession.getLastRevisionNumber();
+      } else {
+        mRevision = pRevisions[0];
+        mRevisions = new long[pRevisions.length - 1];
+        for (int i = 0; i < pRevisions.length - 1; i++) {
+          mRevisions[i] = pRevisions[i + 1];
+        }
+      }
+      final ConcurrentMap<?, ?> map = checkNotNull(pProperties.getProps());
       mIndent = checkNotNull((Boolean)map.get(S_INDENT[0]));
       mREST = checkNotNull((Boolean)map.get(S_REST[0]));
       mID = checkNotNull((Boolean)map.get(S_ID[0]));
@@ -458,38 +491,38 @@ public final class XMLSerializer extends AbsSerializer {
     }
 
     /**
-     * Setting the indention.
+     * Setting the indendation.
      * 
-     * @param paramIndent
+     * @param pIndent
      *          determines if it should be indented
      * @return XMLSerializerBuilder reference
      */
-    public XMLSerializerBuilder setIndend(final boolean paramIndent) {
-      mIndent = paramIndent;
+    public XMLSerializerBuilder setIndend(final boolean pIndent) {
+      mIndent = pIndent;
       return this;
     }
 
     /**
      * Setting the RESTful output.
      * 
-     * @param paramREST
+     * @param pREST
      *          set RESTful
      * @return XMLSerializerBuilder reference
      */
-    public XMLSerializerBuilder setREST(final boolean paramREST) {
-      mREST = paramREST;
+    public XMLSerializerBuilder setREST(final boolean pREST) {
+      mREST = pREST;
       return this;
     }
 
     /**
      * Setting the declaration.
      * 
-     * @param paramDeclaration
+     * @param pDeclaration
      *          determines if the XML declaration should be emitted
-     * @return XMLSerializerBuilder reference.
+     * @return {@link XMLSerializerBuilder} reference
      */
-    public XMLSerializerBuilder setDeclaration(final boolean paramDeclaration) {
-      mDeclaration = paramDeclaration;
+    public XMLSerializerBuilder setDeclaration(final boolean pDeclaration) {
+      mDeclaration = pDeclaration;
       return this;
     }
 
@@ -508,22 +541,22 @@ public final class XMLSerializer extends AbsSerializer {
     /**
      * Setting the ids on nodes.
      * 
-     * @param paramVersions
-     *          to set
+     * @param pRevisions
+     *          revisions to serialize
      * @return XMLSerializerBuilder reference
      */
-    public XMLSerializerBuilder setVersions(final long[] paramVersions) {
-      mVersions = checkNotNull(paramVersions);
+    public XMLSerializerBuilder setVersions(final long[] pRevisions) {
+      mRevisions = checkNotNull(pRevisions);
       return this;
     }
 
     /**
-     * Building new Serializer.
+     * Building new {@link Serializer} instance.
      * 
-     * @return a new instance
+     * @return a new {@link Serializer} instance
      */
     public XMLSerializer build() {
-      return new XMLSerializer(mSession, mNodeKey, this, mVersions);
+      return new XMLSerializer(mSession, mNodeKey, this, mRevision, mRevisions);
     }
   }
 

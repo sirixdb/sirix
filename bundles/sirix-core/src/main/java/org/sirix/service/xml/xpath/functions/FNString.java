@@ -35,7 +35,7 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
 import org.sirix.exception.TTXPathException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.utils.TypedValue;
 
@@ -121,9 +121,9 @@ public class FNString extends AbsFunction {
 
     final INode node = getTransaction().getNode();
     if (node.getNodeKey() >= 0) { // is node
-      if (node.getKind() == ENode.ATTRIBUTE_KIND || node.getKind() == ENode.TEXT_KIND) {
+      if (node.getKind() == EKind.ATTRIBUTE || node.getKind() == EKind.TEXT) {
         value.append(getTransaction().getValueOfCurrentNode());
-      } else if (node.getKind() == ENode.ROOT_KIND || node.getKind() == ENode.ELEMENT_KIND) {
+      } else if (node.getKind() == EKind.DOCUMENT_ROOT || node.getKind() == EKind.ELEMENT) {
         final IAxis axis =
           new FilterAxis(new DescendantAxis(getTransaction()), new TextFilter(getTransaction()));
         while (axis.hasNext()) {

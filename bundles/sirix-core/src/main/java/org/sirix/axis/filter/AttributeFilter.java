@@ -28,7 +28,7 @@
 package org.sirix.axis.filter;
 
 import org.sirix.api.INodeReadTrx;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 
 /**
  * <h1>AttributeAxisTest</h1>
@@ -51,7 +51,7 @@ public class AttributeFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getNode().getKind() == ENode.ATTRIBUTE_KIND;
+    return getTransaction().getNode().getKind() == EKind.ATTRIBUTE;
   }
 
 }

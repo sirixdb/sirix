@@ -1745,6 +1745,8 @@ public abstract class AbsSunburstGUI implements IProcessingGUI, PropertyChangeLi
           builder.setModifications(oldRoot.getModificationCount());
           root = builder.build();
         }
+        assert oldRoot != null;
+        assert root != null;
         final int endIndex =
           item.getText() == null ? pHitItemIndex + (int)oldRoot.getValue() - 1 : pHitItemIndex;
         final List<SunburstItem> newItems = new ArrayList<>((int)root.getValue());

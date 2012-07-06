@@ -55,7 +55,7 @@ import org.sirix.axis.VisitorDescendantAxis;
 import org.sirix.diff.algorithm.IImportDiff;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTUsageException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.INode;
@@ -282,7 +282,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
       if (pWtx.moveTo(w)
         && pRtx.moveTo(x)
         && pWtx.getNode().getKind() == pRtx.getNode().getKind()
-        && (!nodeValuesEqual(w, x, pWtx, pRtx) || (pRtx.getNode().getKind() == ENode.ATTRIBUTE_KIND && !pRtx
+        && (!nodeValuesEqual(w, x, pWtx, pRtx) || (pRtx.getNode().getKind() == EKind.ATTRIBUTE && !pRtx
           .getValueOfCurrentNode().equals(pWtx.getValueOfCurrentNode())))) {
         // Either QNames differ or the values in case of attribute nodes.
         emitUpdate(w, x, pWtx, pRtx);
@@ -294,8 +294,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         assert z != null;
         mInOrderNewRev.put(x, true);
         pRtx.moveTo(x);
-        if (pRtx.getNode().getKind() == ENode.NAMESPACE_KIND
-          || pRtx.getNode().getKind() == ENode.ATTRIBUTE_KIND) {
+        if (pRtx.getNode().getKind() == EKind.NAMESPACE
+          || pRtx.getNode().getKind() == EKind.ATTRIBUTE) {
           pWtx.moveTo(w);
           try {
             mTotalMatching.remove(w);
@@ -498,8 +498,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     boolean moved = pWtx.moveTo(pChild);
     assert moved;
 
-    if (pWtx.getNode().getKind() == ENode.ATTRIBUTE_KIND
-      || pWtx.getNode().getKind() == ENode.NAMESPACE_KIND) {
+    if (pWtx.getNode().getKind() == EKind.ATTRIBUTE
+      || pWtx.getNode().getKind() == EKind.NAMESPACE) {
       // Attribute- and namespace-nodes can't be moved.
       return -1;
     }
@@ -510,15 +510,15 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 
     try {
       if (pPos == 0) {
-        assert pWtx.getStructuralNode().getKind() == ENode.ELEMENT_KIND
-          || pWtx.getStructuralNode().getKind() == ENode.ROOT_KIND;
+        assert pWtx.getStructuralNode().getKind() == EKind.ELEMENT
+          || pWtx.getStructuralNode().getKind() == EKind.DOCUMENT_ROOT;
         if (pWtx.getStructuralNode().getFirstChildKey() == pChild) {
           LOGWRAPPER
             .error("Something went wrong: First child and child may never be the same!");
         } else {
           if (pWtx.moveTo(pChild)) {
             boolean isTextKind = false;
-            if (pWtx.getNode().getKind() == ENode.TEXT_KIND) {
+            if (pWtx.getNode().getKind() == EKind.TEXT) {
               isTextKind = true;
             }
 
@@ -528,7 +528,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
               && pWtx.getStructuralNode().getFirstChildKey() != pChild) {
               if (pWtx.getStructuralNode().hasFirstChild()) {
                 pWtx.moveToFirstChild();
-                if (pWtx.getStructuralNode().getKind() == ENode.TEXT_KIND) {
+                if (pWtx.getStructuralNode().getKind() == EKind.TEXT) {
                   mTotalMatching.remove(pWtx.getNode().getNodeKey());
                   pWtx.remove();
                 }
@@ -536,7 +536,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
               }
             }
 
-            if (pWtx.getNode().getKind() == ENode.ROOT_KIND) {
+            if (pWtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
               pRtx.moveTo(pChild);
               pWtx.moveTo(pWtx.copySubtreeAsFirstChild(pRtx).getNode()
                 .getNodeKey());
@@ -560,17 +560,17 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         final long nodeKey = pWtx.getNode().getNodeKey();
         checkFromNodeForTextRemoval(pWtx, pChild);
         pWtx.moveTo(nodeKey);
-        if (pWtx.getNode().getKind() == ENode.TEXT_KIND && pWtx.moveTo(pChild)
-          && pWtx.getNode().getKind() == ENode.TEXT_KIND) {
+        if (pWtx.getNode().getKind() == EKind.TEXT && pWtx.moveTo(pChild)
+          && pWtx.getNode().getKind() == EKind.TEXT) {
           pWtx.moveTo(nodeKey);
           mTotalMatching.remove(pWtx.getNode().getNodeKey());
         }
         pWtx.moveTo(nodeKey);
         if (pWtx.moveToRightSibling()) {
           final long rightNodeKey = pWtx.getNode().getNodeKey();
-          if (pWtx.getNode().getKind() == ENode.TEXT_KIND
+          if (pWtx.getNode().getKind() == EKind.TEXT
             && pWtx.moveTo(pChild)
-            && pWtx.getNode().getKind() == ENode.TEXT_KIND) {
+            && pWtx.getNode().getKind() == EKind.TEXT) {
             pWtx.moveTo(rightNodeKey);
             mTotalMatching.remove(pWtx.getNode().getNodeKey());
           }
@@ -600,14 +600,14 @@ public final class FMSE implements IImportDiff, AutoCloseable {
       boolean isText = false;
       if (pWtx.getStructuralNode().hasLeftSibling()) {
         pWtx.moveToLeftSibling();
-        if (pWtx.getNode().getKind() == ENode.TEXT_KIND) {
+        if (pWtx.getNode().getKind() == EKind.TEXT) {
           isText = true;
         }
         pWtx.moveToRightSibling();
       }
       if (isText && pWtx.getStructuralNode().hasRightSibling()) {
         pWtx.moveToRightSibling();
-        if (pWtx.getNode().getKind() == ENode.TEXT_KIND && isText) {
+        if (pWtx.getNode().getKind() == EKind.TEXT && isText) {
           if (maybeRemoveLeftSibling) {
             boolean moved = pWtx.moveToLeftSibling();
             assert moved;
@@ -650,20 +650,20 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 
     try {
       switch (pRtx.getNode().getKind()) {
-      case ELEMENT_KIND:
-      case ATTRIBUTE_KIND:
-      case NAMESPACE_KIND:
-        assert pRtx.getNode().getKind() == ENode.ELEMENT_KIND
-          || pRtx.getNode().getKind() == ENode.ATTRIBUTE_KIND
-          || pRtx.getNode().getKind() == ENode.NAMESPACE_KIND;
+      case ELEMENT:
+      case ATTRIBUTE:
+      case NAMESPACE:
+        assert pRtx.getNode().getKind() == EKind.ELEMENT
+          || pRtx.getNode().getKind() == EKind.ATTRIBUTE
+          || pRtx.getNode().getKind() == EKind.NAMESPACE;
         pWtx.setQName(pRtx.getQNameOfCurrentNode());
 
-        if (pWtx.getNode().getKind() == ENode.ATTRIBUTE_KIND) {
+        if (pWtx.getNode().getKind() == EKind.ATTRIBUTE) {
           pWtx.setValue(pRtx.getValueOfCurrentNode());
         }
         break;
-      case TEXT_KIND:
-        assert pWtx.getNode().getKind() == ENode.TEXT_KIND;
+      case TEXT:
+        assert pWtx.getNode().getKind() == EKind.TEXT;
         pWtx.setValue(pRtx.getValueOfCurrentNode());
         break;
       default:
@@ -712,7 +712,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 
     try {
       switch (pRtx.getNode().getKind()) {
-      case ATTRIBUTE_KIND:
+      case ATTRIBUTE:
         try {
           pWtx.insertAttribute(pRtx.getQNameOfCurrentNode(), pRtx
             .getValueOfCurrentNode());
@@ -722,7 +722,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         }
         process(pWtx.getNode().getNodeKey(), pRtx.getNode().getNodeKey());
         break;
-      case NAMESPACE_KIND:
+      case NAMESPACE:
         // Note that the insertion is right (localPart as prefix).
         try {
           pWtx
@@ -739,14 +739,14 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         long oldKey = 0;
         if (pPos == 0) {
           switch (pRtx.getNode().getKind()) {
-          case ELEMENT_KIND:
+          case ELEMENT:
             oldKey = pWtx.copySubtreeAsFirstChild(pRtx).getNode().getNodeKey();
             break;
-          case TEXT_KIND:
+          case TEXT:
             // Remove first child text node if there is one and a new text node is inserted.
             if (pWtx.getStructuralNode().hasFirstChild()) {
               pWtx.moveToFirstChild();
-              if (pWtx.getNode().getKind() == ENode.TEXT_KIND) {
+              if (pWtx.getNode().getKind() == EKind.TEXT) {
                 mTotalMatching.remove(pWtx.getNode().getNodeKey());
                 pWtx.remove();
               }
@@ -771,11 +771,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
           // Remove right sibl. text node if a text node already exists.
           removeRightSiblingTextNode(pWtx);
           switch (pRtx.getNode().getKind()) {
-          case ELEMENT_KIND:
+          case ELEMENT:
             oldKey =
               pWtx.copySubtreeAsRightSibling(pRtx).getNode().getNodeKey();
             break;
-          case TEXT_KIND:
+          case TEXT:
             oldKey =
               pWtx.insertTextAsRightSibling(pRtx.getValueOfCurrentNode())
                 .getNode().getNodeKey();
@@ -800,7 +800,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
           final long newNodeKey = node.getNodeKey();
           final long oldNodeKey =
             oldAxis.getTransaction().getNode().getNodeKey();
-          if (node.getKind() == ENode.ELEMENT_KIND) {
+          if (node.getKind() == EKind.ELEMENT) {
             assert node.getKind() == oldAxis.getTransaction()
               .getStructuralNode().getKind();
             final ElementNode element = (ElementNode)node;
@@ -866,7 +866,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     if (pWtx.getStructuralNode().hasRightSibling()) {
       final long nodeKey = pWtx.getNode().getNodeKey();
       pWtx.moveToRightSibling();
-      if (pWtx.getNode().getKind() == ENode.TEXT_KIND) {
+      if (pWtx.getNode().getKind() == EKind.TEXT) {
         mTotalMatching.remove(pWtx.getNode().getNodeKey());
         pWtx.remove();
       }
@@ -918,8 +918,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     assert pRtx != null;
     pRtx.moveTo(pX);
 
-    if (pRtx.getNode().getKind() == ENode.ATTRIBUTE_KIND
-      || pRtx.getNode().getKind() == ENode.NAMESPACE_KIND) {
+    if (pRtx.getNode().getKind() == EKind.ATTRIBUTE
+      || pRtx.getNode().getKind() == EKind.NAMESPACE) {
       return 0;
     } else {
       final long nodeKey = pRtx.getNode().getNodeKey();
@@ -1019,10 +1019,10 @@ public final class FMSE implements IImportDiff, AutoCloseable {
       .getLeafLabels(), matching, new LeafEqual());
 
     // Remove roots ('/') from labels and append them to mapping.
-    final Map<ENode, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
-    final Map<ENode, List<Long>> newLabels = mLabelNewRevVisitor.getLabels();
-    oldLabels.remove(ENode.ROOT_KIND);
-    newLabels.remove(ENode.ROOT_KIND);
+    final Map<EKind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
+    final Map<EKind, List<Long>> newLabels = mLabelNewRevVisitor.getLabels();
+    oldLabels.remove(EKind.DOCUMENT_ROOT);
+    newLabels.remove(EKind.DOCUMENT_ROOT);
 
     pWtx.moveTo(mOldStartKey);
     pRtx.moveTo(mNewStartKey);
@@ -1049,14 +1049,14 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    * @param pCmp
    *          functional class
    */
-  private void match(final Map<ENode, List<Long>> pOldLabels,
-    final Map<ENode, List<Long>> pNewLabels, final Matching pMatching,
+  private void match(final Map<EKind, List<Long>> pOldLabels,
+    final Map<EKind, List<Long>> pNewLabels, final Matching pMatching,
     final IComparator<Long> pCmp) {
-    final Set<ENode> labels = pOldLabels.keySet();
+    final Set<EKind> labels = pOldLabels.keySet();
     labels.retainAll(pNewLabels.keySet()); // intersection
 
     // 2 - for each label do
-    for (final ENode label : labels) {
+    for (final EKind label : labels) {
       final List<Long> first = pOldLabels.get(label); // 2(a)
       final List<Long> second = pNewLabels.get(label); // 2(b)
 
@@ -1222,12 +1222,12 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     pRtx.moveTo(pNodeKey);
     final StringBuilder retVal = new StringBuilder();
     switch (pRtx.getNode().getKind()) {
-    case ELEMENT_KIND:
-    case NAMESPACE_KIND:
-    case ATTRIBUTE_KIND:
+    case ELEMENT:
+    case NAMESPACE:
+    case ATTRIBUTE:
       retVal.append(PageWriteTrx.buildName(pRtx.getQNameOfCurrentNode()));
       break;
-    case TEXT_KIND:
+    case TEXT:
       retVal.append(pRtx.getValueOfCurrentNode());
       break;
     default:
@@ -1259,11 +1259,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 
       double ratio = 0;
 
-      if (oldNode.getKind() == ENode.ATTRIBUTE_KIND
-        || oldNode.getKind() == ENode.NAMESPACE_KIND) {
+      if (oldNode.getKind() == EKind.ATTRIBUTE
+        || oldNode.getKind() == EKind.NAMESPACE) {
         if (mWtx.getQNameOfCurrentNode().equals(mRtx.getQNameOfCurrentNode())) {
           ratio = 1;
-          if (mWtx.getNode().getKind() == ENode.ATTRIBUTE_KIND) {
+          if (mWtx.getNode().getKind() == EKind.ATTRIBUTE) {
             ratio =
               calculateRatio(mWtx.getValueOfCurrentNode(), mRtx
                 .getValueOfCurrentNode());

@@ -33,7 +33,7 @@ import java.util.Deque;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeTraversal;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 
 /**
@@ -78,8 +78,8 @@ public final class PrecedingAxis extends AbsAxis {
     // Assure, that preceding is not evaluated on an attribute or a namespace.
     if (mIsFirst) {
       mIsFirst = false;
-      if (getTransaction().getNode().getKind() == ENode.ATTRIBUTE_KIND
-        || getTransaction().getNode().getKind() == ENode.NAMESPACE_KIND) {
+      if (getTransaction().getNode().getKind() == EKind.ATTRIBUTE
+        || getTransaction().getNode().getKind() == EKind.NAMESPACE) {
         resetToStartKey();
         return false;
       }

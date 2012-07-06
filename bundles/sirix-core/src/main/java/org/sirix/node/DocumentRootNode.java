@@ -67,8 +67,8 @@ public final class DocumentRootNode extends AbsStructForwardingNode implements
   }
 
   @Override
-  public ENode getKind() {
-    return ENode.ROOT_KIND;
+  public EKind getKind() {
+    return EKind.DOCUMENT_ROOT;
   }
 
   @Override

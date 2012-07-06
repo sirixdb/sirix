@@ -34,7 +34,7 @@ import java.util.Deque;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeReadTrx;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.IStructNode;
 
@@ -102,8 +102,8 @@ public final class LevelOrderAxis extends AbsAxis {
       if (mFirst) {
         mFirst = false;
 
-        final ENode kind = node.getKind();
-        if (kind == ENode.ATTRIBUTE_KIND || kind == ENode.NAMESPACE_KIND) {
+        final EKind kind = node.getKind();
+        if (kind == EKind.ATTRIBUTE || kind == EKind.NAMESPACE) {
           return false;
         }
         if (isSelfIncluded() == EIncludeSelf.YES) {
@@ -160,7 +160,7 @@ public final class LevelOrderAxis extends AbsAxis {
   /** Process an element node. */
   private void processElement() {
     final INodeReadTrx rtx = (INodeReadTrx)getTransaction();
-    if (rtx.getStructuralNode().getKind() == ENode.ELEMENT_KIND
+    if (rtx.getStructuralNode().getKind() == EKind.ELEMENT
       && mIncludeNodes == EIncludeNodes.NONSTRUCTURAL) {
       final ElementNode element = (ElementNode)rtx.getNode();
       for (int i = 0, nspCount = element.getNamespaceCount(); i < nspCount; i++) {

@@ -32,6 +32,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.concurrent.Callable;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.s9api.DocumentBuilder;
@@ -58,7 +61,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
   /** An XPath expression. */
   private final String mExpression;
 
-  /** sirix {@link ISession}. */
+  /** Sirix {@link ISession}. */
   private final ISession mSession;
 
   /** The revision to open. */
@@ -71,7 +74,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
     /** An XPath expression. */
     private final String mExpression;
 
-    /** sirix {@link ISession}. */
+    /** Sirix {@link ISession}. */
     private final ISession mSession;
 
     /** The revision to open. */
@@ -85,7 +88,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
      * @param pSession
      *          sirix {@link ISession} instance
      */
-    public Builder(final String pExpression, final ISession pSession) {
+    public Builder(@Nonnull final String pExpression, @Nonnull final ISession pSession) {
       mExpression = checkNotNull(pExpression);
       mSession = checkNotNull(pSession);
       mRevision = pSession.getLastRevisionNumber();
@@ -98,7 +101,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
      *          the revision to open
      * @return this builder instance
      */
-    public Builder setRevision(final long pRevision) {
+    public Builder setRevision(@Nonnegative final long pRevision) {
       checkArgument(pRevision >= 0, "pRevision must be >= 0!");
       mRevision = pRevision;
       return this;
@@ -124,8 +127,8 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
    * @param pRevision
    *          the revision to open
    */
-  public XPathEvaluator(final Builder pBuilder) {
-    mExpression = checkNotNull(pBuilder).mExpression;
+  public XPathEvaluator(@Nonnull final Builder pBuilder) {
+    mExpression = pBuilder.mExpression;
     mSession = pBuilder.mSession;
     mRevision = pBuilder.mRevision;
   }

@@ -77,8 +77,8 @@ public final class FollowingAxis extends AbsAxis {
     // namespace.
     if (mIsFirst) {
       switch (getTransaction().getNode().getKind()) {
-      case ATTRIBUTE_KIND:
-      case NAMESPACE_KIND:
+      case ATTRIBUTE:
+      case NAMESPACE:
         resetToStartKey();
         return false;
       }

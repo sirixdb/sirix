@@ -46,7 +46,7 @@ import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.utils.DocumentCreater;
@@ -109,7 +109,7 @@ public class XMLShredderTest extends XMLTestCase {
       assertEquals(expDesc.getLeftSiblingKey(), desc.getLeftSiblingKey());
       assertEquals(expDesc.getRightSiblingKey(), desc.getRightSiblingKey());
       assertEquals(expDesc.getChildCount(), desc.getChildCount());
-      if (expDesc.getKind() == ENode.ELEMENT_KIND || desc.getKind() == ENode.ELEMENT_KIND) {
+      if (expDesc.getKind() == EKind.ELEMENT || desc.getKind() == EKind.ELEMENT) {
 
         assertEquals(((ElementNode)expDesc).getAttributeCount(), ((ElementNode)desc).getAttributeCount());
         assertEquals(((ElementNode)expDesc).getNamespaceCount(), ((ElementNode)desc).getNamespaceCount());
@@ -206,8 +206,8 @@ public class XMLShredderTest extends XMLTestCase {
     while (expectedAttributes.hasNext() && attributes.hasNext()) {
       expectedAttributes.next();
       attributes.next();
-      if (expectedTrx2.getNode().getKind() == ENode.ELEMENT_KIND
-        || rtx.getNode().getKind() == ENode.ELEMENT_KIND) {
+      if (expectedTrx2.getNode().getKind() == EKind.ELEMENT
+        || rtx.getNode().getKind() == EKind.ELEMENT) {
         assertEquals(((ElementNode)expectedTrx2.getNode()).getNamespaceCount(), ((ElementNode)rtx.getNode())
           .getNamespaceCount());
         assertEquals(((ElementNode)expectedTrx2.getNode()).getAttributeCount(), ((ElementNode)rtx.getNode())

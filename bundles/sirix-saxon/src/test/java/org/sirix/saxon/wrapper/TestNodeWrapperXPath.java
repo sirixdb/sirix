@@ -54,7 +54,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 
 /**
@@ -158,9 +158,9 @@ public final class TestNodeWrapperXPath {
 
           final QName qName = mHolder.getRtx().getQNameOfCurrentNode();
 
-          if (mHolder.getRtx().getNode().getKind() == ENode.ELEMENT_KIND) {
+          if (mHolder.getRtx().getNode().getKind() == EKind.ELEMENT) {
             assertEquals(expRes[j], qName.getPrefix() + ":" + qName.getLocalPart());
-          } else if (mHolder.getRtx().getNode().getKind() == ENode.TEXT_KIND) {
+          } else if (mHolder.getRtx().getNode().getKind() == EKind.TEXT) {
             assertEquals(expRes[j], mHolder.getRtx().getValueOfCurrentNode());
           }
 

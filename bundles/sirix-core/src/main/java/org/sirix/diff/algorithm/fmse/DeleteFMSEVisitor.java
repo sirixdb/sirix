@@ -15,7 +15,7 @@ import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.INode;
@@ -138,11 +138,11 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
       final long nodeKey = mWtx.getNode().getNodeKey();
       boolean removeTextNode = false;
       if (mWtx.getStructuralNode().hasLeftSibling() && mWtx.moveToLeftSibling()
-        && mWtx.getNode().getKind() == ENode.TEXT_KIND
+        && mWtx.getNode().getKind() == EKind.TEXT
         && mWtx.moveToRightSibling()
         && mWtx.getStructuralNode().hasRightSibling()
         && mWtx.moveToRightSibling()
-        && mWtx.getStructuralNode().getKind() == ENode.TEXT_KIND) {
+        && mWtx.getStructuralNode().getKind() == EKind.TEXT) {
         removeTextNode = true;
       }
       mWtx.moveTo(nodeKey);

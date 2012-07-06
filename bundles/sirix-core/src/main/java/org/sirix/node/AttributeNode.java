@@ -75,8 +75,8 @@ public final class AttributeNode extends AbsForwardingNode implements IValNode, 
   }
 
   @Override
-  public ENode getKind() {
-    return ENode.ATTRIBUTE_KIND;
+  public EKind getKind() {
+    return EKind.ATTRIBUTE;
   }
 
   @Override

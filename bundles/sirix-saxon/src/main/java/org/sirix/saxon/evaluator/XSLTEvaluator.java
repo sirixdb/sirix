@@ -27,10 +27,14 @@
 
 package org.sirix.saxon.evaluator;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.File;
 import java.io.OutputStream;
 import java.util.concurrent.Callable;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.xml.transform.stream.StreamSource;
 
 import net.sf.saxon.Configuration;
@@ -42,13 +46,11 @@ import net.sf.saxon.s9api.XdmNode;
 import net.sf.saxon.s9api.XsltCompiler;
 import net.sf.saxon.s9api.XsltExecutable;
 import net.sf.saxon.s9api.XsltTransformer;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;
 import org.sirix.saxon.wrapper.DocumentWrapper;
-import org.sirix.saxon.wrapper.NodeWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>XSLT Evaluator</h1>
@@ -68,10 +70,10 @@ public final class XSLTEvaluator implements Callable<OutputStream> {
   private static final Logger LOGGER = LoggerFactory.getLogger(XSLTEvaluator.class);
 
   /** Stylesheet file. */
-  private final transient File mStylesheet;
+  private final File mStylesheet;
 
   /** Resulting stream of the transformation. */
-  private final transient OutputStream mOut;
+  private final OutputStream mOut;
 
   /**
    * Serializer to specify serialization output properties and the destination
@@ -80,45 +82,42 @@ public final class XSLTEvaluator implements Callable<OutputStream> {
   private transient Serializer mSerializer;
 
   /** sirix database. */
-  private final transient ISession mSession;
+  private final ISession mSession;
 
   /**
    * Constructor.
    * 
-   * @param paramSession
-   *          sirix database.
-   * @param stylesheet
-   *          Path to stylesheet.
-   * @param out
-   *          Resulting stream of the transformation.
+   * @param pSession
+   *          Sirix {@link ISession}
+   * @param pStylesheet
+   *          path to stylesheet
+   * @param pOut
+   *          resulting stream of the transformation
    */
-  public XSLTEvaluator(final ISession paramSession, final File stylesheet, final OutputStream out) {
-    this(paramSession, stylesheet, out, null);
+  public XSLTEvaluator(@Nonnull final ISession pSession, @Nonnull final File pStylesheet, @Nonnull final OutputStream pOut) {
+    this(pSession, pStylesheet, pOut, null);
   }
 
   /**
    * Constructor.
    * 
-   * @param paramSession
-   *          sirix mDatabase.
-   * @param paramStyle
-   *          Path to stylesheet.
-   * @param paramOut
-   *          Resulting stream of the transformation.
-   * @param paramSerializer
-   *          Serializer, for which one can specify output properties.
+   * @param pSession
+   *          Sirix {@link ISession}
+   * @param pStyle
+   *          path to stylesheet
+   * @param pOut
+   *          resulting stream of the transformation
+   * @param pSerializer
+   *          serializer, for which one can specify output properties
    */
-  public XSLTEvaluator(final ISession paramSession, final File paramStyle, final OutputStream paramOut,
-    final Serializer paramSerializer) {
-    mSession = paramSession;
-    mStylesheet = paramStyle;
-    mOut = paramOut;
-    mSerializer = paramSerializer;
+  public XSLTEvaluator(@Nonnull final ISession pSession, @Nonnull final File pStyle, @Nonnull final OutputStream pOut,
+    @Nullable final Serializer pSerializer) {
+    mSession = checkNotNull(pSession);
+    mStylesheet = checkNotNull(pStyle);
+    mOut = checkNotNull(pOut);
+    mSerializer = pSerializer;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public OutputStream call() {
     final Processor proc = new Processor(false);

@@ -112,14 +112,14 @@ public class ConcurrentAxisTest {
     IAxis axis = null;
     try {
       axis = new XPathAxis(holder.getRtx(), query);
+      for (int i = 0; i < resultNumber; i++) {
+        assertEquals(true, axis.hasNext());
+        axis.next();
+      }
+      assertEquals(false, axis.hasNext());
     } catch (final TTXPathException ttExp) {
-      ttExp.printStackTrace();
+      fail();
     }
-    for (int i = 0; i < resultNumber; i++) {
-      assertEquals(true, axis.hasNext());
-      axis.next();
-    }
-    assertEquals(false, axis.hasNext());
   }
 
   /**

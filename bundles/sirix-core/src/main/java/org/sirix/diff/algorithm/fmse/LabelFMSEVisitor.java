@@ -36,7 +36,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.TextNode;
 
@@ -52,10 +52,10 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
   private final INodeReadTrx mRtx;
 
   /** For each node type: list of inner nodes. */
-  private final Map<ENode, List<Long>> mLabels;
+  private final Map<EKind, List<Long>> mLabels;
 
   /** For each node type: list of leaf nodes. */
-  private final Map<ENode, List<Long>> mLeafLabels;
+  private final Map<EKind, List<Long>> mLeafLabels;
 
   /**
    * Constructor.
@@ -103,7 +103,7 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
    * Add leaf node label.
    */
   private void addLeafLabel() {
-    final ENode nodeKind = mRtx.getNode().getKind();
+    final EKind nodeKind = mRtx.getNode().getKind();
     if (!mLeafLabels.containsKey(nodeKind)) {
       mLeafLabels.put(nodeKind, new ArrayList<Long>());
     }
@@ -115,7 +115,7 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
    * 
    * @return the Labels
    */
-  public Map<ENode, List<Long>> getLabels() {
+  public Map<EKind, List<Long>> getLabels() {
     return mLabels;
   }
 
@@ -124,7 +124,7 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
    * 
    * @return the leaf labels
    */
-  public Map<ENode, List<Long>> getLeafLabels() {
+  public Map<EKind, List<Long>> getLeafLabels() {
     return mLeafLabels;
   }
 }

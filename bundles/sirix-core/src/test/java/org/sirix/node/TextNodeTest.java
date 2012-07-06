@@ -57,7 +57,7 @@ public class TextNodeTest {
     final ByteBufferSinkAndSource out = new ByteBufferSinkAndSource();
     node1.getKind().serialize(out, node1);
     out.position(0);
-    final TextNode node2 = (TextNode)ENode.TEXT_KIND.deserialize(out);
+    final TextNode node2 = (TextNode)EKind.TEXT.deserialize(out);
     check(node2);
 
   }
@@ -72,7 +72,7 @@ public class TextNodeTest {
     assertEquals(16L, node.getRightSiblingKey());
     assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
     assertEquals(2, node.getRawValue().length);
-    assertEquals(ENode.TEXT_KIND, node.getKind());
+    assertEquals(EKind.TEXT, node.getKind());
     assertEquals(false, node.hasFirstChild());
     assertEquals(true, node.hasParent());
     assertEquals(true, node.hasLeftSibling());

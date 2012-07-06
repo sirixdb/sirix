@@ -35,7 +35,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.settings.EFixed;
@@ -115,7 +115,7 @@ public class StructNodeDelegate implements IStructNode {
   }
 
   @Override
-  public ENode getKind() {
+  public EKind getKind() {
     return mDelegate.getKind();
   }
 

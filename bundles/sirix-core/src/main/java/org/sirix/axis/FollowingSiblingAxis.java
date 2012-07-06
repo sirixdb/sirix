@@ -30,7 +30,7 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeTraversal;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 
 /**
@@ -74,8 +74,8 @@ public final class FollowingSiblingAxis extends AbsAxis {
        * If the context node is an attribute or namespace node,
        * the following-sibling axis is empty
        */
-      if (getTransaction().getNode().getKind() == ENode.ATTRIBUTE_KIND
-        || getTransaction().getNode().getKind() == ENode.NAMESPACE_KIND) {
+      if (getTransaction().getNode().getKind() == EKind.ATTRIBUTE
+        || getTransaction().getNode().getKind() == EKind.NAMESPACE) {
         resetToStartKey();
         return false;
       }

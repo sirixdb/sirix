@@ -38,7 +38,7 @@ import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INode;
 
@@ -185,7 +185,7 @@ public final class Matching {
       axis.next();
       retVal += mIsInSubtree.get(pNodeY, partner(mRtxOld.getNode().getNodeKey())) ? 1 : 0;
       final INode node = axis.getTransaction().getNode();
-      if (node.getKind() == ENode.ELEMENT_KIND) {
+      if (node.getKind() == EKind.ELEMENT) {
         final ElementNode element = (ElementNode)node;
         for (int i = 0; i < element.getNamespaceCount(); i++) {
           mRtxOld.moveToNamespace(i);

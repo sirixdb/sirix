@@ -34,7 +34,7 @@ import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.exception.TTXPathException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IValNode;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -188,7 +188,7 @@ public class Function {
    */
   public static boolean fnNilled(final INodeReadTrx rtx, final AbsAxis axis) {
 
-    if (axis.hasNext() && rtx.getNode().getKind() == ENode.ELEMENT_KIND) {
+    if (axis.hasNext() && rtx.getNode().getKind() == EKind.ELEMENT) {
       final boolean nilled = false; // TODO how is the nilled property
                                     // defined?
       final int itemKey = rtx.getItemList().addItem(new AtomicValue(nilled));

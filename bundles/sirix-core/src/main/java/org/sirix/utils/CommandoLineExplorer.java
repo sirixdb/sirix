@@ -236,31 +236,31 @@ public final class CommandoLineExplorer {
       String executeCommand(final INodeReadTrx mCurrentRtx, final String mParameter) {
         final StringBuilder builder = new StringBuilder("Kind: ");
         switch (mCurrentRtx.getNode().getKind()) {
-        case ELEMENT_KIND:
+        case ELEMENT:
           builder.append("Element\n");
           builder.append(mCurrentRtx.getQNameOfCurrentNode());
           break;
-        case ATTRIBUTE_KIND:
+        case ATTRIBUTE:
           builder.append("Attribute\n");
           builder.append(mCurrentRtx.getQNameOfCurrentNode());
           builder.append("=");
           builder.append(mCurrentRtx.getValueOfCurrentNode());
           break;
-        case TEXT_KIND:
+        case TEXT:
           builder.append("Text\n");
           builder.append(mCurrentRtx.getValueOfCurrentNode());
           break;
-        case NAMESPACE_KIND:
+        case NAMESPACE:
           builder.append("Namespace\n");
           builder.append(mCurrentRtx.getQNameOfCurrentNode());
           break;
-        case PROCESSING_KIND:
+        case PROCESSING:
           builder.append("Processing instruction\n");
           break;
-        case COMMENT_KIND:
+        case COMMENT:
           builder.append("Comment\n");
           break;
-        case ROOT_KIND:
+        case DOCUMENT_ROOT:
           builder.append("Document Root\n");
           break;
         default:

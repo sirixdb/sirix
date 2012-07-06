@@ -77,10 +77,10 @@ public final class SunburstPopupMenu extends JPopupMenu {
     mCtrl = paramCtrl;
 
     switch (mWtx.getNode().getKind()) {
-    case ELEMENT_KIND:
+    case ELEMENT:
       createMenu();
       break;
-    case TEXT_KIND:
+    case TEXT:
       EMenu.INSERT_FRAGMENT_AS_RIGHT_SIBLING.createMenuItem(mModel, this, mWtx, mCtrl);
       EMenu.DELETE.createMenuItem(mModel, this, mWtx, mCtrl);
       break;

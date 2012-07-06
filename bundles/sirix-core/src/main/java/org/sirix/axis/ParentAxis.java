@@ -30,7 +30,7 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeTraversal;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.settings.EFixed;
 
@@ -70,7 +70,7 @@ public final class ParentAxis extends AbsAxis {
 
     resetToLastKey();
     final INode node = getTransaction().getNode();
-    if (node.getKind() != ENode.ROOT_KIND && mFirst && node.hasParent()
+    if (node.getKind() != EKind.DOCUMENT_ROOT && mFirst && node.hasParent()
       && node.getParentKey() != EFixed.ROOT_NODE_KEY.getStandardProperty()) {
       mFirst = false;
       mKey = node.getParentKey();

@@ -90,7 +90,7 @@ import org.sirix.gui.view.sunburst.axis.AbsSunburstAxis;
 import org.sirix.gui.view.sunburst.axis.DiffSunburstAxis;
 import org.sirix.gui.view.sunburst.model.Modification;
 import org.sirix.gui.view.sunburst.model.Modifications;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.utils.LogWrapper;
@@ -301,13 +301,13 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
     mParent = ((AbsModel<?, ?>)mModel).getParent();
     mDepth = pContainer.getDepth();
     mOldRtx.moveTo(pContainer.getNewStartKey());
-    if (mOldRtx.getNode().getKind() == ENode.ROOT_KIND) {
+    if (mOldRtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
       mOldRtx.moveToFirstChild();
     }
     mOldStartKey =
       pContainer.getNewStartKey() == 0 ? mOldRtx.getNode().getNodeKey() : pContainer.getNewStartKey();
     mNewRtx.moveTo(pContainer.getNewStartKey());
-    if (mNewRtx.getNode().getKind() == ENode.ROOT_KIND) {
+    if (mNewRtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
       mNewRtx.moveToFirstChild();
     }
     mNewStartKey =
@@ -703,7 +703,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
       int maxTextLength = Integer.MIN_VALUE;
       for (final IAxis axis = new DescendantAxis(mOldRtx, EIncludeSelf.YES); axis.hasNext();) {
         axis.next();
-        if (axis.getTransaction().getNode().getKind() == ENode.TEXT_KIND) {
+        if (axis.getTransaction().getNode().getKind() == EKind.TEXT) {
           final int length = axis.getTransaction().getValueOfCurrentNode().length();
           if (length < minTextLength) {
             minTextLength = length;
@@ -790,7 +790,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
       String text = "";
       NodeRelations relations = null;
       final EDiff currDiff = diffCont.getDiff();
-      if (node.getKind() == ENode.TEXT_KIND) {
+      if (node.getKind() == EKind.TEXT) {
         if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM || currDiff == EDiff.REPLACEDOLD) {
           text = mOldRtx.getValueOfCurrentNode();
         } else {
@@ -916,7 +916,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
     switch (pDiff) {
     case UPDATED:
       final INode oldNode = mOldRtx.getNode();
-      if (oldNode.getKind() == ENode.TEXT_KIND) {
+      if (oldNode.getKind() == EKind.TEXT) {
         pBuilder.setOldText(mOldRtx.getValueOfCurrentNode());
       } else {
         pBuilder.setOldQName(mOldRtx.getQNameOfCurrentNode());

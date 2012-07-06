@@ -65,7 +65,7 @@ final class FullDiff extends AbsDiff {
     INode secondNode = pSecondRtx.getNode();
     if (firstNode.getNodeKey() == secondNode.getNodeKey() && firstNode.getKind() == secondNode.getKind()) {
       switch (firstNode.getKind()) {
-      case ELEMENT_KIND:
+      case ELEMENT:
         final ElementNode firstElement = (ElementNode)pFirstRtx.getNode();
         final ElementNode secondElement = (ElementNode)pSecondRtx.getNode();
 
@@ -89,7 +89,7 @@ final class FullDiff extends AbsDiff {
           }
         }
         break;
-      case TEXT_KIND:
+      case TEXT:
         found = pFirstRtx.getValueOfCurrentNode().equals(pSecondRtx.getValueOfCurrentNode());
         break;
       }

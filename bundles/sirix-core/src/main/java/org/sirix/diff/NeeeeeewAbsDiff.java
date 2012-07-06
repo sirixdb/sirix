@@ -44,7 +44,7 @@ import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.diff.DiffFactory.EDiffOptimized;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 
 /**
@@ -153,10 +153,10 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
     }
     mNewRtxMoved = mNewRtx.moveTo(pBuilder.mNewStartKey);
     mOldRtxMoved = mOldRtx.moveTo(pBuilder.mOldStartKey);
-    if (mNewRtx.getNode().getKind() == ENode.ROOT_KIND) {
+    if (mNewRtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
       mNewRtx.moveToFirstChild();
     }
-    if (mOldRtx.getNode().getKind() == ENode.ROOT_KIND) {
+    if (mOldRtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
       mOldRtx.moveToFirstChild();
     }
     mRootKey = pBuilder.mNewStartKey;
@@ -214,13 +214,13 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
 
     // Iterate over new revision (order of operators significant -- regarding the OR).
     if (mDiff != EDiff.SAMEHASH) {
-      while ((mOldRtx.getNode().getKind() != ENode.ROOT_KIND && mDiff == EDiff.DELETED)
+      while ((mOldRtx.getNode().getKind() != EKind.DOCUMENT_ROOT && mDiff == EDiff.DELETED)
         || moveCursor(mNewRtx, ERevision.NEW, EMove.FOLLOWING)) {
         if (mDiff != EDiff.INSERTED) {
           moveCursor(mOldRtx, ERevision.OLD, EMove.FOLLOWING);
         }
 
-        if (mNewRtx.getNode().getKind() != ENode.ROOT_KIND || mOldRtx.getNode().getKind() != ENode.ROOT_KIND) {
+        if (mNewRtx.getNode().getKind() != EKind.DOCUMENT_ROOT || mOldRtx.getNode().getKind() != EKind.DOCUMENT_ROOT) {
           if (mHashKind == EHashKind.None || mDiffKind == EDiffOptimized.NO) {
             mDiff = diff(mNewRtx, mOldRtx, mDepth, EFireDiff.TRUE);
           } else {
@@ -230,7 +230,7 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
       }
 
       // Nodes deleted in old rev at the end of the tree.
-      if (mOldRtx.getNode().getKind() != ENode.ROOT_KIND) {
+      if (mOldRtx.getNode().getKind() != EKind.DOCUMENT_ROOT) {
         mRootKey = mOldRootKey;
         // First time it might be EDiff.INSERTED where the cursor doesn't move.
         if (mDiff == EDiff.INSERTED) {
@@ -312,7 +312,7 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
 
     boolean moved = false;
 
-    if (pRtx.getNode().getKind() != ENode.ROOT_KIND) {
+    if (pRtx.getNode().getKind() != EKind.DOCUMENT_ROOT) {
       switch (mDiff) {
       case SAME:
       case SAMEHASH:
@@ -325,7 +325,7 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
       case INSERTED:
       case DELETED:
         if (pMove == EMove.FOLLOWING && (mDiff == EDiff.INSERTED || mDiff == EDiff.DELETED)) {
-          if (pRtx.getNode().getKind() == ENode.ROOT_KIND) {
+          if (pRtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
             moved = false;
           } else {
             moved = true;
@@ -345,7 +345,7 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
     boolean moved = false;
     final IStructNode node = pRtx.getStructuralNode();
     if (node.hasFirstChild()) {
-      if (node.getKind() != ENode.ROOT_KIND && mDiffKind == EDiffOptimized.HASHED && mDiff == EDiff.SAMEHASH) {
+      if (node.getKind() != EKind.DOCUMENT_ROOT && mDiffKind == EDiffOptimized.HASHED && mDiff == EDiff.SAMEHASH) {
         moved = pRtx.moveToRightSibling();
 
         if (!moved) {
@@ -434,9 +434,9 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
 
     // Check for modifications.
     switch (pNewRtx.getNode().getKind()) {
-    case ROOT_KIND:
-    case TEXT_KIND:
-    case ELEMENT_KIND:
+    case DOCUMENT_ROOT:
+    case TEXT:
+    case ELEMENT:
       if (checkNodes(pNewRtx, pOldRtx)) {
         if (checkReplace(pNewRtx, pOldRtx)) {
           diff = EDiff.REPLACED;
@@ -479,9 +479,9 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
 
     // Check for modifications.
     switch (pNewRtx.getNode().getKind()) {
-    case ROOT_KIND:
-    case TEXT_KIND:
-    case ELEMENT_KIND:
+    case DOCUMENT_ROOT:
+    case TEXT:
+    case ELEMENT:
       if (pNewRtx.getNode().getNodeKey() != pOldRtx.getNode().getNodeKey()
         || pNewRtx.getNode().getHash() != pOldRtx.getNode().getHash()) {
         // Check if nodes are the same (even if subtrees may vary).
@@ -629,12 +629,12 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
     boolean found = false;
     if (pNewRtx.getNode().getKind() == pOldRtx.getNode().getKind()) {
       switch (pNewRtx.getNode().getKind()) {
-      case ELEMENT_KIND:
+      case ELEMENT:
         if (pNewRtx.getQNameOfCurrentNode().equals(pOldRtx.getQNameOfCurrentNode())) {
           found = true;
         }
         break;
-      case TEXT_KIND:
+      case TEXT:
         if (pNewRtx.getValueOfCurrentNode().equals(pOldRtx.getValueOfCurrentNode())) {
           found = true;
         }

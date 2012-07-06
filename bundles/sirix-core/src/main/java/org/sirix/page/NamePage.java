@@ -38,7 +38,7 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.indexes.Names;
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.page.interfaces.IPage;
 
 /**
@@ -96,16 +96,16 @@ public final class NamePage implements IPage {
    *          name key identifying name
    * @return raw name of name key
    */
-  public byte[] getRawName(final int pKey, final ENode pNodeKind) {
+  public byte[] getRawName(final int pKey, final EKind pNodeKind) {
     byte[] rawName = new byte[] {};
     switch (pNodeKind) {
-    case ELEMENT_KIND:
+    case ELEMENT:
       rawName = mElements.getRawName(pKey);
       break;
-    case NAMESPACE_KIND:
+    case NAMESPACE:
       rawName = mNamespaces.getRawName(pKey);
       break;
-    case ATTRIBUTE_KIND:
+    case ATTRIBUTE:
       rawName = mAttributes.getRawName(pKey);
       break;
     default:
@@ -121,16 +121,16 @@ public final class NamePage implements IPage {
    *          name key identifying name
    * @return raw name of name key
    */
-  public String getName(final int pKey, final ENode pNodeKind) {
+  public String getName(final int pKey, final EKind pNodeKind) {
     String name;
     switch (pNodeKind) {
-    case ELEMENT_KIND:
+    case ELEMENT:
       name = mElements.getName(pKey);
       break;
-    case NAMESPACE_KIND:
+    case NAMESPACE:
       name = mNamespaces.getName(pKey);
       break;
-    case ATTRIBUTE_KIND:
+    case ATTRIBUTE:
       name = mAttributes.getName(pKey);
       break;
     default:
@@ -147,15 +147,15 @@ public final class NamePage implements IPage {
    * @param pName
    *          name to create key for
    */
-  public void setName(final int pKey, final String pName, final ENode pNodeKind) {
+  public void setName(final int pKey, final String pName, final EKind pNodeKind) {
     switch (pNodeKind) {
-    case ELEMENT_KIND:
+    case ELEMENT:
       mElements.setName(pKey, pName);
       break;
-    case NAMESPACE_KIND:
+    case NAMESPACE:
       mNamespaces.setName(pKey, pName);
       break;
-    case ATTRIBUTE_KIND:
+    case ATTRIBUTE:
       mAttributes.setName(pKey, pName);
       break;
     default:
@@ -182,15 +182,15 @@ public final class NamePage implements IPage {
    * @param pKey
    *          the key to remove
    */
-  public void removeName(final int pKey, final ENode pNodeKind) {
+  public void removeName(final int pKey, final EKind pNodeKind) {
     switch (pNodeKind) {
-    case ELEMENT_KIND:
+    case ELEMENT:
       mElements.removeName(pKey);
       break;
-    case NAMESPACE_KIND:
+    case NAMESPACE:
       mNamespaces.removeName(pKey);
       break;
-    case ATTRIBUTE_KIND:
+    case ATTRIBUTE:
       mAttributes.removeName(pKey);
       break;
     default:

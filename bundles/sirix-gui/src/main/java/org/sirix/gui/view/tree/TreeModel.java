@@ -32,7 +32,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.exception.AbsTTException;
 import org.sirix.gui.ReadDB;
 import org.sirix.node.DocumentRootNode;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
@@ -79,11 +79,11 @@ public final class TreeModel extends AbsTreeModel {
     mRtx.moveTo(parentNodeKey);
 
     switch (parentNode.getKind()) {
-    case ROOT_KIND:
+    case DOCUMENT_ROOT:
       assert pIndex == 0;
       mRtx.moveToFirstChild();
       return mRtx.getNode();
-    case ELEMENT_KIND:
+    case ELEMENT:
       // Namespaces.
       final int namespCount = ((ElementNode)parentNode).getNamespaceCount();
       if (pIndex < namespCount) {
@@ -141,10 +141,10 @@ public final class TreeModel extends AbsTreeModel {
     final INode parentNode = mRtx.getNode();
 
     switch (parentNode.getKind()) {
-    case ROOT_KIND:
+    case DOCUMENT_ROOT:
       assert ((DocumentRootNode)mRtx.getNode()).hasFirstChild();
       return 1;
-    case ELEMENT_KIND:
+    case ELEMENT:
       final int namespaces = ((ElementNode)parentNode).getNamespaceCount();
       final int attributes = ((ElementNode)parentNode).getAttributeCount();
       final long children = ((ElementNode)parentNode).getChildCount();
@@ -178,7 +178,7 @@ public final class TreeModel extends AbsTreeModel {
     int attCount = 0;
 
     switch (childNode.getKind()) {
-    case NAMESPACE_KIND:
+    case NAMESPACE:
       namespCount = ((ElementNode)parentNode).getNamespaceCount();
       for (int i = 0; i < namespCount; i++) {
         mRtx.moveToNamespace(i);
@@ -189,7 +189,7 @@ public final class TreeModel extends AbsTreeModel {
         mRtx.moveTo(nodeKey);
       }
       break;
-    case ATTRIBUTE_KIND:
+    case ATTRIBUTE:
       namespCount = ((ElementNode)parentNode).getNamespaceCount();
       attCount = ((ElementNode)parentNode).getAttributeCount();
       for (int i = 0; i < attCount; i++) {
@@ -201,14 +201,14 @@ public final class TreeModel extends AbsTreeModel {
         mRtx.moveTo(nodeKey);
       }
       break;
-    case WHITESPACE_KIND:
+    case WHITESPACE:
       break;
-    case ELEMENT_KIND:
-    case COMMENT_KIND:
-    case PROCESSING_KIND:
-    case TEXT_KIND:
+    case ELEMENT:
+    case COMMENT:
+    case PROCESSING:
+    case TEXT:
       final IStructNode parent = (IStructNode)parentNode;
-      if (parent.getKind() == ENode.ELEMENT_KIND) {
+      if (parent.getKind() == EKind.ELEMENT) {
         namespCount = ((ElementNode)parent).getNamespaceCount();
         attCount = ((ElementNode)parent).getAttributeCount();
       }
@@ -252,9 +252,9 @@ public final class TreeModel extends AbsTreeModel {
     final INode currNode = mRtx.getNode();
 
     switch (currNode.getKind()) {
-    case ROOT_KIND:
+    case DOCUMENT_ROOT:
       return false;
-    case ELEMENT_KIND:
+    case ELEMENT:
       final ElementNode elemNode = (ElementNode)currNode;
       if (elemNode.getNamespaceCount() > 0) {
         return false;

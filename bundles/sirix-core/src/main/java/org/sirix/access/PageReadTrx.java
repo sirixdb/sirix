@@ -49,7 +49,7 @@ import org.sirix.cache.Tuple;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.node.DeletedNode;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.page.EPage;
 import org.sirix.page.IndirectPage;
@@ -153,13 +153,13 @@ final class PageReadTrx implements IPageReadTrx {
   }
 
   @Override
-  public String getName(final int pNameKey, @Nonnull final ENode pNodeKind) {
+  public String getName(final int pNameKey, @Nonnull final EKind pNodeKind) {
     return mNamePage.getName(pNameKey, checkNotNull(pNodeKind));
   }
 
   @Override
   public final byte[] getRawName(final int pNameKey,
-    @Nonnull final ENode pNodeKind) {
+    @Nonnull final EKind pNodeKind) {
     return mNamePage.getRawName(pNameKey, checkNotNull(pNodeKind));
   }
 

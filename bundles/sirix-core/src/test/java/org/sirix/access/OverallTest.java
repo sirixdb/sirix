@@ -39,7 +39,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.settings.EFixed;
 
@@ -68,20 +68,20 @@ public final class OverallTest extends TestCase {
     for (int i = 0; i < ELEMENTS; i++) {
       if (ran.nextBoolean()) {
         switch (holder.getWtx().getNode().getKind()) {
-        case ELEMENT_KIND:
+        case ELEMENT:
           holder.getWtx().setQName(new QName(getString()));
           holder.getWtx().setURI(getString());
           break;
-        case ATTRIBUTE_KIND:
+        case ATTRIBUTE:
           holder.getWtx().setQName(new QName(getString()));
           holder.getWtx().setURI(getString());
           holder.getWtx().setValue(getString());
           break;
-        case NAMESPACE_KIND:
+        case NAMESPACE:
           holder.getWtx().setQName(new QName(getString()));
           holder.getWtx().setURI(getString());
           break;
-        case TEXT_KIND:
+        case TEXT:
           holder.getWtx().setValue(getString());
           break;
         default:
@@ -128,7 +128,7 @@ public final class OverallTest extends TestCase {
           }
         } while (holder.getWtx().getNode() == null);
         // TODO Check if reference check can occur on "=="
-        if (holder.getWtx().getNode().getKind() != ENode.ELEMENT_KIND) {
+        if (holder.getWtx().getNode().getKind() != EKind.ELEMENT) {
           holder.getWtx().moveToParent();
         }
       }

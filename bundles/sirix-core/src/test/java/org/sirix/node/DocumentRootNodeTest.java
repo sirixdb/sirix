@@ -54,7 +54,7 @@ public class DocumentRootNodeTest {
     final ByteBufferSinkAndSource out = new ByteBufferSinkAndSource();
     node1.getKind().serialize(out, node1);
     out.position(0);
-    final DocumentRootNode node2 = (DocumentRootNode)ENode.ROOT_KIND.deserialize(out);
+    final DocumentRootNode node2 = (DocumentRootNode)EKind.DOCUMENT_ROOT.deserialize(out);
     check(node2);
 
   }
@@ -67,7 +67,7 @@ public class DocumentRootNodeTest {
     assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
     assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
     assertEquals(0L, node.getChildCount());
-    assertEquals(ENode.ROOT_KIND, node.getKind());
+    assertEquals(EKind.DOCUMENT_ROOT, node.getKind());
 
   }
 

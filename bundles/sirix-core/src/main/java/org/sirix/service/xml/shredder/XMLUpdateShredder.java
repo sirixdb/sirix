@@ -58,7 +58,7 @@ import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTUsageException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.IStructNode;
@@ -292,7 +292,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
         // If no content is in the XML, a normal insertNewContent is executed.
         insertNewContent();
       } else {
-        if (mWtx.getNode().getKind() == ENode.ROOT_KIND) {
+        if (mWtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
           // Find the start key for the update operation.
           long startkey = EFixed.ROOT_NODE_KEY.getStandardProperty() + 1;
           while (!mWtx.moveTo(startkey)) {
@@ -508,10 +508,10 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
          * An end tag must have been parsed immediately before and it must have been an empty element
          * at the end of a subtree, thus move this time to parent node.
          */
-        assert mWtx.getNode().hasParent() && mWtx.getNode().getKind() == ENode.ELEMENT_KIND;
+        assert mWtx.getNode().hasParent() && mWtx.getNode().getKind() == EKind.ELEMENT;
         mWtx.moveToParent();
       } else {
-        if (mWtx.getNode().getKind() == ENode.ELEMENT_KIND) {
+        if (mWtx.getNode().getKind() == EKind.ELEMENT) {
           final ElementNode element = (ElementNode)mWtx.getNode();
           if (element.hasFirstChild() && element.hasParent()) {
             // It's not an empty element, thus move to parent.
@@ -623,7 +623,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
   private boolean checkText(final Characters paramEvent) {
     assert paramEvent != null;
     final String text = paramEvent.getData().trim();
-    return mWtx.getNode().getKind() == ENode.TEXT_KIND && mWtx.getValueOfCurrentNode().equals(text);
+    return mWtx.getNode().getKind() == EKind.TEXT && mWtx.getValueOfCurrentNode().equals(text);
   }
 
   /**
@@ -836,7 +836,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
       }
 
       // Make sure if transaction is on a text node the node is inserted as a right sibling.
-      if (mWtx.getNode().getKind() == ENode.TEXT_KIND) {
+      if (mWtx.getNode().getKind() == EKind.TEXT) {
         insertNode = EAdd.ASRIGHTSIBLING;
       }
 
@@ -1214,7 +1214,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
           break;
         case XMLStreamConstants.END_ELEMENT:
           mMoved = EMoved.TOPARENT;
-          if (mWtx.getNode().getKind() == ENode.ELEMENT_KIND) {
+          if (mWtx.getNode().getKind() == EKind.ELEMENT) {
             // Move cursor to parent.
             if (mWtx.getNode().getNodeKey() == mLastDescCheckNodeKey) {
               /*
@@ -1222,7 +1222,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
                * empty element
                * at the end of a subtree, thus move this time to parent node.
                */
-              assert mWtx.getNode().hasParent() && mWtx.getNode().getKind() == ENode.ELEMENT_KIND;
+              assert mWtx.getNode().hasParent() && mWtx.getNode().getKind() == EKind.ELEMENT;
               found = mWtx.moveToParent();
               mDescendantLevel--;
             } else {
@@ -1234,12 +1234,12 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
                 mLastDescCheckNodeKey = mWtx.getNode().getNodeKey();
               }
             }
-          } else if (node.getKind() == ENode.TEXT_KIND) {
+          } else if (node.getKind() == EKind.TEXT) {
             found = mWtx.moveToParent();
             mDescendantLevel--;
           }
 
-          if (mWtx.getNode().getKind() == ENode.ELEMENT_KIND
+          if (mWtx.getNode().getKind() == EKind.ELEMENT
             && mWtx.getQNameOfCurrentNode().equals(paramElem.getName()) && mDescendantLevel == 0) {
             found = true;
             lastToCheck = true;
@@ -1276,7 +1276,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
     boolean retVal = false;
 
     // Matching element names?
-    if (mWtx.getNode().getKind() == ENode.ELEMENT_KIND
+    if (mWtx.getNode().getKind() == EKind.ELEMENT
       && mWtx.getQNameOfCurrentNode().equals(mEvent.getName())) {
       // Check if atts and namespaces are the same.
       final long nodeKey = mWtx.getNode().getNodeKey();

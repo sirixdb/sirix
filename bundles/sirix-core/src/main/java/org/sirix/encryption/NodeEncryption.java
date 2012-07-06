@@ -123,11 +123,12 @@ public class NodeEncryption {
       kGen = KeyGenerator.getInstance(ENCRYPTION_TYPE);
       kGen.init(ENCRYPTION_BITS);
       sKey = kGen.generateKey();
-
     } catch (final NoSuchAlgorithmException exc) {
       exc.printStackTrace();
     }
-
+    if (sKey == null) {
+      return new byte[0];
+    }
     return sKey.getEncoded();
   }
 

@@ -4,7 +4,7 @@ import org.sirix.cache.PageContainer;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTThreadedException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
@@ -79,7 +79,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if something odd happens while storing the new key
    */
-  int createNameKey(String pName, ENode pKind) throws TTIOException;
+  int createNameKey(String pName, EKind pKind) throws TTIOException;
 
   /** Commit the transaction, that is persist changes if any and create a new revision. */
   UberPage commit() throws AbsTTException;

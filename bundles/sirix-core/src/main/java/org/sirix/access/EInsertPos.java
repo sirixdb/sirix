@@ -31,7 +31,7 @@ import javax.xml.namespace.QName;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.settings.EFixed;
@@ -64,7 +64,7 @@ enum EInsertPos {
       if (pToNode.hasFirstChild()) {
         pWtx.moveTo(pToNode.getFirstChildKey());
 
-        if (pWtx.getNode().getKind() == ENode.TEXT_KIND && pFromNode.getKind() == ENode.TEXT_KIND) {
+        if (pWtx.getNode().getKind() == EKind.TEXT && pFromNode.getKind() == EKind.TEXT) {
           final StringBuilder builder = new StringBuilder(pWtx.getValueOfCurrentNode());
 
           // Adapt right sibling key of moved node.
@@ -127,13 +127,13 @@ enum EInsertPos {
     void insertNode(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException {
       assert pWtx != null;
       assert pRtx != null;
-      assert pWtx.getNode().getKind() == ENode.ELEMENT_KIND || pWtx.getNode().getKind() == ENode.ROOT_KIND;
+      assert pWtx.getNode().getKind() == EKind.ELEMENT || pWtx.getNode().getKind() == EKind.DOCUMENT_ROOT;
       switch (pRtx.getNode().getKind()) {
-      case ELEMENT_KIND:
+      case ELEMENT:
         pWtx.insertElementAsFirstChild(pRtx.getQNameOfCurrentNode());
         break;
-      case TEXT_KIND:
-        assert pWtx.getStructuralNode().getKind() == ENode.ELEMENT_KIND;
+      case TEXT:
+        assert pWtx.getStructuralNode().getKind() == EKind.ELEMENT;
         pWtx.insertTextAsFirstChild(pRtx.getValueOfCurrentNode());
         break;
       default:
@@ -161,7 +161,7 @@ enum EInsertPos {
 
       final boolean hasMoved = pWtx.moveTo(pToNode.getRightSiblingKey());
 
-      if (pFromNode.getKind() == ENode.TEXT_KIND && pToNode.getKind() == ENode.TEXT_KIND) {
+      if (pFromNode.getKind() == EKind.TEXT && pToNode.getKind() == EKind.TEXT) {
         // Merge text: FROM and TO are of TEXT_KIND.
         pWtx.moveTo(pToNode.getNodeKey());
         final StringBuilder builder = new StringBuilder(pWtx.getValueOfCurrentNode()).append(" ");
@@ -197,8 +197,8 @@ enum EInsertPos {
         // Remove first child.
         pWtx.moveTo(pToNode.getNodeKey());
         pWtx.remove();
-      } else if (hasMoved && pFromNode.getKind() == ENode.TEXT_KIND
-        && pWtx.getNode().getKind() == ENode.TEXT_KIND) {
+      } else if (hasMoved && pFromNode.getKind() == EKind.TEXT
+        && pWtx.getNode().getKind() == EKind.TEXT) {
         // Merge text: RIGHT and FROM are of TEXT_KIND.
         final StringBuilder builder = new StringBuilder(pWtx.getValueOfCurrentNode());
 
@@ -264,12 +264,12 @@ enum EInsertPos {
     void insertNode(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException {
       assert pWtx != null;
       assert pRtx != null;
-      assert pWtx.getNode().getKind() == ENode.ELEMENT_KIND || pWtx.getNode().getKind() == ENode.TEXT_KIND;
+      assert pWtx.getNode().getKind() == EKind.ELEMENT || pWtx.getNode().getKind() == EKind.TEXT;
       switch (pRtx.getNode().getKind()) {
-      case ELEMENT_KIND:
+      case ELEMENT:
         pWtx.insertElementAsRightSibling(pRtx.getQNameOfCurrentNode());
         break;
-      case TEXT_KIND:
+      case TEXT:
         pWtx.insertTextAsRightSibling(pRtx.getValueOfCurrentNode());
         break;
       default:
@@ -290,14 +290,14 @@ enum EInsertPos {
     void insertNode(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException {
       assert pWtx != null;
       assert pRtx != null;
-      assert pWtx.getNode().getKind() == ENode.ELEMENT_KIND;
+      assert pWtx.getNode().getKind() == EKind.ELEMENT;
       switch (pRtx.getNode().getKind()) {
-      case NAMESPACE_KIND:
+      case NAMESPACE:
         final QName name = pRtx.getQNameOfCurrentNode();
         pWtx.insertNamespace(new QName(name.getNamespaceURI(), "", name.getLocalPart()));
         pWtx.moveToParent();
         break;
-      case ATTRIBUTE_KIND:
+      case ATTRIBUTE:
         pWtx.insertAttribute(pRtx.getQNameOfCurrentNode(), pRtx.getValueOfCurrentNode());
         pWtx.moveToParent();
         break;
@@ -318,12 +318,12 @@ enum EInsertPos {
     void insertNode(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException {
       assert pWtx != null;
       assert pRtx != null;
-      assert pWtx.getNode().getKind() == ENode.ELEMENT_KIND || pWtx.getNode().getKind() == ENode.TEXT_KIND;
+      assert pWtx.getNode().getKind() == EKind.ELEMENT || pWtx.getNode().getKind() == EKind.TEXT;
       switch (pRtx.getNode().getKind()) {
-      case ELEMENT_KIND:
+      case ELEMENT:
         pWtx.insertElementAsLeftSibling(pRtx.getQNameOfCurrentNode());
         break;
-      case TEXT_KIND:
+      case TEXT:
         pWtx.insertTextAsLeftSibling(pRtx.getValueOfCurrentNode());
         break;
       default:

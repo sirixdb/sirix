@@ -50,7 +50,7 @@ import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.EHover;
 import org.sirix.gui.view.IVisualItem;
 import org.sirix.gui.view.splines.BSpline;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import processing.core.PApplet;
 import processing.core.PConstants;
@@ -587,7 +587,7 @@ public final class SunburstItem implements IVisualItem {
       float maxValue = mMaxValue;
 
       if (mGUI.mUseDiffView == EView.DIFF && mGUI.mUseDiffView.getValue()
-        && mNode.getKind() == ENode.ELEMENT_KIND) {
+        && mNode.getKind() == EKind.ELEMENT) {
         value = (mValue - (float)mModifications) / mValue;
         minValue = 0;
         maxValue = 1;
@@ -616,7 +616,7 @@ public final class SunburstItem implements IVisualItem {
 
       // Colors for element and other nodes.
       switch (mNode.getKind()) {
-      case ELEMENT_KIND:
+      case ELEMENT:
         float bright =
           PApplet.lerp(mGUI.getInnerNodeBrightnessStart(), mGUI.getInnerNodeBrightnessEnd(), percent);
         mCol = pGraphic.color(0, 0, bright);
@@ -626,9 +626,9 @@ public final class SunburstItem implements IVisualItem {
         // percent);
         mLineCol = pGraphic.color(0, 0, 0);
         break;
-      case TEXT_KIND:
-      case COMMENT_KIND:
-      case PROCESSING_KIND:
+      case TEXT:
+      case COMMENT:
+      case PROCESSING:
         final int from =
           pGraphic.color(mGUI.getHueStart(), mGUI.getSaturationStart(), mGUI.getBrightnessStart());
         final int to = pGraphic.color(mGUI.getHueEnd(), mGUI.getSaturationEnd(), mGUI.getBrightnessEnd());

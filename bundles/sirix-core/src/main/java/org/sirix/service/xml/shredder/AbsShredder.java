@@ -10,7 +10,7 @@ import javax.xml.namespace.QName;
 
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.settings.EFixed;
 
 /**
@@ -52,7 +52,7 @@ public abstract class AbsShredder implements IShredder<String, QName> {
     final QName name = checkNotNull(pName);
     long key;
     if (mInsertLocation == EInsert.ASRIGHTSIBLING) {
-      if (mWtx.getNode().getKind() == ENode.ROOT_KIND
+      if (mWtx.getNode().getKind() == EKind.DOCUMENT_ROOT
         || mWtx.getNode().getParentKey() == EFixed.ROOT_NODE_KEY.getStandardProperty()) {
         throw new IllegalStateException(
           "Subtree can not be inserted as sibling of document root or the root-element!");

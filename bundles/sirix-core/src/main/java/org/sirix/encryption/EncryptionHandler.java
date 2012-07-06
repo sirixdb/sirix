@@ -297,6 +297,8 @@ public final class EncryptionHandler {
                 break;
               }
             }
+            
+            assert mInitialKeyList != null;
 
             for (int i = 0; i < mUserKeyTrail.size(); i++) {
               if (mKeyTrail.contains(mUserKeyTrail.get(i))) {

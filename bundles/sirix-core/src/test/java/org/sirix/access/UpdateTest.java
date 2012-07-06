@@ -45,7 +45,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTUsageException;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -191,7 +191,7 @@ public class UpdateTest {
     rtx = (NodeReadTrx)holder.getSession().beginNodeReadTrx();
     assertEquals(1, rtx.getRevisionNumber());
     assertEquals(null, rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"),
-      ENode.ELEMENT_KIND));
+      EKind.ELEMENT));
     rtx.close();
   }
 

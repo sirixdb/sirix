@@ -90,7 +90,7 @@ public class Compression {
      * there is no guarantee that the compressed data will be smaller than
      * the uncompressed data.
      */
-    try (ByteArrayOutputStream bos = new ByteArrayOutputStream(pToCompress.length)) {
+    try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(pToCompress.length)) {
       // Compress the data.
       final byte[] buf = new byte[FileFactory.BUFFER_SIZE];
       while (!mCompressor.finished()) {
@@ -102,7 +102,6 @@ public class Compression {
       compressed = bos.toByteArray();
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
-      throw new RuntimeException(e);
     }
 
     return compressed;

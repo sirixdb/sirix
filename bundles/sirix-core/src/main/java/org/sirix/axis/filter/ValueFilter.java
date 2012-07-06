@@ -28,7 +28,7 @@
 package org.sirix.axis.filter;
 
 import org.sirix.api.INodeReadTrx;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.utils.TypedValue;
 
 /**
@@ -94,7 +94,7 @@ public class ValueFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return (getTransaction().getNode().getKind() == ENode.TEXT_KIND || getTransaction().getNode().getKind() == ENode.ATTRIBUTE_KIND)
+    return (getTransaction().getNode().getKind() == EKind.TEXT || getTransaction().getNode().getKind() == EKind.ATTRIBUTE)
       && (TypedValue.equals(getTransaction().getValueOfCurrentNode(), mValue));
   }
 

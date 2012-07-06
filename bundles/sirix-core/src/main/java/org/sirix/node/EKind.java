@@ -56,10 +56,10 @@ import org.sirix.settings.EFixed;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public enum ENode implements IKind {
+public enum EKind implements IKind {
 
   /** Unknown kind. */
-  UNKOWN_KIND((byte)0, null) {
+  UNKOWN((byte)0, null) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       throw new UnsupportedOperationException();
@@ -72,7 +72,7 @@ public enum ENode implements IKind {
   },
   
   /** Node kind is element. */
-  ELEMENT_KIND((byte)1, ElementNode.class) {
+  ELEMENT((byte)1, ElementNode.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       final List<Long> attrKeys = new ArrayList<Long>();
@@ -132,7 +132,7 @@ public enum ENode implements IKind {
   },
   
   /** Node kind is attribute. */
-  ATTRIBUTE_KIND((byte)2, AttributeNode.class) {
+  ATTRIBUTE((byte)2, AttributeNode.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       // Node delegate.
@@ -162,7 +162,7 @@ public enum ENode implements IKind {
   },
   
   /** Node kind is text. */
-  TEXT_KIND((byte)3, TextNode.class) {
+  TEXT((byte)3, TextNode.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       // Node delegate.
@@ -195,7 +195,7 @@ public enum ENode implements IKind {
   },
   
   /** Node kind is namespace. */
-  NAMESPACE_KIND((byte)13, NamespaceNode.class) {
+  NAMESPACE((byte)13, NamespaceNode.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       // Node delegate.
@@ -216,7 +216,7 @@ public enum ENode implements IKind {
   },
   
   /** Node kind is processing instruction. */
-  PROCESSING_KIND((byte)7, null) {
+  PROCESSING((byte)7, null) {
     @Override
     public INode deserialize(final ITTSource parapSource) {
       throw new UnsupportedOperationException();
@@ -230,7 +230,7 @@ public enum ENode implements IKind {
   },
   
   /** Node kind is comment. */
-  COMMENT_KIND((byte)8, null) {
+  COMMENT((byte)8, null) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       throw new UnsupportedOperationException();
@@ -244,7 +244,7 @@ public enum ENode implements IKind {
   },
   
   /** Node kind is document root. */
-  ROOT_KIND((byte)9, DocumentRootNode.class) {
+  DOCUMENT_ROOT((byte)9, DocumentRootNode.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       final NodeDelegate nodeDel =
@@ -268,7 +268,7 @@ public enum ENode implements IKind {
   },
   
   /** Whitespace text. */
-  WHITESPACE_KIND((byte)4, null) {
+  WHITESPACE((byte)4, null) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       throw new UnsupportedOperationException();
@@ -282,7 +282,7 @@ public enum ENode implements IKind {
   },
   
   /** Node kind is deleted node. */
-  DELETE_KIND((byte)5, DeletedNode.class) {
+  DELETE((byte)5, DeletedNode.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       final NodeDelegate delegate =
@@ -299,7 +299,7 @@ public enum ENode implements IKind {
   },
   
   /** NullNode to support the Null Object pattern. */
-  NULL_KIND((byte)6, NullNode.class) {
+  NULL((byte)6, NullNode.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       throw new UnsupportedOperationException();
@@ -312,7 +312,7 @@ public enum ENode implements IKind {
   },
 
   /** AtomicKind. */
-  ATOMIC_KIND((byte)15, AtomicValue.class) {
+  ATOMIC((byte)15, AtomicValue.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       throw new UnsupportedOperationException();
@@ -325,7 +325,7 @@ public enum ENode implements IKind {
   },
   
   /** Node kind is path node. */
-  PATH_KIND((byte) 16, PathNode.class) {
+  PATH((byte) 16, PathNode.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
       
@@ -347,13 +347,13 @@ public enum ENode implements IKind {
   private final Class<? extends INode> mClass;
 
   /** Mapping of keys -> nodes. */
-  private static final Map<Byte, ENode> INSTANCEFORID = new HashMap<>();
+  private static final Map<Byte, EKind> INSTANCEFORID = new HashMap<>();
   
   /** Mapping of class -> nodes. */
-  private static final Map<Class<? extends INode>, ENode> INSTANCEFORCLASS = new HashMap<>();
+  private static final Map<Class<? extends INode>, EKind> INSTANCEFORCLASS = new HashMap<>();
  
   static {
-    for (final ENode node : values()) {
+    for (final EKind node : values()) {
       INSTANCEFORID.put(node.mId, node);
       INSTANCEFORCLASS.put(node.mClass, node);
     }
@@ -367,7 +367,7 @@ public enum ENode implements IKind {
    * @param pClass
    *          class
    */
-  private ENode(final byte pId, final Class<? extends INode> pClass) {
+  private EKind(final byte pId, final Class<? extends INode> pClass) {
     mId = pId;
     mClass = pClass;
   }
@@ -389,7 +389,7 @@ public enum ENode implements IKind {
    *          the identifier for the node
    * @return the related node
    */
-  public static ENode getKind(final byte pId) {
+  public static EKind getKind(final byte pId) {
     return INSTANCEFORID.get(pId);
   }
 
@@ -400,7 +400,7 @@ public enum ENode implements IKind {
    *          the class for the node
    * @return the related node
    */
-  public static ENode getKind(final Class<? extends INode> pClass) {
+  public static EKind getKind(final Class<? extends INode> pClass) {
     return INSTANCEFORCLASS.get(pClass);
   }
 

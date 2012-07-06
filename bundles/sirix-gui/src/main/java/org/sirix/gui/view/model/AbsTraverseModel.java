@@ -11,7 +11,7 @@ import javax.xml.stream.events.Namespace;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.gui.view.AbsObservableComponent;
 import org.sirix.gui.view.model.interfaces.ITraverseModel;
-import org.sirix.node.ENode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 
 /**
@@ -32,7 +32,7 @@ public abstract class AbsTraverseModel extends AbsObservableComponent implements
     assert pRtx != null;
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     // Casting to ElementNode is always safe because we don't iterate over attributes in the axis.
-    assert pRtx.getNode().getKind() == ENode.ELEMENT_KIND;
+    assert pRtx.getNode().getKind() == EKind.ELEMENT;
     final int attNumber = ((ElementNode)pRtx.getNode()).getAttributeCount();
     final List<Attribute> attributes = new ArrayList<>(attNumber);
     for (int i = 0; i < attNumber; i++) {
@@ -55,7 +55,7 @@ public abstract class AbsTraverseModel extends AbsObservableComponent implements
     assert pRtx != null;
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     // Casting to ElementNode is always safe because we don't iterate over attributes in the axis.
-    assert pRtx.getNode().getKind() == ENode.ELEMENT_KIND;
+    assert pRtx.getNode().getKind() == EKind.ELEMENT;
     final int nspNumber = ((ElementNode)pRtx.getNode()).getNamespaceCount();
     final List<Namespace> namespaces = new ArrayList<>(nspNumber);
     for (int i = 0; i < nspNumber; i++) {

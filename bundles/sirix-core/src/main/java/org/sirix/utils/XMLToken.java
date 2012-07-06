@@ -6,6 +6,7 @@ import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 
+import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 /**
@@ -293,9 +294,9 @@ public final class XMLToken {
    * @throws NullPointerException
    *           if {@code pValue} is {@code null}
    */
-  public static String escape(final String pValue) {
+  public static String escape(@Nonnull final String pValue) {
     checkNotNull(pValue);
-    final StringBuilder escape = new StringBuilder(pValue.length());
+    final StringBuilder escape = new StringBuilder();
     for (final char i : pValue.toCharArray()) {
       switch (i) {
       case '&':
