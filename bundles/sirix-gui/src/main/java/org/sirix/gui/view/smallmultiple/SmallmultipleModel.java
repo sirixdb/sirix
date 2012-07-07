@@ -38,6 +38,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.gui.ReadDB;
@@ -112,7 +113,7 @@ public class SmallmultipleModel extends AbsModel<SunburstContainer, SunburstItem
    * @param pIndex
    *          index which points in the datastructure
    */
-  public void setItems(final int pIndex) {
+  public void setItems(@Nonnegative final int pIndex) {
     checkArgument(pIndex >= 0 && pIndex < mCompItems.size());
     final SunburstListContainer container = mCompItems.get(pIndex);
     firePropertyChange("oldMaxDepth", null, container.mOldMaxDepth);
@@ -121,7 +122,7 @@ public class SmallmultipleModel extends AbsModel<SunburstContainer, SunburstItem
   }
 
   @Override
-  public void update(final IContainer<SunburstContainer> pContainer) {
+  public void update(@Nonnull final IContainer<SunburstContainer> pContainer) {
     mModel.update(checkNotNull(pContainer));
   }
 

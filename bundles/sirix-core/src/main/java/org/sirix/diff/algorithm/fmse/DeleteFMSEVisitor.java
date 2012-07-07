@@ -75,7 +75,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
     } else {
       final long nodeKey = pNode.getNodeKey();
       final List<Long> keysToDelete =
-        new ArrayList<Long>(pNode.getAttributeCount()
+        new ArrayList<>(pNode.getAttributeCount()
           + pNode.getNamespaceCount());
       for (int i = 0; i < pNode.getAttributeCount(); i++) {
         mWtx.moveToAttribute(i);

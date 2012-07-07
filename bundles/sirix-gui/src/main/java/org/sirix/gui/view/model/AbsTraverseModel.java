@@ -3,6 +3,7 @@ package org.sirix.gui.view.model;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventFactory;
 import javax.xml.stream.events.Attribute;
@@ -25,10 +26,10 @@ public abstract class AbsTraverseModel extends AbsObservableComponent implements
    * Fill an attribute list with entries.
    * 
    * @param pRtx
-   *          sirix {@link INodeReadTrx}
+   *          Sirix {@link INodeReadTrx}
    * @return {@link List} of {@link Attribute}s
    */
-  protected List<Attribute> fillAttributes(final INodeReadTrx pRtx) {
+  protected List<Attribute> fillAttributes(@Nonnull final INodeReadTrx pRtx) {
     assert pRtx != null;
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     // Casting to ElementNode is always safe because we don't iterate over attributes in the axis.
@@ -48,10 +49,10 @@ public abstract class AbsTraverseModel extends AbsObservableComponent implements
    * Fill a namespace list with entries.
    * 
    * @param pRtx
-   *          sirix {@link INodeReadTrx}
+   *          Sirix {@link INodeReadTrx}
    * @return {@link List} of {@link Namespace}s
    */
-  protected List<Namespace> fillNamespaces(final INodeReadTrx pRtx) {
+  protected List<Namespace> fillNamespaces(@Nonnull final INodeReadTrx pRtx) {
     assert pRtx != null;
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     // Casting to ElementNode is always safe because we don't iterate over attributes in the axis.

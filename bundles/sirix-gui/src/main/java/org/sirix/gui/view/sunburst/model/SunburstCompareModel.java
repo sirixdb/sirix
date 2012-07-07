@@ -48,6 +48,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import javax.annotation.Nonnull;
+
 import org.slf4j.LoggerFactory;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
@@ -107,7 +109,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
   }
 
   @Override
-  public synchronized void update(final IContainer<SunburstContainer> pContainer) {
+  public synchronized void update(@Nonnull final IContainer<SunburstContainer> pContainer) {
     // Cast guaranteed to work.
     mContainer = (SunburstContainer)checkNotNull(pContainer);
     mLastItems.push(new ArrayList<SunburstItem>(mItems));
@@ -116,7 +118,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
   }
 
   @Override
-  public synchronized void traverseTree(final IContainer<SunburstContainer> pContainer) {
+  public synchronized void traverseTree(@Nonnull final IContainer<SunburstContainer> pContainer) {
     // Cast guaranteed to work.
     mContainer = (SunburstContainer)checkNotNull(pContainer);
     final SunburstContainer container = (SunburstContainer)pContainer;
@@ -127,7 +129,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
   }
 
   @Override
-  public synchronized final void evaluateXPath(final String pXPathExpression) {
+  public synchronized final void evaluateXPath(@Nonnull final String pXPathExpression) {
     if (!pXPathExpression.isEmpty()) {
       final ReadDB db = mDb.get();
       mPool.submit(new TemporalXPathEvaluation(db.getSession(), db.getRevisionNumber(), mContainer

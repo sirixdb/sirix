@@ -27,6 +27,9 @@
 
 package org.sirix.gui.view;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.gui.view.sunburst.EDraw;
 import org.sirix.gui.view.sunburst.EGreyState;
@@ -52,7 +55,7 @@ public interface IVisualItem extends Comparable<IVisualItem> {
    * @param pGraphics
    *          the {@link PGraphics} instance to write to
    */
-  void update(EDraw pDraw, int pMappingMode, PGraphics pGraphics);
+  void update(@Nonnull EDraw pDraw, int pMappingMode, @Nonnull PGraphics pGraphics);
 
   /**
    * Item hovered.
@@ -60,7 +63,7 @@ public interface IVisualItem extends Comparable<IVisualItem> {
    * @param pGraphic
    *          {@link PGraphics} instance
    */
-  void hover(PGraphics pGraphic);
+  void hover(@Nonnull PGraphics pGraphic);
 
   /**
    * Get node key.
@@ -75,7 +78,7 @@ public interface IVisualItem extends Comparable<IVisualItem> {
    * @param pState
    *          {@link EXPathState} value
    */
-  void setXPathState(EXPathState pState);
+  void setXPathState(@Nonnull EXPathState pState);
 
   /**
    * Set grey state.
@@ -83,7 +86,7 @@ public interface IVisualItem extends Comparable<IVisualItem> {
    * @param pState
    *          {@link EGreyState} value
    */
-  void setGreyState(EGreyState pState);
+  void setGreyState(@Nonnull EGreyState pState);
 
   /**
    * Get grey state.
@@ -112,7 +115,7 @@ public interface IVisualItem extends Comparable<IVisualItem> {
    * @param pColorNode
    *          enum to determine if node should be colored or not
    */
-  void setColorNode(EColorNode pColorNode);
+  void setColorNode(@Nonnull EColorNode pColorNode);
 
   /**
    * Set the revision the item belongs to.
@@ -120,7 +123,7 @@ public interface IVisualItem extends Comparable<IVisualItem> {
    * @param pRevision
    *          the revision to set
    */
-  void setRevision(long pRevision);
+  void setRevision(@Nonnegative long pRevision);
 
   /** Get the revision the item belongs to. */
   long getRevision();
@@ -134,7 +137,7 @@ public interface IVisualItem extends Comparable<IVisualItem> {
    * @param pMinimum
    *          value
    */
-  void setMinimum(float pMinimum);
+  void setMinimum(@Nonnegative float pMinimum);
 
   /**
    * Set the maximum value.
@@ -142,7 +145,7 @@ public interface IVisualItem extends Comparable<IVisualItem> {
    * @param pMaximum
    *          value
    */
-  void setMaximum(float pMaximum);
+  void setMaximum(@Nonnegative float pMaximum);
 
   /**
    * Item depth.

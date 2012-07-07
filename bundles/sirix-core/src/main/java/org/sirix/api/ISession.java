@@ -29,6 +29,9 @@ package org.sirix.api;
 
 import java.util.concurrent.TimeUnit;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.AbsTTException;
 
@@ -64,7 +67,7 @@ public interface ISession extends AutoCloseable {
    *           if can't begin Read Transaction
    * @return {@link INodeReadTrx} instance
    */
-  INodeReadTrx beginNodeReadTrx(final long pRev) throws AbsTTException;
+  INodeReadTrx beginNodeReadTrx(@Nonnegative  long pRev) throws AbsTTException;
 
   /**
    * Begin exclusive read/write transaction without auto commit.
@@ -88,7 +91,7 @@ public interface ISession extends AutoCloseable {
    *           if can't begin Write Transaction
    * @return {@link INodeWriteTrx} instance
    */
-  INodeWriteTrx beginNodeWriteTrx(final int pMaxNodes, final TimeUnit pTimeUnit, final int pMaxTime)
+  INodeWriteTrx beginNodeWriteTrx(@Nonnegative final int pMaxNodes, @Nonnull final TimeUnit pTimeUnit, final int pMaxTime)
     throws AbsTTException;
 
   /**

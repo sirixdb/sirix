@@ -33,7 +33,9 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewUtilities;
@@ -397,10 +399,12 @@ public class SmallmultipleGUI extends AbsSunburstGUI implements PropertyChangeLi
      * @param pRevision
      *          current revision
      */
-    ImageStore(@Nonnull final PImage pBuffer, @Nonnull final long pRevision, @Nonnull final int pMaxDepth,
-      @Nonnull final int pOldMaxDepth) {
+    ImageStore(@Nonnull final PImage pBuffer, @Nonnegative final long pRevision, @Nonnegative final int pMaxDepth,
+      @Nonnegative final int pOldMaxDepth) {
       assert pBuffer != null;
       assert pRevision >= 0;
+      assert pMaxDepth >= 0;
+      assert pOldMaxDepth >= 0;
       mBufferedImage = pBuffer;
       mRevision = pRevision;
       mMaxDepth = pMaxDepth;
@@ -408,7 +412,10 @@ public class SmallmultipleGUI extends AbsSunburstGUI implements PropertyChangeLi
     }
 
     @Override
-    public int compare(@Nonnull final ImageStore pFirst, @Nonnull final ImageStore pSecond) {
+    public int compare(@Nullable final ImageStore pFirst, @Nullable final ImageStore pSecond) {
+      if (pFirst == null || pSecond == null) {
+        return 0;
+      }
       return pFirst.mRevision > pSecond.mRevision ? 1 : pFirst.mRevision == pSecond.mRevision ? 0 : -1;
     }
   }

@@ -2,6 +2,8 @@ package org.sirix.access;
 
 import com.google.common.collect.ForwardingObject;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.sirix.api.IItemList;
@@ -17,9 +19,10 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * Forwards all methods to the delegate.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
- *
+ * 
  */
-public abstract class AbsForwardingNodeReadTrx extends ForwardingObject implements INodeReadTrx {
+public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
+  implements INodeReadTrx {
 
   /** Constructor for use by subclasses. */
   protected AbsForwardingNodeReadTrx() {
@@ -94,7 +97,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject implemen
   }
 
   @Override
-  public int keyForName(String pName) {
+  public int keyForName(@Nonnull String pName) {
     return delegate().keyForName(pName);
   }
 
@@ -104,13 +107,13 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject implemen
   }
 
   @Override
-  public boolean moveToAttribute(int pIndex) {
+  public boolean moveToAttribute(@Nonnegative int pIndex) {
     return delegate().moveToAttribute(pIndex);
   }
 
   @Override
-  public boolean moveToAttributeByNameKey(int pNameKey) {
-    return delegate().moveToAttributeByNameKey(pNameKey);
+  public boolean moveToAttributeByName(@Nonnull QName pQName) {
+    return delegate().moveToAttributeByName(pQName);
   }
 
   @Override
@@ -129,7 +132,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject implemen
   }
 
   @Override
-  public boolean moveToNamespace(int pIndex) {
+  public boolean moveToNamespace(@Nonnegative int pIndex) {
     return delegate().moveToNamespace(pIndex);
   }
 
@@ -157,7 +160,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject implemen
   public byte[] rawNameForKey(int pKey) {
     return delegate().rawNameForKey(pKey);
   }
-  
+
   @Override
   public INodeReadTrx cloneInstance() throws AbsTTException {
     return delegate().cloneInstance();

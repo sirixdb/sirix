@@ -1303,7 +1303,7 @@ public final class SunburstItem implements IVisualItem {
   }
 
   @Override
-  public void hover(final PGraphics pGraphic) {
+  public void hover(@Nonnull final PGraphics pGraphic) {
     if (mGreyState == EGreyState.NO) {
       final PGraphics graphic = mGraphic;
       mGraphic = checkNotNull(pGraphic);
@@ -1412,7 +1412,7 @@ public final class SunburstItem implements IVisualItem {
    *          set state to this value
    */
   @Override
-  public void setXPathState(final EXPathState pState) {
+  public void setXPathState(@Nonnull final EXPathState pState) {
     mXPathState = checkNotNull(pState);
   }
 
@@ -1427,7 +1427,7 @@ public final class SunburstItem implements IVisualItem {
    *          set state to this value
    */
   @Override
-  public void setGreyState(final EGreyState pState) {
+  public void setGreyState(@Nonnull final EGreyState pState) {
     mGreyState = checkNotNull(pState);
   }
 
@@ -1533,7 +1533,7 @@ public final class SunburstItem implements IVisualItem {
    *          enum which determines if node has to be colored or not
    */
   @Override
-  public void setColorNode(final EColorNode pColorNode) {
+  public void setColorNode(@Nonnull final EColorNode pColorNode) {
     mColorNode = checkNotNull(pColorNode);
   }
 

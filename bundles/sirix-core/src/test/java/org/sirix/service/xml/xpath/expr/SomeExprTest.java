@@ -76,6 +76,7 @@ public class SomeExprTest {
     final AbsAxis axis3 =
       new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/attribute::attribute()");
     assertEquals(true, axis3.hasNext());
+    axis3.next();
     assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValueOfCurrentNode()));
     assertEquals(false, axis3.hasNext());
   }

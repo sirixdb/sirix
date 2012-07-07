@@ -27,6 +27,8 @@
 
 package org.sirix.api;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
@@ -81,7 +83,7 @@ public interface IDatabase extends AutoCloseable {
    * @throws TTIOException
    *           if anything happens while creating the resource
    */
-  boolean createResource(ResourceConfiguration pResConf) throws TTIOException;
+  boolean createResource(@Nonnull ResourceConfiguration pResConf) throws TTIOException;
 
   /**
    * Getting the session associated within this database.
@@ -92,7 +94,7 @@ public interface IDatabase extends AutoCloseable {
    * @throws AbsTTException
    *           if can't get session
    */
-  ISession getSession(SessionConfiguration pSessionConf) throws AbsTTException;
+  ISession getSession(@Nonnull SessionConfiguration pSessionConf) throws AbsTTException;
 
   /**
    * Truncating a resource. This includes the removal of all data stored
@@ -102,7 +104,7 @@ public interface IDatabase extends AutoCloseable {
    *          storing the name of the resource
    * 
    */
-  void truncateResource(ResourceConfiguration pResConf);
+  void truncateResource(@Nonnull ResourceConfiguration pResConf);
 
   /**
    * Closing the database for further access.

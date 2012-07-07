@@ -27,8 +27,6 @@
 
 package org.sirix.cache;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
 
@@ -80,8 +78,8 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
   @Override
   public ImmutableMap<Long, PageContainer> getAll(@Nonnull final Iterable<? extends Long> pKeys) {
     final ImmutableMap.Builder<Long, PageContainer> builder =
-      new ImmutableMap.Builder<Long, PageContainer>();
-    for (final Long key : pKeys) {
+      new ImmutableMap.Builder<>();
+    for (final long key : pKeys) {
       if (mFirstCache.get(key) != null) {
         builder.put(key, mFirstCache.get(key));
       }
@@ -95,7 +93,7 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
   }
 
   @Override
-  public PageContainer get(Long pKey) {
+  public PageContainer get(@Nonnull Long pKey) {
     return mFirstCache.get(pKey);
   }
 

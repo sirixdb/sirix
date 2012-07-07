@@ -30,6 +30,9 @@ package org.sirix.gui.view;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 /**
  * Provides methods to add and remove {@link PropertyChangeListener}s as well as firing property changes.
  * 
@@ -51,35 +54,35 @@ public abstract class AbsObservableComponent {
   /**
    * Add a {@link PropertyChangeListener}.
    * 
-   * @param paramListener
+   * @param pListener
    *          the listener to add
    */
-  public final synchronized void addPropertyChangeListener(final PropertyChangeListener paramListener) {
-    mPropertyChangeSupport.addPropertyChangeListener(paramListener);
+  public final synchronized void addPropertyChangeListener(@Nonnull final PropertyChangeListener pListener) {
+    mPropertyChangeSupport.addPropertyChangeListener(pListener);
   }
 
   /**
    * Remove a {@link PropertyChangeListener}.
    * 
-   * @param paramListener
+   * @param pListener
    *          the listener to remove
    */
-  public final synchronized void removePropertyChangeListener(final PropertyChangeListener paramListener) {
-    mPropertyChangeSupport.removePropertyChangeListener(paramListener);
+  public final synchronized void removePropertyChangeListener(@Nonnull final PropertyChangeListener pListener) {
+    mPropertyChangeSupport.removePropertyChangeListener(pListener);
   }
 
   /**
    * Fire a property change.
    * 
-   * @param paramPropertyName
+   * @param pPropertyName
    *          name of the property
-   * @param paramOldValue
+   * @param pOldValue
    *          old value
-   * @param paramNewValue
+   * @param pNewValue
    *          new value
    */
-  public final synchronized void firePropertyChange(final String paramPropertyName,
-    final Object paramOldValue, final Object paramNewValue) {
-    mPropertyChangeSupport.firePropertyChange(paramPropertyName, paramOldValue, paramNewValue);
+  public final synchronized void firePropertyChange(@Nonnull final String pPropertyName,
+    @Nullable final Object pOldValue, @Nonnull final Object pNewValue) {
+    mPropertyChangeSupport.firePropertyChange(pPropertyName, pOldValue, pNewValue);
   }
 }

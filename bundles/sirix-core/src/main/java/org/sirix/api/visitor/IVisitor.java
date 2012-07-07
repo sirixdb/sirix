@@ -27,6 +27,8 @@
 
 package org.sirix.api.visitor;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.node.AttributeNode;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.ElementNode;
@@ -47,7 +49,7 @@ public interface IVisitor {
    * @param pNode
    *          the {@link ElementNode}
    */
-  EVisitResult visit(final ElementNode pNode);
+  EVisitResult visit(@Nonnull final ElementNode pNode);
 
   /**
    * Do something when visiting a {@link AttributeNode}.
@@ -55,7 +57,7 @@ public interface IVisitor {
    * @param pNode
    *          the {@link AttributeNode}
    */
-  EVisitResult visit(final AttributeNode pNode);
+  EVisitResult visit(@Nonnull final AttributeNode pNode);
 
   /**
    * Do something when visiting a {@link NamespaceNode}.
@@ -63,7 +65,7 @@ public interface IVisitor {
    * @param pNode
    *          the {@link NamespaceNode}
    */
-  EVisitResult visit(final NamespaceNode pNode);
+  EVisitResult visit(@Nonnull final NamespaceNode pNode);
 
   /**
    * Do something when visiting a {@link TextNode}.
@@ -71,7 +73,7 @@ public interface IVisitor {
    * @param pNode
    *          the {@link ElementNode}
    */
-  EVisitResult visit(final TextNode pNode);
+  EVisitResult visit(@Nonnull final TextNode pNode);
 
   /**
    * Do something when visiting the {@link DocumentRootNode}.
@@ -79,5 +81,5 @@ public interface IVisitor {
    * @param pNode
    *          the {@link DocumentRootNode}
    */
-  EVisitResult visit(final DocumentRootNode pNode);
+  EVisitResult visit(@Nonnull final DocumentRootNode pNode);
 }

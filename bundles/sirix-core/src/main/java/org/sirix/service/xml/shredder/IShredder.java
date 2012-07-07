@@ -1,5 +1,7 @@
 package org.sirix.service.xml.shredder;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.exception.AbsTTException;
 
 /**
@@ -19,9 +21,9 @@ public interface IShredder<S, T> {
    * @param pName
    *          name, usually a {@link QName}
    * @throws AbsTTException
-   *           if sirix fails to insert a new node
+   *           if Sirix fails to insert a new node
    */
-  void processStartTag(final T pName) throws AbsTTException;
+  void processStartTag(@Nonnull final T pName) throws AbsTTException;
 
   /**
    * Process a text node
@@ -29,9 +31,9 @@ public interface IShredder<S, T> {
    * @param pText
    *          text, usually of type String
    * @throws AbsTTException
-   *           if sirix fails to insert a new node
+   *           if Sirix fails to insert a new node
    */
-  void processText(final S pText) throws AbsTTException;
+  void processText(@Nonnull final S pText) throws AbsTTException;
 
   /**
    * Process an end tag.
@@ -39,9 +41,9 @@ public interface IShredder<S, T> {
    * @param pName
    *          name, usually a {@link QName}
    * @throws AbsTTException
-   *           if sirix fails to insert a new node
+   *           if Sirix fails to insert a new node
    */
-  void processEndTag(final T pName) throws AbsTTException;
+  void processEndTag(@Nonnull final T pName) throws AbsTTException;
 
   /**
    * Process an empty element.
@@ -49,7 +51,7 @@ public interface IShredder<S, T> {
    * @param pName
    *          name, usually a {@link QName}
    * @throws AbsTTException
-   *           if sirix fails to insert a new node
+   *           if Sirix fails to insert a new node
    */
-  void processEmptyElement(final T pName) throws AbsTTException;
+  void processEmptyElement(@Nonnull final T pName) throws AbsTTException;
 }

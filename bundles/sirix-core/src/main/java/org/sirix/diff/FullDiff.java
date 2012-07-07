@@ -56,14 +56,16 @@ final class FullDiff extends AbsDiff {
   }
 
   @Override
-  boolean checkNodes(@Nonnull final INodeReadTrx pFirstRtx, @Nonnull final INodeReadTrx pSecondRtx) {
+  boolean checkNodes(@Nonnull final INodeReadTrx pFirstRtx,
+    @Nonnull final INodeReadTrx pSecondRtx) {
     assert pFirstRtx != null;
     assert pSecondRtx != null;
 
     boolean found = false;
     INode firstNode = pFirstRtx.getNode();
     INode secondNode = pSecondRtx.getNode();
-    if (firstNode.getNodeKey() == secondNode.getNodeKey() && firstNode.getKind() == secondNode.getKind()) {
+    if (firstNode.getNodeKey() == secondNode.getNodeKey()
+      && firstNode.getKind() == secondNode.getKind()) {
       switch (firstNode.getKind()) {
       case ELEMENT:
         final ElementNode firstElement = (ElementNode)pFirstRtx.getNode();
@@ -75,23 +77,22 @@ final class FullDiff extends AbsDiff {
             && ((ElementNode)pSecondRtx.getNode()).getAttributeCount() == 0
             && ((ElementNode)pSecondRtx.getNode()).getNamespaceCount() == 0) {
             found = true;
-          } else if (firstElement.getAttributeKeys().equals(secondElement.getAttributeKeys())
-            && firstElement.getNamespaceKeys().equals(secondElement.getNamespaceKeys())) {
+          } else if (firstElement.getAttributeKeys().equals(
+            secondElement.getAttributeKeys())
+            && firstElement.getNamespaceKeys().equals(
+              secondElement.getNamespaceKeys())) {
             found = true;
-//          } else {
-//            for (final int i = 0, attrCount = firstElement.getAttributeCount(); i < attrCount; i++) {
-//              pFirstRtx.moveToAttribute(i);
-//              Optional<Long> attrKey = (secondElement.getAttributeKeyByName(((((INameNode)pFirstRtx.getNode()).getNameKey()))));
-//              if (attrKey.isPresent()) {
-//                pSecondRtx.moveTo(attrKey.get());
-//              }
-//              if ()
           }
         }
         break;
       case TEXT:
-        found = pFirstRtx.getValueOfCurrentNode().equals(pSecondRtx.getValueOfCurrentNode());
+        found =
+          pFirstRtx.getValueOfCurrentNode().equals(
+            pSecondRtx.getValueOfCurrentNode());
         break;
+      default:
+        throw new IllegalStateException(
+          "Other node types currently not supported!");
       }
     }
 

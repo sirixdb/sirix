@@ -27,6 +27,11 @@
 
 package org.sirix.service.xml.xpath;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.EKind;
@@ -62,56 +67,52 @@ public class AtomicValue implements INode, IValNode {
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param mValue
+   * @param pValue
    *          the value of the Item
-   * @param mType
+   * @param pType
    *          the item's type
    */
-  public AtomicValue(final byte[] mValue, final int mType) {
-
-    this.mValue = mValue;
-    this.mType = mType;
+  public AtomicValue(@Nonnull final byte[] pValue, final int pType) {
+    mValue = checkNotNull(pValue);
+    mType = pType;
   }
 
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param mValue
+   * @param pValue
    *          the value of the Item
    */
-  public AtomicValue(final boolean mValue) {
-
-    this.mValue = TypedValue.getBytes(Boolean.toString(mValue));
-    this.mType = NamePageHash.generateHashForString("xs:boolean");
-
+  public AtomicValue(final boolean pValue) {
+    mValue = TypedValue.getBytes(Boolean.toString(pValue));
+    mType = NamePageHash.generateHashForString("xs:boolean");
   }
 
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param mValue
+   * @param pValue
    *          the value of the Item
-   * @param mType
+   * @param pType
    *          the item's type
    */
-  public AtomicValue(final Number mValue, final Type mType) {
+  public AtomicValue(final Number pValue, final Type pType) {
 
-    this.mValue = TypedValue.getBytes(mValue.toString());
-    this.mType = NamePageHash.generateHashForString(mType.getStringRepr());
+    mValue = TypedValue.getBytes(pValue.toString());
+    mType = NamePageHash.generateHashForString(pType.getStringRepr());
   }
 
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param mValue
+   * @param pValue
    *          the value of the Item
-   * @param mType
+   * @param pType
    *          the item's type
    */
-  public AtomicValue(final String mValue, final Type mType) {
-
-    this.mValue = TypedValue.getBytes(mValue);
-    this.mType = NamePageHash.generateHashForString(mType.getStringRepr());
+  public AtomicValue(@Nonnull final String pValue, @Nonnull final Type pType) {
+    mValue = TypedValue.getBytes(pValue);
+    mType = NamePageHash.generateHashForString(pType.getStringRepr());
   }
 
   /**
@@ -124,36 +125,24 @@ public class AtomicValue implements INode, IValNode {
     mItemKey = pItemKey;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public long getParentKey() {
     return EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean hasParent() {
     return false;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public long getNodeKey() {
     return mItemKey;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public EKind getKind() {
-    return EKind.UNKOWN;
+    return EKind.ATOMIC;
   }
 
   /**
@@ -172,7 +161,6 @@ public class AtomicValue implements INode, IValNode {
    * @return true if fulltest leaf, false otherwise
    */
   public boolean isFullTextLeaf() {
-
     return false;
   }
 
@@ -182,13 +170,9 @@ public class AtomicValue implements INode, IValNode {
    * @return true if fulltest root, false otherwise
    */
   public boolean isFullTextRoot() {
-
     return false;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public final int getTypeKey() {
     return mType;
@@ -209,7 +193,6 @@ public class AtomicValue implements INode, IValNode {
    * @return the value as an integer
    */
   public int getInt() {
-
     return (int)getDBL();
   }
 
@@ -219,7 +202,6 @@ public class AtomicValue implements INode, IValNode {
    * @return the value as a boolean
    */
   public boolean getBool() {
-
     return Boolean.parseBoolean(new String(mValue));
   }
 
@@ -229,7 +211,6 @@ public class AtomicValue implements INode, IValNode {
    * @return the value as a float
    */
   public float getFLT() {
-
     return Float.parseFloat(new String(mValue));
   }
 
@@ -239,14 +220,13 @@ public class AtomicValue implements INode, IValNode {
    * @return the value as a double
    */
   public double getDBL() {
-
     return Double.parseDouble(new String(mValue));
   }
 
   /**
    * To String method.
    * 
-   * @return String String representation of this node
+   * @return String representation of this node
    */
   @Override
   public String toString() {
@@ -259,21 +239,17 @@ public class AtomicValue implements INode, IValNode {
   }
 
   @Override
-  public void setHash(long hash) {
-    // TODO Auto-generated method stub
-
+  public void setHash(final long pHash) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
   public long getHash() {
-    // TODO Auto-generated method stub
     return 0;
   }
 
-  /** {@inheritDoc} */
   @Override
-  public EVisitResult acceptVisitor(final IVisitor paramVisitor) {
-    // Do nothing.
+  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return EVisitResult.CONTINUE;
   }
 
@@ -283,35 +259,27 @@ public class AtomicValue implements INode, IValNode {
   }
 
   @Override
-  public void setParentKey(long paramKey) {
-    // TODO Auto-generated method stub
-
+  public void setParentKey(final long pKey) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public void setTypeKey(int paramType) {
-    // TODO Auto-generated method stub
-
+  public void setTypeKey(final int pType) {
+    throw new UnsupportedOperationException();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public byte[] getRawValue() {
     return mValue;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public void setValue(byte[] paramVal) {
-    mValue = paramVal;
+  public void setValue(@Nonnull byte[] pVal) {
+    mValue = checkNotNull(pVal);
   }
 
   @Override
-  public boolean isSameItem(INode pOther) {
+  public boolean isSameItem(@Nullable final INode pOther) {
     // TODO Auto-generated method stub
     return false;
   }

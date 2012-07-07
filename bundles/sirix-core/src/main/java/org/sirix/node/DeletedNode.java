@@ -28,8 +28,10 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -42,7 +44,7 @@ import org.sirix.node.interfaces.INode;
  * @author Sebastian Graf
  * 
  */
-public final class DeletedNode implements INode {
+public final class DeletedNode extends AbsForwardingNode {
 
   /**
    * Delegate for common data.
@@ -60,168 +62,45 @@ public final class DeletedNode implements INode {
   public DeletedNode(@Nonnull final NodeDelegate pDel) {
     mDel = checkNotNull(pDel);
   }
-
-  /**
-   * {@inheritDoc}
-   */
+  
   @Override
   public EKind getKind() {
     return EKind.DELETE;
   }
 
-  /**
-   * Delegate method for getKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getNodeKey()
-   */
-  @Override
-  public long getNodeKey() {
-    return mDel.getNodeKey();
-  }
-
-  /**
-   * Delegate method for getParentKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getParentKey()
-   */
-  @Override
-  public long getParentKey() {
-    return mDel.getParentKey();
-  }
-
-  /**
-   * Delegate method for setParentKey.
-   * 
-   * @param pParentKey
-   * @see org.sirix.node.delegates.NodeDelegate#setParentKey(long)
-   */
-  @Override
-  public void setParentKey(final long pParentKey) {
-    mDel.setParentKey(pParentKey);
-  }
-
-  /**
-   * Delegate method for getHash.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getHash()
-   */
-  @Override
-  public long getHash() {
-    return mDel.getHash();
-  }
-
-  /**
-   * Delegate method for setHash.
-   * 
-   * @param pHash
-   * @see org.sirix.node.delegates.NodeDelegate#setHash(long)
-   */
-  @Override
-  public void setHash(final long pHash) {
-    mDel.setHash(pHash);
-  }
-
-  /**
-   * Delegate method for acceptVisitor.
-   * 
-   * @param pVisitor
-   * @see org.sirix.node.delegates.NodeDelegate#acceptVisitor(org.sirix.api.visitor.IVisitor)
-   */
-  @Override
-  public EVisitResult acceptVisitor(final IVisitor pVisitor) {
-    return mDel.acceptVisitor(pVisitor);
-  }
-
-  /**
-   * Delegate method for getTypeKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#getTypeKey()
-   */
-  @Override
-  public int getTypeKey() {
-    return mDel.getTypeKey();
-  }
-
-  /**
-   * Delegate method for setTypeKey.
-   * 
-   * @param pTypeKey
-   * @see org.sirix.node.delegates.NodeDelegate#setTypeKey(int)
-   */
-  @Override
-  public void setTypeKey(final int pTypeKey) {
-    mDel.setTypeKey(pTypeKey);
-  }
-
-  /**
-   * Delegate method for hasParent.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#hasParent()
-   */
-  @Override
-  public boolean hasParent() {
-    return mDel.hasParent();
-  }
-
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + ((mDel == null) ? 0 : mDel.hashCode());
-    return result;
+    return Objects.hashCode(mDel);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean equals(final Object pObj) {
-    if (this == pObj)
-      return true;
-    if (pObj == null)
-      return false;
-    if (getClass() != pObj.getClass())
-      return false;
-    DeletedNode other = (DeletedNode)pObj;
-    if (mDel == null) {
-      if (other.mDel != null)
-        return false;
-    } else if (!mDel.equals(other.mDel))
-      return false;
-    return true;
+    boolean retVal = false;
+    if (pObj instanceof DeletedNode) {
+      final DeletedNode other = (DeletedNode)pObj;
+      retVal = Objects.equal(mDel, other.mDel);
+    }
+    return retVal;
   }
 
-  /**
-   * Delegate method for toString.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#toString()
-   */
   @Override
   public String toString() {
     return mDel.toString();
   }
-
-  /**
-   * Getting the inlying {@link NodeDelegate}.
-   * 
-   * @return
-   */
-  NodeDelegate getNodeDelegate() {
-    return mDel;
-  }
   
   @Override
-  public boolean isSameItem(final INode pOther) {
+  public boolean isSameItem(@Nullable final INode pOther) {
     return mDel.isSameItem(pOther);
+  }
+
+  @Override
+  protected NodeDelegate delegate() {
+    return mDel;
+  }
+
+  @Override
+  public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+    throw new UnsupportedOperationException();
   }
 
 }

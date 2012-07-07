@@ -34,6 +34,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.axis.SunburstDescendantAxis;
@@ -80,7 +82,7 @@ public interface ITraverseModel extends IObservable {
    *           if {@code paramDepth < 0} or {@code paramIndex < 0}
    * 
    */
-  float createSunburstItem(final Item pItem, final int pDepth, final int pIndex);
+  float createSunburstItem(@Nonnull Item pItem, int pDepth, int pIndex);
 
   /**
    * Write a descendants per node in a {@link BlockingQueue}.
@@ -94,7 +96,7 @@ public interface ITraverseModel extends IObservable {
    * @throws NullPointerException
    *           if {@code paramRtx} is {@code null}
    */
-  void descendants(final Optional<INodeReadTrx> pRtx) throws InterruptedException, ExecutionException;
+  void descendants(@Nonnull Optional<INodeReadTrx> pRtx) throws InterruptedException, ExecutionException;
 
   /**
    * Get minimum and maximum global text length.
@@ -106,7 +108,7 @@ public interface ITraverseModel extends IObservable {
    * @throws NullPointerException
    *           if {@code pNewRtx} or {@code pOldRtx} is {@code null}
    */
-  void getMinMaxTextLength(final INodeReadTrx pNewRtx, final Optional<INodeReadTrx> pOldRtx);
+  void getMinMaxTextLength(@Nonnull INodeReadTrx pNewRtx, @Nonnull Optional<INodeReadTrx> pOldRtx);
 
   /**
    * Get if current item has been pruned or not.

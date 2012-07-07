@@ -29,6 +29,8 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.google.common.base.Objects;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -62,8 +64,9 @@ import org.slf4j.LoggerFactory;
 public final class Database implements IDatabase {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(Database.class));
-  
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
+    .getLogger(Database.class));
+
   /** Central repository of all running databases. */
   private static final ConcurrentMap<File, Database> DATABASEMAP =
     new ConcurrentHashMap<>();
@@ -229,8 +232,8 @@ public final class Database implements IDatabase {
   }
 
   @Override
-  public synchronized void
-    truncateResource(final ResourceConfiguration pResConf) {
+  public synchronized void truncateResource(
+    @Nonnull final ResourceConfiguration pResConf) {
     final File resourceFile =
       new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
         .getFile().getName()), pResConf.mPath.getName());
@@ -274,20 +277,19 @@ public final class Database implements IDatabase {
         "DB could not be opened (since it was not created?) at location", pFile
           .toString());
     }
-    FileInputStream is = null;
     DatabaseConfiguration config = null;
-    try {
-      is =
-        new FileInputStream(new File(pFile.getAbsoluteFile(),
-          DatabaseConfiguration.Paths.ConfigBinary.getFile().getName()));
-      final ObjectInputStream de = new ObjectInputStream(is);
+    try (final FileInputStream is =
+      new FileInputStream(new File(pFile.getAbsoluteFile(),
+        DatabaseConfiguration.Paths.ConfigBinary.getFile().getName()));
+    final ObjectInputStream de = new ObjectInputStream(is)) {
       config = (DatabaseConfiguration)de.readObject();
-      de.close();
-      is.close();
     } catch (final IOException exc) {
       throw new TTIOException(exc);
     } catch (final ClassNotFoundException exc) {
       throw new TTIOException(exc.toString());
+    }
+    if (config == null) {
+      throw new IllegalStateException();
     }
     final Database database = new Database(config);
     final IDatabase returnVal = DATABASEMAP.putIfAbsent(pFile, database);
@@ -308,7 +310,7 @@ public final class Database implements IDatabase {
 
   @Override
   public synchronized ISession getSession(
-    final SessionConfiguration pSessionConf) throws AbsTTException {
+    @Nonnull final SessionConfiguration pSessionConf) throws AbsTTException {
     final File resourceFile =
       new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
         .getFile().getName()), pSessionConf.getResource());
@@ -319,20 +321,16 @@ public final class Database implements IDatabase {
           "Resource could not be opened (since it was not created?) at location",
           resourceFile.toString());
       }
-      FileInputStream is = null;
       ResourceConfiguration config = null;
-      try {
-        is =
-          new FileInputStream(new File(resourceFile,
-            ResourceConfiguration.Paths.ConfigBinary.getFile().getName()));
-        final ObjectInputStream de = new ObjectInputStream(is);
+      try (final FileInputStream is =
+        new FileInputStream(new File(resourceFile,
+          ResourceConfiguration.Paths.ConfigBinary.getFile().getName()));
+      final ObjectInputStream de = new ObjectInputStream(is)) {
         config = (ResourceConfiguration)de.readObject();
-        de.close();
-        is.close();
-      } catch (final ClassNotFoundException exc) {
-        throw new TTIOException(exc.toString());
-      } catch (final IOException exc) {
-        throw new TTIOException(exc);
+      } catch (final ClassNotFoundException e) {
+        throw new TTIOException(e.toString());
+      } catch (final IOException e) {
+        throw new TTIOException(e);
       }
 
       // Resource of session must be associated to this database
@@ -358,9 +356,7 @@ public final class Database implements IDatabase {
 
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder();
-    builder.append(mDBConfig);
-    return builder.toString();
+    return Objects.toStringHelper(this).add("dbConfig", mDBConfig).toString();
   }
 
   /**
@@ -372,7 +368,7 @@ public final class Database implements IDatabase {
    * @return {@code true} if close successful, {@code false} otherwise
    */
   protected boolean removeSession(@Nonnull final File pFile) {
-    return mSessions.remove(pFile) != null ? true : false;
+    return mSessions.remove(pFile) == null ? false : true;
   }
 
   /**
@@ -386,12 +382,11 @@ public final class Database implements IDatabase {
    */
   private static void serializeConfiguration(
     @Nonnull final IConfigureSerializable pConf) throws IOException {
-    FileOutputStream os = null;
-    os = new FileOutputStream(pConf.getConfigFile());
-    final ObjectOutputStream en = new ObjectOutputStream(os);
-    en.writeObject(pConf);
-    en.close();
-    os.close();
+    try (final FileOutputStream os =
+      new FileOutputStream(pConf.getConfigFile());
+    final ObjectOutputStream en = new ObjectOutputStream(os)) {
+      en.writeObject(pConf);
+    }
   }
 
   @Override

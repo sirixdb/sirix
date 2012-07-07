@@ -92,8 +92,8 @@ public enum ERevisioning {
    */
   DIFFERENTIAL {
     @Override
-    public NodePage combineNodePages(final NodePage[] pPages,
-      final int pRevToRestore) {
+    public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
+      @Nonnegative final int pRevToRestore) {
       assert pPages.length <= 2;
       final long nodePageKey = pPages[0].getNodePageKey();
       final NodePage returnVal =
@@ -121,7 +121,7 @@ public enum ERevisioning {
 
     @Override
     public PageContainer combineNodePagesForModification(
-      final NodePage[] pPages, final int pRevToRestore) {
+      @Nonnull final NodePage[] pPages, @Nonnegative final int pRevToRestore) {
       assert pPages.length <= 2;
       final long nodePageKey = pPages[0].getNodePageKey();
       final NodePage[] returnVal =
@@ -170,8 +170,8 @@ public enum ERevisioning {
    */
   INCREMENTAL {
     @Override
-    public NodePage combineNodePages(final NodePage[] pPages,
-      final int pRevToRestore) {
+    public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
+      @Nonnegative final int pRevToRestore) {
       assert pPages.length <= pRevToRestore;
       final long nodePageKey = pPages[0].getNodePageKey();
       final NodePage returnVal =
@@ -194,7 +194,7 @@ public enum ERevisioning {
 
     @Override
     public PageContainer combineNodePagesForModification(
-      final NodePage[] pPages, final int pRevToRestore) {
+      @Nonnull final NodePage[] pPages, final int pRevToRestore) {
       final long nodePageKey = pPages[0].getNodePageKey();
       final NodePage[] returnVal =
         {

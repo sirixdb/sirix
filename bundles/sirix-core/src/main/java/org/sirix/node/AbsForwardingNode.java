@@ -1,5 +1,7 @@
 package org.sirix.node;
 
+import javax.annotation.Nullable;
+
 import com.google.common.collect.ForwardingObject;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.INode;
@@ -74,7 +76,7 @@ public abstract class AbsForwardingNode extends ForwardingObject implements INod
   }
   
   @Override
-  public boolean isSameItem(final INode pOther) {
+  public boolean isSameItem(@Nullable final INode pOther) {
     return delegate().isSameItem(pOther);
   }
 }

@@ -44,16 +44,16 @@ public enum EMoved {
   /** Start of traversal or cursor moved to a right sibling of a node. */
   STARTRIGHTSIBL {
     @Override
-    public void processMove(final INodeReadTrx pRtx, final Item pItem, final Deque<Float> pAngleStack,
-      final Deque<Float> pExtensionStack, final Deque<Integer> pParentStack,
-      final Deque<Integer> pDescendantsStack) {
+    public void processMove(@Nonnull final INodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
+      @Nonnull final Deque<Integer> pDescendantsStack) {
       // Do nothing.
     }
 
     @Override
-    public void processCompareMove(final INodeReadTrx pRtx, final Item pItem, final Deque<Float> pAngleStack,
-      final Deque<Float> pExtensionStack, final Deque<Integer> pDescendants,
-      final Deque<Integer> pParentStack, final Deque<Integer> pModificationStack) {
+    public void processCompareMove(@Nonnull final INodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendants,
+      @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack) {
       // Do nothing.
     }
   },

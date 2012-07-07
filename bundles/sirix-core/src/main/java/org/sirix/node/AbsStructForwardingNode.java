@@ -1,5 +1,7 @@
 package org.sirix.node;
 
+import javax.annotation.Nonnegative;
+
 import com.google.common.base.Objects;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -25,6 +27,7 @@ public abstract class AbsStructForwardingNode extends AbsForwardingNode implemen
    * 
    * @return the inlying {@link NodeDelegate} instance
    */
+  @SuppressWarnings("null")
   public StructNodeDelegate getStructNodeDelegate() {
     return new StructNodeDelegate(structDelegate());
   }
@@ -105,7 +108,7 @@ public abstract class AbsStructForwardingNode extends AbsForwardingNode implemen
   }
 
   @Override
-  public void setDescendantCount(final long pDescendantCount) {
+  public void setDescendantCount(@Nonnegative final long pDescendantCount) {
     structDelegate().setDescendantCount(pDescendantCount);
   }
 

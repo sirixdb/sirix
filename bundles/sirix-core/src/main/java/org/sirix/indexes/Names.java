@@ -132,7 +132,18 @@ public final class Names {
    */
   public String getName(final int pKey) {
     return mNameMap.get(pKey);
-  }  
+  }
+
+  /**
+   * Get the number of nodes with the same name.
+   * 
+   * @param pKey
+   *          the key to lookup
+   * @return number of nodes with the same name
+   */
+  public int getCount(final int pKey) {
+    return mCountNameMapping.get(pKey);
+  }
 
   /**
    * Get the name for the key.

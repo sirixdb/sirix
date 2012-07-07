@@ -39,6 +39,7 @@ import java.util.Set;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.IPageReadTrx;
@@ -67,9 +68,8 @@ import org.sirix.utils.IConstants;
  * <h1>PageReadTransaction</h1>
  * 
  * <p>
- * Page reading transaction. The only thing shared amongst transactions is the page cache. Everything
- * else is exclusive to this transaction. It is required that only a single thread has access to this
- * transaction.
+ * Page reading transaction. The only thing shared amongst transactions is the page cache. Everything else is
+ * exclusive to this transaction. It is required that only a single thread has access to this transaction.
  * </p>
  */
 final class PageReadTrx implements IPageReadTrx {
@@ -91,6 +91,9 @@ final class PageReadTrx implements IPageReadTrx {
 
   /** {@link NamePage} reference. */
   private final NamePage mNamePage;
+
+  /** Determines if page reading transaction is closed or not. */
+  private boolean mClosed;
 
   /**
    * Standard constructor.
@@ -115,14 +118,41 @@ final class PageReadTrx implements IPageReadTrx {
     mUberPage = checkNotNull(pUberPage);
     mRootPage = loadRevRoot(pRevision);
     assert mRootPage != null : "root page must not be null!";
-    mNamePage = initializeNamePage();
+    mNamePage = getNamePage();
+    mClosed = false;
     mCache = new GuavaCache(this);
   }
 
+  /**
+   * Make sure that the transaction is not yet closed when calling this method.
+   */
+  final void assertNotClosed() {
+    if (mClosed) {
+      throw new IllegalStateException("Transaction is already closed.");
+    }
+  }
+
+  /**
+   * Initialize NamePage.
+   * 
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  private final NamePage getNamePage() throws TTIOException {
+    assertNotClosed();
+    final PageReference ref = mRootPage.getNamePageReference();
+    if (ref.getPage() == null) {
+      ref.setPage(mPageReader.read(ref.getKey()));
+    }
+    return (NamePage)ref.getPage();
+  }
+
   @Override
-  public Optional<INode> getNode(@Nonnegative final long pNodeKey, final EPage pPage)
-    throws TTIOException {
+  public Optional<INode> getNode(@Nonnegative final long pNodeKey,
+    @Nonnull final EPage pPage) throws TTIOException {
     checkArgument(pNodeKey >= 0);
+    checkNotNull(pPage);
+    assertNotClosed();
 
     final long nodePageKey = nodePageKey(pNodeKey);
     final int nodePageOffset = nodePageOffset(pNodeKey);
@@ -144,7 +174,7 @@ final class PageReadTrx implements IPageReadTrx {
    *          node to check
    * @return the {@code node} if it is valid, {@code null} otherwise
    */
-  final <T extends INode> T checkItemIfDeleted(@Nonnull final T pToCheck) {
+  final <T extends INode> T checkItemIfDeleted(@Nullable final T pToCheck) {
     if (pToCheck instanceof DeletedNode) {
       return null;
     } else {
@@ -154,19 +184,22 @@ final class PageReadTrx implements IPageReadTrx {
 
   @Override
   public String getName(final int pNameKey, @Nonnull final EKind pNodeKind) {
-    return mNamePage.getName(pNameKey, checkNotNull(pNodeKind));
+    assertNotClosed();
+    return mNamePage.getName(pNameKey, pNodeKind);
   }
 
   @Override
   public final byte[] getRawName(final int pNameKey,
     @Nonnull final EKind pNodeKind) {
-    return mNamePage.getRawName(pNameKey, checkNotNull(pNodeKind));
+    assertNotClosed();
+    return mNamePage.getRawName(pNameKey, pNodeKind);
   }
 
   /**
    * Clear the cache.
    */
   void clearCache() {
+    assertNotClosed();
     mCache.clear();
   }
 
@@ -182,7 +215,13 @@ final class PageReadTrx implements IPageReadTrx {
    */
   final RevisionRootPage loadRevRoot(@Nonnegative final long pRevisionKey)
     throws TTIOException {
-    checkArgument(pRevisionKey >= 0, "pRevisionKey must be >= 0!");
+    checkArgument(pRevisionKey >= 0
+      && pRevisionKey <= mSession.getLastRevisionNumber(),
+      "pRevisionKey must be >= 0 and <= last stored revision!");
+    assertNotClosed();
+
+    // The indirect page reference either fails horribly or returns a non null instance.
+    @SuppressWarnings("null")
     final PageReference ref =
       dereferenceLeafOfTree(mUberPage.getIndirectPageReference(), pRevisionKey);
     RevisionRootPage page = (RevisionRootPage)ref.getPage();
@@ -197,20 +236,6 @@ final class PageReadTrx implements IPageReadTrx {
   }
 
   /**
-   * Initialize NamePage.
-   * 
-   * @throws TTIOException
-   *           if an I/O error occurs
-   */
-  private final NamePage initializeNamePage() throws TTIOException {
-    final PageReference ref = mRootPage.getNamePageReference();
-    if (ref.getPage() == null) {
-      ref.setPage(mPageReader.read(ref.getKey()));
-    }
-    return (NamePage)ref.getPage();
-  }
-
-  /**
    * Initialize PathSummaryPage.
    * 
    * @throws TTIOException
@@ -218,6 +243,7 @@ final class PageReadTrx implements IPageReadTrx {
    */
   private final PathSummaryPage getPathSummaryPage(
     @Nonnull final RevisionRootPage pPage) throws TTIOException {
+    assertNotClosed();
     final PageReference ref = pPage.getPathSummaryPageReference();
     if (ref.getPage() == null) {
       ref.setPage(mPageReader.read(ref.getKey()));
@@ -240,17 +266,17 @@ final class PageReadTrx implements IPageReadTrx {
    * @throws TTIOException
    *           if an I/O-error occurs within the creation process
    */
-  final NodePage[] getSnapshotPages(@Nonnegative final long pNodePageKey, @Nonnull final EPage pPage)
-    throws TTIOException {
+  final NodePage[] getSnapshotPages(@Nonnegative final long pNodePageKey,
+    @Nonnull final EPage pPage) throws TTIOException {
     checkNotNull(pPage);
+    assertNotClosed();
     final List<PageReference> refs = new ArrayList<>();
     final Set<Long> keys = new HashSet<>();
     final ResourceConfiguration config = mSession.getResourceConfig();
     final int revsToRestore = config.mRevisionsToRestore;
     for (long i = mRootPage.getRevision(); i >= 0; i--) {
       final PageReference tmpRef = getPageReference(loadRevRoot(i), pPage);
-      final PageReference ref = dereferenceLeafOfTree(tmpRef,
-          pNodePageKey);
+      final PageReference ref = dereferenceLeafOfTree(tmpRef, pNodePageKey);
       if (ref != null
         && (ref.getPage() != null || ref.getKey() != IConstants.NULL_ID)) {
         if (ref.getKey() == IConstants.NULL_ID
@@ -262,8 +288,7 @@ final class PageReadTrx implements IPageReadTrx {
         }
         if (refs.size() == revsToRestore
           || config.mRevisionKind == ERevisioning.FULL
-          || (config.mRevisionKind == ERevisioning.DIFFERENTIAL
-          && refs.size() == 2)) {
+          || (config.mRevisionKind == ERevisioning.DIFFERENTIAL && refs.size() == 2)) {
           break;
         }
         if (config.mRevisionKind == ERevisioning.DIFFERENTIAL) {
@@ -321,15 +346,22 @@ final class PageReadTrx implements IPageReadTrx {
    */
   final IndirectPage dereferenceIndirectPage(
     @Nonnull final PageReference pReference) throws TTIOException {
-    IndirectPage page = (IndirectPage)pReference.getPage();
+    final IPage tmpPage = pReference.getPage();
+    if (tmpPage == null || tmpPage instanceof IndirectPage) {
+      IndirectPage page = (IndirectPage)tmpPage;
 
-    // If there is no page, get it from the storage and cache it.
-    if (page == null && pReference.getKey() != IConstants.NULL_ID) {
-      page = (IndirectPage)mPageReader.read(pReference.getKey());
-      pReference.setPage(page);
+      // If there is no page, get it from the storage and cache it.
+      if (page == null && pReference.getKey() != IConstants.NULL_ID) {
+        page = (IndirectPage)mPageReader.read(pReference.getKey());
+        pReference.setPage(page);
+      }
+
+      assert page != null;
+      return page;
+    } else {
+      throw new IllegalArgumentException(
+        "Must be a reference to an indirect page!");
     }
-
-    return page;
   }
 
   /**
@@ -411,8 +443,8 @@ final class PageReadTrx implements IPageReadTrx {
   }
 
   @Override
-  public PageContainer getNodeFromPage(final long pNodePageKey, final EPage pPage)
-    throws TTIOException {
+  public PageContainer getNodeFromPage(final long pNodePageKey,
+    @Nonnull final EPage pPage) throws TTIOException {
     final NodePage[] revs = getSnapshotPages(pNodePageKey, pPage);
     if (revs.length == 0) {
       return PageContainer.EMPTY_INSTANCE;
@@ -428,6 +460,7 @@ final class PageReadTrx implements IPageReadTrx {
 
   @Override
   public void close() throws TTIOException {
+    mClosed = true;
     mCache.clear();
     mPageReader.close();
   }

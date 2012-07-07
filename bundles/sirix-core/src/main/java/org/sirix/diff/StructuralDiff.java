@@ -27,6 +27,8 @@
 
 package org.sirix.diff;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.exception.AbsTTException;
@@ -47,12 +49,13 @@ final class StructuralDiff extends AbsDiff {
    *          {@link Builder} reference
    * @throws AbsTTException
    */
-  public StructuralDiff(final Builder pBuilder) throws AbsTTException {
+  public StructuralDiff(@Nonnull final Builder pBuilder) throws AbsTTException {
     super(pBuilder);
   }
 
   @Override
-  boolean checkNodes(final INodeReadTrx pNewRtx, final INodeReadTrx pOldRtx) {
+  boolean checkNodes(@Nonnull final INodeReadTrx pNewRtx,
+    @Nonnull final INodeReadTrx pOldRtx) {
     boolean found = false;
     if (pNewRtx.getNode().getNodeKey() == pOldRtx.getNode().getNodeKey()
       && pNewRtx.getNode().getKind() == pOldRtx.getNode().getKind()) {
@@ -65,7 +68,8 @@ final class StructuralDiff extends AbsDiff {
         }
         break;
       case TEXT:
-        if (pNewRtx.getValueOfCurrentNode().equals(pOldRtx.getValueOfCurrentNode())) {
+        if (pNewRtx.getValueOfCurrentNode().equals(
+          pOldRtx.getValueOfCurrentNode())) {
           found = true;
         }
         break;

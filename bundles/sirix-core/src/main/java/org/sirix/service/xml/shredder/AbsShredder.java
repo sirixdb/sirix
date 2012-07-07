@@ -43,7 +43,7 @@ public abstract class AbsShredder implements IShredder<String, QName> {
   public AbsShredder(@Nonnull final INodeWriteTrx pWtx, @Nonnull final EInsert pInsertLocation) {
     mWtx = checkNotNull(pWtx);
     mInsertLocation = checkNotNull(pInsertLocation);
-    mLeftSiblingKeyStack = new ArrayDeque<Long>();
+    mLeftSiblingKeyStack = new ArrayDeque<>();
     mLeftSiblingKeyStack.push(EFixed.NULL_NODE_KEY.getStandardProperty());
   }
 

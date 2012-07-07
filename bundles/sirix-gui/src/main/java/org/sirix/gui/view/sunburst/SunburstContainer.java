@@ -277,10 +277,9 @@ public final class SunburstContainer implements IContainer<SunburstContainer> {
     return this;
   }
 
-  /** {@inheritDoc} */
   @Override
-  public SunburstContainer setPruning(@Nonnull final EPruning paramPruning) {
-    mPruning = checkNotNull(paramPruning);
+  public SunburstContainer setPruning(@Nonnull final EPruning pPruning) {
+    mPruning = checkNotNull(pPruning);
     return this;
   }
 
@@ -289,7 +288,7 @@ public final class SunburstContainer implements IContainer<SunburstContainer> {
    * 
    * @return pruning method
    */
-  public EPruning getPruning() {
+  public @Nonnull EPruning getPruning() {
     return mPruning;
   }
 

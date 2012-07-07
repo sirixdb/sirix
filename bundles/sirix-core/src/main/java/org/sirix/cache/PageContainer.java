@@ -82,7 +82,7 @@ public final class PageContainer {
    *          to be used as a base for this container
    */
   public PageContainer(@Nonnull final IPage pComplete) {
-    this(checkNotNull(pComplete), EPage.getKind(pComplete.getClass()).getInstance(pComplete));
+    this(pComplete, EPage.getKind(pComplete.getClass()).getInstance(pComplete));
   }
 
   /**
@@ -119,7 +119,7 @@ public final class PageContainer {
   /**
    * Serializing the container to the cache.
    * 
-   * @param paramOut
+   * @param pOut
    *          for serialization
    */
   public void serialize(@Nonnull final TupleOutput pOut) {

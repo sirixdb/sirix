@@ -36,7 +36,9 @@ import java.util.Collections;
 import java.util.List;
 
 import javax.annotation.Nonnull;
+import javax.xml.namespace.QName;
 
+import org.sirix.access.PageWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -44,6 +46,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.settings.EFixed;
+import org.sirix.utils.NamePageHash;
 
 /**
  * <h1>ElementNode</h1>
@@ -131,8 +134,10 @@ public final class ElementNode extends AbsStructForwardingNode implements
    *          name index
    * @return the attribute key
    */
-  public Optional<Long> getAttributeKeyByName(final int pNameIndex) {
-    return Optional.fromNullable(mAttributes.get(pNameIndex));
+  public Optional<Long> getAttributeKeyByName(@Nonnull final QName pQName) {
+    final int nameIndex =
+      NamePageHash.generateHashForString(PageWriteTrx.buildName(pQName));
+    return Optional.fromNullable(mAttributes.get(nameIndex));
   }
 
   /**
@@ -140,6 +145,8 @@ public final class ElementNode extends AbsStructForwardingNode implements
    * 
    * @param pAttrKey
    *          the new attribute key
+   * @param pNameIndex
+   *          index mapping to name string
    */
   public void insertAttribute(final long pAttrKey, final int pNameIndex) {
     mAttributeKeys.add(pAttrKey);
@@ -227,17 +234,13 @@ public final class ElementNode extends AbsStructForwardingNode implements
 
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder(super.toString());
-    builder.append(mNameDel.toString());
-    builder.append("\n\tnamespaces: ");
-    builder.append(mNamespaceKeys.toString());
-    builder.append("\n\tattributes: ");
-    builder.append(mAttributeKeys.toString());
-    return builder.toString();
+    return Objects.toStringHelper(this).add("nameDelegate", mNameDel).add(
+      "nameSpaceKeys", mNamespaceKeys).add("attributeKeys", mAttributeKeys)
+      .toString();
   }
 
   @Override
-  public EVisitResult acceptVisitor(final IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return pVisitor.visit(this);
   }
 

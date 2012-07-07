@@ -30,6 +30,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -133,7 +134,7 @@ public class NodeDelegate implements INode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(final IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return EVisitResult.CONTINUE;
   }
 
@@ -198,7 +199,7 @@ public class NodeDelegate implements INode {
   }
 
   @Override
-  public boolean isSameItem(final INode pOther) {
+  public boolean isSameItem(@Nullable final INode pOther) {
     if (pOther == null) {
       return false;
     }

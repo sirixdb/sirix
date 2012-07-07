@@ -30,6 +30,7 @@ package org.sirix.axis;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeTraversal;
@@ -78,7 +79,7 @@ public final class DescendantAxis extends AbsAxis {
   public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
     mFirst = true;
-    mRightSiblingKeyStack = new ArrayDeque<Long>();
+    mRightSiblingKeyStack = new ArrayDeque<>();
   }
 
   @Override
@@ -86,7 +87,7 @@ public final class DescendantAxis extends AbsAxis {
     if (isNext()) {
       return true;
     }
-    
+
     resetToLastKey();
 
     // Determines if first call to hasNext().
@@ -136,8 +137,14 @@ public final class DescendantAxis extends AbsAxis {
     return false;
   }
 
-  private boolean hasNextNode(final long pCurrKey) {
-    // Fail if the subtree is finished.
+  /**
+   * Determines if the subtree-traversal is finished.
+   * 
+   * @param pCurrKey
+   *          current node key
+   * @return {@code false} if finished, {@code true} if not
+   */
+  private boolean hasNextNode(@Nonnegative final long pCurrKey) {
     getTransaction().moveTo(mKey);
     if (getTransaction().getStructuralNode().getLeftSiblingKey() == getStartKey()) {
       resetToStartKey();

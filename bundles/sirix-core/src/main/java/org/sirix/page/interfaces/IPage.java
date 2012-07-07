@@ -26,22 +26,22 @@
  */
 package org.sirix.page.interfaces;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
 import org.sirix.io.ITTSink;
 import org.sirix.page.PageReference;
 
 public interface IPage {
-
   
-  
-  void serialize(final ITTSink pOut);
+  void serialize(@Nonnull final ITTSink pOut);
 
   long getRevision();
 
   PageReference[] getReferences();
 
-  void commit(final IPageWriteTrx pPageWriteTrx) throws AbsTTException;
+  void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws AbsTTException;
   
   
 

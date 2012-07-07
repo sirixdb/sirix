@@ -28,6 +28,10 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -72,8 +76,18 @@ public final class DocumentRootNode extends AbsStructForwardingNode implements
   }
 
   @Override
-  public EVisitResult acceptVisitor(final IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return pVisitor.visit(this);
+  }
+
+  @Override
+  public boolean equals(@Nullable final Object pObj) {
+    if (pObj instanceof DocumentRootNode) {
+      final DocumentRootNode other = (DocumentRootNode)pObj;
+      return Objects.equal(mNodeDel, other.mNodeDel)
+        && Objects.equal(mStructNodeDel, other.mStructNodeDel);
+    }
+    return false;
   }
 
   @Override

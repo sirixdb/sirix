@@ -26,10 +26,14 @@
  */
 package org.sirix.diff.algorithm.fmse;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import javax.annotation.Nonnull;
 
 import org.sirix.access.AbsVisitorSupport;
 import org.sirix.api.INodeReadTrx;
@@ -65,14 +69,14 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
    * @throws AbsTTException
    *           if setting up sirix fails
    */
-  public LabelFMSEVisitor(final INodeReadTrx pReadTransaction) throws AbsTTException {
-    mRtx = pReadTransaction;
+  public LabelFMSEVisitor(@Nonnull final INodeReadTrx pReadTrx) throws AbsTTException {
+    mRtx = checkNotNull(pReadTrx);
     mLabels = new HashMap<>();
     mLeafLabels = new HashMap<>();
   }
 
   @Override
-  public EVisitResult visit(final ElementNode pNode) {
+  public EVisitResult visit(@Nonnull final ElementNode pNode) {
     final long nodeKey = pNode.getNodeKey();
     mRtx.moveTo(nodeKey);
     for (int i = 0; i < pNode.getAttributeCount(); i++) {
@@ -93,7 +97,7 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
   }
 
   @Override
-  public EVisitResult visit(final TextNode pNode) {
+  public EVisitResult visit(@Nonnull final TextNode pNode) {
     mRtx.moveTo(pNode.getNodeKey());
     addLeafLabel();
     return EVisitResult.CONTINUE;

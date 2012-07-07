@@ -27,6 +27,9 @@
 
 package org.sirix.node.interfaces;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.EKind;
@@ -77,7 +80,7 @@ public interface INode {
    *          the other node
    * @return {@code true}, if it is the same item, {@code false} otherwise
    */
-  boolean isSameItem(final INode pOther);
+  boolean isSameItem(@Nullable final INode pOther);
   
   /**
    * Gets the kind of the item (atomic value, element node, attribute
@@ -94,7 +97,7 @@ public interface INode {
    *          implementation of the {@link IVisitor} interface
    * @return the result of a visit
    */
-  EVisitResult acceptVisitor(final IVisitor pVisitor);
+  EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor);
   
   /**
    * Setting the actual hash of the structure. The hash of one node should

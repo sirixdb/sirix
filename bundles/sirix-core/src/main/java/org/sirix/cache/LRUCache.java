@@ -37,6 +37,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * An LRU cache, based on {@code LinkedHashMap}. This cache can hold an
@@ -72,26 +73,29 @@ public final class LRUCache<K, V> implements ICache<K, V> {
   public LRUCache(@Nonnull final ICache<K, V> pSecondCache) {
     mSecondCache = checkNotNull(pSecondCache);
     mMap = new LinkedHashMap<K, V>(CACHE_CAPACITY) {
-      // (an anonymous inner class)
       private static final long serialVersionUID = 1;
 
       @Override
-      protected boolean removeEldestEntry(final Map.Entry<K, V> pEldest) {
+      protected boolean removeEldestEntry(
+        @Nullable final Map.Entry<K, V> pEldest) {
         boolean returnVal = false;
         if (size() > CACHE_CAPACITY) {
-          mSecondCache.put(pEldest.getKey(), pEldest.getValue());
+          if (pEldest != null) {
+            final K key = pEldest.getKey();
+            final V value = pEldest.getValue();
+            if (key != null && value != null) {
+              mSecondCache.put(key, value);
+            }
+          }
           returnVal = true;
         }
         return returnVal;
       }
     };
   }
-
-  /**
-   * Constructor with no second cache.
-   */
+  
   public LRUCache() {
-    this(new NullCache<K, V>());
+    this(new EmptyCache<K, V>());
   }
 
   /**
@@ -104,7 +108,7 @@ public final class LRUCache<K, V> implements ICache<K, V> {
    *         key exists in the cache
    */
   @Override
-  public V get(final K pKey) {
+  public V get(@Nonnull final K pKey) {
     V page = mMap.get(pKey);
     if (page == null) {
       page = mSecondCache.get(pKey);
@@ -123,7 +127,7 @@ public final class LRUCache<K, V> implements ICache<K, V> {
    *          a value to be associated with the specified key
    */
   @Override
-  public void put(final K pKey, final V pValue) {
+  public void put(@Nonnull final K pKey, @Nonnull final V pValue) {
     mMap.put(pKey, pValue);
   }
 
@@ -152,17 +156,18 @@ public final class LRUCache<K, V> implements ICache<K, V> {
    * @return a {@code Collection} with a copy of the cache content
    */
   public Collection<Map.Entry<K, V>> getAll() {
-    return new ArrayList<Map.Entry<K, V>>(mMap.entrySet());
+    return new ArrayList<>(mMap.entrySet());
   }
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("First Cache", mMap).add("Second Cache", mSecondCache).toString();
+    return Objects.toStringHelper(this).add("First Cache", mMap).add(
+      "Second Cache", mSecondCache).toString();
   }
 
   @Override
-  public ImmutableMap<K, V> getAll(final Iterable<? extends K> pKeys) {
-    final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<K, V>();
+  public ImmutableMap<K, V> getAll(@Nonnull final Iterable<? extends K> pKeys) {
+    final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
     for (final K key : pKeys) {
       if (mMap.get(key) != null) {
         builder.put(key, mMap.get(key));

@@ -28,6 +28,9 @@
 package org.sirix.cache;
 
 import com.google.common.collect.ImmutableMap;
+
+import javax.annotation.Nonnull;
+
 import org.sirix.utils.FastWeakHashMap;
 
 /**
@@ -47,7 +50,7 @@ public final class RAMCache<K, V> implements ICache<K, V> {
    * Simple constructor.
    */
   public RAMCache() {
-    mMap = new FastWeakHashMap<K, V>();
+    mMap = new FastWeakHashMap<>();
   }
 
   @Override
@@ -56,12 +59,12 @@ public final class RAMCache<K, V> implements ICache<K, V> {
   }
 
   @Override
-  public V get(final K pKey) {
+  public V get(@Nonnull final K pKey) {
     return mMap.get(pKey);
   }
 
   @Override
-  public void put(final K pKey, final V pPage) {
+  public void put(@Nonnull final K pKey, @Nonnull final V pPage) {
     mMap.put(pKey, pPage);
   }
 
@@ -71,8 +74,8 @@ public final class RAMCache<K, V> implements ICache<K, V> {
   }
 
   @Override
-  public ImmutableMap<K, V> getAll(final Iterable<? extends K> pKeys) {
-    final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<K, V>();
+  public ImmutableMap<K, V> getAll(@Nonnull final Iterable<? extends K> pKeys) {
+    final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
     for (final K key : pKeys) {
       if (mMap.get(key) != null) {
         builder.put(key, mMap.get(key));

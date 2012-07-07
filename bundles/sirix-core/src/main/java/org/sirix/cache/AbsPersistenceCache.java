@@ -29,6 +29,8 @@ package org.sirix.cache;
 
 import java.io.File;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.TTIOException;
@@ -68,7 +70,7 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
   }
 
   @Override
-  public final void put(final K pKey, final V pPage) {
+  public final void put(@Nonnull final K pKey, @Nonnull final V pPage) {
     try {
       putPersistent(pKey, pPage);
     } catch (final TTIOException exc) {
@@ -94,7 +96,7 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
   }
 
   @Override
-  public final V get(final K pKey) {
+  public final V get(@Nonnull final K pKey) {
     try {
       return getPersistent(pKey);
     } catch (final TTIOException exc) {
@@ -120,7 +122,7 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
    * @throws TTIOException
    *           if something odd happens
    */
-  public abstract void putPersistent(final K pKey, final V pPage) throws TTIOException;
+  public abstract void putPersistent(@Nonnull final K pKey, @Nonnull final V pPage) throws TTIOException;
 
   /**
    * Getting a NodePage from the persistent cache.
@@ -131,6 +133,6 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
    * @throws TTIOException
    *           if something odd happens.
    */
-  public abstract V getPersistent(final K pKey) throws TTIOException;
+  public abstract V getPersistent(@Nonnull final K pKey) throws TTIOException;
 
 }

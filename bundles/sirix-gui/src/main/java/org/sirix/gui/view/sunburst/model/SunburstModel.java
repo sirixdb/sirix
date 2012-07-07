@@ -39,7 +39,6 @@ import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -48,16 +47,17 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import javax.annotation.Syntax;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamException;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.ISession;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.exception.AbsTTException;
@@ -81,6 +81,7 @@ import org.sirix.node.interfaces.IStructNode;
 import org.sirix.service.xml.shredder.EShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 import processing.core.PApplet;
 import processing.core.PConstants;
 
@@ -94,10 +95,12 @@ import processing.core.PConstants;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SunburstModel extends AbsModel<SunburstContainer, SunburstItem> implements IChangeModel {
+public final class SunburstModel extends
+  AbsModel<SunburstContainer, SunburstItem> implements IChangeModel {
 
   /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(SunburstModel.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
+    .getLogger(SunburstModel.class));
 
   /** {@link INodeWriteTrx} instance. */
   private INodeWriteTrx mWtx;
@@ -110,27 +113,28 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
    * @param pDb
    *          {@link ReadDB} reference
    */
-  public SunburstModel(final PApplet pApplet, final ReadDB pDb) {
+  public SunburstModel(@Nonnull final PApplet pApplet, @Nonnull final ReadDB pDb) {
     super(pApplet, pDb);
   }
 
   @Override
-  public void update(final IContainer<SunburstContainer> pContainer) {
-    Objects.requireNonNull(pContainer);
-    mLastItems.push(new ArrayList<SunburstItem>(mItems));
+  public void update(@Nonnull final IContainer<SunburstContainer> pContainer) {
+    mLastItems.push(new ArrayList<>(mItems));
     mLastDepths.push(mLastMaxDepth);
     traverseTree(pContainer);
   }
 
   @Override
-  public void traverseTree(final IContainer<SunburstContainer> pContainer) {
-    final SunburstContainer container = (SunburstContainer)Objects.requireNonNull(pContainer);
-    assert container.getNewStartKey() >= 0;
-    assert container.getOldStartKey() >= 0;
+  public void traverseTree(
+    @Nonnull final IContainer<SunburstContainer> pContainer) {
+    final SunburstContainer container =
+      (SunburstContainer)checkNotNull(pContainer);
+    checkArgument(container.getNewStartKey() >= 0);
+    checkArgument(container.getOldStartKey() >= 0);
     final ExecutorService executor = Executors.newSingleThreadExecutor();
     try {
-      executor.submit(new TraverseTree(container.getNewStartKey(), container.getPruning(),
-        container.getGUI(), this));
+      executor.submit(new TraverseTree(container.getNewStartKey(), container
+        .getPruning(), container.getGUI(), this));
     } catch (final AbsTTException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
@@ -138,7 +142,8 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
   }
 
   /** Traverse a tree (single revision). */
-  private static final class TraverseTree extends AbsTraverseModel implements Callable<Void> {
+  private static final class TraverseTree extends AbsTraverseModel implements
+    Callable<Void> {
 
     /** Key from which to start traversal. */
     private transient long mKey;
@@ -186,16 +191,17 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
      * Constructor.
      * 
      * @param pKey
-     *          Key from which to start traversal.
+     *          key from which to start traversal
      * @param pPruning
-     *          Pruning of nodes.
+     *          pruning of nodes
      * @param pModel
-     *          The {@link SunburstModel}.
+     *          the {@link SunburstModel}
      * @param pGUI
      *          GUI which extends the {@link SunburstGUI}
      */
-    private TraverseTree(final long pKey, final EPruning pPruning, final AbsSunburstGUI pGUI,
-      final SunburstModel pModel) throws AbsTTException {
+    private TraverseTree(@Nonnegative final long pKey,
+      @Nonnull final EPruning pPruning, @Nonnull final AbsSunburstGUI pGUI,
+      @Nonnull final SunburstModel pModel) throws AbsTTException {
       assert pKey >= 0;
       assert pModel != null;
       assert pGUI != null;
@@ -204,7 +210,9 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
       addPropertyChangeListener(mModel);
       mPruning = pPruning;
       mDb = mModel.getDb();
-      mRtx = mModel.getDb().getSession().beginNodeReadTrx(mModel.getDb().getRevisionNumber());
+      mRtx =
+        mModel.getDb().getSession().beginNodeReadTrx(
+          mModel.getDb().getRevisionNumber());
       mMaxDescendantCount = (int)mRtx.getStructuralNode().getDescendantCount();
       mRtx.moveTo(mKey);
       mParent = mModel.getParent();
@@ -227,9 +235,11 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
         // Iterate over nodes and perform appropriate stack actions internally.
         int i = 0;
         for (final SunburstDescendantAxis axis =
-          new SunburstDescendantAxis(mRtx, EIncludeSelf.YES, this, mPruning); axis.hasNext(); i++) {
+          new SunburstDescendantAxis(mRtx, EIncludeSelf.YES, this, mPruning); axis
+          .hasNext(); i++) {
           axis.next();
-          final int progress = (int)((float)i / (float)mMaxDescendantCount * (float)100);
+          final int progress =
+            (int)((float)i / (float)mMaxDescendantCount * (float)100);
           if (progress > 0 && progress < 100) {
             firePropertyChange("progress", null, progress);
           }
@@ -259,10 +269,9 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
       return null;
     }
 
-    /** {@inheritDoc} */
     @Override
-    public float createSunburstItem(final Item pItem, final int pDepth, final int pIndex) {
-      Objects.requireNonNull(pItem);
+    public float createSunburstItem(@Nonnull final Item pItem, @Nonnegative final int pDepth,
+      @Nonnegative final int pIndex) {
       checkArgument(pDepth >= 0, "must be positive: %s", pDepth);
       checkArgument(pIndex >= 0, "must be >= 0: %s", pIndex);
 
@@ -276,12 +285,14 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
 
       // Add a sunburst item.
       final IStructNode node = mRtx.getStructuralNode();
-      final EStructType structKind = node.hasFirstChild() ? EStructType.ISINNERNODE : EStructType.ISLEAFNODE;
+      final EStructType structKind =
+        node.hasFirstChild() ? EStructType.ISINNERNODE : EStructType.ISLEAFNODE;
 
       // Calculate extension.
       float childExtension = 2 * PConstants.PI;
       if (indexToParent > -1) {
-        childExtension = extension * (float)descendantCount / ((float)parDescendantCount - 1f);
+        childExtension =
+          extension * (float)descendantCount / ((float)parDescendantCount - 1f);
       }
       LOGWRAPPER.debug("ITEM: " + pIndex);
       LOGWRAPPER.debug("descendantCount: " + descendantCount);
@@ -296,18 +307,21 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
       NodeRelations relations = null;
       if (mRtx.getNode().getKind() == EKind.TEXT) {
         relations =
-          new NodeRelations(depth, depth, structKind, mRtx.getValueOfCurrentNode().length(), mMinTextLength,
-            mMaxTextLength, indexToParent);
+          new NodeRelations(depth, depth, structKind, mRtx
+            .getValueOfCurrentNode().length(), mMinTextLength, mMaxTextLength,
+            indexToParent);
         text = mRtx.getValueOfCurrentNode();
         // LOGWRAPPER.debug("text: " + text);
       } else {
         relations =
-          new NodeRelations(depth, depth, structKind, descendantCount, 0, mMaxDescendantCount, indexToParent);
+          new NodeRelations(depth, depth, structKind, descendantCount, 0,
+            mMaxDescendantCount, indexToParent);
       }
 
       // Build item.
       final SunburstItem.Builder builder =
-        new SunburstItem.Builder(mParent, angle, childExtension, relations, mDb, mGUI).setNode(node);
+        new SunburstItem.Builder(mParent, angle, childExtension, relations,
+          mDb, mGUI).setNode(node);
       if (text != null) {
         builder.setText(text).build();
       } else {
@@ -328,23 +342,24 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
       return childExtension;
     }
 
-    /** {@inheritDoc} */
     @Override
     public boolean getIsPruned() {
       return mPruned;
     }
 
     @Override
-    public void getMinMaxTextLength(final INodeReadTrx pRtx, final Optional<INodeReadTrx> pOldRtx) {
-      assert pRtx != null;
+    public void getMinMaxTextLength(@Nonnull final INodeReadTrx pRtx,
+      @Nonnull final Optional<INodeReadTrx> pOldRtx) {
       assert !pRtx.isClosed();
 
       mMinTextLength = Integer.MAX_VALUE;
       mMaxTextLength = Integer.MIN_VALUE;
-      for (final IAxis axis = new DescendantAxis(pRtx, EIncludeSelf.YES); axis.hasNext();) {
+      for (final IAxis axis = new DescendantAxis(pRtx, EIncludeSelf.YES); axis
+        .hasNext();) {
         axis.next();
         if (axis.getTransaction().getNode().getKind() == EKind.TEXT) {
-          final int length = axis.getTransaction().getValueOfCurrentNode().length();
+          final int length =
+            axis.getTransaction().getValueOfCurrentNode().length();
           if (length < mMinTextLength) {
             mMinTextLength = length;
           }
@@ -366,8 +381,8 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
     }
 
     @Override
-    public void descendants(final Optional<INodeReadTrx> pRtx) throws InterruptedException,
-      ExecutionException {
+    public void descendants(@Nonnull final Optional<INodeReadTrx> pRtx)
+      throws InterruptedException, ExecutionException {
       checkNotNull(pRtx);
 
       try {
@@ -402,9 +417,11 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
 
       /** {@inheritDoc} */
       @Override
-      public Void call() throws AbsTTException, ExecutionException, InterruptedException {
+      public Void call() throws AbsTTException, ExecutionException,
+        InterruptedException {
         final ExecutorService executor =
-          Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+          Executors.newFixedThreadPool(Runtime.getRuntime()
+            .availableProcessors());
         switch (mPruning) {
         case DEPTH:
           mDepth = 0;
@@ -421,23 +438,27 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
               if (mRtx.getStructuralNode().hasFirstChild()) {
                 if (first) {
                   first = false;
-                  final Future<Integer> descs = countDescendants(mRtx, executor);
+                  final Future<Integer> descs =
+                    countDescendants(mRtx, executor);
                   mMaxDescendantCount = descs.get();
                   LOGWRAPPER.debug("DESCS: " + mMaxDescendantCount);
-                  firePropertyChange("maxDescendantCount", null, mMaxDescendantCount);
+                  firePropertyChange("maxDescendantCount", null,
+                    mMaxDescendantCount);
                   firePropertyChange("descendants", null, descs);
                   mRtx.moveToFirstChild();
                   mDepth++;
                 } else {
                   if (mDepth >= DEPTH_TO_PRUNE) {
-                    while (!mRtx.getStructuralNode().hasRightSibling() && mRtx.getNode().getNodeKey() != key) {
+                    while (!mRtx.getStructuralNode().hasRightSibling()
+                      && mRtx.getNode().getNodeKey() != key) {
                       mRtx.moveToParent();
                       mDepth--;
                     }
                     mRtx.moveToRightSibling();
                   } else {
                     if (!moved) {
-                      firePropertyChange("descendants", null, countDescendants(mRtx, executor));
+                      firePropertyChange("descendants", null, countDescendants(
+                        mRtx, executor));
                     }
                     mRtx.moveToFirstChild();
                     mDepth++;
@@ -446,9 +467,12 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
                 }
               } else {
                 boolean movedToNextFollowing = false;
-                while (!mRtx.getStructuralNode().hasRightSibling() && mRtx.getNode().getNodeKey() != key) {
-                  if (!moved && !movedToNextFollowing && mDepth < DEPTH_TO_PRUNE) {
-                    firePropertyChange("descendants", null, countDescendants(mRtx, executor));
+                while (!mRtx.getStructuralNode().hasRightSibling()
+                  && mRtx.getNode().getNodeKey() != key) {
+                  if (!moved && !movedToNextFollowing
+                    && mDepth < DEPTH_TO_PRUNE) {
+                    firePropertyChange("descendants", null, countDescendants(
+                      mRtx, executor));
                   }
                   mRtx.moveToParent();
                   mDepth--;
@@ -459,11 +483,13 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
                     mRtx.moveToRightSibling();
                     moved = true;
                     if (mDepth < DEPTH_TO_PRUNE) {
-                      firePropertyChange("descendants", null, countDescendants(mRtx, executor));
+                      firePropertyChange("descendants", null, countDescendants(
+                        mRtx, executor));
                     }
                   } else {
                     if (mDepth < DEPTH_TO_PRUNE && !moved) {
-                      firePropertyChange("descendants", null, countDescendants(mRtx, executor));
+                      firePropertyChange("descendants", null, countDescendants(
+                        mRtx, executor));
                     }
                     moved = false;
                     mRtx.moveToRightSibling();
@@ -482,18 +508,21 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
         case NO:
           // Get descendants for every node and save it to a list.
           boolean firstNode = true;
-          for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis.hasNext(); axis.next()) {
+          for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
+            .hasNext(); axis.next()) {
             if (axis.getTransaction().getNode().getKind() != EKind.DOCUMENT_ROOT) {
               // try {
               final Future<Integer> futureSubmitted =
-                executor.submit(Callables.returning((int)mRtx.getStructuralNode().getDescendantCount() + 1));// */new
-                                                                                                             // Descendants(mDb.getSession(),
-                                                                                                             // mRtx
+                executor.submit(Callables.returning((int)mRtx
+                  .getStructuralNode().getDescendantCount() + 1));// */new
+                                                                  // Descendants(mDb.getSession(),
+                                                                  // mRtx
               // .getRevisionNumber(), mRtx.getItem().getKey()));
               if (firstNode) {
                 firstNode = false;
                 mMaxDescendantCount = futureSubmitted.get();
-                firePropertyChange("maxDescendantCount", null, mMaxDescendantCount);
+                firePropertyChange("maxDescendantCount", null,
+                  mMaxDescendantCount);
               }
               firePropertyChange("descendants", null, futureSubmitted);
               // } catch (TTIOException e) {
@@ -503,7 +532,8 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
           }
           break;
         }
-        firePropertyChange("descendants", null, executor.submit(Callables.returning(DESCENDANTS_DONE)));
+        firePropertyChange("descendants", null, executor.submit(Callables
+          .returning(DESCENDANTS_DONE)));
         mModel.shutdown(executor);
         mRtx.close();
         return null;
@@ -516,14 +546,14 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
      * @param pRtx
      *          {@link INodeReadTrx} instance
      */
-    Future<Integer> countDescendants(final INodeReadTrx pRtx, final ExecutorService pExecutor)
-      throws AbsTTException {
+    Future<Integer> countDescendants(final INodeReadTrx pRtx,
+      final ExecutorService pExecutor) throws AbsTTException {
       assert pRtx != null;
       assert pExecutor != null;
 
       try {
-        return pExecutor.submit(new PrunedDescendants(mDb.getSession(), pRtx.getRevisionNumber(), pRtx
-          .getNode().getNodeKey(), mDepth));
+        return pExecutor.submit(new PrunedDescendants(mDb.getSession(), pRtx
+          .getRevisionNumber(), pRtx.getNode().getNodeKey(), mDepth));
       } catch (final AbsTTException e) {
         LOGWRAPPER.error(e.getMessage(), e);
         return null;
@@ -545,8 +575,8 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
        * @param pRtx
        *          {@link INodeReadTrx} over which to iterate
        */
-      PrunedDescendants(final ISession pSession, final long pRevision, final long pNodeKey, final int pDepth)
-        throws AbsTTException {
+      PrunedDescendants(final ISession pSession, final long pRevision,
+        final long pNodeKey, final int pDepth) throws AbsTTException {
         assert pSession != null;
         assert !pSession.isClosed();
         assert pRevision >= 0;
@@ -597,7 +627,8 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
       private int nextFollowingNode(final INodeReadTrx pRtx, final long pKey) {
         checkNotNull(pRtx);
         int retVal = 0;
-        while (!pRtx.getStructuralNode().hasRightSibling() && pRtx.getNode().getNodeKey() != pKey) {
+        while (!pRtx.getStructuralNode().hasRightSibling()
+          && pRtx.getNode().getNodeKey() != pKey) {
           pRtx.moveToParent();
           mDepth--;
         }
@@ -622,7 +653,8 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
        * @param pRtx
        *          {@link INodeReadTrx} over which to iterate
        */
-      Descendants(final ISession pSession, final long pRevision, final long pNodeKey) {
+      Descendants(final ISession pSession, final long pRevision,
+        final long pNodeKey) {
         assert pSession != null;
         assert !pSession.isClosed();
         assert pRevision >= 0;
@@ -639,7 +671,8 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
       public Integer call() throws Exception {
         int retVal = 0;
 
-        for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis.hasNext();) {
+        for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
+          .hasNext();) {
           axis.next();
           retVal++;
         }
@@ -661,7 +694,8 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
    *           if parser can't parse the XML fragment
    */
   @Override
-  public void addXMLFragment(final String pFragment) throws AbsTTException, XMLStreamException {
+  public void addXMLFragment(final String pFragment) throws AbsTTException,
+    XMLStreamException {
     if (!pFragment.isEmpty()) {
       try {
         // Very simple heuristic to determine if it's character input or an XML fragment.
@@ -670,9 +704,11 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
           @Syntax("XML")
           final String xml = pFragment;
           final XMLEventReader reader =
-            XMLInputFactory.newInstance().createXMLEventReader(new ByteArrayInputStream(xml.getBytes()));
+            XMLInputFactory.newInstance().createXMLEventReader(
+              new ByteArrayInputStream(xml.getBytes()));
           final ExecutorService service = Executors.newSingleThreadExecutor();
-          service.submit(new XMLShredder(mWtx, reader, mInsert, EShredderCommit.NOCOMMIT));
+          service.submit(new XMLShredder(mWtx, reader, mInsert,
+            EShredderCommit.NOCOMMIT));
           service.shutdown();
           service.awaitTermination(60, TimeUnit.SECONDS);
         } else {
@@ -713,14 +749,15 @@ public final class SunburstModel extends AbsModel<SunburstContainer, SunburstIte
    *          the index of the {@link SunburstItem} which is currently hovered
    * @throws AbsTTException
    */
-  public void popupMenu(final MouseEvent pEvent, final ControlGroup<?> pCtrl, final int pHitTestIndex)
-    throws AbsTTException {
+  public void popupMenu(final MouseEvent pEvent, final ControlGroup<?> pCtrl,
+    final int pHitTestIndex) throws AbsTTException {
     if (mWtx == null || mWtx.isClosed()) {
       mWtx = getDb().getSession().beginNodeWriteTrx();
       mWtx.revertTo(getDb().getRevisionNumber());
     }
     mWtx.moveTo(((SunburstItem)getItem(pHitTestIndex)).getItem().getNodeKey());
-    final SunburstPopupMenu menu = SunburstPopupMenu.getInstance(this, mWtx, pCtrl);
+    final SunburstPopupMenu menu =
+      SunburstPopupMenu.getInstance(this, mWtx, pCtrl);
     menu.show(pEvent.getComponent(), pEvent.getX(), pEvent.getY());
   }
 

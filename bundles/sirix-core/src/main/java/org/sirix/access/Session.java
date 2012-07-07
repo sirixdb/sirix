@@ -151,7 +151,11 @@ public final class Session implements ISession {
     if (mFac.exists()) {
       final IReader reader = mFac.getReader();
       final PageReference firstRef = reader.readFirstReference();
-      mLastCommittedUberPage = (UberPage)firstRef.getPage();
+      if (firstRef.getPage() == null) {
+        mLastCommittedUberPage = (UberPage)reader.read(firstRef.getKey());
+      } else {
+        mLastCommittedUberPage = (UberPage)firstRef.getPage();
+      }
       reader.close();
     } else {
       // Bootstrap uber page and make sure there already is a root node.
@@ -256,7 +260,6 @@ public final class Session implements ISession {
     checkArgument(pId >= 0, "pId must be >= 0!");
     checkArgument(pRepresentRevision >= 0, "pRepresentRevision must be >= 0!");
     checkArgument(pStoreRevision >= 0, "pStoreRevision must be >= 0!");
-
     final IWriter writer = mFac.getWriter();
     final long lastCommitedRev =
       mLastCommittedUberPage.getLastCommitedRevisionNumber() > 0
@@ -360,7 +363,7 @@ public final class Session implements ISession {
   protected synchronized void syncLogs(final PageContainer mContToSync,
     final long mTransactionId) throws TTThreadedException {
     final ExecutorService exec = Executors.newCachedThreadPool();
-    final Collection<Future<Void>> returnVals = new ArrayList<Future<Void>>();
+    final Collection<Future<Void>> returnVals = new ArrayList<>();
     for (final Long key : mWriteTransactionStateMap.keySet()) {
       if (key != mTransactionId) {
         returnVals.add(exec.submit(new LogSyncer(mWriteTransactionStateMap

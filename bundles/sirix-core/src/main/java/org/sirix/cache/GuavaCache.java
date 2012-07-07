@@ -9,12 +9,14 @@ import com.google.common.cache.RemovalNotification;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.IPageReadTrx;
 import org.sirix.exception.TTIOException;
+import org.sirix.page.EPage;
 
 /**
  * Cache utilizing the Guava cache functionality.
@@ -23,11 +25,6 @@ import org.sirix.exception.TTIOException;
  * 
  */
 public class GuavaCache implements ICache<Tuple, PageContainer> {
-
-  /**
-   * Pool for prefetching.
-   */
-  private final ExecutorService mPool = Executors.newSingleThreadExecutor();
 
   /**
    * Determines after how many seconds to expire entries after the last access.
@@ -45,16 +42,6 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
   private final LoadingCache<Tuple, PageContainer> mCache;
 
   /**
-   * Constructor with no second cache.
-   * 
-   * @param pPageRadTransaction
-   *          {@link IPageReadTrx} implementation
-   */
-  public GuavaCache(final IPageReadTrx pPageReadTransaction) {
-    this(pPageReadTransaction, new NullCache<Tuple, PageContainer>());
-  }
-
-  /**
    * Constructor with second cache.
    * 
    * @param pPageReadTransaction
@@ -62,57 +49,63 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
    * @param pSecondCache
    *          second fallback cache
    */
-  public GuavaCache(final IPageReadTrx pPageReadTransaction,
-    final ICache<Tuple, PageContainer> pSecondCache) {
+  public GuavaCache(@Nonnull final IPageReadTrx pPageReadTransaction,
+    @Nonnull final ICache<Tuple, PageContainer> pSecondCache) {
     checkNotNull(pPageReadTransaction);
     checkNotNull(pSecondCache);
 
     final CacheBuilder<Object, Object> builder =
-      CacheBuilder.newBuilder().maximumSize(MAX_SIZE).expireAfterAccess(EXPIRE_AFTER, TimeUnit.SECONDS);
-    if (!(pSecondCache instanceof NullCache)) {
-      RemovalListener<Tuple, PageContainer> removalListener =
-        new RemovalListener<Tuple, PageContainer>() {
-          @Override
-          public void onRemoval(final RemovalNotification<Tuple, PageContainer> pRemoval) {
-            pSecondCache.put(pRemoval.getKey(), pRemoval.getValue());
+      CacheBuilder.newBuilder().maximumSize(MAX_SIZE).expireAfterAccess(
+        EXPIRE_AFTER, TimeUnit.SECONDS);
+    RemovalListener<Tuple, PageContainer> removalListener =
+      new RemovalListener<Tuple, PageContainer>() {
+        @Override
+        public void onRemoval(
+          @Nullable final RemovalNotification<Tuple, PageContainer> pRemoval) {
+          if (pRemoval != null) {
+            final Tuple tuple = pRemoval.getKey();
+            final PageContainer pageCont = pRemoval.getValue();
+            if (tuple != null && pageCont != null)
+              pSecondCache.put(tuple, pageCont);
           }
-        };
-      builder.removalListener(removalListener);
-    }
+        }
+      };
+    builder.removalListener(removalListener);
     mCache = builder.build(new CacheLoader<Tuple, PageContainer>() {
       @Override
       public PageContainer load(final Tuple key) throws TTIOException {
-        return pPageReadTransaction.getNodeFromPage(key.getKey(), key.getPage());
+        if (key == null) {
+          return PageContainer.EMPTY_INSTANCE;
+        }
+        final long nodePageKey = key.getKey();
+        final EPage pageType = key.getPage();
+        if (pageType == null) {
+          return PageContainer.EMPTY_INSTANCE;
+        } else {
+          return pPageReadTransaction.getNodeFromPage(nodePageKey, pageType);
+        }
       }
     });
-    
-//    if (pPageReadTransaction.getUberPage().getRevisionNumber() == 0) {
-//      mPool.submit(new Callable<Void>() {
-//        @Override
-//        public Void call() throws ExecutionException {
-//          // Preload 20 nodePages.
-//          mCache.getAll(Arrays.asList(0l, 1l, 2l, 3l, 4l, 5l, 6l, 7l, 8l, 9l, 10l, 11l, 12l, 13l, 14l, 15l,
-//            16l, 17l, 18l, 19l));
-//          return null;
-//        }
-//      });
-//    }
+  }
+
+  /**
+   * Constructor with an always empty second cache.
+   * 
+   * @param pPageReadTransaction
+   *          {@link IPageReadTrx} implementation to read pages
+   */
+  public GuavaCache(@Nonnull final IPageReadTrx pPageReadTransaction) {
+    this(pPageReadTransaction, new EmptyCache<Tuple, PageContainer>());
   }
 
   @Override
   public void clear() {
     mCache.invalidateAll();
     mCache.cleanUp();
-    mPool.shutdownNow();
-    try {
-      mPool.awaitTermination(50, TimeUnit.SECONDS);
-    } catch (final InterruptedException e) {
-      throw new RuntimeException(e);
-    }
   }
 
   @Override
-  public synchronized PageContainer get(final Tuple pKey) {
+  public synchronized PageContainer get(@Nonnull final Tuple pKey) {
     try {
       if (pKey.getKey() < 0) {
         return PageContainer.EMPTY_INSTANCE;
@@ -124,6 +117,7 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
       } else if (container == null) {
         container = mCache.get(pKey);
       }
+      assert container != null;
       return container;
     } catch (final ExecutionException e) {
       throw new IllegalStateException(e);
@@ -131,12 +125,14 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
   }
 
   @Override
-  public void put(final Tuple pKey, final PageContainer pValue) {
+  public void
+    put(@Nonnull final Tuple pKey, @Nonnull final PageContainer pValue) {
     mCache.put(pKey, pValue);
   }
 
   @Override
-  public ImmutableMap<Tuple, PageContainer> getAll(Iterable<? extends Tuple> keys) {
+  public ImmutableMap<Tuple, PageContainer> getAll(
+    @Nonnull Iterable<? extends Tuple> keys) {
     try {
       return mCache.getAll(keys);
     } catch (final ExecutionException e) {

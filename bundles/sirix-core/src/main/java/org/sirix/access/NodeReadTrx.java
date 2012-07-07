@@ -445,11 +445,11 @@ public final class NodeReadTrx implements INodeReadTrx {
   }
 
   @Override
-  public boolean moveToAttributeByNameKey(final int pNameKey) {
+  public boolean moveToAttributeByName(@Nonnull final QName pQName) {
     assertNotClosed();
     if (mCurrentNode.getKind() == EKind.ELEMENT) {
       final ElementNode element = ((ElementNode)mCurrentNode);
-      final Optional<Long> attrKey = element.getAttributeKeyByName(pNameKey);
+      final Optional<Long> attrKey = element.getAttributeKeyByName(pQName);
       if (attrKey.isPresent()) {
         return moveTo(attrKey.get());
       }

@@ -74,8 +74,10 @@ public final class RevisionRootPage extends AbsForwardingPage {
   public RevisionRootPage() {
     mDelegate = new PageDelegate(3, IConstants.UBP_ROOT_REVISION_NUMBER);
     mRevisionSize = 0L;
-    final PageReference ref = getReferences()[NAME_REFERENCE_OFFSET];
-    ref.setPage(new NamePage(IConstants.UBP_ROOT_REVISION_NUMBER));
+    getReferences()[NAME_REFERENCE_OFFSET].setPage(new NamePage(
+      IConstants.UBP_ROOT_REVISION_NUMBER));
+    getReferences()[PATH_SUMMARY_REFERENCE_OFFSET].setPage(new PathSummaryPage(
+      IConstants.UBP_ROOT_REVISION_NUMBER));
     mMaxNodeKey = -1L;
   }
 

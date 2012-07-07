@@ -27,6 +27,8 @@
 
 package org.sirix.io;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.exception.TTIOException;
 import org.sirix.page.PageReference;
 
@@ -47,7 +49,7 @@ public interface IWriter extends IReader {
    * @throws TTIOException
    *           execption to be thrown if something bad happens
    */
-  long write(final PageReference pageReference) throws TTIOException;
+  long write(@Nonnull final PageReference pageReference) throws TTIOException;
 
   /**
    * Write Beacon for the first reference.
@@ -57,7 +59,7 @@ public interface IWriter extends IReader {
    * @throws TTIOException
    *           exception if something bad happens
    */
-  void writeFirstReference(final PageReference pageReference) throws TTIOException;
+  void writeFirstReference(@Nonnull final PageReference pageReference) throws TTIOException;
 
   /**
    * Closing the write access.

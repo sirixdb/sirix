@@ -663,7 +663,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public INodeWriteTrx insertTextAsLeftSibling(final String pValue)
+  public INodeWriteTrx insertTextAsLeftSibling(@Nonnull final String pValue)
     throws AbsTTException {
     checkNotNull(pValue);
     if (getNode() instanceof IStructNode) {
@@ -796,8 +796,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
        * would otherwise be inserted!).
        */
       final Optional<Long> attKey =
-        ((ElementNode)getNode()).getAttributeKeyByName(NamePageHash
-          .generateHashForString(PageWriteTrx.buildName(pQName)));
+        ((ElementNode)getNode()).getAttributeKeyByName(pQName);
       if (attKey.isPresent()) {
         moveTo(attKey.get());
         final QName qName = getQNameOfCurrentNode();
@@ -1492,11 +1491,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     @Nonnegative final long pLeftSibKey, final long pRightSibKey,
     final long pHash, @Nonnull final QName pName) throws TTIOException {
     final IPageWriteTrx pageTransaction = getPageTransaction();
-    final int nameKey =
-      pageTransaction.createNameKey(PageWriteTrx.buildName(pName),
-        EKind.ELEMENT);
+    final int nameKey = NamePageHash.generateHashForString(PageWriteTrx.buildName(pName));
     final int namespaceKey =
-      pageTransaction.createNameKey(pName.getNamespaceURI(), EKind.NAMESPACE);
+    NamePageHash.generateHashForString(pName.getNamespaceURI());
 
     final NodeDelegate nodeDel =
       new NodeDelegate(pageTransaction.getActualRevisionRootPage()
@@ -2220,12 +2217,12 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public void addPreCommitHook(final IPreCommitHook pHook) {
+  public void addPreCommitHook(@Nonnull final IPreCommitHook pHook) {
     mPreCommitHooks.add(pHook);
   }
 
   @Override
-  public void addPostCommitHook(final IPostCommitHook pHook) {
+  public void addPostCommitHook(@Nonnull final IPostCommitHook pHook) {
     mPostCommitHooks.add(pHook);
   }
 

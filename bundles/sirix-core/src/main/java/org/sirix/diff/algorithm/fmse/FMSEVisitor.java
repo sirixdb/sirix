@@ -30,6 +30,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Map;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.access.AbsVisitorSupport;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
@@ -60,34 +62,35 @@ public final class FMSEVisitor extends AbsVisitorSupport {
   /**
    * Constructor.
    * 
-   * @param paramSession
+   * @param pSession
    *          {@link ISession} implementation
-   * @param paramInOrder
+   * @param pInOrder
    *          {@link Map} reference to track ordered nodes
-   * @param paramDescendants
+   * @param pDescendants
    *          {@link Map} reference to track descendants per node
    * @throws AbsTTException
    *           if setting up sirix fails
    * @throws NullPointerException
    *           if one of the arguments is {@code null}
    */
-  public FMSEVisitor(final INodeReadTrx paramReadTransaction, final Map<Long, Boolean> paramInOrder,
-    final Map<Long, Long> paramDescendants) throws AbsTTException {
-    mRtx = checkNotNull(paramReadTransaction);
-    mInOrder = checkNotNull(paramInOrder);
-    mDescendants = checkNotNull(paramDescendants);
+  public FMSEVisitor(@Nonnull final INodeReadTrx pReadTransaction,
+    @Nonnull final Map<Long, Boolean> pInOrder,
+    @Nonnull final Map<Long, Long> pDescendants) throws AbsTTException {
+    mRtx = checkNotNull(pReadTransaction);
+    mInOrder = checkNotNull(pInOrder);
+    mDescendants = checkNotNull(pDescendants);
   }
 
   @Override
-  public EVisitResult visit(final ElementNode paramNode) {
-    final long nodeKey = paramNode.getNodeKey();
+  public EVisitResult visit(@Nonnull final ElementNode pNode) {
+    final long nodeKey = pNode.getNodeKey();
     mRtx.moveTo(nodeKey);
-    for (int i = 0; i < paramNode.getAttributeCount(); i++) {
+    for (int i = 0; i < pNode.getAttributeCount(); i++) {
       mRtx.moveToAttribute(i);
       fillStructuralDataStructures();
       mRtx.moveTo(nodeKey);
     }
-    for (int i = 0; i < paramNode.getNamespaceCount(); i++) {
+    for (int i = 0; i < pNode.getNamespaceCount(); i++) {
       mRtx.moveToNamespace(i);
       fillStructuralDataStructures();
       mRtx.moveTo(nodeKey);
@@ -122,17 +125,17 @@ public final class FMSEVisitor extends AbsVisitorSupport {
           element = (ElementNode)mRtx.getNode();
           descendants += 1;
         }
-      } while (mRtx.getStructuralNode().hasRightSibling() && mRtx.moveToRightSibling());
+      } while (mRtx.getStructuralNode().hasRightSibling()
+        && mRtx.moveToRightSibling());
     }
     mRtx.moveTo(nodeKey);
     mInOrder.put(mRtx.getNode().getNodeKey(), false);
     mDescendants.put(mRtx.getNode().getNodeKey(), descendants);
   }
 
-  /** {@inheritDoc} */
   @Override
-  public EVisitResult visit(final TextNode paramNode) {
-    final long nodeKey = paramNode.getNodeKey();
+  public EVisitResult visit(@Nonnull final TextNode pNode) {
+    final long nodeKey = pNode.getNodeKey();
     mRtx.moveTo(nodeKey);
     mInOrder.put(mRtx.getNode().getNodeKey(), false);
     mDescendants.put(mRtx.getNode().getNodeKey(), 1L);

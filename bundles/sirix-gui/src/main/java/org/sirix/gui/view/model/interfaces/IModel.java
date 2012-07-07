@@ -31,6 +31,9 @@ import java.beans.PropertyChangeListener;
 import java.util.Iterator;
 import java.util.List;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.IVisualItem;
 import org.sirix.gui.view.sunburst.SunburstView;
@@ -54,21 +57,21 @@ public interface IModel<S, T extends IVisualItem> extends Iterable<T>, Iterator<
   /**
    * Get the item reference which implements {@link IVisualItem} at the specified index in a datastructure.
    * 
-   * @param paramIndex
+   * @param pIndex
    *          the index
    * @return the {@link SunburstItem} at the specified index
    * @throws IndexOutOfBoundsException
    *           if {@code index > mItems.size() - 1 or < 0}
    */
-  T getItem(int paramIndex) throws IndexOutOfBoundsException;
+  T getItem(@Nonnegative int pIndex) throws IndexOutOfBoundsException;
 
   /**
    * Traverse the tree and create a {@link List} of {@link SunburstItem}s.
    * 
-   * @param paramContainer
+   * @param pContainer
    *          {@link IContainer} implementation with options
    */
-  void traverseTree(IContainer<S> paramContainer);
+  void traverseTree(@Nonnull IContainer<S> pContainer);
 
   /** Undo operation. */
   void undo();
@@ -76,18 +79,18 @@ public interface IModel<S, T extends IVisualItem> extends Iterable<T>, Iterator<
   /**
    * Update root of the tree with the node currently clicked.
    * 
-   * @param paramContainer
+   * @param pContainer
    *          {@link IContainer} reference with options
    */
-  void update(final IContainer<S> paramContainer);
+  void update(@Nonnull final IContainer<S> pContainer);
 
   /**
    * XPath evaluation.
    * 
-   * @param paramXPathExpression
-   *          XPath expression to evaluate.
+   * @param pXPathExpression
+   *          XPath expression to evaluate
    */
-  void evaluateXPath(String paramXPathExpression);
+  void evaluateXPath(@Nonnull String pXPathExpression);
 
   /**
    * Spefify how to insert an XML fragment.
@@ -95,17 +98,17 @@ public interface IModel<S, T extends IVisualItem> extends Iterable<T>, Iterator<
    * @param paramInsert
    *          determines how to insert an XMl fragment
    */
-  void setInsert(EInsert paramInsert);
+  void setInsert(@Nonnull EInsert pInsert);
 
   /**
    * Update {@link ReadDB} instance.
    * 
-   * @param paramDB
+   * @param pDB
    *          new {@link ReadDB} instance
-   * @param paramContainer
+   * @param pContainer
    *          {@link IContainer} instance
    */
-  void updateDb(ReadDB paramDB, IContainer<S> paramContainer);
+  void updateDb(@Nonnull ReadDB pDB, @Nonnull IContainer<S> pContainer);
 
   /**
    * Add a {@link PropertyChangeListener}.
@@ -113,7 +116,7 @@ public interface IModel<S, T extends IVisualItem> extends Iterable<T>, Iterator<
    * @param paramListener
    *          the listener to add
    */
-  void addPropertyChangeListener(PropertyChangeListener paramListener);
+  void addPropertyChangeListener(@Nonnull PropertyChangeListener pListener);
 
   /**
    * Remove a {@link PropertyChangeListener}.
@@ -121,19 +124,19 @@ public interface IModel<S, T extends IVisualItem> extends Iterable<T>, Iterator<
    * @param paramListener
    *          the listener to remove
    */
-  void removePropertyChangeListener(PropertyChangeListener paramListener);
-
-  /**
-   * Fire a property change.
-   * 
-   * @param paramPropertyName
-   *          name of the property
-   * @param paramOldValue
-   *          old value
-   * @param paramNewValue
-   *          new value
-   */
-  void firePropertyChange(String paramPropertyName, Object paramOldValue, Object paramNewValue);
+  void removePropertyChangeListener(@Nonnull PropertyChangeListener pListener);
+//
+//  /**
+//   * Fire a property change.
+//   * 
+//   * @param pPropertyName
+//   *          name of the property
+//   * @param pOldValue
+//   *          old value
+//   * @param pNewValue
+//   *          new value
+//   */
+//  void firePropertyChange(@Nonnull String pPropertyName, @Nonnull Object pOldValue, @Nonnull Object pNewValue);
 
   /**
    * Get the database handle.
@@ -145,7 +148,7 @@ public interface IModel<S, T extends IVisualItem> extends Iterable<T>, Iterator<
   /**
    * Set a list of new items.
    */
-  void setItems(List<T> pItems);
+  void setItems(@Nonnull List<T> pItems);
 
   /**
    * Set minimum and maximum text length as well as descendant count.
@@ -172,7 +175,7 @@ public interface IModel<S, T extends IVisualItem> extends Iterable<T>, Iterator<
    * @param pDepthMax
    *          the new maximum depth
    */
-  void setNewDepthMax(int pDepthMax);
+  void setNewDepthMax(@Nonnegative int pDepthMax);
 
   /**
    * Set the depth max of the inner ring.
@@ -180,7 +183,7 @@ public interface IModel<S, T extends IVisualItem> extends Iterable<T>, Iterator<
    * @param pDepthMax
    *          the new maximum depth
    */
-  void setOldDepthMax(int pOldDepthMax);
+  void setOldDepthMax(@Nonnegative int pOldDepthMax);
 
   /**
    * Get a sublist of items.
@@ -191,5 +194,5 @@ public interface IModel<S, T extends IVisualItem> extends Iterable<T>, Iterator<
    *          the index to end (exlusive)
    * @return sublist of items
    */
-  List<T> subList(int pFromIndex, int pToIndex);
+  List<T> subList(@Nonnegative int pFromIndex, @Nonnegative int pToIndex);
 }

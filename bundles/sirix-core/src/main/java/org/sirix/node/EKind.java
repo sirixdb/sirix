@@ -75,9 +75,9 @@ public enum EKind implements IKind {
   ELEMENT((byte)1, ElementNode.class) {
     @Override
     public INode deserialize(final ITTSource pSource) {
-      final List<Long> attrKeys = new ArrayList<Long>();
+      final List<Long> attrKeys = new ArrayList<>();
       final BiMap<Integer, Long> attrs = HashBiMap.<Integer, Long> create();
-      final List<Long> namespKeys = new ArrayList<Long>();
+      final List<Long> namespKeys = new ArrayList<>();
 
       // Node delegate.
       final NodeDelegate nodeDel =

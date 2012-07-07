@@ -49,7 +49,7 @@ import org.sirix.page.interfaces.IPage;
  * </p>
  */
 public final class NamePage implements IPage {
- 
+
   /** Attribute names. */
   private final Names mAttributes;
 
@@ -58,7 +58,7 @@ public final class NamePage implements IPage {
 
   /** Namespace URIs. */
   private final Names mNamespaces;
-  
+
   /** Revision number. */
   private final long mRevision;
 
@@ -96,7 +96,7 @@ public final class NamePage implements IPage {
    *          name key identifying name
    * @return raw name of name key
    */
-  public byte[] getRawName(final int pKey, final EKind pNodeKind) {
+  public byte[] getRawName(final int pKey, @Nonnull final EKind pNodeKind) {
     byte[] rawName = new byte[] {};
     switch (pNodeKind) {
     case ELEMENT:
@@ -121,7 +121,7 @@ public final class NamePage implements IPage {
    *          name key identifying name
    * @return raw name of name key
    */
-  public String getName(final int pKey, final EKind pNodeKind) {
+  public String getName(final int pKey, @Nonnull final EKind pNodeKind) {
     String name;
     switch (pNodeKind) {
     case ELEMENT:
@@ -140,6 +140,31 @@ public final class NamePage implements IPage {
   }
 
   /**
+   * Get number of nodes with the given name key.
+   * 
+   * @param pKey
+   *          name key identifying name
+   * @return number of nodes with the given name key
+   */
+  public int getCount(final int pKey, @Nonnull final EKind pNodeKind) {
+    int count;
+    switch (pNodeKind) {
+    case ELEMENT:
+      count = mElements.getCount(pKey);
+      break;
+    case NAMESPACE:
+      count = mNamespaces.getCount(pKey);
+      break;
+    case ATTRIBUTE:
+      count = mAttributes.getCount(pKey);
+      break;
+    default:
+      throw new IllegalStateException("No other node types supported!");
+    }
+    return count;
+  }
+
+  /**
    * Create name key given a name.
    * 
    * @param pKey
@@ -147,7 +172,8 @@ public final class NamePage implements IPage {
    * @param pName
    *          name to create key for
    */
-  public void setName(final int pKey, final String pName, final EKind pNodeKind) {
+  public void setName(final int pKey, @Nonnull final String pName,
+    @Nonnull final EKind pNodeKind) {
     switch (pNodeKind) {
     case ELEMENT:
       mElements.setName(pKey, pName);
@@ -164,7 +190,7 @@ public final class NamePage implements IPage {
   }
 
   @Override
-  public void serialize(final ITTSink pOut) {
+  public void serialize(@Nonnull final ITTSink pOut) {
     mElements.serialize(pOut);
     mNamespaces.serialize(pOut);
     mAttributes.serialize(pOut);
@@ -172,8 +198,9 @@ public final class NamePage implements IPage {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("revision", mRevision).add("elements", mElements).add(
-      "attributes", mAttributes).add("URIs", mNamespaces).toString();
+    return Objects.toStringHelper(this).add("revision", mRevision).add(
+      "elements", mElements).add("attributes", mAttributes).add("URIs",
+      mNamespaces).toString();
   }
 
   /**
@@ -182,7 +209,7 @@ public final class NamePage implements IPage {
    * @param pKey
    *          the key to remove
    */
-  public void removeName(final int pKey, final EKind pNodeKind) {
+  public void removeName(final int pKey, @Nonnull final EKind pNodeKind) {
     switch (pNodeKind) {
     case ELEMENT:
       mElements.removeName(pKey);
@@ -209,6 +236,6 @@ public final class NamePage implements IPage {
   }
 
   @Override
-  public void commit(final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
+  public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
   }
 }

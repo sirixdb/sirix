@@ -48,7 +48,7 @@ public final class PagePersistenter {
    *          source to read from
    * @return the created {@link IPage}
    */
-  public static IPage deserializePage(@Nonnull final ITTSource pSource) {
+  public static @Nonnull IPage deserializePage(@Nonnull final ITTSource pSource) {
     return EPage.getKind(pSource.readByte()).deserializePage(pSource);
   }
 

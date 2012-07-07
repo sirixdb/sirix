@@ -26,6 +26,9 @@
  */
 package org.sirix.gui.view.model.interfaces;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.gui.view.sunburst.EPruning;
 
 /**
@@ -41,27 +44,27 @@ public interface IContainer<T> {
   /**
    * Set start key in old revision.
    * 
-   * @param paramKey
+   * @param pKey
    *          node key to start from
    * @return instance
    */
-  T setOldStartKey(final long paramKey);
+  T setOldStartKey(@Nonnegative long pKey);
 
   /**
    * Set start key in new revision.
    * 
-   * @param paramKey
+   * @param pKey
    *          node key to start from
    * @return instance
    */
-  T setNewStartKey(final long paramKey);
+  T setNewStartKey(@Nonnegative long pKey);
 
   /**
    * Determines if tree should be pruned or not.
    * 
-   * @param paramPruning
+   * @param pPruning
    *          {@link EPruning} enum which determines if tree should be pruned or not
    * @return instance
    */
-  T setPruning(final EPruning paramPruning);
+  T setPruning(@Nonnull EPruning pPruning);
 }

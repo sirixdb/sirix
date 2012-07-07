@@ -32,6 +32,8 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IWriter;
 import org.sirix.page.PagePersistenter;
@@ -65,7 +67,7 @@ public final class FileWriter implements IWriter {
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  public FileWriter(final File pStorage) throws TTIOException {
+  public FileWriter(@Nonnull final File pStorage) throws TTIOException {
     try {
       mFile = new RandomAccessFile(pStorage, "rw");
     } catch (final FileNotFoundException fileExc) {
@@ -85,11 +87,12 @@ public final class FileWriter implements IWriter {
    *           due to errors during writing.
    */
   @Override
-  public long write(final PageReference pPageReference) throws TTIOException {
+  public long write(@Nonnull final PageReference pPageReference) throws TTIOException {
     // Serialise page.
     final ByteBufferSinkAndSource buffer = new ByteBufferSinkAndSource();
     buffer.position(FileReader.OTHER_BEACON);
     final IPage page = pPageReference.getPage();
+    assert page != null;
     PagePersistenter.serializePage(buffer, page);
     final int inputLength = buffer.position();
 
@@ -153,7 +156,7 @@ public final class FileWriter implements IWriter {
   }
 
   @Override
-  public void writeFirstReference(final PageReference pPageReference)
+  public void writeFirstReference(@Nonnull final PageReference pPageReference)
     throws TTIOException {
     try {
       write(pPageReference);

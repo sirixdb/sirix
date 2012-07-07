@@ -29,6 +29,9 @@ package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 import com.google.common.base.Objects;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -46,14 +49,15 @@ import org.sirix.node.interfaces.IValNode;
  * Node representing an attribute.
  * </p>
  */
-public final class AttributeNode extends AbsForwardingNode implements IValNode, INameNode {
+public final class AttributeNode extends AbsForwardingNode implements IValNode,
+  INameNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
 
   /** Delegate for val node information. */
   private final ValNodeDelegate mValDel;
-  
+
   /** Node delegate. */
   private final NodeDelegate mDel;
 
@@ -68,7 +72,8 @@ public final class AttributeNode extends AbsForwardingNode implements IValNode, 
    *          {@link ValNodeDelegate} to be set
    * 
    */
-  public AttributeNode(final NodeDelegate pDel, final NameNodeDelegate pNameDel, final ValNodeDelegate pValDel) {
+  public AttributeNode(final NodeDelegate pDel,
+    final NameNodeDelegate pNameDel, final ValNodeDelegate pValDel) {
     mDel = checkNotNull(pDel);
     mNameDel = checkNotNull(pNameDel);
     mValDel = pValDel;
@@ -80,115 +85,62 @@ public final class AttributeNode extends AbsForwardingNode implements IValNode, 
   }
 
   @Override
-  public EVisitResult acceptVisitor(final IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return pVisitor.visit(this);
   }
 
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder(super.toString());
-    builder.append("\n");
-    builder.append(mNameDel.toString());
-    builder.append("\n");
-    builder.append(mValDel.toString());
-    return builder.toString();
+    return Objects.toStringHelper(this).add("nameDel", mNameDel).add("valDel",
+      mValDel).toString();
   }
 
-  /**
-   * Delegate method for getNameKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NameNodeDelegate#getNameKey()
-   */
   @Override
   public int getNameKey() {
     return mNameDel.getNameKey();
   }
 
-  /**
-   * Delegate method for getURIKey.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NameNodeDelegate#getURIKey()
-   */
   @Override
   public int getURIKey() {
     return mNameDel.getURIKey();
   }
 
-  /**
-   * Delegate method for setNameKey.
-   * 
-   * @param pNameKey
-   * @see org.sirix.node.delegates.NameNodeDelegate#setNameKey(int)
-   */
   @Override
   public void setNameKey(final int pNameKey) {
     mNameDel.setNameKey(pNameKey);
   }
 
-  /**
-   * Delegate method for setURIKey.
-   * 
-   * @param pUriKey
-   * @see org.sirix.node.delegates.NameNodeDelegate#setURIKey(int)
-   */
   @Override
   public void setURIKey(final int pUriKey) {
     mNameDel.setURIKey(pUriKey);
   }
 
-  /**
-   * Delegate method for getRawValue.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.ValNodeDelegate#getRawValue()
-   */
   @Override
   public byte[] getRawValue() {
     return mValDel.getRawValue();
   }
 
-  /**
-   * Delegate method for setValue.
-   * 
-   * @param pVal
-   * @see org.sirix.node.delegates.ValNodeDelegate#setValue(byte[])
-   */
   @Override
-  public void setValue(final byte[] pVal) {
+  public void setValue(@Nonnull final byte[] pVal) {
     mValDel.setValue(pVal);
   }
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + ((mNameDel == null) ? 0 : mNameDel.hashCode());
-    result = prime * result + ((mValDel == null) ? 0 : mValDel.hashCode());
-    return result;
+    return Objects.hashCode(mNameDel, mValDel);
   }
 
   @Override
-  public boolean equals(final Object pObj) {
-    if (this == pObj)
-      return true;
-    if (pObj == null)
-      return false;
-    if (getClass() != pObj.getClass())
-      return false;
-    AttributeNode other = (AttributeNode)pObj;
-    return Objects.equal(mNameDel, other.mNameDel) && Objects.equal(mValDel, other.mValDel);
+  public boolean equals(@Nullable final Object pObj) {
+    boolean retVal = false;
+    if (pObj instanceof AttributeNode) {
+      AttributeNode other = (AttributeNode)pObj;
+      retVal =
+        Objects.equal(mNameDel, other.mNameDel)
+          && Objects.equal(mValDel, other.mValDel);
+    }
+    return retVal;
   }
-
-  // /**
-  // * Getting the inlying {@link NodeDelegate}.
-  // *
-  // * @return the {@link NodeDelegate} instance
-  // */
-  // NodeDelegate getNodeDelegate() {
-  // return mDelegate;
-  // }
 
   /**
    * Getting the inlying {@link NameNodeDelegate}.

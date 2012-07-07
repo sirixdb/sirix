@@ -32,6 +32,7 @@ import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -205,7 +206,7 @@ public class StructNodeDelegate implements IStructNode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(final IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 
@@ -295,7 +296,7 @@ public class StructNodeDelegate implements IStructNode {
   }
 
   @Override
-  public boolean isSameItem(final INode pOther) {
+  public boolean isSameItem(@Nullable final INode pOther) {
     return mDelegate.isSameItem(pOther);
   }
 }

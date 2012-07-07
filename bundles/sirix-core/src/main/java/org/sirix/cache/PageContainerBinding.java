@@ -27,12 +27,11 @@
 
 package org.sirix.cache;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
 
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.io.ITTSource;
 import org.sirix.io.berkeley.TupleInputSink;
@@ -42,16 +41,24 @@ import org.sirix.page.interfaces.IPage;
 public class PageContainerBinding extends TupleBinding<PageContainer> {
 
   @Override
-  public PageContainer entryToObject(@Nonnull final TupleInput pInput) {
-    final ITTSource source = new TupleInputSink(checkNotNull(pInput));
+  public PageContainer entryToObject(@Nullable final TupleInput pInput) {
+    if (pInput == null) {
+      return PageContainer.EMPTY_INSTANCE;
+    }
+    final ITTSource source = new TupleInputSink(pInput);
     final IPage current = PagePersistenter.deserializePage(source);
     final IPage modified = PagePersistenter.deserializePage(source);
-    return new PageContainer(current, modified);
+    // 
+    @SuppressWarnings("null") 
+    final PageContainer container = new PageContainer(current, modified);
+    return container;
   }
 
   @Override
-  public void objectToEntry(@Nonnull final PageContainer pPageContainer,
-    @Nonnull final TupleOutput pOutput) {
-    pPageContainer.serialize(checkNotNull(pOutput));
+  public void objectToEntry(@Nullable final PageContainer pPageContainer,
+    @Nullable final TupleOutput pOutput) {
+    if (pPageContainer != null && pOutput != null) {
+      pPageContainer.serialize(pOutput);
+    }
   }
 }

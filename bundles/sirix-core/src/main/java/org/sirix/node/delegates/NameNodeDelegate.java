@@ -30,8 +30,10 @@
 package org.sirix.node.delegates;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -134,7 +136,7 @@ public class NameNodeDelegate implements INameNode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(final IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 
@@ -160,15 +162,11 @@ public class NameNodeDelegate implements INameNode {
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + mNameKey;
-    result = prime * result + mUriKey;
-    return result;
+    return Objects.hashCode(mNameKey, mUriKey);
   }
 
   @Override
-  public boolean equals(Object obj) {
+  public boolean equals(final Object obj) {
     if (this == obj)
       return true;
     if (obj == null)
@@ -185,16 +183,11 @@ public class NameNodeDelegate implements INameNode {
   
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder();
-    builder.append("\nuri key: ");
-    builder.append(mUriKey);
-    builder.append("\nname key: ");
-    builder.append(mNameKey);
-    return builder.toString();
+    return Objects.toStringHelper(this).add("uriKey", mUriKey).add("nameKey", mNameKey).toString();
   }
 
   @Override
-  public boolean isSameItem(final INode pOther) {
+  public boolean isSameItem(@Nullable final INode pOther) {
     return mDelegate.isSameItem(pOther);
   }
 }

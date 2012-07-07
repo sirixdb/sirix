@@ -27,6 +27,8 @@
 
 package org.sirix.access;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AttributeNode;
@@ -75,27 +77,27 @@ import org.sirix.node.TextNode;
  */
 public abstract class AbsVisitorSupport implements IVisitor {
   @Override
-  public EVisitResult visit(final ElementNode pNode) {
+  public EVisitResult visit(@Nonnull final ElementNode pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(final TextNode pNode) {
+  public EVisitResult visit(@Nonnull final TextNode pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(final DocumentRootNode pNode) {
+  public EVisitResult visit(@Nonnull final DocumentRootNode pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(final AttributeNode pNode) {
+  public EVisitResult visit(@Nonnull final AttributeNode pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(final NamespaceNode pNode) {
+  public EVisitResult visit(@Nonnull final NamespaceNode pNode) {
     return EVisitResult.CONTINUE;
   }
 }

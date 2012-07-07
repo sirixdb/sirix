@@ -28,6 +28,7 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
 
 import javax.annotation.Nonnull;
 
@@ -92,50 +93,29 @@ public final class NamespaceNode extends AbsForwardingNode implements INameNode 
   }
 
   @Override
-  public EVisitResult acceptVisitor(final IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return pVisitor.visit(this);
   }
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result =
-      prime * result
-        + ((getNodeDelegate() == null) ? 0 : getNodeDelegate().hashCode());
-    result = prime * result + ((mNameDel == null) ? 0 : mNameDel.hashCode());
-    return result;
+    return Objects.hashCode(mNodeDel, mNameDel);
   }
 
   @Override
   public boolean equals(final Object pObj) {
-    if (this == pObj)
-      return true;
-    if (pObj == null)
-      return false;
-    if (getClass() != pObj.getClass())
-      return false;
-    NamespaceNode other = (NamespaceNode)pObj;
-    final NodeDelegate del = getNodeDelegate();
-    if (del == null) {
-      if (other.getNodeDelegate() != null)
-        return false;
-    } else if (!del.equals(other.getNodeDelegate()))
-      return false;
-    if (mNameDel == null) {
-      if (other.mNameDel != null)
-        return false;
-    } else if (!mNameDel.equals(other.mNameDel))
-      return false;
-    return true;
+    if (pObj instanceof NamespaceNode) {
+      final NamespaceNode other = (NamespaceNode)pObj;
+      return Objects.equal(mNodeDel, other.mNodeDel)
+        && Objects.equal(mNameDel, other.mNameDel);
+    }
+    return false;
   }
 
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder(super.toString());
-    builder.append("\n");
-    builder.append(mNameDel.toString());
-    return builder.toString();
+    return Objects.toStringHelper(this).add("nodeDel", mNodeDel).add("nameDel",
+      mNameDel).toString();
   }
 
   /**

@@ -45,7 +45,7 @@ public class LRUCacheTest {
 
   @Before
   public void setUp() throws AbsTTException {
-    cache = new LRUCache();
+    cache = new LRUCache<>();
     CacheTestHelper.setUp(cache);
   }
 

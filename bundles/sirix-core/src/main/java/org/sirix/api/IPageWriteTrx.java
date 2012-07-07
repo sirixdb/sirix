@@ -1,5 +1,8 @@
 package org.sirix.api;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
@@ -34,7 +37,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  <T extends INode> T createNode(T pNode) throws TTIOException;
+  INode createNode(@Nonnull INode pNode) throws TTIOException;
 
   /**
    * Prepare a node for modification. This is getting the node from the
@@ -47,7 +50,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if an I/O-error occurs
    */
-  INode prepareNodeForModification(long pNodeKey) throws TTIOException;
+  INode prepareNodeForModification(@Nonnegative long pNodeKey) throws TTIOException;
 
   /**
    * Finishing the node modification. That is storing the node including the
@@ -56,7 +59,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @param pNode
    *          the node to be modified
    */
-  <T extends INode> void finishNodeModification(T pNode);
+   void finishNodeModification(@Nonnull INode pNode);
 
   /**
    * Removing a node from the storage.
@@ -66,7 +69,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if the removal fails
    */
-  <T extends INode> void removeNode(T pNode) throws TTIOException;
+  void removeNode(@Nonnull INode pNode) throws TTIOException;
 
   /**
    * Creating a namekey for a given name.
@@ -79,7 +82,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if something odd happens while storing the new key
    */
-  int createNameKey(String pName, EKind pKind) throws TTIOException;
+  int createNameKey(@Nonnull String pName, @Nonnull EKind pKind) throws TTIOException;
 
   /** Commit the transaction, that is persist changes if any and create a new revision. */
   UberPage commit() throws AbsTTException;
@@ -90,7 +93,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @param pNodePageCont
    *          {@link PageContainer} reference to synchronize
    */
-  void updateDateContainer(PageContainer pNodePageCont);
+  void updateDateContainer(@Nonnull PageContainer pNodePageCont);
 
   /**
    * Committing a {@link INodeWriteTrx}. This method is recursively invoked by all {@link PageReference}s.
@@ -101,5 +104,5 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws AbsTTException
    *           if the write fails
    */
-  void commit(PageReference pReference) throws AbsTTException;
+  void commit(@Nonnull PageReference pReference) throws AbsTTException;
 }

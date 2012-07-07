@@ -27,11 +27,13 @@
 package org.sirix.node.delegates;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
 
 import java.util.Arrays;
 import java.util.zip.Deflater;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -105,7 +107,7 @@ public class ValNodeDelegate implements IValNode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 
@@ -139,7 +141,7 @@ public class ValNodeDelegate implements IValNode {
   }
 
   @Override
-  public void setValue(final byte[] pVal) {
+  public void setValue(@Nonnull final byte[] pVal) {
     mCompressed = new String(pVal).length() > 10 ? true : false;
     mVal =
       mCompressed ? Compression.compress(pVal, Deflater.DEFAULT_COMPRESSION)
@@ -187,22 +189,13 @@ public class ValNodeDelegate implements IValNode {
     return true;
   }
 
-  /**
-   * Delegate method for toString.
-   * 
-   * @return
-   * @see org.sirix.node.delegates.NodeDelegate#toString()
-   */
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder();
-    builder.append("value: ");
-    builder.append(new String(mVal));
-    return builder.toString();
+    return Objects.toStringHelper(this).add("value", mVal).toString();
   }
 
   @Override
-  public boolean isSameItem(final INode pOther) {
+  public boolean isSameItem(@Nullable final INode pOther) {
     return mDelegate.isSameItem(pOther);
   }
 }

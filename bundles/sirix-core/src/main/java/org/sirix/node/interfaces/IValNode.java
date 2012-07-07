@@ -29,6 +29,8 @@
  */
 package org.sirix.node.interfaces;
 
+import javax.annotation.Nonnull;
+
 /**
  * Interface for nodes which incorporate values.
  * 
@@ -49,5 +51,5 @@ public interface IValNode extends INode {
    * @param pValue
    *          the value to be set
    */
-  void setValue(byte[] pValue);
+  void setValue(@Nonnull byte[] pValue);
 }

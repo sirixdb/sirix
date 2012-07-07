@@ -8,14 +8,14 @@ import com.sleepycat.je.DatabaseEntry;
 
 import java.io.IOException;
 
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.io.berkeley.TupleInputSink;
 import org.sirix.io.berkeley.TupleOutputSink;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 import org.xerial.snappy.Snappy;
 
 /**
@@ -32,25 +32,34 @@ public class SnappyPageBinding extends TupleBase<IPage> implements
     .getLogger(SnappyPageBinding.class));
 
   @Override
-  public IPage entryToObject(@Nonnull final DatabaseEntry pEntry) {
+  public IPage entryToObject(@Nullable final DatabaseEntry pEntry) {
+    if (pEntry == null) {
+      return null;
+    }
     TupleInput tupleInput = null;
     try {
       tupleInput = new TupleInput(Snappy.uncompress(pEntry.getData()));
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
-    return PagePersistenter.deserializePage(new TupleInputSink(tupleInput));
+    if (tupleInput != null) {
+      return PagePersistenter.deserializePage(new TupleInputSink(tupleInput));
+    } else {
+      return null;
+    }
   }
 
   @Override
-  public void objectToEntry(@Nonnull final IPage pPage,
-    @Nonnull final DatabaseEntry pEntry) {
-    try {
-      TupleOutput output = getTupleOutput(pPage);
-      PagePersistenter.serializePage(new TupleOutputSink(output), pPage);
-      pEntry.setData(Snappy.compress(output.getBufferBytes()));
-    } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
+  public void objectToEntry(@Nullable final IPage pPage,
+    @Nullable final DatabaseEntry pEntry) {
+    if (pPage != null && pEntry != null) {
+      try {
+        TupleOutput output = getTupleOutput(pPage);
+        PagePersistenter.serializePage(new TupleOutputSink(output), pPage);
+        pEntry.setData(Snappy.compress(output.getBufferBytes()));
+      } catch (final IOException e) {
+        LOGWRAPPER.error(e.getMessage(), e);
+      }
     }
   }
 

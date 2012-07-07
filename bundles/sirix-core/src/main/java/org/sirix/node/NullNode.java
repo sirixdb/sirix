@@ -28,6 +28,11 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.interfaces.INode;
@@ -78,7 +83,7 @@ public final class NullNode implements IStructNode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(final IVisitor paramVisitor) {
+  public EVisitResult acceptVisitor(@Nonnull final IVisitor paramVisitor) {
     throw new UnsupportedOperationException();
   }
 
@@ -194,7 +199,21 @@ public final class NullNode implements IStructNode {
   }
   
   @Override
-  public boolean isSameItem(final INode pOther) {
+  public boolean isSameItem(@Nullable final INode pOther) {
     return mNode.isSameItem(pOther);
+  }
+  
+  @Override
+  public boolean equals(@Nullable final Object pObj) {
+    if (pObj instanceof NullNode) {
+      final NullNode other = (NullNode) pObj;
+      return Objects.equal(mNode, other.mNode);
+    }
+    return false;
+  }
+  
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(mNode);
   }
 }

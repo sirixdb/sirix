@@ -150,11 +150,11 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
     } catch (final AbsTTException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
-    mItems = new ArrayList<T>();
-    mLastItems = new ArrayDeque<List<T>>();
-    mLastDepths = new ArrayDeque<Integer>();
-    mLastOldDepths = new ArrayDeque<Integer>();
-    mDb = new AtomicReference<ReadDB>(pDb);
+    mItems = new ArrayList<>();
+    mLastItems = new ArrayDeque<>();
+    mLastDepths = new ArrayDeque<>();
+    mLastOldDepths = new ArrayDeque<>();
+    mDb = new AtomicReference<>(pDb);
   }
 
   /**
@@ -163,12 +163,12 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
    * @param pPool
    *          thread pool; {@link ExecutorService} instance
    */
-  public final void shutdown(final ExecutorService pPool) {
+  public final void shutdown(@Nonnull final ExecutorService pPool) {
     pPool.shutdown(); // Disable new tasks from being submitted.
   }
 
   @Override
-  public final void updateDb(final ReadDB pDb, final IContainer<S> pContainer) {
+  public final void updateDb(@Nonnull final ReadDB pDb, @Nonnull final IContainer<S> pContainer) {
     checkNotNull(pDb);
     checkNotNull(pContainer);
     setDb(pDb);
@@ -179,14 +179,14 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
     } catch (final AbsTTException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
-    mItems = new ArrayList<T>();
-    mLastItems = new ArrayDeque<List<T>>();
-    mLastDepths = new ArrayDeque<Integer>();
+    mItems = new ArrayList<>();
+    mLastItems = new ArrayDeque<>();
+    mLastDepths = new ArrayDeque<>();
     traverseTree(pContainer);
   }
 
   @Override
-  public void evaluateXPath(final String pXPathExpression) {
+  public void evaluateXPath(@Nonnull final String pXPathExpression) {
     checkNotNull(pXPathExpression);
 
     // Initialize all items to ISNOTFOUND.
@@ -398,7 +398,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
     @Override
     public void run() {
       try {
-        final Set<Long> nodeKeys = new HashSet<Long>();
+        final Set<Long> nodeKeys = new HashSet<>();
         final XPathAxis axis = new XPathAxis(mRTX, mQuery);
 
         // Save found node keys with descendants.
@@ -503,7 +503,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
    * @param pDb
    *          the {@link ReadDB} instance to set
    */
-  public synchronized void setDb(final ReadDB pDb) {
+  public synchronized void setDb(@Nonnull final ReadDB pDb) {
     checkNotNull(pDb);
     final ReadDB currDB = mDb.get();
     if (!currDB.equals(pDb)) {
@@ -524,7 +524,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
   }
 
   @Override
-  public void setItems(final List<T> pItems) {
+  public void setItems(@Nonnull final List<T> pItems) {
     mItems = checkNotNull(pItems);
   }
 }

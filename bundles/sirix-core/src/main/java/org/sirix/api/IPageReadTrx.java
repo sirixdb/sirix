@@ -1,6 +1,10 @@
 package org.sirix.api;
 
 import com.google.common.base.Optional;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.TTIOException;
 import org.sirix.node.EKind;
@@ -17,7 +21,19 @@ import org.sirix.page.UberPage;
  */
 public interface IPageReadTrx extends AutoCloseable {
 
-  Optional<INode> getNode(final long pKey, final EPage pPage) throws TTIOException;
+  /**
+   * Get a node from persistent storage.
+   * 
+   * @param pKey
+   *          the unique node-ID
+   * @param pPage
+   *          the page from which to fetch the node
+   * @return an {@link Optional} reference usually containing the node reference
+   * @throws TTIOException
+   *            if an I/O error occured
+   */
+  Optional<INode> getNode(@Nonnegative final long pKey,
+    @Nonnull final EPage pPage) throws TTIOException;
 
   /**
    * Current reference to actual rev-root page.
@@ -37,8 +53,10 @@ public interface IPageReadTrx extends AutoCloseable {
    * @param pKind
    *          kind of node
    * @return the name
+   * @throws NullPointerException
+   *           if {@code pKind} is {@code null}
    */
-  String getName(int pKey, EKind pKind);
+  String getName(int pKey, @Nonnull EKind pKind);
 
   /**
    * Getting the raw name related to the name key and the node kind.
@@ -48,8 +66,10 @@ public interface IPageReadTrx extends AutoCloseable {
    * @param pKind
    *          kind of node
    * @return a byte array containing the raw name
+   * @throws NullPointerException
+   *           if {@code pKind} is {@code null}
    */
-  byte[] getRawName(int pKey, EKind pKind);
+  byte[] getRawName(int pKey, @Nonnull EKind pKind);
 
   /**
    * Close transaction.
@@ -68,8 +88,13 @@ public interface IPageReadTrx extends AutoCloseable {
    * @return {@code the node} or {@code null} if it's not available
    * @throws TTIOException
    *           if can't read nodePage
+   * @throws NullPointerException
+   *           if {@code pPage} is {@code null}
+   * @throws IllegalArgumentException
+   *           if {@code pKey} is negative
    */
-  PageContainer getNodeFromPage(long pKey, EPage pPage) throws TTIOException;
+  PageContainer getNodeFromPage(@Nonnegative long pKey, @Nonnull EPage pPage)
+    throws TTIOException;
 
   /**
    * Get the {@link UberPage}.

@@ -27,6 +27,8 @@
 
 package org.sirix.api;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.sirix.exception.AbsTTException;
@@ -166,7 +168,7 @@ public interface INodeReadTrx extends INodeTraversal {
    *          index of attribute to move to
    * @return {@code true} if the attribute node is selected, {@code false} otherwise
    */
-  boolean moveToAttribute(int pIndex);
+  boolean moveToAttribute(@Nonnegative int pIndex);
   
   /**
    * Move cursor to attribute by its name key.
@@ -175,16 +177,16 @@ public interface INodeReadTrx extends INodeTraversal {
    *          name key of attribute to move to
    * @return {@code true} if the attribute node is selected, {@code false} otherwise
    */
-  boolean moveToAttributeByNameKey(int pNameKey);
+  boolean moveToAttributeByName(@Nonnull QName pName);
 
   /**
    * Move cursor to namespace declaration by its index.
    * 
    * @param pIndex
-   *          Index of attribute to move to.
+   *          index of attribute to move to
    * @return {@code true} if the namespace node is selected, {@code false} otherwise
    */
-  boolean moveToNamespace(int pIndex);
+  boolean moveToNamespace(@Nonnegative int pIndex);
 
   /**
    * Move to the next following node, that is the next node on the following axis.
@@ -221,10 +223,10 @@ public interface INodeReadTrx extends INodeTraversal {
    * Get key for given name. This is used for efficient name testing.
    * 
    * @param pName
-   *          Name, i.e., local part, URI, or prefix.
+   *          name, i.e., local part, URI, or prefix
    * @return internal key assigned to given name
    */
-  int keyForName(String pName);
+  int keyForName(@Nonnull String pName);
 
   /**
    * Get name for key. This is used for efficient key testing.

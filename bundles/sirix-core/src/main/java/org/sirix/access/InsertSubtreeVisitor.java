@@ -73,9 +73,8 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
    * @param pInsert
    *          determines how to insert a node
    */
-  @Nonnull
-  InsertSubtreeVisitor(final INodeReadTrx pRtx, final INodeWriteTrx pWtx,
-    final EInsertPos pInsert) {
+  InsertSubtreeVisitor(@Nonnull final INodeReadTrx pRtx, @Nonnull final INodeWriteTrx pWtx,
+    @Nonnull final EInsertPos pInsert) {
     mRtx = checkNotNull(pRtx);
     mWtx = checkNotNull(pWtx);
     mInsert = checkNotNull(pInsert);
