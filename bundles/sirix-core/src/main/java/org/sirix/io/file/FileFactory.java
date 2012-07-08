@@ -29,6 +29,8 @@ package org.sirix.io.file;
 
 import java.io.File;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
@@ -43,8 +45,8 @@ import org.sirix.io.IWriter;
  */
 public final class FileFactory implements IStorage {
 
-  
-  public static final int BUFFER_SIZE = 32767;
+  /** Buffer size. */
+  public static final int BUFFER_SIZE = 100_000;//32767;
   
   /** File name. */
   private static final String FILENAME = "tt.tnk";
@@ -55,12 +57,11 @@ public final class FileFactory implements IStorage {
   /**
    * Constructor.
    * 
-   * @param paramFile
+   * @param pFile
    *          the location of the database
-   * 
    */
-  public FileFactory(final File paramFile) {
-    mFile = paramFile;
+  public FileFactory(@Nonnull final File pFile) {
+    mFile = pFile;
   }
 
   @Override

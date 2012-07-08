@@ -300,6 +300,7 @@ public final class ElementNode extends AbsStructForwardingNode implements
    * 
    * @return snapshot of the name node delegate (new instance)
    */
+  @Nonnull 
   public NameNodeDelegate getNameNodeDelegate() {
     return new NameNodeDelegate(mNameDel);
   }

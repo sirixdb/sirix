@@ -32,6 +32,7 @@ import com.google.common.base.Objects;
 
 import java.io.File;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.EHashKind;
@@ -171,7 +172,8 @@ public final class ResourceConfiguration implements IConfigureSerializable {
    * @param pBuilder
    *          {@link Builder} reference
    */
-  private ResourceConfiguration(@Nonnull final ResourceConfiguration.Builder pBuilder) {
+  private ResourceConfiguration(
+    @Nonnull final ResourceConfiguration.Builder pBuilder) {
     mType = pBuilder.mType;
     mRevisionKind = pBuilder.mRevisionKind;
     mHashKind = pBuilder.mHashKind;
@@ -180,8 +182,8 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     mCompression = pBuilder.mCompression;
     mConsistency = pBuilder.mConsistency;
     mPath =
-      new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data.getFile().getName()),
-        pBuilder.mResource);
+      new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
+        .getFile().getName()), pBuilder.mResource);
   }
 
   @Override
@@ -196,8 +198,10 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     }
     if (pObj instanceof ResourceConfiguration) {
       final ResourceConfiguration other = (ResourceConfiguration)pObj;
-      return Objects.equal(mType, other.mType) && Objects.equal(mRevisionKind, other.mRevisionKind)
-        && Objects.equal(mHashKind, other.mHashKind) && Objects.equal(mPath, other.mPath)
+      return Objects.equal(mType, other.mType)
+        && Objects.equal(mRevisionKind, other.mRevisionKind)
+        && Objects.equal(mHashKind, other.mHashKind)
+        && Objects.equal(mPath, other.mPath)
         && Objects.equal(mDBConfig, other.mDBConfig);
     } else {
       return false;
@@ -206,8 +210,9 @@ public final class ResourceConfiguration implements IConfigureSerializable {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("Resource", mPath).add("Type", mType).add("Revision",
-      mRevisionKind).add("HashKind", mHashKind).toString();
+    return Objects.toStringHelper(this).add("Resource", mPath).add("Type",
+      mType).add("Revision", mRevisionKind).add("HashKind", mHashKind)
+      .toString();
   }
 
   /**
@@ -285,7 +290,8 @@ public final class ResourceConfiguration implements IConfigureSerializable {
      * @param pConfig
      *          the related {@link DatabaseConfiguration}, must to be set.
      */
-    public Builder(@Nonnull final String pResource, @Nonnull final DatabaseConfiguration pConfig) {
+    public Builder(@Nonnull final String pResource,
+      @Nonnull final DatabaseConfiguration pConfig) {
       mResource = checkNotNull(pResource);
       mDBConfig = checkNotNull(pConfig);
     }
@@ -309,7 +315,7 @@ public final class ResourceConfiguration implements IConfigureSerializable {
      *          to be set
      * @return reference to the builder object
      */
-    public Builder setRevisionKind(final ERevisioning pRevKind) {
+    public Builder setRevisionKind(@Nonnull final ERevisioning pRevKind) {
       mRevisionKind = checkNotNull(pRevKind);
       return this;
     }
@@ -333,7 +339,7 @@ public final class ResourceConfiguration implements IConfigureSerializable {
      *          to be set
      * @return reference to the builder object
      */
-    public Builder setRevisionsToRestore(final int pRevToRestore) {
+    public Builder setRevisionsToRestore(@Nonnegative final int pRevToRestore) {
       checkArgument(pRevToRestore > 0, "pRevisionsToRestore must be > 0!");
       mRevisionsToRestore = pRevToRestore;
       return this;
@@ -365,8 +371,8 @@ public final class ResourceConfiguration implements IConfigureSerializable {
 
     @Override
     public String toString() {
-      return Objects.toStringHelper(this).add("Type", mType).add("RevisionKind", mRevisionKind).add(
-        "HashKind", mHashKind).toString();
+      return Objects.toStringHelper(this).add("Type", mType).add(
+        "RevisionKind", mRevisionKind).add("HashKind", mHashKind).toString();
     }
 
     /**

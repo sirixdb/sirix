@@ -29,6 +29,7 @@ package org.sirix.io.berkeley;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.sleepycat.bind.tuple.TupleInput;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.io.ITTSource;
@@ -67,6 +68,12 @@ public final class TupleInputSink implements ITTSource {
   @Override
   public int readInt() {
     return mInput.readSortedPackedInt();
+  }
+
+  @Override
+  public void readBytes(@Nonnull final byte[] pBuffer,
+    @Nonnegative final int pOffset, @Nonnegative final int pLength) {
+    mInput.read(pBuffer, pOffset, pLength);
   }
 
 }

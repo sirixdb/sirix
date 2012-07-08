@@ -1,8 +1,10 @@
 package org.sirix.node;
 
+import com.google.common.collect.ForwardingObject;
+
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import com.google.common.collect.ForwardingObject;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.INode;
 
@@ -26,6 +28,7 @@ public abstract class AbsForwardingNode extends ForwardingObject implements INod
    * 
    * @return new {@link NodeDelegate} instance (snapshot of the current one)
    */
+  @Nonnull
   public NodeDelegate getNodeDelegate() {
     return new NodeDelegate(delegate());
   }

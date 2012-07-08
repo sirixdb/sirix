@@ -49,7 +49,7 @@ import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.IPage;
 
 /**
- * This class represents an reading instance of the sirix-Application
+ * This class represents a reading instance of the Sirix-Application
  * implementing the {@link IWriter}-interface. It inherits and overrides some
  * reader methods because of the transaction layer.
  * 
@@ -78,10 +78,10 @@ public final class BerkeleyWriter implements IWriter {
    * @param pDatabase
    *          {@link Database} reference where the data should be written to
    * @throws TTIOException
-   *           if something odd happens
+   *           if something odd happens@Nonnull
    */
-  public BerkeleyWriter(final Environment pEnv, final Database pDatabase)
-    throws TTIOException {
+  public BerkeleyWriter(@Nonnull final Environment pEnv,
+    @Nonnull final Database pDatabase) throws TTIOException {
     try {
       mTxn = pEnv.beginTransaction(null, null);
       mDatabase = checkNotNull(pDatabase);

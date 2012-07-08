@@ -28,6 +28,7 @@
 package org.sirix.io.file;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
@@ -76,7 +77,7 @@ public class CryptoJavaImpl {
   public int crypt(final int pLength, final ByteBufferSinkAndSource pBuffer) {
     pBuffer.position(FileReader.OTHER_BEACON);
     final byte[] tmp = new byte[pLength - FileReader.OTHER_BEACON];
-    pBuffer.get(tmp, 0, tmp.length);
+    pBuffer.readBytes(tmp, 0, tmp.length);
     mCompressor.reset();
     mOut.reset();
     mCompressor.setInput(tmp);
@@ -88,25 +89,23 @@ public class CryptoJavaImpl {
     }
     final byte[] result = mOut.toByteArray();
     pBuffer.position(FileReader.OTHER_BEACON);
-    for (final byte byteVal : result) {
-      pBuffer.writeByte(byteVal);
-    }
+    pBuffer.writeBytes(result);
     return pBuffer.position();
   }
 
   /**
    * Decompress data.
    * 
-   * @param pBuffer
+   * @param buffer
    *          data that should be decompressed
    * @param pLength
    *          of the data to be decompressed
    * @return decompressed data
    */
-  public int decrypt(final int pLength, final ByteBufferSinkAndSource pBuffer) {
-    pBuffer.position(FileReader.OTHER_BEACON);
+  public int decrypt(final int pLength, final ByteBufferSinkAndSource buffer) {
+    buffer.position(FileReader.OTHER_BEACON);
     final byte[] tmp = new byte[pLength - FileReader.OTHER_BEACON];
-    pBuffer.get(tmp, 0, tmp.length);
+    buffer.readBytes(tmp, 0, tmp.length);
     mDecompressor.reset();
     mOut.reset();
     mDecompressor.setInput(tmp);
@@ -120,11 +119,9 @@ public class CryptoJavaImpl {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     final byte[] result = mOut.toByteArray();
-    pBuffer.position(FileReader.OTHER_BEACON);
-    for (final byte byteVal : result) {
-      pBuffer.writeByte(byteVal);
-    }
-    return pBuffer.position();
+    buffer.position(FileReader.OTHER_BEACON);
+    buffer.writeBytes(result);
+    return buffer.position();
   }
 
 }

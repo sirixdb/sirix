@@ -31,6 +31,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.page.PagePersistenter;
@@ -68,7 +70,7 @@ public final class FileReader implements IReader {
    * @throws TTIOException
    *           if something bad happens
    */
-  public FileReader(final File pConcreteStorage) throws TTIOException {
+  public FileReader(@Nonnull final File pConcreteStorage) throws TTIOException {
     try {
       if (!pConcreteStorage.exists()) {
         pConcreteStorage.getParentFile().mkdirs();
@@ -86,7 +88,7 @@ public final class FileReader implements IReader {
    * Read page from storage.
    * 
    * @param pageReference
-   *          to read.
+   *          page reference to read
    * @return byte array reader to read bytes from
    * @throws TTIOException
    *           if there was an error during reading.
@@ -103,9 +105,7 @@ public final class FileReader implements IReader {
       final int dataLength = mFile.readInt();
       final byte[] page = new byte[dataLength];
       mFile.read(page);
-      for (final byte byteVal : page) {
-        buffer.writeByte(byteVal);
-      }
+      buffer.writeBytes(page);
 
       // Perform crypto operations.
       mDecompressor.decrypt(dataLength, buffer);

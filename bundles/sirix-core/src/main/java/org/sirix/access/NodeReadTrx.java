@@ -282,7 +282,7 @@ public final class NodeReadTrx implements INodeReadTrx {
   }
 
   @Override
-  public final int keyForName(final String pName) {
+  public final int keyForName(@Nonnull final String pName) {
     assertNotClosed();
     return NamePageHash.generateHashForString(pName);
   }

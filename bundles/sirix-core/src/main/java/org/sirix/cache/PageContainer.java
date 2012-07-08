@@ -32,6 +32,7 @@ import com.google.common.base.Objects;
 import com.sleepycat.bind.tuple.TupleOutput;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.io.berkeley.TupleOutputSink;
 import org.sirix.page.EPage;
@@ -123,49 +124,28 @@ public final class PageContainer {
    *          for serialization
    */
   public void serialize(@Nonnull final TupleOutput pOut) {
-    final TupleOutputSink sink = new TupleOutputSink(checkNotNull(pOut));
+    final TupleOutputSink sink = new TupleOutputSink(pOut);
     PagePersistenter.serializePage(sink, mComplete);
     PagePersistenter.serializePage(sink, mModified);
   }
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + ((mComplete == null) ? 0 : mComplete.hashCode());
-    result = prime * result + ((mModified == null) ? 0 : mModified.hashCode());
-    return result;
+    return Objects.hashCode(mComplete, mModified);
   }
 
   @Override
-  public boolean equals(final Object pObj) {
-    if (this == pObj) {
-      return true;
+  public boolean equals(@Nullable final Object pObj) {
+    if (pObj instanceof PageContainer) {
+      final PageContainer other = (PageContainer) pObj;
+      return Objects.equal(mComplete, other.mComplete) && Objects.equal(mModified, other.mModified);
     }
-
-    if (pObj == null) {
-      return false;
-    }
-
-    if (getClass() != pObj.getClass()) {
-      return false;
-    }
-
-    final PageContainer other = (PageContainer)pObj;
-    if (mComplete == null && other.mComplete != null) {
-      return false;
-    } else if (!mComplete.equals(other.mComplete)) {
-      return false;
-    } else if (!mModified.equals(other.mModified)) {
-      return false;
-    }
-
-    return true;
+    return false;
   }
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("Complete page: ",
-      mComplete).add("Modified page: ", mModified).toString();
+    return Objects.toStringHelper(this).add("complete page",
+      mComplete).add("modified page", mModified).toString();
   }
 }

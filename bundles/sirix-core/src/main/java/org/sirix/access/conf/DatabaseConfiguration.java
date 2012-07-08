@@ -28,9 +28,12 @@
 package org.sirix.access.conf;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
 
 import java.io.File;
-import com.google.common.base.Objects;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * <h1>Database Configuration</h1>
@@ -74,7 +77,7 @@ public final class DatabaseConfiguration implements IConfigureSerializable {
      * @param pIsFolder
      *          to be set.
      */
-    private Paths(final File pFile, final boolean pIsFolder) {
+    private Paths(@Nonnull final File pFile, final boolean pIsFolder) {
       mFile = checkNotNull(pFile);
       mIsFolder = checkNotNull(pIsFolder);
     }
@@ -106,7 +109,7 @@ public final class DatabaseConfiguration implements IConfigureSerializable {
      * @return -1 if less folders are there, 0 if the structure is equal to
      *         the one expected, 1 if the structure has more folders
      */
-    public static int compareStructure(final File pFile) {
+    public static int compareStructure(@Nonnull final File pFile) {
       checkNotNull(pFile);
       int existing = 0;
       for (final Paths paths : values()) {
@@ -137,9 +140,9 @@ public final class DatabaseConfiguration implements IConfigureSerializable {
    * @param paramFile
    *          file to be set
    */
-  public DatabaseConfiguration(final File paramFile) {
+  public DatabaseConfiguration(@Nonnull final File pFile) {
     mBinaryVersion = BINARY;
-    mFile = paramFile.getAbsoluteFile();
+    mFile = pFile.getAbsoluteFile();
   }
 
   /**
@@ -151,41 +154,27 @@ public final class DatabaseConfiguration implements IConfigureSerializable {
     return mFile;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("File", mFile).add("Binary Version", mBinaryVersion).toString();
+    return Objects.toStringHelper(this).add("File", mFile).add(
+      "Binary Version", mBinaryVersion).toString();
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public boolean equals(final Object pObj) {
-    if (this == pObj) {
-      return true;
-    }
+  public boolean equals(@Nullable final Object pObj) {
     if (pObj instanceof DatabaseConfiguration) {
       final DatabaseConfiguration other = (DatabaseConfiguration)pObj;
-      return Objects.equal(mFile, other.mFile) && Objects.equal(mBinaryVersion, other.mBinaryVersion);
-    } else {
-      return false;
+      return Objects.equal(mFile, other.mFile)
+        && Objects.equal(mBinaryVersion, other.mBinaryVersion);
     }
+    return false;
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public int hashCode() {
     return Objects.hashCode(mFile, mBinaryVersion);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public File getConfigFile() {
     return new File(mFile, Paths.ConfigBinary.getFile().getName());

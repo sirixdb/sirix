@@ -29,6 +29,9 @@ package org.sirix.io.file;
 
 import java.nio.ByteBuffer;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
 
@@ -83,20 +86,6 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
     return mBuffer.position();
   }
 
-  /**
-   * Getting more bytes and fill it in the buffer.
-   * 
-   * @param pDst
-   *          to fill
-   * @param pOffset
-   *          offset in buffer
-   * @param pLength
-   *          length of bytes
-   */
-  public void get(final byte[] pDst, final int pOffset, final int pLength) {
-    mBuffer.get(pDst, pOffset, pLength);
-  }
-
   @Override
   public byte readByte() {
     return mBuffer.get();
@@ -116,6 +105,18 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
   @Override
   public int readInt() {
     return mBuffer.getInt();
+  }
+  
+  @Override
+  public void writeBytes(final byte[] pByteVals) {
+    checkAndIncrease(pByteVals.length);
+    mBuffer.put(pByteVals);
+  }
+  
+  @Override
+  public void readBytes(@Nonnull final byte[] pBuffer, @Nonnegative final int pOffset,
+    @Nonnegative final int pLength) {
+    mBuffer.get(pBuffer, pOffset, pLength);
   }
 
   /**

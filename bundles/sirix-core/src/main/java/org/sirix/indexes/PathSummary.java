@@ -22,24 +22,25 @@ public class PathSummary implements INodeTraversal {
 
   /** Strong reference to currently selected node. */
   private PathNode mCurrentNode;
-  
+
   private final IPageReadTrx mPageReadTrx;
 
   private boolean mClosed;
-  
+
   private PathSummary(@Nonnull final IPageReadTrx pPageReadTrx) {
-    mPageReadTrx = checkNotNull(pPageReadTrx);
+    mPageReadTrx = pPageReadTrx;
     mClosed = false;
   }
-  
-  public static final PathSummary getInstance(@Nonnull final IPageReadTrx pPageReadTrx) {
-    return new PathSummary(checkNotNull(pPageReadTrx));
+
+  public static final PathSummary getInstance(
+    @Nonnull final IPageReadTrx pPageReadTrx) {
+    return new PathSummary(pPageReadTrx);
   }
-  
+
   public PathNode getNode() {
     return mCurrentNode;
   }
-  
+
   @Override
   public final boolean moveTo(final long pNodeKey) {
     assertNotClosed();
@@ -65,26 +66,23 @@ public class PathSummary implements INodeTraversal {
       return false;
     }
   }
-  
+
   /**
    * Get {@link QName} of current path node.
-   * @return
+   * 
+   * @return {@link QName} reference
    */
   public final QName getQName() {
     assertNotClosed();
-    if (mCurrentNode instanceof INameNode) {
-      final String name =
-      mPageReadTrx.getName(((INameNode)mCurrentNode).getNameKey(),
-          mCurrentNode.getKind());
-      final String uri =
+    final String name =
+      mPageReadTrx.getName(((INameNode)mCurrentNode).getNameKey(), mCurrentNode
+        .getKind());
+    final String uri =
       mPageReadTrx.getName(((INameNode)mCurrentNode).getURIKey(),
-          EKind.NAMESPACE);
-      return Util.buildQName(uri, name);
-    } else {
-      return null;
-    }
+        EKind.NAMESPACE);
+    return Util.buildQName(uri, name);
   }
-  
+
   @Override
   public final boolean moveToParent() {
     assertNotClosed();
@@ -108,7 +106,7 @@ public class PathSummary implements INodeTraversal {
     }
     return moveTo(mCurrentNode.getLeftSiblingKey());
   }
-  
+
   @Override
   public final boolean moveToRightSibling() {
     assertNotClosed();
@@ -117,7 +115,7 @@ public class PathSummary implements INodeTraversal {
     }
     return moveTo(mCurrentNode.getRightSiblingKey());
   }
-  
+
   @Override
   public void close() throws AbsTTException {
     if (!mClosed) {
@@ -130,7 +128,7 @@ public class PathSummary implements INodeTraversal {
       mClosed = true;
     }
   }
-  
+
   /**
    * Make sure that the path summary is not yet closed when calling this method.
    */

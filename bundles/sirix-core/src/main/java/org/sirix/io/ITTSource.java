@@ -27,6 +27,9 @@
 
 package org.sirix.io;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 /**
  * Interface for providing byteAccess to the read-process in the storage. That
  * means that every initialization process in sirix from the concrete storage
@@ -46,14 +49,26 @@ public interface ITTSource {
   long readLong();
 
   /**
-   * Reading an byte to the storage.
+   * Reading an byte of the storage.
    * 
    * @return the next byte of the source
    */
   byte readByte();
+  
+  /**
+   * Reading a byte-array of the storage.
+   * 
+   * @param pBuffer
+   *            buffer to read into
+   * @param pOffset
+   *            start offset
+   * @param pLength
+   *            number of bytes to read
+   */
+  void readBytes(@Nonnull byte[] pBuffer, @Nonnegative int pOffset, @Nonnegative int pLength);
 
   /**
-   * Reading an int to the storage.
+   * Reading an int of the storage.
    * 
    * @return the next int of the source
    */

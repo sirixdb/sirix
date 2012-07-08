@@ -68,7 +68,16 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
   protected NodeDelegate delegate() {
     return mNodeDel;
   }
-  
+
+  /**
+   * Get the name node delegate.
+   * 
+   * @return name node delegate.
+   */
+  public NameNodeDelegate getNameNodeDelegate() {
+    return mNameNodeDel;
+  }
+
   @Override
   public int hashCode() {
     return Objects.hashCode(mNodeDel, mStructNodeDel, mNameNodeDel);

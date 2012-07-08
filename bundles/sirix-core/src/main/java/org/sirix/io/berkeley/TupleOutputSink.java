@@ -70,6 +70,11 @@ public final class TupleOutputSink implements ITTSink {
   public void writeInt(final int pIntVal) {
     mOutput.writeSortedPackedInt(pIntVal);
   }
+  
+  @Override
+  public void writeBytes(final byte[] pByteVals) {
+    mOutput.write(pByteVals);
+  }
 
   public void writeBoolean(final boolean pBooleanVal) {
     mOutput.writeBoolean(pBooleanVal);

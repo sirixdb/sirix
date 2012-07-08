@@ -1,8 +1,10 @@
 package org.sirix.node;
 
-import javax.annotation.Nonnegative;
-
 import com.google.common.base.Objects;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.IStructNode;
@@ -27,7 +29,6 @@ public abstract class AbsStructForwardingNode extends AbsForwardingNode implemen
    * 
    * @return the inlying {@link NodeDelegate} instance
    */
-  @SuppressWarnings("null")
   public StructNodeDelegate getStructNodeDelegate() {
     return new StructNodeDelegate(structDelegate());
   }

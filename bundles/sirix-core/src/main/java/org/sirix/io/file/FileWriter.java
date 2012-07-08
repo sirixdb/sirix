@@ -107,14 +107,14 @@ public final class FileWriter implements IWriter {
     buffer.position(0);
     // Because of the missing offset, we can write the length directly at the front of the buffer to see
     // it afterwards in the byte array as well. Do not forget to reset the position before transition to
-    // the array
+    // the array.
     buffer.writeInt(outputLength);
     buffer.position(0);
-    buffer.get(tmp, 0, tmp.length);
+    buffer.readBytes(tmp, 0, tmp.length);
 
     try {
       // Getting actual offset and appending to the end of the current
-      // file
+      // file.
       final long fileSize = mFile.length();
       final long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
       mFile.seek(offset);
@@ -144,7 +144,7 @@ public final class FileWriter implements IWriter {
    * Close file handle in case it is not properly closed by the application.
    * 
    * @throws Throwable
-   *           if the finalization of the superclass does not work.
+   *           if the finalization of the superclass does not work
    */
   @Override
   protected void finalize() throws Throwable {
