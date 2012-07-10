@@ -42,4 +42,10 @@ public enum EInsert {
    * when the {@code IWriteTransaction} is on root node.
    */
   ASRIGHTSIBLING,
+  
+  /**
+   * Subtree should be added as a left sibling of the current node. This is not possible
+   * when the {@code IWriteTransaction} is on root node.
+   */
+  ASLEFTSIBLING,
 }

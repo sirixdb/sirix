@@ -280,7 +280,15 @@ public class AtomicValue implements INode, IValNode {
 
   @Override
   public boolean isSameItem(@Nullable final INode pOther) {
-    // TODO Auto-generated method stub
     return false;
+  }
+
+  @Override
+  public void setPCR(long pPCR) {
+  }
+
+  @Override
+  public long getPCR() {
+    return EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 }

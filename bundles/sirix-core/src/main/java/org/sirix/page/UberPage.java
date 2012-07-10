@@ -28,6 +28,7 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -94,28 +95,48 @@ public final class UberPage extends AbsForwardingPage {
 
     // Initialize revision tree to guarantee that there is a revision root
     // page.
-    page = null;
     reference = rrp.getIndirectPageReference();
+    createTree(reference);
+    rrp.incrementMaxNodeKey();
+
+    // Initialize path tree to guarantee that there is a revision root
+    // page.
+    reference =
+      rrp.getPathSummaryPageReference().getPage().getReferences()[INDIRECT_REFERENCE_OFFSET];
+    createTree(reference);
+    rrp.incrementMaxPathNodeKey();
+  }
+
+  /**
+   * Create the initial tree structure.
+   * 
+   * @param pReference
+   *          reference from revision root
+   */
+  private void createTree(@Nonnull PageReference pReference) {
+    IPage page = null;
 
     // Remaining levels.
     for (int i = 0, l = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
       page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
-      reference.setPage(page);
-      reference = page.getReferences()[0];
+      pReference.setPage(page);
+      pReference = page.getReferences()[0];
     }
 
     final NodePage ndp =
-      new NodePage(EFixed.ROOT_PAGE_KEY.getStandardProperty(), IConstants.UBP_ROOT_REVISION_NUMBER);
-    reference.setPage(ndp);
+      new NodePage(EFixed.ROOT_PAGE_KEY.getStandardProperty(),
+        IConstants.UBP_ROOT_REVISION_NUMBER);
+    pReference.setPage(ndp);
 
     final NodeDelegate nodeDel =
       new NodeDelegate(EFixed.ROOT_NODE_KEY.getStandardProperty(),
-        EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty());
+        EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY
+          .getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty());
     final StructNodeDelegate strucDel =
-      new StructNodeDelegate(nodeDel, EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY
-        .getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+      new StructNodeDelegate(nodeDel, EFixed.NULL_NODE_KEY
+        .getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty(),
+        EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
     ndp.setNode(0, new DocumentRootNode(nodeDel, strucDel));
-    rrp.incrementMaxNodeKey();
   }
 
   /**
@@ -138,7 +159,8 @@ public final class UberPage extends AbsForwardingPage {
    * @param pRevisionToUse
    *          Revision number to use.
    */
-  public UberPage(@Nonnull final UberPage pCommittedUberPage, @Nonnegative final long pRevisionToUse) {
+  public UberPage(@Nonnull final UberPage pCommittedUberPage,
+    @Nonnegative final long pRevisionToUse) {
     mDelegate = new PageDelegate(pCommittedUberPage, pRevisionToUse);
     if (pCommittedUberPage.isBootstrap()) {
       mRevisionCount = pCommittedUberPage.mRevisionCount;
@@ -188,7 +210,8 @@ public final class UberPage extends AbsForwardingPage {
   /**
    * Flag to indicate whether this uber page is the first ever.
    * 
-   * @return {@code true} if this uber page is the first oINDIRECT_REFERENCE_OFFSETne of sirix, {@code false} otherwise.
+   * @return {@code true} if this uber page is the first oINDIRECT_REFERENCE_OFFSETne of sirix, {@code false}
+   *         otherwise.
    */
   public boolean isBootstrap() {
     return mBootstrap;
@@ -203,8 +226,11 @@ public final class UberPage extends AbsForwardingPage {
 
   @Override
   public String toString() {
-    return super.toString() + ": revisionCount=" + mRevisionCount + ", indirectPage=("
-      + getReferences()[INDIRECT_REFERENCE_OFFSET] + "), isBootstrap=" + mBootstrap;
+    return Objects.toStringHelper(this)
+      .add("forwarding page", super.toString()).add("revisionCount",
+        mRevisionCount).add("indirectPage",
+        getReferences()[INDIRECT_REFERENCE_OFFSET]).add("isBootstrap",
+        mBootstrap).toString();
   }
 
   @Override

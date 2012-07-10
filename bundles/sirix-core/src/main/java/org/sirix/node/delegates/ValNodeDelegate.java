@@ -37,6 +37,7 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
+import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IValNode;
@@ -50,7 +51,7 @@ import org.sirix.utils.Compression;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class ValNodeDelegate implements IValNode {
+public class ValNodeDelegate extends AbsForwardingNode implements IValNode {
 
   /** Delegate for common node information. */
   private NodeDelegate mDelegate;
@@ -77,53 +78,8 @@ public class ValNodeDelegate implements IValNode {
   }
 
   @Override
-  public EKind getKind() {
-    return mDelegate.getKind();
-  }
-
-  @Override
-  public long getNodeKey() {
-    return mDelegate.getNodeKey();
-  }
-
-  @Override
-  public long getParentKey() {
-    return mDelegate.getParentKey();
-  }
-
-  @Override
-  public void setParentKey(long pParentKey) {
-    mDelegate.setParentKey(pParentKey);
-  }
-
-  @Override
-  public long getHash() {
-    return mDelegate.getHash();
-  }
-
-  @Override
-  public void setHash(long pHash) {
-    mDelegate.setHash(pHash);
-  }
-
-  @Override
   public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
-  }
-
-  @Override
-  public int getTypeKey() {
-    return mDelegate.getTypeKey();
-  }
-
-  @Override
-  public void setTypeKey(int pTypeKey) {
-    mDelegate.setTypeKey(pTypeKey);
-  }
-
-  @Override
-  public boolean hasParent() {
-    return mDelegate.hasParent();
   }
 
   @Override
@@ -169,24 +125,16 @@ public class ValNodeDelegate implements IValNode {
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + Arrays.hashCode(mVal);
-    return result;
+    return Objects.hashCode(mDelegate, mVal);
   }
 
   @Override
-  public boolean equals(Object obj) {
-    if (this == obj)
-      return true;
-    if (obj == null)
-      return false;
-    if (getClass() != obj.getClass())
-      return false;
-    ValNodeDelegate other = (ValNodeDelegate)obj;
-    if (!Arrays.equals(mVal, other.mVal))
-      return false;
-    return true;
+  public boolean equals(@Nullable Object pObj) {
+    if (pObj instanceof ValNodeDelegate) {
+      final ValNodeDelegate other = (ValNodeDelegate) pObj;
+      return Objects.equal(mDelegate, other.mDelegate) && Objects.equal(mVal, other.mVal);
+    }
+    return false;
   }
 
   @Override
@@ -197,5 +145,15 @@ public class ValNodeDelegate implements IValNode {
   @Override
   public boolean isSameItem(@Nullable final INode pOther) {
     return mDelegate.isSameItem(pOther);
+  }
+  
+  @Override
+  public EKind getKind() {
+    return EKind.UNKOWN;
+  }
+
+  @Override
+  protected NodeDelegate delegate() {
+    return mDelegate;
   }
 }

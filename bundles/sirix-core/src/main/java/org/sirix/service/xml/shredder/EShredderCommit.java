@@ -27,6 +27,8 @@
 
 package org.sirix.service.xml.shredder;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.exception.AbsTTException;
 
@@ -40,14 +42,14 @@ public enum EShredderCommit {
   /** Auto commit afterwards. */
   COMMIT {
     @Override
-    void commit(final INodeWriteTrx paramWtx) throws AbsTTException {
-      paramWtx.commit();
+    void commit(@Nonnull final INodeWriteTrx pWtx) throws AbsTTException {
+      pWtx.commit();
     }
   },
   /** Do not commit after subtree has been shreddered. */
   NOCOMMIT {
     @Override
-    void commit(final INodeWriteTrx paramWtx) throws AbsTTException {
+    void commit(@Nonnull final INodeWriteTrx pWtx) throws AbsTTException {
       // Do nothing.
     }
   };
@@ -55,10 +57,10 @@ public enum EShredderCommit {
   /**
    * Determines if changes should be commited or not.
    * 
-   * @param paramWtx
+   * @param pWtx
    *          {@link INodeWriteTrx} reference
    * @throws AbsTTException
    *           if commiting changes fails
    */
-  abstract void commit(final INodeWriteTrx paramWtx) throws AbsTTException;
+  abstract void commit(@Nonnull final INodeWriteTrx pWtx) throws AbsTTException;
 }

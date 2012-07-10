@@ -20,13 +20,19 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
   private final NodeDelegate mNodeDel;
   private final StructNodeDelegate mStructNodeDel;
   private final NameNodeDelegate mNameNodeDel;
+  private final EKind mKind;
 
-  public PathNode(@Nonnull final NodeDelegate pNodeDel,
+  public PathNode(@Nonnull EKind pKind, @Nonnull final NodeDelegate pNodeDel,
     @Nonnull final StructNodeDelegate pStructNodeDel,
     @Nonnull final NameNodeDelegate pNameNodeDel) {
     mNodeDel = checkNotNull(pNodeDel);
     mStructNodeDel = checkNotNull(pStructNodeDel);
     mNameNodeDel = checkNotNull(pNameNodeDel);
+    mKind = checkNotNull(pKind);
+  }
+  
+  public EKind getPathKind() {
+    return mKind;
   }
 
   @Override

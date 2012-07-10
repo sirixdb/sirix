@@ -5,7 +5,7 @@
   <key attr.name="description" attr.type="string" for="node" id="d2"/>
   <key for="node" id="d3" yfiles.type="nodegraphics"/>
   <bla><blubb/>text</bla>
-  <key attr.name="url" attr.type="string" for="edge" id="d4"/>
+  <key attr.type="string" for="edge" attr.name="url" id="d4"/>
   <key attr.name="description" attr.type="string" for="edge" id="d5"/>
   <key for="edge" id="d6" yfiles.type="edgegraphics"/>
   <graph edgedefault="directed" parse.edges="8" parse.nodes="5" id="G">

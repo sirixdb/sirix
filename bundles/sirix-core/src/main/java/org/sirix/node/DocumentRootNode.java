@@ -64,8 +64,8 @@ public final class DocumentRootNode extends AbsStructForwardingNode implements
    * @param pStructDel
    *          {@link StructNodeDelegate} reference
    */
-  public DocumentRootNode(final NodeDelegate pNodeDel,
-    final StructNodeDelegate pStructDel) {
+  public DocumentRootNode(@Nonnull final NodeDelegate pNodeDel,
+    @Nonnull final StructNodeDelegate pStructDel) {
     mNodeDel = checkNotNull(pNodeDel);
     mStructNodeDel = checkNotNull(pStructDel);
   }

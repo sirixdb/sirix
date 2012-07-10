@@ -62,6 +62,9 @@ public final class RevisionRootPage extends AbsForwardingPage {
   /** Last allocated node key. */
   private long mMaxNodeKey;
 
+  /** Last allocated path node key. */
+  private long mMaxPathNodeKey;
+
   /** Timestamp of revision. */
   private long mRevisionTimestamp;
 
@@ -79,6 +82,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
     getReferences()[PATH_SUMMARY_REFERENCE_OFFSET].setPage(new PathSummaryPage(
       IConstants.UBP_ROOT_REVISION_NUMBER));
     mMaxNodeKey = -1L;
+    mMaxPathNodeKey = -1L;
   }
 
   /**
@@ -91,6 +95,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
     mDelegate = new PageDelegate(3, pIn);
     mRevisionSize = pIn.readLong();
     mMaxNodeKey = pIn.readLong();
+    mMaxPathNodeKey = pIn.readLong();
     mRevisionTimestamp = pIn.readLong();
   }
 
@@ -108,6 +113,8 @@ public final class RevisionRootPage extends AbsForwardingPage {
     mDelegate = new PageDelegate(pCommittedRevisionRootPage, pRevisionToUse);
     mRevisionSize = pCommittedRevisionRootPage.mRevisionSize;
     mMaxNodeKey = pCommittedRevisionRootPage.mMaxNodeKey;
+    mMaxPathNodeKey = pCommittedRevisionRootPage.mMaxPathNodeKey;
+    mRevisionTimestamp = pCommittedRevisionRootPage.mRevisionTimestamp;
   }
 
   /**
@@ -158,10 +165,19 @@ public final class RevisionRootPage extends AbsForwardingPage {
   /**
    * Get last allocated node key.
    * 
-   * @return Last allocated node key.
+   * @return Last allocated node key
    */
   public long getMaxNodeKey() {
     return mMaxNodeKey;
+  }
+
+  /**
+   * Get last allocated path node key.
+   * 
+   * @return last allocated path node key
+   */
+  public long getMaxPathNodeKey() {
+    return mMaxPathNodeKey;
   }
 
   /**
@@ -169,6 +185,13 @@ public final class RevisionRootPage extends AbsForwardingPage {
    */
   public void incrementMaxNodeKey() {
     mMaxNodeKey += 1;
+  }
+
+  /**
+   * Increment number of path nodes by one while allocating another key.
+   */
+  public void incrementMaxPathNodeKey() {
+    mMaxPathNodeKey += 1;
   }
 
   /**
@@ -181,12 +204,23 @@ public final class RevisionRootPage extends AbsForwardingPage {
     mMaxNodeKey = pMaxNodeKey;
   }
 
+  /**
+   * Set the maximum path node key in the revision.
+   * 
+   * @param pMaxNodeKey
+   *          new maximum node key
+   */
+  public void setMaxPathNodeKey(final long pMaxNodeKey) {
+    mMaxPathNodeKey = pMaxNodeKey;
+  }
+
   @Override
   public void serialize(@Nonnull final ITTSink pOut) {
     mRevisionTimestamp = System.currentTimeMillis();
     mDelegate.serialize(checkNotNull(pOut));
     pOut.writeLong(mRevisionSize);
     pOut.writeLong(mMaxNodeKey);
+    pOut.writeLong(mMaxPathNodeKey);
     pOut.writeLong(mRevisionTimestamp);
   }
 
@@ -195,7 +229,8 @@ public final class RevisionRootPage extends AbsForwardingPage {
     return Objects.toStringHelper(this).add("revisionSize", mRevisionSize).add(
       "revisionTimestamp", mRevisionTimestamp).add("maxNodeKey", mMaxNodeKey)
       .add("delegate", mDelegate).add("namePage",
-        getReferences()[NAME_REFERENCE_OFFSET]).add("indirectPage",
+        getReferences()[NAME_REFERENCE_OFFSET]).add("pathSummaryPage",
+        getReferences()[PATH_SUMMARY_REFERENCE_OFFSET]).add("indirectPage",
         getReferences()[INDIRECT_REFERENCE_OFFSET]).toString();
   }
 

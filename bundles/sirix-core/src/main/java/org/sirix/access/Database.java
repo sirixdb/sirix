@@ -192,14 +192,14 @@ public final class Database implements IDatabase {
       new File(new File(mDBConfig.getFile().getAbsoluteFile(),
         DatabaseConfiguration.Paths.Data.getFile().getName()), pResConf.mPath
         .getName());
-    // if file is existing, skipping
+    // If file is existing, skip.
     if (path.exists()) {
       return false;
     } else {
       returnVal = path.mkdir();
       if (returnVal) {
-        // creation of the folder structure
-        for (ResourceConfiguration.Paths paths : ResourceConfiguration.Paths
+        // Creation of the folder structure.
+        for (final ResourceConfiguration.Paths paths : ResourceConfiguration.Paths
           .values()) {
           final File toCreate = new File(path, paths.getFile().getName());
           if (paths.isFolder()) {
@@ -216,14 +216,14 @@ public final class Database implements IDatabase {
           }
         }
       }
-      // serialization of the config
+      // Serialization of the config.
       try {
         serializeConfiguration(pResConf);
       } catch (final IOException exc) {
         throw new TTIOException(exc);
       }
-      // if something was not correct, delete the partly created
-      // substructure
+      // If something was not correct, delete the partly created
+      // substructure.
       if (!returnVal) {
         pResConf.mPath.delete();
       }
@@ -237,12 +237,12 @@ public final class Database implements IDatabase {
     final File resourceFile =
       new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
         .getFile().getName()), pResConf.mPath.getName());
-    // check that database must be closed beforehand
+    // Check that database must be closed beforehand.
     if (!mSessions.containsKey(resourceFile)) {
-      // if file is existing and folder is a tt-dataplace, delete it
+      // If file is existing and folder is a tt-dataplace, delete it.
       if (resourceFile.exists()
         && ResourceConfiguration.Paths.compareStructure(resourceFile) == 0) {
-        // instantiate the database for deletion
+        // Instantiate the database for deletion.
         try {
           Files.recursiveRemove(resourceFile.toPath());
         } catch (final IOException e) {

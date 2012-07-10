@@ -56,9 +56,9 @@ public final class DescendantAxis extends AbsAxis {
    * Constructor initializing internal state.
    * 
    * @param pRtx
-   *          Exclusive (immutable) trx to iterate with.
+   *          exclusive (immutable) trx to iterate with
    */
-  public DescendantAxis(final INodeTraversal pRtx) {
+  public DescendantAxis(@Nonnull final INodeTraversal pRtx) {
     super(pRtx);
   }
 

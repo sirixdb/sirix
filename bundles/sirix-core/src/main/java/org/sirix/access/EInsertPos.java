@@ -26,6 +26,7 @@
  */
 package org.sirix.access;
 
+import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.sirix.api.INodeReadTrx;
@@ -34,6 +35,7 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.node.EKind;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.IStructNode;
+import org.sirix.page.EPage;
 import org.sirix.settings.EFixed;
 
 /**
@@ -47,7 +49,7 @@ enum EInsertPos {
   /** Insert as first child. */
   ASFIRSTCHILD {
     @Override
-    void processMove(final IStructNode pFromNode, final IStructNode pToNode, final NodeWriteTrx pWtx)
+    void processMove(final @Nonnull IStructNode pFromNode, final @Nonnull IStructNode pToNode, final @Nonnull NodeWriteTrx pWtx)
       throws AbsTTException {
       assert pFromNode != null;
       assert pToNode != null;
@@ -55,11 +57,11 @@ enum EInsertPos {
 
       // Adapt childCount of parent where the subtree has to be inserted.
       IStructNode newParent =
-        (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getNodeKey());
+        (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getNodeKey(), EPage.NODEPAGE);
       if (pFromNode.getParentKey() != pToNode.getNodeKey()) {
         newParent.incrementChildCount();
       }
-      pWtx.getPageTransaction().finishNodeModification(newParent);
+      pWtx.getPageTransaction().finishNodeModification(newParent, EPage.NODEPAGE);
 
       if (pToNode.hasFirstChild()) {
         pWtx.moveTo(pToNode.getFirstChildKey());
@@ -70,9 +72,9 @@ enum EInsertPos {
           // Adapt right sibling key of moved node.
           pWtx.moveTo(((TextNode)pWtx.getNode()).getRightSiblingKey());
           final TextNode moved =
-            (TextNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey());
+            (TextNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
           moved.setRightSiblingKey(pWtx.getNode().getNodeKey());
-          pWtx.getPageTransaction().finishNodeModification(moved);
+          pWtx.getPageTransaction().finishNodeModification(moved, EPage.NODEPAGE);
 
           // Merge text nodes.
           pWtx.moveTo(moved.getNodeKey());
@@ -86,45 +88,45 @@ enum EInsertPos {
           // Adapt left sibling key of former right sibling of first child.
           pWtx.moveTo(moved.getRightSiblingKey());
           final IStructNode rightSibling =
-            (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pWtx.getNode().getNodeKey());
+            (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pWtx.getNode().getNodeKey(), EPage.NODEPAGE);
           rightSibling.setLeftSiblingKey(pFromNode.getNodeKey());
-          pWtx.getPageTransaction().finishNodeModification(rightSibling);
+          pWtx.getPageTransaction().finishNodeModification(rightSibling, EPage.NODEPAGE);
         } else {
           // Adapt left sibling key of former first child.
           final IStructNode oldFirstChild =
-            (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getFirstChildKey());
+            (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getFirstChildKey(), EPage.NODEPAGE);
           oldFirstChild.setLeftSiblingKey(pFromNode.getNodeKey());
-          pWtx.getPageTransaction().finishNodeModification(oldFirstChild);
+          pWtx.getPageTransaction().finishNodeModification(oldFirstChild, EPage.NODEPAGE);
 
           // Adapt right sibling key of moved node.
           final IStructNode moved =
-            (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey());
+            (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
           moved.setRightSiblingKey(oldFirstChild.getNodeKey());
-          pWtx.getPageTransaction().finishNodeModification(moved);
+          pWtx.getPageTransaction().finishNodeModification(moved, EPage.NODEPAGE);
         }
       } else {
         // Adapt right sibling key of moved node.
         final IStructNode moved =
-          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey());
+          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
         moved.setRightSiblingKey(EFixed.NULL_NODE_KEY.getStandardProperty());
-        pWtx.getPageTransaction().finishNodeModification(moved);
+        pWtx.getPageTransaction().finishNodeModification(moved, EPage.NODEPAGE);
       }
 
       // Adapt first child key of parent where the subtree has to be inserted.
-      newParent = (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getNodeKey());
+      newParent = (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getNodeKey(), EPage.NODEPAGE);
       newParent.setFirstChildKey(pFromNode.getNodeKey());
-      pWtx.getPageTransaction().finishNodeModification(newParent);
+      pWtx.getPageTransaction().finishNodeModification(newParent, EPage.NODEPAGE);
 
       // Adapt left sibling key and parent key of moved node.
       final IStructNode moved =
-        (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey());
+        (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
       moved.setLeftSiblingKey(EFixed.NULL_NODE_KEY.getStandardProperty());
       moved.setParentKey(pToNode.getNodeKey());
-      pWtx.getPageTransaction().finishNodeModification(moved);
+      pWtx.getPageTransaction().finishNodeModification(moved, EPage.NODEPAGE);
     }
 
     @Override
-    void insertNode(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException {
+    void insertNode(final @Nonnull INodeWriteTrx pWtx, final @Nonnull INodeReadTrx pRtx) throws AbsTTException {
       assert pWtx != null;
       assert pRtx != null;
       assert pWtx.getNode().getKind() == EKind.ELEMENT || pWtx.getNode().getKind() == EKind.DOCUMENT_ROOT;
@@ -145,7 +147,7 @@ enum EInsertPos {
   /** Insert as right sibling. */
   ASRIGHTSIBLING {
     @Override
-    void processMove(final IStructNode pFromNode, final IStructNode pToNode, final NodeWriteTrx pWtx)
+    void processMove(final @Nonnull IStructNode pFromNode, final @Nonnull IStructNode pToNode, final @Nonnull NodeWriteTrx pWtx)
       throws AbsTTException {
       assert pFromNode != null;
       assert pToNode != null;
@@ -154,9 +156,9 @@ enum EInsertPos {
       // Increment child count of parent node if moved node was not a child before.
       if (pFromNode.getParentKey() != pToNode.getParentKey()) {
         final IStructNode parentNode =
-          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getParentKey());
+          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getParentKey(), EPage.NODEPAGE);
         parentNode.incrementChildCount();
-        pWtx.getPageTransaction().finishNodeModification(parentNode);
+        pWtx.getPageTransaction().finishNodeModification(parentNode, EPage.NODEPAGE);
       }
 
       final boolean hasMoved = pWtx.moveTo(pToNode.getRightSiblingKey());
@@ -170,18 +172,18 @@ enum EInsertPos {
         if (pToNode.hasRightSibling()) {
           final IStructNode rightSibling =
             (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(
-              ((TextNode)pWtx.getNode()).getRightSiblingKey());
+              ((TextNode)pWtx.getNode()).getRightSiblingKey(), EPage.NODEPAGE);
           rightSibling.setLeftSiblingKey(pFromNode.getNodeKey());
-          pWtx.getPageTransaction().finishNodeModification(rightSibling);
+          pWtx.getPageTransaction().finishNodeModification(rightSibling, EPage.NODEPAGE);
         }
 
         // Adapt sibling keys of moved node.
         final TextNode movedNode =
-          (TextNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey());
+          (TextNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
         movedNode.setRightSiblingKey(pToNode.getRightSiblingKey());
         // Adapt left sibling key of moved node.
         movedNode.setLeftSiblingKey(((TextNode)pWtx.getNode()).getLeftSiblingKey());
-        pWtx.getPageTransaction().finishNodeModification(movedNode);
+        pWtx.getPageTransaction().finishNodeModification(movedNode, EPage.NODEPAGE);
 
         // Merge text nodes.
         pWtx.moveTo(movedNode.getNodeKey());
@@ -189,10 +191,10 @@ enum EInsertPos {
         pWtx.setValue(builder.toString());
 
         final IStructNode insertAnchor =
-          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getNodeKey());
+          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getNodeKey(), EPage.NODEPAGE);
         // Adapt right sibling key of node where the subtree has to be inserted.
         insertAnchor.setRightSiblingKey(pFromNode.getNodeKey());
-        pWtx.getPageTransaction().finishNodeModification(insertAnchor);
+        pWtx.getPageTransaction().finishNodeModification(insertAnchor, EPage.NODEPAGE);
 
         // Remove first child.
         pWtx.moveTo(pToNode.getNodeKey());
@@ -204,16 +206,16 @@ enum EInsertPos {
 
         // Adapt left sibling key of former right sibling of first child.
         final IStructNode rightSibling =
-          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pWtx.getNode().getNodeKey());
+          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pWtx.getNode().getNodeKey(), EPage.NODEPAGE);
         rightSibling.setLeftSiblingKey(pFromNode.getNodeKey());
-        pWtx.getPageTransaction().finishNodeModification(rightSibling);
+        pWtx.getPageTransaction().finishNodeModification(rightSibling, EPage.NODEPAGE);
 
         // Adapt sibling keys of moved node.
         final TextNode movedNode =
-          (TextNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey());
+          (TextNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
         movedNode.setRightSiblingKey(rightSibling.getNodeKey());
         movedNode.setLeftSiblingKey(pToNode.getNodeKey());
-        pWtx.getPageTransaction().finishNodeModification(movedNode);
+        pWtx.getPageTransaction().finishNodeModification(movedNode, EPage.NODEPAGE);
 
         // Merge text nodes.
         pWtx.moveTo(movedNode.getNodeKey());
@@ -225,43 +227,43 @@ enum EInsertPos {
         pWtx.remove();
 
         final IStructNode insertAnchor =
-          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getNodeKey());
+          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getNodeKey(), EPage.NODEPAGE);
         // Adapt right sibling key of node where the subtree has to be inserted.
         insertAnchor.setRightSiblingKey(pFromNode.getNodeKey());
-        pWtx.getPageTransaction().finishNodeModification(insertAnchor);
+        pWtx.getPageTransaction().finishNodeModification(insertAnchor, EPage.NODEPAGE);
       } else {
         // No text merging involved.
         final IStructNode insertAnchor =
-          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getNodeKey());
+          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pToNode.getNodeKey(), EPage.NODEPAGE);
         final long rightSiblKey = insertAnchor.getRightSiblingKey();
         // Adapt right sibling key of node where the subtree has to be inserted.
         insertAnchor.setRightSiblingKey(pFromNode.getNodeKey());
-        pWtx.getPageTransaction().finishNodeModification(insertAnchor);
+        pWtx.getPageTransaction().finishNodeModification(insertAnchor, EPage.NODEPAGE);
 
         if (rightSiblKey > -1) {
           // Adapt left sibling key of former right sibling.
           final IStructNode oldRightSibling =
-            (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(rightSiblKey);
+            (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(rightSiblKey, EPage.NODEPAGE);
           oldRightSibling.setLeftSiblingKey(pFromNode.getNodeKey());
-          pWtx.getPageTransaction().finishNodeModification(oldRightSibling);
+          pWtx.getPageTransaction().finishNodeModification(oldRightSibling, EPage.NODEPAGE);
         }
         // Adapt right- and left-sibling key of moved node.
         final IStructNode movedNode =
-          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey());
+          (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
         movedNode.setRightSiblingKey(rightSiblKey);
         movedNode.setLeftSiblingKey(insertAnchor.getNodeKey());
-        pWtx.getPageTransaction().finishNodeModification(movedNode);
+        pWtx.getPageTransaction().finishNodeModification(movedNode, EPage.NODEPAGE);
       }
 
       // Adapt parent key of moved node.
       final IStructNode movedNode =
-        (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey());
+        (IStructNode)pWtx.getPageTransaction().prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
       movedNode.setParentKey(pToNode.getParentKey());
-      pWtx.getPageTransaction().finishNodeModification(movedNode);
+      pWtx.getPageTransaction().finishNodeModification(movedNode, EPage.NODEPAGE);
     }
 
     @Override
-    void insertNode(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException {
+    void insertNode(final @Nonnull INodeWriteTrx pWtx, final @Nonnull INodeReadTrx pRtx) throws AbsTTException {
       assert pWtx != null;
       assert pRtx != null;
       assert pWtx.getNode().getKind() == EKind.ELEMENT || pWtx.getNode().getKind() == EKind.TEXT;
@@ -280,14 +282,14 @@ enum EInsertPos {
   /** Insert as a non structural node. */
   ASNONSTRUCTURAL {
     @Override
-    void processMove(final IStructNode pFromNode, final IStructNode pToNode, final NodeWriteTrx pWtx)
+    void processMove(final @Nonnull IStructNode pFromNode, final @Nonnull IStructNode pToNode, final @Nonnull NodeWriteTrx pWtx)
       throws AbsTTException {
       // Not allowed.
       throw new AssertionError("May never be invoked!");
     }
 
     @Override
-    void insertNode(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException {
+    void insertNode(final @Nonnull INodeWriteTrx pWtx, final @Nonnull INodeReadTrx pRtx) throws AbsTTException {
       assert pWtx != null;
       assert pRtx != null;
       assert pWtx.getNode().getKind() == EKind.ELEMENT;
@@ -309,13 +311,13 @@ enum EInsertPos {
   
   ASLEFTSIBLING {
     @Override
-    void processMove(final IStructNode pFromNode, final IStructNode pToNode, final NodeWriteTrx pWtx)
+    void processMove(final @Nonnull IStructNode pFromNode, final @Nonnull IStructNode pToNode, final @Nonnull NodeWriteTrx pWtx)
       throws AbsTTException {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    void insertNode(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException {
+    void insertNode(@Nonnull final INodeWriteTrx pWtx, @Nonnull final INodeReadTrx pRtx) throws AbsTTException {
       assert pWtx != null;
       assert pRtx != null;
       assert pWtx.getNode().getKind() == EKind.ELEMENT || pWtx.getNode().getKind() == EKind.TEXT;
@@ -344,7 +346,7 @@ enum EInsertPos {
    * @throws AbsTTException
    *           if an I/O error occurs
    */
-  abstract void processMove(final IStructNode pFromNode, final IStructNode pToNode, final NodeWriteTrx pWtx)
+  abstract void processMove(@Nonnull final IStructNode pFromNode, @Nonnull final IStructNode pToNode, @Nonnull final NodeWriteTrx pWtx)
     throws AbsTTException;
 
   /**
@@ -357,5 +359,5 @@ enum EInsertPos {
    * @throws AbsTTException
    *           if insertion of node fails
    */
-  abstract void insertNode(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException;
+  abstract void insertNode(@Nonnull final INodeWriteTrx pWtx, @Nonnull final INodeReadTrx pRtx) throws AbsTTException;
 }

@@ -9,6 +9,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
+import javax.annotation.Nonnull;
+
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
@@ -21,8 +23,8 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
-import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.ISession;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.AbsTTException;
 import org.sirix.service.xml.serialize.XMLSerializer;
@@ -36,49 +38,71 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class FMSETest extends XMLTestCase {
-  private static final String RESOURCES = "src" + File.separator + "test" + File.separator + "resources";
+  private static final String RESOURCES = "src" + File.separator + "test"
+    + File.separator + "resources";
 
-  private static final String XMLINSERTFIRST = RESOURCES + File.separator + "revXMLsInsert";
+  private static final String XMLINSERTFIRST = RESOURCES + File.separator
+    + "revXMLsInsert";
 
-  private static final String XMLINSERTSECOND = RESOURCES + File.separator + "revXMLsInsert1";
+  private static final String XMLINSERTSECOND = RESOURCES + File.separator
+    + "revXMLsInsert1";
 
-  private static final String XMLINSERTTHIRD = RESOURCES + File.separator + "revXMLsInsert2";
+  private static final String XMLINSERTTHIRD = RESOURCES + File.separator
+    + "revXMLsInsert2";
 
-  private static final String XMLDELETEFIRST = RESOURCES + File.separator + "revXMLsDelete";
+  private static final String XMLDELETEFIRST = RESOURCES + File.separator
+    + "revXMLsDelete";
 
-  private static final String XMLDELETESECOND = RESOURCES + File.separator + "revXMLsDelete1";
+  private static final String XMLDELETESECOND = RESOURCES + File.separator
+    + "revXMLsDelete1";
 
-  private static final String XMLDELETETHIRD = RESOURCES + File.separator + "revXMLsDelete2";
+  private static final String XMLDELETETHIRD = RESOURCES + File.separator
+    + "revXMLsDelete2";
 
-  private static final String XMLDELETEFOURTH = RESOURCES + File.separator + "revXMLsDelete3";
+  private static final String XMLDELETEFOURTH = RESOURCES + File.separator
+    + "revXMLsDelete3";
 
-  private static final String XMLSAMEFIRST = RESOURCES + File.separator + "revXMLsSame";
+  private static final String XMLSAMEFIRST = RESOURCES + File.separator
+    + "revXMLsSame";
 
-  private static final String XMLSAMESECOND = RESOURCES + File.separator + "revXMLsSame1";
+  private static final String XMLSAMESECOND = RESOURCES + File.separator
+    + "revXMLsSame1";
 
-  private static final String XMLALLFIRST = RESOURCES + File.separator + "revXMLsAll";
+  private static final String XMLALLFIRST = RESOURCES + File.separator
+    + "revXMLsAll";
 
-  private static final String XMLALLSECOND = RESOURCES + File.separator + "revXMLsAll1";
+  private static final String XMLALLSECOND = RESOURCES + File.separator
+    + "revXMLsAll1";
 
-  private static final String XMLALLTHIRD = RESOURCES + File.separator + "revXMLsAll2";
+  private static final String XMLALLTHIRD = RESOURCES + File.separator
+    + "revXMLsAll2";
 
-  private static final String XMLALLFOURTH = RESOURCES + File.separator + "revXMLsAll3";
+  private static final String XMLALLFOURTH = RESOURCES + File.separator
+    + "revXMLsAll3";
 
-  private static final String XMLALLFIFTH = RESOURCES + File.separator + "revXMLsAll4";
+  private static final String XMLALLFIFTH = RESOURCES + File.separator
+    + "revXMLsAll4";
 
-  private static final String XMLALLSIXTH = RESOURCES + File.separator + "revXMLsAll5";
+  private static final String XMLALLSIXTH = RESOURCES + File.separator
+    + "revXMLsAll5";
 
-  private static final String XMLALLSEVENTH = RESOURCES + File.separator + "revXMLsAll6";
+  private static final String XMLALLSEVENTH = RESOURCES + File.separator
+    + "revXMLsAll6";
 
-  private static final String XMLALLEIGHTH = RESOURCES + File.separator + "revXMLsAll7";
+  private static final String XMLALLEIGHTH = RESOURCES + File.separator
+    + "revXMLsAll7";
 
-  private static final String XMLALLNINETH = RESOURCES + File.separator + "revXMLsAll8";
+  private static final String XMLALLNINETH = RESOURCES + File.separator
+    + "revXMLsAll8";
 
-  private static final String XMLALLTENTH = RESOURCES + File.separator + "revXMLsAll9";
+  private static final String XMLALLTENTH = RESOURCES + File.separator
+    + "revXMLsAll9";
 
-  private static final String XMLALLELEVENTH = RESOURCES + File.separator + "revXMLsAll10";
+  private static final String XMLALLELEVENTH = RESOURCES + File.separator
+    + "revXMLsAll10";
 
-  private static final String XMLLINGUISTICS = RESOURCES + File.separator + "linguistics";
+  private static final String XMLLINGUISTICS = RESOURCES + File.separator
+    + "linguistics";
 
   static {
     XMLUnit.setIgnoreComments(true);
@@ -203,9 +227,19 @@ public final class FMSETest extends XMLTestCase {
     test(XMLLINGUISTICS);
   }
 
-  private void test(final String FOLDER) throws Exception {
+  /**
+   * Test a folder of XML files.
+   * 
+   * @param FOLDER
+   *          path string
+   * @throws Exception
+   *           if any exception occurs
+   */
+  private void test(@Nonnull final String FOLDER) throws Exception {
     IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    ISession session = database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
+    ISession session =
+      database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
+        .build());
     final File folder = new File(FOLDER);
     final File[] filesList = folder.listFiles();
     final List<File> list = new ArrayList<File>();
@@ -220,9 +254,11 @@ public final class FMSETest extends XMLTestCase {
       @Override
       public int compare(final File paramFirst, final File paramSecond) {
         final String firstName =
-          paramFirst.getName().toString().substring(0, paramFirst.getName().toString().indexOf('.'));
+          paramFirst.getName().toString().substring(0,
+            paramFirst.getName().toString().indexOf('.'));
         final String secondName =
-          paramSecond.getName().toString().substring(0, paramSecond.getName().toString().indexOf('.'));
+          paramSecond.getName().toString().substring(0,
+            paramSecond.getName().toString().indexOf('.'));
         if (Integer.parseInt(firstName) < Integer.parseInt(secondName)) {
           return -1;
         } else if (Integer.parseInt(firstName) > Integer.parseInt(secondName)) {
@@ -242,7 +278,8 @@ public final class FMSETest extends XMLTestCase {
         if (first) {
           final INodeWriteTrx wtx = session.beginNodeWriteTrx();
           final XMLShredder shredder =
-            new XMLShredder(wtx, XMLShredder.createFileReader(file), EInsert.ASFIRSTCHILD);
+            new XMLShredder(wtx, XMLShredder.createFileReader(file),
+              EInsert.ASFIRSTCHILD);
           shredder.call();
           wtx.close();
           first = false;
@@ -253,12 +290,16 @@ public final class FMSETest extends XMLTestCase {
         }
 
         session.close();
-        session = database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
+        session =
+          database.getSession(new SessionConfiguration.Builder(
+            TestHelper.RESOURCE).build());
 
         final OutputStream out = new ByteArrayOutputStream();
-        final XMLSerializer serializer = new XMLSerializerBuilder(session, out).build();
+        final XMLSerializer serializer =
+          new XMLSerializerBuilder(session, out).build();
         serializer.call();
-        final StringBuilder sBuilder = TestHelper.readFile(file.getAbsoluteFile(), false);
+        final StringBuilder sBuilder =
+          TestHelper.readFile(file.getAbsoluteFile(), false);
 
         final Diff diff = new Diff(sBuilder.toString(), out.toString());
         final DetailedDiff detDiff = new DetailedDiff(diff);
@@ -274,5 +315,7 @@ public final class FMSETest extends XMLTestCase {
         assertTrue("but are they identical? " + diff, diff.identical());
       }
     }
+
+    database.close();
   }
 }

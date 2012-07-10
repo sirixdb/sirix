@@ -123,6 +123,5 @@ public class XMarkBenchTest {
   public static void tearDown() throws AbsTTException {
     holder.close();
     TestHelper.closeEverything();
-
   }
 }

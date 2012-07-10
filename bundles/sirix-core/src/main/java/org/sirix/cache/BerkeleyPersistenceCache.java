@@ -55,7 +55,8 @@ import org.sirix.exception.TTIOException;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, PageContainer> {
+public final class BerkeleyPersistenceCache extends
+  AbsPersistenceCache<Long, PageContainer> {
 
   /**
    * Flush after defined value.
@@ -101,17 +102,19 @@ public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, Pa
    * @throws TTIOException
    *           Exception if IO is not successful
    */
-  public BerkeleyPersistenceCache(@Nonnull final File pFile, @Nonnegative final long pRevision) throws TTIOException {
+  public BerkeleyPersistenceCache(@Nonnull final File pFile,
+    @Nonnegative final long pRevision) throws TTIOException {
     super(checkNotNull(pFile));
     try {
       /* Create a new, transactional database environment */
       final EnvironmentConfig config = new EnvironmentConfig();
       config.setAllowCreate(true).setLocking(false).setCacheSize(1024 * 1024);
       mEnv = new Environment(mPlace, config);
-
+      
       /* Make a database within that environment */
       final DatabaseConfig dbConfig = new DatabaseConfig();
-      dbConfig.setAllowCreate(true).setExclusiveCreate(true).setDeferredWrite(true);
+      dbConfig.setAllowCreate(true).setExclusiveCreate(true).setDeferredWrite(
+        true);
 
       mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
@@ -124,8 +127,8 @@ public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, Pa
   }
 
   @Override
-  public void putPersistent(@Nonnull final Long pKey, @Nonnull final PageContainer pPage)
-    throws TTIOException {
+  public void putPersistent(@Nonnull final Long pKey,
+    @Nonnull final PageContainer pPage) throws TTIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
     mEntries++;
@@ -154,12 +157,14 @@ public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, Pa
   }
 
   @Override
-  public PageContainer getPersistent(@Nonnull final Long pKey) throws TTIOException {
+  public PageContainer getPersistent(@Nonnull final Long pKey)
+    throws TTIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
     mKeyBinding.objectToEntry(checkNotNull(pKey), keyEntry);
     try {
-      final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
+      final OperationStatus status =
+        mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
       PageContainer val = null;
       if (status == OperationStatus.SUCCESS) {
         val = mValueBinding.entryToObject(valueEntry);
@@ -171,7 +176,8 @@ public final class BerkeleyPersistenceCache extends AbsPersistenceCache<Long, Pa
   }
 
   @Override
-  public ImmutableMap<Long, PageContainer> getAll(@Nonnull Iterable<? extends Long> keys) {
+  public ImmutableMap<Long, PageContainer> getAll(
+    @Nonnull Iterable<? extends Long> keys) {
     throw new UnsupportedOperationException();
   }
 }

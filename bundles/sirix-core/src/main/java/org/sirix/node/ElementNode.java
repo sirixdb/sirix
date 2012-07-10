@@ -236,7 +236,7 @@ public final class ElementNode extends AbsStructForwardingNode implements
   public String toString() {
     return Objects.toStringHelper(this).add("nameDelegate", mNameDel).add(
       "nameSpaceKeys", mNamespaceKeys).add("attributeKeys", mAttributeKeys)
-      .toString();
+      .add("structDelegate", mStructNodeDel).toString();
   }
 
   @Override
@@ -300,7 +300,7 @@ public final class ElementNode extends AbsStructForwardingNode implements
    * 
    * @return snapshot of the name node delegate (new instance)
    */
-  @Nonnull 
+  @Nonnull
   public NameNodeDelegate getNameNodeDelegate() {
     return new NameNodeDelegate(mNameDel);
   }

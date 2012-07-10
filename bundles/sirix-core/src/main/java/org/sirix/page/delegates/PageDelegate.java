@@ -96,10 +96,10 @@ public class PageDelegate implements IPage {
   /**
    * Constructor to initialize instance.
    * 
-   * @param pReferenceCount
-   *          number of references of page
-   * @param pIn
-   *          input stream to read from
+   * @param pCommitedPage
+   *          commited page
+   * @param pRevision
+   *          revision number
    */
   public PageDelegate(@Nonnull final IPage pCommitedPage,
     @Nonnegative final long pRevision) {

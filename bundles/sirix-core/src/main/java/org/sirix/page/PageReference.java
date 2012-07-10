@@ -28,6 +28,9 @@
 package org.sirix.page;
 
 import com.google.common.base.Objects;
+
+import javax.annotation.Nonnull;
+
 import org.sirix.page.interfaces.IPage;
 import org.sirix.utils.IConstants;
 
@@ -42,6 +45,9 @@ import org.sirix.utils.IConstants;
  */
 public final class PageReference {
 
+  /** Page kind. */
+  private EPage mPageKind;
+  
   /** In-memory deserialized page instance. */
   private IPage mPage;
 
@@ -118,6 +124,14 @@ public final class PageReference {
    */
   public long getNodePageKey() {
     return mNodePageKey;
+  }
+
+  public void setPageKind(@Nonnull final EPage pPageKind) {
+    mPageKind = pPageKind;
+  }
+  
+  public EPage getPageKind() {
+    return mPageKind;
   }
 
 }

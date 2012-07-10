@@ -32,6 +32,7 @@ import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 
+import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLStreamException;
 
@@ -142,42 +143,42 @@ public final class DocumentCreater {
   /**
    * Create simple test document containing all supported node kinds.
    * 
-   * @param paramWtx
+   * @param pWtx
    *          {@link INodeWriteTrx} to write to
    * @throws AbsTTException
    *           if anything weird happens
    */
-  public static void create(final INodeWriteTrx paramWtx) throws AbsTTException {
-    assertNotNull(paramWtx);
-    assertTrue(paramWtx.moveToDocumentRoot());
+  public static void create(@Nonnull final INodeWriteTrx pWtx) throws AbsTTException {
+    assertNotNull(pWtx);
+    assertTrue(pWtx.moveToDocumentRoot());
 
-    paramWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
-    paramWtx.insertNamespace(new QName("ns", "xmlns", "p"));
-    assertTrue(paramWtx.moveToParent());
-    paramWtx.insertAttribute(new QName("i"), "j");
-    assertTrue(paramWtx.moveToParent());
+    pWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
+    pWtx.insertNamespace(new QName("ns", "xmlns", "p"));
+    assertTrue(pWtx.moveToParent());
+    pWtx.insertAttribute(new QName("i"), "j");
+    assertTrue(pWtx.moveToParent());
 
-    paramWtx.insertTextAsFirstChild("oops1");
+    pWtx.insertTextAsFirstChild("oops1");
 
-    paramWtx.insertElementAsRightSibling(new QName("b"));
+    pWtx.insertElementAsRightSibling(new QName("b"));
 
-    paramWtx.insertTextAsFirstChild("foo");
-    paramWtx.insertElementAsRightSibling(new QName("c"));
-    assertTrue(paramWtx.moveToParent());
+    pWtx.insertTextAsFirstChild("foo");
+    pWtx.insertElementAsRightSibling(new QName("c"));
+    assertTrue(pWtx.moveToParent());
 
-    paramWtx.insertTextAsRightSibling("oops2");
+    pWtx.insertTextAsRightSibling("oops2");
 
-    paramWtx.insertElementAsRightSibling(new QName("b"));
-    paramWtx.insertAttribute(new QName("ns", "x", "p"), "y");
-    assertTrue(paramWtx.moveToParent());
+    pWtx.insertElementAsRightSibling(new QName("b"));
+    pWtx.insertAttribute(new QName("ns", "x", "p"), "y");
+    assertTrue(pWtx.moveToParent());
 
-    paramWtx.insertElementAsFirstChild(new QName("c"));
-    paramWtx.insertTextAsRightSibling("bar");
-    assertTrue(paramWtx.moveToParent());
+    pWtx.insertElementAsFirstChild(new QName("c"));
+    pWtx.insertTextAsRightSibling("bar");
+    assertTrue(pWtx.moveToParent());
 
-    paramWtx.insertTextAsRightSibling("oops3");
+    pWtx.insertTextAsRightSibling("oops3");
 
-    paramWtx.moveToDocumentRoot();
+    pWtx.moveToDocumentRoot();
   }
 
   /**

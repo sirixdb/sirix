@@ -64,9 +64,11 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
    * @throws TTIOException
    *           if I/O is not successful
    */
-  public TransactionLogCache(@Nonnull final IPageReadTrx pPageReadTransaction, @Nonnull final File pFile,
-    @Nonnegative final long pRevision) throws TTIOException {
-    final BerkeleyPersistenceCache secondCache = new BerkeleyPersistenceCache(pFile, pRevision);
+  public TransactionLogCache(@Nonnull final IPageReadTrx pPageReadTransaction,
+    @Nonnull final File pFile, @Nonnegative final long pRevision)
+    throws TTIOException {
+    final BerkeleyPersistenceCache secondCache =
+      new BerkeleyPersistenceCache(pFile, pRevision);
     mFirstCache = new LRUCache<>(secondCache);
   }
 
@@ -76,7 +78,8 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
   }
 
   @Override
-  public ImmutableMap<Long, PageContainer> getAll(@Nonnull final Iterable<? extends Long> pKeys) {
+  public ImmutableMap<Long, PageContainer> getAll(
+    @Nonnull final Iterable<? extends Long> pKeys) {
     final ImmutableMap.Builder<Long, PageContainer> builder =
       new ImmutableMap.Builder<>();
     for (final long key : pKeys) {

@@ -37,9 +37,9 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
+import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INameNode;
-import org.sirix.node.interfaces.INode;
 
 /**
  * Delegate method for all nodes containing \"naming\"-data. That means that
@@ -50,14 +50,14 @@ import org.sirix.node.interfaces.INode;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class NameNodeDelegate implements INameNode {
+public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
 
   /** Node delegate, containing basic node information. */
   private final NodeDelegate mDelegate;
-  
+
   /** Key of the name. The name contains the prefix as well. */
   private int mNameKey;
-  
+
   /** URI of the related namespace. */
   private int mUriKey;
 
@@ -88,46 +88,6 @@ public class NameNodeDelegate implements INameNode {
     mDelegate = pNameDel.mDelegate;
     mNameKey = pNameDel.mNameKey;
     mUriKey = pNameDel.mUriKey;
-  }
-
-  @Override
-  public void setHash(final long pHash) {
-    mDelegate.setHash(pHash);
-  }
-
-  @Override
-  public long getHash() {
-    return mDelegate.getHash();
-  }
-
-  @Override
-  public long getNodeKey() {
-    return mDelegate.getNodeKey();
-  }
-
-  @Override
-  public long getParentKey() {
-    return mDelegate.getParentKey();
-  }
-
-  @Override
-  public boolean hasParent() {
-    return mDelegate.hasParent();
-  }
-
-  @Override
-  public int getTypeKey() {
-    return mDelegate.getTypeKey();
-  }
-
-  @Override
-  public void setParentKey(final long pNodeKey) {
-    mDelegate.setParentKey(pNodeKey);
-  }
-
-  @Override
-  public void setTypeKey(final int pTypeKey) {
-    mDelegate.setTypeKey(pTypeKey);
   }
 
   @Override
@@ -166,28 +126,23 @@ public class NameNodeDelegate implements INameNode {
   }
 
   @Override
-  public boolean equals(final Object obj) {
-    if (this == obj)
-      return true;
-    if (obj == null)
-      return false;
-    if (getClass() != obj.getClass())
-      return false;
-    NameNodeDelegate other = (NameNodeDelegate)obj;
-    if (mNameKey != other.mNameKey)
-      return false;
-    if (mUriKey != other.mUriKey)
-      return false;
-    return true;
-  }
-  
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("uriKey", mUriKey).add("nameKey", mNameKey).toString();
+  public boolean equals(@Nullable final Object pObj) {
+    if (pObj instanceof NameNodeDelegate) {
+      final NameNodeDelegate other = (NameNodeDelegate)pObj;
+      return Objects.equal(mNameKey, other.mNameKey)
+        && Objects.equal(mUriKey, other.mNameKey);
+    }
+    return false;
   }
 
   @Override
-  public boolean isSameItem(@Nullable final INode pOther) {
-    return mDelegate.isSameItem(pOther);
+  public String toString() {
+    return Objects.toStringHelper(this).add("node delegate", mDelegate).add(
+      "uriKey", mUriKey).add("nameKey", mNameKey).toString();
+  }
+
+  @Override
+  protected NodeDelegate delegate() {
+    return mDelegate;
   }
 }

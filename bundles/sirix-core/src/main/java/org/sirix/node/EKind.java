@@ -82,7 +82,7 @@ public enum EKind implements IKind {
       // Node delegate.
       final NodeDelegate nodeDel =
         new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong());
+          .readLong(), pSource.readLong());
 
       // Struct delegate.
       final StructNodeDelegate structDel =
@@ -114,6 +114,7 @@ public enum EKind implements IKind {
     public void serialize(final ITTSink pSink, final INode pToSerialize) {
       final ElementNode node = (ElementNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
+      pSink.writeLong(node.getPCR());
       serializeStrucDelegate(node.getStructNodeDelegate(), pSink);
       serializeNameDelegate(node.getNameNodeDelegate(), pSink);
       pSink.writeInt(node.getAttributeCount());
@@ -135,7 +136,7 @@ public enum EKind implements IKind {
       // Node delegate.
       final NodeDelegate nodeDel =
         new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong());
+          .readLong(), pSource.readLong());
       // Name delegate.
       final NameNodeDelegate nameDel =
         new NameNodeDelegate(nodeDel, pSource.readInt(), pSource.readInt());
@@ -155,6 +156,7 @@ public enum EKind implements IKind {
     public void serialize(final ITTSink pSink, final INode pToSerialize) {
       AttributeNode node = (AttributeNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
+      pSink.writeLong(node.getPCR());
       serializeNameDelegate(node.getNameNodeDelegate(), pSink);
       serializeValDelegate(node.getValNodeDelegate(), pSink);
     }
@@ -168,7 +170,7 @@ public enum EKind implements IKind {
       // Node delegate.
       final NodeDelegate nodeDel =
         new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong());
+          .readLong(), 0);
       // Val delegate.
       final boolean isCompressed = pSource.readByte() == (byte)1 ? true : false;
       final byte[] vals = new byte[pSource.readInt()];
@@ -204,7 +206,7 @@ public enum EKind implements IKind {
       // Node delegate.
       final NodeDelegate nodeDel =
         new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong());
+          .readLong(), 0);
       // Name delegate.
       final NameNodeDelegate nameDel =
         new NameNodeDelegate(nodeDel, pSource.readInt(), pSource.readInt());
@@ -254,7 +256,7 @@ public enum EKind implements IKind {
     public INode deserialize(final ITTSource pSource) {
       final NodeDelegate nodeDel =
         new NodeDelegate(EFixed.ROOT_NODE_KEY.getStandardProperty(),
-          EFixed.NULL_NODE_KEY.getStandardProperty(), pSource.readLong());
+          EFixed.NULL_NODE_KEY.getStandardProperty(), pSource.readLong(), 0);
       final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, pSource.readLong(),
           EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY
@@ -293,7 +295,7 @@ public enum EKind implements IKind {
     public INode deserialize(final ITTSource pSource) {
       final NodeDelegate delegate =
         new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong());
+          .readLong(), 0);
       final DeletedNode node = new DeletedNode(delegate);
       return node;
     }
@@ -338,7 +340,7 @@ public enum EKind implements IKind {
       // Node delegate.
       final NodeDelegate nodeDel =
         new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong());
+          .readLong(), pSource.readLong());
 
       // Struct delegate.
       final StructNodeDelegate structDel =
@@ -348,15 +350,17 @@ public enum EKind implements IKind {
       final NameNodeDelegate nameDel =
         new NameNodeDelegate(nodeDel, pSource.readInt(), pSource.readInt());
 
-      return new PathNode(nodeDel, structDel, nameDel);
+      return new PathNode(EKind.getKind(pSource.readByte()), nodeDel, structDel, nameDel);
     }
 
     @Override
     public void serialize(final ITTSink pSink, final INode pToSerialize) {
       final PathNode node = (PathNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
+      pSink.writeLong(node.getPCR());
       serializeStrucDelegate(node.getStructNodeDelegate(), pSink);
       serializeNameDelegate(node.getNameNodeDelegate(), pSink);
+      pSink.writeByte(node.getPathKind().getId());
     };
   };
 

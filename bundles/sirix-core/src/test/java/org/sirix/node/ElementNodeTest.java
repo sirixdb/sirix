@@ -38,6 +38,7 @@ import org.sirix.io.file.ByteBufferSinkAndSource;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
 
 public class ElementNodeTest {
@@ -45,7 +46,7 @@ public class ElementNodeTest {
   @Test
   public void testElementNode() {
 
-    final NodeDelegate del = new NodeDelegate(13, 14, 0);
+    final NodeDelegate del = new NodeDelegate(13, 14, 0, EFixed.NULL_NODE_KEY.getStandardProperty());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l, 16l, 1l, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 18, 19);
 

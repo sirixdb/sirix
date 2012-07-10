@@ -9,6 +9,7 @@ import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTThreadedException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
+import org.sirix.page.EPage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
@@ -37,7 +38,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  INode createNode(@Nonnull INode pNode) throws TTIOException;
+  INode createNode(@Nonnull INode pNode, @Nonnull EPage pPage) throws TTIOException;
 
   /**
    * Prepare a node for modification. This is getting the node from the
@@ -50,7 +51,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if an I/O-error occurs
    */
-  INode prepareNodeForModification(@Nonnegative long pNodeKey) throws TTIOException;
+  INode prepareNodeForModification(@Nonnegative long pNodeKey, @Nonnull EPage pPage) throws TTIOException;
 
   /**
    * Finishing the node modification. That is storing the node including the
@@ -59,7 +60,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @param pNode
    *          the node to be modified
    */
-   void finishNodeModification(@Nonnull INode pNode);
+   void finishNodeModification(@Nonnull INode pNode, @Nonnull EPage pPage);
 
   /**
    * Removing a node from the storage.
@@ -69,7 +70,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if the removal fails
    */
-  void removeNode(@Nonnull INode pNode) throws TTIOException;
+  void removeNode(@Nonnull INode pNode, @Nonnull EPage pPage) throws TTIOException;
 
   /**
    * Creating a namekey for a given name.

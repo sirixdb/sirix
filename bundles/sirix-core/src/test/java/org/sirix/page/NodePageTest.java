@@ -40,6 +40,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.INameNode;
+import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
 
 @Deprecated
@@ -50,7 +51,7 @@ public class NodePageTest {
     final NodePage page1 = new NodePage(0L, 0L);
     assertEquals(0L, page1.getNodePageKey());
 
-    final NodeDelegate del = new NodeDelegate(0, 1, 0);
+    final NodeDelegate del = new NodeDelegate(0, 1, 0, EFixed.NULL_NODE_KEY.getStandardProperty());
     final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l, 3l, 1l, 0l);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 6, 7);
 

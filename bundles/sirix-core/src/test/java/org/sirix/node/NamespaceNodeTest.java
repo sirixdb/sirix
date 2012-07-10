@@ -30,6 +30,7 @@ package org.sirix.node;
 import org.sirix.io.file.ByteBufferSinkAndSource;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
+import org.sirix.settings.EFixed;
 
 import org.junit.Test;
 
@@ -39,7 +40,7 @@ public class NamespaceNodeTest {
 
   @Test
   public void testNamespaceNode() {
-    final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0);
+    final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, EFixed.NULL_NODE_KEY.getStandardProperty());
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 15, 14);
     // Create empty node.
     final NamespaceNode node1 = new NamespaceNode(nodeDel, nameDel);

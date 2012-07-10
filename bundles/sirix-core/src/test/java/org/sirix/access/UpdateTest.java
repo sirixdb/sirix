@@ -65,6 +65,7 @@ public class UpdateTest {
 
   @After
   public void tearDown() throws AbsTTException {
+    holder.close();
     TestHelper.closeEverything();
   }
 

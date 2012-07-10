@@ -72,6 +72,16 @@ public abstract class AbsForwardingNode extends ForwardingObject implements INod
   public void setHash(final long pHash) {
     delegate().setHash(pHash);
   }
+  
+  @Override
+  public void setPCR(final long pPCR) {
+    delegate().setPCR(pPCR);
+  }
+  
+  @Override
+  public long getPCR() {
+    return delegate().getPCR();
+  }
 
   @Override
   public String toString() {

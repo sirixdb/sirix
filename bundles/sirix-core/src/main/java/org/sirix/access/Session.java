@@ -378,8 +378,8 @@ public final class Session implements ISession {
 
     if (mSyncTransactionsReturns.get(mTransactionId).put(
       ((NodePage)mContToSync.getComplete()).getNodePageKey(), returnVals) != null) {
-      throw new TTThreadedException(
-        "only one commit and therefore sync per id and nodepage is allowed!");
+//      throw new TTThreadedException(
+//        "only one commit and therefore sync per id and nodepage is allowed!");
     }
 
   }

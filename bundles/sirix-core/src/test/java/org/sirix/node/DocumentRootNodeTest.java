@@ -42,7 +42,7 @@ public class DocumentRootNodeTest {
 
     // Create empty node.
     final NodeDelegate nodeDel =
-      new NodeDelegate(EFixed.ROOT_NODE_KEY.getStandardProperty(),
+      new NodeDelegate(EFixed.ROOT_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty(),
         EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty());
     final StructNodeDelegate strucDel =
       new StructNodeDelegate(nodeDel, EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY

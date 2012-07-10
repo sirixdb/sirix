@@ -53,9 +53,24 @@ public interface INode {
    * Setting the type key.
    * 
    * @param pTypeKey
-   *          the type to be set.
+   *          the type to set
    */
   void setTypeKey(int pTypeKey);
+  
+  /**
+   * Setting the class path record.
+   * 
+   * @param pPCR
+   *          the path class record to set
+   */
+  void setPCR(long pPCR);
+  
+  /**
+   * Get the path class record.
+   * 
+   * @return path class record the node belongs to
+   */
+  long getPCR();
 
 //  /**
 //   * Sets unique item key.

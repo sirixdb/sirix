@@ -31,6 +31,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 
 import java.io.File;
+import java.util.EnumSet;
+import java.util.Set;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -64,8 +66,10 @@ public final class ResourceConfiguration implements IConfigureSerializable {
 
     /** Folder for storage of data. */
     Data(new File("data"), true),
+    
     /** Folder for transaction log. */
     TransactionLog(new File("log"), true),
+    
     /** File to store the resource settings. */
     ConfigBinary(new File("ressetting.obj"), false);
 
@@ -83,7 +87,7 @@ public final class ResourceConfiguration implements IConfigureSerializable {
      * @param pIsFolder
      *          to be set.
      */
-    private Paths(final File pFile, final boolean pIsFolder) {
+    private Paths(@Nonnull final File pFile, final boolean pIsFolder) {
       mFile = checkNotNull(pFile);
       mIsFolder = checkNotNull(pIsFolder);
     }
@@ -127,6 +131,12 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     }
   }
 
+  /** Indexes to use. */
+  public enum EIndexes {
+    /** Path summary index. */
+    PATH
+  }
+
   // FIXED STANDARD FIELDS
   /** Standard storage. */
   public static final EStorage STORAGE = EStorage.BerkeleyDB;
@@ -138,6 +148,8 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   public static final int VERSIONSTORESTORE = 3;
   /** Folder for tmp-database. */
   public static final String INTRINSICTEMP = "tmp";
+  /** Indexes to use. */
+  public static final Set<EIndexes> INDEXES = EnumSet.of(EIndexes.PATH);
   // END FIXED STANDARD FIELDS
 
   // MEMBERS FOR FIXED FIELDS
@@ -164,7 +176,10 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   public final DatabaseConfiguration mDBConfig;
 
   /** Determines if text-compression should be used or not (default is true). */
-  private boolean mCompression;
+  public final boolean mCompression;
+
+  /** Indexes to use. */
+  public final Set<EIndexes> mIndexes;
 
   /**
    * Convenience constructor using the standard settings.
@@ -181,6 +196,7 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     mDBConfig = pBuilder.mDBConfig;
     mCompression = pBuilder.mCompression;
     mConsistency = pBuilder.mConsistency;
+    mIndexes = pBuilder.mIndexes;
     mPath =
       new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
         .getFile().getName()), pBuilder.mResource);
@@ -230,15 +246,6 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   }
 
   /**
-   * Determines if compression is enabled or not.
-   * 
-   * @return {@code true} if it's enabled, {@code false} otherwise
-   */
-  public boolean isCompression() {
-    return mCompression;
-  }
-
-  /**
    * Builder class for generating new {@link ResourceConfiguration} instance.
    */
   public static final class Builder {
@@ -282,6 +289,9 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     /** Determines consistency level. */
     private EConsistency mConsistency = EConsistency.FULL;
 
+    /** Indexes to use. */
+    private Set<EIndexes> mIndexes = INDEXES;
+
     /**
      * Constructor, setting the mandatory fields.
      * 
@@ -297,10 +307,10 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     }
 
     /**
-     * Setter for mType.
+     * Set the storage type.
      * 
      * @param pType
-     *          to be set
+     *          storage type to use
      * @return reference to the builder object
      */
     public Builder setType(@Nonnull final EStorage pType) {
@@ -309,10 +319,22 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     }
 
     /**
-     * Setter for mRevision.
+     * Set the indexes to use.
      * 
-     * @param pRev
-     *          to be set
+     * @param pIndexes
+     *          indexes to use
+     * @return reference to the builder object
+     */
+    public Builder setIndexes(@Nonnull final Set<EIndexes> pIndexes) {
+      mIndexes = checkNotNull(pIndexes);
+      return this;
+    }
+
+    /**
+     * Set the revisioning algorithm to use.
+     * 
+     * @param pRevKind
+     *          revisioning algorithm to use
      * @return reference to the builder object
      */
     public Builder setRevisionKind(@Nonnull final ERevisioning pRevKind) {
@@ -321,10 +343,10 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     }
 
     /**
-     * Setter for mHashKind.
+     * Set the hash kind to use for the nodes.
      * 
      * @param pHash
-     *          to be set
+     *          hash kind to use
      * @return reference to the builder object
      */
     public Builder setHashKind(@Nonnull final EHashKind pHash) {
@@ -333,10 +355,10 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     }
 
     /**
-     * Setter for mRevisionsToRestore.
+     * Set the number of revisions to restore after the last full dump.
      * 
      * @param pRevToRestore
-     *          to be set
+     *          number of revisions to restore
      * @return reference to the builder object
      */
     public Builder setRevisionsToRestore(@Nonnegative final int pRevToRestore) {
@@ -360,8 +382,8 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     /**
      * Determines if text-compression should be used or not.
      * 
-     * @param pCompressionLevel
-     *          to be set
+     * @param pCompression
+     *          use text compression or not (default: yes)
      * @return reference to the builder object
      */
     public Builder useCompression(final boolean pCompression) {

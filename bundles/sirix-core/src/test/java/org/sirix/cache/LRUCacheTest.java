@@ -29,7 +29,7 @@ package org.sirix.cache;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
-
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.exception.AbsTTException;
@@ -47,6 +47,11 @@ public class LRUCacheTest {
   public void setUp() throws AbsTTException {
     cache = new LRUCache<>();
     CacheTestHelper.setUp(cache);
+  }
+  
+  @After
+  public void tearDown() throws AbsTTException {
+    cache = null;
   }
 
   @Test

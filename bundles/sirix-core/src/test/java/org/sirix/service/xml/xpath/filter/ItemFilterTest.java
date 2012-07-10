@@ -55,7 +55,6 @@ public class ItemFilterTest {
 
   @Test
   public void testIFilterConvetions() throws AbsTTException {
-
     holder.getRtx().moveTo(9L);
     IFilterTest.testIFilterConventions(new ItemFilter(holder.getRtx()), true);
 
@@ -65,6 +64,5 @@ public class ItemFilterTest {
     holder.getRtx().moveTo(2L);
     holder.getRtx().moveToAttribute(0);
     IFilterTest.testIFilterConventions(new ItemFilter(holder.getRtx()), true);
-
   }
 }

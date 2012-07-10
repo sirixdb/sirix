@@ -86,6 +86,9 @@ final class PageReadTrx implements IPageReadTrx {
   /** Internal reference to cache. */
   private final ICache<Tuple, PageContainer> mCache;
 
+  /** Internal reference to cache. */
+  private final ICache<Tuple, PageContainer> mPathCache;
+
   /** {@link Session} reference. */
   protected final Session mSession;
 
@@ -119,8 +122,13 @@ final class PageReadTrx implements IPageReadTrx {
     mRootPage = loadRevRoot(pRevision);
     assert mRootPage != null : "root page must not be null!";
     mNamePage = getNamePage();
+    final PageReference ref = mRootPage.getPathSummaryPageReference();
+    if (ref.getPage() == null) {
+      ref.setPage(mPageReader.read(ref.getKey()));
+    }
     mClosed = false;
     mCache = new GuavaCache(this);
+    mPathCache = new GuavaCache(this);
   }
 
   /**
@@ -153,11 +161,14 @@ final class PageReadTrx implements IPageReadTrx {
     checkArgument(pNodeKey >= 0);
     checkNotNull(pPage);
     assertNotClosed();
+    assert pPage == EPage.NODEPAGE || pPage == EPage.PATHSUMMARY;
 
     final long nodePageKey = nodePageKey(pNodeKey);
     final int nodePageOffset = nodePageOffset(pNodeKey);
 
-    final PageContainer cont = mCache.get(new Tuple(nodePageKey, pPage));
+    final PageContainer cont =
+      pPage == EPage.NODEPAGE ? mCache.get(new Tuple(nodePageKey, pPage))
+        : mPathCache.get(new Tuple(nodePageKey, pPage));
     if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
       return Optional.<INode> absent();
     }
@@ -232,6 +243,7 @@ final class PageReadTrx implements IPageReadTrx {
     }
 
     // Get revision root page which is the leaf of the indirect tree.
+//    ref.setPage(page);
     return page;
   }
 
@@ -317,7 +329,7 @@ final class PageReadTrx implements IPageReadTrx {
     return pages;
   }
 
-  private PageReference getPageReference(@Nonnull final RevisionRootPage pRef,
+  PageReference getPageReference(@Nonnull final RevisionRootPage pRef,
     @Nonnull final EPage pPage) throws TTIOException {
     PageReference ref = null;
     switch (pPage) {

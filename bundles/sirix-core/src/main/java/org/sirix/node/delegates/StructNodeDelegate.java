@@ -34,8 +34,10 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.custommonkey.xmlunit.AbstractNodeTester;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
+import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
@@ -50,7 +52,7 @@ import org.sirix.settings.EFixed;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class StructNodeDelegate implements IStructNode {
+public class StructNodeDelegate extends AbsForwardingNode implements IStructNode {
 
   /** Pointer to the first child of the current node. */
   private long mFirstChild;
@@ -181,88 +183,28 @@ public class StructNodeDelegate implements IStructNode {
   }
 
   @Override
-  public long getNodeKey() {
-    return mDelegate.getNodeKey();
-  }
-
-  @Override
-  public long getParentKey() {
-    return mDelegate.getParentKey();
-  }
-  
-  @Override
-  public void setParentKey(long pParentKey) {
-    mDelegate.setParentKey(pParentKey);
-  }
-
-  @Override
-  public long getHash() {
-    return mDelegate.getHash();
-  }
-
-  @Override
-  public void setHash(final long pHash) {
-    mDelegate.setHash(pHash);
-  }
-
-  @Override
   public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 
   @Override
-  public int getTypeKey() {
-    return mDelegate.getTypeKey();
-  }
-
-  @Override
-  public void setTypeKey(final int pTypeKey) {
-    mDelegate.setTypeKey(pTypeKey);
-  }
-
-  @Override
-  public boolean hasParent() {
-    return mDelegate.hasParent();
-  }
-
-  @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + (int)(mChildCount ^ (mChildCount >>> 32));
-    result = prime * result + ((mDelegate == null) ? 0 : mDelegate.hashCode());
-    result = prime * result + (int)(mFirstChild ^ (mFirstChild >>> 32));
-    result = prime * result + (int)(mLeftSibling ^ (mLeftSibling >>> 32));
-    result = prime * result + (int)(mRightSibling ^ (mRightSibling >>> 32));
-    return result;
+    return Objects.hashCode(mChildCount, mDelegate, mFirstChild, mLeftSibling,
+      mRightSibling, mDescendantCount);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean equals(final Object pObj) {
-    if (this == pObj)
-      return true;
-    if (pObj == null)
-      return false;
-    if (getClass() != pObj.getClass())
-      return false;
-    StructNodeDelegate other = (StructNodeDelegate)pObj;
-    if (mChildCount != other.mChildCount)
-      return false;
-    if (mDelegate == null) {
-      if (other.mDelegate != null)
-        return false;
-    } else if (!mDelegate.equals(other.mDelegate))
-      return false;
-    if (mFirstChild != other.mFirstChild)
-      return false;
-    if (mLeftSibling != other.mLeftSibling)
-      return false;
-    if (mRightSibling != other.mRightSibling)
-      return false;
-    return true;
+    if (pObj instanceof StructNodeDelegate) {
+      final StructNodeDelegate other = (StructNodeDelegate)pObj;
+      return Objects.equal(mChildCount, other.mChildCount)
+        && Objects.equal(mDelegate, other.mDelegate)
+        && Objects.equal(mFirstChild, other.mFirstChild)
+        && Objects.equal(mLeftSibling, other.mLeftSibling)
+        && Objects.equal(mRightSibling, other.mRightSibling)
+        && Objects.equal(mDescendantCount, other.mDescendantCount);
+    }
+    return false;
   }
 
   @Override
@@ -298,5 +240,10 @@ public class StructNodeDelegate implements IStructNode {
   @Override
   public boolean isSameItem(@Nullable final INode pOther) {
     return mDelegate.isSameItem(pOther);
+  }
+
+  @Override
+  protected NodeDelegate delegate() {
+    return mDelegate;
   }
 }

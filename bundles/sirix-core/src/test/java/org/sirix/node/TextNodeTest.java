@@ -41,15 +41,16 @@ public class TextNodeTest {
 
   @Test
   public void testTextRootNode() {
-
     // Create empty node.
     final byte[] value = {
       (byte)17, (byte)18
     };
-    final NodeDelegate del = new NodeDelegate(13, 14, 0);
+    final NodeDelegate del =
+      new NodeDelegate(13, 14, 0, EFixed.ROOT_NODE_KEY.getStandardProperty());
     final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
-      new StructNodeDelegate(del, EFixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
+      new StructNodeDelegate(del, EFixed.NULL_NODE_KEY.getStandardProperty(),
+        16l, 15l, 0l, 0l);
     final TextNode node1 = new TextNode(del, valDel, strucDel);
     check(node1);
 
@@ -59,18 +60,18 @@ public class TextNodeTest {
     out.position(0);
     final TextNode node2 = (TextNode)EKind.TEXT.deserialize(out);
     check(node2);
-
   }
 
   private final static void check(final TextNode node) {
-
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node
+      .getFirstChildKey());
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
+    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node
+      .getTypeKey());
     assertEquals(2, node.getRawValue().length);
     assertEquals(EKind.TEXT, node.getKind());
     assertEquals(false, node.hasFirstChild());

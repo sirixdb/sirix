@@ -61,10 +61,10 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
    *          {@link File} which holds the place to store
    *          the data
    */
-  protected AbsPersistenceCache(final File pFile) {
+  protected AbsPersistenceCache(@Nonnull final File pFile) {
     mPlace =
-      new File(new File(pFile, ResourceConfiguration.Paths.TransactionLog.getFile().getName()), Integer
-        .toString(mCounter));
+      new File(new File(pFile, ResourceConfiguration.Paths.TransactionLog
+        .getFile().getName()), Integer.toString(mCounter));
     mPlace.mkdirs();
     mCounter++;
   }
@@ -99,8 +99,8 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
   public final V get(@Nonnull final K pKey) {
     try {
       return getPersistent(pKey);
-    } catch (final TTIOException exc) {
-      throw new IllegalStateException(exc);
+    } catch (final TTIOException e) {
+      throw new IllegalStateException(e);
     }
   }
 
@@ -122,7 +122,8 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
    * @throws TTIOException
    *           if something odd happens
    */
-  public abstract void putPersistent(@Nonnull final K pKey, @Nonnull final V pPage) throws TTIOException;
+  public abstract void putPersistent(@Nonnull final K pKey,
+    @Nonnull final V pPage) throws TTIOException;
 
   /**
    * Getting a NodePage from the persistent cache.

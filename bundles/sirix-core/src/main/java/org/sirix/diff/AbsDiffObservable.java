@@ -30,6 +30,8 @@ package org.sirix.diff;
 import java.util.HashSet;
 import java.util.Set;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.exception.AbsTTException;
 import org.sirix.node.interfaces.IStructNode;
@@ -50,12 +52,13 @@ abstract class AbsDiffObservable implements IDiffObservable {
    * Default constructor.
    */
   AbsDiffObservable() {
-    mDiffObservers = new HashSet<IDiffObserver>();
+    mDiffObservers = new HashSet<>();
   }
 
   @Override
-  public final void fireDiff(final EDiff pDiff, final IStructNode pNewNode, final IStructNode pOldNode,
-    final DiffDepth pDepth) {
+  public final void fireDiff(@Nonnull final EDiff pDiff,
+    @Nonnull final IStructNode pNewNode, @Nonnull final IStructNode pOldNode,
+    @Nonnull final DiffDepth pDepth) {
     for (final IDiffObserver observer : mDiffObservers) {
       observer.diffListener(pDiff, pNewNode, pOldNode, pDepth);
     }
@@ -69,12 +72,12 @@ abstract class AbsDiffObservable implements IDiffObservable {
   }
 
   @Override
-  public final void addObserver(final IDiffObserver pObserver) {
+  public final void addObserver(@Nonnull final IDiffObserver pObserver) {
     mDiffObservers.add(pObserver);
   }
 
   @Override
-  public final void removeObserver(final IDiffObserver pObserver) {
+  public final void removeObserver(@Nonnull final IDiffObserver pObserver) {
     mDiffObservers.remove(pObserver);
   }
 }

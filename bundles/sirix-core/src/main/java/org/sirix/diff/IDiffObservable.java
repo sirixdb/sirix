@@ -27,6 +27,8 @@
 
 package org.sirix.diff;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.exception.AbsTTException;
 import org.sirix.node.interfaces.IStructNode;
@@ -43,17 +45,18 @@ interface IDiffObservable {
    * Fire a diff for exactly one node comparsion. Must call the diffListener(EDiff) method defined in the
    * {@link IDiffObserver} interface.
    * 
-   * @param paramDiff
+   * @param pDiff
    *          the encountered diff
-   * @param paramNewNode
+   * @param pNewNode
    *          current {@link IStructuralItem} in new revision
-   * @param paramOldNode
+   * @param pOldNode
    *          current {@link IStructuralItem} in old revision
-   * @param paramDepth
+   * @param pDepth
    *          current {@link DiffDepth} instance
    */
-  void fireDiff(final EDiff paramDiff, final IStructNode paramNewNode, final IStructNode paramOldNode,
-    final DiffDepth paramDepth);
+  void fireDiff(@Nonnull final EDiff pDiff,
+    @Nonnull final IStructNode pNewNode, @Nonnull final IStructNode pOldNode,
+    @Nonnull final DiffDepth pDepth);
 
   /**
    * Diff computation done, thus inform listeners.
@@ -67,16 +70,16 @@ interface IDiffObservable {
    * Add an observer. This means add an instance of a class which implements the {@link IDiffObserver}
    * interface.
    * 
-   * @param paramObserver
+   * @param pObserver
    *          instance of the class which implements {@link IDiffObserver}.
    */
-  void addObserver(final IDiffObserver paramObserver);
+  void addObserver(@Nonnull final IDiffObserver pObserver);
 
   /**
    * Remove an observer.
    * 
-   * @param paramObserver
+   * @param pObserver
    *          instance of the class which implements {@link IDiffObserver}.
    */
-  void removeObserver(final IDiffObserver paramObserver);
+  void removeObserver(@Nonnull final IDiffObserver pObserver);
 }

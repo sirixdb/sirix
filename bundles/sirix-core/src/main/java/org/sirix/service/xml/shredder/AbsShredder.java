@@ -25,7 +25,7 @@ import org.sirix.settings.EFixed;
  */
 public abstract class AbsShredder implements IShredder<String, QName> {
 
-  /** sirix {@link INodeWriteTrx}. */
+  /** Sirix {@link INodeWriteTrx}. */
   private final INodeWriteTrx mWtx;
 
   /** Keeps track of visited keys. */
@@ -40,7 +40,8 @@ public abstract class AbsShredder implements IShredder<String, QName> {
    * @throws NullPointerException
    *           if {@code pWtx} is {@code null}
    */
-  public AbsShredder(@Nonnull final INodeWriteTrx pWtx, @Nonnull final EInsert pInsertLocation) {
+  public AbsShredder(@Nonnull final INodeWriteTrx pWtx,
+    @Nonnull final EInsert pInsertLocation) {
     mWtx = checkNotNull(pWtx);
     mInsertLocation = checkNotNull(pInsertLocation);
     mLeftSiblingKeyStack = new ArrayDeque<>();
@@ -50,23 +51,38 @@ public abstract class AbsShredder implements IShredder<String, QName> {
   @Override
   public void processStartTag(@Nonnull final QName pName) throws AbsTTException {
     final QName name = checkNotNull(pName);
-    long key;
-    if (mInsertLocation == EInsert.ASRIGHTSIBLING) {
+    long key = -1;
+    switch (mInsertLocation) {
+    case ASRIGHTSIBLING:
       if (mWtx.getNode().getKind() == EKind.DOCUMENT_ROOT
-        || mWtx.getNode().getParentKey() == EFixed.ROOT_NODE_KEY.getStandardProperty()) {
+        || mWtx.getNode().getParentKey() == EFixed.ROOT_NODE_KEY
+          .getStandardProperty()) {
         throw new IllegalStateException(
           "Subtree can not be inserted as sibling of document root or the root-element!");
       }
       key = mWtx.insertElementAsRightSibling(name).getNode().getNodeKey();
       mInsertLocation = EInsert.ASFIRSTCHILD;
-    } else {
-      if (mLeftSiblingKeyStack.peek() == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+      break;
+    case ASLEFTSIBLING:
+      if (mWtx.getNode().getKind() == EKind.DOCUMENT_ROOT
+        || mWtx.getNode().getParentKey() == EFixed.ROOT_NODE_KEY
+          .getStandardProperty()) {
+        throw new IllegalStateException(
+          "Subtree can not be inserted as sibling of document root or the root-element!");
+      }
+      key = mWtx.insertElementAsLeftSibling(name).getNode().getNodeKey();
+      mInsertLocation = EInsert.ASFIRSTCHILD;
+      break;
+    case ASFIRSTCHILD:
+      if (mLeftSiblingKeyStack.peek() == EFixed.NULL_NODE_KEY
+        .getStandardProperty()) {
         key = mWtx.insertElementAsFirstChild(name).getNode().getNodeKey();
       } else {
         key = mWtx.insertElementAsRightSibling(name).getNode().getNodeKey();
       }
+      break;
     }
-
+    
     mLeftSiblingKeyStack.pop();
     mLeftSiblingKeyStack.push(key);
     mLeftSiblingKeyStack.push(EFixed.NULL_NODE_KEY.getStandardProperty());
@@ -77,7 +93,8 @@ public abstract class AbsShredder implements IShredder<String, QName> {
     final String text = checkNotNull(pText);
     long key;
     if (!text.isEmpty()) {
-      if (mLeftSiblingKeyStack.peek() == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+      if (mLeftSiblingKeyStack.peek() == EFixed.NULL_NODE_KEY
+        .getStandardProperty()) {
         key = mWtx.insertTextAsFirstChild(text).getNode().getNodeKey();
       } else {
         key = mWtx.insertTextAsRightSibling(text).getNode().getNodeKey();
@@ -95,7 +112,8 @@ public abstract class AbsShredder implements IShredder<String, QName> {
   }
 
   @Override
-  public void processEmptyElement(@Nonnull final QName pName) throws AbsTTException {
+  public void processEmptyElement(@Nonnull final QName pName)
+    throws AbsTTException {
     processStartTag(pName);
     processEndTag(pName);
   }

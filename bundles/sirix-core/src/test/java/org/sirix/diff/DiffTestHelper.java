@@ -63,19 +63,19 @@ public final class DiffTestHelper {
     TestHelper.deleteEverything();
   }
 
-  static void setUpFirst(final Holder paramHolder) throws AbsTTException {
-    DocumentCreater.createVersioned(paramHolder.getWtx());
+  static void setUpFirst(final Holder pHolder) throws AbsTTException {
+    DocumentCreater.createVersioned(pHolder.getWtx());
   }
 
-  static void setUpSecond(final Holder paramHolder) throws AbsTTException, IOException, XMLStreamException {
-    initializeData(paramHolder, new File(RESOURCES + File.separator + "revXMLsAll4" + File.separator
+  static void setUpSecond(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+    initializeData(pHolder, new File(RESOURCES + File.separator + "revXMLsAll4" + File.separator
       + "1.xml"), new File(RESOURCES + File.separator + "revXMLsAll4" + File.separator + "2.xml"));
   }
 
-  static void setUpThird(final Holder paramHolder) throws AbsTTException, IOException, XMLStreamException {
-    new XMLShredder(paramHolder.getWtx(), XMLShredder.createFileReader(new File(RESOURCES + File.separator
+  static void setUpThird(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+    new XMLShredder(pHolder.getWtx(), XMLShredder.createFileReader(new File(RESOURCES + File.separator
       + "revXMLsDelete1" + File.separator + "1.xml")), EInsert.ASFIRSTCHILD).call();
-    final INodeWriteTrx wtx = paramHolder.getWtx();
+    final INodeWriteTrx wtx = pHolder.getWtx();
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     wtx.moveToFirstChild();
@@ -89,26 +89,26 @@ public final class DiffTestHelper {
     wtx.commit();
   }
 
-  static void setUpFourth(final Holder paramHolder) throws AbsTTException, IOException, XMLStreamException {
-    initializeData(paramHolder, new File(RESOURCES + File.separator + "revXMLsAll3" + File.separator
+  static void setUpFourth(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+    initializeData(pHolder, new File(RESOURCES + File.separator + "revXMLsAll3" + File.separator
       + "1.xml"), new File(RESOURCES + File.separator + "revXMLsAll3" + File.separator + "2.xml"));
   }
 
-  static void setUpFifth(final Holder paramHolder) throws AbsTTException, IOException, XMLStreamException {
-    initializeData(paramHolder, new File(RESOURCES + File.separator + "revXMLsAll2" + File.separator
+  static void setUpFifth(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+    initializeData(pHolder, new File(RESOURCES + File.separator + "revXMLsAll2" + File.separator
       + "1.xml"), new File(RESOURCES + File.separator + "revXMLsAll2" + File.separator + "2.xml"));
   }
 
-  static void setUpSixth(final Holder paramHolder) throws AbsTTException, IOException, XMLStreamException {
-    initializeData(paramHolder, new File(RESOURCES + File.separator + "revXMLsDelete2" + File.separator
+  static void setUpSixth(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+    initializeData(pHolder, new File(RESOURCES + File.separator + "revXMLsDelete2" + File.separator
       + "1.xml"), new File(RESOURCES + File.separator + "revXMLsDelete2" + File.separator + "2.xml"));
   }
 
-  static void setUpSeventh(final Holder paramHolder) throws AbsTTException, IOException, XMLStreamException {
-    final INodeWriteTrx wtx = paramHolder.getWtx();
+  static void setUpSeventh(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+    final INodeWriteTrx wtx = pHolder.getWtx();
     DocumentCreater.create(wtx);
     wtx.commit();
-    final INodeReadTrx rtx = paramHolder.getSession().beginNodeReadTrx(0);
+    final INodeReadTrx rtx = pHolder.getSession().beginNodeReadTrx(0);
     rtx.moveTo(1);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -116,11 +116,11 @@ public final class DiffTestHelper {
     rtx.close();
   }
 
-  static void setUpEighth(final Holder paramHolder) throws AbsTTException, IOException, XMLStreamException {
-    final INodeWriteTrx wtx = paramHolder.getWtx();
+  static void setUpEighth(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+    final INodeWriteTrx wtx = pHolder.getWtx();
     DocumentCreater.create(wtx);
     wtx.commit();
-    final INodeReadTrx rtx = paramHolder.getSession().beginNodeReadTrx(0);
+    final INodeReadTrx rtx = pHolder.getSession().beginNodeReadTrx(0);
     rtx.moveTo(11);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -128,19 +128,19 @@ public final class DiffTestHelper {
     rtx.close();
   }
 
-  private static void initializeData(final Holder paramHolder, final File... paramFile)
+  private static void initializeData(final Holder pHolder, final File... pFile)
     throws AbsTTException, IOException, XMLStreamException {
 
     int i = 0;
-    for (final File file : paramFile) {
+    for (final File file : pFile) {
       XMLShredder init;
       if (i == 0) {
         init =
-          new XMLShredder(paramHolder.getWtx(), XMLShredder.createFileReader(file),
+          new XMLShredder(pHolder.getWtx(), XMLShredder.createFileReader(file),
             EInsert.ASFIRSTCHILD);
       } else {
         init =
-          new XMLUpdateShredder(paramHolder.getWtx(), XMLShredder.createFileReader(file),
+          new XMLUpdateShredder(pHolder.getWtx(), XMLShredder.createFileReader(file),
             EInsert.ASFIRSTCHILD, file, EShredderCommit.COMMIT);
       }
       i++;
@@ -153,167 +153,167 @@ public final class DiffTestHelper {
     return mock(IDiffObserver.class);
   }
 
-  static void verifyDiffFirst(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyDiffFirst(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(2)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(9)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+    inOrder.verify(pListener, times(9)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyOptimizedFirst(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyOptimizedFirst(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(2)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(5)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
+    inOrder.verify(pListener, times(5)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffSecond(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyDiffSecond(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.REPLACEDNEW), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.REPLACEDNEW), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(4)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+    inOrder.verify(pListener, times(4)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyOptimizedSecond(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyOptimizedSecond(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.REPLACEDNEW), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.REPLACEDNEW), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(3)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffThird(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyDiffThird(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(3)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyOptimizedThird(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyOptimizedThird(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(3)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffFourth(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(3)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyDiffFourth(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyOptimizedFourth(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(3)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyOptimizedFourth(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(2)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffFifth(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyDiffFifth(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.UPDATED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.UPDATED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffSixth(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyDiffSixth(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffSeventh(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyDiffSeventh(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(10)).diffListener(eq(EDiff.REPLACEDNEW), isA(IStructNode.class),
+    inOrder.verify(pListener, times(10)).diffListener(eq(EDiff.REPLACEDNEW), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(5)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+    inOrder.verify(pListener, times(5)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffEighth(final IDiffObserver paramListener) {
-    final InOrder inOrder = inOrder(paramListener);
-    inOrder.verify(paramListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+  static void verifyDiffEighth(final IDiffObserver pListener) {
+    final InOrder inOrder = inOrder(pListener);
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(3)).diffListener(eq(EDiff.REPLACEDOLD), isA(IStructNode.class),
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.REPLACEDOLD), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(5)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
+    inOrder.verify(pListener, times(5)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
       isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(paramListener, times(1)).diffDone();
+    inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void checkFullDiff(final Holder paramHolder, final IDiffObserver paramObserver,
-    final EDiffOptimized paramOptimized) throws AbsTTException, InterruptedException {
+  static void checkFullDiff(final Holder pHolder, final IDiffObserver pObserver,
+    final EDiffOptimized pOptimized) throws AbsTTException, InterruptedException {
     final Set<IDiffObserver> observers = new HashSet<IDiffObserver>();
-    observers.add(paramObserver);
-    DiffFactory.invokeFullDiff(new DiffFactory.Builder(paramHolder.getSession(), 1, 0, paramOptimized,
+    observers.add(pObserver);
+    DiffFactory.invokeFullDiff(new DiffFactory.Builder(pHolder.getSession(), 1, 0, pOptimized,
       observers));
   }
 
-  static void checkStructuralDiff(final Holder paramHolder, final IDiffObserver paramObserver,
-    final EDiffOptimized paramOptimized) throws AbsTTException, InterruptedException {
+  static void checkStructuralDiff(final Holder pHolder, final IDiffObserver pObserver,
+    final EDiffOptimized pOptimized) throws AbsTTException, InterruptedException {
     final Set<IDiffObserver> observers = new HashSet<IDiffObserver>();
-    observers.add(paramObserver);
-    DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(paramHolder.getSession(), 1, 0, paramOptimized,
+    observers.add(pObserver);
+    DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(pHolder.getSession(), 1, 0, pOptimized,
       observers));
   }
 }

@@ -27,6 +27,7 @@
 package org.sirix.node.delegates;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -69,24 +70,30 @@ public class NodeDelegate implements INode {
    */
   private int mTypeKey;
 
+  /** Path class record. */
+  private long mPCR;
+
   /**
    * Constructor.
    * 
    * @param pNodeKey
-   *          to be represented by this delegate.
+   *          node key
    * @param pParentKey
-   *          to be represented by this delegate
+   *          parent node key
    * @param pHash
-   *          to be represented by this delegate
+   *          hash
+   * @param pPCR
+   *          path class record
    */
   public NodeDelegate(@Nonnegative final long pNodeKey,
-    @Nonnegative final long pParentKey, final long pHash) {
+    @Nonnegative final long pParentKey, final long pHash, final long pPCR) {
     checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
     checkArgument(pParentKey >= (EFixed.NULL_NODE_KEY.getStandardProperty()));
     mNodeKey = pNodeKey;
     mParentKey = pParentKey;
     mHash = pHash;
     mTypeKey = TYPE_KEY;
+    mPCR = pPCR;
   }
 
   /**
@@ -140,47 +147,26 @@ public class NodeDelegate implements INode {
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + (int)(getHash() ^ (getHash() >>> 32));
-    result = prime * result + (int)(getNodeKey() ^ (getNodeKey() >>> 32));
-    result = prime * result + (int)(getParentKey() ^ (getParentKey() >>> 32));
-    result = prime * result + getTypeKey();
-    return result;
+    return Objects.hashCode(mNodeKey, mParentKey, mTypeKey, mHash, mPCR);
   }
 
   @Override
   public boolean equals(final Object pObj) {
-    if (this == pObj)
-      return true;
-    if (pObj == null)
-      return false;
-    if (getClass() != pObj.getClass())
-      return false;
-    NodeDelegate other = (NodeDelegate)pObj;
-    if (getHash() != other.getHash())
-      return false;
-    if (getNodeKey() != other.getNodeKey())
-      return false;
-    if (getParentKey() != other.getParentKey())
-      return false;
-    if (getTypeKey() != other.getTypeKey())
-      return false;
-    return true;
+    if (pObj instanceof NodeDelegate) {
+      final NodeDelegate other = (NodeDelegate)pObj;
+      return Objects.equal(mNodeKey, other.mNodeKey)
+        && Objects.equal(mParentKey, other.mParentKey)
+        && Objects.equal(mTypeKey, other.mTypeKey)
+        && Objects.equal(mHash, other.mHash) && Objects.equal(mPCR, other.mPCR);
+    }
+    return false;
   }
 
   @Override
   public String toString() {
-    final StringBuilder builder = new StringBuilder();
-    builder.append("node key: ");
-    builder.append(getNodeKey());
-    builder.append("\nparent key: ");
-    builder.append(getParentKey());
-    builder.append("\ntype key: ");
-    builder.append(getTypeKey());
-    builder.append("\nhash: ");
-    builder.append(getHash());
-    return builder.toString();
+    return Objects.toStringHelper(this).add("node key", mNodeKey).add(
+      "parent node key", mParentKey).add("type key", mTypeKey).add("hash",
+      mHash).add("PCR", mPCR).toString();
   }
 
   @Override
@@ -196,6 +182,16 @@ public class NodeDelegate implements INode {
   @Override
   public boolean hasParent() {
     return mParentKey != EFixed.NULL_NODE_KEY.getStandardProperty();
+  }
+  
+  @Override
+  public void setPCR(@Nonnegative final long pPCR) {
+    mPCR = pPCR;
+  }
+
+  @Override
+  public long getPCR() {
+    return mPCR;
   }
 
   @Override
