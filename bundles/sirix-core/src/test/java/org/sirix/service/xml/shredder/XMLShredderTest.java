@@ -125,60 +125,58 @@ public class XMLShredderTest extends XMLTestCase {
     expectedTrx.close();
   }
 
-//  @Ignore
-//  @Test
-//  public void testShredIntoExisting() throws Exception {
-//
-//    final INodeWriteTrx wtx = holder.getWtx();
-//    final XMLShredder shredder =
-//      new XMLShredder(wtx, XMLShredder.createFileReader(new File(XML)), EInsert.ASFIRSTCHILD);
-//    shredder.call();
-//    assertEquals(1, wtx.getRevisionNumber());
-//    wtx.moveToDocumentRoot();
-//    wtx.moveToFirstChild();
-//    wtx.remove();
-//    final XMLShredder shredder2 =
-//      new XMLShredder(wtx, XMLShredder.createFileReader(new File(XML)), EInsert.ASFIRSTCHILD);
-//    shredder2.call();
-//    assertEquals(2, wtx.getRevisionNumber());
-//    wtx.close();
-//
-//    // Setup expected session.
-//    final IDatabase database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
-//    final ISession expectedSession =
-//      database2.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
-//
-//    final INodeWriteTrx expectedTrx = expectedSession.beginNodeWriteTrx();
-//    DocumentCreater.create(expectedTrx);
-//    expectedTrx.commit();
-//    expectedTrx.moveToDocumentRoot();
-//
-//    // Verify.
-//    final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
-//
-//    final Iterator<Long> descendants = new DescendantAxis(rtx);
-//    final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
-//
-//    while (expectedDescendants.hasNext()) {
-//      expectedDescendants.next();
-//      descendants.hasNext();
-//      descendants.next();
-//      assertEquals(expectedTrx.getQNameOfCurrentNode(), rtx.getQNameOfCurrentNode());
-//    }
-//
-//    // expectedTrx.moveToDocumentRoot();
-//    // final Iterator<Long> expectedDescendants2 = new DescendantAxis(expectedTrx);
-//    // while (expectedDescendants2.hasNext()) {
-//    // expectedDescendants2.next();
-//    // descendants.hasNext();
-//    // descendants.next();
-//    // assertEquals(expectedTrx.getQNameOfCurrentNode(), rtx.getQNameOfCurrentNode());
-//    // }
-//
-//    expectedTrx.close();
-//    expectedSession.close();
-//    rtx.close();
-//  }
+  @Test
+  public void testShredIntoExisting() throws Exception {
+    final INodeWriteTrx wtx = holder.getWtx();
+    final XMLShredder shredder =
+      new XMLShredder(wtx, XMLShredder.createFileReader(new File(XML)), EInsert.ASFIRSTCHILD);
+    shredder.call();
+    assertEquals(1, wtx.getRevisionNumber());
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
+    wtx.remove();
+    final XMLShredder shredder2 =
+      new XMLShredder(wtx, XMLShredder.createFileReader(new File(XML)), EInsert.ASFIRSTCHILD);
+    shredder2.call();
+    assertEquals(2, wtx.getRevisionNumber());
+    wtx.close();
+
+    // Setup expected session.
+    final IDatabase database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
+    final ISession expectedSession =
+      database2.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
+
+    final INodeWriteTrx expectedTrx = expectedSession.beginNodeWriteTrx();
+    DocumentCreater.create(expectedTrx);
+    expectedTrx.commit();
+    expectedTrx.moveToDocumentRoot();
+
+    // Verify.
+    final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+
+    final Iterator<Long> descendants = new DescendantAxis(rtx);
+    final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
+
+    while (expectedDescendants.hasNext()) {
+      expectedDescendants.next();
+      descendants.hasNext();
+      descendants.next();
+      assertEquals(expectedTrx.getQNameOfCurrentNode(), rtx.getQNameOfCurrentNode());
+    }
+
+    // expectedTrx.moveToDocumentRoot();
+    // final Iterator<Long> expectedDescendants2 = new DescendantAxis(expectedTrx);
+    // while (expectedDescendants2.hasNext()) {
+    // expectedDescendants2.next();
+    // descendants.hasNext();
+    // descendants.next();
+    // assertEquals(expectedTrx.getQNameOfCurrentNode(), rtx.getQNameOfCurrentNode());
+    // }
+
+    expectedTrx.close();
+    expectedSession.close();
+    rtx.close();
+  }
 
   @Test
   public void testAttributesNSPrefix() throws Exception {

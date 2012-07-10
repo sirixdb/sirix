@@ -256,7 +256,7 @@ public enum EKind implements IKind {
     public INode deserialize(final ITTSource pSource) {
       final NodeDelegate nodeDel =
         new NodeDelegate(EFixed.ROOT_NODE_KEY.getStandardProperty(),
-          EFixed.NULL_NODE_KEY.getStandardProperty(), pSource.readLong(), 0);
+          EFixed.NULL_NODE_KEY.getStandardProperty(), pSource.readLong(), -1);
       final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, pSource.readLong(),
           EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY

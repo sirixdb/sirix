@@ -36,6 +36,7 @@ public class PathSummary implements INodeReadTrx {
 
   private final IPageReadTrx mPageReadTrx;
 
+  /** Determines if path summary is closed or not. */
   private boolean mClosed;
 
   private PathSummary(@Nonnull final IPageReadTrx pPageReadTrx) {
@@ -58,11 +59,19 @@ public class PathSummary implements INodeReadTrx {
     }
   }
 
+  /**
+   * Get a new path summary instance
+   * 
+   * @param pPageReadTrx
+   *          {@link IPageReaderTrx} implementation
+   * @return new path summary instance
+   */
   public static final PathSummary getInstance(
     @Nonnull final IPageReadTrx pPageReadTrx) {
     return new PathSummary(pPageReadTrx);
   }
 
+  @Override
   public INode getNode() {
     return mCurrentNode;
   }

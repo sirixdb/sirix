@@ -142,7 +142,11 @@ public final class Names {
    * @return number of nodes with the same name
    */
   public int getCount(final int pKey) {
-    return mCountNameMapping.get(pKey);
+    Integer names = mCountNameMapping.get(pKey);
+    if (names == null) {
+      names = 0;
+    }
+    return names;
   }
 
   /**
