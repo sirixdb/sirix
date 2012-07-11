@@ -5,6 +5,10 @@ Sirix stores data securely by applying different layers on the stored data. Flex
 Secure in this context includes integrity-checks, confidentiality with tree-aware key handling, versioning to provide accountability.
 Furthermore, different backends are provided while a binding to different cloud-infrastructures is in progress.
 
+The architecture supports the well known ACID-properties and MVCC through Snapshot Isolation which in turn supports N-reading transactions in parallel to currently 1-write transaction. Supporting N-write transactions is planned as well as the current work on indexes to support a binding to Brackit which in turn supports XQuery/XQuery Update Facility.
+
+Any questions or even consider to contribute or use Sirix? Just contact lichtenberger.johannes AT gmail.com.
+
 Note that it is based on Treetank (http://treetank.org / http://github.com/disy/treetank).
 
 [![Build Status](https://secure.travis-ci.org/JohannesLichtenberger/sirix.png)](http://travis-ci.org/JohannesLichtenberger/sirix)
@@ -32,8 +36,6 @@ The framework was presented at various conferences and acted as base for multipl
 * Integrity Assurance for RESTful XML; WISM'10: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-opus-123507)
 * JAX-RX - Unified REST Access to XML Resources; TechReport'10: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-opus-120511)
 * Distributing XML with focus on parallel evaluation; DBISP2P'08: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-opus-84487)
-
-Any questions, just contact lichtenberger.johannes AT gmail.com
 
 ##License
 
