@@ -1,5 +1,7 @@
 package org.sirix.node.interfaces;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
 
@@ -12,7 +14,7 @@ public interface IKind {
    *          input source
    * @return a {@link INode} instance
    */
-  INode deserialize(final ITTSource pSource);
+  INode deserialize(@Nonnull final ITTSource pSource);
 
   /**
    * Serializing a node from a {@link ITTSink}.
@@ -22,7 +24,7 @@ public interface IKind {
    * @param pToSerialize
    *          the node to serialize
    */
-  void serialize(final ITTSink pSink, final INode pToSerialize);
+  void serialize(@Nonnull final ITTSink pSink, @Nonnull final INode pToSerialize);
 
   /**
    * Get the nodeKind.

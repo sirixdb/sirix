@@ -196,29 +196,13 @@ public class NodePage implements IPage {
   }
 
   @Override
-  public boolean equals(final Object mObj) {
-    if (this == mObj) {
-      return true;
+  public boolean equals(final Object pObj) {
+    if (pObj instanceof NodePage) {
+      final NodePage other = (NodePage)pObj;
+      return Objects.equal(mNodePageKey, other.mNodePageKey)
+        && Arrays.equals(mNodes, other.mNodes);
     }
-
-    if (mObj == null) {
-      return false;
-    }
-
-    if (getClass() != mObj.getClass()) {
-      return false;
-    }
-
-    final NodePage mOther = (NodePage)mObj;
-    if (mNodePageKey != mOther.mNodePageKey) {
-      return false;
-    }
-
-    if (!Arrays.equals(mNodes, mOther.mNodes)) {
-      return false;
-    }
-
-    return true;
+    return false;
   }
 
   @Override

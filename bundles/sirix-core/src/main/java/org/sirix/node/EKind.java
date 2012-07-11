@@ -34,7 +34,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.index.path.PathNode;
@@ -61,12 +60,13 @@ public enum EKind implements IKind {
   /** Unknown kind. */
   UNKOWN((byte)0, null) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       throw new UnsupportedOperationException();
     }
   },
@@ -74,15 +74,9 @@ public enum EKind implements IKind {
   /** Node kind is element. */
   ELEMENT((byte)1, ElementNode.class) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
-      final List<Long> attrKeys = new ArrayList<>();
-      final BiMap<Integer, Long> attrs = HashBiMap.<Integer, Long> create();
-      final List<Long> namespKeys = new ArrayList<>();
-
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       // Node delegate.
-      final NodeDelegate nodeDel =
-        new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong(), pSource.readLong());
+      final NodeDelegate nodeDel = deserializeNodeDelegate(true, pSource);
 
       // Struct delegate.
       final StructNodeDelegate structDel =
@@ -90,10 +84,12 @@ public enum EKind implements IKind {
 
       // Name delegate.
       final NameNodeDelegate nameDel =
-        new NameNodeDelegate(nodeDel, pSource.readInt(), pSource.readInt());
+        deserializeNameDelegate(nodeDel, pSource);
 
       // Attributes.
       int attrCount = pSource.readInt();
+      final List<Long> attrKeys = new ArrayList<>(attrCount);
+      final BiMap<Integer, Long> attrs = HashBiMap.<Integer, Long> create();
       for (int i = 0; i < attrCount; i++) {
         final long nodeKey = pSource.readLong();
         attrKeys.add(nodeKey);
@@ -102,6 +98,7 @@ public enum EKind implements IKind {
 
       // Namespaces.
       int nsCount = pSource.readInt();
+      final List<Long> namespKeys = new ArrayList<>(nsCount);
       for (int i = 0; i < nsCount; i++) {
         namespKeys.add(pSource.readLong());
       }
@@ -111,7 +108,8 @@ public enum EKind implements IKind {
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       final ElementNode node = (ElementNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       pSink.writeLong(node.getPCR());
@@ -132,64 +130,87 @@ public enum EKind implements IKind {
   /** Node kind is attribute. */
   ATTRIBUTE((byte)2, AttributeNode.class) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       // Node delegate.
-      final NodeDelegate nodeDel =
-        new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong(), pSource.readLong());
+      final NodeDelegate nodeDel = deserializeNodeDelegate(true, pSource);
+
       // Name delegate.
       final NameNodeDelegate nameDel =
-        new NameNodeDelegate(nodeDel, pSource.readInt(), pSource.readInt());
+        deserializeNameDelegate(nodeDel, pSource);
+
       // Val delegate.
       final boolean isCompressed = pSource.readByte() == (byte)1 ? true : false;
       final byte[] vals = new byte[pSource.readInt()];
-      for (int i = 0; i < vals.length; i++) {
-        vals[i] = pSource.readByte();
-      }
+      pSource.readBytes(vals, 0, vals.length);
       final ValNodeDelegate valDel =
         new ValNodeDelegate(nodeDel, vals, isCompressed);
 
+      // Returning an instance.
       return new AttributeNode(nodeDel, nameDel, valDel);
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       AttributeNode node = (AttributeNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       pSink.writeLong(node.getPCR());
       serializeNameDelegate(node.getNameNodeDelegate(), pSink);
       serializeValDelegate(node.getValNodeDelegate(), pSink);
     }
+  },
+  
+  /** Node kind is namespace. */
+  NAMESPACE((byte)13, NamespaceNode.class) {
+    @Override
+    public INode deserialize(@Nonnull final ITTSource pSource) {
+      // Node delegate.
+      final NodeDelegate nodeDel = deserializeNodeDelegate(true, pSource);
 
+      // Name delegate.
+      final NameNodeDelegate nameDel =
+        deserializeNameDelegate(nodeDel, pSource);
+
+      return new NamespaceNode(nodeDel, nameDel);
+    }
+
+    @Override
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
+      NamespaceNode node = (NamespaceNode)pToSerialize;
+      serializeDelegate(node.getNodeDelegate(), pSink);
+      pSink.writeLong(node.getPCR());
+      serializeNameDelegate(node.getNameNodeDelegate(), pSink);
+    }
   },
 
   /** Node kind is text. */
   TEXT((byte)3, TextNode.class) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       // Node delegate.
-      final NodeDelegate nodeDel =
-        new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong(), 0);
+      final NodeDelegate nodeDel = deserializeNodeDelegate(false, pSource);
+
       // Val delegate.
       final boolean isCompressed = pSource.readByte() == (byte)1 ? true : false;
       final byte[] vals = new byte[pSource.readInt()];
-      for (int i = 0; i < vals.length; i++) {
-        vals[i] = pSource.readByte();
-      }
+      pSource.readBytes(vals, 0, vals.length);
       final ValNodeDelegate valDel =
         new ValNodeDelegate(nodeDel, vals, isCompressed);
+
       // Struct delegate.
       final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, EFixed.NULL_NODE_KEY
           .getStandardProperty(), pSource.readLong(), pSource.readLong(), 0L,
           0L);
+
       // Returning an instance.
       return new TextNode(nodeDel, valDel, structDel);
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       TextNode node = (TextNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       serializeValDelegate(node.getValNodeDelegate(), pSink);
@@ -199,38 +220,16 @@ public enum EKind implements IKind {
     }
   },
 
-  /** Node kind is namespace. */
-  NAMESPACE((byte)13, NamespaceNode.class) {
-    @Override
-    public INode deserialize(final ITTSource pSource) {
-      // Node delegate.
-      final NodeDelegate nodeDel =
-        new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong(), 0);
-      // Name delegate.
-      final NameNodeDelegate nameDel =
-        new NameNodeDelegate(nodeDel, pSource.readInt(), pSource.readInt());
-      return new NamespaceNode(nodeDel, nameDel);
-    }
-
-    @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
-      NamespaceNode node = (NamespaceNode)pToSerialize;
-      serializeDelegate(node.getNodeDelegate(), pSink);
-      serializeNameDelegate(node.getNameNodeDelegate(), pSink);
-    }
-
-  },
-
   /** Node kind is processing instruction. */
   PROCESSING((byte)7, null) {
     @Override
-    public INode deserialize(final ITTSource parapSource) {
+    public INode deserialize(@Nonnull final ITTSource parapSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       throw new UnsupportedOperationException();
     }
 
@@ -239,21 +238,21 @@ public enum EKind implements IKind {
   /** Node kind is comment. */
   COMMENT((byte)8, null) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       throw new UnsupportedOperationException();
     }
-
   },
 
   /** Node kind is document root. */
   DOCUMENT_ROOT((byte)9, DocumentRootNode.class) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       final NodeDelegate nodeDel =
         new NodeDelegate(EFixed.ROOT_NODE_KEY.getStandardProperty(),
           EFixed.NULL_NODE_KEY.getStandardProperty(), pSource.readLong(), -1);
@@ -266,7 +265,8 @@ public enum EKind implements IKind {
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       DocumentRootNode node = (DocumentRootNode)pToSerialize;
       pSink.writeLong(node.getHash());
       pSink.writeLong(node.getFirstChildKey());
@@ -278,30 +278,29 @@ public enum EKind implements IKind {
   /** Whitespace text. */
   WHITESPACE((byte)4, null) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       throw new UnsupportedOperationException();
     }
-
   },
 
   /** Node kind is deleted node. */
   DELETE((byte)5, DeletedNode.class) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       final NodeDelegate delegate =
-        new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong(), 0);
-      final DeletedNode node = new DeletedNode(delegate);
-      return node;
+        deserializeNodeDelegate(false, pSource);
+      return new DeletedNode(delegate);
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       DeletedNode node = (DeletedNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
     }
@@ -310,12 +309,13 @@ public enum EKind implements IKind {
   /** NullNode to support the Null Object pattern. */
   NULL((byte)6, NullNode.class) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       throw new UnsupportedOperationException();
     }
   },
@@ -323,12 +323,13 @@ public enum EKind implements IKind {
   /** AtomicKind. */
   ATOMIC((byte)15, AtomicValue.class) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       throw new UnsupportedOperationException();
     }
   },
@@ -336,11 +337,9 @@ public enum EKind implements IKind {
   /** Node kind is path node. */
   PATH((byte)16, PathNode.class) {
     @Override
-    public INode deserialize(final ITTSource pSource) {
+    public INode deserialize(@Nonnull final ITTSource pSource) {
       // Node delegate.
-      final NodeDelegate nodeDel =
-        new NodeDelegate(pSource.readLong(), pSource.readLong(), pSource
-          .readLong(), pSource.readLong());
+      final NodeDelegate nodeDel = deserializeNodeDelegate(true, pSource);
 
       // Struct delegate.
       final StructNodeDelegate structDel =
@@ -348,13 +347,15 @@ public enum EKind implements IKind {
 
       // Name delegate.
       final NameNodeDelegate nameDel =
-        new NameNodeDelegate(nodeDel, pSource.readInt(), pSource.readInt());
+        deserializeNameDelegate(nodeDel, pSource);
 
-      return new PathNode(EKind.getKind(pSource.readByte()), nodeDel, structDel, nameDel);
+      return new PathNode(EKind.getKind(pSource.readByte()), nodeDel,
+        structDel, nameDel);
     }
 
     @Override
-    public void serialize(final ITTSink pSink, final INode pToSerialize) {
+    public void serialize(@Nonnull final ITTSink pSink,
+      @Nonnull final INode pToSerialize) {
       final PathNode node = (PathNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       pSink.writeLong(node.getPCR());
@@ -392,30 +393,9 @@ public enum EKind implements IKind {
    * @param pClass
    *          class
    */
-  private EKind(final byte pId, final Class<? extends INode> pClass) {
+  private EKind(final byte pId, @Nonnull final Class<? extends INode> pClass) {
     mId = pId;
     mClass = pClass;
-  }
-
-  /**
-   * Deserialize struct delegate.
-   * 
-   * @param nodeDel
-   *          node delegate
-   * @param pSource
-   *          input source
-   * @return {@link StructNodeDelegate} instance
-   */
-  protected StructNodeDelegate deserializeStructDel(
-    @Nonnull final NodeDelegate nodeDel, @Nonnull final ITTSource pSource) {
-    final long currKey = nodeDel.getNodeKey();
-    final long rightSibl = readPointer(pSource, currKey);
-    final long leftSibl = readPointer(pSource, currKey);
-    final long firstChild = readPointer(pSource, currKey);
-    final long childCount = pSource.readLong();
-    final long descendantCount = pSource.readLong() + childCount;
-    return new StructNodeDelegate(nodeDel, firstChild, rightSibl, leftSibl,
-      childCount, descendantCount);
   }
 
   @Override
@@ -449,6 +429,24 @@ public enum EKind implements IKind {
   public static EKind getKind(@Nonnull final Class<? extends INode> pClass) {
     return INSTANCEFORCLASS.get(pClass);
   }
+  
+  /**
+   * Deserialize node delegate.
+   * 
+   * @param pUsePCR
+   *            determines if PCR is saved (for attributes, namespaces and elements) or not
+   * @param pSource
+   *            source to read from
+   * @return {@link NodeDelegate} instance
+   */
+  private static final NodeDelegate deserializeNodeDelegate(
+    final boolean pUsePCR, @Nonnull final ITTSource pSource) {
+    final long nodeKey = pSource.readLong();
+    final long parentKey = nodeKey - pSource.readLong();
+    final long hash = pSource.readLong();
+    final long PCR = pUsePCR ? pSource.readLong() : 0;
+    return new NodeDelegate(nodeKey, parentKey, hash, PCR);
+  }
 
   /**
    * Serializing the {@link NodeDelegate} instance.
@@ -461,7 +459,7 @@ public enum EKind implements IKind {
   private static final void serializeDelegate(@Nonnull final NodeDelegate pDel,
     @Nonnull final ITTSink pSink) {
     pSink.writeLong(pDel.getNodeKey());
-    pSink.writeLong(pDel.getParentKey());
+    pSink.writeLong(pDel.getNodeKey() - pDel.getParentKey());
     pSink.writeLong(pDel.getHash());
   }
 
@@ -475,67 +473,62 @@ public enum EKind implements IKind {
    */
   private static final void serializeStrucDelegate(
     @Nonnull final StructNodeDelegate pDel, @Nonnull final ITTSink pSink) {
-    writePointer(pSink, pDel.getNodeKey(), pDel.getRightSiblingKey());
-    writePointer(pSink, pDel.getNodeKey(), pDel.getLeftSiblingKey());
-    writePointer(pSink, pDel.getNodeKey(), pDel.getFirstChildKey());
+    pSink.writeLong(pDel.getNodeKey() - pDel.getRightSiblingKey());
+    pSink.writeLong(pDel.getNodeKey() - pDel.getLeftSiblingKey());
+    pSink.writeLong(pDel.getNodeKey() - pDel.getFirstChildKey());
     pSink.writeLong(pDel.getChildCount());
     pSink.writeLong(pDel.getDescendantCount() - pDel.getChildCount());
   }
 
   /**
-   * Deserialize a structural node pointer (ranges).
+   * Deserialize struct delegate.
    * 
+   * @param nodeDel
+   *          node delegate
    * @param pSource
    *          input source
-   * @param pSelf
-   *          the pointer
-   * @return the pointer
+   * @return {@link StructNodeDelegate} instance
    */
-  private static long readPointer(@Nonnull final ITTSource pSource,
-    final long pSelf) {
-    boolean isNullKey = pSource.readByte() == (byte)1 ? true : false;
-    if (isNullKey) {
-      return EFixed.NULL_NODE_KEY.getStandardProperty();
-    } else {
-      final long pointer = pSource.readLong();
-      assert pointer != 0 : "May never be 0!";
-      return pointer > 0 ? pSelf - pointer : Math.abs(pointer - pSelf);
-    }
+  private static final StructNodeDelegate deserializeStructDel(
+    @Nonnull final NodeDelegate pDel, @Nonnull final ITTSource pSource) {
+    final long currKey = pDel.getNodeKey();
+    final long rightSibl = currKey - pSource.readLong();
+    final long leftSibl = currKey - pSource.readLong();
+    final long firstChild = currKey - pSource.readLong();
+    final long childCount = pSource.readLong();
+    final long descendantCount = pSource.readLong() + childCount;
+    return new StructNodeDelegate(pDel, firstChild, rightSibl, leftSibl,
+      childCount, descendantCount);
   }
 
   /**
-   * Write a structural node pointer (ranges).
+   * Deserialize name node delegate.
    * 
-   * @param pSink
-   *          output sink
-   * @param pSelf
-   *          the pointer
-   * @param pPointer
-   *          the pointer
+   * @param pNodeDel
+   *          {@link NodeDelegate} instance
+   * @param pSource
+   *          source to read from
+   * @return {@link NameNodeDelegate} instance
    */
-  private static final void writePointer(@Nonnull final ITTSink pSink,
-    @Nonnegative final long pSelf, @Nonnegative final long pPointer) {
-    boolean isNullNodeKey =
-      pPointer == EFixed.NULL_NODE_KEY.getStandardProperty() ? true : false;
-    pSink.writeByte(isNullNodeKey ? (byte)1 : (byte)0);
-    if (!isNullNodeKey) {
-      final long toStore = pSelf - pPointer;
-      assert toStore != 0 : "May never be 0!";
-      pSink.writeLong(toStore);
-    }
+  private static final NameNodeDelegate deserializeNameDelegate(
+    @Nonnull final NodeDelegate pNodeDel, @Nonnull final ITTSource pSource) {
+    int nameKey = pSource.readInt();
+    final int uriKey = pSource.readInt();
+    nameKey += uriKey;
+    return new NameNodeDelegate(pNodeDel, nameKey, uriKey);
   }
 
   /**
    * Serializing the {@link NameNodeDelegate} instance.
    * 
    * @param pDel
-   *          to be serialized
+   *          {@link NameNodeDelegate} instance
    * @param pSink
    *          to serialize to
    */
   private static final void serializeNameDelegate(
     @Nonnull final NameNodeDelegate pDel, @Nonnull final ITTSink pSink) {
-    pSink.writeInt(pDel.getNameKey());
+    pSink.writeInt(pDel.getNameKey() - pDel.getURIKey());
     pSink.writeInt(pDel.getURIKey());
   }
 
@@ -554,8 +547,6 @@ public enum EKind implements IKind {
     final byte[] value =
       isCompressed ? pDel.getCompressed() : pDel.getRawValue();
     pSink.writeInt(value.length);
-    for (final byte byteVal : value) {
-      pSink.writeByte(byteVal);
-    }
+    pSink.writeBytes(value);
   }
 }
