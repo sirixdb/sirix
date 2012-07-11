@@ -212,7 +212,7 @@ public class UpdateTest {
     assertEquals(5L, rtx.getStructuralNode().getChildCount());
     assertEquals(9L, rtx.getStructuralNode().getDescendantCount());
     assertTrue(rtx.moveTo(4L));
-    assertEquals("foo oops1", rtx.getValueOfCurrentNode());
+    assertEquals("foooops1", rtx.getValueOfCurrentNode());
     rtx.close();
   }
 
@@ -232,7 +232,7 @@ public class UpdateTest {
     assertEquals(5L, rtx.getStructuralNode().getChildCount());
     assertEquals(9L, rtx.getStructuralNode().getDescendantCount());
     assertTrue(rtx.moveTo(4L));
-    assertEquals("oops1 foo", rtx.getValueOfCurrentNode());
+    assertEquals("oops1foo", rtx.getValueOfCurrentNode());
     rtx.close();
   }
 
@@ -252,7 +252,7 @@ public class UpdateTest {
     assertEquals(5L, rtx.getStructuralNode().getChildCount());
     assertEquals(9L, rtx.getStructuralNode().getDescendantCount());
     assertTrue(rtx.moveTo(8L));
-    assertEquals("foo oops2", rtx.getValueOfCurrentNode());
+    assertEquals("foooops2", rtx.getValueOfCurrentNode());
     rtx.close();
   }
 
@@ -452,7 +452,7 @@ public class UpdateTest {
     wtx.remove();
     wtx.moveTo(5L);
     wtx.remove();
-    // testRemoveDescendantTextConcat2(wtx);
+    testRemoveDescendantTextConcat2(wtx);
     wtx.commit();
     testRemoveDescendantTextConcat2(wtx);
     wtx.close();
@@ -504,7 +504,7 @@ public class UpdateTest {
   private void testReplaceTextNode(final INodeReadTrx pRtx) throws AbsTTException {
     assertFalse(pRtx.moveTo(5));
     assertTrue(pRtx.moveTo(4));
-    assertEquals("oops1 bar oops2", pRtx.getValueOfCurrentNode());
+    assertEquals("oops1baroops2", pRtx.getValueOfCurrentNode());
     assertEquals(9, pRtx.getStructuralNode().getRightSiblingKey());
     assertTrue(pRtx.moveToRightSibling());
     assertEquals(4, pRtx.getStructuralNode().getLeftSiblingKey());
@@ -598,7 +598,7 @@ public class UpdateTest {
     DocumentCreater.create(wtx);
     wtx.moveTo(5);
     wtx.replaceNode("foo");
-    // testReplaceElementMergeTextNodes(wtx);
+    testReplaceElementMergeTextNodes(wtx);
     wtx.commit();
     testReplaceElementMergeTextNodes(wtx);
     wtx.close();
@@ -616,7 +616,7 @@ public class UpdateTest {
    */
   private final static void testReplaceElementMergeTextNodes(final INodeReadTrx pRtx) throws AbsTTException {
     assertTrue(pRtx.moveTo(4));
-    assertEquals("oops1 foo oops2", pRtx.getValueOfCurrentNode());
+    assertEquals("oops1foooops2", pRtx.getValueOfCurrentNode());
     assertEquals(9, pRtx.getStructuralNode().getRightSiblingKey());
     assertTrue(pRtx.moveToRightSibling());
     assertEquals(4, pRtx.getStructuralNode().getLeftSiblingKey());
@@ -631,7 +631,7 @@ public class UpdateTest {
     DocumentCreater.create(wtx);
     wtx.moveTo(7);
     wtx.moveSubtreeToFirstChild(6);
-    // testFirstMoveToFirstChild(wtx);
+    testFirstMoveToFirstChild(wtx);
     wtx.commit();
     testFirstMoveToFirstChild(wtx);
     wtx.close();
@@ -701,7 +701,7 @@ public class UpdateTest {
     assertEquals(4L, pRtx.getStructuralNode().getFirstChildKey());
     assertFalse(pRtx.moveTo(6));
     assertTrue(pRtx.moveTo(4));
-    assertEquals("oops1 foo", pRtx.getValueOfCurrentNode());
+    assertEquals("oops1foo", pRtx.getValueOfCurrentNode());
     assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getLeftSiblingKey());
     assertEquals(5L, pRtx.getStructuralNode().getParentKey());
     assertEquals(7L, pRtx.getStructuralNode().getRightSiblingKey());
@@ -831,7 +831,7 @@ public class UpdateTest {
     assertEquals(8L, pRtx.getStructuralNode().getDescendantCount());
     assertTrue(pRtx.moveTo(4));
     // Assert that oops1 and oops2 text nodes merged.
-    assertEquals("oops1 oops2", pRtx.getValueOfCurrentNode());
+    assertEquals("oops1oops2", pRtx.getValueOfCurrentNode());
     assertFalse(pRtx.moveTo(8));
     assertTrue(pRtx.moveTo(9));
     assertEquals(5L, pRtx.getStructuralNode().getRightSiblingKey());
@@ -846,7 +846,7 @@ public class UpdateTest {
     DocumentCreater.create(wtx);
     wtx.moveTo(9);
     wtx.moveSubtreeToRightSibling(4);
-    // testThirdMoveSubtreeToRightSibling(wtx);
+    testThirdMoveSubtreeToRightSibling(wtx);
     wtx.commit();
     testThirdMoveSubtreeToRightSibling(wtx);
     wtx.close();
@@ -869,7 +869,7 @@ public class UpdateTest {
     assertEquals(8, pRtx.getStructuralNode().getDescendantCount());
     assertTrue(pRtx.moveTo(4));
     // Assert that oops1 and oops3 text nodes merged.
-    assertEquals("oops1 oops3", pRtx.getValueOfCurrentNode());
+    assertEquals("oops1oops3", pRtx.getValueOfCurrentNode());
     assertFalse(pRtx.moveTo(13));
     assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getRightSiblingKey());
     assertEquals(9L, pRtx.getStructuralNode().getLeftSiblingKey());
@@ -883,7 +883,7 @@ public class UpdateTest {
     DocumentCreater.create(wtx);
     wtx.moveTo(8);
     wtx.moveSubtreeToRightSibling(4);
-    // testFourthMoveSubtreeToRightSibling(wtx);
+    testFourthMoveSubtreeToRightSibling(wtx);
     wtx.commit();
     testFourthMoveSubtreeToRightSibling(wtx);
     wtx.close();
@@ -903,7 +903,7 @@ public class UpdateTest {
     throws AbsTTException {
     assertTrue(pRtx.moveTo(4));
     // Assert that oops2 and oops1 text nodes merged.
-    assertEquals("oops2 oops1", pRtx.getValueOfCurrentNode());
+    assertEquals("oops2oops1", pRtx.getValueOfCurrentNode());
     assertFalse(pRtx.moveTo(8));
     assertEquals(9L, pRtx.getStructuralNode().getRightSiblingKey());
     assertEquals(5L, pRtx.getStructuralNode().getLeftSiblingKey());

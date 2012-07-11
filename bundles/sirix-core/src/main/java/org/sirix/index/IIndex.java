@@ -1,4 +1,4 @@
-package org.sirix.indexes;
+package org.sirix.index;
 
 public interface IIndex {
 

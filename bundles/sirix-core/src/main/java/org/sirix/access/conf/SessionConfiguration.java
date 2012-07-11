@@ -29,8 +29,11 @@ package org.sirix.access.conf;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import com.google.common.base.Objects;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.access.Database;
 import org.sirix.access.Session;
 
@@ -87,7 +90,8 @@ public final class SessionConfiguration {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mWtxAllowed, mRtxAllowed, mCommitThreshold, mUser, mResource);
+    return Objects.hashCode(mWtxAllowed, mRtxAllowed, mCommitThreshold, mUser,
+      mResource);
   }
 
   @Override
@@ -97,8 +101,10 @@ public final class SessionConfiguration {
     }
     if (pObj instanceof SessionConfiguration) {
       final SessionConfiguration other = (SessionConfiguration)pObj;
-      return Objects.equal(mWtxAllowed, other.mWtxAllowed) && Objects.equal(mRtxAllowed, other.mRtxAllowed)
-        && Objects.equal(mCommitThreshold, other.mCommitThreshold) && Objects.equal(mUser, other.mUser)
+      return Objects.equal(mWtxAllowed, other.mWtxAllowed)
+        && Objects.equal(mRtxAllowed, other.mRtxAllowed)
+        && Objects.equal(mCommitThreshold, other.mCommitThreshold)
+        && Objects.equal(mUser, other.mUser)
         && Objects.equal(mResource, other.mResource);
     } else {
       return false;
@@ -107,8 +113,9 @@ public final class SessionConfiguration {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("Resource", mResource).add("RtxAllowed", mRtxAllowed).add(
-      "WtxAllowed", mWtxAllowed).add("Commit threshold", mCommitThreshold).add("User", mUser).toString();
+    return Objects.toStringHelper(this).add("Resource", mResource).add(
+      "RtxAllowed", mRtxAllowed).add("WtxAllowed", mWtxAllowed).add(
+      "Commit threshold", mCommitThreshold).add("User", mUser).toString();
   }
 
   /**
@@ -146,7 +153,7 @@ public final class SessionConfiguration {
      * @param pRes
      *          to be set.
      */
-    public Builder(final String pRes) {
+    public Builder(@Nonnull final String pRes) {
       mResource = checkNotNull(pRes);
     }
 
@@ -157,7 +164,7 @@ public final class SessionConfiguration {
      *          new value for field
      * @return reference to the builder object
      */
-    public Builder setWtxAllowed(final int pWtxAllowed) {
+    public Builder setWtxAllowed(@Nonnegative final int pWtxAllowed) {
       checkArgument(pWtxAllowed < 1, "Value must be > 0!");
       mWtxAllowed = pWtxAllowed;
       return this;
@@ -170,7 +177,7 @@ public final class SessionConfiguration {
      *          new value for field
      * @return reference to the builder object
      */
-    public Builder setRtxAllowed(final int pRtxAllowed) {
+    public Builder setRtxAllowed(@Nonnegative final int pRtxAllowed) {
       checkArgument(pRtxAllowed < 1, "Value must be > 0!");
       mRtxAllowed = pRtxAllowed;
       return this;
@@ -183,7 +190,7 @@ public final class SessionConfiguration {
      *          new value for field
      * @return reference to the builder object
      */
-    public Builder setCommitThreshold(final int pCommitThreshold) {
+    public Builder setCommitThreshold(@Nonnegative final int pCommitThreshold) {
       checkArgument(pCommitThreshold < 100, "Value must be > 100!");
       mCommitThreshold = pCommitThreshold;
       return this;
@@ -196,7 +203,7 @@ public final class SessionConfiguration {
      *          new value for field
      * @return reference to the builder object
      */
-    public Builder setUser(final String pUser) {
+    public Builder setUser(@Nonnull final String pUser) {
       mUser = checkNotNull(pUser);
       return this;
     }

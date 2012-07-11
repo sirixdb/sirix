@@ -1,4 +1,4 @@
-package org.sirix.indexes;
+package org.sirix.index.path;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;

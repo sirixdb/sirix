@@ -37,7 +37,7 @@ import java.util.Map;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.indexes.PathNode;
+import org.sirix.index.path.PathNode;
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
 import org.sirix.node.delegates.NameNodeDelegate;

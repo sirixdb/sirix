@@ -1,4 +1,4 @@
-package org.sirix.indexes;
+package org.sirix.index.name;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.collect.HashBiMap;

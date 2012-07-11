@@ -35,7 +35,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.indexes.Names;
+import org.sirix.index.name.Names;
 import org.sirix.io.ITTSink;
 import org.sirix.io.ITTSource;
 import org.sirix.node.EKind;

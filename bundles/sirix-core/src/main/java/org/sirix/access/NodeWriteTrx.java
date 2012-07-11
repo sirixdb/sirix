@@ -72,8 +72,8 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTThreadedException;
 import org.sirix.exception.TTUsageException;
-import org.sirix.indexes.PathNode;
-import org.sirix.indexes.PathSummary;
+import org.sirix.index.path.PathNode;
+import org.sirix.index.path.PathSummary;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
@@ -408,7 +408,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       moveTo(pFromNode.getLeftSiblingKey());
       if (getNode() != null && getNode().getKind() == EKind.TEXT) {
         final StringBuilder builder =
-          new StringBuilder(getValueOfCurrentNode()).append(" ");
+          new StringBuilder(getValueOfCurrentNode());
         moveTo(pFromNode.getRightSiblingKey());
         if (getNode() != null && getNode().getKind() == EKind.TEXT) {
           builder.append(getValueOfCurrentNode());
@@ -714,7 +714,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     @Nonnull final String pValue) throws AbsTTException {
     checkNotNull(pValue);
     if (getNode() instanceof IStructNode
-      && getNode().getKind() != EKind.DOCUMENT_ROOT) {
+      && getNode().getKind() != EKind.DOCUMENT_ROOT && !pValue.isEmpty()) {
       checkAccessAndCommit();
 
       final long parentKey = getNode().getNodeKey();
@@ -724,8 +724,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       // Update value in case of adjacent text nodes.
       if (moveTo(rightSibKey)) {
         if (getNode().getKind() == EKind.TEXT) {
-          setValue(new StringBuilder(pValue).append(" ").append(
-            getValueOfCurrentNode()).toString());
+          setValue(new StringBuilder(pValue).append(getValueOfCurrentNode())
+            .toString());
           adaptHashedWithUpdate(getNode().getHash());
           return this;
         }
@@ -754,7 +754,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   public INodeWriteTrx insertTextAsLeftSibling(@Nonnull final String pValue)
     throws AbsTTException {
     checkNotNull(pValue);
-    if (getNode() instanceof IStructNode) {
+    if (getNode() instanceof IStructNode
+      && getNode().getKind() != EKind.DOCUMENT_ROOT && !pValue.isEmpty()) {
       checkAccessAndCommit();
 
       final long parentKey = getNode().getParentKey();
@@ -764,9 +765,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       // Update value in case of adjacent text nodes.
       final StringBuilder builder = new StringBuilder();
       if (getNode().getKind() == EKind.TEXT) {
-        builder.append(pValue).append(" ");
+        builder.append(pValue);
       }
-
       builder.append(getValueOfCurrentNode());
 
       if (!pValue.equals(builder.toString())) {
@@ -776,7 +776,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       if (moveTo(leftSibKey)) {
         final StringBuilder value = new StringBuilder();
         if (getNode().getKind() == EKind.TEXT) {
-          value.append(getValueOfCurrentNode()).append(" ").append(builder);
+          value.append(getValueOfCurrentNode()).append(builder);
         }
         if (!pValue.equals(value.toString())) {
           setValue(value.toString());
@@ -805,7 +805,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   public synchronized INodeWriteTrx insertTextAsRightSibling(
     @Nonnull final String pValue) throws AbsTTException {
     checkNotNull(pValue);
-    if (getNode() instanceof IStructNode) {
+    if (getNode() instanceof IStructNode
+      && getNode().getKind() != EKind.DOCUMENT_ROOT && !pValue.isEmpty()) {
       checkAccessAndCommit();
 
       final long parentKey = getNode().getParentKey();
@@ -815,7 +816,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       // Update value in case of adjacent text nodes.
       final StringBuilder builder = new StringBuilder();
       if (getNode().getKind() == EKind.TEXT) {
-        builder.append(getValueOfCurrentNode()).append(" ");
+        builder.append(getValueOfCurrentNode());
       }
       builder.append(pValue);
       if (!pValue.equals(builder.toString())) {
@@ -824,7 +825,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       }
       if (moveTo(rightSibKey)) {
         if (getNode().getKind() == EKind.TEXT) {
-          builder.append(" ").append(getValueOfCurrentNode());
+          builder.append(getValueOfCurrentNode());
         }
         if (!pValue.equals(builder.toString())) {
           setValue(builder.toString());
@@ -1301,23 +1302,16 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   public synchronized void commit() throws AbsTTException {
     mNodeReadRtx.assertNotClosed();
 
-    // Assert that the DocumentNode has no more than one child node (the root node).
-    final long nodeKey = mNodeReadRtx.getNode().getNodeKey();
-    moveToDocumentRoot();
-    final DocumentRootNode document = (DocumentRootNode)mNodeReadRtx.getNode();
-    if (document.getChildCount() > 1) {
-      moveTo(nodeKey);
-      throw new IllegalStateException(
-        "DocumentRootNode may not have more than one child node!");
-    }
-    moveTo(nodeKey);
-
-    // If it is the first commited revision and eventual consistency option specified.
-    if (mNodeReadRtx.mSession.mResourceConfig.mConsistency == EConsistency.EVENTUAL
-      && getPageTransaction().getUberPage().isBootstrap()
-      && mModificationCount > 0) {
-      postOrderTraversalHashes();
-    }
+//    // Assert that the DocumentNode has no more than one child node (the root node).
+//    final long nodeKey = mNodeReadRtx.getNode().getNodeKey();
+//    moveToDocumentRoot();
+//    final DocumentRootNode document = (DocumentRootNode)mNodeReadRtx.getNode();
+//    if (document.getChildCount() > 1) {
+//      moveTo(nodeKey);
+//      throw new IllegalStateException(
+//        "DocumentRootNode may not have more than one child node!");
+//    }
+//    moveTo(nodeKey);
 
     // Execute pre-commit hooks.
     for (final IPreCommitHook hook : mPreCommitHooks) {
@@ -1577,8 +1571,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       && getNode().getKind() == EKind.TEXT
       && moveTo(pOldNode.getLeftSiblingKey())
       && getNode().getKind() == EKind.TEXT) {
-      final StringBuilder builder =
-        new StringBuilder(getValueOfCurrentNode()).append(" ");
+      final StringBuilder builder = new StringBuilder(getValueOfCurrentNode());
       moveTo(pOldNode.getRightSiblingKey());
       builder.append(getValueOfCurrentNode());
       moveTo(pOldNode.getLeftSiblingKey());
@@ -1629,16 +1622,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     }
     parent.decrementChildCount();
     if (concatenated) {
-      if (mNodeReadRtx.mSession.mResourceConfig.mConsistency != EConsistency.EVENTUAL
-        || !getPageTransaction().getUberPage().isBootstrap()) {
-        parent.decrementDescendantCount();
-      }
+      parent.decrementDescendantCount();
       parent.decrementChildCount();
     }
     getPageTransaction().finishNodeModification(parent, pPage);
-    if (concatenated
-      && (mNodeReadRtx.mSession.mResourceConfig.mConsistency != EConsistency.EVENTUAL || !getPageTransaction()
-        .getUberPage().isBootstrap())) {
+    if (concatenated) {
       // Adjust descendant count.
       moveTo(parent.getNodeKey());
       while (parent.hasParent()) {
@@ -1902,9 +1890,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
    *           if an I/O error occurs
    */
   private void adaptHashesWithAdd() throws TTIOException {
-    if ((mNodeReadRtx.mSession.mResourceConfig.mConsistency != EConsistency.EVENTUAL || !getPageTransaction()
-      .getUberPage().isBootstrap())
-      && !mBulkInsert) {
+    if (!mBulkInsert) {
       switch (mHashKind) {
       case Rolling:
         rollingAdd();
@@ -1924,9 +1910,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
    *           if an I/O error occurs
    */
   private void adaptHashesWithRemove() throws TTIOException {
-    if ((mNodeReadRtx.mSession.mResourceConfig.mConsistency != EConsistency.EVENTUAL || !getPageTransaction()
-      .getUberPage().isBootstrap())
-      && !mBulkInsert) {
+    if (!mBulkInsert) {
       switch (mHashKind) {
       case Rolling:
         rollingRemove();
@@ -1948,9 +1932,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
    *           if an I/O error occurs
    */
   private void adaptHashedWithUpdate(final long pOldHash) throws TTIOException {
-    if ((mNodeReadRtx.mSession.mResourceConfig.mConsistency != EConsistency.EVENTUAL || !getPageTransaction()
-      .getUberPage().isBootstrap())
-      && !mBulkInsert) {
+    if (!mBulkInsert) {
       switch (mHashKind) {
       case Rolling:
         rollingUpdate(pOldHash);
