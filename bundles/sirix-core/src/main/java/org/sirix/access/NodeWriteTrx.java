@@ -37,10 +37,7 @@ import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
@@ -56,7 +53,6 @@ import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.XMLEvent;
 
-import org.sirix.access.conf.ResourceConfiguration.Builder.EConsistency;
 import org.sirix.access.conf.ResourceConfiguration.EIndexes;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
@@ -67,7 +63,6 @@ import org.sirix.api.IPreCommitHook;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.axis.PostOrderAxis;
-import org.sirix.cache.GuavaCache;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTThreadedException;
@@ -75,7 +70,6 @@ import org.sirix.exception.TTUsageException;
 import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
 import org.sirix.node.AttributeNode;
-import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
@@ -116,6 +110,12 @@ import org.sirix.utils.XMLToken;
  */
 final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   INodeWriteTrx {
+
+  private enum ERemove {
+    SUBTREE,
+
+    NODE
+  }
 
   /** MD5 hash-function. */
   private final HashFunction mHash = Hashing.md5();
@@ -1010,35 +1010,33 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       final IStructNode node = (IStructNode)getNode();
 
       // Remove subtree.
-      final long nodeKey = getNode().getNodeKey();
-      for (final IAxis axis = new PostOrderAxis(this); axis.hasNext();) {
+      for (final IAxis axis = new DescendantAxis(this); axis.hasNext();) {
         axis.next();
-        if (axis.getTransaction().getNode().getNodeKey() != nodeKey) {
-          break;
-        } else {
-          final IStructNode nodeToDelete =
-            axis.getTransaction().getStructuralNode();
-          if (nodeToDelete.getKind() == EKind.ELEMENT) {
-            final ElementNode element = (ElementNode)nodeToDelete;
+        final IStructNode nodeToDelete =
+          axis.getTransaction().getStructuralNode();
+        if (nodeToDelete.getKind() == EKind.ELEMENT) {
+          final ElementNode element = (ElementNode)nodeToDelete;
+          removeName();
+          final int attCount = element.getAttributeCount();
+          for (int i = 0; i < attCount; i++) {
+            moveToAttribute(i);
             removeName();
-            final int attCount = element.getAttributeCount();
-            for (int i = 0; i < attCount; i++) {
-              moveToAttribute(i);
-              removeName();
-              getPageTransaction().removeNode(getNode(), EPage.NODEPAGE);
-              moveToParent();
-            }
-            final int nspCount = element.getNamespaceCount();
-            for (int i = 0; i < nspCount; i++) {
-              moveToNamespace(i);
-              removeName();
-              getPageTransaction().removeNode(getNode(), EPage.NODEPAGE);
-              moveToParent();
-            }
+            getPageTransaction().removeNode(getNode(), EPage.NODEPAGE);
+            moveToParent();
           }
-          getPageTransaction().removeNode(nodeToDelete, EPage.NODEPAGE);
+          final int nspCount = element.getNamespaceCount();
+          for (int i = 0; i < nspCount; i++) {
+            moveToNamespace(i);
+            removeName();
+            getPageTransaction().removeNode(getNode(), EPage.NODEPAGE);
+            moveToParent();
+          }
         }
+        getPageTransaction().removeNode(nodeToDelete, EPage.NODEPAGE);
       }
+
+      // Adapt hashes and neighbour nodes as well as the name from the NamePage mapping if it's not a text
+      // node.
       mNodeReadRtx.setCurrentNode(node);
       adaptHashesWithRemove();
       adaptForRemove(node, EPage.NODEPAGE);
@@ -1116,12 +1114,15 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     final long nodeKey = mPCRs.get(pPCR);
     mPathSummary.moveTo(nodeKey);
 
+    // Remove all descendant nodes.
     for (final IAxis axis = new DescendantAxis(mPathSummary); axis.hasNext();) {
       axis.next();
+      mPCRs.remove(mPathSummary.getNode().getPCR());
       getPageTransaction()
         .removeNode(mPathSummary.getNode(), EPage.PATHSUMMARY);
     }
 
+    assert mPathSummary.moveTo(nodeKey);
     final IStructNode node = mPathSummary.getStructuralNode();
 
     // Adapt left sibling node if there is one.
@@ -1171,29 +1172,25 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
         INameNode node = (INameNode)mNodeReadRtx.getNode();
         final long oldHash = node.hashCode();
+        final long oldPCR = node.getPCR();
 
-        final long nodeKey = getNode().getNodeKey();
+        // New PCR.
         moveToParent();
         final long parentPCR = getNode().getPCR();
         final long PCR = computePCR(parentPCR, pQName);
-        moveTo(nodeKey);
+        moveTo(node.getNodeKey());
 
-        final EKind nodeKind = mNodeReadRtx.getNode().getKind();
+        // Remove old keys from mapping.
+        final EKind nodeKind = node.getKind();
+        final int oldNameKey = node.getNameKey();
+        final int oldUriKey = node.getURIKey();
         final NamePage page =
           ((NamePage)getPageTransaction().getActualRevisionRootPage()
             .getNamePageReference().getPage());
-        page.removeName(node.getNameKey(), nodeKind);
-        page.removeName(node.getURIKey(), EKind.NAMESPACE);
+        page.removeName(oldNameKey, nodeKind);
+        page.removeName(oldUriKey, EKind.NAMESPACE);
 
-        mPathSummary.moveTo(mPCRs.get(node.getPCR()));
-        final INode pathNode =
-          getPageTransaction().prepareNodeForModification(
-            mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARY);
-        pathNode.setPCR(PCR);
-        getPageTransaction()
-          .finishNodeModification(pathNode, EPage.PATHSUMMARY);
-        mPCRs.put(PCR, pathNode.getNodeKey());
-
+        // Create new keys for mapping.
         final int nameKey =
           getPageTransaction().createNameKey(PageWriteTrx.buildName(pQName),
             node.getKind());
@@ -1201,6 +1198,39 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
           getPageTransaction().createNameKey(pQName.getNamespaceURI(),
             EKind.NAMESPACE);
 
+        // Path Summary : No mapping exists anymore.
+        if (mPCRs.get(oldPCR) != null
+          && page.getName(oldNameKey, nodeKind) == null) {
+          // Set new keys for current node.
+          final Long nodeKey = mPCRs.get(oldPCR);
+          assert nodeKey != null;
+          if (mPathSummary.moveTo(nodeKey)) {
+            final PathNode pathNode =
+              (PathNode)getPageTransaction().prepareNodeForModification(
+                nodeKey, EPage.PATHSUMMARY);
+            pathNode.setNameKey(nameKey);
+            pathNode.setURIKey(uriKey);
+            pathNode.setPCR(PCR);
+            getPageTransaction()
+              .finishNodeModification(node, EPage.PATHSUMMARY);
+            mPCRs.remove(oldPCR);
+            mPCRs.putIfAbsent(PCR, nodeKey);
+          } else {
+            throw new IllegalStateException();
+          }
+        } else
+        // Path Summary : New mapping.
+        if (!mPCRs.containsKey(PCR)) {
+          final Long nodeKey = mPCRs.get(parentPCR);
+          assert nodeKey != null;
+          mPathSummary.moveTo(nodeKey);
+          insertPathAsFirstChild(pQName, PCR, nodeKind);
+          mPCRs.putIfAbsent(PCR, mPathSummary.getNode().getNodeKey());
+        } else {
+          throw new IllegalStateException();
+        }
+
+        // Set new keys for current node.
         node =
           (INameNode)getPageTransaction().prepareNodeForModification(
             mNodeReadRtx.getNode().getNodeKey(), EPage.NODEPAGE);
@@ -1218,38 +1248,38 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     }
   }
 
-  @Override
-  public synchronized void setURI(@Nonnull final String pUri)
-    throws AbsTTException {
-    checkNotNull(pUri);
-    if (getNode() instanceof INameNode) {
-      if (!getValueOfCurrentNode().equals(pUri)) {
-        checkAccessAndCommit();
-
-        final NamePage page =
-          (NamePage)getPageTransaction().getActualRevisionRootPage()
-            .getNamePageReference().getPage();
-        page.removeName(NamePageHash
-          .generateHashForString(getValueOfCurrentNode()), EKind.NAMESPACE);
-
-        final long oldHash = mNodeReadRtx.getNode().hashCode();
-        final int uriKey =
-          getPageTransaction().createNameKey(pUri, EKind.NAMESPACE);
-
-        final INameNode node =
-          (INameNode)getPageTransaction().prepareNodeForModification(
-            mNodeReadRtx.getNode().getNodeKey(), EPage.NODEPAGE);
-        node.setURIKey(uriKey);
-        getPageTransaction().finishNodeModification(node, EPage.NODEPAGE);
-
-        mNodeReadRtx.setCurrentNode(node);
-        adaptHashedWithUpdate(oldHash);
-      }
-    } else {
-      throw new TTUsageException(
-        "setURI is not allowed if current node is not an INameNode implementation!");
-    }
-  }
+  // @Override
+  // public synchronized void setURI(@Nonnull final String pUri)
+  // throws AbsTTException {
+  // checkNotNull(pUri);
+  // if (getNode() instanceof INameNode) {
+  // if (!getValueOfCurrentNode().equals(pUri)) {
+  // checkAccessAndCommit();
+  //
+  // final NamePage page =
+  // (NamePage)getPageTransaction().getActualRevisionRootPage()
+  // .getNamePageReference().getPage();
+  // page.removeName(NamePageHash
+  // .generateHashForString(getValueOfCurrentNode()), EKind.NAMESPACE);
+  //
+  // final long oldHash = mNodeReadRtx.getNode().hashCode();
+  // final int uriKey =
+  // getPageTransaction().createNameKey(pUri, EKind.NAMESPACE);
+  //
+  // final INameNode node =
+  // (INameNode)getPageTransaction().prepareNodeForModification(
+  // mNodeReadRtx.getNode().getNodeKey(), EPage.NODEPAGE);
+  // node.setURIKey(uriKey);
+  // getPageTransaction().finishNodeModification(node, EPage.NODEPAGE);
+  //
+  // mNodeReadRtx.setCurrentNode(node);
+  // adaptHashedWithUpdate(oldHash);
+  // }
+  // } else {
+  // throw new TTUsageException(
+  // "setURI is not allowed if current node is not an INameNode implementation!");
+  // }
+  // }
 
   @Override
   public synchronized void setValue(@Nonnull final String pValue)
@@ -1302,20 +1332,28 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   public synchronized void commit() throws AbsTTException {
     mNodeReadRtx.assertNotClosed();
 
-//    // Assert that the DocumentNode has no more than one child node (the root node).
-//    final long nodeKey = mNodeReadRtx.getNode().getNodeKey();
-//    moveToDocumentRoot();
-//    final DocumentRootNode document = (DocumentRootNode)mNodeReadRtx.getNode();
-//    if (document.getChildCount() > 1) {
-//      moveTo(nodeKey);
-//      throw new IllegalStateException(
-//        "DocumentRootNode may not have more than one child node!");
-//    }
-//    moveTo(nodeKey);
+    // // Assert that the DocumentNode has no more than one child node (the root node).
+    // final long nodeKey = mNodeReadRtx.getNode().getNodeKey();
+    // moveToDocumentRoot();
+    // final DocumentRootNode document = (DocumentRootNode)mNodeReadRtx.getNode();
+    // if (document.getChildCount() > 1) {
+    // moveTo(nodeKey);
+    // throw new IllegalStateException(
+    // "DocumentRootNode may not have more than one child node!");
+    // }
+    // moveTo(nodeKey);
 
     // Execute pre-commit hooks.
     for (final IPreCommitHook hook : mPreCommitHooks) {
       hook.preCommit(this);
+    }
+
+    mPathSummary.moveToDocumentRoot();
+    for (final IAxis axis = new DescendantAxis(mPathSummary); axis.hasNext();) {
+      axis.next();
+      final INode node = mPathSummary.getNode();
+      System.out.println(node);
+      System.out.println(mPathSummary.getQNameOfCurrentNode());
     }
 
     // Commit uber page.
@@ -1355,7 +1393,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
    *           if an I/O error occurs
    */
   private void postOrderTraversalHashes() throws TTIOException {
-    for (final IAxis axis = new PostOrderAxis(this); axis.hasNext();) {
+    for (final IAxis axis = new PostOrderAxis(this, EIncludeSelf.YES); axis
+      .hasNext();) {
       axis.next();
       final IStructNode node = getStructuralNode();
       if (node.getKind() == EKind.ELEMENT) {
@@ -1698,8 +1737,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     @Nonnull final EKind pKind) throws TTIOException {
     final IPageWriteTrx pageTransaction = getPageTransaction();
     final int nameKey =
-      NamePageHash.generateHashForString(PageWriteTrx.buildName(pName));
-    final int namespaceKey =
+      pKind == EKind.NAMESPACE ? NamePageHash.generateHashForString(pName
+        .getPrefix()) : NamePageHash.generateHashForString(PageWriteTrx
+        .buildName(pName));
+    final int uriKey =
       NamePageHash.generateHashForString(pName.getNamespaceURI());
 
     final NodeDelegate nodeDel =
@@ -1709,7 +1750,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       new StructNodeDelegate(nodeDel, EFixed.NULL_NODE_KEY
         .getStandardProperty(), pRightSibKey, pLeftSibKey, 0, 0);
     final NameNodeDelegate nameDel =
-      new NameNodeDelegate(nodeDel, nameKey, namespaceKey);
+      new NameNodeDelegate(nodeDel, nameKey, uriKey);
 
     return (PathNode)pageTransaction.createNode(new PathNode(pKind, nodeDel,
       structDel, nameDel), EPage.PATHSUMMARY);

@@ -43,7 +43,7 @@ public final class PostOrderAxis extends AbsAxis {
 
   private boolean mMovedToParent;
 
-  private boolean mDone;
+  private boolean mIsStartKey;
 
   /**
    * Constructor initializing internal state.
@@ -55,12 +55,23 @@ public final class PostOrderAxis extends AbsAxis {
     super(pRtx);
   }
 
+  /**
+   * Constructor initializing internal state.
+   * 
+   * @param pRtx
+   *          exclusive (immutable) trx to iterate with
+   */
+  public PostOrderAxis(@Nonnull final INodeTraversal pRtx,
+    @Nonnull final EIncludeSelf pIncludeSelf) {
+    super(pRtx, pIncludeSelf);
+  }
+
   @Override
   public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
     mKey = pNodeKey;
     mMovedToParent = false;
-    mDone = false;
+    mIsStartKey = false;
   }
 
   @Override
@@ -68,15 +79,25 @@ public final class PostOrderAxis extends AbsAxis {
     if (isNext()) {
       return true;
     }
-    
+
     resetToLastKey();
 
-    if (mDone) {
-      resetToStartKey();
-      return false;
+    // No subtree.
+    if (!getTransaction().getStructuralNode().hasFirstChild()
+      && getTransaction().getNode().getNodeKey() == getStartKey()
+      || mIsStartKey) {
+      if (!mIsStartKey && isSelfIncluded() == EIncludeSelf.YES) {
+        mIsStartKey = true;
+        return true;
+      } else {
+        resetToStartKey();
+        return false;
+      }
     }
 
     final long currKey = mKey;
+
+    // Move down in the tree if it hasn't moved down before.
     if ((!mMovedToParent && getTransaction().getStructuralNode()
       .hasFirstChild())
       || (getTransaction().getStructuralNode().hasRightSibling() && getTransaction()
@@ -91,6 +112,7 @@ public final class PostOrderAxis extends AbsAxis {
       return true;
     }
 
+    // Move to the right sibling or parent node after walking down.
     if (getTransaction().getStructuralNode().hasRightSibling()) {
       mKey = getTransaction().getStructuralNode().getRightSiblingKey();
     } else {
@@ -98,15 +120,24 @@ public final class PostOrderAxis extends AbsAxis {
       mMovedToParent = true;
     }
 
+    // Stop traversal if needed.
     if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
       resetToStartKey();
       return false;
     }
 
+    // Traversal is at start key.
     if (mKey == getStartKey()) {
-      mDone = true;
+      if (isSelfIncluded() == EIncludeSelf.YES) {
+        mIsStartKey = true;
+        return true;
+      } else {
+        resetToStartKey();
+        return false;
+      }
     }
 
+    // Move back to current node.
     getTransaction().moveTo(currKey);
     return true;
   }

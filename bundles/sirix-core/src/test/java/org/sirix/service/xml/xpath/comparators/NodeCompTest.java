@@ -104,10 +104,8 @@ public class NodeCompTest {
 
   @Test
   public void testAtomize() throws TTXPathException {
-
     IAxis axis = new LiteralExpr(holder.getRtx(), -2);
-    axis.hasNext(); // this is needed, because hasNext() has already been
-    // called
+    axis.hasNext();
     axis.next();
     AtomicValue[] value = comparator.atomize(axis);
     assertEquals(value.length, 1);

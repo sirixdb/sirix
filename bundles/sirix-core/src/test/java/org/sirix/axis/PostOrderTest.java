@@ -53,13 +53,31 @@ public class PostOrderTest {
   }
 
   @Test
-  public void testIterate() throws AbsTTException {
+  public void testIterateWhole() throws AbsTTException {
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {
       4L, 6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L
     });
+  }
+  
+  @Test
+  public void testIterateFirstSubtree() throws AbsTTException {
+    final INodeReadTrx rtx = holder.getRtx();
 
+    rtx.moveTo(5);
+    AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {
+      6L, 7L
+    });
+  }
+  
+  @Test
+  public void testIterateZero() throws AbsTTException {
+    final INodeReadTrx rtx = holder.getRtx();
+
+    rtx.moveTo(8);
+    AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {
+    });
   }
 }

@@ -69,17 +69,14 @@ public final class OverallTest extends TestCase {
       if (ran.nextBoolean()) {
         switch (holder.getWtx().getNode().getKind()) {
         case ELEMENT:
-          holder.getWtx().setQName(new QName(getString()));
-          holder.getWtx().setURI(getString());
+//          holder.getWtx().setQName(new QName(getString()));
           break;
         case ATTRIBUTE:
-          holder.getWtx().setQName(new QName(getString()));
-          holder.getWtx().setURI(getString());
+//          holder.getWtx().setQName(new QName(getString()));
           holder.getWtx().setValue(getString());
           break;
         case NAMESPACE:
-          holder.getWtx().setQName(new QName(getString()));
-          holder.getWtx().setURI(getString());
+//          holder.getWtx().setQName(new QName(getString()));
           break;
         case TEXT:
           holder.getWtx().setValue(getString());

@@ -153,10 +153,10 @@ public abstract class AbsForwardingNodeWriteTrx extends
     delegate().setValue(pValue);
   }
 
-  @Override
-  public void setURI(@Nonnull String pUri) throws AbsTTException {
-    delegate().setURI(pUri);
-  }
+//  @Override
+//  public void setURI(@Nonnull String pUri) throws AbsTTException {
+//    delegate().setURI(pUri);
+//  }
 
   @Override
   public void remove() throws AbsTTException {

@@ -63,12 +63,14 @@ public class SomeExprTest {
 
     final AbsAxis axis1 = new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/@i");
     assertEquals(true, axis1.hasNext());
+    axis1.next();
     assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValueOfCurrentNode()));
     assertEquals(false, axis1.hasNext());
 
     final AbsAxis axis2 =
       new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/@abc");
     assertEquals(true, axis2.hasNext());
+    axis2.next();
     assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValueOfCurrentNode()));
     assertEquals(false, axis2.hasNext());
 

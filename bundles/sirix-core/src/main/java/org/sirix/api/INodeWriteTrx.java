@@ -444,17 +444,17 @@ public interface INodeWriteTrx extends INodeReadTrx {
    */
   void setQName(@Nonnull QName pName) throws AbsTTException;
 
-  /**
-   * Set URI of node.
-   * 
-   * @param pUri
-   *          new URI of node
-   * @throws TTIOException
-   *           if URI of node couldn't be set
-      * @throws NullPointerException
-   *           if {@code pUri} is {@code null}
-   */
-  void setURI(@Nonnull String pUri) throws AbsTTException;
+//  /**
+//   * Set URI of node.
+//   * 
+//   * @param pUri
+//   *          new URI of node
+//   * @throws TTIOException
+//   *           if URI of node couldn't be set
+//      * @throws NullPointerException
+//   *           if {@code pUri} is {@code null}
+//   */
+//  void setURI(@Nonnull String pUri) throws AbsTTException;
 
   /**
    * Set value of node.

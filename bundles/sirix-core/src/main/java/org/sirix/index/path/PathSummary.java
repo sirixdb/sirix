@@ -159,7 +159,7 @@ public class PathSummary implements INodeReadTrx {
 
   @Override
   public boolean moveToDocumentRoot() {
-    return moveTo(EFixed.NULL_NODE_KEY.getStandardProperty());
+    return moveTo(EFixed.ROOT_NODE_KEY.getStandardProperty());
   }
 
   @Override
@@ -219,13 +219,17 @@ public class PathSummary implements INodeReadTrx {
   @Override
   public QName getQNameOfCurrentNode() {
     assertNotClosed();
-    final String name =
-      mPageReadTrx.getName(((INameNode)mCurrentNode).getNameKey(), mCurrentNode
-        .getKind());
-    final String uri =
-      mPageReadTrx.getName(((INameNode)mCurrentNode).getURIKey(),
-        EKind.NAMESPACE);
-    return Util.buildQName(uri, name);
+    if (mCurrentNode instanceof INameNode) {
+      final String name =
+        mPageReadTrx.getName(((INameNode)mCurrentNode).getNameKey(),
+          ((PathNode)mCurrentNode).getPathKind());
+      final String uri =
+        mPageReadTrx.getName(((INameNode)mCurrentNode).getURIKey(),
+          EKind.NAMESPACE);
+      return Util.buildQName(uri, name);
+    } else {
+      return null;
+    }
   }
 
   @Override

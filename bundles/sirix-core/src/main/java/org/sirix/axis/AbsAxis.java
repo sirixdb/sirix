@@ -63,7 +63,7 @@ public abstract class AbsAxis implements IAxis {
 
   /** Include self? */
   private final EIncludeSelf mIncludeSelf;
-  
+
   private boolean mHasNext;
 
   /**
@@ -112,7 +112,13 @@ public abstract class AbsAxis implements IAxis {
         throw new NoSuchElementException("No more nodes in the axis!");
       }
     }
-    mRtx.moveTo(mKey);
+    if (mKey >= 0) {
+      if (!mRtx.moveTo(mKey)) {
+        throw new IllegalStateException();
+      }
+    } else {
+      mRtx.moveTo(mKey);
+    }
     mNext = false;
     return mKey;
   }

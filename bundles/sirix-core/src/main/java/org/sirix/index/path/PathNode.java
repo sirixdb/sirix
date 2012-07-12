@@ -30,7 +30,7 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
     mNameNodeDel = checkNotNull(pNameNodeDel);
     mKind = checkNotNull(pKind);
   }
-  
+
   public EKind getPathKind() {
     return mKind;
   }
@@ -98,6 +98,13 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
         && Objects.equal(mNameNodeDel, other.mNameNodeDel);
     }
     return false;
+  }
+
+  @Override
+  public String toString() {
+    return Objects.toStringHelper(this).add("node delegate", mNodeDel).add(
+      "struct delegate", mStructNodeDel).add("name delegate", mNameNodeDel)
+      .toString();
   }
 
 }
