@@ -46,12 +46,14 @@ public class ElementNodeTest {
   @Test
   public void testElementNode() {
 
-    final NodeDelegate del = new NodeDelegate(13, 14, 0, EFixed.NULL_NODE_KEY.getStandardProperty());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l, 16l, 1l, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 18, 19);
+    final NodeDelegate del = new NodeDelegate(13, 14, 0);
+    final StructNodeDelegate strucDel =
+      new StructNodeDelegate(del, 12l, 17l, 16l, 1l, 0);
+    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 18, 19, 1);
 
     final ElementNode node1 =
-      new ElementNode(del, strucDel, nameDel, new ArrayList<Long>(), HashBiMap.<Integer, Long> create(), new ArrayList<Long>());
+      new ElementNode(del, strucDel, nameDel, new ArrayList<Long>(), HashBiMap
+        .<Integer, Long> create(), new ArrayList<Long>());
 
     // Create empty node.
     node1.insertAttribute(97, 100);
@@ -80,7 +82,8 @@ public class ElementNodeTest {
     assertEquals(2, node.getNamespaceCount());
     assertEquals(18, node.getNameKey());
     assertEquals(19, node.getURIKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
+    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node
+      .getTypeKey());
     assertEquals(EKind.ELEMENT, node.getKind());
     assertEquals(true, node.hasFirstChild());
     assertEquals(true, node.hasParent());

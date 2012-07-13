@@ -81,7 +81,7 @@ public class DescendantAxisTest {
     final INodeReadTrx rtx = holder.getRtx();
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, EIncludeSelf.YES), new long[] {
-      EFixed.ROOT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
+      EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
     });
 
     rtx.moveTo(1L);
@@ -130,7 +130,7 @@ public class DescendantAxisTest {
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
       new long[] {
-        EFixed.ROOT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
+        EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
       });
 
     rtx.moveTo(1L);

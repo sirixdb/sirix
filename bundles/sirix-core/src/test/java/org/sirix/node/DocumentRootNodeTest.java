@@ -42,8 +42,8 @@ public class DocumentRootNodeTest {
 
     // Create empty node.
     final NodeDelegate nodeDel =
-      new NodeDelegate(EFixed.ROOT_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty(),
-        EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty());
+      new NodeDelegate(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty(),
+        EFixed.NULL_NODE_KEY.getStandardProperty());
     final StructNodeDelegate strucDel =
       new StructNodeDelegate(nodeDel, EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY
         .getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
@@ -61,7 +61,7 @@ public class DocumentRootNodeTest {
 
   private final static void check(final DocumentRootNode node) {
     // Now compare.
-    assertEquals(EFixed.ROOT_NODE_KEY.getStandardProperty(), node.getNodeKey());
+    assertEquals(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), node.getNodeKey());
     assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node.getParentKey());
     assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
     assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());

@@ -135,4 +135,15 @@ public final class ByteBufferSinkAndSource implements ITTSink, ITTSource {
       mBuffer.position(position);
     }
   }
+
+  @Override
+  public short readShort() {
+    return mBuffer.getShort();
+  }
+
+  @Override
+  public void writeShort(final short pShortVal) {
+    checkAndIncrease(2);
+    mBuffer.putShort(pShortVal);
+  }
 }

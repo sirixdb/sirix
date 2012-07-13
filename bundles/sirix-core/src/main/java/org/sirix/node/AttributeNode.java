@@ -28,11 +28,12 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import com.google.common.base.Objects;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -72,8 +73,9 @@ public final class AttributeNode extends AbsForwardingNode implements IValNode,
    *          {@link ValNodeDelegate} to be set
    * 
    */
-  public AttributeNode(final NodeDelegate pDel,
-    final NameNodeDelegate pNameDel, final ValNodeDelegate pValDel) {
+  public AttributeNode(@Nonnull final NodeDelegate pDel,
+    @Nonnull final NameNodeDelegate pNameDel,
+    @Nonnull final ValNodeDelegate pValDel) {
     mDel = checkNotNull(pDel);
     mNameDel = checkNotNull(pNameDel);
     mValDel = pValDel;
@@ -142,6 +144,16 @@ public final class AttributeNode extends AbsForwardingNode implements IValNode,
     return retVal;
   }
 
+  @Override
+  public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
+    mNameDel.setPathNodeKey(pPathNodeKey);
+  }
+
+  @Override
+  public long getPathNodeKey() {
+    return mNameDel.getPathNodeKey();
+  }
+
   /**
    * Getting the inlying {@link NameNodeDelegate}.
    * 
@@ -164,5 +176,4 @@ public final class AttributeNode extends AbsForwardingNode implements IValNode,
   protected NodeDelegate delegate() {
     return mDel;
   }
-
 }

@@ -77,6 +77,10 @@ public class UpdateTest {
     wtx.insertElementAsRightSibling(new QName("blabla"));
     wtx.moveTo(5);
     wtx.remove();
+    assertEquals(8, wtx.getNode().getNodeKey());
+    wtx.moveTo(9);
+    wtx.setQName(new QName("foobarbaz"));
+    wtx.moveTo(4);
     testDelete(wtx);
     wtx.commit();
     testDelete(wtx);
@@ -181,6 +185,7 @@ public class UpdateTest {
     wtx.remove();
     wtx.moveTo(11);
     wtx.remove();
+    wtx.moveTo(5);
     wtx.commit();
     wtx.close();
     NodeReadTrx rtx = (NodeReadTrx)holder.getSession().beginNodeReadTrx(0);
@@ -193,6 +198,9 @@ public class UpdateTest {
     assertEquals(1, rtx.getRevisionNumber());
     assertEquals(null, rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"),
       EKind.ELEMENT));
+    assertEquals(0, rtx.getNameCount());
+    rtx.moveTo(5);
+    assertEquals(2, rtx.getNameCount());
     rtx.close();
   }
 

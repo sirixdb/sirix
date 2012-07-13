@@ -46,7 +46,7 @@ public class TextNodeTest {
       (byte)17, (byte)18
     };
     final NodeDelegate del =
-      new NodeDelegate(13, 14, 0, EFixed.ROOT_NODE_KEY.getStandardProperty());
+      new NodeDelegate(13, 14, 0);
     final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
       new StructNodeDelegate(del, EFixed.NULL_NODE_KEY.getStandardProperty(),

@@ -247,7 +247,7 @@ public class RestXPathProcessor {
         Response.Status.INTERNAL_SERVER_ERROR);
     } finally {
       if (rtx != null) {
-        rtx.moveTo(EFixed.ROOT_NODE_KEY.getStandardProperty());
+        rtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
         WorkerHelper.closeRTX(rtx, session, database);
       }
     }

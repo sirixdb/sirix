@@ -3,6 +3,7 @@ package org.sirix.index.path;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -21,14 +22,17 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
   private final StructNodeDelegate mStructNodeDel;
   private final NameNodeDelegate mNameNodeDel;
   private final EKind mKind;
+  private long mPCR;
 
-  public PathNode(@Nonnull EKind pKind, @Nonnull final NodeDelegate pNodeDel,
+  public PathNode(@Nonnull final NodeDelegate pNodeDel,
     @Nonnull final StructNodeDelegate pStructNodeDel,
-    @Nonnull final NameNodeDelegate pNameNodeDel) {
+    @Nonnull final NameNodeDelegate pNameNodeDel, @Nonnull EKind pKind,
+    @Nonnegative long pPCR) {
     mNodeDel = checkNotNull(pNodeDel);
     mStructNodeDel = checkNotNull(pStructNodeDel);
     mNameNodeDel = checkNotNull(pNameNodeDel);
     mKind = checkNotNull(pKind);
+    mPCR = pPCR;
   }
 
   public EKind getPathKind() {
@@ -63,6 +67,25 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
   @Override
   public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get path class record.
+   * 
+   * @return path class record.
+   */
+  public long getPCR() {
+    return mPCR;
+  }
+
+  /**
+   * Set path class record.
+   * 
+   * @param pPCR
+   *          path class record
+   */
+  public void setPCR(final long pPCR) {
+    mPCR = pPCR;
   }
 
   @Override
@@ -105,6 +128,15 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
     return Objects.toStringHelper(this).add("node delegate", mNodeDel).add(
       "struct delegate", mStructNodeDel).add("name delegate", mNameNodeDel)
       .toString();
+  }
+
+  @Override
+  public void setPathNodeKey(long nodeKey) {
+  }
+
+  @Override
+  public long getPathNodeKey() {
+    return 0;
   }
 
 }

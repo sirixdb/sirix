@@ -66,7 +66,7 @@ public class DocumentNodeAxis extends AbsAxis {
 
     if (mFirst) {
       mFirst = false;
-      mKey = EFixed.ROOT_NODE_KEY.getStandardProperty();
+      mKey = EFixed.DOCUMENT_NODE_KEY.getStandardProperty();
       return true;
     } else {
       resetToStartKey();

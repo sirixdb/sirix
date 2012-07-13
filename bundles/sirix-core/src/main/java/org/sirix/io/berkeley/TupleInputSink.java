@@ -75,5 +75,9 @@ public final class TupleInputSink implements ITTSource {
     @Nonnegative final int pOffset, @Nonnegative final int pLength) {
     mInput.read(pBuffer, pOffset, pLength);
   }
-
+  
+  @Override
+  public short readShort() {
+    return mInput.readShort();
+  }
 }

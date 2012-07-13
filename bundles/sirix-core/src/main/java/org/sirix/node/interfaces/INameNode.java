@@ -56,4 +56,8 @@ public interface INameNode extends INode {
    *          the urikey to be set
    */
   void setURIKey(int pUriKey);
+
+  void setPathNodeKey(long nodeKey);
+  
+  long getPathNodeKey();
 }

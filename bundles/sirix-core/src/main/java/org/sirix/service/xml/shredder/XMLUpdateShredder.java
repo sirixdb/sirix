@@ -294,7 +294,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
       } else {
         if (mWtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
           // Find the start key for the update operation.
-          long startkey = EFixed.ROOT_NODE_KEY.getStandardProperty() + 1;
+          long startkey = EFixed.DOCUMENT_NODE_KEY.getStandardProperty() + 1;
           while (!mWtx.moveTo(startkey)) {
             startkey++;
           }

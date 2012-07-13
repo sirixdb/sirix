@@ -216,14 +216,4 @@ public final class NullNode implements IStructNode {
   public int hashCode() {
     return Objects.hashCode(mNode);
   }
-
-  @Override
-  public void setPCR(long pPCR) {
-    mNode.setPCR(pPCR);
-  }
-
-  @Override
-  public long getPCR() {
-    return mNode.getPCR();
-  }
 }

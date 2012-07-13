@@ -45,7 +45,7 @@ public class PathSummary implements INodeReadTrx {
     Optional<INode> node;
     try {
       node =
-        mPageReadTrx.getNode(EFixed.ROOT_NODE_KEY.getStandardProperty(),
+        mPageReadTrx.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
           EPage.PATHSUMMARY);
       if (node.isPresent()) {
         mCurrentNode = node.get();
@@ -79,9 +79,6 @@ public class PathSummary implements INodeReadTrx {
   @Override
   public final boolean moveTo(final long pNodeKey) {
     assertNotClosed();
-    if (pNodeKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-      return false;
-    }
 
     // Remember old node and fetch new one.
     final INode oldNode = mCurrentNode;
@@ -159,7 +156,7 @@ public class PathSummary implements INodeReadTrx {
 
   @Override
   public boolean moveToDocumentRoot() {
-    return moveTo(EFixed.ROOT_NODE_KEY.getStandardProperty());
+    return moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
   }
 
   @Override
@@ -285,5 +282,11 @@ public class PathSummary implements INodeReadTrx {
   @Override
   public INodeReadTrx cloneInstance() throws AbsTTException {
     throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public int getNameCount() {
+    // TODO Auto-generated method stub
+    return 0;
   }
 }

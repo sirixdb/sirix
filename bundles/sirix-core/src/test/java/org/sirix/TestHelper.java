@@ -28,7 +28,6 @@
 package org.sirix;
 
 import static org.junit.Assert.fail;
-
 import com.google.common.collect.HashBiMap;
 
 import java.io.BufferedReader;
@@ -195,14 +194,14 @@ public final class TestHelper {
     NameNodeDelegate nameDel;
     StructNodeDelegate strucDel;
     ValNodeDelegate valDel;
+    int pathNodeKey = 1;
     for (int i = offset; i < length; i++) {
       switch (random.nextInt(6)) {
       case 0:
         nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000), random
-            .nextInt(10000));
+          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
         nameDel =
-          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt());
+          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(), pathNodeKey++);
         valDel = new ValNodeDelegate(nodeDel, new byte[] {
           0, 1, 2, 3, 4
         }, false);
@@ -210,14 +209,13 @@ public final class TestHelper {
         break;
       case 1:
         page.setNode(i, new DeletedNode(new NodeDelegate(random.nextInt(10000), random.nextInt(10000),
-          random.nextInt(10000), random.nextInt(10000))));
+          random.nextInt(10000))));
         break;
       case 2:
         nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000), random
-            .nextInt(10000));
+          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
         nameDel =
-          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt());
+          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(), pathNodeKey++);
         strucDel =
           new StructNodeDelegate(nodeDel, random.nextInt(10000), random
             .nextInt(10000), random.nextInt(10000), random.nextInt(10000),
@@ -228,16 +226,14 @@ public final class TestHelper {
         break;
       case 3:
         nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000), random
-            .nextInt(10000));
+          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
         nameDel =
-          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt());
+          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(), pathNodeKey++);
         page.setNode(i, new NamespaceNode(nodeDel, nameDel));
         break;
       case 4:
         nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000), random
-            .nextLong());
+          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
         strucDel =
           new StructNodeDelegate(nodeDel, random.nextInt(10000), random
             .nextInt(10000), random.nextInt(10000), random.nextInt(10000),
@@ -246,8 +242,7 @@ public final class TestHelper {
         break;
       case 5:
         nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000), random
-            .nextLong());
+          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
         valDel = new ValNodeDelegate(nodeDel, new byte[] {
           0, 1
         }, false);

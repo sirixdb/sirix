@@ -165,4 +165,9 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   public INodeReadTrx cloneInstance() throws AbsTTException {
     return delegate().cloneInstance();
   }
+  
+  @Override
+  public int getNameCount() {
+    return delegate().getNameCount();
+  }
 }

@@ -71,4 +71,12 @@ public interface ITTSink {
    */
   void writeBytes(byte[] pByteVals);
   
+  /**
+   * Writing a short to the storage.
+   * 
+   * @param pShortVal
+   *          to be written
+   */
+  void writeShort(short pShortVal);
+  
 }

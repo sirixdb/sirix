@@ -280,4 +280,6 @@ public interface INodeReadTrx extends INodeTraversal {
   ISession getSession();
   
   INodeReadTrx cloneInstance() throws AbsTTException;
+  
+  int getNameCount();
 }

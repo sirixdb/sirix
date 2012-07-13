@@ -73,5 +73,11 @@ public interface ITTSource {
    * @return the next int of the source
    */
   int readInt();
-
+  
+  /**
+   * Reading a short of the storage.
+   * 
+   * @return the next short of the source
+   */
+  short readShort();
 }

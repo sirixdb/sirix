@@ -85,7 +85,7 @@ public final class OverallTest extends TestCase {
         }
       } else {
         if (holder.getWtx().getNode() instanceof ElementNode) {
-          if (holder.getWtx().getNode().getParentKey() == EFixed.ROOT_NODE_KEY.getStandardProperty()) {
+          if (holder.getWtx().getNode().getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
             assertTrue(holder.getWtx().moveToFirstChild());
             assertTrue(holder.getWtx().moveToFirstChild());
           }
@@ -114,12 +114,12 @@ public final class OverallTest extends TestCase {
         do {
           final int newKey = ran.nextInt(i + 1) + 1;
 
-          if (newKey == EFixed.ROOT_NODE_KEY.getStandardProperty()) {
+          if (newKey == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
             holder.getWtx().moveToFirstChild();
             holder.getWtx().moveToFirstChild();
           } else {
             holder.getWtx().moveTo(newKey);
-            if (holder.getWtx().getNode().getParentKey() == EFixed.ROOT_NODE_KEY.getStandardProperty()) {
+            if (holder.getWtx().getNode().getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
               holder.getWtx().moveToFirstChild();
             }
           }

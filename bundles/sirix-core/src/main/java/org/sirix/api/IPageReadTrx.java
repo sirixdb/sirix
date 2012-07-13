@@ -57,6 +57,8 @@ public interface IPageReadTrx extends AutoCloseable {
    *           if {@code pKind} is {@code null}
    */
   String getName(int pKey, @Nonnull EKind pKind);
+  
+  int getNameCount(int pKey, @Nonnull EKind pKind);
 
   /**
    * Getting the raw name related to the name key and the node kind.

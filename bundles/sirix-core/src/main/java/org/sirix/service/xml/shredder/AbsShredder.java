@@ -55,7 +55,7 @@ public abstract class AbsShredder implements IShredder<String, QName> {
     switch (mInsertLocation) {
     case ASRIGHTSIBLING:
       if (mWtx.getNode().getKind() == EKind.DOCUMENT_ROOT
-        || mWtx.getNode().getParentKey() == EFixed.ROOT_NODE_KEY
+        || mWtx.getNode().getParentKey() == EFixed.DOCUMENT_NODE_KEY
           .getStandardProperty()) {
         throw new IllegalStateException(
           "Subtree can not be inserted as sibling of document root or the root-element!");
@@ -65,7 +65,7 @@ public abstract class AbsShredder implements IShredder<String, QName> {
       break;
     case ASLEFTSIBLING:
       if (mWtx.getNode().getKind() == EKind.DOCUMENT_ROOT
-        || mWtx.getNode().getParentKey() == EFixed.ROOT_NODE_KEY
+        || mWtx.getNode().getParentKey() == EFixed.DOCUMENT_NODE_KEY
           .getStandardProperty()) {
         throw new IllegalStateException(
           "Subtree can not be inserted as sibling of document root or the root-element!");

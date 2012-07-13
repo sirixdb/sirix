@@ -129,9 +129,9 @@ public final class UberPage extends AbsForwardingPage {
     pReference.setPage(ndp);
 
     final NodeDelegate nodeDel =
-      new NodeDelegate(EFixed.ROOT_NODE_KEY.getStandardProperty(),
+      new NodeDelegate(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
         EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY
-          .getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty());
+          .getStandardProperty());
     final StructNodeDelegate strucDel =
       new StructNodeDelegate(nodeDel, EFixed.NULL_NODE_KEY
         .getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty(),

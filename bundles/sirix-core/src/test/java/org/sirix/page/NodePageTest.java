@@ -51,12 +51,14 @@ public class NodePageTest {
     final NodePage page1 = new NodePage(0L, 0L);
     assertEquals(0L, page1.getNodePageKey());
 
-    final NodeDelegate del = new NodeDelegate(0, 1, 0, EFixed.NULL_NODE_KEY.getStandardProperty());
-    final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l, 3l, 1l, 0l);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 6, 7);
+    final NodeDelegate del = new NodeDelegate(0, 1, 0);
+    final StructNodeDelegate strucDel =
+      new StructNodeDelegate(del, 12l, 4l, 3l, 1l, 0l);
+    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 6, 7, 1);
 
     final ElementNode node1 =
-      new ElementNode(del, strucDel, nameDel, new ArrayList<Long>(), HashBiMap.<Integer, Long> create(), new ArrayList<Long>());
+      new ElementNode(del, strucDel, nameDel, new ArrayList<Long>(), HashBiMap
+        .<Integer, Long> create(), new ArrayList<Long>());
     node1.insertAttribute(88L, 100);
     node1.insertAttribute(87L, 101);
     node1.insertNamespace(99L);
@@ -85,7 +87,8 @@ public class NodePageTest {
     assertEquals(98L, ((ElementNode)page2.getNode(0)).getNamespaceKey(1));
     assertEquals(6, ((INameNode)page2.getNode(0)).getNameKey());
     assertEquals(7, ((INameNode)page2.getNode(0)).getURIKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), page2.getNode(0).getTypeKey());
+    assertEquals(NamePageHash.generateHashForString("xs:untyped"), page2
+      .getNode(0).getTypeKey());
 
   }
 }

@@ -29,9 +29,11 @@
  */
 package org.sirix.node.delegates;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -61,6 +63,9 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
   /** URI of the related namespace. */
   private int mUriKey;
 
+  /** Path node key. */
+  private long mPathNodeKey;
+
   /**
    * Constructor.
    * 
@@ -72,10 +77,12 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
    *          urikey to be stored
    */
   public NameNodeDelegate(@Nonnull final NodeDelegate pDel, final int pNameKey,
-    final int pUriKey) {
+    final int pUriKey, @Nonnegative final long pPathNodeKey) {
     mDelegate = checkNotNull(pDel);
     mNameKey = pNameKey;
     mUriKey = pUriKey;
+    checkArgument(pPathNodeKey >= 0, "pPathNodeKey may not be < 0!");
+    mPathNodeKey = pPathNodeKey;
   }
 
   /**
@@ -88,6 +95,7 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
     mDelegate = pNameDel.mDelegate;
     mNameKey = pNameDel.mNameKey;
     mUriKey = pNameDel.mUriKey;
+    mPathNodeKey = pNameDel.mPathNodeKey;
   }
 
   @Override
@@ -119,6 +127,26 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
   public void setURIKey(final int pUriKey) {
     mUriKey = pUriKey;
   }
+  
+  /**
+   * Setting the class path record.
+   * 
+   * @param pPCR
+   *          the path class record to set
+   */
+  public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
+    checkArgument(pPathNodeKey >= 0, "pPathNodeKey may not be < 0!");
+    mPathNodeKey = pPathNodeKey;
+  }
+  
+  /**
+   * Get the path class record.
+   * 
+   * @return path class record the node belongs to
+   */
+  public long getPathNodeKey() {
+    return mPathNodeKey;
+  }
 
   @Override
   public int hashCode() {
@@ -131,6 +159,7 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
       final NameNodeDelegate other = (NameNodeDelegate)pObj;
       return Objects.equal(mNameKey, other.mNameKey)
         && Objects.equal(mUriKey, other.mNameKey);
+//        && Objects.equal(mPathNodeKey, other.mPathNodeKey);
     }
     return false;
   }
@@ -138,7 +167,7 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
   @Override
   public String toString() {
     return Objects.toStringHelper(this).add("node delegate", mDelegate).add(
-      "uriKey", mUriKey).add("nameKey", mNameKey).toString();
+      "uriKey", mUriKey).add("nameKey", mNameKey).add("pathNodeKey", mPathNodeKey).toString();
   }
 
   @Override

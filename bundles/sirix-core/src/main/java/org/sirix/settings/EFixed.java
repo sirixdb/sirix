@@ -53,8 +53,8 @@ public enum EFixed {
   /** Root node page key constant. */
   ROOT_PAGE_KEY(0L),
     
-  /** Root node key constant. */
-  ROOT_NODE_KEY(0L),
+  /** Document node key constant. */
+  DOCUMENT_NODE_KEY(0L),
   
   /** Null key for nodes. */
   NULL_NODE_KEY(-1L);

@@ -71,7 +71,7 @@ public final class ParentAxis extends AbsAxis {
     resetToLastKey();
     final INode node = getTransaction().getNode();
     if (node.getKind() != EKind.DOCUMENT_ROOT && mFirst && node.hasParent()
-      && node.getParentKey() != EFixed.ROOT_NODE_KEY.getStandardProperty()) {
+      && node.getParentKey() != EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       mFirst = false;
       mKey = node.getParentKey();
       return true;

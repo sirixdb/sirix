@@ -27,9 +27,11 @@
 
 package org.sirix.node;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.EVisitResult;
@@ -116,6 +118,16 @@ public final class NamespaceNode extends AbsForwardingNode implements INameNode 
   public String toString() {
     return Objects.toStringHelper(this).add("nodeDel", mNodeDel).add("nameDel",
       mNameDel).toString();
+  }
+  
+  @Override
+  public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
+    mNameDel.setPathNodeKey(pPathNodeKey);
+  }
+
+  @Override
+  public long getPathNodeKey() {
+    return mNameDel.getPathNodeKey();
   }
 
   /**

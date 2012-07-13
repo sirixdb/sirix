@@ -490,7 +490,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 
       // Remember to emit all pending end elements from stack if
       // required.
-      if (mLastKey != EFixed.ROOT_NODE_KEY.getStandardProperty()) {
+      if (mLastKey != EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
         if (mAxis.hasNext()) {
           final long peekKey = mAxis.peek();
           mDepth = mAxis.getDepth();

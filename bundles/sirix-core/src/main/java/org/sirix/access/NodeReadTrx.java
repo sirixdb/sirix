@@ -107,7 +107,7 @@ public final class NodeReadTrx implements INodeReadTrx {
     mId = pTransactionID;
     mPageReadTrx = checkNotNull(pPageReadTransaction);
     final Optional<INode> node =
-      getPageTransaction().getNode(EFixed.ROOT_NODE_KEY.getStandardProperty(),
+      getPageTransaction().getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
         EPage.NODEPAGE);
     if (node.isPresent()) {
       mCurrentNode = node.get();
@@ -174,7 +174,7 @@ public final class NodeReadTrx implements INodeReadTrx {
   @Override
   public final boolean moveToDocumentRoot() {
     assertNotClosed();
-    return moveTo(EFixed.ROOT_NODE_KEY.getStandardProperty());
+    return moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
   }
 
   @Override
@@ -482,5 +482,15 @@ public final class NodeReadTrx implements INodeReadTrx {
   @Override
   public int hashCode() {
     return Objects.hashCode(mId, mCurrentNode, mPageReadTrx, mSession);
+  }
+
+  @Override
+  public int getNameCount() {
+    if (mCurrentNode instanceof INameNode) {
+      return mPageReadTrx.getNameCount(((INameNode)mCurrentNode).getNameKey(),
+        mCurrentNode.getKind());
+    } else {
+      return 0;
+    }
   }
 }

@@ -89,7 +89,7 @@ public final class AncestorAxis extends AbsAxis {
       }
 
       if (getTransaction().getNode().getKind() != EKind.DOCUMENT_ROOT && getTransaction().getNode().hasParent()
-        && getTransaction().getNode().getParentKey() != EFixed.ROOT_NODE_KEY.getStandardProperty()) {
+        && getTransaction().getNode().getParentKey() != EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
         mKey = getTransaction().getStructuralNode().getParentKey();
         return true;
       }

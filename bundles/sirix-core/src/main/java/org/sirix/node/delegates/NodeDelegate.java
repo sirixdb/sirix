@@ -70,9 +70,6 @@ public class NodeDelegate implements INode {
    */
   private int mTypeKey;
 
-  /** Path class record. */
-  private long mPCR;
-
   /**
    * Constructor.
    * 
@@ -86,14 +83,13 @@ public class NodeDelegate implements INode {
    *          path class record
    */
   public NodeDelegate(@Nonnegative final long pNodeKey,
-    @Nonnegative final long pParentKey, final long pHash, final long pPCR) {
+    @Nonnegative final long pParentKey, final long pHash) {
     checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
     checkArgument(pParentKey >= (EFixed.NULL_NODE_KEY.getStandardProperty()));
     mNodeKey = pNodeKey;
     mParentKey = pParentKey;
     mHash = pHash;
     mTypeKey = TYPE_KEY;
-    mPCR = pPCR;
   }
 
   /**
@@ -147,7 +143,7 @@ public class NodeDelegate implements INode {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNodeKey, mParentKey, mTypeKey, mHash, mPCR);
+    return Objects.hashCode(mNodeKey, mParentKey, mTypeKey, mHash);
   }
 
   @Override
@@ -157,7 +153,7 @@ public class NodeDelegate implements INode {
       return Objects.equal(mNodeKey, other.mNodeKey)
         && Objects.equal(mParentKey, other.mParentKey)
         && Objects.equal(mTypeKey, other.mTypeKey)
-        && Objects.equal(mHash, other.mHash) && Objects.equal(mPCR, other.mPCR);
+        && Objects.equal(mHash, other.mHash);
     }
     return false;
   }
@@ -166,7 +162,7 @@ public class NodeDelegate implements INode {
   public String toString() {
     return Objects.toStringHelper(this).add("node key", mNodeKey).add(
       "parent node key", mParentKey).add("type key", mTypeKey).add("hash",
-      mHash).add("PCR", mPCR).toString();
+      mHash).toString();
   }
 
   @Override
@@ -182,16 +178,6 @@ public class NodeDelegate implements INode {
   @Override
   public boolean hasParent() {
     return mParentKey != EFixed.NULL_NODE_KEY.getStandardProperty();
-  }
-  
-  @Override
-  public void setPCR(@Nonnegative final long pPCR) {
-    mPCR = pPCR;
-  }
-
-  @Override
-  public long getPCR() {
-    return mPCR;
   }
 
   @Override

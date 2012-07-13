@@ -35,6 +35,7 @@ import com.google.common.collect.BiMap;
 import java.util.Collections;
 import java.util.List;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
@@ -303,5 +304,15 @@ public final class ElementNode extends AbsStructForwardingNode implements
   @Nonnull
   public NameNodeDelegate getNameNodeDelegate() {
     return new NameNodeDelegate(mNameDel);
+  }
+
+  @Override
+  public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
+    mNameDel.setPathNodeKey(pPathNodeKey);
+  }
+
+  @Override
+  public long getPathNodeKey() {
+    return mNameDel.getPathNodeKey();
   }
 }

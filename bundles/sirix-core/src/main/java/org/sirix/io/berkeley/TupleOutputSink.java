@@ -79,4 +79,9 @@ public final class TupleOutputSink implements ITTSink {
   public void writeBoolean(final boolean pBooleanVal) {
     mOutput.writeBoolean(pBooleanVal);
   }
+  
+  @Override
+  public void writeShort(final short pShortVal) {
+    mOutput.writeShort(pShortVal);
+  }
 }

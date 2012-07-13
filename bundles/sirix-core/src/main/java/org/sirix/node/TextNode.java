@@ -143,7 +143,6 @@ public final class TextNode extends AbsStructForwardingNode implements IValNode 
     final int prime = 31;
     int result = 1;
     result = prime * result + ((getNodeDelegate() == null) ? 0 : getNodeDelegate().hashCode());
-    result = prime * result + ((getStructNodeDelegate() == null) ? 0 : getStructNodeDelegate().hashCode());
     result = prime * result + ((mValDel == null) ? 0 : mValDel.hashCode());
     return result;
   }
@@ -163,13 +162,6 @@ public final class TextNode extends AbsStructForwardingNode implements IValNode 
       if (otherDel != null)
         return false;
     } else if (!del.equals(otherDel))
-      return false;
-    final StructNodeDelegate structDel = getStructNodeDelegate();
-    final StructNodeDelegate otherStructDel = other.getStructNodeDelegate();
-    if (structDel == null) {
-      if (otherStructDel != null)
-        return false;
-    } else if (!structDel.equals(otherStructDel))
       return false;
     if (mValDel == null) {
       if (other.mValDel != null)

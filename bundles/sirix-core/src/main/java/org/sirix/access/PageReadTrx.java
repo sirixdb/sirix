@@ -243,7 +243,7 @@ final class PageReadTrx implements IPageReadTrx {
     }
 
     // Get revision root page which is the leaf of the indirect tree.
-//    ref.setPage(page);
+    // ref.setPage(page);
     return page;
   }
 
@@ -475,5 +475,10 @@ final class PageReadTrx implements IPageReadTrx {
     mClosed = true;
     mCache.clear();
     mPageReader.close();
+  }
+
+  @Override
+  public int getNameCount(int pKey, @Nonnull EKind pKind) {
+    return mNamePage.getCount(pKey, pKind);
   }
 }

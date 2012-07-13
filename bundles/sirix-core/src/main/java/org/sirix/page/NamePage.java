@@ -42,7 +42,7 @@ import org.sirix.node.EKind;
 import org.sirix.page.interfaces.IPage;
 
 /**
- * <h1>NamePageBinding</h1>
+ * <h1>NamePage</h1>
  * 
  * <p>
  * Name page holds all names and their keys for a revision.
@@ -119,7 +119,7 @@ public final class NamePage implements IPage {
    * 
    * @param pKey
    *          name key identifying name
-   * @return raw name of name key
+   * @return raw name of name key, or {@code null} if not present
    */
   public String getName(final int pKey, @Nonnull final EKind pNodeKind) {
     String name;
@@ -236,6 +236,7 @@ public final class NamePage implements IPage {
   }
 
   @Override
-  public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws AbsTTException {
+  public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx)
+    throws AbsTTException {
   }
 }

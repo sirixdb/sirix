@@ -109,8 +109,9 @@ public final class PageWriteTrx implements IPageWriteTrx {
    * @throws TTIOException
    *           if IO Error
    */
-  PageWriteTrx(final Session pSession, final UberPage pUberPage,
-    final IWriter pWriter, final long pId, final long pRepresentRev,
+  @Nonnull
+  PageWriteTrx(final @Nonnull Session pSession, final @Nonnull UberPage pUberPage,
+    final @Nonnull IWriter pWriter, final long pId, final long pRepresentRev,
     final long pStoreRev, final long pLastCommitedRev) throws TTIOException {
     mPageRtx = new PageReadTrx(pSession, pUberPage, pRepresentRev, pWriter);
     final RevisionRootPage lastCommitedRoot =
@@ -202,7 +203,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
     prepareNodePage(nodePageKey, pPage);
     final INode delNode =
       new DeletedNode(new NodeDelegate(pNode.getNodeKey(),
-        pNode.getParentKey(), pNode.getHash(), pNode.getPCR()));
+        pNode.getParentKey(), pNode.getHash()));
     ((NodePage)mNodePageCon.getModified()).setNode(mPageRtx
       .nodePageOffset(pNode.getNodeKey()), delNode);
     ((NodePage)mNodePageCon.getComplete()).setNode(mPageRtx
@@ -583,5 +584,10 @@ public final class PageWriteTrx implements IPageWriteTrx {
   @Override
   public UberPage getUberPage() {
     return mPageRtx.getUberPage();
+  }
+
+  @Override
+  public int getNameCount(int pKey, @Nonnull EKind pKind) {
+    return mPageRtx.getNameCount(pKey, pKind);
   }
 }
