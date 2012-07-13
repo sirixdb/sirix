@@ -1382,13 +1382,13 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       hook.preCommit(this);
     }
 
-    mPathSummary.moveToDocumentRoot();
-    for (final IAxis axis = new DescendantAxis(mPathSummary); axis.hasNext();) {
-      axis.next();
-      final INode node = mPathSummary.getNode();
-      System.out.println(node);
-      System.out.println(mPathSummary.getQNameOfCurrentNode());
-    }
+//    mPathSummary.moveToDocumentRoot();
+//    for (final IAxis axis = new DescendantAxis(mPathSummary); axis.hasNext();) {
+//      axis.next();
+//      final INode node = mPathSummary.getNode();
+//      System.out.println(node);
+//      System.out.println(mPathSummary.getQNameOfCurrentNode());
+//    }
 
     // Commit uber page.
     final UberPage uberPage = getPageTransaction().commit();
