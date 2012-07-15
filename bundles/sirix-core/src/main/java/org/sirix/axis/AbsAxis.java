@@ -103,6 +103,15 @@ public abstract class AbsAxis implements IAxis {
   }
 
   @Override
+  public boolean hasNext() {
+    if (mHasNext) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  @Override
   public final Long next() {
     if (!mHasNext) {
       throw new NoSuchElementException("No more nodes in the axis!");
@@ -154,6 +163,15 @@ public abstract class AbsAxis implements IAxis {
     } else {
       return null;
     }
+  }
+
+  /**
+   * Determines if axis might have more results.
+   * 
+   * @return {@code true} if axis might have more results, {@code false} otherwise
+   */
+  public boolean isHasNext() {
+    return mHasNext;
   }
 
   /**

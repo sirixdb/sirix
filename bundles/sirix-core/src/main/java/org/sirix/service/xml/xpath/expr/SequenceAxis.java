@@ -82,16 +82,12 @@ public class SequenceAxis extends AbsAxis {
 
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean hasNext() {
 
     resetToLastKey();
 
     if (mCurrent != null) {
-
       if (mCurrent.hasNext()) {
         mKey = mCurrent.next();
         return true;
@@ -103,7 +99,6 @@ public class SequenceAxis extends AbsAxis {
     }
 
     while (mNum < mSeq.size()) {
-
       mCurrent = mSeq.get(mNum++);
 
       // mCurrent.getTransaction().moveTo(getTransaction().getKey());

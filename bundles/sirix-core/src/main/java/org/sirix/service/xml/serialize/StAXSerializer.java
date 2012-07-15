@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
@@ -118,6 +119,12 @@ public final class StAXSerializer implements XMLEventReader {
   /** Determines if the serializer must emit a new element in the next call to nextEvent. */
   private boolean mHasNext;
 
+  private long mStartRightSibling;
+
+  private long mStartParent;
+  
+  private boolean mCalledHasNext;
+
   /**
    * Initialize XMLStreamReader implementation with transaction. The cursor
    * points to the node the XMLStreamReader starts to read. Do not serialize
@@ -140,7 +147,8 @@ public final class StAXSerializer implements XMLEventReader {
    * @param pCloseRtx
    *          Determines if rtx should be closed afterwards.
    */
-  public StAXSerializer(@Nonnull final INodeReadTrx pRtx, final boolean pCloseRtx) {
+  public StAXSerializer(@Nonnull final INodeReadTrx pRtx,
+    final boolean pCloseRtx) {
     mNextTag = false;
     mAxis = new DescendantAxis(checkNotNull(pRtx), EIncludeSelf.YES);
     mCloseRtx = pCloseRtx;
@@ -148,6 +156,8 @@ public final class StAXSerializer implements XMLEventReader {
     mFirst = true;
     mEmitEndDocument = true;
     mHasNext = true;
+    mStartParent = pRtx.getNode().getParentKey();
+    mStartRightSibling = pRtx.getStructuralNode().getRightSiblingKey();
   }
 
   /**
@@ -159,7 +169,9 @@ public final class StAXSerializer implements XMLEventReader {
   private void emitEndTag(final INodeReadTrx pRTX) {
     assert pRTX != null;
     final long nodeKey = pRTX.getNode().getNodeKey();
-    mEvent = mFac.createEndElement(pRTX.getQNameOfCurrentNode(), new NamespaceIterator(pRTX));
+    mEvent =
+      mFac.createEndElement(pRTX.getQNameOfCurrentNode(),
+        new NamespaceIterator(pRTX));
     pRTX.moveTo(nodeKey);
   }
 
@@ -178,11 +190,14 @@ public final class StAXSerializer implements XMLEventReader {
     case ELEMENT:
       final long key = pRTX.getNode().getNodeKey();
       final QName qName = pRTX.getQNameOfCurrentNode();
-      mEvent = mFac.createStartElement(qName, new AttributeIterator(pRTX), new NamespaceIterator(pRTX));
+      mEvent =
+        mFac.createStartElement(qName, new AttributeIterator(pRTX),
+          new NamespaceIterator(pRTX));
       pRTX.moveTo(key);
       break;
     case TEXT:
-      mEvent = mFac.createCharacters(XMLToken.escape(pRTX.getValueOfCurrentNode()));
+      mEvent =
+        mFac.createCharacters(XMLToken.escape(pRTX.getValueOfCurrentNode()));
       break;
     default:
       throw new IllegalStateException("Kind not known!");
@@ -216,9 +231,11 @@ public final class StAXSerializer implements XMLEventReader {
 
     if (mEvent.getEventType() != XMLStreamConstants.START_ELEMENT) {
       rtx.moveTo(nodeKey);
-      throw new XMLStreamException("getElementText() only can be called on a start element");
+      throw new XMLStreamException(
+        "getElementText() only can be called on a start element");
     }
-    final FilterAxis textFilterAxis = new FilterAxis(new DescendantAxis(rtx), new TextFilter(rtx));
+    final FilterAxis textFilterAxis =
+      new FilterAxis(new DescendantAxis(rtx), new TextFilter(rtx));
     final StringBuilder strBuilder = new StringBuilder();
 
     while (textFilterAxis.hasNext()) {
@@ -259,13 +276,19 @@ public final class StAXSerializer implements XMLEventReader {
 
   @Override
   public XMLEvent nextEvent() throws XMLStreamException {
+    if (!mCalledHasNext) {
+      if (!hasNext()) {
+        throw new NoSuchElementException();
+      }
+    }
     try {
-      if (!mCloseElements && !mCloseElementsEmitted) {
+      if (mHasNext && !mCloseElements && !mCloseElementsEmitted) {
         mKey = mAxis.next();
 
         if (mNextTag) {
           if (mAxis.getTransaction().getNode().getKind() != EKind.ELEMENT) {
-            throw new XMLStreamException("The next tag isn't a start- or end-tag!");
+            throw new XMLStreamException(
+              "The next tag isn't a start- or end-tag!");
           }
           mNextTag = false;
         }
@@ -280,6 +303,7 @@ public final class StAXSerializer implements XMLEventReader {
       throw new IllegalStateException(e);
     }
 
+    mFirst = false;
     return mEvent;
   }
 
@@ -299,7 +323,7 @@ public final class StAXSerializer implements XMLEventReader {
       } else if (!mHasNext) {
         return null;
       } else {
-        if (mCloseElements && !mCloseElementsEmitted) {
+        if (mCloseElements && !mCloseElementsEmitted && !mStack.isEmpty()) {
           rtx.moveTo(mStack.peek());
           emitEndTag(rtx);
         } else {
@@ -310,12 +334,20 @@ public final class StAXSerializer implements XMLEventReader {
               rtx.moveToFirstChild();
               emitNode(rtx);
             } else if (rtx.getStructuralNode().hasRightSibling()) {
-              rtx.moveToRightSibling();
-              final EKind nodeKind = rtx.getNode().getKind();
-              processNode(nodeKind);
-            } else if (rtx.getStructuralNode().hasParent()) {
-              rtx.moveToParent();
-              emitEndTag(rtx);
+              if (rtx.getStructuralNode().getRightSiblingKey() == mStartRightSibling) {
+                mEvent = mFac.createEndDocument();
+              } else {
+                rtx.moveToRightSibling();
+                final EKind nodeKind = rtx.getNode().getKind();
+                processNode(nodeKind);
+              }
+            } else if (rtx.getNode().hasParent()) {
+              if (rtx.getNode().getParentKey() == mStartParent) {
+                mEvent = mFac.createEndDocument();
+              } else {
+                rtx.moveToParent();
+                emitEndTag(rtx);
+              }
             }
           }
         }
@@ -325,6 +357,7 @@ public final class StAXSerializer implements XMLEventReader {
     }
 
     rtx.moveTo(currNodeKey);
+    mFirst = false;
     return mEvent;
   }
 
@@ -357,7 +390,7 @@ public final class StAXSerializer implements XMLEventReader {
    * @throws IOException
    *           if any I/O error occurred
    */
-  private void processNode(final EKind pNodeKind) throws IOException {
+  private void processNode(@Nonnull final EKind pNodeKind) throws IOException {
     assert pNodeKind != null;
     switch (pNodeKind) {
     case ELEMENT:
@@ -379,11 +412,12 @@ public final class StAXSerializer implements XMLEventReader {
    * @throws IOException
    *           if any I/O error occurred
    */
-  private void emit(final INodeReadTrx pRtx) throws IOException {
+  private void emit(@Nonnull final INodeReadTrx pRtx) throws IOException {
     assert pRtx != null;
     // Emit pending end elements.
     if (mCloseElements) {
-      if (!mStack.isEmpty() && mStack.peek() != pRtx.getStructuralNode().getLeftSiblingKey()) {
+      if (!mStack.isEmpty()
+        && mStack.peek() != pRtx.getStructuralNode().getLeftSiblingKey()) {
         pRtx.moveTo(mStack.pop());
         emitEndTag(pRtx);
         pRtx.moveTo(mKey);
@@ -409,8 +443,10 @@ public final class StAXSerializer implements XMLEventReader {
 
       // Remember to emit all pending end elements from stack if
       // required.
-      if ((!pRtx.getStructuralNode().hasFirstChild() && !pRtx.getStructuralNode().hasRightSibling())
-        || (pRtx.getNode().getKind() == EKind.ELEMENT && !pRtx.getStructuralNode().hasFirstChild())) {
+      if ((!pRtx.getStructuralNode().hasFirstChild() && !pRtx
+        .getStructuralNode().hasRightSibling())
+        || (pRtx.getNode().getKind() == EKind.ELEMENT && !pRtx
+          .getStructuralNode().hasFirstChild())) {
         moveToNextNode();
       }
     }
@@ -517,7 +553,8 @@ public final class StAXSerializer implements XMLEventReader {
     private final long mNodeKey;
 
     /** Factory to create nodes {@link XMLEventFactory}. */
-    private final transient XMLEventFactory mFac = XMLEventFactory.newInstance();
+    private final transient XMLEventFactory mFac = XMLEventFactory
+      .newInstance();
 
     /**
      * Constructor.
@@ -555,7 +592,8 @@ public final class StAXSerializer implements XMLEventReader {
       assert mRTX.getNode().getKind() == EKind.NAMESPACE;
       final QName qName = mRTX.getQNameOfCurrentNode();
       mRTX.moveTo(mNodeKey);
-      return mFac.createNamespace(qName.getLocalPart(), qName.getNamespaceURI());
+      return mFac
+        .createNamespace(qName.getLocalPart(), qName.getNamespaceURI());
     }
 
     @Override

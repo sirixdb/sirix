@@ -114,9 +114,9 @@ public final class Names {
    *          name to create key for
    */
   public void setName(final int pKey, @Nonnull final String pName) {
-    mNameMap.put(pKey, checkNotNull(pName));
     final Integer prevValue = mCountNameMapping.get(pKey);
     if (prevValue == null) {
+      mNameMap.put(pKey, checkNotNull(pName));
       mCountNameMapping.put(pKey, 1);
     } else {
       mCountNameMapping.put(pKey, prevValue + 1);

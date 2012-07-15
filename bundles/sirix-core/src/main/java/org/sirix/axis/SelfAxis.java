@@ -61,18 +61,19 @@ public final class SelfAxis extends AbsAxis {
 
   @Override
   public boolean hasNext() {
+    if (!isHasNext()) {
+      return false;
+    }
     if (isNext()) {
       return true;
-    } else {
-      resetToLastKey();
-      if (mFirst) {
-        mFirst = false;
-        return true;
-      } else {
-        resetToStartKey();
-        return false;
-      }
     }
+    resetToLastKey();
+    if (mFirst) {
+      mFirst = false;
+      return true;
+    }
+    resetToStartKey();
+    return false;
   }
 
 }

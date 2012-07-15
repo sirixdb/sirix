@@ -33,6 +33,8 @@ import com.google.common.base.Optional;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeTraversal;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -120,7 +122,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
    * @param pBuilder
    *          the builder to construct a new instance
    */
-  private VisitorDescendantAxis(final Builder pBuilder) {
+  private VisitorDescendantAxis(@Nonnull final Builder pBuilder) {
     super(pBuilder.mRtx, pBuilder.mIncludeSelf);
     mVisitor = pBuilder.mVisitor;
   }
@@ -129,11 +131,14 @@ public final class VisitorDescendantAxis extends AbsAxis {
   public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
     mFirst = true;
-    mRightSiblingKeyStack = new ArrayDeque<Long>();
+    mRightSiblingKeyStack = new ArrayDeque<>();
   }
 
   @Override
   public boolean hasNext() {
+    if (!isHasNext()) {
+      return false;
+    }
     if (isNext()) {
       return true;
     }

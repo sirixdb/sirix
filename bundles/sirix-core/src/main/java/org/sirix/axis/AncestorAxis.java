@@ -27,6 +27,7 @@
 
 package org.sirix.axis;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeTraversal;
@@ -53,7 +54,7 @@ public final class AncestorAxis extends AbsAxis {
    * @param paramRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public AncestorAxis(final INodeTraversal pRtx) {
+  public AncestorAxis(@Nonnull final INodeTraversal pRtx) {
     super(pRtx);
   }
 
@@ -65,36 +66,41 @@ public final class AncestorAxis extends AbsAxis {
    * @param pIncludeSelf
    *          Is self included?
    */
-  public AncestorAxis(@Nonnull final INodeTraversal pRtx, @Nonnull final EIncludeSelf pIncludeSelf) {
+  public AncestorAxis(@Nonnull final INodeTraversal pRtx,
+    @Nonnull final EIncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
   }
 
   @Override
-  public void reset(final long pNodeKey) {
+  public void reset(@Nonnegative final long pNodeKey) {
     super.reset(pNodeKey);
     mFirst = true;
   }
 
   @Override
   public boolean hasNext() {
-    if (isNext()) {
-      return true;
-    } else {
-      resetToLastKey();
-
-      // Self
-      if (mFirst && isSelfIncluded() == EIncludeSelf.YES) {
-        mFirst = false;
-        return true;
-      }
-
-      if (getTransaction().getNode().getKind() != EKind.DOCUMENT_ROOT && getTransaction().getNode().hasParent()
-        && getTransaction().getNode().getParentKey() != EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-        mKey = getTransaction().getStructuralNode().getParentKey();
-        return true;
-      }
-      resetToStartKey();
+    if (!isHasNext()) {
       return false;
     }
+    if (isNext()) {
+      return true;
+    }
+    resetToLastKey();
+
+    // Self
+    if (mFirst && isSelfIncluded() == EIncludeSelf.YES) {
+      mFirst = false;
+      return true;
+    }
+
+    if (getTransaction().getNode().getKind() != EKind.DOCUMENT_ROOT
+      && getTransaction().getNode().hasParent()
+      && getTransaction().getNode().getParentKey() != EFixed.DOCUMENT_NODE_KEY
+        .getStandardProperty()) {
+      mKey = getTransaction().getStructuralNode().getParentKey();
+      return true;
+    }
+    resetToStartKey();
+    return false;
   }
 }

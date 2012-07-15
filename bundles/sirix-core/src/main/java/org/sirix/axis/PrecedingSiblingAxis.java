@@ -65,6 +65,9 @@ public final class PrecedingSiblingAxis extends AbsAxis {
 
   @Override
   public boolean hasNext() {
+    if (!isHasNext()) {
+      return false;
+    }
     if (isNext()) {
       return true;
     }

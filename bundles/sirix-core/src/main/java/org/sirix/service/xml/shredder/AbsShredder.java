@@ -53,6 +53,14 @@ public abstract class AbsShredder implements IShredder<String, QName> {
     final QName name = checkNotNull(pName);
     long key = -1;
     switch (mInsertLocation) {
+    case ASFIRSTCHILD:
+      if (mLeftSiblingKeyStack.peek() == EFixed.NULL_NODE_KEY
+        .getStandardProperty()) {
+        key = mWtx.insertElementAsFirstChild(name).getNode().getNodeKey();
+      } else {
+        key = mWtx.insertElementAsRightSibling(name).getNode().getNodeKey();
+      }
+      break;
     case ASRIGHTSIBLING:
       if (mWtx.getNode().getKind() == EKind.DOCUMENT_ROOT
         || mWtx.getNode().getParentKey() == EFixed.DOCUMENT_NODE_KEY
@@ -72,14 +80,6 @@ public abstract class AbsShredder implements IShredder<String, QName> {
       }
       key = mWtx.insertElementAsLeftSibling(name).getNode().getNodeKey();
       mInsertLocation = EInsert.ASFIRSTCHILD;
-      break;
-    case ASFIRSTCHILD:
-      if (mLeftSiblingKeyStack.peek() == EFixed.NULL_NODE_KEY
-        .getStandardProperty()) {
-        key = mWtx.insertElementAsFirstChild(name).getNode().getNodeKey();
-      } else {
-        key = mWtx.insertElementAsRightSibling(name).getNode().getNodeKey();
-      }
       break;
     }
     

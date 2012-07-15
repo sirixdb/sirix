@@ -88,37 +88,39 @@ public final class ForAxis extends AbsAxis {
 
   @Override
   public boolean hasNext() {
-    if (isNext()) {
-      return true;
-    } else {
-      resetToLastKey();
-
-      if (mIsFirst) {
-        /*
-         * Makes sure, that mRange.hasNext() is called before the return
-         * statement, on the first call.
-         */
-        mIsFirst = false;
-      } else {
-        if (mReturn.hasNext()) {
-          mKey = mReturn.next();
-          return true;
-        }
-      }
-
-      // Check for more items in the binding sequence.
-      while (mRange.hasNext()) {
-        mKey = mRange.next();
-
-        mReturn.reset(getStartKey());
-        if (mReturn.hasNext()) {
-          mKey = mReturn.next();
-          return true;
-        }
-      }
-
-      resetToStartKey();
+    if (!isHasNext()) {
       return false;
     }
+    if (isNext()) {
+      return true;
+    }
+    resetToLastKey();
+
+    if (mIsFirst) {
+      /*
+       * Makes sure, that mRange.hasNext() is called before the return
+       * statement, on the first call.
+       */
+      mIsFirst = false;
+    } else {
+      if (mReturn.hasNext()) {
+        mKey = mReturn.next();
+        return true;
+      }
+    }
+
+    // Check for more items in the binding sequence.
+    while (mRange.hasNext()) {
+      mKey = mRange.next();
+
+      mReturn.reset(getStartKey());
+      if (mReturn.hasNext()) {
+        mKey = mReturn.next();
+        return true;
+      }
+    }
+
+    resetToStartKey();
+    return false;
   }
 }

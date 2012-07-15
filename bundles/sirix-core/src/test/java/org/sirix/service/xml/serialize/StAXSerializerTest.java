@@ -120,7 +120,6 @@ public class StAXSerializerTest {
         }
       }
 
-      assertEquals(XMLStreamConstants.END_DOCUMENT, serializer.nextEvent().getEventType());
       assertEquals(out.toString(), strBuilder.toString());
 
       // Check getElementText().
@@ -198,7 +197,7 @@ public class StAXSerializerTest {
     } catch (final XMLStreamException e) {
       fail("XML error while parsing: " + e.getMessage());
     } catch (final AbsTTException e) {
-      fail("sirix exception occured: " + e.getMessage());
+      fail("Sirix exception occured: " + e.getMessage());
     } catch (final Exception e) {
       fail("Any exception occured: " + e.getMessage());
     }

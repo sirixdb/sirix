@@ -105,18 +105,21 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
         mInsert = EInsertPos.ASFIRSTCHILD;
         mRtx.moveToFirstChild();
         mDepth++;
-        mRtx.getNode().acceptVisitor(this);
       } else if (!mFirst && pNode.hasRightSibling()) {
         mInsert = EInsertPos.ASRIGHTSIBLING;
         mRtx.moveToRightSibling();
-        mRtx.getNode().acceptVisitor(this);
       } else if (!mFirst) {
-        insertNextNode();
+        if (!moveToNextNode()) {
+          return EVisitResult.TERMINATE;
+        }
       }
     } catch (final AbsTTException e) {
       throw new IllegalStateException(e);
     }
-    return EVisitResult.CONTINUE;
+    if (mFirst) {
+      return EVisitResult.TERMINATE;
+    }
+    return mRtx.getNode().acceptVisitor(this);
   }
 
   @Override
@@ -128,18 +131,23 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
       if (!mFirst && mRtx.getStructuralNode().hasRightSibling()) {
         mRtx.moveToRightSibling();
         mInsert = EInsertPos.ASRIGHTSIBLING;
-        mRtx.getNode().acceptVisitor(this);
       } else if (!mFirst) {
-        insertNextNode();
+        if (!moveToNextNode()) {
+          return EVisitResult.TERMINATE;
+        }
       }
     } catch (final AbsTTException e) {
       throw new IllegalStateException(e);
     }
-    return EVisitResult.CONTINUE;
+    if (mFirst) {
+      return EVisitResult.TERMINATE;
+    }
+    return mRtx.getNode().acceptVisitor(this);
   }
 
   /** Insert next node in document order/preorder. */
-  private void insertNextNode() {
+  private boolean moveToNextNode() {
+    boolean retVal = false;
     while (!mRtx.getStructuralNode().hasRightSibling() && mDepth > 0) {
       mRtx.moveToParent();
       mWtx.moveToParent();
@@ -150,8 +158,9 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
       mInsert = EInsertPos.ASRIGHTSIBLING;
       if (mRtx.getStructuralNode().hasRightSibling()) {
         mRtx.moveToRightSibling();
-        mRtx.getNode().acceptVisitor(this);
+        retVal = true;
       }
     }
+    return retVal;
   }
 }

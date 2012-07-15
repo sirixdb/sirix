@@ -74,8 +74,8 @@ public final class LevelOrderAxis extends AbsAxis {
    * @param pIncludeSelf
    *          determines if self included
    */
-  public LevelOrderAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final EIncludeNodes pIncludeNodes,
-    final EIncludeSelf pIncludeSelf) {
+  public LevelOrderAxis(@Nonnull final INodeReadTrx pRtx,
+    @Nonnull final EIncludeNodes pIncludeNodes, final EIncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
     mIncludeNodes = checkNotNull(pIncludeNodes);
   }
@@ -89,71 +89,73 @@ public final class LevelOrderAxis extends AbsAxis {
 
   @Override
   public boolean hasNext() {
+    if (!isHasNext()) {
+      return false;
+    }
     if (isNext()) {
       return true;
-    } else {
-      resetToLastKey();
+    }
+    resetToLastKey();
 
-      // First move to next key.
-      final INodeReadTrx rtx = (INodeReadTrx)getTransaction();
-      final IStructNode node = rtx.getStructuralNode();
+    // First move to next key.
+    final INodeReadTrx rtx = (INodeReadTrx)getTransaction();
+    final IStructNode node = rtx.getStructuralNode();
 
-      // Determines if it's the first call to hasNext().
-      if (mFirst) {
-        mFirst = false;
+    // Determines if it's the first call to hasNext().
+    if (mFirst) {
+      mFirst = false;
 
-        final EKind kind = node.getKind();
-        if (kind == EKind.ATTRIBUTE || kind == EKind.NAMESPACE) {
+      final EKind kind = node.getKind();
+      if (kind == EKind.ATTRIBUTE || kind == EKind.NAMESPACE) {
+        return false;
+      }
+      if (isSelfIncluded() == EIncludeSelf.YES) {
+        mKey = node.getNodeKey();
+      } else {
+        if (node.hasRightSibling()) {
+          mKey = node.getRightSiblingKey();
+        } else if (node.hasFirstChild()) {
+          mKey = node.getFirstChildKey();
+        } else {
+          resetToStartKey();
           return false;
         }
-        if (isSelfIncluded() == EIncludeSelf.YES) {
-          mKey = node.getNodeKey();
-        } else {
-          if (node.hasRightSibling()) {
-            mKey = node.getRightSiblingKey();
-          } else if (node.hasFirstChild()) {
-            mKey = node.getFirstChildKey();
-          } else {
-            resetToStartKey();
-            return false;
-          }
-        }
+      }
 
-        return true;
-      } else {
-        // Follow right sibling if there is one.
-        if (node.hasRightSibling()) {
-          processElement();
-          // Add first child to queue.
-          if (node.hasFirstChild()) {
-            mFirstChilds.add(node.getFirstChildKey());
-          }
-          mKey = node.getRightSiblingKey();
-          return true;
-        }
-
-        // Add first child to queue.
+      return true;
+    } else {
+      // Follow right sibling if there is one.
+      if (node.hasRightSibling()) {
         processElement();
+        // Add first child to queue.
         if (node.hasFirstChild()) {
           mFirstChilds.add(node.getFirstChildKey());
         }
-
-        // Then follow first child on stack.
-        if (!mFirstChilds.isEmpty()) {
-          mKey = mFirstChilds.pollFirst();
-          return true;
-        }
-
-        // Then follow first child if there is one.
-        if (node.hasFirstChild()) {
-          mKey = node.getFirstChildKey();
-          return true;
-        }
-
-        // Then end.
-        resetToStartKey();
-        return false;
+        mKey = node.getRightSiblingKey();
+        return true;
       }
+
+      // Add first child to queue.
+      processElement();
+      if (node.hasFirstChild()) {
+        mFirstChilds.add(node.getFirstChildKey());
+      }
+
+      // Then follow first child on stack.
+      if (!mFirstChilds.isEmpty()) {
+        mKey = mFirstChilds.pollFirst();
+        return true;
+      }
+
+      // Then follow first child if there is one.
+      if (node.hasFirstChild()) {
+        mKey = node.getFirstChildKey();
+        return true;
+      }
+
+      // Then end.
+      resetToStartKey();
+      return false;
     }
   }
 

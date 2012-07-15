@@ -357,7 +357,6 @@ public class UpdateTest {
     assertEquals(5L, wtx2.insertElementAsFirstChild(new QName("")).getNode().getNodeKey());
     wtx2.commit();
     wtx2.close();
-
   }
 
   @Test
@@ -681,7 +680,7 @@ public class UpdateTest {
     DocumentCreater.create(wtx);
     wtx.moveTo(5);
     wtx.moveSubtreeToFirstChild(4);
-    // testSecondMoveToFirstChild(wtx);
+    testSecondMoveToFirstChild(wtx);
     wtx.commit();
     testSecondMoveToFirstChild(wtx);
     wtx.close();

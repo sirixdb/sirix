@@ -72,6 +72,9 @@ public final class PrecedingAxis extends AbsAxis {
 
   @Override
   public boolean hasNext() {
+    if (!isHasNext()) {
+      return false;
+    }
     if (isNext()) {
       return true;
     }

@@ -84,6 +84,9 @@ public final class DescendantAxis extends AbsAxis {
 
   @Override
   public boolean hasNext() {
+    if (!isHasNext()) {
+      return false;
+    }
     if (isNext()) {
       return true;
     }

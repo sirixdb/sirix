@@ -63,29 +63,32 @@ public final class AttributeAxis extends AbsAxis {
 
   @Override
   public boolean hasNext() {
-    if (isNext()) {
-      return true;
-    } else {
-      resetToLastKey();
-      // move back to element, if there was already an attribute found. In
-      // this
-      // case the current node was set to an attribute by resetToLastKey()
-      if (mNextIndex > 0) {
-        assert getTransaction().getNode().getKind() == EKind.ATTRIBUTE;
-        getTransaction().moveToParent();
-      }
-
-      if (getTransaction().getNode().getKind() == EKind.ELEMENT) {
-        final ElementNode element = (ElementNode)getTransaction().getNode();
-        if (mNextIndex < ((ElementNode)getTransaction().getNode()).getAttributeCount()) {
-          mKey = element.getAttributeKey(mNextIndex);
-          mNextIndex += 1;
-          return true;
-        }
-      }
-      resetToStartKey();
+    if (!isHasNext()) {
       return false;
     }
+    if (isNext()) {
+      return true;
+    }
+    resetToLastKey();
+    // move back to element, if there was already an attribute found. In
+    // this
+    // case the current node was set to an attribute by resetToLastKey()
+    if (mNextIndex > 0) {
+      assert getTransaction().getNode().getKind() == EKind.ATTRIBUTE;
+      getTransaction().moveToParent();
+    }
+
+    if (getTransaction().getNode().getKind() == EKind.ELEMENT) {
+      final ElementNode element = (ElementNode)getTransaction().getNode();
+      if (mNextIndex < ((ElementNode)getTransaction().getNode())
+        .getAttributeCount()) {
+        mKey = element.getAttributeKey(mNextIndex);
+        mNextIndex += 1;
+        return true;
+      }
+    }
+    resetToStartKey();
+    return false;
   }
 
 }

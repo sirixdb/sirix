@@ -85,6 +85,7 @@ import org.sirix.node.interfaces.IValNode;
 import org.sirix.page.EPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.UberPage;
+import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.shredder.EShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -1197,7 +1198,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
             .getNamePageReference().getPage());
         page.removeName(oldNameKey, nodeKind);
         page.removeName(oldUriKey, EKind.NAMESPACE);
-        
+
         // Create new keys for mapping.
         final int nameKey =
           getPageTransaction().createNameKey(PageWriteTrx.buildName(pQName),
@@ -1205,24 +1206,26 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         final int uriKey =
           getPageTransaction().createNameKey(pQName.getNamespaceURI(),
             EKind.NAMESPACE);
-        
+
         // Possibly either reset a path node or decrement its reference counter
         // and search for the new path node or insert it.
         movePathSummary();
         if (((PathNode)mPathSummary.getNode()).getReferences() == 1) {
           final PathNode pathNode =
-          (PathNode)getPageTransaction().prepareNodeForModification(
-            mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARY);
+            (PathNode)getPageTransaction().prepareNodeForModification(
+              mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARY);
           pathNode.setNameKey(nameKey);
           pathNode.setURIKey(uriKey);
-          getPageTransaction().finishNodeModification(pathNode, EPage.PATHSUMMARY);
+          getPageTransaction().finishNodeModification(pathNode,
+            EPage.PATHSUMMARY);
         } else {
           final PathNode pathNode =
             (PathNode)getPageTransaction().prepareNodeForModification(
               mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARY);
           pathNode.decrementReferenceCount();
-          getPageTransaction().finishNodeModification(pathNode, EPage.PATHSUMMARY);
-          
+          getPageTransaction().finishNodeModification(pathNode,
+            EPage.PATHSUMMARY);
+
           // Get parent path node and level.
           moveToParent();
           int level = 0;
@@ -1233,44 +1236,50 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
             level = mPathSummary.getPathNode().getLevel();
           }
           moveTo(node.getNodeKey());
-          
+
           // Search for new path entry.
           final IAxis axis =
             new FilterAxis(new ChildAxis(mPathSummary), new NameFilter(
               mPathSummary, pQName.getLocalPart()));
           if (axis.hasNext()) {
             axis.next();
-            
+
             // Found path node (increment reference counter by one).
             final PathNode path =
               (PathNode)getPageTransaction().prepareNodeForModification(
                 mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARY);
             path.incrementReferenceCount();
-            getPageTransaction().finishNodeModification(path, EPage.PATHSUMMARY);
+            getPageTransaction()
+              .finishNodeModification(path, EPage.PATHSUMMARY);
           } else {
             // Not found => create new path nodes for the whole subtree.
-            for (final IAxis descendants = new DescendantAxis(this, EIncludeSelf.YES); descendants.hasNext();) {
+            for (final IAxis descendants =
+              new DescendantAxis(this, EIncludeSelf.YES); descendants.hasNext();) {
               descendants.next();
               if (axis.getTransaction().getNode().getKind() == EKind.ELEMENT) {
-                final ElementNode element = (ElementNode) axis.getTransaction().getNode();
-                
+                final ElementNode element =
+                  (ElementNode)axis.getTransaction().getNode();
+
                 // Path Summary : New mapping.
-                insertPathAsFirstChild(axis.getTransaction().getQNameOfCurrentNode(), nodeKind, level);
-                
+                insertPathAsFirstChild(axis.getTransaction()
+                  .getQNameOfCurrentNode(), nodeKind, level);
+
                 // Namespaces.
                 for (int i = 0, nsps = element.getNamespaceCount(); i < nsps; i++) {
                   moveToNamespace(i);
                   // Path Summary : New mapping.
-                  insertPathAsFirstChild(axis.getTransaction().getQNameOfCurrentNode(), nodeKind, level);
+                  insertPathAsFirstChild(axis.getTransaction()
+                    .getQNameOfCurrentNode(), nodeKind, level);
                   moveToParent();
                   mPathSummary.moveToParent();
                 }
-                
+
                 // Attributes.
                 for (int i = 0, atts = element.getAttributeCount(); i < atts; i++) {
                   moveToAttribute(i);
                   // Path Summary : New mapping.
-                  insertPathAsFirstChild(axis.getTransaction().getQNameOfCurrentNode(), nodeKind, level);
+                  insertPathAsFirstChild(axis.getTransaction()
+                    .getQNameOfCurrentNode(), nodeKind, level);
                   moveToParent();
                   mPathSummary.moveToParent();
                 }
@@ -1278,7 +1287,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
             }
           }
         }
-
 
         // Set new keys for current node.
         node =
@@ -1398,13 +1406,13 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       hook.preCommit(this);
     }
 
-//    mPathSummary.moveToDocumentRoot();
-//    for (final IAxis axis = new DescendantAxis(mPathSummary); axis.hasNext();) {
-//      axis.next();
-//      final INode node = mPathSummary.getNode();
-//      System.out.println(node);
-//      System.out.println(mPathSummary.getQNameOfCurrentNode());
-//    }
+    // mPathSummary.moveToDocumentRoot();
+    // for (final IAxis axis = new DescendantAxis(mPathSummary); axis.hasNext();) {
+    // axis.next();
+    // final INode node = mPathSummary.getNode();
+    // System.out.println(node);
+    // System.out.println(mPathSummary.getQNameOfCurrentNode());
+    // }
 
     // Commit uber page.
     final UberPage uberPage = getPageTransaction().commit();
@@ -2284,7 +2292,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     checkNotNull(pRtx);
     checkAccessAndCommit();
     final long nodeKey = getNode().getNodeKey();
-    copy(pRtx, EInsertPos.ASFIRSTCHILD);
+    copy(pRtx, EInsert.ASFIRSTCHILD);
     moveTo(nodeKey);
     moveToFirstChild();
     return this;
@@ -2296,7 +2304,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     checkNotNull(pRtx);
     checkAccessAndCommit();
     final long nodeKey = getNode().getNodeKey();
-    copy(pRtx, EInsertPos.ASLEFTSIBLING);
+    copy(pRtx, EInsert.ASLEFTSIBLING);
     moveTo(nodeKey);
     moveToFirstChild();
     return this;
@@ -2308,7 +2316,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     checkNotNull(pRtx);
     checkAccessAndCommit();
     final long nodeKey = getNode().getNodeKey();
-    copy(pRtx, EInsertPos.ASRIGHTSIBLING);
+    copy(pRtx, EInsert.ASRIGHTSIBLING);
     moveTo(nodeKey);
     moveToRightSibling();
     return this;
@@ -2325,7 +2333,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
    *           if anything fails in sirix
    */
   private synchronized void copy(@Nonnull final INodeReadTrx pRtx,
-    @Nonnull final EInsertPos pInsert) throws AbsTTException {
+    @Nonnull final EInsert pInsert) throws AbsTTException {
     assert pRtx != null;
     assert pInsert != null;
     final INodeReadTrx rtx =
@@ -2336,12 +2344,29 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     if (rtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
       rtx.moveToFirstChild();
     }
-    if (rtx.getNode().getKind() != EKind.TEXT
-      && rtx.getNode().getKind() != EKind.ELEMENT) {
+    if (!(rtx.getNode() instanceof IStructNode)) {
       throw new IllegalStateException(
-        "Node to insert must be a structural node (Text or Element)!");
+        "Node to insert must be a structural node (currently Text or Element)!");
     }
-    rtx.getNode().acceptVisitor(new InsertSubtreeVisitor(rtx, this, pInsert));
+    
+    if (rtx.getNode().getKind() == EKind.TEXT) {
+      final String value = rtx.getValueOfCurrentNode();
+      switch (pInsert) {
+      case ASFIRSTCHILD:
+        insertTextAsFirstChild(value);
+        break;
+      case ASLEFTSIBLING:
+        insertTextAsLeftSibling(value);
+        break;
+      case ASRIGHTSIBLING:
+        insertTextAsRightSibling(value);
+        break;
+      }
+    } else {
+      final XMLEventReader reader = new StAXSerializer(pRtx);
+      new XMLShredder(this, reader, pInsert, EShredderCommit.NOCOMMIT).call();
+    }
+//    rtx.getNode().acceptVisitor(new InsertSubtreeVisitor(rtx, this, pInsert));
     rtx.close();
   }
 

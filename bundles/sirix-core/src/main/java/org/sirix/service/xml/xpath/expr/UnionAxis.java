@@ -27,6 +27,10 @@
 
 package org.sirix.service.xml.xpath.expr;
 
+import javax.annotation.Nonnull;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
@@ -53,26 +57,22 @@ public class UnionAxis extends AbsAxis {
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param mOperand1
-   *          First operand
-   * @param mOperand2
-   *          Second operand
+   * @param pRtx
+   *          exclusive (immutable) trx to iterate with
+   * @param pOperand1
+   *          first operand
+   * @param pOperand2
+   *          second operand
    */
-  public UnionAxis(final INodeReadTrx rtx, final IAxis mOperand1, final IAxis mOperand2) {
-
-    super(rtx);
-    mOp1 = mOperand1;
-    mOp2 = mOperand2;
+  public UnionAxis(@Nonnull final INodeReadTrx pRtx,
+    @Nonnull final IAxis pOperand1, @Nonnull final IAxis pOperand2) {
+    super(pRtx);
+    mOp1 = checkNotNull(pOperand1);
+    mOp2 = checkNotNull(pOperand2);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public void reset(final long mNodeKey) {
-
     super.reset(mNodeKey);
 
     if (mOp1 != null) {
@@ -83,12 +83,9 @@ public class UnionAxis extends AbsAxis {
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public boolean hasNext() {
-
+    resetToLastKey();
     // first return all values of the first operand
     while (mOp1.hasNext()) {
       mKey = mOp1.next();
