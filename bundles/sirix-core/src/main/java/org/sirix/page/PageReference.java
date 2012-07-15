@@ -47,7 +47,7 @@ public final class PageReference {
 
   /** Page kind. */
   private EPage mPageKind;
-  
+
   /** In-memory deserialized page instance. */
   private IPage mPage;
 
@@ -103,8 +103,8 @@ public final class PageReference {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("key", mKey).add("page", mPage)
-      .toString();
+    return Objects.toStringHelper(this).add("nodePageKey", mNodePageKey).add(
+      "key", mKey).add("page", mPage).toString();
   }
 
   /**
@@ -129,7 +129,7 @@ public final class PageReference {
   public void setPageKind(@Nonnull final EPage pPageKind) {
     mPageKind = pPageKind;
   }
-  
+
   public EPage getPageKind() {
     return mPageKind;
   }

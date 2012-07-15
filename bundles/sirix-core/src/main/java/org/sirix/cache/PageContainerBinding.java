@@ -27,14 +27,14 @@
 
 package org.sirix.cache;
 
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
 
 import javax.annotation.Nullable;
 
-import org.sirix.io.ITTSource;
-import org.sirix.io.berkeley.TupleInputSink;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.interfaces.IPage;
 
@@ -45,11 +45,12 @@ public class PageContainerBinding extends TupleBinding<PageContainer> {
     if (pInput == null) {
       return PageContainer.EMPTY_INSTANCE;
     }
-    final ITTSource source = new TupleInputSink(pInput);
+    final ByteArrayDataInput source =
+      ByteStreams.newDataInput(pInput.getBufferBytes());
     final IPage current = PagePersistenter.deserializePage(source);
     final IPage modified = PagePersistenter.deserializePage(source);
-    // 
-    @SuppressWarnings("null") 
+    //
+    @SuppressWarnings("null")
     final PageContainer container = new PageContainer(current, modified);
     return container;
   }

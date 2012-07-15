@@ -62,6 +62,7 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTThreadedException;
 import org.sirix.exception.TTUsageException;
+import org.sirix.index.path.PathSummary;
 import org.sirix.io.EStorage;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
@@ -74,7 +75,7 @@ import org.sirix.page.UberPage;
  * <h1>Session</h1>
  * 
  * <p>
- * Makes sure that there only is a single session instance bound to a sirix file.
+ * Makes sure that there only is a single session instance bound to a Sirix resource.
  * </p>
  */
 public final class Session implements ISession {
@@ -325,8 +326,10 @@ public final class Session implements ISession {
   void closeWriteTransaction(final long pTransactionID) {
     // Purge transaction from internal state.
     mTransactionMap.remove(pTransactionID);
+    
     // Removing the write from the own internal mapping
     mWriteTransactionStateMap.remove(pTransactionID);
+    
     // Make new transactions available.
     mWriteSemaphore.release();
   }
@@ -378,8 +381,8 @@ public final class Session implements ISession {
 
     if (mSyncTransactionsReturns.get(mTransactionId).put(
       ((NodePage)mContToSync.getComplete()).getNodePageKey(), returnVals) != null) {
-//      throw new TTThreadedException(
-//        "only one commit and therefore sync per id and nodepage is allowed!");
+      // throw new TTThreadedException(
+      // "only one commit and therefore sync per id and nodepage is allowed!");
     }
 
   }
@@ -425,7 +428,6 @@ public final class Session implements ISession {
       mPageWriteTrx.updateDateContainer(mCont);
       return null;
     }
-
   }
 
   /**
@@ -446,5 +448,19 @@ public final class Session implements ISession {
   @Override
   public long getLastRevisionNumber() {
     return mLastCommittedUberPage.getRevisionNumber();
+  }
+
+  @Override
+  public PathSummary openPathSummary(@Nonnegative long pRev)
+    throws AbsTTException {
+    assertAccess(pRev);
+
+    return PathSummary.getInstance(new PageReadTrx(this,
+      mLastCommittedUberPage, pRev, mFac.getReader()));
+  }
+
+  @Override
+  public PathSummary openPathSummary() throws AbsTTException {
+    return openPathSummary(mLastCommittedUberPage.getRevisionNumber());
   }
 }

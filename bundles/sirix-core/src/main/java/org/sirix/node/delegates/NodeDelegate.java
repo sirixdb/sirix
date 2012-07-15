@@ -79,8 +79,6 @@ public class NodeDelegate implements INode {
    *          parent node key
    * @param pHash
    *          hash
-   * @param pPCR
-   *          path class record
    */
   public NodeDelegate(@Nonnegative final long pNodeKey,
     @Nonnegative final long pParentKey, final long pHash) {

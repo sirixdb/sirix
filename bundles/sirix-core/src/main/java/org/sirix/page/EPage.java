@@ -26,6 +26,9 @@
  */
 package org.sirix.page;
 
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -45,13 +48,13 @@ public enum EPage {
   NODEPAGE((byte)1, NodePage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ITTSource pSource) {
+    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new NodePage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ITTSink pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(NODEPAGE.mId);
       serialize(pSink, pPage);
     }
@@ -71,13 +74,13 @@ public enum EPage {
   NAMEPAGE((byte)2, NamePage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ITTSource pSource) {
+    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new NamePage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ITTSink pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(NAMEPAGE.mId);
       serialize(pSink, pPage);
     }
@@ -95,13 +98,13 @@ public enum EPage {
   UBERPAGE((byte)3, UberPage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ITTSource pSource) {
+    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new UberPage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ITTSink pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(UBERPAGE.mId);
       serialize(pSink, pPage);
     }
@@ -119,13 +122,13 @@ public enum EPage {
   INDIRECTPAGE((byte)4, IndirectPage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ITTSource pSource) {
+    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new IndirectPage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ITTSink pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(INDIRECTPAGE.mId);
       serialize(pSink, pPage);
     }
@@ -143,13 +146,13 @@ public enum EPage {
   REVISIONROOTPAGE((byte)5, RevisionRootPage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ITTSource pSource) {
+    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new RevisionRootPage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ITTSink pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(REVISIONROOTPAGE.mId);
       serialize(pSink, pPage);
     }
@@ -167,13 +170,13 @@ public enum EPage {
   PATHSUMMARY((byte)6, PathSummaryPage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ITTSource pSource) {
+    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new PathSummaryPage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ITTSink pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(PATHSUMMARY.mId);
       serialize(pSink, pPage);
     }
@@ -193,7 +196,7 @@ public enum EPage {
    * @param pPage
    *          the current {@link IPage}
    */
-  private static final void serialize(@Nonnull final ITTSink pSink,
+  private static final void serialize(@Nonnull final ByteArrayDataOutput pSink,
     @Nonnull final IPage pPage) {
     pSink.writeLong(pPage.getRevision());
     pPage.serialize(pSink);
@@ -240,7 +243,7 @@ public enum EPage {
    * @param pPage
    *          {@link IPage} implementation
    */
-  abstract void serializePage(@Nonnull final ITTSink pSink,
+  abstract void serializePage(@Nonnull final ByteArrayDataOutput pSink,
     @Nonnull final IPage pPage);
 
   /**
@@ -250,7 +253,7 @@ public enum EPage {
    *          {@link ITTSource} implementation
    * @return page instance implementing the {@link IPage} interface
    */
-  abstract IPage deserializePage(@Nonnull final ITTSource pSource);
+  abstract IPage deserializePage(@Nonnull final ByteArrayDataInput pSource);
 
   /**
    * Public method to get the related page based on the identifier.

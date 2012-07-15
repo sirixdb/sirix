@@ -27,14 +27,22 @@
 
 package org.sirix.io.file;
 
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteStreams;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
 import javax.annotation.Nonnull;
 
+import org.sirix.exception.TTByteHandleException;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.bytepipe.Encryptor;
+import org.sirix.io.bytepipe.IByteHandler;
+import org.sirix.io.bytepipe.DeflateCompressor;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
@@ -55,12 +63,12 @@ public final class FileReader implements IReader {
 
   /** Beacon of the other references. */
   final static int OTHER_BEACON = 4;
-  
+
   /** Random access mFile to work on. */
   private final RandomAccessFile mFile;
 
   /** Inflater to decompress. */
-  private final CryptoJavaImpl mDecompressor;
+  final IByteHandler mByteHandler;
 
   /**
    * Constructor.
@@ -78,9 +86,11 @@ public final class FileReader implements IReader {
       }
 
       mFile = new RandomAccessFile(pConcreteStorage, "r");
-      mDecompressor = new CryptoJavaImpl();
-    } catch (final IOException exc) {
-      throw new TTIOException(exc);
+      mByteHandler = new ByteHandlePipeline(new Encryptor(), new DeflateCompressor());
+    } catch (final IOException e) {
+      throw new TTIOException(e);
+    } catch (final TTByteHandleException e) {
+      throw new TTIOException(e);
     }
   }
 
@@ -95,27 +105,24 @@ public final class FileReader implements IReader {
    */
   @Override
   public IPage read(final long pKey) throws TTIOException {
-    final ByteBufferSinkAndSource buffer = new ByteBufferSinkAndSource();
     try {
-      // Prepare environment for read.
-      buffer.position(OTHER_BEACON);
-
       // Read page from file.
       mFile.seek(pKey);
       final int dataLength = mFile.readInt();
       final byte[] page = new byte[dataLength];
       mFile.read(page);
-      buffer.writeBytes(page);
 
-      // Perform crypto operations.
-      mDecompressor.decrypt(dataLength, buffer);
-    } catch (final IOException exc) {
-      throw new TTIOException(exc);
+      // Perform byte operations.
+      final ByteArrayDataInput input =
+        ByteStreams.newDataInput(mByteHandler.deserialize(page));
+      
+      // Return reader required to instantiate and deserialize page.
+      return PagePersistenter.deserializePage(input);
+    } catch (final IOException e) {
+      throw new TTIOException(e);
+    } catch (final TTByteHandleException e) {
+      throw new TTIOException(e);
     }
-
-    // Return reader required to instantiate and deserialize page.
-    buffer.position(OTHER_BEACON);
-    return PagePersistenter.deserializePage(buffer);
   }
 
   @Override

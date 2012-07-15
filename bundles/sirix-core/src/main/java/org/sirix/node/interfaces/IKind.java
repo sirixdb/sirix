@@ -1,30 +1,30 @@
 package org.sirix.node.interfaces;
 
-import javax.annotation.Nonnull;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
-import org.sirix.io.ITTSink;
-import org.sirix.io.ITTSource;
+import javax.annotation.Nonnull;
 
 public interface IKind {
 
   /**
-   * Deserializing a node using a {@link ITTSource}.
+   * Deserializing a node using a {@link ByteArrayDataInput}.
    * 
    * @param pSource
    *          input source
    * @return a {@link INode} instance
    */
-  INode deserialize(@Nonnull final ITTSource pSource);
+  INode deserialize(@Nonnull final ByteArrayDataInput pSource);
 
   /**
-   * Serializing a node from a {@link ITTSink}.
+   * Serializing a node from a {@link ByteArrayDataOutput}.
    * 
    * @param pSink
    *          where the data should be serialized to
    * @param pToSerialize
    *          the node to serialize
    */
-  void serialize(@Nonnull final ITTSink pSink, @Nonnull final INode pToSerialize);
+  void serialize(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final INode pToSerialize);
 
   /**
    * Get the nodeKind.

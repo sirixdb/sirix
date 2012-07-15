@@ -50,31 +50,41 @@ public final class TTIOException extends AbsTTException {
   /**
    * Constructor.
    * 
-   * @param paramExc
+   * @param pExc
    *          exception to be wrapped
    */
-  public TTIOException(final XMLStreamException paramExc) {
-    super(paramExc);
+  public TTIOException(final XMLStreamException pExc) {
+    super(pExc);
   }
 
   /**
    * Constructor.
    * 
-   * @param paramExc
+   * @param pExc
    *          exception to be wrapped
    */
-  public TTIOException(final IOException paramExc) {
-    super(paramExc);
+  public TTIOException(final IOException pExc) {
+    super(pExc);
+  }
+  
+  /**
+   * Constructor.
+   * 
+   * @param pExc
+   *          exception to be wrapped
+   */
+  public TTIOException(final TTByteHandleException pExc) {
+    super(pExc);
   }
 
   /**
    * Constructor.
    * 
-   * @param paramExc
+   * @param pExc
    *          exception to be wrapped
    */
-  public TTIOException(final DatabaseException paramExc) {
-    super(paramExc);
+  public TTIOException(final DatabaseException pExc) {
+    super(pExc);
   }
 
   /**

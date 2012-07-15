@@ -27,14 +27,13 @@
 
 package org.sirix.node;
 
-import org.sirix.io.file.ByteBufferSinkAndSource;
+import static org.junit.Assert.assertEquals;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
+import org.junit.Test;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.settings.EFixed;
-
-import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
 
 public class NamespaceNodeTest {
 
@@ -46,10 +45,10 @@ public class NamespaceNodeTest {
     final NamespaceNode node1 = new NamespaceNode(nodeDel, nameDel);
 
     // Serialize and deserialize node.
-    final ByteBufferSinkAndSource out = new ByteBufferSinkAndSource();
-    EKind.getKind(node1.getClass()).serialize(out, node1);
-    out.position(0);
-    final NamespaceNode node2 = (NamespaceNode)EKind.NAMESPACE.deserialize(out);
+    final ByteArrayDataOutput out = ByteStreams.newDataOutput();
+    node1.getKind().serialize(out, node1);
+    final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
+    final NamespaceNode node2 = (NamespaceNode)EKind.NAMESPACE.deserialize(in);
     check(node2);
   }
 

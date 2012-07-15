@@ -185,7 +185,7 @@ final class PageReadTrx implements IPageReadTrx {
    *          node to check
    * @return the {@code node} if it is valid, {@code null} otherwise
    */
-  final <T extends INode> T checkItemIfDeleted(@Nullable final T pToCheck) {
+  final INode checkItemIfDeleted(@Nullable final INode pToCheck) {
     if (pToCheck instanceof DeletedNode) {
       return null;
     } else {
@@ -331,6 +331,7 @@ final class PageReadTrx implements IPageReadTrx {
 
   PageReference getPageReference(@Nonnull final RevisionRootPage pRef,
     @Nonnull final EPage pPage) throws TTIOException {
+    assert pRef != null;
     PageReference ref = null;
     switch (pPage) {
     case NODEPAGE:
@@ -480,5 +481,10 @@ final class PageReadTrx implements IPageReadTrx {
   @Override
   public int getNameCount(int pKey, @Nonnull EKind pKind) {
     return mNamePage.getCount(pKey, pKind);
+  }
+
+  @Override
+  public boolean isClosed() {
+    return mClosed;
   }
 }

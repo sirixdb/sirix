@@ -28,11 +28,11 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import com.google.common.io.ByteArrayDataInput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.io.ITTSource;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.utils.IConstants;
@@ -66,7 +66,7 @@ public final class IndirectPage extends AbsForwardingPage {
    * @param pIn
    *          input source
    */
-  protected IndirectPage(@Nonnull final ITTSource pIn) {
+  protected IndirectPage(@Nonnull final ByteArrayDataInput pIn) {
     mDelegate = new PageDelegate(IConstants.INP_REFERENCE_COUNT, pIn);
   }
 

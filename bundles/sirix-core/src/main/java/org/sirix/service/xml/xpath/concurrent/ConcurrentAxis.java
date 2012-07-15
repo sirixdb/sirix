@@ -34,6 +34,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
@@ -93,7 +94,8 @@ public class ConcurrentAxis extends AbsAxis {
    * @param pChildAxis
    *          producer axis
    */
-  public ConcurrentAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final IAxis pChildAxis) {
+  public ConcurrentAxis(@Nonnull final INodeReadTrx pRtx,
+    @Nonnull final IAxis pChildAxis) {
     super(pRtx);
     mResults = new ArrayBlockingQueue<>(M_CAPACITY);
     mFirst = true;
@@ -103,7 +105,7 @@ public class ConcurrentAxis extends AbsAxis {
   }
 
   @Override
-  public synchronized void reset(final long nodeKey) {
+  public synchronized void reset(@Nonnegative final long nodeKey) {
     super.reset(nodeKey);
     mFirst = true;
     mFinished = false;

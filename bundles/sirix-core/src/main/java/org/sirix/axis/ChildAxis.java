@@ -48,7 +48,7 @@ public final class ChildAxis extends AbsAxis {
    * Constructor initializing internal state.
    * 
    * @param pRtx
-   *          exclusive (immutable) trx to iterate with.
+   *          exclusive (immutable) trx to iterate with
    */
   public ChildAxis(@Nonnull final INodeTraversal pRtx) {
     super(pRtx);

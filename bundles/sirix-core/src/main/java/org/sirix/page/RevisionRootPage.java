@@ -28,12 +28,12 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnull;
 
-import com.google.common.base.Objects;
-import org.sirix.io.ITTSink;
-import org.sirix.io.ITTSource;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.utils.IConstants;
@@ -91,7 +91,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
    * @param pIn
    *          input stream
    */
-  protected RevisionRootPage(@Nonnull final ITTSource pIn) {
+  protected RevisionRootPage(@Nonnull final ByteArrayDataInput pIn) {
     mDelegate = new PageDelegate(3, pIn);
     mRevisionSize = pIn.readLong();
     mMaxNodeKey = pIn.readLong();
@@ -215,7 +215,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
   }
 
   @Override
-  public void serialize(@Nonnull final ITTSink pOut) {
+  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
     mRevisionTimestamp = System.currentTimeMillis();
     mDelegate.serialize(checkNotNull(pOut));
     pOut.writeLong(mRevisionSize);

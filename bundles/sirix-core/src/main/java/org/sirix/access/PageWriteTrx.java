@@ -286,6 +286,10 @@ public final class PageWriteTrx implements IPageWriteTrx {
           return;
         }
       }
+      
+      if (page instanceof RevisionRootPage) {
+        System.out.println();
+      }
 
       pReference.setPage(page);
       // Recursively commit indirectely referenced pages and then
@@ -383,10 +387,16 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
   @Override
   public void close() throws TTIOException {
+    mPageRtx.assertNotClosed();
     mPageRtx.clearCache();
     mLog.clear();
     mPathLog.clear();
     mPageWriter.close();
+ 
+//    mPageRtx.clearCache();
+//    mPageRtx.close();
+//    mLog.clear();
+//    mPathLog.clear();
   }
 
   /**
@@ -589,5 +599,10 @@ public final class PageWriteTrx implements IPageWriteTrx {
   @Override
   public int getNameCount(int pKey, @Nonnull EKind pKind) {
     return mPageRtx.getNameCount(pKey, pKind);
+  }
+
+  @Override
+  public boolean isClosed() {
+    return mPageRtx.isClosed();
   }
 }

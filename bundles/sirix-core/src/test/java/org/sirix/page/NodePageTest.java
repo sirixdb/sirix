@@ -28,19 +28,19 @@
 package org.sirix.page;
 
 import static org.junit.Assert.assertEquals;
-
 import com.google.common.collect.HashBiMap;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 
 import java.util.ArrayList;
 
 import org.junit.Test;
-import org.sirix.io.file.ByteBufferSinkAndSource;
 import org.sirix.node.ElementNode;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.INameNode;
-import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
 
 @Deprecated
@@ -66,12 +66,10 @@ public class NodePageTest {
     assertEquals(0L, node1.getNodeKey());
     page1.setNode(0, node1);
 
-    final ByteBufferSinkAndSource out = new ByteBufferSinkAndSource();
+    final ByteArrayDataOutput out = ByteStreams.newDataOutput();
     PagePersistenter.serializePage(out, page1);
-    final int position = out.position();
-
-    out.position(0);
-    final NodePage page2 = (NodePage)PagePersistenter.deserializePage(out);
+    final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
+    final NodePage page2 = (NodePage)PagePersistenter.deserializePage(in);
     // assertEquals(position, out.position());
     assertEquals(0L, page2.getNode(0).getNodeKey());
     assertEquals(1L, page2.getNode(0).getParentKey());

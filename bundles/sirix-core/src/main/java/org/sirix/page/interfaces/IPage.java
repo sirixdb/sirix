@@ -26,16 +26,17 @@
  */
 package org.sirix.page.interfaces;
 
+import com.google.common.io.ByteArrayDataOutput;
+
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.io.ITTSink;
 import org.sirix.page.PageReference;
 
 public interface IPage {
   
-  void serialize(@Nonnull final ITTSink pOut);
+  void serialize(@Nonnull final ByteArrayDataOutput pOut);
 
   long getRevision();
 

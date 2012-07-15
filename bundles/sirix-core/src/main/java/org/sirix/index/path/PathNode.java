@@ -1,5 +1,6 @@
 package org.sirix.index.path;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 
@@ -22,17 +23,39 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
   private final StructNodeDelegate mStructNodeDel;
   private final NameNodeDelegate mNameNodeDel;
   private final EKind mKind;
-  private long mPCR;
+  private int mReferences;
+  private int mLevel;
 
   public PathNode(@Nonnull final NodeDelegate pNodeDel,
     @Nonnull final StructNodeDelegate pStructNodeDel,
-    @Nonnull final NameNodeDelegate pNameNodeDel, @Nonnull EKind pKind,
-    @Nonnegative long pPCR) {
+    @Nonnull final NameNodeDelegate pNameNodeDel, @Nonnull final EKind pKind,
+    @Nonnegative final int pReferences, @Nonnegative final int pLevel) {
     mNodeDel = checkNotNull(pNodeDel);
     mStructNodeDel = checkNotNull(pStructNodeDel);
     mNameNodeDel = checkNotNull(pNameNodeDel);
     mKind = checkNotNull(pKind);
-    mPCR = pPCR;
+    checkArgument(pReferences > 0, "pReferences must be >= 0!");
+    mReferences = pReferences;
+    mLevel = pLevel;
+  }
+
+  public int getLevel() {
+    return mLevel;
+  }
+
+  public int getReferences() {
+    return mReferences;
+  }
+
+  public void incrementReferenceCount() {
+    mReferences++;
+  }
+
+  public void decrementReferenceCount() {
+    if (mReferences <= 1) {
+      throw new IllegalStateException();
+    }
+    mReferences--;
   }
 
   public EKind getPathKind() {
@@ -69,25 +92,6 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
     throw new UnsupportedOperationException();
   }
 
-  /**
-   * Get path class record.
-   * 
-   * @return path class record.
-   */
-  public long getPCR() {
-    return mPCR;
-  }
-
-  /**
-   * Set path class record.
-   * 
-   * @param pPCR
-   *          path class record
-   */
-  public void setPCR(final long pPCR) {
-    mPCR = pPCR;
-  }
-
   @Override
   protected StructNodeDelegate structDelegate() {
     return mStructNodeDel;
@@ -109,7 +113,7 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNodeDel, mStructNodeDel, mNameNodeDel);
+    return Objects.hashCode(mNodeDel, mNameNodeDel);
   }
 
   @Override
@@ -117,7 +121,6 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
     if (pObj instanceof PathNode) {
       final PathNode other = (PathNode)pObj;
       return Objects.equal(mNodeDel, other.mNodeDel)
-        && Objects.equal(mStructNodeDel, other.mStructNodeDel)
         && Objects.equal(mNameNodeDel, other.mNameNodeDel);
     }
     return false;
@@ -127,6 +130,7 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
   public String toString() {
     return Objects.toStringHelper(this).add("node delegate", mNodeDel).add(
       "struct delegate", mStructNodeDel).add("name delegate", mNameNodeDel)
+      .add("references", mReferences).add("kind", mKind).add("level", mLevel)
       .toString();
   }
 

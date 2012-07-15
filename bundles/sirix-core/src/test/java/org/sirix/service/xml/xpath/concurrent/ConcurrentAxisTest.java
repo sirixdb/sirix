@@ -33,43 +33,32 @@ import static org.junit.Assert.fail;
 import java.io.File;
 
 import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.perfidix.annotation.AfterEachRun;
 import org.perfidix.annotation.BeforeEachRun;
 import org.perfidix.annotation.Bench;
-import org.perfidix.annotation.SkipBench;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.AbsAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.axis.FilterAxis;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.NameFilter;
-import org.sirix.axis.filter.TextFilter;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTXPathException;
 import org.sirix.service.xml.shredder.XMLShredder;
-import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.XPathAxis;
-import org.sirix.service.xml.xpath.comparators.CompKind;
-import org.sirix.service.xml.xpath.comparators.GeneralComp;
-import org.sirix.service.xml.xpath.expr.LiteralExpr;
-import org.sirix.service.xml.xpath.filter.PredicateFilterAxis;
-import org.sirix.utils.TypedValue;
 
 public class ConcurrentAxisTest {
 
   /** XML file name to test. */
   private static final String XMLFILE = "10mb.xml";
+  
   /** Path to XML file. */
   private static final String XML = "src" + File.separator + "test"
     + File.separator + "resources" + File.separator + XMLFILE;
@@ -160,10 +149,10 @@ public class ConcurrentAxisTest {
     try {
       final INodeReadTrx firstConcurrRtx =
         holder.getSession().beginNodeReadTrx();
-      // final INodeReadTrx secondConcurrRtx =
-      // holder.getSession().beginNodeReadTrx();
-      // final INodeReadTrx thirdConcurrRtx =
-      // holder.getSession().beginNodeReadTrx();
+       final INodeReadTrx secondConcurrRtx =
+       holder.getSession().beginNodeReadTrx();
+       final INodeReadTrx thirdConcurrRtx =
+       holder.getSession().beginNodeReadTrx();
       final INodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx();
       final INodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx();
       final INodeReadTrx thirdRtx = holder.getSession().beginNodeReadTrx();
@@ -171,11 +160,11 @@ public class ConcurrentAxisTest {
         new NestedAxis(new NestedAxis(new ConcurrentAxis(firstConcurrRtx,
           new FilterAxis(new DescendantAxis(firstRtx, EIncludeSelf.YES),
             new NameFilter(firstRtx, "regions"))), new ConcurrentAxis(
-          firstConcurrRtx, new FilterAxis(new ChildAxis(secondRtx),
+              secondConcurrRtx, new FilterAxis(new ChildAxis(secondRtx),
             new NameFilter(secondRtx, "africa")))), new ConcurrentAxis(
-          firstConcurrRtx, new FilterAxis(new DescendantAxis(thirdRtx,
+              thirdConcurrRtx, new FilterAxis(new DescendantAxis(thirdRtx,
             EIncludeSelf.YES), new NameFilter(thirdRtx, "location"))));
-
+      
       for (int i = 0; i < resultNumber; i++) {
         assertEquals(true, axis.hasNext());
         axis.next();

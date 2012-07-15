@@ -34,6 +34,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.AbsTTException;
+import org.sirix.index.path.PathSummary;
 
 /**
  * <h1>ISession</h1>
@@ -77,6 +78,28 @@ public interface ISession extends AutoCloseable {
    * @return {@link INodeWriteTrx} instance
    */
   INodeWriteTrx beginNodeWriteTrx() throws AbsTTException;
+  
+  /**
+   * Open the path summary to allow iteration (basically implementation of
+   * {@link INodeReadTrx}.
+   * 
+   * @param pRev
+   *         revision key to read from
+   * @return {@link PathSummary} instance
+   * @throws AbsTTException
+   *            if can't open path summary
+   */
+  PathSummary openPathSummary(@Nonnegative long pRev) throws AbsTTException;
+  
+  /**
+   * Open the path summary to allow iteration (basically implementation of
+   * {@link INodeReadTrx}.
+   * 
+   * @return {@link PathSummary} instance
+   * @throws AbsTTException
+   *            if can't open path summary
+   */
+  PathSummary openPathSummary() throws AbsTTException;
 
   /**
    * Begin exclusive read/write transaction with auto commit.

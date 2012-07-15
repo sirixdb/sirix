@@ -32,6 +32,7 @@ import java.io.File;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;

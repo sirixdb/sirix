@@ -76,6 +76,14 @@ public class PathSummary implements INodeReadTrx {
     return mCurrentNode;
   }
 
+  public PathNode getPathNode() {
+    if (mCurrentNode instanceof PathNode) {
+      return (PathNode)mCurrentNode;
+    } else {
+      return null;
+    }
+  }
+
   @Override
   public final boolean moveTo(final long pNodeKey) {
     assertNotClosed();
@@ -138,6 +146,10 @@ public class PathSummary implements INodeReadTrx {
       // Immediately release all references.
       mCurrentNode = null;
       mClosed = true;
+
+      if (mPageReadTrx != null && !mPageReadTrx.isClosed()) {
+        mPageReadTrx.close();
+      }
     }
   }
 

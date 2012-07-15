@@ -27,13 +27,19 @@
 
 package org.sirix.io.file;
 
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
+import com.google.common.primitives.Bytes;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 
 import javax.annotation.Nonnull;
 
+import org.sirix.exception.TTByteHandleException;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IWriter;
 import org.sirix.page.PagePersistenter;
@@ -51,9 +57,6 @@ public final class FileWriter implements IWriter {
 
   /** Random access mFile to work on. */
   private final RandomAccessFile mFile;
-
-  /** Compressor to compress the page. */
-  private final CryptoJavaImpl mCompressor;
 
   /** Reader instance for this writer. */
   private final FileReader reader;
@@ -74,7 +77,6 @@ public final class FileWriter implements IWriter {
       throw new TTIOException(fileExc);
     }
 
-    mCompressor = new CryptoJavaImpl();
     reader = new FileReader(pStorage);
   }
 
@@ -87,44 +89,41 @@ public final class FileWriter implements IWriter {
    *           due to errors during writing.
    */
   @Override
-  public long write(@Nonnull final PageReference pPageReference) throws TTIOException {
+  public long write(@Nonnull final PageReference pPageReference)
+    throws TTIOException {
     // Serialise page.
-    final ByteBufferSinkAndSource buffer = new ByteBufferSinkAndSource();
-    buffer.position(FileReader.OTHER_BEACON);
     final IPage page = pPageReference.getPage();
     assert page != null;
-    PagePersistenter.serializePage(buffer, page);
-    final int inputLength = buffer.position();
+    final ByteArrayDataOutput output = ByteStreams.newDataOutput();
+    PagePersistenter.serializePage(output, page);
 
-    // Perform crypto operations.
-    final int outputLength = mCompressor.crypt(inputLength, buffer);
-    if (outputLength == 0) {
-      throw new TTIOException("Page crypt error.");
-    }
-
-    // Normally, the first bytes until FileReader.OTHERBEACON are reserved and cut of resulting in
-    final byte[] tmp = new byte[outputLength];
-    buffer.position(0);
-    // Because of the missing offset, we can write the length directly at the front of the buffer to see
-    // it afterwards in the byte array as well. Do not forget to reset the position before transition to
-    // the array.
-    buffer.writeInt(outputLength);
-    buffer.position(0);
-    buffer.readBytes(tmp, 0, tmp.length);
-
+    // Perform byte operations.
     try {
+      final byte[] decryptedPage =
+        reader.mByteHandler.serialize(output.toByteArray());
+
+      final byte[] writtenPage =
+        new byte[decryptedPage.length + FileReader.OTHER_BEACON];
+      ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
+      buffer.putInt(decryptedPage.length);
+      buffer.put(decryptedPage);
+      buffer.position(0);
+      buffer.get(writtenPage, 0, writtenPage.length);
+
       // Getting actual offset and appending to the end of the current
-      // file.
+      // file
       final long fileSize = mFile.length();
       final long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
       mFile.seek(offset);
-      mFile.write(tmp);
+      mFile.write(writtenPage);
+
       // Remember page coordinates.
       pPageReference.setKey(offset);
-
       return offset;
-    } catch (final IOException paramExc) {
-      throw new TTIOException(paramExc);
+    } catch (final IOException e) {
+      throw new TTIOException(e);
+    } catch (final TTByteHandleException e) {
+      throw new TTIOException(e);
     }
   }
 

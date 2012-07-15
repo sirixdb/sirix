@@ -26,6 +26,7 @@
  */
 package org.sirix.io;
 
+import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 
 /**

@@ -29,6 +29,8 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -36,8 +38,6 @@ import javax.annotation.Nonnull;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
 import org.sirix.index.name.Names;
-import org.sirix.io.ITTSink;
-import org.sirix.io.ITTSource;
 import org.sirix.node.EKind;
 import org.sirix.page.interfaces.IPage;
 
@@ -82,7 +82,7 @@ public final class NamePage implements IPage {
    * @param pIn
    *          input bytes to read from
    */
-  protected NamePage(@Nonnull final ITTSource pIn) {
+  protected NamePage(@Nonnull final ByteArrayDataInput pIn) {
     mRevision = pIn.readLong();
     mElements = Names.clone(pIn);
     mNamespaces = Names.clone(pIn);
@@ -190,7 +190,7 @@ public final class NamePage implements IPage {
   }
 
   @Override
-  public void serialize(@Nonnull final ITTSink pOut) {
+  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
     mElements.serialize(pOut);
     mNamespaces.serialize(pOut);
     mAttributes.serialize(pOut);

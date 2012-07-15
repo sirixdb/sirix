@@ -29,12 +29,12 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.io.ITTSink;
-import org.sirix.io.ITTSource;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -145,7 +145,7 @@ public final class UberPage extends AbsForwardingPage {
    * @param pIn
    *          input bytes
    */
-  protected UberPage(@Nonnull final ITTSource pIn) {
+  protected UberPage(@Nonnull final ByteArrayDataInput pIn) {
     mDelegate = new PageDelegate(1, pIn);
     mRevisionCount = pIn.readLong();
     mBootstrap = false;
@@ -218,7 +218,7 @@ public final class UberPage extends AbsForwardingPage {
   }
 
   @Override
-  public void serialize(@Nonnull final ITTSink pOut) {
+  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
     mBootstrap = false;
     mDelegate.serialize(checkNotNull(pOut));
     pOut.writeLong(mRevisionCount);

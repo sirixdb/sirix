@@ -27,17 +27,18 @@
 
 package org.sirix.page;
 
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+
 import javax.annotation.Nonnull;
 
-import org.sirix.io.ITTSink;
-import org.sirix.io.ITTSource;
 import org.sirix.page.interfaces.IPage;
 
 /**
  * Persists pages on secondary storage.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
- *
+ * 
  */
 public final class PagePersistenter {
 
@@ -48,7 +49,8 @@ public final class PagePersistenter {
    *          source to read from
    * @return the created {@link IPage}
    */
-  public static @Nonnull IPage deserializePage(@Nonnull final ITTSource pSource) {
+  public static @Nonnull
+  IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
     return EPage.getKind(pSource.readByte()).deserializePage(pSource);
   }
 
@@ -60,8 +62,9 @@ public final class PagePersistenter {
    * @param pPage
    *          the {@link IPage} to serialize
    */
-  public static void serializePage(@Nonnull final ITTSink pSink, @Nonnull final IPage pPage) {
+  public static void serializePage(@Nonnull final ByteArrayDataOutput pSink,
+    @Nonnull final IPage pPage) {
     EPage.getKind(pPage.getClass()).serializePage(pSink, pPage);
   }
-  
+
 }

@@ -29,14 +29,14 @@ package org.sirix.page.delegates;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.io.ITTSink;
-import org.sirix.io.ITTSource;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.IPage;
 
@@ -83,7 +83,7 @@ public class PageDelegate implements IPage {
    *          input stream to read from
    */
   public PageDelegate(@Nonnegative final int pReferenceCount,
-    @Nonnull final ITTSource pIn) {
+    @Nonnull final ByteArrayDataInput pIn) {
     checkArgument(pReferenceCount >= 0);
     mReferences = new PageReference[pReferenceCount];
     mRevision = pIn.readLong();
@@ -145,7 +145,7 @@ public class PageDelegate implements IPage {
    *          output stream
    */
   @Override
-  public void serialize(@Nonnull final ITTSink pOut) {
+  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
     for (final PageReference reference : mReferences) {
       pOut.writeLong(reference.getKey());
     }
@@ -158,9 +158,10 @@ public class PageDelegate implements IPage {
    */
   @Override
   public final PageReference[] getReferences() {
-    final PageReference[] copiedRefs = new PageReference[mReferences.length];
-    System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
-    return copiedRefs;
+    return mReferences;
+//    final PageReference[] copiedRefs = new PageReference[mReferences.length];
+//    System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
+//    return copiedRefs;
   }
 
   /**

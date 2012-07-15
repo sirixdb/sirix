@@ -27,31 +27,63 @@
 
 package org.sirix.io.berkeley.binding;
 
-import org.sirix.io.berkeley.TupleInputSink;
-import org.sirix.io.berkeley.TupleOutputSink;
-import org.sirix.page.PagePersistenter;
-import org.sirix.page.interfaces.IPage;
-
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
+import org.sirix.exception.TTByteHandleException;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.bytepipe.Encryptor;
+import org.sirix.io.bytepipe.IByteHandler;
+import org.sirix.io.bytepipe.DeflateCompressor;
+import org.sirix.page.PagePersistenter;
+import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.interfaces.IPage;
 
 /**
  * Binding for storing {@link PageDelegate} objects within the Berkeley DB.
  * 
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public final class PageBinding extends TupleBinding<IPage> {
 
+  private final IByteHandler mByteHandler;
+
+  public PageBinding() {
+    try {
+      mByteHandler =
+        new ByteHandlePipeline(new Encryptor(), new DeflateCompressor());
+    } catch (TTByteHandleException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
   @Override
   public IPage entryToObject(final TupleInput pInput) {
-    return PagePersistenter.deserializePage(new TupleInputSink(pInput));
+    try {
+      final ByteArrayDataInput input =
+        ByteStreams.newDataInput(mByteHandler.deserialize(pInput
+          .getBufferBytes()));
+      return PagePersistenter.deserializePage(input);
+    } catch (final TTByteHandleException e) {
+      e.printStackTrace();
+      return null;
+    }
   }
 
   @Override
   public void objectToEntry(final IPage pPage, final TupleOutput pOutput) {
-    PagePersistenter.serializePage(new TupleOutputSink(pOutput), pPage);
+    final ByteArrayDataOutput output = ByteStreams.newDataOutput();
+    PagePersistenter.serializePage(output, pPage);
+    try {
+      pOutput.write(mByteHandler.serialize(output.toByteArray()));
+    } catch (TTByteHandleException e) {
+      e.printStackTrace();
+    }
   }
 
 }

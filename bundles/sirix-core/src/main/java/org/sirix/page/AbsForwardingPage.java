@@ -26,23 +26,24 @@
  */
 package org.sirix.page;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.collect.ForwardingObject;
+import com.google.common.io.ByteArrayDataOutput;
+
 import javax.annotation.Nonnull;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import com.google.common.collect.ForwardingObject;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.io.ITTSink;
 import org.sirix.page.interfaces.IPage;
 
 /**
  * Forwarding the implementation of all methods in the {@link IPage} interface to a delegate.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
- *
+ * 
  */
-public abstract class AbsForwardingPage extends ForwardingObject implements IPage {
+public abstract class AbsForwardingPage extends ForwardingObject implements
+  IPage {
 
   /** Constructor for use by subclasses. */
   protected AbsForwardingPage() {
@@ -50,25 +51,26 @@ public abstract class AbsForwardingPage extends ForwardingObject implements IPag
 
   @Override
   protected abstract IPage delegate();
-  
+
   @Override
-  public void commit(final @Nonnull IPageWriteTrx pPageWriteTrx) throws AbsTTException {
+  public void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
+    throws AbsTTException {
     delegate().commit(checkNotNull(pPageWriteTrx));
   }
-  
+
   @Override
   public PageReference[] getReferences() {
     return delegate().getReferences();
   }
-  
+
   @Override
   public long getRevision() {
     return delegate().getRevision();
   }
-  
+
   @Override
-  public void serialize(@Nonnull final ITTSink pOut) {
+  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
     delegate().serialize(checkNotNull(pOut));
   }
-  
+
 }

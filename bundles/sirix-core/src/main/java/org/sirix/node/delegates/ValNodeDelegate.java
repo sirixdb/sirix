@@ -29,7 +29,6 @@ package org.sirix.node.delegates;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 
-import java.util.Arrays;
 import java.util.zip.Deflater;
 
 import javax.annotation.Nonnull;
@@ -78,7 +77,7 @@ public class ValNodeDelegate extends AbsForwardingNode implements IValNode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 
@@ -129,10 +128,11 @@ public class ValNodeDelegate extends AbsForwardingNode implements IValNode {
   }
 
   @Override
-  public boolean equals(@Nullable Object pObj) {
+  public boolean equals(@Nullable final Object pObj) {
     if (pObj instanceof ValNodeDelegate) {
-      final ValNodeDelegate other = (ValNodeDelegate) pObj;
-      return Objects.equal(mDelegate, other.mDelegate) && Objects.equal(mVal, other.mVal);
+      final ValNodeDelegate other = (ValNodeDelegate)pObj;
+      return Objects.equal(mDelegate, other.mDelegate)
+        && Objects.equal(mVal, other.mVal);
     }
     return false;
   }
@@ -146,7 +146,7 @@ public class ValNodeDelegate extends AbsForwardingNode implements IValNode {
   public boolean isSameItem(@Nullable final INode pOther) {
     return mDelegate.isSameItem(pOther);
   }
-  
+
   @Override
   public EKind getKind() {
     return EKind.UNKOWN;

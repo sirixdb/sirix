@@ -40,13 +40,15 @@ import com.sleepycat.je.OperationStatus;
 
 import java.io.File;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
 import org.sirix.io.IWriter;
-import org.sirix.io.berkeley.binding.SnappyPageBinding;
+import org.sirix.io.berkeley.binding.PageBinding;
 import org.sirix.page.delegates.PageDelegate;
 
 /**
@@ -62,7 +64,7 @@ import org.sirix.page.delegates.PageDelegate;
 public final class BerkeleyFactory implements IStorage {
 
   /** Binding for {@link PageDelegate}. */
-  public static final SnappyPageBinding PAGE_VAL_B = new SnappyPageBinding();
+  public static final PageBinding PAGE_VAL_B = new PageBinding();
 
   /** Binding for {@link Long}. */
   public static final TupleBinding<Long> DATAINFO_VAL_B = TupleBinding.getPrimitiveBinding(Long.class);
@@ -96,7 +98,7 @@ public final class BerkeleyFactory implements IStorage {
    * @throws NullPointerException
    *           if {@code pFile} is {@code null}
    */
-  public BerkeleyFactory(final File pFile) throws TTIOException {
+  public BerkeleyFactory(@Nonnull final File pFile) throws TTIOException {
     final File repoFile = new File(checkNotNull(pFile), ResourceConfiguration.Paths.Data.getFile().getName());
     if (!repoFile.exists()) {
       repoFile.mkdirs();

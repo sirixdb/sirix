@@ -2,6 +2,8 @@ package org.sirix.index.name;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.collect.HashBiMap;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -9,8 +11,6 @@ import java.util.Map.Entry;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.io.ITTSink;
-import org.sirix.io.ITTSource;
 import org.sirix.utils.IConstants;
 
 /**
@@ -41,7 +41,7 @@ public final class Names {
    * @param pIn
    *          the persistent storage
    */
-  private Names(final ITTSource pIn) {
+  private Names(final @Nonnull ByteArrayDataInput pIn) {
     final int mapSize = pIn.readInt();
     mNameMap = HashBiMap.create(mapSize);
     mCountNameMapping = new HashMap<>(mapSize);
@@ -63,7 +63,7 @@ public final class Names {
    * @param pOut
    *          the persistent storage
    */
-  public void serialize(@Nonnull final ITTSink pOut) {
+  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
     pOut.writeInt(mNameMap.size());
     for (final Entry<Integer, String> entry : mNameMap.entrySet()) {
       pOut.writeInt(entry.getKey());
@@ -176,7 +176,7 @@ public final class Names {
    *          input source, the persistent storage
    * @return cloned index
    */
-  public static Names clone(@Nonnull final ITTSource pIn) {
+  public static Names clone(@Nonnull final ByteArrayDataInput pIn) {
     return new Names(pIn);
   }
 }

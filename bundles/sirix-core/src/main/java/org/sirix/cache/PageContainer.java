@@ -29,12 +29,13 @@ package org.sirix.cache;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleOutput;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.io.berkeley.TupleOutputSink;
 import org.sirix.page.EPage;
 import org.sirix.page.NodePage;
 import org.sirix.page.PagePersistenter;
@@ -124,9 +125,10 @@ public final class PageContainer {
    *          for serialization
    */
   public void serialize(@Nonnull final TupleOutput pOut) {
-    final TupleOutputSink sink = new TupleOutputSink(pOut);
+    final ByteArrayDataOutput sink = ByteStreams.newDataOutput();
     PagePersistenter.serializePage(sink, mComplete);
     PagePersistenter.serializePage(sink, mModified);
+    pOut.write(sink.toByteArray());
   }
 
   @Override

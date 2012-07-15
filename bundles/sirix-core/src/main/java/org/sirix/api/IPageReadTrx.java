@@ -60,6 +60,7 @@ public interface IPageReadTrx extends AutoCloseable {
   
   int getNameCount(int pKey, @Nonnull EKind pKind);
 
+  
   /**
    * Getting the raw name related to the name key and the node kind.
    * 
@@ -104,4 +105,6 @@ public interface IPageReadTrx extends AutoCloseable {
    * @return {@link UberPage} reference
    */
   UberPage getUberPage();
+
+  boolean isClosed();
 }

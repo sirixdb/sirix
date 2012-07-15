@@ -30,6 +30,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 import java.util.Arrays;
 
@@ -38,8 +40,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.io.ITTSink;
-import org.sirix.io.ITTSource;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.page.delegates.PageDelegate;
@@ -87,7 +87,7 @@ public class NodePage implements IPage {
    * @param pIn
    *          input bytes to read page from
    */
-  protected NodePage(@Nonnull final ITTSource pIn) {
+  protected NodePage(@Nonnull final ByteArrayDataInput pIn) {
     mRevision = pIn.readLong();
     mNodePageKey = pIn.readLong();
     mNodes = new INode[IConstants.NDP_NODE_COUNT];
@@ -141,7 +141,7 @@ public class NodePage implements IPage {
   }
 
   @Override
-  public void serialize(@Nonnull final ITTSink pOut) {
+  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
     pOut.writeLong(mNodePageKey);
     for (final INode node : mNodes) {
       if (node == null) {

@@ -1,4 +1,5 @@
 package org.sirix.page;
+
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
@@ -27,12 +28,13 @@ package org.sirix.page;
  */
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.io.ITTSink;
-import org.sirix.io.ITTSource;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
 
@@ -40,13 +42,13 @@ import org.sirix.page.interfaces.IPage;
  * Page to hold references to a path summary.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
- *
+ * 
  */
 public class PathSummaryPage extends AbsForwardingPage {
 
   /** {@link PageDelegate} instance. */
   private final PageDelegate mDelegate;
-  
+
   /** Offset of indirect page reference. */
   private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
@@ -62,7 +64,7 @@ public class PathSummaryPage extends AbsForwardingPage {
     checkArgument(pRevision >= 0, "pRevision must be >= 0!");
     mDelegate = new PageDelegate(1, pRevision);
   }
-  
+
   /**
    * Get indirect page reference.
    * 
@@ -71,20 +73,25 @@ public class PathSummaryPage extends AbsForwardingPage {
   public PageReference getIndirectPageReference() {
     return getReferences()[INDIRECT_REFERENCE_OFFSET];
   }
-  
+
   /**
    * Read meta page.
    * 
    * @param pIn
    *          input bytes to read from
    */
-  protected PathSummaryPage(@Nonnull final ITTSource pIn) {
+  protected PathSummaryPage(@Nonnull final ByteArrayDataInput pIn) {
     mDelegate = new PageDelegate(1, pIn);
   }
 
   @Override
-  public void serialize(@Nonnull final ITTSink pOut) {
+  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
     mDelegate.serialize(checkNotNull(pOut));
+  }
+
+  @Override
+  public String toString() {
+    return Objects.toStringHelper(this).add("mDelegate", mDelegate).toString();
   }
 
   @Override

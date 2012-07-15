@@ -25,14 +25,51 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.utils;
+package org.sirix.access;
 
-import org.sirix.io.file.ByteBufferSinkAndSource;
+import java.util.Iterator;
 
-public interface ICrypto {
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.sirix.Holder;
+import org.sirix.TestHelper;
+import org.sirix.api.IAxis;
+import org.sirix.api.INodeWriteTrx;
+import org.sirix.axis.DescendantAxis;
+import org.sirix.exception.AbsTTException;
+import org.sirix.index.path.PathSummary;
+import org.sirix.utils.DocumentCreater;
 
-  public int crypt(final int mLength, final ByteBufferSinkAndSource mBuffer);
+public class PathSummaryTest {
 
-  public int decrypt(final int mLength, final ByteBufferSinkAndSource mBuffer);
+  private Holder holder;
+
+  @Before
+  public void setUp() throws AbsTTException {
+    TestHelper.deleteEverything();
+    holder = Holder.generateSession();
+  }
+
+  @After
+  public void tearDown() throws AbsTTException {
+    holder.close();
+    TestHelper.closeEverything();
+  }
+
+  @Test
+  public void testInsert() throws AbsTTException {
+    final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
+    DocumentCreater.create(wtx);
+    wtx.commit();
+    wtx.close();
+    final PathSummary pathSummary = holder.getSession().openPathSummary();
+    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
+      axis.next();
+      System.out.println(axis.getTransaction().getNode());
+      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
+    }
+    pathSummary.close();
+  }
 
 }

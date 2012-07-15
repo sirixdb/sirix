@@ -27,15 +27,15 @@
 
 package org.sirix.node;
 
-import org.sirix.io.file.ByteBufferSinkAndSource;
+import static org.junit.Assert.assertEquals;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
+import org.junit.Test;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.utils.NamePageHash;
-
-import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
 
 public class AttributeNodeTest {
 
@@ -55,10 +55,10 @@ public class AttributeNodeTest {
     check(node1);
 
     // Serialize and deserialize node.
-    final ByteBufferSinkAndSource out = new ByteBufferSinkAndSource();
+    final ByteArrayDataOutput out = ByteStreams.newDataOutput();
     node1.getKind().serialize(out, node1);
-    out.position(0);
-    final AttributeNode node2 = (AttributeNode)EKind.ATTRIBUTE.deserialize(out);
+    final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
+    final AttributeNode node2 = (AttributeNode)EKind.ATTRIBUTE.deserialize(in);
     check(node2);
 
   }

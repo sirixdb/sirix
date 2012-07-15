@@ -34,7 +34,6 @@ import java.util.concurrent.BlockingQueue;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
 import org.sirix.settings.EFixed;
 
 /**
