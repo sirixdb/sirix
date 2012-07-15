@@ -40,12 +40,6 @@
 	</licenses>
 	<repositories>
 		<repository>
-			<id>oracleReleases</id>
-			<name>Oracle Released Java Packages</name>
-			<url>http://download.oracle.com/maven</url>
-			<layout>default</layout>
-		</repository>
-		<repository>
 			<id>disyInternal</id>
 			<name>Internal Repository for the Distributed System Group</name>
 			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternal</url>
@@ -77,6 +71,17 @@
 			<snapshots>
 				<enabled>false</enabled>
 			</snapshots>
+		</repository>
+		<repository>
+			<id>guice-maven</id>
+			<name>guice maven</name>
+			<url>http://guice-maven.googlecode.com/svn/trunk</url>
+		</repository>
+		<repository>
+			<id>oracleReleases</id>
+			<name>Oracle Released Java Packages</name>
+			<url>http://download.oracle.com/maven</url>
+			<layout>default</layout>
 		</repository>
 	</repositories>
 	<reporting>
