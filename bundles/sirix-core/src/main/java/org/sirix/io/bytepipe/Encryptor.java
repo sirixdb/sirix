@@ -13,7 +13,7 @@ import javax.crypto.Cipher;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.SecretKeySpec;
 
-import org.sirix.exception.TTByteHandleException;
+import org.sirix.exception.TTIOException;
 
 /**
  * Decorator for encrypting any content.
@@ -39,20 +39,20 @@ public class Encryptor implements IByteHandler {
    * 
    * @throws TTByteHandleException
    */
-  public Encryptor() throws TTByteHandleException {
+  public Encryptor() throws TTIOException {
     try {
       mCipher = Cipher.getInstance(ALGORITHM);
       key = new SecretKeySpec(keyValue, ALGORITHM);
     } catch (final NoSuchAlgorithmException e) {
-      throw new TTByteHandleException(e);
+      throw new TTIOException(e);
     } catch (final NoSuchPaddingException e) {
-      throw new TTByteHandleException(e);
+      throw new TTIOException(e);
     }
   }
 
   @Override
   public byte[] serialize(@Nonnull final byte[] pToSerialize)
-    throws TTByteHandleException {
+    throws TTIOException {
     try {
       mCipher.init(Cipher.ENCRYPT_MODE, key);
 
@@ -63,13 +63,13 @@ public class Encryptor implements IByteHandler {
       }
       return toEncrypt;
     } catch (final GeneralSecurityException e) {
-      throw new TTByteHandleException(e);
+      throw new TTIOException(e);
     }
   }
 
   @Override
   public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
-    throws TTByteHandleException {
+    throws TTIOException {
     try {
       mCipher.init(Cipher.DECRYPT_MODE, key);
 
@@ -81,9 +81,9 @@ public class Encryptor implements IByteHandler {
       return toDecrypt;
 
     } catch (final InvalidKeyException e) {
-      throw new TTByteHandleException(e);
+      throw new TTIOException(e);
     } catch (final GeneralSecurityException e) {
-      throw new TTByteHandleException(e);
+      throw new TTIOException(e);
     }
 
   }

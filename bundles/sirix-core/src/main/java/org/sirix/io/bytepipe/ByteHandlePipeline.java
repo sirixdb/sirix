@@ -8,7 +8,7 @@ import java.util.List;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTByteHandleException;
+import org.sirix.exception.TTIOException;
 
 /**
  * 
@@ -38,7 +38,7 @@ public final class ByteHandlePipeline implements IByteHandler {
 
   @Override
   public byte[] serialize(@Nonnull final byte[] pToSerialize)
-    throws TTByteHandleException {
+    throws TTIOException {
     byte[] pipeData = pToSerialize;
     for (final IByteHandler part : mParts) {
       pipeData = part.serialize(pipeData);
@@ -48,7 +48,7 @@ public final class ByteHandlePipeline implements IByteHandler {
 
   @Override
   public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
-    throws TTByteHandleException {
+    throws TTIOException {
     byte[] pipeData = pToDeserialize;
     for (int i = mParts.size() - 1; i >= 0; i--) {
       pipeData = mParts.get(i).deserialize(pipeData);

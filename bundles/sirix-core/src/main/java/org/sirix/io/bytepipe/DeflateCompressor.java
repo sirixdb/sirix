@@ -4,13 +4,14 @@
 package org.sirix.io.bytepipe;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTByteHandleException;
+import org.sirix.exception.TTIOException;
 
 /**
  * Decorator to zip any data.
@@ -42,7 +43,7 @@ public class DeflateCompressor implements IByteHandler {
 
   @Override
   public byte[] serialize(@Nonnull final byte[] pToSerialize)
-    throws TTByteHandleException {
+    throws TTIOException {
     mCompressor.reset();
     mOut.reset();
     mCompressor.setInput(pToSerialize);
@@ -58,7 +59,7 @@ public class DeflateCompressor implements IByteHandler {
 
   @Override
   public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
-    throws TTByteHandleException {
+    throws TTIOException {
     mDecompressor.reset();
     mOut.reset();
     mDecompressor.setInput(pToDeserialize);
@@ -66,8 +67,8 @@ public class DeflateCompressor implements IByteHandler {
     while (!mDecompressor.finished()) {
       try {
         count = mDecompressor.inflate(mTmp);
-      } catch (final DataFormatException exc) {
-        throw new TTByteHandleException(exc);
+      } catch (final DataFormatException e) {
+        throw new TTIOException(e);
       }
       mOut.write(mTmp, 0, count);
     }

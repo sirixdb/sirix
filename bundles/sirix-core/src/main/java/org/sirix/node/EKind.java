@@ -196,10 +196,11 @@ public enum EKind implements IKind {
         new ValNodeDelegate(nodeDel, vals, isCompressed);
 
       // Struct delegate.
+      final long nodeKey = nodeDel.getNodeKey();
       final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, EFixed.NULL_NODE_KEY
-          .getStandardProperty(), pSource.readLong(), pSource.readLong(), 0L,
-          0L);
+          .getStandardProperty(), nodeKey - getLong(pSource), nodeKey
+          - getLong(pSource), 0L, 0L);
 
       // Returning an instance.
       return new TextNode(nodeDel, valDel, structDel);
@@ -212,8 +213,9 @@ public enum EKind implements IKind {
       serializeDelegate(node.getNodeDelegate(), pSink);
       serializeValDelegate(node.getValNodeDelegate(), pSink);
       final StructNodeDelegate del = node.getStructNodeDelegate();
-      pSink.writeLong(del.getRightSiblingKey());
-      pSink.writeLong(del.getLeftSiblingKey());
+      final long nodeKey = node.getNodeKey();
+      putLong(pSink, nodeKey - del.getRightSiblingKey());
+      putLong(pSink, nodeKey - del.getLeftSiblingKey());
     }
   },
 
@@ -438,8 +440,8 @@ public enum EKind implements IKind {
    */
   private static final NodeDelegate deserializeNodeDelegate(
     @Nonnull final ByteArrayDataInput pSource) {
-    final long nodeKey = pSource.readLong();
-    final long parentKey = nodeKey - pSource.readLong();
+    final long nodeKey = getLong(pSource);
+    final long parentKey = nodeKey - getLong(pSource);
     final long hash = pSource.readLong();
     return new NodeDelegate(nodeKey, parentKey, hash);
   }
@@ -454,8 +456,8 @@ public enum EKind implements IKind {
    */
   private static final void serializeDelegate(@Nonnull final NodeDelegate pDel,
     @Nonnull final ByteArrayDataOutput pSink) {
-    pSink.writeLong(pDel.getNodeKey());
-    pSink.writeLong(pDel.getNodeKey() - pDel.getParentKey());
+    putLong(pSink, pDel.getNodeKey());
+    putLong(pSink, pDel.getNodeKey() - pDel.getParentKey());
     pSink.writeLong(pDel.getHash());
   }
 
@@ -468,12 +470,13 @@ public enum EKind implements IKind {
    *          to serialize to.
    */
   private static final void serializeStrucDelegate(
-    @Nonnull final StructNodeDelegate pDel, @Nonnull final ByteArrayDataOutput pSink) {
-    pSink.writeLong(pDel.getNodeKey() - pDel.getRightSiblingKey());
-    pSink.writeLong(pDel.getNodeKey() - pDel.getLeftSiblingKey());
-    pSink.writeLong(pDel.getNodeKey() - pDel.getFirstChildKey());
-    pSink.writeLong(pDel.getChildCount());
-    pSink.writeLong(pDel.getDescendantCount() - pDel.getChildCount());
+    @Nonnull final StructNodeDelegate pDel,
+    @Nonnull final ByteArrayDataOutput pSink) {
+    putLong(pSink, pDel.getNodeKey() - pDel.getRightSiblingKey());
+    putLong(pSink, pDel.getNodeKey() - pDel.getLeftSiblingKey());
+    putLong(pSink, pDel.getNodeKey() - pDel.getFirstChildKey());
+    putLong(pSink, pDel.getChildCount());
+    putLong(pSink, pDel.getDescendantCount() - pDel.getChildCount());
   }
 
   /**
@@ -485,14 +488,15 @@ public enum EKind implements IKind {
    *          input source
    * @return {@link StructNodeDelegate} instance
    */
-  private static final StructNodeDelegate deserializeStructDel(
-    @Nonnull final NodeDelegate pDel, @Nonnull final ByteArrayDataInput pSource) {
+  private static final StructNodeDelegate
+    deserializeStructDel(@Nonnull final NodeDelegate pDel,
+      @Nonnull final ByteArrayDataInput pSource) {
     final long currKey = pDel.getNodeKey();
-    final long rightSibl = currKey - pSource.readLong();
-    final long leftSibl = currKey - pSource.readLong();
-    final long firstChild = currKey - pSource.readLong();
-    final long childCount = pSource.readLong();
-    final long descendantCount = pSource.readLong() + childCount;
+    final long rightSibl = currKey - getLong(pSource);
+    final long leftSibl = currKey - getLong(pSource);
+    final long firstChild = currKey - getLong(pSource);
+    final long childCount = getLong(pSource);
+    final long descendantCount = getLong(pSource) + childCount;
     return new StructNodeDelegate(pDel, firstChild, rightSibl, leftSibl,
       childCount, descendantCount);
   }
@@ -507,7 +511,8 @@ public enum EKind implements IKind {
    * @return {@link NameNodeDelegate} instance
    */
   private static final NameNodeDelegate deserializeNameDelegate(
-    @Nonnull final NodeDelegate pNodeDel, @Nonnull final ByteArrayDataInput pSource) {
+    @Nonnull final NodeDelegate pNodeDel,
+    @Nonnull final ByteArrayDataInput pSource) {
     int nameKey = pSource.readInt();
     final int uriKey = pSource.readInt();
     nameKey += uriKey;
@@ -523,7 +528,8 @@ public enum EKind implements IKind {
    *          to serialize to
    */
   private static final void serializeNameDelegate(
-    @Nonnull final NameNodeDelegate pDel, @Nonnull final ByteArrayDataOutput pSink) {
+    @Nonnull final NameNodeDelegate pDel,
+    @Nonnull final ByteArrayDataOutput pSink) {
     pSink.writeInt(pDel.getNameKey() - pDel.getURIKey());
     pSink.writeInt(pDel.getURIKey());
     pSink.writeLong(pDel.getPathNodeKey());
@@ -538,12 +544,32 @@ public enum EKind implements IKind {
    *          to serialize to
    */
   private static final void serializeValDelegate(
-    @Nonnull final ValNodeDelegate pDel, @Nonnull final ByteArrayDataOutput pSink) {
+    @Nonnull final ValNodeDelegate pDel,
+    @Nonnull final ByteArrayDataOutput pSink) {
     final boolean isCompressed = pDel.isCompressed();
     pSink.writeByte(isCompressed ? (byte)1 : (byte)0);
     final byte[] value =
       isCompressed ? pDel.getCompressed() : pDel.getRawValue();
     pSink.writeInt(value.length);
     pSink.write(value);
+  }
+
+  private static final void putLong(@Nonnull final ByteArrayDataOutput pOutput,
+    long value) {
+    while ((value & ~0x7F) != 0) {
+      pOutput.write(((byte)((value & 0x7f) | 0x80)));
+      value >>>= 7;
+    }
+    pOutput.write((byte)value);
+  }
+
+  private static final long getLong(@Nonnull final ByteArrayDataInput pInput) {
+    byte singleByte = pInput.readByte();
+    long value = singleByte & 0x7F;
+    for (int shift = 7; (singleByte & 0x80) != 0; shift += 7) {
+      singleByte = pInput.readByte();
+      value |= (singleByte & 0x7FL) << shift;
+    }
+    return value;
   }
 }

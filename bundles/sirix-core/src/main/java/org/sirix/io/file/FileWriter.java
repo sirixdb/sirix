@@ -29,7 +29,6 @@ package org.sirix.io.file;
 
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
-import com.google.common.primitives.Bytes;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -39,7 +38,6 @@ import java.nio.ByteBuffer;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTByteHandleException;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IWriter;
 import org.sirix.page.PagePersistenter;
@@ -47,7 +45,7 @@ import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.IPage;
 
 /**
- * File Writer for providing read/write access for file as a sirix backend.
+ * File Writer for providing read/write access for file as a Sirix backend.
  * 
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
@@ -58,8 +56,8 @@ public final class FileWriter implements IWriter {
   /** Random access mFile to work on. */
   private final RandomAccessFile mFile;
 
-  /** Reader instance for this writer. */
-  private final FileReader reader;
+  /** {@link FileReader} reference for this writer. */
+  private final FileReader mReader;
 
   /**
    * Constructor.
@@ -76,8 +74,7 @@ public final class FileWriter implements IWriter {
     } catch (final FileNotFoundException fileExc) {
       throw new TTIOException(fileExc);
     }
-
-    reader = new FileReader(pStorage);
+    mReader = new FileReader(pStorage);
   }
 
   /**
@@ -100,7 +97,7 @@ public final class FileWriter implements IWriter {
     // Perform byte operations.
     try {
       final byte[] decryptedPage =
-        reader.mByteHandler.serialize(output.toByteArray());
+        mReader.mByteHandler.serialize(output.toByteArray());
 
       final byte[] writtenPage =
         new byte[decryptedPage.length + FileReader.OTHER_BEACON];
@@ -122,8 +119,6 @@ public final class FileWriter implements IWriter {
       return offset;
     } catch (final IOException e) {
       throw new TTIOException(e);
-    } catch (final TTByteHandleException e) {
-      throw new TTIOException(e);
     }
   }
 
@@ -131,26 +126,13 @@ public final class FileWriter implements IWriter {
   public void close() throws TTIOException {
     try {
       if (mFile != null) {
-        reader.close();
         mFile.close();
+      }
+      if (mReader != null) {
+        mReader.close();
       }
     } catch (final IOException e) {
       throw new TTIOException(e);
-    }
-  }
-
-  /**
-   * Close file handle in case it is not properly closed by the application.
-   * 
-   * @throws Throwable
-   *           if the finalization of the superclass does not work
-   */
-  @Override
-  protected void finalize() throws Throwable {
-    try {
-      close();
-    } finally {
-      super.finalize();
     }
   }
 
@@ -168,12 +150,12 @@ public final class FileWriter implements IWriter {
 
   @Override
   public IPage read(final long pKey) throws TTIOException {
-    return reader.read(pKey);
+    return mReader.read(pKey);
   }
 
   @Override
   public PageReference readFirstReference() throws TTIOException {
-    return reader.readFirstReference();
+    return mReader.readFirstReference();
   }
 
 }

@@ -29,10 +29,6 @@ package org.sirix.exception;
 
 import java.io.IOException;
 
-import javax.xml.stream.XMLStreamException;
-
-import com.sleepycat.je.DatabaseException;
-
 /**
  * All sirix IO Exception are wrapped in this class. It inherits from
  * IOException since it is a sirix IO Exception.
@@ -50,51 +46,33 @@ public final class TTIOException extends AbsTTException {
   /**
    * Constructor.
    * 
-   * @param pExc
-   *          exception to be wrapped
+   * @param pMessage
+   *          to be used
    */
-  public TTIOException(final XMLStreamException pExc) {
-    super(pExc);
+  public TTIOException(final String pMessage) {
+    super(pMessage);
   }
 
   /**
    * Constructor.
    * 
-   * @param pExc
-   *          exception to be wrapped
-   */
-  public TTIOException(final IOException pExc) {
-    super(pExc);
-  }
-  
-  /**
-   * Constructor.
-   * 
-   * @param pExc
-   *          exception to be wrapped
-   */
-  public TTIOException(final TTByteHandleException pExc) {
-    super(pExc);
-  }
-
-  /**
-   * Constructor.
-   * 
-   * @param pExc
-   *          exception to be wrapped
-   */
-  public TTIOException(final DatabaseException pExc) {
-    super(pExc);
-  }
-
-  /**
-   * Constructor.
-   * 
-   * @param message
+   * @param pThrowable
+   *          {@link Throwable} exception
+   * @param pMessage
    *          for the overlaying {@link IOException}
    */
-  public TTIOException(final String... message) {
-    super(message);
+  public TTIOException(final String pMessage, final Throwable pThrowable) {
+    super(pMessage, pThrowable);
+  }
+
+  /**
+   * Constructor.
+   * 
+   * @param pThrowable
+   *          {@link Throwable} exception
+   */
+  public TTIOException(final Throwable pThrowable) {
+    super(pThrowable);
   }
 
 }

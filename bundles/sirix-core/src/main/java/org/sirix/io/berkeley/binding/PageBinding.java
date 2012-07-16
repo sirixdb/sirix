@@ -27,20 +27,21 @@
 
 package org.sirix.io.berkeley.binding;
 
-import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
-import org.sirix.exception.TTByteHandleException;
+import org.sirix.exception.TTIOException;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.io.bytepipe.IByteHandler;
-import org.sirix.io.bytepipe.DeflateCompressor;
+import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Binding for storing {@link PageDelegate} objects within the Berkeley DB.
@@ -51,28 +52,35 @@ import org.sirix.page.interfaces.IPage;
  */
 public final class PageBinding extends TupleBinding<IPage> {
 
+  /** Logger. */
+  private static final Logger LOGGER = LoggerFactory
+    .getLogger(PageBinding.class);
+  
+  /** {@link IByteHandler} implementation. */
   private final IByteHandler mByteHandler;
 
+  /**
+   * Constructor.
+   */
   public PageBinding() {
     try {
       mByteHandler =
-        new ByteHandlePipeline(new Encryptor(), new DeflateCompressor());
-    } catch (TTByteHandleException e) {
+        new ByteHandlePipeline(new Encryptor(), new SnappyCompressor());
+    } catch (final TTIOException e) {
       throw new RuntimeException(e);
     }
   }
 
   @Override
   public IPage entryToObject(final TupleInput pInput) {
+    byte[] deserialized = new byte[0];
     try {
-      final ByteArrayDataInput input =
-        ByteStreams.newDataInput(mByteHandler.deserialize(pInput
-          .getBufferBytes()));
-      return PagePersistenter.deserializePage(input);
-    } catch (final TTByteHandleException e) {
-      e.printStackTrace();
-      return null;
+      deserialized = mByteHandler.deserialize(pInput.getBufferBytes());
+    } catch (final TTIOException e) {
+      LOGGER.error(e.getMessage(), e);
     }
+    return PagePersistenter.deserializePage(ByteStreams
+      .newDataInput(deserialized));
   }
 
   @Override
@@ -81,8 +89,8 @@ public final class PageBinding extends TupleBinding<IPage> {
     PagePersistenter.serializePage(output, pPage);
     try {
       pOutput.write(mByteHandler.serialize(output.toByteArray()));
-    } catch (TTByteHandleException e) {
-      e.printStackTrace();
+    } catch (final TTIOException e) {
+      LOGGER.error(e.getMessage(), e);
     }
   }
 

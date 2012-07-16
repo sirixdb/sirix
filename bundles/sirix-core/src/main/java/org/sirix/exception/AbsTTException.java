@@ -41,32 +41,43 @@ public abstract class AbsTTException extends Exception {
   /**
    * Constructor to encapsulate parsing.
    * 
-   * @param mExc
+   * @param pThrowable
    *          to encapsulate
    */
-  public AbsTTException(final Exception mExc) {
-    super(mExc);
+  public AbsTTException(final Throwable pThrowable) {
+    super(pThrowable);
   }
 
   /**
    * Constructor.
    * 
-   * @param message
-   *          , convinience for super-constructor
+   * @param pMessage
+   *          message
    */
-  private AbsTTException(final StringBuilder message) {
-    super(message.toString());
+  private AbsTTException(final StringBuilder pMessage) {
+    super(pMessage.toString());
   }
 
   /**
    * Constructor.
    * 
-   * @param message
+   * @param pMessage
    *          message as string, they are concatenated with spaces in
    *          between
    */
-  public AbsTTException(final String... message) {
-    this(concat(message));
+  public AbsTTException(final String... pMessage) {
+    this(concat(pMessage));
+  }
+
+  /**
+   * Constructor
+   * 
+   * @param pMessage
+   *            message as string
+   * @param pThrowable
+   */
+  public AbsTTException(final String pMessage, final Throwable pThrowable) {
+    super(pMessage, pThrowable);
   }
 
   /**
@@ -76,9 +87,9 @@ public abstract class AbsTTException extends Exception {
    *          to be concatenated
    * @return the StringBuilder for the combined string
    */
-  public static StringBuilder concat(final String... message) {
+  public static StringBuilder concat(final String... pMessage) {
     final StringBuilder builder = new StringBuilder();
-    for (final String mess : message) {
+    for (final String mess : pMessage) {
       builder.append(mess);
       builder.append(" ");
     }

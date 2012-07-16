@@ -36,13 +36,12 @@ import java.io.RandomAccessFile;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTByteHandleException;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.io.bytepipe.IByteHandler;
-import org.sirix.io.bytepipe.DeflateCompressor;
+import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
@@ -86,10 +85,8 @@ public final class FileReader implements IReader {
       }
 
       mFile = new RandomAccessFile(pConcreteStorage, "r");
-      mByteHandler = new ByteHandlePipeline(new Encryptor(), new DeflateCompressor());
+      mByteHandler = new ByteHandlePipeline(new Encryptor(), new SnappyCompressor());
     } catch (final IOException e) {
-      throw new TTIOException(e);
-    } catch (final TTByteHandleException e) {
       throw new TTIOException(e);
     }
   }
@@ -119,8 +116,6 @@ public final class FileReader implements IReader {
       // Return reader required to instantiate and deserialize page.
       return PagePersistenter.deserializePage(input);
     } catch (final IOException e) {
-      throw new TTIOException(e);
-    } catch (final TTByteHandleException e) {
       throw new TTIOException(e);
     }
   }
