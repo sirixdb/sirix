@@ -139,7 +139,7 @@ public final class XMLSerializer extends AbsSerializer {
    * Emit node (start element or characters).
    */
   @Override
-  protected void emitStartElement(final INodeReadTrx pRtx) {
+  protected void emitStartElement(final @Nonnull INodeReadTrx pRtx) {
     try {
       switch (pRtx.getNode().getKind()) {
       case DOCUMENT_ROOT:
@@ -194,9 +194,8 @@ public final class XMLSerializer extends AbsSerializer {
           mOut.write(pRtx.rawNameForKey(((INameNode)pRtx.getNode())
             .getNameKey()));
           mOut.write(ECharsForSerializing.EQUAL_QUOTE.getBytes());
-          // XmlEscaper.xmlEscaper().escape(pRtx.getValueOfCurrentNode()).toBytes();
-          mOut.write(XMLToken.escape(pRtx.getValueOfCurrentNode()).getBytes(
-            IConstants.DEFAULT_ENCODING));// pRtx.getItem().getRawValue());
+          mOut.write(XMLToken.escapeAttribute(pRtx.getValueOfCurrentNode())
+            .getBytes(IConstants.DEFAULT_ENCODING));// pRtx.getItem().getRawValue());
           mOut.write(ECharsForSerializing.QUOTE.getBytes());
           pRtx.moveTo(key);
         }
@@ -211,10 +210,8 @@ public final class XMLSerializer extends AbsSerializer {
         break;
       case TEXT:
         indent();
-        // Guava 11 (not released)
-        // XmlEscaper.xmlContentEscaper().escape(pRtx.getValueOfCurrentNode()).toBytes();
-        mOut.write(XMLToken.escape(pRtx.getValueOfCurrentNode()).getBytes(
-          IConstants.DEFAULT_ENCODING)); // pRtx.getItem().getRawValue());
+        mOut.write(XMLToken.escapeContent(pRtx.getValueOfCurrentNode())
+          .getBytes(IConstants.DEFAULT_ENCODING));
         if (mIndent) {
           mOut.write(ECharsForSerializing.NEWLINE.getBytes());
         }
@@ -232,7 +229,7 @@ public final class XMLSerializer extends AbsSerializer {
    *          Read Transaction
    */
   @Override
-  protected void emitEndElement(final INodeReadTrx pRtx) {
+  protected void emitEndElement(final @Nonnull INodeReadTrx pRtx) {
     try {
       indent();
       mOut.write(ECharsForSerializing.OPEN_SLASH.getBytes());
@@ -467,8 +464,10 @@ public final class XMLSerializer extends AbsSerializer {
      * @param paramVersions
      *          version(s) to serialize
      */
-    public XMLSerializerBuilder(@Nonnull final ISession pSession, @Nonnegative final long pNodeKey,
-      @Nonnull final OutputStream pStream, @Nonnull final XMLSerializerProperties pProperties, final long... pRevisions) {
+    public XMLSerializerBuilder(@Nonnull final ISession pSession,
+      @Nonnegative final long pNodeKey, @Nonnull final OutputStream pStream,
+      @Nonnull final XMLSerializerProperties pProperties,
+      final long... pRevisions) {
       checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
       mSession = checkNotNull(pSession);
       mNodeKey = pNodeKey;
@@ -529,12 +528,12 @@ public final class XMLSerializer extends AbsSerializer {
     /**
      * Setting the IDs on nodes.
      * 
-     * @param paramID
+     * @param pID
      *          determines if IDs should be set for each node
      * @return XMLSerializerBuilder reference
      */
-    public XMLSerializerBuilder setID(final boolean paramID) {
-      mID = paramID;
+    public XMLSerializerBuilder setID(final boolean pID) {
+      mID = pID;
       return this;
     }
 

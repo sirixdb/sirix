@@ -402,7 +402,7 @@ public class FileSystemWatcher implements AutoCloseable {
         .normalize();
     if (path != null) {
       final StringBuilder queryBuilder = new StringBuilder("/fsml/");
-      queryBuilder.append("dir[@name=\"").append(XMLToken.escape(mPath.getFileName().toString())).append(
+      queryBuilder.append("dir[@name=\"").append(XMLToken.escapeAttribute(mPath.getFileName().toString())).append(
         "\"]");
       final Path relativized = mPath.relativize(path);
       Path buildPath = mPath;
@@ -422,7 +422,7 @@ public class FileSystemWatcher implements AutoCloseable {
             assert kind != null;
             kind.append(queryBuilder);
           }
-          queryBuilder.append("[@name=\"").append(XMLToken.escape(element.getFileName().toString())).append(
+          queryBuilder.append("[@name=\"").append(XMLToken.escapeAttribute(element.getFileName().toString())).append(
             "\"]");
           buildPath = buildPath.resolve(element);
         }

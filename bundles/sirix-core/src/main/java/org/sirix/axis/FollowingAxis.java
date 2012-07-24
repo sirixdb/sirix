@@ -32,7 +32,7 @@ import java.util.Deque;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeTraversal;
+import org.sirix.api.INodeCursor;
 
 /**
  * <h1>FollowingAxis</h1>
@@ -55,7 +55,7 @@ public final class FollowingAxis extends AbsAxis {
    * @param paramRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public FollowingAxis(@Nonnull final INodeTraversal pRtx) {
+  public FollowingAxis(@Nonnull final INodeCursor pRtx) {
     super(pRtx);
     mIsFirst = true;
     mRightSiblingStack = new ArrayDeque<>();

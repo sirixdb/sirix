@@ -197,7 +197,7 @@ public final class StAXSerializer implements XMLEventReader {
       break;
     case TEXT:
       mEvent =
-        mFac.createCharacters(XMLToken.escape(pRTX.getValueOfCurrentNode()));
+        mFac.createCharacters(XMLToken.escapeContent(pRTX.getValueOfCurrentNode()));
       break;
     default:
       throw new IllegalStateException("Kind not known!");
@@ -244,7 +244,7 @@ public final class StAXSerializer implements XMLEventReader {
     }
 
     rtx.moveTo(nodeKey);
-    return XMLToken.escape(strBuilder.toString());
+    return XMLToken.escapeContent(strBuilder.toString());
   }
 
   @Override
@@ -522,7 +522,7 @@ public final class StAXSerializer implements XMLEventReader {
       mRTX.moveToAttribute(mIndex++);
       assert mRTX.getNode().getKind() == EKind.ATTRIBUTE;
       final QName qName = mRTX.getQNameOfCurrentNode();
-      final String value = XMLToken.escape(mRTX.getValueOfCurrentNode());
+      final String value = XMLToken.escapeAttribute(mRTX.getValueOfCurrentNode());
       mRTX.moveTo(mNodeKey);
       return mFac.createAttribute(qName, value);
     }

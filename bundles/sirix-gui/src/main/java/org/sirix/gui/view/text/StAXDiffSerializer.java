@@ -152,7 +152,8 @@ public final class StAXDiffSerializer implements XMLEventReader {
    * @param pCloseRtx
    *          Determines if rtx should be closed afterwards.
    */
-  public StAXDiffSerializer(@Nonnull final DiffAxis pItems, final boolean pCloseRtx) {
+  public StAXDiffSerializer(@Nonnull final DiffAxis pItems,
+    final boolean pCloseRtx) {
     mNextTag = false;
     mAxis = checkNotNull(pItems);
     mCloseRtx = pCloseRtx;
@@ -173,7 +174,9 @@ public final class StAXDiffSerializer implements XMLEventReader {
   private void emitEndTag(final INodeReadTrx pRTX) {
     assert pRTX != null;
     final long nodeKey = pRTX.getNode().getNodeKey();
-    mEvent = mFac.createEndElement(pRTX.getQNameOfCurrentNode(), new NamespaceIterator(pRTX));
+    mEvent =
+      mFac.createEndElement(pRTX.getQNameOfCurrentNode(),
+        new NamespaceIterator(pRTX));
     pRTX.moveTo(nodeKey);
   }
 
@@ -192,11 +195,15 @@ public final class StAXDiffSerializer implements XMLEventReader {
     case ELEMENT:
       final long key = pRTX.getNode().getNodeKey();
       final QName qName = pRTX.getQNameOfCurrentNode();
-      mEvent = mFac.createStartElement(qName, new AttributeIterator(pRTX), new NamespaceIterator(pRTX));
+      mEvent =
+        mFac.createStartElement(qName, new AttributeIterator(pRTX),
+          new NamespaceIterator(pRTX));
       pRTX.moveTo(key);
       break;
     case TEXT:
-      mEvent = mFac.createCharacters(XMLToken.escape(pRTX.getValueOfCurrentNode()));
+      mEvent =
+        mFac.createCharacters(XMLToken.escapeContent(pRTX
+          .getValueOfCurrentNode()));
       break;
     default:
       throw new IllegalStateException("Kind not known!");
@@ -230,9 +237,11 @@ public final class StAXDiffSerializer implements XMLEventReader {
 
     if (mEvent.getEventType() != XMLStreamConstants.START_ELEMENT) {
       rtx.moveTo(nodeKey);
-      throw new XMLStreamException("getElementText() only can be called on a start element");
+      throw new XMLStreamException(
+        "getElementText() only can be called on a start element");
     }
-    final FilterAxis textFilterAxis = new FilterAxis(new DescendantAxis(rtx), new TextFilter(rtx));
+    final FilterAxis textFilterAxis =
+      new FilterAxis(new DescendantAxis(rtx), new TextFilter(rtx));
     final StringBuilder strBuilder = new StringBuilder();
 
     while (textFilterAxis.hasNext()) {
@@ -241,7 +250,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
     }
 
     rtx.moveTo(nodeKey);
-    return XMLToken.escape(strBuilder.toString());
+    return XMLToken.escapeContent(strBuilder.toString());
   }
 
   @Override
@@ -286,7 +295,8 @@ public final class StAXDiffSerializer implements XMLEventReader {
 
           if (mNextTag) {
             if (mAxis.getTransaction().getNode().getKind() != EKind.ELEMENT) {
-              throw new XMLStreamException("The next tag isn't a start- or end-tag!");
+              throw new XMLStreamException(
+                "The next tag isn't a start- or end-tag!");
             }
             mNextTag = false;
           }
@@ -423,7 +433,8 @@ public final class StAXDiffSerializer implements XMLEventReader {
       final INodeReadTrx trx = tuple.getRtx();
       final long nodeKey = trx.getNode().getNodeKey();
       trx.moveTo(tuple.getKey());
-      if (mFirstUpdate && mDepth <= tuple.getDepth() && trx.getNode().getKind() == EKind.ELEMENT) {
+      if (mFirstUpdate && mDepth <= tuple.getDepth()
+        && trx.getNode().getKind() == EKind.ELEMENT) {
         mFirstUpdate = false;
         mStack.pop();
         emitEndTag(trx);
@@ -476,13 +487,14 @@ public final class StAXDiffSerializer implements XMLEventReader {
 
       if (mDiff == EDiff.UPDATED) {
         mFirstUpdate = true;
-        mUpdatedStack.push(new TransactionTuple(mAxis.getOldRtx().getNode().getNodeKey(), mAxis.getOldRtx(),
-          mAxis.getDiff(), mAxis.getDepth()));
+        mUpdatedStack.push(new TransactionTuple(mAxis.getOldRtx().getNode()
+          .getNodeKey(), mAxis.getOldRtx(), mAxis.getDiff(), mAxis.getDepth()));
       }
 
       // Push end element to stack if we are a start element.
       if (pRtx.getNode().getKind() == EKind.ELEMENT) {
-        mStack.push(new TransactionTuple(mLastKey, pRtx, mAxis.getDiff(), mAxis.getDepth()));
+        mStack.push(new TransactionTuple(mLastKey, pRtx, mAxis.getDiff(), mAxis
+          .getDepth()));
       }
 
       final IStructNode currNode = pRtx.getStructuralNode();
@@ -496,7 +508,8 @@ public final class StAXDiffSerializer implements XMLEventReader {
           mDepth = mAxis.getDepth();
           mAxis.getTransaction().moveTo(peekKey);
           final IStructNode node = mAxis.getTransaction().getStructuralNode();
-          if ((depth > mDepth) || (nodeKind == EKind.ELEMENT && mLastKey != node.getParentKey())) {
+          if ((depth > mDepth)
+            || (nodeKind == EKind.ELEMENT && mLastKey != node.getParentKey())) {
             moveToNextNode();
           } else {
             mAxis.getTransaction().moveTo(mLastKey);
@@ -581,7 +594,8 @@ public final class StAXDiffSerializer implements XMLEventReader {
       mRTX.moveToAttribute(mIndex++);
       assert mRTX.getNode().getKind() == EKind.ATTRIBUTE;
       final QName qName = mRTX.getQNameOfCurrentNode();
-      final String value = XMLToken.escape(mRTX.getValueOfCurrentNode());
+      final String value =
+        XMLToken.escapeAttribute(mRTX.getValueOfCurrentNode());
       mRTX.moveTo(mNodeKey);
       return mFac.createAttribute(qName, value);
     }
@@ -612,7 +626,8 @@ public final class StAXDiffSerializer implements XMLEventReader {
     private final long mNodeKey;
 
     /** Factory to create nodes {@link XMLEventFactory}. */
-    private final transient XMLEventFactory mFac = XMLEventFactory.newInstance();
+    private final transient XMLEventFactory mFac = XMLEventFactory
+      .newInstance();
 
     /**
      * Constructor.
@@ -650,7 +665,8 @@ public final class StAXDiffSerializer implements XMLEventReader {
       assert mRTX.getNode().getKind() == EKind.NAMESPACE;
       final QName qName = mRTX.getQNameOfCurrentNode();
       mRTX.moveTo(mNodeKey);
-      return mFac.createNamespace(qName.getLocalPart(), qName.getNamespaceURI());
+      return mFac
+        .createNamespace(qName.getLocalPart(), qName.getNamespaceURI());
     }
 
     @Override

@@ -107,8 +107,8 @@ public final class NodeReadTrx implements INodeReadTrx {
     mId = pTransactionID;
     mPageReadTrx = checkNotNull(pPageReadTransaction);
     final Optional<INode> node =
-      getPageTransaction().getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-        EPage.NODEPAGE);
+      getPageTransaction().getNode(
+        EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.NODEPAGE);
     if (node.isPresent()) {
       mCurrentNode = node.get();
     } else {
@@ -485,12 +485,147 @@ public final class NodeReadTrx implements INodeReadTrx {
   }
 
   @Override
-  public int getNameCount() {
+  public int getNameCount(final @Nonnull String pString,
+    final @Nonnull EKind pKind) {
+    assertNotClosed();
     if (mCurrentNode instanceof INameNode) {
-      return mPageReadTrx.getNameCount(((INameNode)mCurrentNode).getNameKey(),
-        mCurrentNode.getKind());
+      return mPageReadTrx.getNameCount(NamePageHash
+        .generateHashForString(pString), pKind);
     } else {
       return 0;
     }
+  }
+
+  @Override
+  public boolean moveToLastChild() {
+    assertNotClosed();
+    if (getStructuralNode().hasFirstChild()) {
+      moveToFirstChild();
+
+      while (getStructuralNode().hasRightSibling()) {
+        moveToRightSibling();
+      }
+
+      return true;
+    }
+    return false;
+  }
+
+  @Override
+  public Optional<IStructNode> moveToAndGetRightSibling() {
+    assertNotClosed();
+    if (getStructuralNode().hasRightSibling()) {
+      moveToRightSibling();
+      return Optional.of(getStructuralNode());
+    }
+    return Optional.absent();
+  }
+
+  @Override
+  public Optional<IStructNode> moveToAndGetLeftSibling() {
+    assertNotClosed();
+    if (getStructuralNode().hasLeftSibling()) {
+      moveToLeftSibling();
+      return Optional.of(getStructuralNode());
+    }
+    return Optional.absent();
+  }
+
+  @Override
+  public Optional<IStructNode> moveToAndGetParent() {
+    assertNotClosed();
+    if (getStructuralNode().hasParent()) {
+      moveToParent();
+      return Optional.of(getStructuralNode());
+    }
+    return Optional.absent();
+  }
+
+  @Override
+  public Optional<IStructNode> moveToAndGetFirstChild() {
+    assertNotClosed();
+    if (getStructuralNode().hasFirstChild()) {
+      moveToFirstChild();
+      return Optional.of(getStructuralNode());
+    }
+    return Optional.absent();
+  }
+
+  @Override
+  public Optional<IStructNode> moveToAndGetLastChild() {
+    assertNotClosed();
+    if (getStructuralNode().hasFirstChild()) {
+      moveToFirstChild();
+
+      while (getStructuralNode().hasRightSibling()) {
+        moveToRightSibling();
+      }
+
+      return Optional.of(getStructuralNode());
+    }
+    return Optional.absent();
+  }
+
+  @Override
+  public Optional<IStructNode> getRightSibling() {
+    assertNotClosed();
+    if (getStructuralNode().hasRightSibling()) {
+      moveToRightSibling();
+      final IStructNode rightSibl = getStructuralNode();
+      moveToLeftSibling();
+      return Optional.of(rightSibl);
+    }
+    return Optional.absent();
+  }
+
+  @Override
+  public Optional<IStructNode> getLeftSibling() {
+    assertNotClosed();
+    if (getStructuralNode().hasLeftSibling()) {
+      moveToLeftSibling();
+      final IStructNode leftSibl = getStructuralNode();
+      moveToRightSibling();
+      return Optional.of(leftSibl);
+    }
+    return Optional.absent();
+  }
+
+  @Override
+  public Optional<IStructNode> getParent() {
+    assertNotClosed();
+    if (getStructuralNode().hasParent()) {
+      final long nodeKey = getNode().getNodeKey();
+      moveToParent();
+      final IStructNode parent = getStructuralNode();
+      moveTo(nodeKey);
+      return Optional.of(parent);
+    }
+    return Optional.absent();
+  }
+
+  @Override
+  public Optional<IStructNode> getFirstChild() {
+    assertNotClosed();
+    if (getStructuralNode().hasFirstChild()) {
+      final long nodeKey = getNode().getNodeKey();
+      moveToFirstChild();
+      final IStructNode firstChild = getStructuralNode();
+      moveTo(nodeKey);
+      return Optional.of(firstChild);
+    }
+    return Optional.absent();
+  }
+
+  @Override
+  public Optional<IStructNode> getLastChild() {
+    assertNotClosed();
+    if (getStructuralNode().hasFirstChild()) {
+      final long nodeKey = getNode().getNodeKey();
+      moveToLastChild();
+      final IStructNode lastChild = getStructuralNode();
+      moveTo(nodeKey);
+      return Optional.of(lastChild);
+    }
+    return Optional.absent();
   }
 }

@@ -167,7 +167,7 @@ public enum EPage {
   /**
    * {@link PathSummaryPage}.
    */
-  PATHSUMMARY((byte)6, PathSummaryPage.class) {
+  PATHSUMMARYPAGE((byte)6, PathSummaryPage.class) {
     @Override
     @Nonnull
     IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
@@ -177,7 +177,7 @@ public enum EPage {
     @Override
     void
       serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
-      pSink.writeByte(PATHSUMMARY.mId);
+      pSink.writeByte(PATHSUMMARYPAGE.mId);
       serialize(pSink, pPage);
     }
 
@@ -186,7 +186,31 @@ public enum EPage {
     IPage getInstance(@Nonnull final IPage pPage) {
       return new PathSummaryPage(pPage.getRevision());
     }
-  };
+  }, 
+  
+  /**
+   * {@link ValuePage}.
+   */
+  VALUEPAGE((byte)7, ValuePage.class) {
+    @Override
+    @Nonnull
+    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
+      return new ValuePage(pSource);
+    }
+
+    @Override
+    void
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
+      pSink.writeByte(VALUEPAGE.mId);
+      serialize(pSink, pPage);
+    }
+
+    @Override
+    public @Nonnull
+    IPage getInstance(@Nonnull final IPage pPage) {
+      return new ValuePage(pPage.getRevision());
+    }
+  }, ;
 
   /**
    * Serialize a page to disk.

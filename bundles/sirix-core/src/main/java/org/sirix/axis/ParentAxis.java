@@ -29,7 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeTraversal;
+import org.sirix.api.INodeCursor;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.settings.EFixed;
@@ -52,7 +52,7 @@ public final class ParentAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with.
    */
-  public ParentAxis(@Nonnull final INodeTraversal pRtx) {
+  public ParentAxis(@Nonnull final INodeCursor pRtx) {
     super(pRtx);
   }
 

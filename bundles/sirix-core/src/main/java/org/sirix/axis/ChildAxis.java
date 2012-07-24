@@ -29,7 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeTraversal;
+import org.sirix.api.INodeCursor;
 import org.sirix.node.interfaces.IStructNode;
 
 /**
@@ -50,7 +50,7 @@ public final class ChildAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public ChildAxis(@Nonnull final INodeTraversal pRtx) {
+  public ChildAxis(@Nonnull final INodeCursor pRtx) {
     super(pRtx);
   }
 

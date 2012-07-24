@@ -39,6 +39,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 
 import org.sirix.index.path.PathNode;
+import org.sirix.index.value.AVLNode;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -60,7 +61,7 @@ public enum EKind implements IKind {
   /** Unknown kind. */
   UNKOWN((byte)0, null) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INode deserialize(final @Nonnull ByteArrayDataInput pSource) {
       throw new UnsupportedOperationException();
     }
 
@@ -353,7 +354,40 @@ public enum EKind implements IKind {
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      final @Nonnull INode pToSerialize) {
+      final PathNode node = (PathNode)pToSerialize;
+      serializeDelegate(node.getNodeDelegate(), pSink);
+      serializeStrucDelegate(node.getStructNodeDelegate(), pSink);
+      serializeNameDelegate(node.getNameNodeDelegate(), pSink);
+      pSink.writeByte(node.getPathKind().getId());
+      pSink.writeInt(node.getReferences());
+      pSink.writeInt(node.getLevel());
+    };
+  },
+  
+
+  /** Node kind is an AVL node. */
+  AVL((byte)17, AVLNode.class) {
+    @Override
+    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+      // Node delegate.
+      final NodeDelegate nodeDel = deserializeNodeDelegate(pSource);
+
+      // Struct delegate.
+      final StructNodeDelegate structDel =
+        deserializeStructDel(nodeDel, pSource);
+
+      // Name delegate.
+      final NameNodeDelegate nameDel =
+        deserializeNameDelegate(nodeDel, pSource);
+
+      return new PathNode(nodeDel, structDel, nameDel, EKind.getKind(pSource
+        .readByte()), pSource.readInt(), pSource.readInt());
+    }
+
+    @Override
+    public void serialize(@Nonnull final ByteArrayDataOutput pSink,
+      final @Nonnull INode pToSerialize) {
       final PathNode node = (PathNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       serializeStrucDelegate(node.getStructNodeDelegate(), pSink);

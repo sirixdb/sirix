@@ -37,7 +37,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeTraversal;
+import org.sirix.api.INodeCursor;
 import org.sirix.api.visitor.IVisitor;
 
 /**
@@ -50,7 +50,7 @@ import org.sirix.api.visitor.IVisitor;
 public abstract class AbsAxis implements IAxis {
 
   /** Iterate over transaction exclusive to this step. */
-  private final INodeTraversal mRtx;
+  private final INodeCursor mRtx;
 
   /** Key of last found node. */
   protected long mKey;
@@ -74,7 +74,7 @@ public abstract class AbsAxis implements IAxis {
    * @throws NullPointerException
    *           if {@code paramRtx} is {@code null}
    */
-  public AbsAxis(@Nonnull final INodeTraversal pRtx) {
+  public AbsAxis(@Nonnull final INodeCursor pRtx) {
     mRtx = checkNotNull(pRtx);
     mIncludeSelf = EIncludeSelf.NO;
     mHasNext = true;
@@ -89,7 +89,7 @@ public abstract class AbsAxis implements IAxis {
    * @param pIncludeSelf
    *          determines if self is included
    */
-  public AbsAxis(@Nonnull final INodeTraversal pRtx,
+  public AbsAxis(@Nonnull final INodeCursor pRtx,
     @Nonnull final EIncludeSelf pIncludeSelf) {
     mRtx = checkNotNull(pRtx);
     mIncludeSelf = checkNotNull(pIncludeSelf);

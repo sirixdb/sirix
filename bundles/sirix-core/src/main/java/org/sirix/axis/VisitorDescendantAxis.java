@@ -35,7 +35,7 @@ import java.util.Deque;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeTraversal;
+import org.sirix.api.INodeCursor;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.interfaces.IStructNode;
@@ -66,8 +66,8 @@ public final class VisitorDescendantAxis extends AbsAxis {
     /** Optional visitor. */
     private Optional<? extends IVisitor> mVisitor = Optional.absent();
 
-    /** Sirix {@link INodeTraversal}. */
-    private final INodeTraversal mRtx;
+    /** Sirix {@link INodeCursor}. */
+    private final INodeCursor mRtx;
 
     /** Determines if current node should be included or not. */
     private EIncludeSelf mIncludeSelf = EIncludeSelf.NO;
@@ -76,9 +76,9 @@ public final class VisitorDescendantAxis extends AbsAxis {
      * Constructor.
      * 
      * @param pRtx
-     *          Sirix {@link INodeTraversal}
+     *          Sirix {@link INodeCursor}
      */
-    public Builder(final INodeTraversal pRtx) {
+    public Builder(final INodeCursor pRtx) {
       mRtx = checkNotNull(pRtx);
     }
 

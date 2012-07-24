@@ -41,7 +41,7 @@ import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.IPage;
 
 /**
- * <h1>Page</h1>
+ * <h1>PageDelegate</h1>
  * 
  * <p>
  * Class to provide basic reference handling functionality.
@@ -158,10 +158,9 @@ public class PageDelegate implements IPage {
    */
   @Override
   public final PageReference[] getReferences() {
-    return mReferences;
-//    final PageReference[] copiedRefs = new PageReference[mReferences.length];
-//    System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
-//    return copiedRefs;
+    final PageReference[] copiedRefs = new PageReference[mReferences.length];
+    System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
+    return copiedRefs;
   }
 
   /**

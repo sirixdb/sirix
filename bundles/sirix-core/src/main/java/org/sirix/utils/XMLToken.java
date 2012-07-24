@@ -284,9 +284,9 @@ public final class XMLToken {
   public static boolean digit(final int ch) {
     return ch >= '0' && ch <= '9';
   }
-
+  
   /**
-   * Escape characters not allowed in attribute values and tag names.
+   * Escape characters not allowed in attribute values.
    * 
    * @param pValue
    *          the string value to escape
@@ -294,7 +294,7 @@ public final class XMLToken {
    * @throws NullPointerException
    *           if {@code pValue} is {@code null}
    */
-  public static String escape(@Nonnull final String pValue) {
+  public static String escapeAttribute(@Nonnull final String pValue) {
     checkNotNull(pValue);
     final StringBuilder escape = new StringBuilder();
     for (final char i : pValue.toCharArray()) {
@@ -310,6 +310,39 @@ public final class XMLToken {
         break;
       case '"':
         escape.append("&quot;");
+        break;
+      case '\'':
+        escape.append("&apos;");
+        break;
+      default:
+        escape.append(i);
+      }
+    }
+    return escape.toString();
+  }
+
+  /**
+   * Escape characters not allowed text content.
+   * 
+   * @param pValue
+   *          the string value to escape
+   * @return escaped value
+   * @throws NullPointerException
+   *           if {@code pValue} is {@code null}
+   */
+  public static String escapeContent(@Nonnull final String pValue) {
+    checkNotNull(pValue);
+    final StringBuilder escape = new StringBuilder();
+    for (final char i : pValue.toCharArray()) {
+      switch (i) {
+      case '&':
+        escape.append("&amp;");
+        break;
+      case '<':
+        escape.append("&lt;");
+        break;
+      case '>':
+        escape.append("&gt;");
         break;
       default:
         escape.append(i);

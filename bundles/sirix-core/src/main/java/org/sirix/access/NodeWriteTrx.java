@@ -51,6 +51,7 @@ import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.XMLEvent;
 
+import org.apache.lucene.store.FSDirectory;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
@@ -214,6 +215,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       throw new IllegalArgumentException(
         "Can't move itself to right sibling of itself!");
     }
+    
+    FSDirectory dir;
 
     final Optional<INode> node =
       getPageTransaction().getNode(pFromKey, EPage.NODEPAGE);
@@ -478,7 +481,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         pLevel);
 
     mPathSummary.setCurrentNode(node);
-    adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.PATHSUMMARY);
+    adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.PATHSUMMARYPAGE);
     mPathSummary.setCurrentNode(node);
 
     return this;
@@ -509,7 +512,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         pLevel);
 
     mPathSummary.setCurrentNode(node);
-    adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.PATHSUMMARY);
+    adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.PATHSUMMARYPAGE);
     mPathSummary.setCurrentNode(node);
 
     return this;
@@ -540,7 +543,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         pLevel);
 
     mPathSummary.setCurrentNode(node);
-    adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.PATHSUMMARY);
+    adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.PATHSUMMARYPAGE);
     mPathSummary.setCurrentNode(node);
 
     return this;
@@ -601,9 +604,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       retVal = mPathSummary.getNode().getNodeKey();
       final PathNode pathNode =
         (PathNode)getPageTransaction().prepareNodeForModification(retVal,
-          EPage.PATHSUMMARY);
+          EPage.PATHSUMMARYPAGE);
       pathNode.incrementReferenceCount();
-      getPageTransaction().finishNodeModification(pathNode, EPage.PATHSUMMARY);
+      getPageTransaction().finishNodeModification(pathNode, EPage.PATHSUMMARYPAGE);
     } else {
       assert nodeKey == mPathSummary.getNode().getNodeKey();
       insertPathAsFirstChild(pQName, pKind, level + 1);
@@ -1118,10 +1121,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         if (pathNode.getReferences() > 1) {
           pathNode =
             (PathNode)getPageTransaction().prepareNodeForModification(
-              pathNode.getNodeKey(), EPage.PATHSUMMARY);
+              pathNode.getNodeKey(), EPage.PATHSUMMARYPAGE);
           pathNode.decrementReferenceCount();
           getPageTransaction().finishNodeModification(pathNode,
-            EPage.PATHSUMMARY);
+            EPage.PATHSUMMARYPAGE);
         }
       }
     }
@@ -1138,7 +1141,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     for (final IAxis axis = new DescendantAxis(mPathSummary); axis.hasNext();) {
       axis.next();
       getPageTransaction()
-        .removeNode(mPathSummary.getNode(), EPage.PATHSUMMARY);
+        .removeNode(mPathSummary.getNode(), EPage.PATHSUMMARYPAGE);
     }
 
     final IStructNode node = mPathSummary.getStructuralNode();
@@ -1147,35 +1150,35 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     if (node.hasLeftSibling()) {
       final IStructNode leftSibling =
         (IStructNode)getPageTransaction().prepareNodeForModification(
-          node.getLeftSiblingKey(), EPage.PATHSUMMARY);
+          node.getLeftSiblingKey(), EPage.PATHSUMMARYPAGE);
       leftSibling.setRightSiblingKey(node.getRightSiblingKey());
       getPageTransaction().finishNodeModification(leftSibling,
-        EPage.PATHSUMMARY);
+        EPage.PATHSUMMARYPAGE);
     }
 
     // Adapt right sibling node if there is one.
     if (node.hasRightSibling()) {
       final IStructNode rightSibling =
         (IStructNode)getPageTransaction().prepareNodeForModification(
-          node.getRightSiblingKey(), EPage.PATHSUMMARY);
+          node.getRightSiblingKey(), EPage.PATHSUMMARYPAGE);
       rightSibling.setLeftSiblingKey(node.getLeftSiblingKey());
       getPageTransaction().finishNodeModification(rightSibling,
-        EPage.PATHSUMMARY);
+        EPage.PATHSUMMARYPAGE);
     }
 
     // Adapt parent. If node has no left sibling it is a first child.
     IStructNode parent =
       (IStructNode)getPageTransaction().prepareNodeForModification(
-        node.getParentKey(), EPage.PATHSUMMARY);
+        node.getParentKey(), EPage.PATHSUMMARYPAGE);
     if (!node.hasLeftSibling()) {
       parent.setFirstChildKey(node.getRightSiblingKey());
     }
     parent.decrementChildCount();
-    getPageTransaction().finishNodeModification(parent, EPage.PATHSUMMARY);
+    getPageTransaction().finishNodeModification(parent, EPage.PATHSUMMARYPAGE);
 
     // Remove node.
     assert node.getKind() != EKind.DOCUMENT_ROOT;
-    getPageTransaction().removeNode(node, EPage.PATHSUMMARY);
+    getPageTransaction().removeNode(node, EPage.PATHSUMMARYPAGE);
   }
 
   @Override
@@ -1213,18 +1216,18 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         if (((PathNode)mPathSummary.getNode()).getReferences() == 1) {
           final PathNode pathNode =
             (PathNode)getPageTransaction().prepareNodeForModification(
-              mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARY);
+              mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARYPAGE);
           pathNode.setNameKey(nameKey);
           pathNode.setURIKey(uriKey);
           getPageTransaction().finishNodeModification(pathNode,
-            EPage.PATHSUMMARY);
+            EPage.PATHSUMMARYPAGE);
         } else {
           final PathNode pathNode =
             (PathNode)getPageTransaction().prepareNodeForModification(
-              mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARY);
+              mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARYPAGE);
           pathNode.decrementReferenceCount();
           getPageTransaction().finishNodeModification(pathNode,
-            EPage.PATHSUMMARY);
+            EPage.PATHSUMMARYPAGE);
 
           // Get parent path node and level.
           moveToParent();
@@ -1247,10 +1250,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
             // Found path node (increment reference counter by one).
             final PathNode path =
               (PathNode)getPageTransaction().prepareNodeForModification(
-                mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARY);
+                mPathSummary.getNode().getNodeKey(), EPage.PATHSUMMARYPAGE);
             path.incrementReferenceCount();
             getPageTransaction()
-              .finishNodeModification(path, EPage.PATHSUMMARY);
+              .finishNodeModification(path, EPage.PATHSUMMARYPAGE);
           } else {
             // Not found => create new path nodes for the whole subtree.
             for (final IAxis descendants =
@@ -1808,9 +1811,12 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         .getStandardProperty(), pRightSibKey, pLeftSibKey, 0, 0);
     final NameNodeDelegate nameDel =
       new NameNodeDelegate(nodeDel, nameKey, uriKey, 0);
+    
+    String bla ="";
+    bla.hashCode();
 
     return (PathNode)pageTransaction.createNode(new PathNode(nodeDel,
-      structDel, nameDel, pKind, 1, pLevel), EPage.PATHSUMMARY);
+      structDel, nameDel, pKind, 1, pLevel), EPage.PATHSUMMARYPAGE);
   }
 
   /**

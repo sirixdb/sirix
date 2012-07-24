@@ -1,10 +1,11 @@
 package org.sirix.api;
 
+import com.google.common.base.Optional;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
 
-public interface INodeTraversal extends AutoCloseable {
+public interface INodeCursor extends AutoCloseable {
 
   /**
    * This method returns the current {@link INode} as a {@link IStructNode}.
@@ -50,6 +51,13 @@ public interface INodeTraversal extends AutoCloseable {
    * @return {@code true} if the first child node is selected, {@code false} otherwise
    */
   boolean moveToFirstChild();
+  
+  /**
+   * Move cursor to last child node of currently selected node.
+   * 
+   * @return {@code true} if the last child node is selected, {@code false} otherwise
+   */
+  boolean moveToLastChild();
 
   /**
    * Move cursor to left sibling node of the currently selected node.
@@ -64,5 +72,25 @@ public interface INodeTraversal extends AutoCloseable {
    * @return {@code true} if the right sibling node is selected, {@code false} otherwise
    */
   boolean moveToRightSibling();
+  
+  Optional<IStructNode> moveToAndGetRightSibling();
+  
+  Optional<IStructNode> moveToAndGetLeftSibling();
+  
+  Optional<IStructNode> moveToAndGetParent();
+  
+  Optional<IStructNode> moveToAndGetFirstChild();
+  
+  Optional<IStructNode> moveToAndGetLastChild();
+  
+  Optional<IStructNode> getRightSibling();
+  
+  Optional<IStructNode> getLeftSibling();
+  
+  Optional<IStructNode> getParent();
+  
+  Optional<IStructNode> getFirstChild();
+  
+  Optional<IStructNode> getLastChild();
   
 }

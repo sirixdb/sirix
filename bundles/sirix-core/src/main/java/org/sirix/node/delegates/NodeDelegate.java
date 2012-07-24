@@ -41,12 +41,13 @@ import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
 
 /**
- * Delegate method for all nodes. That means that all nodes stored in sirix
+ * Delegate method for all nodes. That means that all nodes stored in Sirix
  * are represented by an instance of the interface {@link INode} namely
  * containing the position in the tree related to a parent-node, the related
- * type and the corresponding hash recursivly computed.
+ * type and the corresponding hash recursively computed.
  * 
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public class NodeDelegate implements INode {
@@ -141,7 +142,7 @@ public class NodeDelegate implements INode {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mNodeKey, mParentKey, mTypeKey, mHash);
+    return Objects.hashCode(mNodeKey, mTypeKey, mHash);
   }
 
   @Override
@@ -149,7 +150,6 @@ public class NodeDelegate implements INode {
     if (pObj instanceof NodeDelegate) {
       final NodeDelegate other = (NodeDelegate)pObj;
       return Objects.equal(mNodeKey, other.mNodeKey)
-        && Objects.equal(mParentKey, other.mParentKey)
         && Objects.equal(mTypeKey, other.mTypeKey)
         && Objects.equal(mHash, other.mHash);
     }
@@ -159,8 +159,7 @@ public class NodeDelegate implements INode {
   @Override
   public String toString() {
     return Objects.toStringHelper(this).add("node key", mNodeKey).add(
-      "parent node key", mParentKey).add("type key", mTypeKey).add("hash",
-      mHash).toString();
+      "type key", mTypeKey).add("hash", mHash).toString();
   }
 
   @Override

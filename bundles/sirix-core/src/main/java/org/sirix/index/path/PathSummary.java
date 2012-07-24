@@ -1,9 +1,6 @@
 package org.sirix.index.path;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.nio.charset.Charset;
-
 import com.google.common.base.Optional;
 
 import javax.annotation.Nonnegative;
@@ -12,7 +9,6 @@ import javax.xml.namespace.QName;
 
 import org.sirix.api.IItemList;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeTraversal;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;
@@ -46,7 +42,7 @@ public class PathSummary implements INodeReadTrx {
     try {
       node =
         mPageReadTrx.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          EPage.PATHSUMMARY);
+          EPage.PATHSUMMARYPAGE);
       if (node.isPresent()) {
         mCurrentNode = node.get();
       } else {
@@ -93,7 +89,7 @@ public class PathSummary implements INodeReadTrx {
     Optional<INode> newNode;
     try {
       // Immediately return node from item list if node key negative.
-      newNode = mPageReadTrx.getNode(pNodeKey, EPage.PATHSUMMARY);
+      newNode = mPageReadTrx.getNode(pNodeKey, EPage.PATHSUMMARYPAGE);
     } catch (final TTIOException e) {
       newNode = Optional.absent();
     }
@@ -297,7 +293,82 @@ public class PathSummary implements INodeReadTrx {
   }
 
   @Override
-  public int getNameCount() {
+  public boolean moveToLastChild() {
+    assertNotClosed();
+    if (getStructuralNode().hasFirstChild()) {
+      moveToFirstChild();
+
+      while (getStructuralNode().hasRightSibling()) {
+        moveToRightSibling();
+      }
+
+      return true;
+    }
+    return false;
+  }
+
+  @Override
+  public Optional<IStructNode> moveToAndGetRightSibling() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public Optional<IStructNode> moveToAndGetLeftSibling() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public Optional<IStructNode> moveToAndGetParent() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public Optional<IStructNode> moveToAndGetFirstChild() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public Optional<IStructNode> moveToAndGetLastChild() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public Optional<IStructNode> getRightSibling() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public Optional<IStructNode> getLeftSibling() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public Optional<IStructNode> getParent() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public Optional<IStructNode> getFirstChild() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public Optional<IStructNode> getLastChild() {
+    // TODO Auto-generated method stub
+    return null;
+  }
+
+  @Override
+  public int getNameCount(@Nonnull String pName, @Nonnull EKind pKind) {
     // TODO Auto-generated method stub
     return 0;
   }

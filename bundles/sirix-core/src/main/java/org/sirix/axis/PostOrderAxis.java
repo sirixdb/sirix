@@ -29,7 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeTraversal;
+import org.sirix.api.INodeCursor;
 import org.sirix.settings.EFixed;
 
 /**
@@ -51,7 +51,7 @@ public final class PostOrderAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PostOrderAxis(@Nonnull final INodeTraversal pRtx) {
+  public PostOrderAxis(@Nonnull final INodeCursor pRtx) {
     super(pRtx);
   }
 
@@ -61,7 +61,7 @@ public final class PostOrderAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PostOrderAxis(@Nonnull final INodeTraversal pRtx,
+  public PostOrderAxis(@Nonnull final INodeCursor pRtx,
     @Nonnull final EIncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
   }

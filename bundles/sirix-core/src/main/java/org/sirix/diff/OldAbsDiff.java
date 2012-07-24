@@ -35,7 +35,7 @@ import javax.xml.namespace.QName;
 import org.sirix.access.EHashKind;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeTraversal;
+import org.sirix.api.INodeCursor;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.diff.DiffFactory.Builder;
@@ -689,7 +689,7 @@ abstract class OldAbsDiff extends AbsDiffObservable {
    * @param pStartNodeKey
    *          the start node key
    */
-  private void adjustDepth(final INodeTraversal pRtx, final long pStartNodeKey, final ERevision pRevision) {
+  private void adjustDepth(final INodeCursor pRtx, final long pStartNodeKey, final ERevision pRevision) {
     assert pRtx != null;
     assert pStartNodeKey >= 0;
     assert pRevision != null;

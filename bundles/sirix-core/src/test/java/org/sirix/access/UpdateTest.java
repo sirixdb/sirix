@@ -198,9 +198,9 @@ public class UpdateTest {
     assertEquals(1, rtx.getRevisionNumber());
     assertEquals(null, rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"),
       EKind.ELEMENT));
-    assertEquals(0, rtx.getNameCount());
+    assertEquals(0, rtx.getNameCount("blablabla", EKind.ATTRIBUTE));
     rtx.moveTo(5);
-    assertEquals(2, rtx.getNameCount());
+    assertEquals(2, rtx.getNameCount("b", EKind.ELEMENT));
     rtx.close();
   }
 

@@ -32,7 +32,7 @@ import java.util.Deque;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeTraversal;
+import org.sirix.api.INodeCursor;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 
@@ -57,7 +57,7 @@ public final class PrecedingAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PrecedingAxis(@Nonnull final INodeTraversal pRtx) {
+  public PrecedingAxis(@Nonnull final INodeCursor pRtx) {
     super(pRtx);
     mIsFirst = true;
     mStack = new ArrayDeque<>();

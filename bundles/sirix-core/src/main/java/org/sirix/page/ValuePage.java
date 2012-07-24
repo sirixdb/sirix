@@ -1,3 +1,5 @@
+package org.sirix.page;
+
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
@@ -24,83 +26,77 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-package org.sirix.axis;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeCursor;
-import org.sirix.node.EKind;
-import org.sirix.settings.EFixed;
+import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.interfaces.IPage;
 
 /**
- * <h1>AncestorAxis</h1>
+ * Page to hold references to a value summary.
  * 
- * <p>
- * Iterate over all descendants of kind ELEMENT or TEXT starting at a given node. Self is not included.
- * </p>
+ * @author Johannes Lichtenberger, University of Konstanz
+ * 
  */
-public final class AncestorAxis extends AbsAxis {
+public class ValuePage extends AbsForwardingPage {
+
+  /** {@link PageDelegate} instance. */
+  private final PageDelegate mDelegate;
+
+  /** Offset of indirect page reference. */
+  private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
   /**
-   * First touch of node.
-   */
-  private boolean mFirst;
-
-  /**
-   * Constructor initializing internal state.
+   * Metadata for the revision.
    * 
-   * @param paramRtx
-   *          exclusive (immutable) trx to iterate with
+   * @param pRevision
+   *          revision number
+   * @throws IllegalArgumentException
+   *           if {@code pRevision} < 0
    */
-  public AncestorAxis(@Nonnull final INodeCursor pRtx) {
-    super(pRtx);
+  public ValuePage(@Nonnegative final long pRevision) {
+    checkArgument(pRevision >= 0, "pRevision must be >= 0!");
+    mDelegate = new PageDelegate(1, pRevision);
   }
 
   /**
-   * Constructor initializing internal state.
+   * Get indirect page reference.
    * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with
-   * @param pIncludeSelf
-   *          Is self included?
+   * @return indirect page reference
    */
-  public AncestorAxis(@Nonnull final INodeCursor pRtx,
-    @Nonnull final EIncludeSelf pIncludeSelf) {
-    super(pRtx, pIncludeSelf);
+  public PageReference getIndirectPageReference() {
+    return getReferences()[INDIRECT_REFERENCE_OFFSET];
+  }
+
+  /**
+   * Read meta page.
+   * 
+   * @param pIn
+   *          input bytes to read from
+   */
+  protected ValuePage(@Nonnull final ByteArrayDataInput pIn) {
+    mDelegate = new PageDelegate(1, pIn);
   }
 
   @Override
-  public void reset(@Nonnegative final long pNodeKey) {
-    super.reset(pNodeKey);
-    mFirst = true;
+  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
+    mDelegate.serialize(checkNotNull(pOut));
   }
 
   @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    resetToLastKey();
-
-    // Self
-    if (mFirst && isSelfIncluded() == EIncludeSelf.YES) {
-      mFirst = false;
-      return true;
-    }
-
-    if (getTransaction().getNode().getKind() != EKind.DOCUMENT_ROOT
-      && getTransaction().getNode().hasParent()
-      && getTransaction().getNode().getParentKey() != EFixed.DOCUMENT_NODE_KEY
-        .getStandardProperty()) {
-      mKey = getTransaction().getStructuralNode().getParentKey();
-      return true;
-    }
-    resetToStartKey();
-    return false;
+  public String toString() {
+    return Objects.toStringHelper(this).add("mDelegate", mDelegate).toString();
   }
+
+  @Override
+  protected IPage delegate() {
+    return mDelegate;
+  }
+
 }

@@ -67,13 +67,9 @@ public class FNPosition extends AbsFunction {
    */
   public FNPosition(final INodeReadTrx rtx, final List<IAxis> args, final int min, final int max,
     final int returnType) throws TTXPathException {
-
     super(rtx, args, min, max, returnType);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   protected byte[] computeResult() {
     Integer position = 0;

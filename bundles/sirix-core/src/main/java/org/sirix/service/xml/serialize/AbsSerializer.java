@@ -219,7 +219,7 @@ public abstract class AbsSerializer implements Callable<Void> {
    * @param pRtx
    *          Sirix {@link INodeReadTrx}
    */
-  protected abstract void emitStartElement(final INodeReadTrx pRtx);
+  protected abstract void emitStartElement(@Nonnull final INodeReadTrx pRtx);
 
   /**
    * Emit end tag.
@@ -227,7 +227,7 @@ public abstract class AbsSerializer implements Callable<Void> {
    * @param pRtx
    *          Sirix {@link INodeReadTrx}
    */
-  protected abstract void emitEndElement(final INodeReadTrx pRtx);
+  protected abstract void emitEndElement(@Nonnull final INodeReadTrx pRtx);
 
   /**
    * Emit a start tag, which specifies a revision.
@@ -235,7 +235,7 @@ public abstract class AbsSerializer implements Callable<Void> {
    * @param pRevision
    *          the revision to serialize
    */
-  protected abstract void emitStartManualElement(final long pRevision);
+  protected abstract void emitStartManualElement(@Nonnegative final long pRevision);
 
   /**
    * Emit an end tag, which specifies a revision.
@@ -243,7 +243,7 @@ public abstract class AbsSerializer implements Callable<Void> {
    * @param pRevision
    *          the revision to serialize
    */
-  protected abstract void emitEndManualElement(final long pRevision);
+  protected abstract void emitEndManualElement(@Nonnegative final long pRevision);
 
   /** Emit end document. */
   protected abstract void emitEndDocument();

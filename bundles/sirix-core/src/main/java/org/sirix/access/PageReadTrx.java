@@ -60,6 +60,7 @@ import org.sirix.page.PageReference;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
+import org.sirix.page.ValuePage;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.settings.ERevisioning;
 import org.sirix.utils.IConstants;
@@ -83,11 +84,14 @@ final class PageReadTrx implements IPageReadTrx {
   /** Cached name page of this revision. */
   private final RevisionRootPage mRootPage;
 
-  /** Internal reference to cache. */
+  /** Internal reference to node cache. */
   private final ICache<Tuple, PageContainer> mCache;
 
-  /** Internal reference to cache. */
+  /** Internal reference to path cache. */
   private final ICache<Tuple, PageContainer> mPathCache;
+  
+  /** Internal reference to value cache. */
+  private final ICache<Tuple, PageContainer> mValueCache;
 
   /** {@link Session} reference. */
   protected final Session mSession;
@@ -129,6 +133,7 @@ final class PageReadTrx implements IPageReadTrx {
     mClosed = false;
     mCache = new GuavaCache(this);
     mPathCache = new GuavaCache(this);
+    mValueCache = new GuavaCache(this);
   }
 
   /**
@@ -161,14 +166,25 @@ final class PageReadTrx implements IPageReadTrx {
     checkArgument(pNodeKey >= 0);
     checkNotNull(pPage);
     assertNotClosed();
-    assert pPage == EPage.NODEPAGE || pPage == EPage.PATHSUMMARY;
 
     final long nodePageKey = nodePageKey(pNodeKey);
     final int nodePageOffset = nodePageOffset(pNodeKey);
 
-    final PageContainer cont =
-      pPage == EPage.NODEPAGE ? mCache.get(new Tuple(nodePageKey, pPage))
-        : mPathCache.get(new Tuple(nodePageKey, pPage));
+    PageContainer cont;
+    switch (pPage) {
+    case NODEPAGE:
+      cont = mCache.get(new Tuple(nodePageKey, pPage));
+      break;
+    case PATHSUMMARYPAGE:
+      cont = mPathCache.get(new Tuple(nodePageKey, pPage));
+      break;
+    case VALUEPAGE:
+      cont = mValueCache.get(new Tuple(nodePageKey, pPage));
+      break;
+    default:
+      throw new IllegalStateException();
+    }
+
     if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
       return Optional.<INode> absent();
     }
@@ -212,6 +228,8 @@ final class PageReadTrx implements IPageReadTrx {
   void clearCache() {
     assertNotClosed();
     mCache.clear();
+    mPathCache.clear();
+    mValueCache.clear();
   }
 
   /**
@@ -261,6 +279,22 @@ final class PageReadTrx implements IPageReadTrx {
       ref.setPage(mPageReader.read(ref.getKey()));
     }
     return (PathSummaryPage)ref.getPage();
+  }
+  
+  /**
+   * Initialize ValuePage.
+   * 
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  private final ValuePage getValuePage(
+    @Nonnull final RevisionRootPage pPage) throws TTIOException {
+    assertNotClosed();
+    final PageReference ref = pPage.getValuePageReference();
+    if (ref.getPage() == null) {
+      ref.setPage(mPageReader.read(ref.getKey()));
+    }
+    return (ValuePage)ref.getPage();
   }
 
   @Override
@@ -337,7 +371,10 @@ final class PageReadTrx implements IPageReadTrx {
     case NODEPAGE:
       ref = pRef.getIndirectPageReference();
       break;
-    case PATHSUMMARY:
+    case VALUEPAGE:
+      ref = getValuePage(pRef).getIndirectPageReference();
+      break;
+    case PATHSUMMARYPAGE:
       ref = getPathSummaryPage(pRef).getIndirectPageReference();
       break;
     default:
@@ -473,8 +510,8 @@ final class PageReadTrx implements IPageReadTrx {
 
   @Override
   public void close() throws TTIOException {
+    clearCache();
     mClosed = true;
-    mCache.clear();
     mPageReader.close();
   }
 

@@ -27,6 +27,8 @@
 
 package org.sirix.service.xml.serialize;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.File;
 import java.io.IOException;
 
@@ -34,20 +36,28 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.xml.sax.*;
-import org.xml.sax.helpers.AttributesImpl;
-import org.xml.sax.helpers.DefaultHandler;
-
 import org.sirix.access.Database;
+import org.sirix.access.PageWriteTrx;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.access.PageWriteTrx;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.XMLToken;
+
+import org.xml.sax.ContentHandler;
+import org.xml.sax.DTDHandler;
+import org.xml.sax.EntityResolver;
+import org.xml.sax.ErrorHandler;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXNotRecognizedException;
+import org.xml.sax.SAXNotSupportedException;
+import org.xml.sax.XMLReader;
+import org.xml.sax.helpers.AttributesImpl;
+import org.xml.sax.helpers.DefaultHandler;
 
 /**
  * <h1>SaxSerializer</h1>
@@ -84,7 +94,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
   }
 
   @Override
-  protected void emitStartElement(final INodeReadTrx pRtx) {
+  protected void emitStartElement(@Nonnull final INodeReadTrx pRtx) {
     switch (pRtx.getNode().getKind()) {
     case DOCUMENT_ROOT:
       break;
@@ -101,7 +111,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
   }
 
   @Override
-  protected void emitEndElement(final INodeReadTrx pRtx) {
+  protected void emitEndElement(@Nonnull final INodeReadTrx pRtx) {
     final QName qName = pRtx.getQNameOfCurrentNode();
     final String mURI = qName.getNamespaceURI();
     try {
@@ -113,7 +123,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
   }
 
   @Override
-  protected void emitStartManualElement(final long pRevision) {
+  protected void emitStartManualElement(@Nonnegative final long pRevision) {
     final AttributesImpl atts = new AttributesImpl();
     atts.addAttribute("", "revision", "tt", "", Long.toString(pRevision));
     try {
@@ -125,7 +135,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
   }
 
   @Override
-  protected void emitEndManualElement(final long pRevision) {
+  protected void emitEndManualElement(@Nonnegative final long pRevision) {
     try {
       mContHandler.endElement("", "tt", "tt");
     } catch (final SAXException exc) {
@@ -195,9 +205,9 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
    * @param mRtx
    *          Read Transaction.
    */
-  private void generateText(final INodeReadTrx pRtx) {
+  private void generateText(@Nonnull final INodeReadTrx pRtx) {
     try {
-      mContHandler.characters(XMLToken.escape(pRtx.getValueOfCurrentNode())
+      mContHandler.characters(XMLToken.escapeContent(pRtx.getValueOfCurrentNode())
         .toCharArray(), 0, pRtx.getValueOfCurrentNode().length());
     } catch (final SAXException exc) {
       exc.printStackTrace();
@@ -280,7 +290,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 
   /* Implements XMLReader method. */
   @Override
-  public Object getProperty(final String mName)
+  public Object getProperty(final String pName)
     throws SAXNotRecognizedException, SAXNotSupportedException {
     return null;
   }
@@ -293,7 +303,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 
   /* Implements XMLReader method. */
   @Override
-  public void parse(final String mSystemID) throws IOException, SAXException {
+  public void parse(final String pSystemID) throws IOException, SAXException {
     emitStartDocument();
     try {
       super.call();
@@ -306,7 +316,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
   /* Implements XMLReader method. */
   @Override
   public void setContentHandler(final ContentHandler pContentHandler) {
-    mContHandler = pContentHandler;
+    mContHandler = checkNotNull(pContentHandler);
   }
 
   /* Implements XMLReader method. */

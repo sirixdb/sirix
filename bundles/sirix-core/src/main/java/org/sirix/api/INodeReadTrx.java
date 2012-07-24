@@ -33,6 +33,7 @@ import javax.xml.namespace.QName;
 
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
+import org.sirix.node.EKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 /**
@@ -110,18 +111,21 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * 
  * </p>
  */
-public interface INodeReadTrx extends INodeTraversal {
+public interface INodeReadTrx extends INodeCursor {
 
   /** String constants used by XPath. */
   String[] XPATHCONSTANTS = {
-    "xs:anyType", "xs:anySimpleType", "xs:anyAtomicType", "xs:untypedAtomic", "xs:untyped", "xs:string",
-    "xs:duration", "xs:yearMonthDuration", "xs:dayTimeDuration", "xs:dateTime", "xs:time", "xs:date",
-    "xs:gYearMonth", "xs:gYear", "xs:gMonthDay", "xs:gDay", "xs:gMonth", "xs:boolean", "xs:base64Binary",
-    "xs:hexBinary", "xs:anyURI", "xs:QName", "xs:NOTATION", "xs:float", "xs:double", "xs:pDecimal",
-    "xs:decimal", "xs:integer", "xs:long", "xs:int", "xs:short", "xs:byte", "xs:nonPositiveInteger",
-    "xs:negativeInteger", "xs:nonNegativeInteger", "xs:positiveInteger", "xs:unsignedLong", "xs:unsignedInt",
-    "xs:unsignedShort", "xs:unsignedByte", "xs:normalizedString", "xs:token", "xs:language", "xs:name",
-    "xs:NCName", "xs:ID", "xs:IDREF", "xs:ENTITY", "xs:IDREFS", "xs:NMTOKEN", "xs:NMTOKENS",
+    "xs:anyType", "xs:anySimpleType", "xs:anyAtomicType", "xs:untypedAtomic",
+    "xs:untyped", "xs:string", "xs:duration", "xs:yearMonthDuration",
+    "xs:dayTimeDuration", "xs:dateTime", "xs:time", "xs:date", "xs:gYearMonth",
+    "xs:gYear", "xs:gMonthDay", "xs:gDay", "xs:gMonth", "xs:boolean",
+    "xs:base64Binary", "xs:hexBinary", "xs:anyURI", "xs:QName", "xs:NOTATION",
+    "xs:float", "xs:double", "xs:pDecimal", "xs:decimal", "xs:integer",
+    "xs:long", "xs:int", "xs:short", "xs:byte", "xs:nonPositiveInteger",
+    "xs:negativeInteger", "xs:nonNegativeInteger", "xs:positiveInteger",
+    "xs:unsignedLong", "xs:unsignedInt", "xs:unsignedShort", "xs:unsignedByte",
+    "xs:normalizedString", "xs:token", "xs:language", "xs:name", "xs:NCName",
+    "xs:ID", "xs:IDREF", "xs:ENTITY", "xs:IDREFS", "xs:NMTOKEN", "xs:NMTOKENS",
   };
 
   /**
@@ -169,7 +173,7 @@ public interface INodeReadTrx extends INodeTraversal {
    * @return {@code true} if the attribute node is selected, {@code false} otherwise
    */
   boolean moveToAttribute(@Nonnegative int pIndex);
-  
+
   /**
    * Move cursor to attribute by its name key.
    * 
@@ -278,8 +282,23 @@ public interface INodeReadTrx extends INodeTraversal {
    * @return session instance
    */
   ISession getSession();
-  
+
+  /**
+   * Clone an instance, that is just create a new instance and move the new {@link INodeReadTrx} to the
+   * current node.
+   * 
+   * @return new instance
+   * @throws AbsTTException
+   *           if Sirix fails
+   */
   INodeReadTrx cloneInstance() throws AbsTTException;
-  
-  int getNameCount();
+
+  /**
+   * Get the number of nodes which reference to the name.
+   * 
+   * @param pName
+   *            name to lookup
+   * @return number of nodes with the same name and node kind
+   */
+  int getNameCount(@Nonnull String pName, @Nonnull EKind pKind);
 }

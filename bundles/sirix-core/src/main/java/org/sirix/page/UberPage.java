@@ -105,6 +105,13 @@ public final class UberPage extends AbsForwardingPage {
       rrp.getPathSummaryPageReference().getPage().getReferences()[INDIRECT_REFERENCE_OFFSET];
     createTree(reference);
     rrp.incrementMaxPathNodeKey();
+    
+    // Initialize value tree to guarantee that there is a revision root
+    // page.
+    reference =
+      rrp.getValuePageReference().getPage().getReferences()[INDIRECT_REFERENCE_OFFSET];
+    createTree(reference);
+    rrp.incrementMaxValueNodeKey();
   }
 
   /**

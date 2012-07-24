@@ -1,5 +1,6 @@
 package org.sirix.access;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.ForwardingObject;
 
 import javax.annotation.Nonnegative;
@@ -11,6 +12,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
+import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -97,7 +99,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public int keyForName(@Nonnull String pName) {
+  public int keyForName(final @Nonnull String pName) {
     return delegate().keyForName(pName);
   }
 
@@ -107,12 +109,12 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public boolean moveToAttribute(@Nonnegative int pIndex) {
+  public boolean moveToAttribute(final @Nonnegative int pIndex) {
     return delegate().moveToAttribute(pIndex);
   }
 
   @Override
-  public boolean moveToAttributeByName(@Nonnull QName pQName) {
+  public boolean moveToAttributeByName(final @Nonnull QName pQName) {
     return delegate().moveToAttributeByName(pQName);
   }
 
@@ -132,7 +134,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public boolean moveToNamespace(@Nonnegative int pIndex) {
+  public boolean moveToNamespace(final @Nonnegative int pIndex) {
     return delegate().moveToNamespace(pIndex);
   }
 
@@ -150,14 +152,19 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   public boolean moveToRightSibling() {
     return delegate().moveToRightSibling();
   }
+  
+  @Override
+  public boolean moveToLastChild() {
+    return delegate().moveToLastChild();
+  }
 
   @Override
-  public String nameForKey(int pKey) {
+  public String nameForKey(final int pKey) {
     return delegate().nameForKey(pKey);
   }
 
   @Override
-  public byte[] rawNameForKey(int pKey) {
+  public byte[] rawNameForKey(final int pKey) {
     return delegate().rawNameForKey(pKey);
   }
 
@@ -167,7 +174,57 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   }
   
   @Override
-  public int getNameCount() {
-    return delegate().getNameCount();
+  public int getNameCount(final @Nonnull String pName, final @Nonnull EKind pKind) {
+    return delegate().getNameCount(pName, pKind);
+  }
+  
+  @Override
+  public Optional<IStructNode> moveToAndGetFirstChild() {
+    return delegate().moveToAndGetFirstChild();
+  }
+  
+  @Override
+  public Optional<IStructNode> moveToAndGetLastChild() {
+    return delegate().moveToAndGetLastChild();
+  }
+  
+  @Override
+  public Optional<IStructNode> moveToAndGetLeftSibling() {
+    return delegate().moveToAndGetLeftSibling();
+  }
+  
+  @Override
+  public Optional<IStructNode> moveToAndGetRightSibling() {
+    return delegate().moveToAndGetRightSibling();
+  }
+  
+  @Override
+  public Optional<IStructNode> moveToAndGetParent() {
+    return delegate().moveToAndGetParent();
+  }
+  
+  @Override
+  public Optional<IStructNode> getFirstChild() {
+    return delegate().getFirstChild();
+  }
+  
+  @Override
+  public Optional<IStructNode> getLastChild() {
+    return delegate().getLastChild();
+  }
+  
+  @Override
+  public Optional<IStructNode> getLeftSibling() {
+    return delegate().getLeftSibling();
+  }
+  
+  @Override
+  public Optional<IStructNode> getParent() {
+    return delegate().getParent();
+  }
+  
+  @Override
+  public Optional<IStructNode> getRightSibling() {
+    return delegate().getRightSibling();
   }
 }

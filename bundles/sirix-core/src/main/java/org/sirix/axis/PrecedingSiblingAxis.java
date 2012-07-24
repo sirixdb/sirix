@@ -27,7 +27,7 @@
 
 package org.sirix.axis;
 
-import org.sirix.api.INodeTraversal;
+import org.sirix.api.INodeCursor;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
@@ -53,7 +53,7 @@ public final class PrecedingSiblingAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PrecedingSiblingAxis(final INodeTraversal pRtx) {
+  public PrecedingSiblingAxis(final INodeCursor pRtx) {
     super(pRtx);
   }
 
@@ -73,7 +73,7 @@ public final class PrecedingSiblingAxis extends AbsAxis {
     }
     
     resetToLastKey();
-    final INodeTraversal rtx = getTransaction();
+    final INodeCursor rtx = getTransaction();
     if (mIsFirst) {
       mIsFirst = false;
       /*
