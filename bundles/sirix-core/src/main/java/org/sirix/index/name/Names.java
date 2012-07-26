@@ -63,7 +63,7 @@ public final class Names {
    * @param pOut
    *          the persistent storage
    */
-  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
+  public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
     pOut.writeInt(mNameMap.size());
     for (final Entry<Integer, String> entry : mNameMap.entrySet()) {
       pOut.writeInt(entry.getKey());
@@ -176,7 +176,7 @@ public final class Names {
    *          input source, the persistent storage
    * @return cloned index
    */
-  public static Names clone(@Nonnull final ByteArrayDataInput pIn) {
+  public static Names clone(final @Nonnull ByteArrayDataInput pIn) {
     return new Names(pIn);
   }
 }

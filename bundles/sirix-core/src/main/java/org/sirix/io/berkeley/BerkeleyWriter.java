@@ -114,7 +114,7 @@ public final class BerkeleyWriter implements IWriter {
     // TODO make this better
     mNodepagekey++;
 
-    BerkeleyFactory.PAGE_VAL_B.objectToEntry(page, valueEntry);
+    BerkeleyStorage.PAGE_VAL_B.objectToEntry(page, valueEntry);
     TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(mNodepagekey,
       keyEntry);
 
@@ -168,7 +168,7 @@ public final class BerkeleyWriter implements IWriter {
     try {
       final OperationStatus status =
         mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
-      return status == OperationStatus.SUCCESS ? BerkeleyFactory.DATAINFO_VAL_B
+      return status == OperationStatus.SUCCESS ? BerkeleyStorage.DATAINFO_VAL_B
         .entryToObject(valueEntry) : 0L;
     } catch (final DatabaseException exc) {
       throw new TTIOException(exc);

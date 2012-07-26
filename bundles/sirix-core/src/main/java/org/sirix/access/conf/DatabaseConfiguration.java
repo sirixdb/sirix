@@ -75,11 +75,11 @@ public final class DatabaseConfiguration implements IConfigureSerializable {
      * @param pFile
      *          to be set
      * @param pIsFolder
-     *          to be set.
+     *          determines if the file is a folder instead
      */
-    private Paths(@Nonnull final File pFile, final boolean pIsFolder) {
+    private Paths(final @Nonnull File pFile, final boolean pIsFolder) {
       mFile = checkNotNull(pFile);
-      mIsFolder = checkNotNull(pIsFolder);
+      mIsFolder = pIsFolder;
     }
 
     /**
@@ -137,7 +137,7 @@ public final class DatabaseConfiguration implements IConfigureSerializable {
   /**
    * Constructor with the path to be set.
    * 
-   * @param paramFile
+   * @param pFile
    *          file to be set
    */
   public DatabaseConfiguration(@Nonnull final File pFile) {

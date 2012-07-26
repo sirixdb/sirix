@@ -68,7 +68,7 @@ public final class NamePage implements IPage {
    * @param pRevision
    *          revision number
    */
-  public NamePage(@Nonnegative final long pRevision) {
+  public NamePage(final @Nonnegative long pRevision) {
     checkArgument(pRevision >= 0, "pRevision must be >= 0!");
     mRevision = pRevision;
     mAttributes = Names.getInstance();
@@ -82,7 +82,7 @@ public final class NamePage implements IPage {
    * @param pIn
    *          input bytes to read from
    */
-  protected NamePage(@Nonnull final ByteArrayDataInput pIn) {
+  protected NamePage(final @Nonnull ByteArrayDataInput pIn) {
     mRevision = pIn.readLong();
     mElements = Names.clone(pIn);
     mNamespaces = Names.clone(pIn);
@@ -96,7 +96,7 @@ public final class NamePage implements IPage {
    *          name key identifying name
    * @return raw name of name key
    */
-  public byte[] getRawName(final int pKey, @Nonnull final EKind pNodeKind) {
+  public byte[] getRawName(final int pKey, final @Nonnull EKind pNodeKind) {
     byte[] rawName = new byte[] {};
     switch (pNodeKind) {
     case ELEMENT:
@@ -172,8 +172,8 @@ public final class NamePage implements IPage {
    * @param pName
    *          name to create key for
    */
-  public void setName(final int pKey, @Nonnull final String pName,
-    @Nonnull final EKind pNodeKind) {
+  public void setName(final int pKey, final @Nonnull String pName,
+    final @Nonnull EKind pNodeKind) {
     switch (pNodeKind) {
     case ELEMENT:
       mElements.setName(pKey, pName);
@@ -190,7 +190,8 @@ public final class NamePage implements IPage {
   }
 
   @Override
-  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
+  public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
+    pOut.writeLong(mRevision);
     mElements.serialize(pOut);
     mNamespaces.serialize(pOut);
     mAttributes.serialize(pOut);
@@ -209,7 +210,7 @@ public final class NamePage implements IPage {
    * @param pKey
    *          the key to remove
    */
-  public void removeName(final int pKey, @Nonnull final EKind pNodeKind) {
+  public void removeName(final int pKey, final @Nonnull EKind pNodeKind) {
     switch (pNodeKind) {
     case ELEMENT:
       mElements.removeName(pKey);
@@ -236,7 +237,7 @@ public final class NamePage implements IPage {
   }
 
   @Override
-  public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx)
+  public void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
     throws AbsTTException {
   }
 }

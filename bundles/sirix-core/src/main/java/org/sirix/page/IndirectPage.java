@@ -55,7 +55,7 @@ public final class IndirectPage extends AbsForwardingPage {
    * @param pRevision
    *          revision number
    */
-  public IndirectPage(@Nonnegative final long pRevision) {
+  public IndirectPage(final @Nonnegative long pRevision) {
     checkArgument(pRevision >= 0, "pRevision must be >= 0!");
     mDelegate = new PageDelegate(IConstants.INP_REFERENCE_COUNT, pRevision);
   }
@@ -66,7 +66,7 @@ public final class IndirectPage extends AbsForwardingPage {
    * @param pIn
    *          input source
    */
-  protected IndirectPage(@Nonnull final ByteArrayDataInput pIn) {
+  protected IndirectPage(final @Nonnull ByteArrayDataInput pIn) {
     mDelegate = new PageDelegate(IConstants.INP_REFERENCE_COUNT, pIn);
   }
 
@@ -78,7 +78,7 @@ public final class IndirectPage extends AbsForwardingPage {
    * @param pRevisionToUse
    *          revision number to use
    */
-  public IndirectPage(@Nonnull final IndirectPage pPage, @Nonnegative final long pRevisionToUse) {
+  public IndirectPage(final @Nonnull IndirectPage pPage, final @Nonnegative long pRevisionToUse) {
     checkArgument(pRevisionToUse >= 0, "pRevisionToUse must be >= 0!");
     mDelegate = new PageDelegate(pPage, pRevisionToUse);
   }

@@ -11,7 +11,6 @@ import javax.annotation.Nonnull;
 import org.sirix.exception.TTIOException;
 
 /**
- * 
  * Pipeline to handle Bytes before stored in the backends.
  * 
  * @author Sebastian Graf, University of Konstanz
@@ -37,7 +36,7 @@ public final class ByteHandlePipeline implements IByteHandler {
   }
 
   @Override
-  public byte[] serialize(@Nonnull final byte[] pToSerialize)
+  public byte[] serialize(final @Nonnull byte[] pToSerialize)
     throws TTIOException {
     byte[] pipeData = pToSerialize;
     for (final IByteHandler part : mParts) {
@@ -47,7 +46,7 @@ public final class ByteHandlePipeline implements IByteHandler {
   }
 
   @Override
-  public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
+  public byte[] deserialize(final @Nonnull byte[] pToDeserialize)
     throws TTIOException {
     byte[] pipeData = pToDeserialize;
     for (int i = mParts.size() - 1; i >= 0; i--) {

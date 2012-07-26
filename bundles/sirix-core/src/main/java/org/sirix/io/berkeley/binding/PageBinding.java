@@ -32,6 +32,9 @@ import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
+
+import javax.annotation.Nullable;
+
 import org.sirix.exception.TTIOException;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.Encryptor;

@@ -87,7 +87,7 @@ public class NodePage implements IPage {
    * @param pIn
    *          input bytes to read page from
    */
-  protected NodePage(@Nonnull final ByteArrayDataInput pIn) {
+  protected NodePage(final @Nonnull ByteArrayDataInput pIn) {
     mRevision = pIn.readLong();
     mNodePageKey = pIn.readLong();
     mNodes = new INode[IConstants.NDP_NODE_COUNT];
@@ -116,7 +116,7 @@ public class NodePage implements IPage {
    *          offset of node within local node page
    * @return node at given offset
    */
-  public INode getNode(@Nonnegative final int pOffset) {
+  public INode getNode(final @Nonnegative int pOffset) {
     checkArgument(pOffset >= 0 && pOffset < IConstants.NDP_NODE_COUNT,
       "offset must not be negative and less than the max. nodes per node page!");
     if (pOffset < mNodes.length) {
@@ -135,13 +135,14 @@ public class NodePage implements IPage {
    *          node to store at given nodeOffset
    */
   public void
-    setNode(@Nonnegative final int pOffset, @Nonnull final INode pNode) {
+    setNode(final @Nonnegative int pOffset, final @Nonnull INode pNode) {
     checkArgument(pOffset >= 0, "pOffset may not be negative!");
     mNodes[pOffset] = checkNotNull(pNode);
   }
 
   @Override
-  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
+  public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
+    pOut.writeLong(mRevision);
     pOut.writeLong(mNodePageKey);
     for (final INode node : mNodes) {
       if (node == null) {

@@ -152,7 +152,7 @@ public final class UberPage extends AbsForwardingPage {
    * @param pIn
    *          input bytes
    */
-  protected UberPage(@Nonnull final ByteArrayDataInput pIn) {
+  protected UberPage(final @Nonnull ByteArrayDataInput pIn) {
     mDelegate = new PageDelegate(1, pIn);
     mRevisionCount = pIn.readLong();
     mBootstrap = false;
@@ -166,7 +166,7 @@ public final class UberPage extends AbsForwardingPage {
    * @param pRevisionToUse
    *          Revision number to use.
    */
-  public UberPage(@Nonnull final UberPage pCommittedUberPage,
+  public UberPage(final @Nonnull UberPage pCommittedUberPage,
     @Nonnegative final long pRevisionToUse) {
     mDelegate = new PageDelegate(pCommittedUberPage, pRevisionToUse);
     if (pCommittedUberPage.isBootstrap()) {
@@ -225,7 +225,7 @@ public final class UberPage extends AbsForwardingPage {
   }
 
   @Override
-  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
+  public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
     mBootstrap = false;
     mDelegate.serialize(checkNotNull(pOut));
     pOut.writeLong(mRevisionCount);

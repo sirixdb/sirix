@@ -27,10 +27,8 @@ package org.sirix.page;
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -60,7 +58,7 @@ public class PathSummaryPage extends AbsForwardingPage {
    * @throws IllegalArgumentException
    *           if {@code pRevision} < 0
    */
-  public PathSummaryPage(@Nonnegative final long pRevision) {
+  public PathSummaryPage(final @Nonnegative long pRevision) {
     checkArgument(pRevision >= 0, "pRevision must be >= 0!");
     mDelegate = new PageDelegate(1, pRevision);
   }
@@ -80,13 +78,8 @@ public class PathSummaryPage extends AbsForwardingPage {
    * @param pIn
    *          input bytes to read from
    */
-  protected PathSummaryPage(@Nonnull final ByteArrayDataInput pIn) {
+  protected PathSummaryPage(final @Nonnull ByteArrayDataInput pIn) {
     mDelegate = new PageDelegate(1, pIn);
-  }
-
-  @Override
-  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
-    mDelegate.serialize(checkNotNull(pOut));
   }
 
   @Override

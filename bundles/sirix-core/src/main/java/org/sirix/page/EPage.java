@@ -34,8 +34,6 @@ import java.util.Map;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.io.ITTSink;
-import org.sirix.io.ITTSource;
 import org.sirix.page.interfaces.IPage;
 
 /**
@@ -56,7 +54,7 @@ public enum EPage {
     void
       serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(NODEPAGE.mId);
-      serialize(pSink, pPage);
+      pPage.serialize(pSink);
     }
 
     @Override
@@ -82,7 +80,7 @@ public enum EPage {
     void
       serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(NAMEPAGE.mId);
-      serialize(pSink, pPage);
+      pPage.serialize(pSink);
     }
 
     @Override
@@ -106,7 +104,7 @@ public enum EPage {
     void
       serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(UBERPAGE.mId);
-      serialize(pSink, pPage);
+      pPage.serialize(pSink);
     }
 
     @Override
@@ -130,7 +128,7 @@ public enum EPage {
     void
       serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(INDIRECTPAGE.mId);
-      serialize(pSink, pPage);
+      pPage.serialize(pSink);
     }
 
     @Override
@@ -154,7 +152,7 @@ public enum EPage {
     void
       serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(REVISIONROOTPAGE.mId);
-      serialize(pSink, pPage);
+      pPage.serialize(pSink);
     }
 
     @Override
@@ -178,7 +176,7 @@ public enum EPage {
     void
       serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(PATHSUMMARYPAGE.mId);
-      serialize(pSink, pPage);
+      pPage.serialize(pSink);
     }
 
     @Override
@@ -202,7 +200,7 @@ public enum EPage {
     void
       serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
       pSink.writeByte(VALUEPAGE.mId);
-      serialize(pSink, pPage);
+      pPage.serialize(pSink);
     }
 
     @Override
@@ -210,21 +208,7 @@ public enum EPage {
     IPage getInstance(@Nonnull final IPage pPage) {
       return new ValuePage(pPage.getRevision());
     }
-  }, ;
-
-  /**
-   * Serialize a page to disk.
-   * 
-   * @param pSink
-   *          reference to storage
-   * @param pPage
-   *          the current {@link IPage}
-   */
-  private static final void serialize(@Nonnull final ByteArrayDataOutput pSink,
-    @Nonnull final IPage pPage) {
-    pSink.writeLong(pPage.getRevision());
-    pPage.serialize(pSink);
-  }
+  };
 
   /** Mapping of keys -> page */
   private static final Map<Byte, EPage> INSTANCEFORID = new HashMap<>();

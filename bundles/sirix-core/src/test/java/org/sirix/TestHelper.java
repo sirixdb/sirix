@@ -39,6 +39,8 @@ import java.util.Hashtable;
 import java.util.Map;
 import java.util.Random;
 
+import javax.annotation.Nonnull;
+
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.Database;
@@ -101,9 +103,9 @@ public final class TestHelper {
 
     final DatabaseConfiguration config;
 
-    PATHS(final File paramFile) {
-      file = paramFile;
-      config = new DatabaseConfiguration(paramFile);
+    PATHS(final File pFile) {
+      file = pFile;
+      config = new DatabaseConfiguration(pFile);
     }
 
     public File getFile() {
@@ -199,23 +201,27 @@ public final class TestHelper {
       switch (random.nextInt(6)) {
       case 0:
         nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random
+            .nextInt(10000));
         nameDel =
-          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(), pathNodeKey++);
+          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(),
+            pathNodeKey++);
         valDel = new ValNodeDelegate(nodeDel, new byte[] {
           0, 1, 2, 3, 4
         }, false);
         page.setNode(i, new AttributeNode(nodeDel, nameDel, valDel));
         break;
       case 1:
-        page.setNode(i, new DeletedNode(new NodeDelegate(random.nextInt(10000), random.nextInt(10000),
-          random.nextInt(10000))));
+        page.setNode(i, new DeletedNode(new NodeDelegate(random.nextInt(10000),
+          random.nextInt(10000), random.nextInt(10000))));
         break;
       case 2:
         nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random
+            .nextInt(10000));
         nameDel =
-          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(), pathNodeKey++);
+          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(),
+            pathNodeKey++);
         strucDel =
           new StructNodeDelegate(nodeDel, random.nextInt(10000), random
             .nextInt(10000), random.nextInt(10000), random.nextInt(10000),
@@ -226,14 +232,17 @@ public final class TestHelper {
         break;
       case 3:
         nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random
+            .nextInt(10000));
         nameDel =
-          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(), pathNodeKey++);
+          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(),
+            pathNodeKey++);
         page.setNode(i, new NamespaceNode(nodeDel, nameDel));
         break;
       case 4:
         nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random
+            .nextInt(10000));
         strucDel =
           new StructNodeDelegate(nodeDel, random.nextInt(10000), random
             .nextInt(10000), random.nextInt(10000), random.nextInt(10000),
@@ -242,7 +251,8 @@ public final class TestHelper {
         break;
       case 5:
         nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random
+            .nextInt(10000));
         valDel = new ValNodeDelegate(nodeDel, new byte[] {
           0, 1
         }, false);
@@ -309,4 +319,17 @@ public final class TestHelper {
     wtx.close();
     session.close();
   }
+
+  /**
+   * Generating random bytes.
+   * 
+   * @return the random bytes
+   */
+  public static final @Nonnull
+  byte[] generateRandomBytes(final int pSize) {
+    final byte[] returnVal = new byte[pSize];
+    random.nextBytes(returnVal);
+    return returnVal;
+  }
+
 }

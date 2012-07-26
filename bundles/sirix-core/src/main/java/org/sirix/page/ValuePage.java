@@ -85,11 +85,6 @@ public class ValuePage extends AbsForwardingPage {
   }
 
   @Override
-  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
-    mDelegate.serialize(checkNotNull(pOut));
-  }
-
-  @Override
   public String toString() {
     return Objects.toStringHelper(this).add("mDelegate", mDelegate).toString();
   }

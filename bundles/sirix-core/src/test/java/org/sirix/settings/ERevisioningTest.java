@@ -29,7 +29,6 @@ package org.sirix.settings;
 
 import static org.junit.Assert.assertEquals;
 import static org.sirix.TestHelper.getNodePage;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;

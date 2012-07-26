@@ -1811,9 +1811,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         .getStandardProperty(), pRightSibKey, pLeftSibKey, 0, 0);
     final NameNodeDelegate nameDel =
       new NameNodeDelegate(nodeDel, nameKey, uriKey, 0);
-    
-    String bla ="";
-    bla.hashCode();
 
     return (PathNode)pageTransaction.createNode(new PathNode(nodeDel,
       structDel, nameDel, pKind, 1, pLevel), EPage.PATHSUMMARYPAGE);

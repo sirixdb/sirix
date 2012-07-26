@@ -105,7 +105,7 @@ public final class BerkeleyReader implements IReader {
       final OperationStatus status =
         mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
       if (status == OperationStatus.SUCCESS) {
-        page = BerkeleyFactory.PAGE_VAL_B.entryToObject(valueEntry);
+        page = BerkeleyStorage.PAGE_VAL_B.entryToObject(valueEntry);
       }
       return page;
     } catch (final DatabaseException exc) {

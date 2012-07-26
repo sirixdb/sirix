@@ -32,7 +32,6 @@ import java.io.File;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
@@ -44,7 +43,7 @@ import org.sirix.io.IWriter;
  * @author Sebastian Graf, University of Konstanz.
  * 
  */
-public final class FileFactory implements IStorage {
+public final class FileStorage implements IStorage {
 
   /** Buffer size. */
   public static final int BUFFER_SIZE = 100_000;//32767;
@@ -61,7 +60,7 @@ public final class FileFactory implements IStorage {
    * @param pFile
    *          the location of the database
    */
-  public FileFactory(@Nonnull final File pFile) {
+  public FileStorage(@Nonnull final File pFile) {
     mFile = pFile;
   }
 

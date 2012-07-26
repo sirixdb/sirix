@@ -55,13 +55,13 @@ import org.sirix.page.delegates.PageDelegate;
  * Factory class to build up {@link IReader}/{@link IWriter} instances for the
  * sirix Framework.
  * 
- * After all this class is implemented as a Singleton to hold one {@link BerkeleyFactory} per
+ * After all this class is implemented as a Singleton to hold one {@link BerkeleyStorage} per
  * {@link SessionConfiguration}.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class BerkeleyFactory implements IStorage {
+public final class BerkeleyStorage implements IStorage {
 
   /** Binding for {@link PageDelegate}. */
   public static final PageBinding PAGE_VAL_B = new PageBinding();
@@ -98,7 +98,7 @@ public final class BerkeleyFactory implements IStorage {
    * @throws NullPointerException
    *           if {@code pFile} is {@code null}
    */
-  public BerkeleyFactory(@Nonnull final File pFile) throws TTIOException {
+  public BerkeleyStorage(@Nonnull final File pFile) throws TTIOException {
     final File repoFile = new File(checkNotNull(pFile), ResourceConfiguration.Paths.Data.getFile().getName());
     if (!repoFile.exists()) {
       repoFile.mkdirs();

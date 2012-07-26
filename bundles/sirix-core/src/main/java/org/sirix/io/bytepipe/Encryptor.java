@@ -3,6 +3,8 @@
  */
 package org.sirix.io.bytepipe;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
 import java.security.Key;
@@ -11,6 +13,7 @@ import java.security.NoSuchAlgorithmException;
 import javax.annotation.Nonnull;
 import javax.crypto.Cipher;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.sirix.exception.TTIOException;
@@ -23,26 +26,46 @@ import org.sirix.exception.TTIOException;
  */
 public class Encryptor implements IByteHandler {
 
+  /** Algorithm to use. */
   private static final String ALGORITHM = "AES";
+
+  /** Iterations. */
   private static final int ITERATIONS = 2;
-  // 128bit key
-  private static final byte[] keyValue = new byte[] {
+
+  /** Cipher to perform encryption and decryption operations. */
+  private final Cipher mCipher;
+
+  /** Key for access data. */
+  private final Key mKey;
+
+  /** 128bit key. */
+  private static final byte[] KEYVALUE = new byte[] {
     'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k',
     'k'
   };
-  private final Cipher mCipher;
-
-  private final Key key;
 
   /**
    * Constructor.
    * 
+   * @param pComponent
    * @throws TTByteHandleException
    */
   public Encryptor() throws TTIOException {
+    this(new SecretKeySpec(KEYVALUE, "AES"));
+  }
+
+  /**
+   * Constructor.
+   * 
+   * @param
+   * 
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  public Encryptor(final @Nonnull Key pKey) throws TTIOException {
     try {
       mCipher = Cipher.getInstance(ALGORITHM);
-      key = new SecretKeySpec(keyValue, ALGORITHM);
+      mKey = checkNotNull(pKey);
     } catch (final NoSuchAlgorithmException e) {
       throw new TTIOException(e);
     } catch (final NoSuchPaddingException e) {
@@ -54,7 +77,7 @@ public class Encryptor implements IByteHandler {
   public byte[] serialize(@Nonnull final byte[] pToSerialize)
     throws TTIOException {
     try {
-      mCipher.init(Cipher.ENCRYPT_MODE, key);
+      mCipher.init(Cipher.ENCRYPT_MODE, mKey);
 
       byte[] toEncrypt = pToSerialize;
       for (int i = 0; i < ITERATIONS; i++) {
@@ -71,7 +94,7 @@ public class Encryptor implements IByteHandler {
   public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
     throws TTIOException {
     try {
-      mCipher.init(Cipher.DECRYPT_MODE, key);
+      mCipher.init(Cipher.DECRYPT_MODE, mKey);
 
       byte[] toDecrypt = pToDeserialize;
       for (int i = 0; i < ITERATIONS; i++) {

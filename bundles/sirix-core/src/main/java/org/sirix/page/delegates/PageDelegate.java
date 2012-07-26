@@ -82,8 +82,8 @@ public class PageDelegate implements IPage {
    * @param pIn
    *          input stream to read from
    */
-  public PageDelegate(@Nonnegative final int pReferenceCount,
-    @Nonnull final ByteArrayDataInput pIn) {
+  public PageDelegate(final @Nonnegative int pReferenceCount,
+    final @Nonnull ByteArrayDataInput pIn) {
     checkArgument(pReferenceCount >= 0);
     mReferences = new PageReference[pReferenceCount];
     mRevision = pIn.readLong();
@@ -101,8 +101,8 @@ public class PageDelegate implements IPage {
    * @param pRevision
    *          revision number
    */
-  public PageDelegate(@Nonnull final IPage pCommitedPage,
-    @Nonnegative final long pRevision) {
+  public PageDelegate(final @Nonnull IPage pCommitedPage,
+    final @Nonnegative long pRevision) {
     checkArgument(pRevision >= 0);
     mReferences = pCommitedPage.getReferences();
     mRevision = pRevision;
@@ -131,7 +131,7 @@ public class PageDelegate implements IPage {
    *           if a write-error occured
    */
   @Override
-  public final void commit(@Nonnull final IPageWriteTrx pPageWriteTrx)
+  public final void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
     throws AbsTTException {
     for (final PageReference reference : mReferences) {
       pPageWriteTrx.commit(reference);
@@ -145,7 +145,8 @@ public class PageDelegate implements IPage {
    *          output stream
    */
   @Override
-  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
+  public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
+    pOut.writeLong(mRevision);
     for (final PageReference reference : mReferences) {
       pOut.writeLong(reference.getKey());
     }

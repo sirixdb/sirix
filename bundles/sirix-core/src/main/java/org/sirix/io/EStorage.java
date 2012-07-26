@@ -30,8 +30,8 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.TTIOException;
-import org.sirix.io.berkeley.BerkeleyFactory;
-import org.sirix.io.file.FileFactory;
+import org.sirix.io.berkeley.BerkeleyStorage;
+import org.sirix.io.file.FileStorage;
 
 /**
  * Utility methods for the storage. Those methods included common deletion
@@ -44,15 +44,15 @@ import org.sirix.io.file.FileFactory;
 public enum EStorage {
   File {
     @Override
-    public IStorage getInstance(@Nonnull final ResourceConfiguration pResourceConf) throws TTIOException {
-      return new FileFactory(pResourceConf.mPath);
+    public IStorage getInstance(final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException {
+      return new FileStorage(pResourceConf.mPath);
     }
   },
 
   BerkeleyDB {
     @Override
-    public IStorage getInstance(@Nonnull final ResourceConfiguration pResourceConf) throws TTIOException {
-      return new BerkeleyFactory(pResourceConf.mPath);
+    public IStorage getInstance(final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException {
+      return new BerkeleyStorage(pResourceConf.mPath);
     }
   };
 
@@ -65,7 +65,7 @@ public enum EStorage {
    * @throws TTIOException
    *           if an IO-error occured
    */
-  public abstract IStorage getInstance(@Nonnull final ResourceConfiguration pResourceConf)
+  public abstract IStorage getInstance(final @Nonnull ResourceConfiguration pResourceConf)
     throws TTIOException;
 
   /**
@@ -80,7 +80,7 @@ public enum EStorage {
    * @throws NullPointerException
    *           if {@code pResourceConf} is {@code null}
    */
-  public static final IStorage getStorage(@Nonnull final ResourceConfiguration pResourceConf)
+  public static final IStorage getStorage(final @Nonnull ResourceConfiguration pResourceConf)
     throws TTIOException {
     return pResourceConf.mType.getInstance(pResourceConf);
   }
