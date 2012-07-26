@@ -27,6 +27,8 @@
 
 package org.sirix.io.file;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.File;
 
 import javax.annotation.Nonnull;
@@ -60,8 +62,8 @@ public final class FileStorage implements IStorage {
    * @param pFile
    *          the location of the database
    */
-  public FileStorage(@Nonnull final File pFile) {
-    mFile = pFile;
+  public FileStorage(final @Nonnull File pFile) {
+    mFile = checkNotNull(pFile);
   }
 
   @Override

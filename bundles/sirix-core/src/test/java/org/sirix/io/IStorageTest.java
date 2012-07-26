@@ -28,7 +28,14 @@
 package org.sirix.io;
 
 import static org.testng.AssertJUnit.assertEquals;
+
+import java.io.File;
+import java.io.IOException;
+
+import javax.annotation.Nonnull;
+
 import org.sirix.TestHelper;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
@@ -44,10 +51,16 @@ import org.testng.annotations.Test;
 public class IStorageTest {
 
   @BeforeMethod
-  public void setUp() throws AbsTTException {
+  public void setUp() throws AbsTTException, IOException {
     TestHelper.closeEverything();
     TestHelper.deleteEverything();
-//    TestHelper.PATHS.PATH1.getFile().mkdirs();
+    TestHelper.PATHS.PATH1.getFile().mkdirs();
+    new File(TestHelper.PATHS.PATH1.getFile(), new StringBuilder(
+      ResourceConfiguration.Paths.Data.getFile().getName()).toString())
+      .mkdirs();
+    new File(TestHelper.PATHS.PATH1.getFile(), new StringBuilder(
+      ResourceConfiguration.Paths.Data.getFile().getName()).append(
+      File.separator).append("tt.tnk").toString()).createNewFile();
   }
 
   @AfterMethod
@@ -60,11 +73,11 @@ public class IStorageTest {
    * Test method for {@link org.treetank.io.bytepipe.IByteHandler#deserialize(byte[])} and for
    * {@link org.treetank.io.bytepipe.IByteHandler#serialize(byte[])}.
    * 
-   * @throws TTException
+   * @throws TTIOException
    */
   @Test(dataProvider = "instantiateStorages")
-  public void testFirstRef(Class<IStorage> clazz, IStorage[] pStorages)
-    throws AbsTTException {
+  public void testFirstRef(final @Nonnull Class<IStorage> pClass,
+    final @Nonnull IStorage[] pStorages) throws AbsTTException {
     for (final IStorage handler : pStorages) {
       final PageReference pageRef1 = new PageReference();
       final UberPage page1 = new UberPage();
@@ -100,7 +113,7 @@ public class IStorageTest {
    * Providing different implementations of the {@link IByteHandler} as Dataprovider to the test class.
    * 
    * @return different classes of the {@link IByteHandler}
-   * @throws TTException
+   * @throws TTIOException
    */
   @DataProvider(name = "instantiateStorages")
   public Object[][] instantiateStorages() throws TTIOException {
