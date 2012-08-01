@@ -47,6 +47,7 @@ import org.sirix.node.DeletedNode;
 import org.sirix.node.EKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.EPage;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
@@ -134,7 +135,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public INode prepareNodeForModification(@Nonnegative final long pNodeKey,
+  public INodeBase prepareNodeForModification(@Nonnegative final long pNodeKey,
     @Nonnull final EPage pPage) throws TTIOException {
     if (pNodeKey < 0) {
       throw new IllegalArgumentException("pNodeKey must be >= 0!");
@@ -148,9 +149,9 @@ public final class PageWriteTrx implements IPageWriteTrx {
     final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
     prepareNodePage(nodePageKey, pPage);
 
-    INode node = ((NodePage)mNodePageCon.getModified()).getNode(nodePageOffset);
+    INodeBase node = ((NodePage)mNodePageCon.getModified()).getNode(nodePageOffset);
     if (node == null) {
-      final INode oldNode =
+      final INodeBase oldNode =
         ((NodePage)mNodePageCon.getComplete()).getNode(nodePageOffset);
       if (oldNode == null) {
         throw new TTIOException("Cannot retrieve node from cache!");
@@ -163,7 +164,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public void finishNodeModification(@Nonnull final INode pNode,
+  public void finishNodeModification(@Nonnull final INodeBase pNode,
     @Nonnull final EPage pPage) {
     final long nodePageKey = mPageRtx.nodePageKey(pNode.getNodeKey());
     if (mNodePageCon == null
@@ -191,9 +192,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public INode
-    createNode(@Nonnull final INode pNode, @Nonnull final EPage pPage)
-      throws TTIOException {
+  public INodeBase createNode(final @Nonnull INodeBase pNode,
+    final @Nonnull EPage pPage) throws TTIOException {
     // Allocate node key and increment node count.
     switch (pPage) {
     case NODEPAGE:
@@ -238,7 +238,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public Optional<INode> getNode(@Nonnegative final long pNodeKey,
+  public Optional<INodeBase> getNode(@Nonnegative final long pNodeKey,
     @Nonnull final EPage pPage) throws TTIOException {
     checkArgument(pNodeKey >= EFixed.NULL_NODE_KEY.getStandardProperty());
     checkNotNull(pPage);
@@ -251,16 +251,13 @@ public final class PageWriteTrx implements IPageWriteTrx {
     if (pageCont == null) {
       return mPageRtx.getNode(pNodeKey, pPage);
     } else {
-      final INode node =
+      INodeBase node =
         ((NodePage)pageCont.getModified()).getNode(nodePageOffset);
       if (node == null) {
-        final INode item =
-          ((NodePage)pageCont.getComplete()).getNode(nodePageOffset);
-        return Optional.fromNullable(mPageRtx.checkItemIfDeleted(item));
+        node = ((NodePage)pageCont.getComplete()).getNode(nodePageOffset);
+        return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));
       } else {
-        final INode item =
-          ((NodePage)pageCont.getModified()).getNode(nodePageOffset);
-        return Optional.fromNullable(mPageRtx.checkItemIfDeleted(item));
+        return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));
       }
     }
   }
@@ -283,7 +280,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public String getName(final int pNameKey, @Nonnull final EKind pNodeKind) {
+  public String getName(final int pNameKey, final @Nonnull EKind pNodeKind) {
     final NamePage currentNamePage =
       (NamePage)mNewRoot.getNamePageReference().getPage();
     // if currentNamePage == null -> state was commited and no prepareNodepage was invoked yet
@@ -293,8 +290,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public int createNameKey(@Nullable final String pName,
-    @Nonnull final EKind pNodeKind) throws TTIOException {
+  public int createNameKey(final @Nullable String pName,
+    final @Nonnull EKind pNodeKind) throws TTIOException {
     checkNotNull(pNodeKind);
     final String string = (pName == null ? "" : pName);
     final int nameKey = NamePageHash.generateHashForString(string);
@@ -305,7 +302,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public void commit(@Nullable final PageReference pReference)
+  public void commit(final @Nullable PageReference pReference)
     throws AbsTTException {
     IPage page = null;
 

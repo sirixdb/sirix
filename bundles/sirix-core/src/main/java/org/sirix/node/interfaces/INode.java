@@ -36,11 +36,12 @@ import org.sirix.node.EKind;
 
 /**
  * <h1>INode</h1>
+ * 
  * <p>
  * Common interface for all node kinds.
  * </p>
  */
-public interface INode {
+public interface INode extends INodeBase {
 
   /**
    * Gets value type of the item.
@@ -56,22 +57,6 @@ public interface INode {
    *          the type to set
    */
   void setTypeKey(int pTypeKey);
-
-//  /**
-//   * Sets unique item key.
-//   * 
-//   * @param pNodeKey
-//   *          unique key of item, maybe negative when atomics from the
-//   *          XPath-engine
-//   */
-//  void setNodeKey(long pNodeKey);
-
-  /**
-   * Get unique item key.
-   * 
-   * @return item key
-   */
-  long getNodeKey();
   
   /**
    * Determines if {@code pOther} is the same item.
@@ -80,15 +65,7 @@ public interface INode {
    *          the other node
    * @return {@code true}, if it is the same item, {@code false} otherwise
    */
-  boolean isSameItem(@Nullable final INode pOther);
-  
-  /**
-   * Gets the kind of the item (atomic value, element node, attribute
-   * node....).
-   * 
-   * @return kind of item
-   */
-  EKind getKind();
+  boolean isSameItem(final @Nullable INode pOther);
   
   /**
    * Accept a visitor and use double dispatching to invoke the visitor method.
@@ -97,7 +74,7 @@ public interface INode {
    *          implementation of the {@link IVisitor} interface
    * @return the result of a visit
    */
-  EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor);
+  EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor);
   
   /**
    * Setting the actual hash of the structure. The hash of one node should

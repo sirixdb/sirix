@@ -51,7 +51,7 @@ import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.EPage;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
@@ -161,7 +161,7 @@ final class PageReadTrx implements IPageReadTrx {
   }
 
   @Override
-  public Optional<INode> getNode(@Nonnegative final long pNodeKey,
+  public Optional<INodeBase> getNode(@Nonnegative final long pNodeKey,
     @Nonnull final EPage pPage) throws TTIOException {
     checkArgument(pNodeKey >= 0);
     checkNotNull(pPage);
@@ -186,22 +186,22 @@ final class PageReadTrx implements IPageReadTrx {
     }
 
     if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
-      return Optional.<INode> absent();
+      return Optional.<INodeBase> absent();
     }
 
     // If nodePage is a weak one, moveto is not cached.
-    final INode retVal = ((NodePage)cont.getComplete()).getNode(nodePageOffset);
+    final INodeBase retVal = ((NodePage)cont.getComplete()).getNode(nodePageOffset);
     return Optional.fromNullable(checkItemIfDeleted(retVal));
   }
 
   /**
-   * Method to check if an {@link INode} is a deleted one.
+   * Method to check if an {@link INodeBase} is deleted.
    * 
    * @param pToCheck
    *          node to check
    * @return the {@code node} if it is valid, {@code null} otherwise
    */
-  final INode checkItemIfDeleted(@Nullable final INode pToCheck) {
+  final INodeBase checkItemIfDeleted(final @Nullable INodeBase pToCheck) {
     if (pToCheck instanceof DeletedNode) {
       return null;
     } else {

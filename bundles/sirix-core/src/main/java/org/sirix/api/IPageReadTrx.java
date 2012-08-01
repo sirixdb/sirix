@@ -8,7 +8,7 @@ import javax.annotation.Nonnull;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.TTIOException;
 import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.EPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
@@ -30,9 +30,9 @@ public interface IPageReadTrx extends AutoCloseable {
    *          the page from which to fetch the node
    * @return an {@link Optional} reference usually containing the node reference
    * @throws TTIOException
-   *            if an I/O error occured
+   *           if an I/O error occured
    */
-  Optional<INode> getNode(@Nonnegative final long pKey,
+  Optional<INodeBase> getNode(@Nonnegative final long pKey,
     @Nonnull final EPage pPage) throws TTIOException;
 
   /**
@@ -48,31 +48,39 @@ public interface IPageReadTrx extends AutoCloseable {
   /**
    * Getting the name corresponding to the given key.
    * 
-   * @param pKey
-   *          for the term searched
+   * @param pNameKey
+   *          name key for the term to search
    * @param pKind
    *          kind of node
    * @return the name
    * @throws NullPointerException
    *           if {@code pKind} is {@code null}
    */
-  String getName(int pKey, @Nonnull EKind pKind);
-  
-  int getNameCount(int pKey, @Nonnull EKind pKind);
+  String getName(int pNameKey, @Nonnull EKind pKind);
 
-  
+  /**
+   * Get the number of references for a name.
+   * 
+   * @param pNameKey
+   *          name key for the term to search
+   * @param pKind
+   *          node type
+   * @return the number of references for a given keyy.
+   */
+  int getNameCount(int pNameKey, @Nonnull EKind pKind);
+
   /**
    * Getting the raw name related to the name key and the node kind.
    * 
-   * @param pKey
-   *          for the raw name searched
+   * @param pNameKey
+   *          name key for the term to search
    * @param pKind
    *          kind of node
    * @return a byte array containing the raw name
    * @throws NullPointerException
    *           if {@code pKind} is {@code null}
    */
-  byte[] getRawName(int pKey, @Nonnull EKind pKind);
+  byte[] getRawName(int pNameKey, @Nonnull EKind pKind);
 
   /**
    * Close transaction.
@@ -106,5 +114,6 @@ public interface IPageReadTrx extends AutoCloseable {
    */
   UberPage getUberPage();
 
+  /** Determines if transaction is closed or not. */
   boolean isClosed();
 }

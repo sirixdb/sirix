@@ -42,6 +42,7 @@ import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.utils.IConstants;
@@ -59,7 +60,7 @@ public class NodePage implements IPage {
   private final long mNodePageKey;
 
   /** Array of nodes. This can have null nodes that were removed. */
-  private final INode[] mNodes;
+  private final INodeBase[] mNodes;
 
   /** {@link PageDelegate} reference. */
   private final long mRevision;
@@ -78,7 +79,7 @@ public class NodePage implements IPage {
     checkArgument(pRevision >= 0, "pRevision must not be negative!");
     mRevision = pRevision;
     mNodePageKey = pNodePageKey;
-    mNodes = new INode[IConstants.NDP_NODE_COUNT];
+    mNodes = new INodeBase[IConstants.NDP_NODE_COUNT];
   }
 
   /**
@@ -90,7 +91,7 @@ public class NodePage implements IPage {
   protected NodePage(final @Nonnull ByteArrayDataInput pIn) {
     mRevision = pIn.readLong();
     mNodePageKey = pIn.readLong();
-    mNodes = new INode[IConstants.NDP_NODE_COUNT];
+    mNodes = new INodeBase[IConstants.NDP_NODE_COUNT];
     for (int offset = 0; offset < mNodes.length; offset++) {
       final byte id = pIn.readByte();
       final EKind enumKind = EKind.getKind(id);
@@ -116,7 +117,7 @@ public class NodePage implements IPage {
    *          offset of node within local node page
    * @return node at given offset
    */
-  public INode getNode(final @Nonnegative int pOffset) {
+  public INodeBase getNode(final @Nonnegative int pOffset) {
     checkArgument(pOffset >= 0 && pOffset < IConstants.NDP_NODE_COUNT,
       "offset must not be negative and less than the max. nodes per node page!");
     if (pOffset < mNodes.length) {
@@ -135,7 +136,7 @@ public class NodePage implements IPage {
    *          node to store at given nodeOffset
    */
   public void
-    setNode(final @Nonnegative int pOffset, final @Nonnull INode pNode) {
+    setNode(final @Nonnegative int pOffset, final @Nonnull INodeBase pNode) {
     checkArgument(pOffset >= 0, "pOffset may not be negative!");
     mNodes[pOffset] = checkNotNull(pNode);
   }
@@ -144,7 +145,7 @@ public class NodePage implements IPage {
   public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
     pOut.writeLong(mRevision);
     pOut.writeLong(mNodePageKey);
-    for (final INode node : mNodes) {
+    for (final INodeBase node : mNodes) {
       if (node == null) {
         pOut.writeByte(getLastByte(EKind.UNKOWN.getId()));
       } else {
@@ -176,7 +177,7 @@ public class NodePage implements IPage {
       Objects.toStringHelper(this).add("revision", mRevision).add("pagekey",
         mNodePageKey).add("nodes", mNodes.toString());
     for (int i = 0; i < mNodes.length; i++) {
-      final INode node = mNodes[i];
+      final INodeBase node = mNodes[i];
       helper.add(String.valueOf(i), node == null ? "" : node.getNodeKey());
     }
     return helper.toString();
@@ -187,7 +188,7 @@ public class NodePage implements IPage {
    * 
    * @return the nodes
    */
-  public final INode[] getNodes() {
+  public final INodeBase[] getNodes() {
     return mNodes;
   }
 

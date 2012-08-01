@@ -43,7 +43,6 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.utils.NamePageHash;
 
-@Deprecated
 public class NodePageTest {
 
   @Test
@@ -72,7 +71,7 @@ public class NodePageTest {
     final NodePage page2 = (NodePage)PagePersistenter.deserializePage(in);
     // assertEquals(position, out.position());
     assertEquals(0L, page2.getNode(0).getNodeKey());
-    assertEquals(1L, page2.getNode(0).getParentKey());
+    assertEquals(1L, ((ElementNode)page2.getNode(0)).getParentKey());
     assertEquals(12L, ((ElementNode)page2.getNode(0)).getFirstChildKey());
     assertEquals(3L, ((ElementNode)page2.getNode(0)).getLeftSiblingKey());
     assertEquals(4L, ((ElementNode)page2.getNode(0)).getRightSiblingKey());
@@ -85,8 +84,8 @@ public class NodePageTest {
     assertEquals(98L, ((ElementNode)page2.getNode(0)).getNamespaceKey(1));
     assertEquals(6, ((INameNode)page2.getNode(0)).getNameKey());
     assertEquals(7, ((INameNode)page2.getNode(0)).getURIKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), page2
-      .getNode(0).getTypeKey());
+    assertEquals(NamePageHash.generateHashForString("xs:untyped"), ((ElementNode)page2
+      .getNode(0)).getTypeKey());
 
   }
 }

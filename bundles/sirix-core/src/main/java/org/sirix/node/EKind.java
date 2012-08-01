@@ -46,6 +46,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.interfaces.IKind;
 import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.EFixed;
 
@@ -61,13 +62,13 @@ public enum EKind implements IKind {
   /** Unknown kind. */
   UNKOWN((byte)0, null) {
     @Override
-    public INode deserialize(final @Nonnull ByteArrayDataInput pSource) {
+    public INodeBase deserialize(final @Nonnull ByteArrayDataInput pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       throw new UnsupportedOperationException();
     }
   },
@@ -75,7 +76,7 @@ public enum EKind implements IKind {
   /** Node kind is element. */
   ELEMENT((byte)1, ElementNode.class) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(pSource);
 
@@ -110,7 +111,7 @@ public enum EKind implements IKind {
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       final ElementNode node = (ElementNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       serializeStrucDelegate(node.getStructNodeDelegate(), pSink);
@@ -130,7 +131,7 @@ public enum EKind implements IKind {
   /** Node kind is attribute. */
   ATTRIBUTE((byte)2, AttributeNode.class) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(pSource);
 
@@ -151,7 +152,7 @@ public enum EKind implements IKind {
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       AttributeNode node = (AttributeNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       serializeNameDelegate(node.getNameNodeDelegate(), pSink);
@@ -162,7 +163,7 @@ public enum EKind implements IKind {
   /** Node kind is namespace. */
   NAMESPACE((byte)13, NamespaceNode.class) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(pSource);
 
@@ -175,7 +176,7 @@ public enum EKind implements IKind {
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       NamespaceNode node = (NamespaceNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       serializeNameDelegate(node.getNameNodeDelegate(), pSink);
@@ -185,7 +186,7 @@ public enum EKind implements IKind {
   /** Node kind is text. */
   TEXT((byte)3, TextNode.class) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(pSource);
 
@@ -209,7 +210,7 @@ public enum EKind implements IKind {
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       TextNode node = (TextNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       serializeValDelegate(node.getValNodeDelegate(), pSink);
@@ -223,13 +224,13 @@ public enum EKind implements IKind {
   /** Node kind is processing instruction. */
   PROCESSING((byte)7, null) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       throw new UnsupportedOperationException();
     }
 
@@ -238,13 +239,13 @@ public enum EKind implements IKind {
   /** Node kind is comment. */
   COMMENT((byte)8, null) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       throw new UnsupportedOperationException();
     }
   },
@@ -252,7 +253,7 @@ public enum EKind implements IKind {
   /** Node kind is document root. */
   DOCUMENT_ROOT((byte)9, DocumentRootNode.class) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       final NodeDelegate nodeDel =
         new NodeDelegate(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
           EFixed.NULL_NODE_KEY.getStandardProperty(), pSource.readLong());
@@ -266,7 +267,7 @@ public enum EKind implements IKind {
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       DocumentRootNode node = (DocumentRootNode)pToSerialize;
       pSink.writeLong(node.getHash());
       pSink.writeLong(node.getFirstChildKey());
@@ -278,13 +279,13 @@ public enum EKind implements IKind {
   /** Whitespace text. */
   WHITESPACE((byte)4, null) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       throw new UnsupportedOperationException();
     }
   },
@@ -292,14 +293,14 @@ public enum EKind implements IKind {
   /** Node kind is deleted node. */
   DELETE((byte)5, DeletedNode.class) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       final NodeDelegate delegate = deserializeNodeDelegate(pSource);
       return new DeletedNode(delegate);
     }
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       DeletedNode node = (DeletedNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
     }
@@ -308,13 +309,13 @@ public enum EKind implements IKind {
   /** NullNode to support the Null Object pattern. */
   NULL((byte)6, NullNode.class) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       throw new UnsupportedOperationException();
     }
   },
@@ -322,13 +323,13 @@ public enum EKind implements IKind {
   /** AtomicKind. */
   ATOMIC((byte)15, AtomicValue.class) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       throw new UnsupportedOperationException();
     }
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      @Nonnull final INode pToSerialize) {
+      @Nonnull final INodeBase pToSerialize) {
       throw new UnsupportedOperationException();
     }
   },
@@ -336,7 +337,7 @@ public enum EKind implements IKind {
   /** Node kind is path node. */
   PATH((byte)16, PathNode.class) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(pSource);
 
@@ -354,7 +355,7 @@ public enum EKind implements IKind {
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      final @Nonnull INode pToSerialize) {
+      final @Nonnull INodeBase pToSerialize) {
       final PathNode node = (PathNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       serializeStrucDelegate(node.getStructNodeDelegate(), pSink);
@@ -369,7 +370,7 @@ public enum EKind implements IKind {
   /** Node kind is an AVL node. */
   AVL((byte)17, AVLNode.class) {
     @Override
-    public INode deserialize(@Nonnull final ByteArrayDataInput pSource) {
+    public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(pSource);
 
@@ -387,7 +388,7 @@ public enum EKind implements IKind {
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-      final @Nonnull INode pToSerialize) {
+      final @Nonnull INodeBase pToSerialize) {
       final PathNode node = (PathNode)pToSerialize;
       serializeDelegate(node.getNodeDelegate(), pSink);
       serializeStrucDelegate(node.getStructNodeDelegate(), pSink);
@@ -402,13 +403,13 @@ public enum EKind implements IKind {
   private final byte mId;
 
   /** Class. */
-  private final Class<? extends INode> mClass;
+  private final Class<? extends INodeBase> mClass;
 
   /** Mapping of keys -> nodes. */
   private static final Map<Byte, EKind> INSTANCEFORID = new HashMap<>();
 
   /** Mapping of class -> nodes. */
-  private static final Map<Class<? extends INode>, EKind> INSTANCEFORCLASS =
+  private static final Map<Class<? extends INodeBase>, EKind> INSTANCEFORCLASS =
     new HashMap<>();
 
   static {
@@ -426,7 +427,7 @@ public enum EKind implements IKind {
    * @param pClass
    *          class
    */
-  private EKind(final byte pId, @Nonnull final Class<? extends INode> pClass) {
+  private EKind(final byte pId, @Nonnull final Class<? extends INodeBase> pClass) {
     mId = pId;
     mClass = pClass;
   }
@@ -437,7 +438,7 @@ public enum EKind implements IKind {
   }
 
   @Override
-  public Class<? extends INode> getNodeClass() {
+  public Class<? extends INodeBase> getNodeClass() {
     return mClass;
   }
 
@@ -459,7 +460,7 @@ public enum EKind implements IKind {
    *          the class for the node
    * @return the related node
    */
-  public static EKind getKind(@Nonnull final Class<? extends INode> pClass) {
+  public static EKind getKind(@Nonnull final Class<? extends INodeBase> pClass) {
     return INSTANCEFORCLASS.get(pClass);
   }
 

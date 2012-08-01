@@ -5,7 +5,6 @@ import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnull;
 
-
 public interface IKind {
   /**
    * Deserializing a node using a {@link ByteArrayDataInput}.
@@ -14,7 +13,7 @@ public interface IKind {
    *          input source
    * @return a {@link INode} instance
    */
-  INode deserialize(final @Nonnull ByteArrayDataInput pSource);
+  INodeBase deserialize(final @Nonnull ByteArrayDataInput pSource);
 
   /**
    * Serializing a node from a {@link ByteArrayDataOutput}.
@@ -24,7 +23,7 @@ public interface IKind {
    * @param pToSerialize
    *          the node to serialize
    */
-  void serialize(final @Nonnull ByteArrayDataOutput pSink, final @Nonnull INode pToSerialize);
+  void serialize(final @Nonnull ByteArrayDataOutput pSink, final @Nonnull INodeBase pToSerialize);
 
   /**
    * Get the nodeKind.
@@ -38,5 +37,5 @@ public interface IKind {
    * 
    * @return class of node
    */
-  Class<? extends INode> getNodeClass();
+  Class<? extends INodeBase> getNodeClass();
 }

@@ -106,8 +106,9 @@ public final class NodeReadTrx implements INodeReadTrx {
     checkArgument(pTransactionID >= 0);
     mId = pTransactionID;
     mPageReadTrx = checkNotNull(pPageReadTransaction);
-    final Optional<INode> node =
-      getPageTransaction().getNode(
+    @SuppressWarnings("unchecked")
+    final Optional<? extends INode> node =
+      (Optional<? extends INode>) mPageReadTrx.getNode(
         EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.NODEPAGE);
     if (node.isPresent()) {
       mCurrentNode = node.get();
@@ -156,7 +157,11 @@ public final class NodeReadTrx implements INodeReadTrx {
           newNode = Optional.absent();
         }
       } else {
-        newNode = mPageReadTrx.getNode(pNodeKey, EPage.NODEPAGE);
+        @SuppressWarnings("unchecked")
+        final Optional<? extends INode> node =
+          (Optional<? extends INode>)mPageReadTrx.getNode(pNodeKey,
+            EPage.NODEPAGE);
+        newNode = node;
       }
     } catch (final TTIOException e) {
       newNode = Optional.absent();

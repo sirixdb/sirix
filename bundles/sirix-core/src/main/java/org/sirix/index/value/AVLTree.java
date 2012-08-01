@@ -53,11 +53,12 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
   private AVLTree(final @Nonnull IPageWriteTrx pPageWriteTrx) {
     mPageWriteTrx = pPageWriteTrx;
     mClosed = false;
-    Optional<INode> node;
+    
     try {
-      node =
-        mPageWriteTrx.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          EPage.VALUEPAGE);
+      @SuppressWarnings("unchecked")
+      Optional<? extends INode> node = (Optional<? extends INode>)
+      mPageWriteTrx.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+        EPage.VALUEPAGE);
       if (node.isPresent()) {
         mCurrentNode = node.get();
       } else {
@@ -380,7 +381,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
     mPageWriteTrx.finishNodeModification(pNode, EPage.VALUEPAGE);
 
     if (leftChild.hasRightChild()) {
-      final INode leftRightChild =
+      final INode leftRightChild = (INode)
         mPageWriteTrx.prepareNodeForModification(leftChild.getRightChildKey(),
           EPage.VALUEPAGE);
       leftRightChild.setParentKey(pNode.getNodeKey());
