@@ -33,8 +33,10 @@ import com.google.common.io.ByteArrayDataOutput;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.annotation.Nonnull;
 
@@ -45,7 +47,6 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.interfaces.IKind;
-import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.INodeBase;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.EFixed;
@@ -365,38 +366,104 @@ public enum EKind implements IKind {
       pSink.writeInt(node.getLevel());
     };
   },
-  
 
   /** Node kind is an AVL node. */
   AVL((byte)17, AVLNode.class) {
     @Override
     public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
+      final int size = pSource.readInt();
+      final byte[] value = new byte[size];
+      pSource.readFully(value, 0, size);
+      final long valueNodeKey = pSource.readLong();
+      final Set<Long> nodeKeys = new HashSet<>(pSource.readInt());
+      for (final long nodeKey : nodeKeys) {
+        nodeKeys.add(nodeKey);
+      }
+      final long referencesNodeKey = pSource.readLong();
       // Node delegate.
       final NodeDelegate nodeDel = deserializeNodeDelegate(pSource);
-
-      // Struct delegate.
-      final StructNodeDelegate structDel =
-        deserializeStructDel(nodeDel, pSource);
-
-      // Name delegate.
-      final NameNodeDelegate nameDel =
-        deserializeNameDelegate(nodeDel, pSource);
-
-      return new PathNode(nodeDel, structDel, nameDel, EKind.getKind(pSource
-        .readByte()), pSource.readInt(), pSource.readInt());
+      final long leftChild = pSource.readLong();
+      final long rightChild = pSource.readLong();
+      final boolean isChanged = pSource.readBoolean();
+      final AVLNode<TextValue, TextReferences> node =
+        new AVLNode<>(new TextValue(value, valueNodeKey), new TextReferences(
+          nodeKeys, referencesNodeKey), nodeDel);
+      node.setLeftChildKey(leftChild);
+      node.setRightChildKey(rightChild);
+      node.setChanged(isChanged);
+      return node;
     }
 
     @Override
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
       final @Nonnull INodeBase pToSerialize) {
-      final PathNode node = (PathNode)pToSerialize;
+      @SuppressWarnings("unchecked")
+      final AVLNode<TextValue, TextReferences> node =
+        (AVLNode<TextValue, TextReferences>)pToSerialize;
+      final TextValue key = node.getKey();
+      final byte[] textValue = key.getValue();
+      pSink.writeInt(textValue.length);
+      pSink.write(textValue);
+      pSink.writeLong(key.getNodeKey());
+      final TextReferences value = node.getValue();
+      final Set<Long> nodeKeys = value.getNodes();
+      pSink.writeInt(nodeKeys.size());
+      for (final long nodeKey : nodeKeys) {
+        pSink.writeLong(nodeKey);
+      }
+      pSink.writeLong(value.getNodeKey());
       serializeDelegate(node.getNodeDelegate(), pSink);
-      serializeStrucDelegate(node.getStructNodeDelegate(), pSink);
-      serializeNameDelegate(node.getNameNodeDelegate(), pSink);
-      pSink.writeByte(node.getPathKind().getId());
-      pSink.writeInt(node.getReferences());
-      pSink.writeInt(node.getLevel());
+      pSink.writeLong(node.getLeftChildKey());
+      pSink.writeLong(node.getRightChildKey());
+      pSink.writeBoolean(node.isChanged());
     };
+  },
+
+  /** Node is a text value. */
+  TEXT_VALUE((byte)18, TextValue.class) {
+    @Override
+    public INodeBase deserialize(final @Nonnull ByteArrayDataInput pSource) {
+      final long nodeKey = pSource.readLong();
+      final byte[] value = new byte[pSource.readInt()];
+      pSource.readFully(value);
+      return new TextValue(value, nodeKey);
+    }
+
+    @Override
+    public void serialize(final @Nonnull ByteArrayDataOutput pSink,
+      final @Nonnull INodeBase pToSerialize) {
+      final TextValue node = (TextValue)pToSerialize;
+      pSink.writeLong(node.getNodeKey());
+      final byte[] value = node.getValue();
+      pSink.writeInt(value.length);
+      pSink.write(value);
+    }
+  },
+
+  /** Node includes text node references. */
+  TEXT_REFERENCES((byte)19, TextReferences.class) {
+    @Override
+    public INodeBase deserialize(final @Nonnull ByteArrayDataInput pSource) {
+      final long nodeKey = pSource.readLong();
+      final int size = pSource.readInt();
+      final Set<Long> nodeKeys = new HashSet<>(size);
+      for (int i = 0; i < size; i++) {
+        nodeKeys.add(pSource.readLong());
+      }
+      return new TextReferences(nodeKeys, nodeKey);
+    }
+
+    @Override
+    public void serialize(final @Nonnull ByteArrayDataOutput pSink,
+      final @Nonnull INodeBase pToSerialize) {
+      final TextReferences node = (TextReferences)pToSerialize;
+      pSink.writeLong(node.getNodeKey());
+      final Set<Long> nodeKeys = node.getNodes();
+      pSink.writeInt(nodeKeys.size());
+      for (final long key : nodeKeys) {
+        pSink.writeLong(key);
+      }
+    }
   };
 
   /** Identifier. */

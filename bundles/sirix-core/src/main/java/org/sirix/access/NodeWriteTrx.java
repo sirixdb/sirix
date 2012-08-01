@@ -37,6 +37,7 @@ import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -69,11 +70,14 @@ import org.sirix.exception.TTThreadedException;
 import org.sirix.exception.TTUsageException;
 import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
+import org.sirix.index.value.AVLTree;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.TextNode;
+import org.sirix.node.TextReferences;
+import org.sirix.node.TextValue;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -148,6 +152,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   /** {@link PathSummary} instance. */
   private PathSummary mPathSummary;
 
+  /** {@link AVLTree} instance. */
+  private AVLTree<TextValue, TextReferences> mAVLTree;
+
   /**
    * Constructor.
    * 
@@ -155,7 +162,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
    *          ID of transaction
    * @param pSession
    *          the {@link session} instance this transaction is bound to
-   * @param pPageWriteTransaction
+   * @param pPageWriteTrx
    *          {@link IPageWriteTrx} to interact with the page layer
    * @param pMaxNodeCount
    *          maximum number of node modifications before auto commit
@@ -170,7 +177,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
    */
   NodeWriteTrx(@Nonnegative final long pTransactionID,
     @Nonnull final Session pSession,
-    @Nonnull final IPageWriteTrx pPageWriteTransaction,
+    @Nonnull final IPageWriteTrx pPageWriteTrx,
     @Nonnegative final int pMaxNodeCount, @Nonnull final TimeUnit pTimeUnit,
     @Nonnegative final int pMaxTime) throws TTIOException, TTUsageException {
 
@@ -179,9 +186,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       throw new TTUsageException("Negative arguments are not accepted.");
     }
 
-    mNodeReadRtx =
-      new NodeReadTrx(pSession, pTransactionID, pPageWriteTransaction);
-    mPathSummary = PathSummary.getInstance(pPageWriteTransaction);
+    mNodeReadRtx = new NodeReadTrx(pSession, pTransactionID, pPageWriteTrx);
+    mPathSummary = PathSummary.getInstance(pPageWriteTrx);
+    mAVLTree = AVLTree.getInstance(pPageWriteTrx);
 
     // Only auto commit by node modifications if it is more then 0.
     mMaxNodeCount = pMaxNodeCount;
@@ -724,7 +731,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
   @Override
   public synchronized INodeWriteTrx insertTextAsFirstChild(
-    @Nonnull final String pValue) throws AbsTTException {
+    final @Nonnull String pValue) throws AbsTTException {
     checkNotNull(pValue);
     if (getNode() instanceof IStructNode
       && getNode().getKind() != EKind.DOCUMENT_ROOT && !pValue.isEmpty()) {
@@ -751,15 +758,45 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         createTextNode(parentKey, leftSibKey, rightSibKey, value,
           mNodeReadRtx.mSession.mResourceConfig.mCompression);
 
+      // Adapt local nodes and hashes.
       mNodeReadRtx.setCurrentNode(node);
       adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.NODEPAGE);
       mNodeReadRtx.setCurrentNode(node);
       adaptHashesWithAdd();
 
+      // Index text value.
+      indexText(value);
+
       return this;
     } else {
       throw new TTUsageException(
         "Insert is not allowed if current node is not an ElementNode or TextNode!");
+    }
+  }
+
+  /**
+   * Index text.
+   * 
+   * @param pValue
+   *          text value
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  private void indexText(final @Nonnull byte[] pValue) throws TTIOException {
+    final IPageWriteTrx pageTrx = getPageTransaction();
+    final TextValue textVal =
+      (TextValue)pageTrx
+        .createNode(new TextValue(pValue, pageTrx.getActualRevisionRootPage()
+          .getMaxValueNodeKey() + 1), EPage.VALUEPAGE);
+    final Optional<TextReferences> textReferences = mAVLTree.get(textVal);
+    if (textReferences.isPresent()) {
+      mAVLTree.index(textVal, textReferences.get());
+    } else {
+      final TextReferences textRef =
+        (TextReferences)pageTrx.createNode(new TextReferences(
+          new HashSet<Long>(), pageTrx.getActualRevisionRootPage()
+            .getMaxValueNodeKey() + 1), EPage.VALUEPAGE);
+      mAVLTree.index(textVal, textRef);
     }
   }
 
@@ -803,10 +840,16 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       final TextNode node =
         createTextNode(parentKey, leftSibKey, rightSibKey, value,
           mNodeReadRtx.mSession.mResourceConfig.mCompression);
+
+      // Adapt local nodes and hashes.
       mNodeReadRtx.setCurrentNode(node);
       adaptForInsert(node, EInsertPos.ASLEFTSIBLING, EPage.NODEPAGE);
       mNodeReadRtx.setCurrentNode(node);
       adaptHashesWithAdd();
+
+      // Index text value.
+      indexText(value);
+
       return this;
     } else {
       throw new TTUsageException(
@@ -852,10 +895,16 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       final TextNode node =
         createTextNode(parentKey, leftSibKey, rightSibKey, value,
           mNodeReadRtx.mSession.mResourceConfig.mCompression);
+
+      // Adapt local nodes and hashes.
       mNodeReadRtx.setCurrentNode(node);
       adaptForInsert(node, EInsertPos.ASRIGHTSIBLING, EPage.NODEPAGE);
       mNodeReadRtx.setCurrentNode(node);
       adaptHashesWithAdd();
+
+      // Index text value.
+      indexText(value);
+
       return this;
     } else {
       throw new TTUsageException(
@@ -1440,6 +1489,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
     // Get a new path summary instance.
     mPathSummary = PathSummary.getInstance(mNodeReadRtx.getPageTransaction());
+    
+    // Get a new avl tree instance.
+    mAVLTree = AVLTree.getInstance(getPageTransaction());
 
     // Execute post-commit hooks.
     for (final IPostCommitHook hook : mPostCommitHooks) {

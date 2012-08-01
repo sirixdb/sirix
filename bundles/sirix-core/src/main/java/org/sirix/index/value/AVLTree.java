@@ -9,6 +9,7 @@ import javax.annotation.Nullable;
 import org.sirix.api.INodeCursor;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.TTIOException;
+import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.NullNode;
 import org.sirix.node.delegates.NodeDelegate;
@@ -53,12 +54,12 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
   private AVLTree(final @Nonnull IPageWriteTrx pPageWriteTrx) {
     mPageWriteTrx = pPageWriteTrx;
     mClosed = false;
-    
+
     try {
       @SuppressWarnings("unchecked")
-      Optional<? extends INode> node = (Optional<? extends INode>)
-      mPageWriteTrx.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-        EPage.VALUEPAGE);
+      Optional<? extends INode> node =
+        (Optional<? extends INode>)mPageWriteTrx.getNode(
+          EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
       if (node.isPresent()) {
         mCurrentNode = node.get();
       } else {
@@ -99,11 +100,13 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
     final RevisionRootPage root = mPageWriteTrx.getActualRevisionRootPage();
     // index is empty.. create root node
     if (mRoot == null) {
-      root.incrementMaxValueNodeKey();
       mRoot =
         (AVLNode<K, V>)mPageWriteTrx.createNode(new AVLNode<>(pKey, pValue,
-          new NodeDelegate(root.getMaxValueNodeKey(), EFixed.NULL_NODE_KEY
+          new NodeDelegate(root.getMaxValueNodeKey() + 1, EFixed.NULL_NODE_KEY
             .getStandardProperty(), 0)), EPage.VALUEPAGE);
+      final DocumentRootNode document = (DocumentRootNode) mPageWriteTrx.prepareNodeForModification(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
+      document.setFirstChildKey(mRoot.getNodeKey());
+      mPageWriteTrx.finishNodeModification(document, EPage.VALUEPAGE);
       size++;
       return pValue;
     }
@@ -162,6 +165,9 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
    * @return {@link Optional} reference
    */
   public Optional<V> get(final @Nonnull K pKey) {
+    if (mRoot == null) {
+      return Optional.absent();
+    }
     AVLNode<K, V> node = mRoot;
     while (true) {
       int c = pKey.compareTo(node.getKey());
@@ -197,7 +203,8 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
   private void adjust(AVLNode<K, V> pNode) throws TTIOException {
     pNode.setChanged(true);
 
-    while (pNode != null && pNode != mRoot && parent(pNode).isChanged()) {
+    while (pNode != null && pNode != mRoot && parent(pNode) != null
+      && parent(pNode).isChanged()) {
       if (parent(pNode) == left(parent(parent(pNode)))) {
         AVLNode<K, V> y = right(parent(parent(pNode)));
         if (y != null && y.isChanged()) {
@@ -381,9 +388,9 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
     mPageWriteTrx.finishNodeModification(pNode, EPage.VALUEPAGE);
 
     if (leftChild.hasRightChild()) {
-      final INode leftRightChild = (INode)
-        mPageWriteTrx.prepareNodeForModification(leftChild.getRightChildKey(),
-          EPage.VALUEPAGE);
+      final INode leftRightChild =
+        (INode)mPageWriteTrx.prepareNodeForModification(leftChild
+          .getRightChildKey(), EPage.VALUEPAGE);
       leftRightChild.setParentKey(pNode.getNodeKey());
       mPageWriteTrx.finishNodeModification(leftRightChild, EPage.VALUEPAGE);
     }

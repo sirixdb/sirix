@@ -55,6 +55,7 @@ import org.sirix.page.NodePage;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
+import org.sirix.page.ValuePage;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.settings.EFixed;
 import org.sirix.settings.ERevisioning;
@@ -195,23 +196,24 @@ public final class PageWriteTrx implements IPageWriteTrx {
   public INodeBase createNode(final @Nonnull INodeBase pNode,
     final @Nonnull EPage pPage) throws TTIOException {
     // Allocate node key and increment node count.
+    long nodeKey;
     switch (pPage) {
     case NODEPAGE:
       mNewRoot.incrementMaxNodeKey();
+      nodeKey = mNewRoot.getMaxNodeKey();
       break;
     case PATHSUMMARYPAGE:
       mNewRoot.incrementMaxPathNodeKey();
+      nodeKey = mNewRoot.getMaxPathNodeKey();
       break;
     case VALUEPAGE:
       mNewRoot.incrementMaxValueNodeKey();
+      nodeKey = mNewRoot.getMaxValueNodeKey();
       break;
     default:
       throw new IllegalStateException();
     }
 
-    final long nodeKey =
-      pPage == EPage.NODEPAGE ? mNewRoot.getMaxNodeKey() : mNewRoot
-        .getMaxPathNodeKey();
     final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
     final int nodePageOffset = mPageRtx.nodePageOffset(nodeKey);
     prepareNodePage(nodePageKey, pPage);
@@ -489,10 +491,19 @@ public final class PageWriteTrx implements IPageWriteTrx {
       assert cont != null;
       reference.setNodePageKey(pNodePageKey);
       reference.setPageKind(pPage);
-      if (pPage == EPage.NODEPAGE) {
+      
+      switch (pPage) {
+      case NODEPAGE:
         mLog.put(pNodePageKey, cont);
-      } else {
+        break;
+      case PATHSUMMARYPAGE:
         mPathLog.put(pNodePageKey, cont);
+        break;
+      case VALUEPAGE:
+        mValueLog.put(pNodePageKey, cont);
+        break;
+      default:
+        throw new IllegalStateException("Page kind not known!");
       }
     }
     mNodePageCon = cont;

@@ -990,8 +990,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
             mMaxDescendantCountFuture = modifications;
           } else {
             if (currDepth > depthThreshold) {
-              final Callable<Modification> mods = Modifications.getInstance(index, diffs);
-              modifications = SAME_THREAD_EXECUTOR.submit(mods);
+              modifications = SAME_THREAD_EXECUTOR.submit(Modifications.getInstance(index, diffs));
             } else {
               final ForkJoinTask<Modification> mods = Modifications.getInstance(index, diffs);
               modifications = FORK_JOIN_POOL.submit(mods);

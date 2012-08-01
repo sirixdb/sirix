@@ -274,15 +274,14 @@ public final class FMSETest extends XMLTestCase {
     // Shredder files.
     for (final File file : list) {
       if (file.getName().endsWith(".xml")) {
-
         if (first) {
-          final INodeWriteTrx wtx = session.beginNodeWriteTrx();
-          final XMLShredder shredder =
-            new XMLShredder(wtx, XMLShredder.createFileReader(file),
-              EInsert.ASFIRSTCHILD);
-          shredder.call();
-          wtx.close();
           first = false;
+          try (final INodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+            final XMLShredder shredder =
+              new XMLShredder(wtx, XMLShredder.createFileReader(file),
+                EInsert.ASFIRSTCHILD);
+            shredder.call();
+          }
         } else {
           FMSEImport.main(new String[] {
             PATHS.PATH1.getFile().getAbsolutePath(), file.getAbsolutePath()

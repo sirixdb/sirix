@@ -35,15 +35,15 @@ public class PathSummary implements INodeReadTrx {
   /** Determines if path summary is closed or not. */
   private boolean mClosed;
 
-  
   private PathSummary(@Nonnull final IPageReadTrx pPageReadTrx) {
     mPageReadTrx = pPageReadTrx;
     mClosed = false;
     try {
       @SuppressWarnings("unchecked")
-      final Optional<? extends INode> node = (Optional<? extends INode>)
-        mPageReadTrx.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-          EPage.PATHSUMMARYPAGE);
+      final Optional<? extends INode> node =
+        (Optional<? extends INode>)mPageReadTrx
+          .getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+            EPage.PATHSUMMARYPAGE);
       if (node.isPresent()) {
         mCurrentNode = node.get();
       } else {
@@ -70,10 +70,12 @@ public class PathSummary implements INodeReadTrx {
 
   @Override
   public INode getNode() {
+    assertNotClosed();
     return mCurrentNode;
   }
 
   public PathNode getPathNode() {
+    assertNotClosed();
     if (mCurrentNode instanceof PathNode) {
       return (PathNode)mCurrentNode;
     } else {
@@ -91,7 +93,9 @@ public class PathSummary implements INodeReadTrx {
     try {
       // Immediately return node from item list if node key negative.
       @SuppressWarnings("unchecked")
-      final Optional<? extends INode> node = (Optional<? extends INode>) mPageReadTrx.getNode(pNodeKey, EPage.PATHSUMMARYPAGE);
+      final Optional<? extends INode> node =
+        (Optional<? extends INode>)mPageReadTrx.getNode(pNodeKey,
+          EPage.PATHSUMMARYPAGE);
       newNode = node;
     } catch (final TTIOException e) {
       newNode = Optional.absent();

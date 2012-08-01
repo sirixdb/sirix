@@ -1,6 +1,7 @@
 package org.sirix.index.value;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
 
 import javax.annotation.Nonnull;
 
@@ -145,5 +146,12 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
   @Override
   public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
     return EVisitResult.CONTINUE;
+  }
+
+  @Override
+  public String toString() {
+    return Objects.toStringHelper(this).add("node delegate", mNodeDelegate)
+      .add("left child", mLeft).add("right child", mRight).add("changed",
+        mChanged).add("key", mKey).add("value", mValue).toString();
   }
 }

@@ -162,8 +162,8 @@ public final class Database implements IDatabase {
     // check that database must be closed beforehand
     if (!DATABASEMAP.containsKey(pConf.getFile())) {
       // if file is existing and folder is a tt-dataplace, delete it
-      if (pConf.getFile().exists()) {
-//        && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
+      if (pConf.getFile().exists()
+        && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
         // instantiate the database for deletion
         try {
           Files.recursiveRemove(pConf.getFile().toPath());
