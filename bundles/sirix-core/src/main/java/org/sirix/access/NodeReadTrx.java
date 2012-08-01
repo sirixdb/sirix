@@ -50,6 +50,7 @@ import org.sirix.node.NamespaceNode;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.node.interfaces.IValNode;
 import org.sirix.page.EPage;
@@ -147,7 +148,7 @@ public final class NodeReadTrx implements INodeReadTrx {
 
     // Remember old node and fetch new one.
     final INode oldNode = mCurrentNode;
-    Optional<? extends INode> newNode;
+    Optional<? extends INodeBase> newNode;
     try {
       // Immediately return node from item list if node key negative.
       if (pNodeKey < 0) {
@@ -158,8 +159,8 @@ public final class NodeReadTrx implements INodeReadTrx {
         }
       } else {
         @SuppressWarnings("unchecked")
-        final Optional<? extends INode> node =
-          (Optional<? extends INode>)mPageReadTrx.getNode(pNodeKey,
+        final Optional<? extends INodeBase> node =
+          mPageReadTrx.getNode(pNodeKey,
             EPage.NODEPAGE);
         newNode = node;
       }
@@ -168,7 +169,7 @@ public final class NodeReadTrx implements INodeReadTrx {
     }
 
     if (newNode.isPresent()) {
-      mCurrentNode = newNode.get();
+      mCurrentNode = (INode) newNode.get();
       return true;
     } else {
       mCurrentNode = oldNode;

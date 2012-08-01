@@ -17,6 +17,7 @@ import org.sirix.node.EKind;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.page.EPage;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -39,13 +40,11 @@ public class PathSummary implements INodeReadTrx {
     mPageReadTrx = pPageReadTrx;
     mClosed = false;
     try {
-      @SuppressWarnings("unchecked")
-      final Optional<? extends INode> node =
-        (Optional<? extends INode>)mPageReadTrx
-          .getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-            EPage.PATHSUMMARYPAGE);
+      final Optional<? extends INodeBase> node =
+        mPageReadTrx.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          EPage.PATHSUMMARYPAGE);
       if (node.isPresent()) {
-        mCurrentNode = node.get();
+        mCurrentNode = (INode)node.get();
       } else {
         throw new IllegalStateException(
           "Node couldn't be fetched from persistent storage!");

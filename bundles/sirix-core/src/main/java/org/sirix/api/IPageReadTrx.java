@@ -32,7 +32,7 @@ public interface IPageReadTrx extends AutoCloseable {
    * @throws TTIOException
    *           if an I/O error occured
    */
-  Optional<INodeBase> getNode(@Nonnegative final long pKey,
+  Optional<? extends INodeBase> getNode(@Nonnegative final long pKey,
     @Nonnull final EPage pPage) throws TTIOException;
 
   /**

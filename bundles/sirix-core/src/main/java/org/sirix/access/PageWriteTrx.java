@@ -55,7 +55,6 @@ import org.sirix.page.NodePage;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
-import org.sirix.page.ValuePage;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.settings.EFixed;
 import org.sirix.settings.ERevisioning;
@@ -308,9 +307,9 @@ public final class PageWriteTrx implements IPageWriteTrx {
     throws AbsTTException {
     IPage page = null;
 
-    // if reference is not null, get one from the persistent storage.
+    // If reference is not null, get one from the persistent storage.
     if (pReference != null) {
-      // first, try to get one from the log
+      // First, try to get one from the log.
       final long nodePageKey = pReference.getNodePageKey();
       final PageContainer cont =
         getPageContainer(pReference.getPageKind(), nodePageKey);
@@ -318,8 +317,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
         page = cont.getModified();
       }
 
-      // if none is in the log, test if one is instantiated, if so, get
-      // the one flexible from the reference
+      // If none is in the log, test if one is instantiated, if so, get
+      // the one flexible from the reference.
       if (page == null) {
         page = pReference.getPage();
         if (page == null) {
@@ -333,9 +332,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
       page.commit(this);
       mPageWriter.write(pReference);
       pReference.setPage(null);
-      // afterwards synchronize all logs since the changes must to be
-      // written to the transaction log as
-      // well
+      // Afterwards synchronize all logs since the changes must to be
+      // written to the transaction log as well.
       if (cont != null) {
         mPageRtx.mSession.syncLogs(cont, mTransactionID);
       }

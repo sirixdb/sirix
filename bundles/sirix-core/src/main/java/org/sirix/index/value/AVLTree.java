@@ -14,6 +14,7 @@ import org.sirix.node.EKind;
 import org.sirix.node.NullNode;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.page.EPage;
 import org.sirix.page.RevisionRootPage;
@@ -56,12 +57,11 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
     mClosed = false;
 
     try {
-      @SuppressWarnings("unchecked")
-      Optional<? extends INode> node =
-        (Optional<? extends INode>)mPageWriteTrx.getNode(
-          EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
+      Optional<? extends INodeBase> node =
+        mPageWriteTrx.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+          EPage.VALUEPAGE);
       if (node.isPresent()) {
-        mCurrentNode = node.get();
+        mCurrentNode = (INode)node.get();
       } else {
         throw new IllegalStateException(
           "Node couldn't be fetched from persistent storage!");
@@ -104,7 +104,9 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
         (AVLNode<K, V>)mPageWriteTrx.createNode(new AVLNode<>(pKey, pValue,
           new NodeDelegate(root.getMaxValueNodeKey() + 1, EFixed.NULL_NODE_KEY
             .getStandardProperty(), 0)), EPage.VALUEPAGE);
-      final DocumentRootNode document = (DocumentRootNode) mPageWriteTrx.prepareNodeForModification(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
+      final DocumentRootNode document =
+        (DocumentRootNode)mPageWriteTrx.prepareNodeForModification(
+          EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
       document.setFirstChildKey(mRoot.getNodeKey());
       mPageWriteTrx.finishNodeModification(document, EPage.VALUEPAGE);
       size++;
