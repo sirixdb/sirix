@@ -101,11 +101,14 @@ public final class DocumentCreater {
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
       + "<rest:sequence xmlns:rest=\"REST\"><rest:item>"
       + "<p:a xmlns:p=\"ns\" rest:ttid=\"1\" i=\"j\">oops1<b rest:ttid=\"5\">foo<c rest:ttid=\"7\"/></b>oops2<b rest:ttid=\"9\" p:x=\"y\">"
-      + "<c rest:ttid=\"11\"/>bar</b>oops3</p:a>" + "</rest:item></rest:sequence>";
+      + "<c rest:ttid=\"11\"/>bar</b>oops3</p:a>"
+      + "</rest:item></rest:sequence>";
 
   /** String representation of test document. */
-  public static final String XML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-    + "<p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\">" + "<c/>bar</b>oops3</p:a>";
+  public static final String XML =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      + "<p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\">"
+      + "<c/>bar</b>oops3</p:a>";
 
   /** String representation of test document without xml declaration. */
   public static final String XML_WITHOUT_XMLDECL =
@@ -120,18 +123,19 @@ public final class DocumentCreater {
 
   /** String representation of test document without attributes. */
   public static final String XMLWITHOUTATTRIBUTES =
-    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + "<p:a>oops1<b>foo<c></c></b>oops2<b>"
-      + "<c></c>bar</b>oops3</p:a>";
+    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      + "<p:a>oops1<b>foo<c></c></b>oops2<b>" + "<c></c>bar</b>oops3</p:a>";
 
   /** XML for the index structure. */
-  public static final String XML_INDEX = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-    + "<t:o><t:oo><t:oop><t:oops><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
-    + "<d:TEXT_KIND nodeID=\"4\"/></d:p:a></d:DOCUMENT_ROOT_KIND></t:oops></t:oop></t:oo>"
-    + "</t:o><t:f><t:fo><t:foo><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
-    + "<d:b nodeID=\"5\"><d:TEXT_KIND nodeID=\"6\"/></d:b></d:p:a></d:DOCUMENT_ROOT_KIND></t:foo>"
-    + "</t:fo></t:f><t:b><t:ba><t:bar><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
-    + "<d:b nodeID=\"9\"><d:TEXT_KIND nodeID=\"12\"/></d:b></d:p:a></d:DOCUMENT_ROOT_KIND></t:bar>"
-    + "</t:ba></t:b>";
+  public static final String XML_INDEX =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+      + "<t:o><t:oo><t:oop><t:oops><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
+      + "<d:TEXT_KIND nodeID=\"4\"/></d:p:a></d:DOCUMENT_ROOT_KIND></t:oops></t:oop></t:oo>"
+      + "</t:o><t:f><t:fo><t:foo><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
+      + "<d:b nodeID=\"5\"><d:TEXT_KIND nodeID=\"6\"/></d:b></d:p:a></d:DOCUMENT_ROOT_KIND></t:foo>"
+      + "</t:fo></t:f><t:b><t:ba><t:bar><d:DOCUMENT_ROOT_KIND nodeID=\"0\"><d:p:a nodeID=\"1\">"
+      + "<d:b nodeID=\"9\"><d:TEXT_KIND nodeID=\"12\"/></d:b></d:p:a></d:DOCUMENT_ROOT_KIND></t:bar>"
+      + "</t:ba></t:b>";
 
   /**
    * Private Constructor, not used.
@@ -148,7 +152,8 @@ public final class DocumentCreater {
    * @throws AbsTTException
    *           if anything weird happens
    */
-  public static void create(@Nonnull final INodeWriteTrx pWtx) throws AbsTTException {
+  public static void create(final @Nonnull INodeWriteTrx pWtx)
+    throws AbsTTException {
     assertNotNull(pWtx);
     assertTrue(pWtx.moveToDocumentRoot());
 
@@ -184,21 +189,22 @@ public final class DocumentCreater {
   /**
    * Create simple revision test in current database.
    * 
-   * @param paramWtx
+   * @param pWtx
    *          {@link INodeWriteTrx} to write to
    * @throws AbsTTException
    *           if anything went wrong
    */
-  public static void createVersioned(final INodeWriteTrx paramWtx) throws AbsTTException {
-    assertNotNull(paramWtx);
-    create(paramWtx);
-    paramWtx.commit();
+  public static void createVersioned(final @Nonnull INodeWriteTrx pWtx)
+    throws AbsTTException {
+    assertNotNull(pWtx);
+    create(pWtx);
+    pWtx.commit();
     for (int i = 0; i <= 1; i++) {
-      paramWtx.moveToDocumentRoot();
-      paramWtx.moveToFirstChild();
-      paramWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
-      paramWtx.insertTextAsFirstChild("OOPS4!");
-      paramWtx.commit();
+      pWtx.moveToDocumentRoot();
+      pWtx.moveToFirstChild();
+      pWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
+      pWtx.insertTextAsFirstChild("OOPS4!");
+      pWtx.commit();
     }
   }
 
@@ -211,71 +217,55 @@ public final class DocumentCreater {
    * @throws AbsTTException
    *           if anything went wrong
    */
-  public static void createWithoutAttributes(final INodeWriteTrx paramWtx) throws AbsTTException {
-    assertNotNull(paramWtx);
-    paramWtx.moveToDocumentRoot();
-
-    paramWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
-
-    paramWtx.insertTextAsFirstChild("oops1");
-
-    paramWtx.insertElementAsRightSibling(new QName("b"));
-
-    paramWtx.insertTextAsFirstChild("foo");
-    paramWtx.insertElementAsRightSibling(new QName("c"));
-    paramWtx.moveToParent();
-
-    paramWtx.insertTextAsRightSibling("oops2");
-
-    paramWtx.insertElementAsRightSibling(new QName("b"));
-
-    paramWtx.insertElementAsFirstChild(new QName("c"));
-    paramWtx.insertTextAsRightSibling("bar");
-    paramWtx.moveToParent();
-
-    paramWtx.insertTextAsRightSibling("oops3");
-
-    paramWtx.moveToDocumentRoot();
+  public static void createWithoutAttributes(final @Nonnull INodeWriteTrx pWtx)
+    throws AbsTTException {
+    assertNotNull(pWtx);
+    pWtx.moveToDocumentRoot();
+    pWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
+    pWtx.insertTextAsFirstChild("oops1");
+    pWtx.insertElementAsRightSibling(new QName("b"));
+    pWtx.insertTextAsFirstChild("foo");
+    pWtx.insertElementAsRightSibling(new QName("c"));
+    pWtx.moveToParent();
+    pWtx.insertTextAsRightSibling("oops2");
+    pWtx.insertElementAsRightSibling(new QName("b"));
+    pWtx.insertElementAsFirstChild(new QName("c"));
+    pWtx.insertTextAsRightSibling("bar");
+    pWtx.moveToParent();
+    pWtx.insertTextAsRightSibling("oops3");
+    pWtx.moveToDocumentRoot();
   }
 
   /**
    * Create simple test document containing all supported node kinds, but
    * ignoring their namespace prefixes.
    * 
-   * @param paramWtx
+   * @param pWtx
    *          {@link INodeWriteTrx} to write to
    * @throws AbsTTException
    *           if anything went wrong
    */
-  public static void createWithoutNamespace(final INodeWriteTrx paramWtx) throws AbsTTException {
-    assertNotNull(paramWtx);
-    paramWtx.moveToDocumentRoot();
-
-    paramWtx.insertElementAsFirstChild(new QName("a"));
-    paramWtx.insertAttribute(new QName("i"), "j");
-    paramWtx.moveToParent();
-
-    paramWtx.insertTextAsFirstChild("oops1");
-
-    paramWtx.insertElementAsRightSibling(new QName("b"));
-
-    paramWtx.insertTextAsFirstChild("foo");
-    paramWtx.insertElementAsRightSibling(new QName("c"));
-    paramWtx.moveToParent();
-
-    paramWtx.insertTextAsRightSibling("oops2");
-
-    paramWtx.insertElementAsRightSibling(new QName("b"));
-    paramWtx.insertAttribute(new QName("x"), "y");
-    paramWtx.moveToParent();
-
-    paramWtx.insertElementAsFirstChild(new QName("c"));
-    paramWtx.insertTextAsRightSibling("bar");
-    paramWtx.moveToParent();
-
-    paramWtx.insertTextAsRightSibling("oops3");
-
-    paramWtx.moveToDocumentRoot();
+  public static void createWithoutNamespace(final @Nonnull INodeWriteTrx pWtx)
+    throws AbsTTException {
+    assertNotNull(pWtx);
+    pWtx.moveToDocumentRoot();
+    pWtx.insertElementAsFirstChild(new QName("a"));
+    pWtx.insertAttribute(new QName("i"), "j");
+    pWtx.moveToParent();
+    pWtx.insertTextAsFirstChild("oops1");
+    pWtx.insertElementAsRightSibling(new QName("b"));
+    pWtx.insertTextAsFirstChild("foo");
+    pWtx.insertElementAsRightSibling(new QName("c"));
+    pWtx.moveToParent();
+    pWtx.insertTextAsRightSibling("oops2");
+    pWtx.insertElementAsRightSibling(new QName("b"));
+    pWtx.insertAttribute(new QName("x"), "y");
+    pWtx.moveToParent();
+    pWtx.insertElementAsFirstChild(new QName("c"));
+    pWtx.insertTextAsRightSibling("bar");
+    pWtx.moveToParent();
+    pWtx.insertTextAsRightSibling("oops3");
+    pWtx.moveToDocumentRoot();
   }
 
   /**
@@ -288,17 +278,22 @@ public final class DocumentCreater {
    * @throws IOException
    *           if reading XML string fails
    */
-  public static void createRevisioned(final IDatabase paramDB) throws AbsTTException, IOException,
-    XMLStreamException {
+  public static void createRevisioned(final IDatabase pDB)
+    throws AbsTTException, IOException, XMLStreamException {
 
     final INodeWriteTrx firstWtx =
-      paramDB.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build()).beginNodeWriteTrx();
+      pDB.getSession(
+        new SessionConfiguration.Builder(TestHelper.RESOURCE).build())
+        .beginNodeWriteTrx();
     final XMLShredder shredder =
-      new XMLShredder(firstWtx, XMLShredder.createStringReader(REVXML), EInsert.ASFIRSTCHILD);
+      new XMLShredder(firstWtx, XMLShredder.createStringReader(REVXML),
+        EInsert.ASFIRSTCHILD);
     shredder.call();
     firstWtx.close();
     final INodeWriteTrx secondWtx =
-      paramDB.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build()).beginNodeWriteTrx();
+      pDB.getSession(
+        new SessionConfiguration.Builder(TestHelper.RESOURCE).build())
+        .beginNodeWriteTrx();
     secondWtx.moveToFirstChild();
     secondWtx.moveToFirstChild();
     secondWtx.moveToFirstChild();

@@ -39,7 +39,11 @@ import org.sirix.access.EMove;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTUsageException;
+import org.sirix.index.path.PathSummary;
+import org.sirix.index.value.AVLTree;
 import org.sirix.node.TextNode;
+import org.sirix.node.TextReferences;
+import org.sirix.node.TextValue;
 import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.shredder.XMLShredder;
 
@@ -191,8 +195,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    * @throws AbsTTException
    *           if anything in Sirix fails
    */
-  INodeWriteTrx replaceNode(@Nonnull String pXML) throws AbsTTException, IOException,
-    XMLStreamException;
+  INodeWriteTrx replaceNode(@Nonnull String pXML) throws AbsTTException,
+    IOException, XMLStreamException;
 
   /**
    * Replace a node with another node or subtree, depending whether the replaced node is an {@code element}-
@@ -220,7 +224,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if {@code nodeToMove} does not exist, that is the node which is denoted by it's node key
    *           {@code pFromKey}
    */
-  INodeWriteTrx moveSubtreeToFirstChild(@Nonnegative long pFromKey) throws AbsTTException;
+  INodeWriteTrx moveSubtreeToFirstChild(@Nonnegative long pFromKey)
+    throws AbsTTException;
 
   /**
    * Move a subtree rooted at {@code pFromKey} to the right sibling of the current node. In case of the moved
@@ -256,7 +261,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if {@code nodeToMove} does not exist, that is the node which is denoted by it's node key
    *           {@code pFromKey}
    */
-  INodeWriteTrx moveSubtreeToLeftSibling(@Nonnegative  long pFromKey) throws AbsTTException;
+  INodeWriteTrx moveSubtreeToLeftSibling(@Nonnegative long pFromKey)
+    throws AbsTTException;
 
   /**
    * Insert new element node as first child of currently selected node. The
@@ -270,7 +276,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if {@code pQName} is {@code null}
    * @return the transaction instance
    */
-  INodeWriteTrx insertElementAsFirstChild(@Nonnull QName pName) throws AbsTTException;
+  INodeWriteTrx insertElementAsFirstChild(@Nonnull QName pName)
+    throws AbsTTException;
 
   /**
    * Insert new element node as left sibling of currently selected node. The
@@ -284,7 +291,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if {@code pQName} is {@code null}
    * @return the transaction instance
    */
-  INodeWriteTrx insertElementAsLeftSibling(@Nonnull QName pQName) throws AbsTTException;
+  INodeWriteTrx insertElementAsLeftSibling(@Nonnull QName pQName)
+    throws AbsTTException;
 
   /**
    * Insert new element node as right sibling of currently selected node. The
@@ -296,7 +304,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if element node couldn't be inserted as right sibling
    * @return the transaction instance
    */
-  INodeWriteTrx insertElementAsRightSibling(@Nonnull QName pQName) throws AbsTTException;
+  INodeWriteTrx insertElementAsRightSibling(@Nonnull QName pQName)
+    throws AbsTTException;
 
   /**
    * Insert new text node as first child of currently selected node. The
@@ -312,7 +321,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if {@code pValue} is {@code null}
    * @return the transaction instance
    */
-  INodeWriteTrx insertTextAsFirstChild(@Nonnull String pValue) throws AbsTTException;
+  INodeWriteTrx insertTextAsFirstChild(@Nonnull String pValue)
+    throws AbsTTException;
 
   /**
    * Insert new text node as left sibling of currently selected node. The
@@ -326,7 +336,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if {@code pValue} is {@code null}
    * @return the transaction instance
    */
-  INodeWriteTrx insertTextAsLeftSibling(@Nonnull String pValue) throws AbsTTException;
+  INodeWriteTrx insertTextAsLeftSibling(@Nonnull String pValue)
+    throws AbsTTException;
 
   /**
    * Insert new text node as right sibling of currently selected node. The
@@ -340,7 +351,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if {@code pValue} is {@code null}
    * @return the transaction instance
    */
-  INodeWriteTrx insertTextAsRightSibling(@Nonnull String pValue) throws AbsTTException;
+  INodeWriteTrx insertTextAsRightSibling(@Nonnull String pValue)
+    throws AbsTTException;
 
   /**
    * Insert attribute in currently selected node. The cursor is moved to the
@@ -368,8 +380,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *           if attribute couldn't be inserted.
    * @return the transaction instance
    */
-  INodeWriteTrx insertAttribute(@Nonnull QName pName, @Nonnull String pValue, @Nonnull EMove pMove)
-    throws AbsTTException;
+  INodeWriteTrx insertAttribute(@Nonnull QName pName, @Nonnull String pValue,
+    @Nonnull EMove pMove) throws AbsTTException;
 
   /**
    * Insert namespace declaration in currently selected node. The cursor is
@@ -411,8 +423,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    * @throws NullPointerException
    *          if {@code pReader} or {@code pInsert} is {@code null}
    */
-  INodeWriteTrx insertSubtree(@Nonnull XMLEventReader pReader, @Nonnull EInsert pInsert)
-    throws AbsTTException;
+  INodeWriteTrx insertSubtree(@Nonnull XMLEventReader pReader,
+    @Nonnull EInsert pInsert) throws AbsTTException;
 
   /**
    * Remove currently selected node. This does automatically remove
@@ -444,17 +456,17 @@ public interface INodeWriteTrx extends INodeReadTrx {
    */
   void setQName(@Nonnull QName pName) throws AbsTTException;
 
-//  /**
-//   * Set URI of node.
-//   * 
-//   * @param pUri
-//   *          new URI of node
-//   * @throws TTIOException
-//   *           if URI of node couldn't be set
-//      * @throws NullPointerException
-//   *           if {@code pUri} is {@code null}
-//   */
-//  void setURI(@Nonnull String pUri) throws AbsTTException;
+  // /**
+  // * Set URI of node.
+  // *
+  // * @param pUri
+  // * new URI of node
+  // * @throws TTIOException
+  // * if URI of node couldn't be set
+  // * @throws NullPointerException
+  // * if {@code pUri} is {@code null}
+  // */
+  // void setURI(@Nonnull String pUri) throws AbsTTException;
 
   /**
    * Set value of node.
@@ -463,7 +475,7 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *          new value of node
    * @throws TTIOException
    *           if value couldn't be set
-        * @throws NullPointerException
+   * @throws NullPointerException
    *           if {@code pUri} is {@code null}
    */
   void setValue(@Nonnull String pValue) throws AbsTTException;
@@ -522,4 +534,18 @@ public interface INodeWriteTrx extends INodeReadTrx {
    *          post commit hook
    */
   void addPostCommitHook(@Nonnull IPostCommitHook pHook);
+
+  /**
+   * Get the {@link PathSummary} associated with the current write transaction.
+   * 
+   * @return {@link PathSummary} instance
+   */
+  PathSummary getPathSummary();
+
+  /**
+   * Get the {@link AVLTree} associated with the current write transaction.
+   * 
+   * @return {@link AVLTree} instance
+   */
+  AVLTree<TextValue, TextReferences> getAVLTree();
 }

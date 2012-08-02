@@ -56,7 +56,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * This class represents one concrete database for enabling several {@link ISession} objects.
+ * This class represents one concrete database for enabling several {@link ISession} instances.
  * 
  * @see IDatabase
  * @author Sebastian Graf, University of Konstanz
@@ -99,7 +99,7 @@ public final class Database implements IDatabase {
    * building up the structure and preparing everything for login.
    * 
    * @param pDBConfig
-   *          which are used for the database, including storage location
+   *          config which is used for the database, including storage location
    * @return true if creation is valid, false otherwise
    * @throws TTIOException
    *           if something odd happens within the creation process.
@@ -163,7 +163,7 @@ public final class Database implements IDatabase {
     if (!DATABASEMAP.containsKey(pConf.getFile())) {
       // if file is existing and folder is a tt-dataplace, delete it
       if (pConf.getFile().exists()) {
-//        && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
+        // && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
         // instantiate the database for deletion
         try {
           Files.recursiveRemove(pConf.getFile().toPath());
@@ -260,8 +260,8 @@ public final class Database implements IDatabase {
   // START Opening of Databases ///////////////////////
   // //////////////////////////////////////////////////////////
   /**
-   * Open database. A database can be opened only once. Afterwards the
-   * singleton instance bound to the File is given back.
+   * Open database. A database can be opened only once. Afterwards a
+   * singleton instance bound to the {@link File} is returned.
    * 
    * @param pFile
    *          determines where the database is located sessionConf a {@link SessionConfiguration} object to
@@ -269,8 +269,10 @@ public final class Database implements IDatabase {
    * @return {@link IDatabase} instance.
    * @throws AbsTTException
    *           if something odd happens
+   * @throws NullPointerException
+   *           if {@code pFile} is {@code null}
    */
-  public static synchronized IDatabase openDatabase(@Nonnull final File pFile)
+  public static synchronized IDatabase openDatabase(final @Nonnull File pFile)
     throws AbsTTException {
     if (!pFile.exists()) {
       throw new TTUsageException(
@@ -310,7 +312,7 @@ public final class Database implements IDatabase {
 
   @Override
   public synchronized ISession getSession(
-    @Nonnull final SessionConfiguration pSessionConf) throws AbsTTException {
+    final @Nonnull SessionConfiguration pSessionConf) throws AbsTTException {
     final File resourceFile =
       new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
         .getFile().getName()), pSessionConf.getResource());
@@ -367,7 +369,7 @@ public final class Database implements IDatabase {
    *          {@link File} to be closed
    * @return {@code true} if close successful, {@code false} otherwise
    */
-  protected boolean removeSession(@Nonnull final File pFile) {
+  protected boolean removeSession(final @Nonnull File pFile) {
     return mSessions.remove(pFile) == null ? false : true;
   }
 
@@ -381,7 +383,7 @@ public final class Database implements IDatabase {
    *           if serialization fails
    */
   private static void serializeConfiguration(
-    @Nonnull final IConfigureSerializable pConf) throws IOException {
+    final @Nonnull IConfigureSerializable pConf) throws IOException {
     try (final FileOutputStream os =
       new FileOutputStream(pConf.getConfigFile());
     final ObjectOutputStream en = new ObjectOutputStream(os)) {

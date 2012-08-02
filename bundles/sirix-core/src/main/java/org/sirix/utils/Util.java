@@ -14,8 +14,8 @@ public class Util {
    *          the name including a possible prefix
    * @return {@link QName} instance
    */
-  public static final QName buildQName(@Nonnull final String pUri,
-    @Nonnull final String pName) {
+  public static final QName buildQName(final @Nonnull String pUri,
+    final @Nonnull String pName) {
     QName qname;
     if (pName.contains(":")) {
       qname = new QName(pUri, pName.split(":")[1], pName.split(":")[0]);

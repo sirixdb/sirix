@@ -109,7 +109,7 @@ public final class DatabaseConfiguration implements IConfigureSerializable {
      * @return -1 if less folders are there, 0 if the structure is equal to
      *         the one expected, 1 if the structure has more folders
      */
-    public static int compareStructure(@Nonnull final File pFile) {
+    public static int compareStructure(final @Nonnull File pFile) {
       checkNotNull(pFile);
       int existing = 0;
       for (final Paths paths : values()) {
@@ -140,7 +140,7 @@ public final class DatabaseConfiguration implements IConfigureSerializable {
    * @param pFile
    *          file to be set
    */
-  public DatabaseConfiguration(@Nonnull final File pFile) {
+  public DatabaseConfiguration(final @Nonnull File pFile) {
     mBinaryVersion = BINARY;
     mFile = pFile.getAbsoluteFile();
   }
@@ -161,7 +161,7 @@ public final class DatabaseConfiguration implements IConfigureSerializable {
   }
 
   @Override
-  public boolean equals(@Nullable final Object pObj) {
+  public boolean equals(final @Nullable Object pObj) {
     if (pObj instanceof DatabaseConfiguration) {
       final DatabaseConfiguration other = (DatabaseConfiguration)pObj;
       return Objects.equal(mFile, other.mFile)

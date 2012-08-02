@@ -36,18 +36,16 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 
 /**
- * This interface describes database instances handled by sirix. A database
- * is a persistent place where all data is stored. The access to the data is
- * done with the help of {@link ISession}s.
+ * This interface describes database instances handled by Sirix. A database
+ * is a persistent place where all data is stored. {@link ISession}s are used to access the data.
  * 
- * Furthermore, databases can be created with the help of {@link org.access.conf.DatabaseConfiguration}s.
- * After creation, the settings
- * of a database cannot be changed.
- * 
+ * Furthermore, databases are created by {@link org.access.conf.DatabaseConfiguration}s.
+ * After creation, the settings of a database cannot be changed.
  * 
  * <h2>Usage Example</h2>
  * 
  * <p>
+ * 
  * <pre>
  * // Simple session with standards as defined in <code>EDatabaseSetting</code> and 
  * <code>ESessionSetting</code>. Creation takes place in open-process
@@ -83,7 +81,8 @@ public interface IDatabase extends AutoCloseable {
    * @throws TTIOException
    *           if anything happens while creating the resource
    */
-  boolean createResource(@Nonnull ResourceConfiguration pResConf) throws TTIOException;
+  boolean createResource(@Nonnull ResourceConfiguration pResConf)
+    throws TTIOException;
 
   /**
    * Getting the session associated within this database.
@@ -94,7 +93,8 @@ public interface IDatabase extends AutoCloseable {
    * @throws AbsTTException
    *           if can't get session
    */
-  ISession getSession(@Nonnull SessionConfiguration pSessionConf) throws AbsTTException;
+  ISession getSession(@Nonnull SessionConfiguration pSessionConf)
+    throws AbsTTException;
 
   /**
    * Truncating a resource. This includes the removal of all data stored

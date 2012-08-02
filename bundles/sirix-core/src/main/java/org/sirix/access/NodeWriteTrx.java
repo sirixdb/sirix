@@ -466,6 +466,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
    * 
    * @param pQName
    *          {@link QName} of the path node (not stored) twice
+   * @param pKind
+   *          kind of node to index
+   * @param pLevel
+   *          level in the path summary
    * @return this {@link WriteTransaction} instance
    * @throws AbsTTException
    *           if an I/O error occurs
@@ -1070,7 +1074,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       throw new TTUsageException("Document root can not be removed.");
     } else if (getNode() instanceof IStructNode) {
       final IStructNode node = (IStructNode)mNodeReadRtx.getNode();
-
+      
       // Remove subtree.
       for (final IAxis axis = new DescendantAxis(this); axis.hasNext();) {
         axis.next();
@@ -1078,23 +1082,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
           axis.getTransaction().getStructuralNode();
         if (nodeToDelete.getKind() == EKind.ELEMENT) {
           final ElementNode element = (ElementNode)nodeToDelete;
+          removeNonStructural(element);
           removeName();
-          final int attCount = element.getAttributeCount();
-          for (int i = 0; i < attCount; i++) {
-            moveToAttribute(i);
-            removeName();
-            getPageTransaction().removeNode(mNodeReadRtx.getNode(),
-              EPage.NODEPAGE);
-            moveToParent();
-          }
-          final int nspCount = element.getNamespaceCount();
-          for (int i = 0; i < nspCount; i++) {
-            moveToNamespace(i);
-            removeName();
-            getPageTransaction().removeNode(mNodeReadRtx.getNode(),
-              EPage.NODEPAGE);
-            moveToParent();
-          }
         }
         getPageTransaction().removeNode(nodeToDelete, EPage.NODEPAGE);
       }
@@ -1105,6 +1094,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       adaptHashesWithRemove();
       adaptForRemove(node, EPage.NODEPAGE);
       mNodeReadRtx.setCurrentNode(node);
+      
+      // Remove the name of subtree-root.
       if (node.getKind() == EKind.ELEMENT) {
         removeName();
       }
@@ -1140,6 +1131,35 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       adaptHashesWithRemove();
       getPageTransaction().removeNode(node, EPage.NODEPAGE);
       removeName();
+      moveToParent();
+    }
+  }
+
+  /**
+   * Remove non structural nodes of an {@link ElementNode}, that is namespaces and attributes.
+   * 
+   * @param pElement
+   *          the element
+   * @throws AbsTTException
+   *           if anything goes wrong
+   */
+  private void removeNonStructural(final @Nonnull ElementNode pElement)
+    throws AbsTTException {
+    final int attCount = pElement.getAttributeCount();
+    if (pElement.getNodeKey() == 10) {
+      System.out.println();
+    }
+    for (int i = 0; i < attCount; i++) {
+      moveToAttribute(i);
+      removeName();
+      getPageTransaction().removeNode(getNode(), EPage.NODEPAGE);
+      moveToParent();
+    }
+    final int nspCount = pElement.getNamespaceCount();
+    for (int i = 0; i < nspCount; i++) {
+      moveToNamespace(i);
+      removeName();
+      getPageTransaction().removeNode(getNode(), EPage.NODEPAGE);
       moveToParent();
     }
   }
@@ -1303,25 +1323,29 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
             path.incrementReferenceCount();
             getPageTransaction().finishNodeModification(path,
               EPage.PATHSUMMARYPAGE);
+            adaptNode(node, nameKey, uriKey);
           } else {
             // Not found => create new path nodes for the whole subtree.
+            adaptNode(node, nameKey, uriKey);
+            boolean firstRun = true;
             for (final IAxis descendants =
               new DescendantAxis(this, EIncludeSelf.YES); descendants.hasNext();) {
               descendants.next();
-              if (axis.getTransaction().getNode().getKind() == EKind.ELEMENT) {
+              if (descendants.getTransaction().getNode().getKind() == EKind.ELEMENT) {
                 final ElementNode element =
-                  (ElementNode)axis.getTransaction().getNode();
+                  (ElementNode)descendants.getTransaction().getNode();
 
                 // Path Summary : New mapping.
-                insertPathAsFirstChild(axis.getTransaction()
-                  .getQNameOfCurrentNode(), nodeKind, level);
+                insertPathAsFirstChild(descendants.getTransaction()
+                  .getQNameOfCurrentNode(), EKind.ELEMENT, ++level);
 
                 // Namespaces.
                 for (int i = 0, nsps = element.getNamespaceCount(); i < nsps; i++) {
                   moveToNamespace(i);
                   // Path Summary : New mapping.
-                  insertPathAsFirstChild(axis.getTransaction()
-                    .getQNameOfCurrentNode(), nodeKind, level);
+                  insertPathAsFirstChild(descendants.getTransaction()
+                    .getQNameOfCurrentNode(), EKind.NAMESPACE, level);
+                  resetPathNodeKey(getNode().getNodeKey());
                   moveToParent();
                   mPathSummary.moveToParent();
                 }
@@ -1330,24 +1354,23 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
                 for (int i = 0, atts = element.getAttributeCount(); i < atts; i++) {
                   moveToAttribute(i);
                   // Path Summary : New mapping.
-                  insertPathAsFirstChild(axis.getTransaction()
-                    .getQNameOfCurrentNode(), nodeKind, level);
+                  insertPathAsFirstChild(descendants.getTransaction()
+                    .getQNameOfCurrentNode(), EKind.ATTRIBUTE, level);
+                  resetPathNodeKey(getNode().getNodeKey());
                   moveToParent();
                   mPathSummary.moveToParent();
+                }
+                
+                if (firstRun) {
+                  firstRun = false;
+                } else {
+                  mPathSummary.moveToParent();
+                  level--;
                 }
               }
             }
           }
         }
-
-        // Set new keys for current node.
-        node =
-          (INameNode)getPageTransaction().prepareNodeForModification(
-            mNodeReadRtx.getNode().getNodeKey(), EPage.NODEPAGE);
-        node.setNameKey(nameKey);
-        node.setURIKey(uriKey);
-        node.setPathNodeKey(mPathSummary.getNode().getNodeKey());
-        getPageTransaction().finishNodeModification(node, EPage.NODEPAGE);
 
         mNodeReadRtx.setCurrentNode(node);
         adaptHashedWithUpdate(oldHash);
@@ -1356,6 +1379,23 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       throw new TTUsageException(
         "setQName is not allowed if current node is not an INameNode implementation!");
     }
+  }
+
+  /**
+   * Reset a path node key.
+   * 
+   * @param pNodeKey
+   *          the nodeKey of the node to adapt
+   * @throws AbsTTException
+   *           if anything fails
+   */
+  private void resetPathNodeKey(final @Nonnegative long pNodeKey)
+    throws AbsTTException {
+    final INameNode currNode =
+      (INameNode)getPageTransaction().prepareNodeForModification(
+        getNode().getNodeKey(), EPage.NODEPAGE);
+    currNode.setPathNodeKey(mPathSummary.getNode().getNodeKey());
+    getPageTransaction().finishNodeModification(currNode, EPage.NODEPAGE);
   }
 
   // @Override
@@ -1390,6 +1430,30 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   // "setURI is not allowed if current node is not an INameNode implementation!");
   // }
   // }
+
+  /**
+   * Adapt name of node.
+   * 
+   * @param pNode
+   *          the node to adapt
+   * @param pNameKey
+   *          name key
+   * @param pUriKey
+   *          uri key
+   * @throws AbsTTException
+   *           if anything went wrong
+   */
+  private void adaptNode(@Nonnull INameNode pNode, final int pNameKey,
+    final int pUriKey) throws AbsTTException {
+    // Set new keys for current node.
+    pNode =
+      (INameNode)getPageTransaction().prepareNodeForModification(
+        mNodeReadRtx.getNode().getNodeKey(), EPage.NODEPAGE);
+    pNode.setNameKey(pNameKey);
+    pNode.setURIKey(pUriKey);
+    pNode.setPathNodeKey(mPathSummary.getNode().getNodeKey());
+    getPageTransaction().finishNodeModification(pNode, EPage.NODEPAGE);
+  }
 
   @Override
   public synchronized void setValue(@Nonnull final String pValue)
@@ -1489,7 +1553,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
     // Get a new path summary instance.
     mPathSummary = PathSummary.getInstance(mNodeReadRtx.getPageTransaction());
-    
+
     // Get a new avl tree instance.
     mAVLTree = AVLTree.getInstance(getPageTransaction());
 
@@ -1790,25 +1854,27 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         parent = ancestor;
       }
     }
-
-    if (pOldNode.getKind() == EKind.ELEMENT) {
-      // Removing attributes.
-      for (int i = 0; i < ((ElementNode)pOldNode).getAttributeCount(); i++) {
-        moveTo(((ElementNode)pOldNode).getAttributeKey(i));
-        getPageTransaction().removeNode(mNodeReadRtx.getNode(), pPage);
-      }
-      // Removing namespaces.
-      moveTo(pOldNode.getNodeKey());
-      for (int i = 0; i < ((ElementNode)pOldNode).getNamespaceCount(); i++) {
-        moveTo(((ElementNode)pOldNode).getNamespaceKey(i));
-        getPageTransaction().removeNode(mNodeReadRtx.getNode(), pPage);
-      }
-    }
-
+    
     // Remove right sibling text node if text nodes have been concatenated/merged.
     if (concatenated) {
       moveTo(pOldNode.getRightSiblingKey());
       getPageTransaction().removeNode(mNodeReadRtx.getNode(), pPage);
+    }
+    
+    // Remove non structural nodes of old node.
+    if (pOldNode.getKind() == EKind.ELEMENT) {
+      // Removing attributes.
+      for (int i = 0; i < ((ElementNode)pOldNode).getAttributeCount(); i++) {
+        moveTo(((ElementNode)pOldNode).getAttributeKey(i));
+        removeName();
+        getPageTransaction().removeNode(mNodeReadRtx.getNode(), pPage);
+      }
+      // Removing namespaces.
+      for (int i = 0; i < ((ElementNode)pOldNode).getNamespaceCount(); i++) {
+        moveTo(((ElementNode)pOldNode).getNamespaceKey(i));
+        removeName();
+        getPageTransaction().removeNode(mNodeReadRtx.getNode(), pPage);
+      }
     }
 
     // Remove old node.
@@ -2620,5 +2686,15 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   @Override
   public int hashCode() {
     return Objects.hashCode(mNodeReadRtx);
+  }
+
+  @Override
+  public PathSummary getPathSummary() {
+    return mPathSummary;
+  }
+
+  @Override
+  public AVLTree<TextValue, TextReferences> getAVLTree() {
+    return mAVLTree;
   }
 }

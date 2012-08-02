@@ -27,7 +27,11 @@
 
 package org.sirix.access;
 
-import java.util.Iterator;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+import javax.annotation.Nonnull;
+import javax.xml.namespace.QName;
 
 import org.junit.After;
 import org.junit.Before;
@@ -38,17 +42,32 @@ import org.sirix.api.IAxis;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.AbsTTException;
+import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
+import org.sirix.node.EKind;
 import org.sirix.utils.DocumentCreater;
 
+/**
+ * Test the {@link PathSummary}.
+ * 
+ * @author Johannes Lichtenberger, University of Konstanz
+ * 
+ *         TODO: Provide a method for all asserts with parameters.
+ */
 public class PathSummaryTest {
 
+  /** {@link Holder} reference. */
   private Holder holder;
+
+  /** {@link INodeWriteTrx} implementation. */
+  private INodeWriteTrx mWtx;
 
   @Before
   public void setUp() throws AbsTTException {
     TestHelper.deleteEverything();
     holder = Holder.generateSession();
+    mWtx = holder.getSession().beginNodeWriteTrx();
+    DocumentCreater.create(mWtx);
   }
 
   @After
@@ -57,19 +76,212 @@ public class PathSummaryTest {
     TestHelper.closeEverything();
   }
 
+  /**
+   * Test insert on test document.
+   * 
+   * @throws AbsTTException
+   *           if Sirix fails
+   */
   @Test
   public void testInsert() throws AbsTTException {
-    final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-    DocumentCreater.create(wtx);
-    wtx.commit();
-    wtx.close();
+    PathSummary pathSummary = mWtx.getPathSummary();
+    pathSummary.moveToDocumentRoot();
+    testInsertHelper(pathSummary);
+    mWtx.commit();
+    mWtx.close();
+    pathSummary = holder.getSession().openPathSummary();
+    testInsertHelper(pathSummary);
+    pathSummary.close();
+  }
+
+  private void testInsertHelper(final @Nonnull PathSummary pSummary) throws AbsTTException {
+    final IAxis axis = new DescendantAxis(pSummary);
+    PathNode node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.ELEMENT, node.getPathKind());
+    assertEquals(1L, node.getNodeKey());
+    assertEquals(4L, node.getFirstChildKey());
+    assertEquals(-1L, node.getLeftSiblingKey());
+    assertEquals(-1L, node.getRightSiblingKey());
+    assertEquals("{ns}a", axis.getTransaction().getQNameOfCurrentNode()
+      .toString());
+    assertEquals(1, node.getLevel());
+    assertEquals(3, node.getChildCount());
+    node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.ELEMENT, node.getPathKind());
+    assertEquals(4L, node.getNodeKey());
+    assertEquals(6L, node.getFirstChildKey());
+    assertEquals(-1L, node.getLeftSiblingKey());
+    assertEquals(3L, node.getRightSiblingKey());
+    assertEquals("b", axis.getTransaction().getQNameOfCurrentNode().toString());
+    assertEquals(2, node.getLevel());
+    assertEquals(2, node.getChildCount());
+    node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
+    assertEquals(6L, node.getNodeKey());
+    assertEquals(-1L, node.getFirstChildKey());
+    assertEquals(-1L, node.getLeftSiblingKey());
+    assertEquals(5L, node.getRightSiblingKey());
+    assertEquals("{ns}x", axis.getTransaction().getQNameOfCurrentNode()
+      .toString());
+    assertEquals(3, node.getLevel());
+    assertEquals(0, node.getChildCount());
+    node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.ELEMENT, node.getPathKind());
+    assertEquals(5L, node.getNodeKey());
+    assertEquals(6L, node.getLeftSiblingKey());
+    assertEquals(-1L, node.getRightSiblingKey());
+    assertEquals(-1L, node.getFirstChildKey());
+    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
+    assertEquals(3, node.getLevel());
+    assertEquals(0, node.getChildCount());
+    node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
+    assertEquals(3L, node.getNodeKey());
+    assertEquals(4L, node.getLeftSiblingKey());
+    assertEquals(2L, node.getRightSiblingKey());
+    assertEquals(-1L, node.getFirstChildKey());
+    assertEquals("i", axis.getTransaction().getQNameOfCurrentNode().toString());
+    assertEquals(2, node.getLevel());
+    assertEquals(0, node.getChildCount());
+    node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.NAMESPACE, node.getPathKind());
+    assertEquals(2L, node.getNodeKey());
+    assertEquals(3L, node.getLeftSiblingKey());
+    assertEquals(-1L, node.getRightSiblingKey());
+    assertEquals(-1L, node.getFirstChildKey());
+    assertEquals("{ns}p", axis.getTransaction().getQNameOfCurrentNode()
+      .toString());
+    assertEquals(2, node.getLevel());
+    assertEquals(0, node.getChildCount());
+    node = next(axis);
+    assertTrue(node == null);
+  }
+
+  /**
+   * Test delete on test document.
+   * 
+   * @throws AbsTTException
+   *           if Sirix fails
+   */
+  @Test
+  public void testDelete() throws AbsTTException {
+    PathSummary pathSummary = mWtx.getPathSummary();
+    pathSummary.moveToDocumentRoot();
+    testInsertHelper(pathSummary);
+    mWtx.commit();
+    mWtx.moveTo(9);
+    mWtx.remove();
+    pathSummary = mWtx.getPathSummary();
+    pathSummary.moveToDocumentRoot();
+    testDeleteHelper(pathSummary);
+    mWtx.commit();
+    mWtx.close();
+    pathSummary = holder.getSession().openPathSummary();
+    testDeleteHelper(pathSummary);
+    pathSummary.close();
+  }
+
+  private void testDeleteHelper(final @Nonnull PathSummary pSummary) throws AbsTTException {
+    final IAxis axis = new DescendantAxis(pSummary);
+    PathNode node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.ELEMENT, node.getPathKind());
+    assertEquals(1L, node.getNodeKey());
+    assertEquals(4L, node.getFirstChildKey());
+    assertEquals(-1L, node.getLeftSiblingKey());
+    assertEquals(-1L, node.getRightSiblingKey());
+    assertEquals("{ns}a", axis.getTransaction().getQNameOfCurrentNode()
+      .toString());
+    assertEquals(1, node.getLevel());
+    assertEquals(3, node.getChildCount());
+    assertEquals(1, node.getReferences());
+    node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.ELEMENT, node.getPathKind());
+    assertEquals(4L, node.getNodeKey());
+    assertEquals(5L, node.getFirstChildKey());
+    assertEquals(-1L, node.getLeftSiblingKey());
+    assertEquals(3L, node.getRightSiblingKey());
+    assertEquals("b", axis.getTransaction().getQNameOfCurrentNode().toString());
+    assertEquals(2, node.getLevel());
+    assertEquals(1, node.getChildCount());
+    assertEquals(1, node.getReferences());
+    node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.ELEMENT, node.getPathKind());
+    assertEquals(5L, node.getNodeKey());
+    assertEquals(-1L, node.getFirstChildKey());
+    assertEquals(-1L, node.getLeftSiblingKey());
+    assertEquals(-1L, node.getRightSiblingKey());
+    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
+    assertEquals(3, node.getLevel());
+    assertEquals(0, node.getChildCount());
+    assertEquals(1, node.getReferences());
+    node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
+    assertEquals(3L, node.getNodeKey());
+    assertEquals(4L, node.getLeftSiblingKey());
+    assertEquals(2L, node.getRightSiblingKey());
+    assertEquals(-1L, node.getFirstChildKey());
+    assertEquals("i", axis.getTransaction().getQNameOfCurrentNode().toString());
+    assertEquals(2, node.getLevel());
+    assertEquals(0, node.getChildCount());
+    assertEquals(1, node.getReferences());
+    node = next(axis);
+    assertTrue(node != null);
+    assertEquals(EKind.NAMESPACE, node.getPathKind());
+    assertEquals(2L, node.getNodeKey());
+    assertEquals(3L, node.getLeftSiblingKey());
+    assertEquals(-1L, node.getRightSiblingKey());
+    assertEquals(-1L, node.getFirstChildKey());
+    assertEquals("{ns}p", axis.getTransaction().getQNameOfCurrentNode()
+      .toString());
+    assertEquals(2, node.getLevel());
+    assertEquals(0, node.getChildCount());
+    node = next(axis);
+    assertTrue(node == null);
+  }
+
+  /**
+   * Test setQName on test document.
+   * 
+   * @throws AbsTTException
+   *           if Sirix fails
+   */
+  @Test
+  public void testSetQName() throws AbsTTException {
+    mWtx.moveTo(9);
+    mWtx.setQName(new QName("foo"));
+    mWtx.commit();
+    mWtx.close();
     final PathSummary pathSummary = holder.getSession().openPathSummary();
+    // final IAxis axis = new DescendantAxis(pathSummary);
     for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
       axis.next();
       System.out.println(axis.getTransaction().getNode());
       System.out.println(axis.getTransaction().getQNameOfCurrentNode());
     }
-    pathSummary.close();
   }
 
+  /**
+   * Get the next node.
+   * 
+   * @param axis
+   *          the axis to use
+   * @return the next path node
+   */
+  private PathNode next(final @Nonnull IAxis axis) {
+    if (axis.hasNext()) {
+      axis.next();
+      return (PathNode)axis.getTransaction().getNode();
+    }
+    return null;
+  }
 }
