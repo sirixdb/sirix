@@ -406,7 +406,6 @@ final class PageReadTrx implements IPageReadTrx {
         pReference.setPage(page);
       }
 
-      assert page != null;
       return page;
     } else {
       throw new IllegalArgumentException(
@@ -427,14 +426,14 @@ final class PageReadTrx implements IPageReadTrx {
    *           if an I/O error occurs
    */
   final PageReference dereferenceLeafOfTree(
-    @Nonnull final PageReference pStartReference, @Nonnegative final long pKey)
+    final @Nonnull PageReference pStartReference, final @Nonnegative long pKey)
     throws TTIOException {
 
     // Initial state pointing to the indirect page of level 0.
     PageReference reference = checkNotNull(pStartReference);
     int offset = 0;
     long levelKey = pKey;
-
+    
     // Iterate through all levels.
     for (int level = 0, height =
       IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; level < height; level++) {

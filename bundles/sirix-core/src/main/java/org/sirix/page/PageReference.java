@@ -78,7 +78,7 @@ public final class PageReference {
    * @param pPage
    *          deserialized page
    */
-  public void setPage(final IPage pPage) {
+  public void setPage(final @Nonnull IPage pPage) {
     mPage = pPage;
   }
 
@@ -126,10 +126,21 @@ public final class PageReference {
     return mNodePageKey;
   }
 
-  public void setPageKind(@Nonnull final EPage pPageKind) {
+  /**
+   * Set the kind of page to which is referenced.
+   * 
+   * @param pPageKind
+   *          the page kind
+   */
+  public void setPageKind(final @Nonnull EPage pPageKind) {
     mPageKind = pPageKind;
   }
 
+  /**
+   * Get the kind of page to which a reference is provided.
+   * 
+   * @return the page kind
+   */
   public EPage getPageKind() {
     return mPageKind;
   }

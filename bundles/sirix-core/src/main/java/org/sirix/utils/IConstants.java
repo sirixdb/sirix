@@ -63,9 +63,14 @@ public final class IConstants {
   /** 2^INP_REFERENCE_COUNT_EXPONENT = INP_REFERENCE_COUNT. */
   public static final int INP_REFERENCE_COUNT_EXPONENT = 7;
 
-  /** Exponent of pages per level (root level = 0, leaf level = 5). */
+  /**
+   * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 * INP_REFERENCE_COUNT_EXPONENT) =
+   * 128 ^ 7, 2 ^ (6 * INP_REFERENCE_COUNT_EXPONENT) = 128 ^ 6....
+   */
   public static final int[] INP_LEVEL_PAGE_COUNT_EXPONENT = {
-    4 * INP_REFERENCE_COUNT_EXPONENT, 3 * INP_REFERENCE_COUNT_EXPONENT, 2 * INP_REFERENCE_COUNT_EXPONENT,
+    7 * INP_REFERENCE_COUNT_EXPONENT, 6 * INP_REFERENCE_COUNT_EXPONENT,
+    5 * INP_REFERENCE_COUNT_EXPONENT, 4 * INP_REFERENCE_COUNT_EXPONENT,
+    3 * INP_REFERENCE_COUNT_EXPONENT, 2 * INP_REFERENCE_COUNT_EXPONENT,
     1 * INP_REFERENCE_COUNT_EXPONENT, 0 * INP_REFERENCE_COUNT_EXPONENT
   };
 
@@ -89,7 +94,7 @@ public final class IConstants {
 
   // --- Reference Page
   // -------------------------------------------------------------
-  
+
   public static final long NULL_ID = -15;
 
 }
