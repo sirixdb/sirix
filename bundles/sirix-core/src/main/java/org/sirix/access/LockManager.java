@@ -41,6 +41,7 @@ package org.sirix.access;
 
 public class LockManager {
 
+  
   // // Locked nodes and transactionRootNodes of a LockManager
   // private final HashMap<Long, Integer> lockedNodes;
   // private final HashMap<SynchWriteTransaction, Set<Long>> transactionRootNodes;
