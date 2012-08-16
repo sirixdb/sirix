@@ -139,7 +139,7 @@ public class ValNodeDelegate extends AbsForwardingNode implements IValNode {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("value", mVal).toString();
+    return Objects.toStringHelper(this).add("value", new String(mVal)).toString();
   }
 
   @Override

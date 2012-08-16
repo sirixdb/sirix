@@ -1056,32 +1056,70 @@ public class UpdateTest {
   }
 
   @Test
-  public void testSubtreeInsertAsFirstChild() throws AbsTTException, IOException, XMLStreamException {
+  public void testSubtreeInsertAsFirstChildFirst() throws AbsTTException, IOException, XMLStreamException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(5);
     wtx.insertSubtree(XMLShredder.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
       EInsert.ASFIRSTCHILD);
-    testSubtreeInsertAsFirstChild(wtx);
+    testSubtreeInsertAsFirstChildFirst(wtx);
     wtx.commit();
     wtx.moveTo(14);
-    testSubtreeInsertAsFirstChild(wtx);
+    testSubtreeInsertAsFirstChildFirst(wtx);
     wtx.close();
     final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
     rtx.moveTo(14);
-    testSubtreeInsertAsFirstChild(rtx);
+    testSubtreeInsertAsFirstChildFirst(rtx);
     rtx.close();
   }
 
   /**
-   * Testmethod for {@link UpdateTest#testSubtreeInsert()} for having different rtx.
+   * Testmethod for {@link UpdateTest#testSubtreeInsertFirst()} for having different rtx.
    * 
    * @param pRtx
    *          to test with
    * @throws AbsTTException
    */
-  private final static void testSubtreeInsertAsFirstChild(final INodeReadTrx pRtx) {
+  private final static void testSubtreeInsertAsFirstChildFirst(final INodeReadTrx pRtx) {
     assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());
+    assertTrue(pRtx.moveToParent());
+    assertEquals(12L, pRtx.getStructuralNode().getDescendantCount());
+    assertTrue(pRtx.moveToParent());
+    assertEquals(19L, pRtx.getStructuralNode().getDescendantCount());
+    assertTrue(pRtx.moveToParent());
+    assertEquals(20L, pRtx.getStructuralNode().getDescendantCount());
+  }
+  
+  @Test
+  public void testSubtreeInsertAsFirstChildSecond() throws AbsTTException, IOException, XMLStreamException {
+    final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
+    DocumentCreater.create(wtx);
+    wtx.moveTo(11);
+    wtx.insertSubtree(XMLShredder
+      .createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
+      EInsert.ASFIRSTCHILD);
+    testSubtreeInsertAsFirstChildSecond(wtx);
+    wtx.commit();
+    wtx.moveTo(14);
+    testSubtreeInsertAsFirstChildSecond(wtx);
+    wtx.close();
+    final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+    rtx.moveTo(14);
+    testSubtreeInsertAsFirstChildSecond(rtx);
+    rtx.close();
+  }
+  
+  /**
+   * Testmethod for {@link UpdateTest#testSubtreeInsertAsFirstChildSecond()} for having different rtx.
+   * 
+   * @param pRtx
+   *          to test with
+   * @throws AbsTTException
+   */
+  private final static void testSubtreeInsertAsFirstChildSecond(final INodeReadTrx pRtx) {
+    assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());
+    assertTrue(pRtx.moveToParent());
+    assertEquals(10L, pRtx.getStructuralNode().getDescendantCount());
     assertTrue(pRtx.moveToParent());
     assertEquals(12L, pRtx.getStructuralNode().getDescendantCount());
     assertTrue(pRtx.moveToParent());

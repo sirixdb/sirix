@@ -74,21 +74,21 @@ public enum GUICommands implements IGUICommand {
   /**
    * Open a sirix file.
    */
-  OPEN("Open TNK-File", EMenu.MENU) {
+  OPEN("Open resource", EMenu.MENU) {
     /** {@inheritDoc} */
     @Override
-    public void execute(final GUI paramGUI) {
-      assert paramGUI != null;
+    public void execute(final GUI pGUI) {
+      assert pGUI != null;
 
       // Create file chooser.
       final MyActionListener mActionListener = new MyActionListener();
       final JFileChooser fc = createFileChooser(mActionListener);
 
       // Handle open button action.
-      if (fc.showOpenDialog(paramGUI) == JFileChooser.APPROVE_OPTION) {
+      if (fc.showOpenDialog(pGUI) == JFileChooser.APPROVE_OPTION) {
         final File file = fc.getSelectedFile();
         LOGWRAPPER.debug("RevNumber: " + mActionListener.getRevision());
-        paramGUI.execute(file, mActionListener.getRevision());
+        pGUI.execute(file, mActionListener.getRevision());
       }
     }
   },

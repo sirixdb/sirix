@@ -644,4 +644,9 @@ public final class PageWriteTrx implements IPageWriteTrx {
   public boolean isClosed() {
     return mPageRtx.isClosed();
   }
+  
+  @Override
+  public long getRevisionNumber() {
+    return mPageRtx.getRevisionNumber();
+  }
 }

@@ -34,7 +34,7 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
     mStructNodeDel = checkNotNull(pStructNodeDel);
     mNameNodeDel = checkNotNull(pNameNodeDel);
     mKind = checkNotNull(pKind);
-    checkArgument(pReferences > 0, "pReferences must be >= 0!");
+    checkArgument(pReferences > 0, "pReferences must be > 0!");
     mReferences = pReferences;
     mLevel = pLevel;
   }
@@ -45,6 +45,11 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
 
   public int getReferences() {
     return mReferences;
+  }
+
+  public void setReferenceCount(final @Nonnegative int pReferences) {
+    checkArgument(pReferences > 0, "pReferences must be > 0!");
+    mReferences = pReferences;
   }
 
   public void incrementReferenceCount() {
@@ -58,6 +63,11 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
     mReferences--;
   }
 
+  /**
+   * Get the kind of path (element, attribute or namespace).
+   * 
+   * @return path kind
+   */
   public EKind getPathKind() {
     return mKind;
   }
@@ -136,6 +146,7 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
 
   @Override
   public void setPathNodeKey(long nodeKey) {
+    // No path node key.
   }
 
   @Override

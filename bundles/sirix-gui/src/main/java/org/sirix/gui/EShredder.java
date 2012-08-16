@@ -69,7 +69,8 @@ enum EShredder {
   NORMAL {
     @Override
     boolean shred(final File pSource, final File pTarget) {
-      return shredder(checkNotNull(pSource), checkNotNull(pTarget), EType.NORMAL);
+      return shredder(checkNotNull(pSource), checkNotNull(pTarget),
+        EType.NORMAL);
     }
   },
 
@@ -77,12 +78,14 @@ enum EShredder {
   UPDATEONLY {
     @Override
     boolean shred(final File pSource, final File pTarget) {
-      return shredder(checkNotNull(pSource), checkNotNull(pTarget), EType.UPDATE);
+      return shredder(checkNotNull(pSource), checkNotNull(pTarget),
+        EType.UPDATE);
     }
   };
 
   /** Logger. */
-  private static final Logger LOGWRAPPER = LoggerFactory.getLogger(EShredder.class);
+  private static final Logger LOGWRAPPER = LoggerFactory
+    .getLogger(EShredder.class);
 
   /**
    * Shred XML file.
@@ -100,8 +103,8 @@ enum EShredder {
     /** Normal shredder. */
     NORMAL {
       @Override
-      Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx) throws IOException,
-        XMLStreamException, TTUsageException {
+      Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx)
+        throws IOException, XMLStreamException, TTUsageException {
         final XMLEventReader reader = XMLShredder.createFileReader(pSource);
         return new XMLShredder(pWtx, reader, EInsert.ASFIRSTCHILD);
       }
@@ -110,12 +113,12 @@ enum EShredder {
     /** Update shredder. */
     UPDATE {
       @Override
-      Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx) throws IOException,
-        XMLStreamException, TTUsageException {
+      Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx)
+        throws IOException, XMLStreamException, TTUsageException {
         final XMLEventReader reader = XMLShredder.createFileReader(pSource);
         try {
-          return new XMLUpdateShredder(pWtx, reader, EInsert.ASFIRSTCHILD, pSource,
-            EShredderCommit.COMMIT);
+          return new XMLUpdateShredder(pWtx, reader, EInsert.ASFIRSTCHILD,
+            pSource, EShredderCommit.COMMIT);
         } catch (final TTIOException e) {
           throw new IOException(e);
         }
@@ -137,8 +140,9 @@ enum EShredder {
      * @throws TTUsageException
      *           if the shredder isn't used properly
      */
-    abstract Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx) throws IOException,
-      XMLStreamException, TTUsageException;
+    abstract Callable<Long> newInstance(final File pSource,
+      final INodeWriteTrx pWtx) throws IOException, XMLStreamException,
+      TTUsageException;
   }
 
   /**
@@ -149,21 +153,25 @@ enum EShredder {
    * @param pTarget
    *          the database to create/open
    */
-  private static boolean shredder(final File pSource, final File pTarget, final EType pType) {
+  private static boolean shredder(final File pSource, final File pTarget,
+    final EType pType) {
     assert pSource != null;
     assert pTarget != null;
     assert pType != null;
     boolean retVal = true;
     try {
       final IDatabase database = setupDatabase(pTarget);
-      try (final ISession session = database.getSession(new SessionConfiguration.Builder("shredded").build());
+      try (final ISession session =
+        database.getSession(new SessionConfiguration.Builder("shredded")
+          .build());
       final INodeWriteTrx wtx = session.beginNodeWriteTrx();) {
         final ExecutorService executor = Executors.newSingleThreadExecutor();
         executor.submit(pType.newInstance(pSource, wtx));
         executor.shutdown();
         executor.awaitTermination(5 * 60, TimeUnit.SECONDS);
       }
-    } catch (final IOException | XMLStreamException | InterruptedException | AbsTTException e) {
+    } catch (final IOException | XMLStreamException | InterruptedException
+    | AbsTTException e) {
       LOGWRAPPER.error(e.getMessage(), e);
       retVal = false;
     }
@@ -180,13 +188,15 @@ enum EShredder {
    * @throws AbsTTException
    *           if something went wrong
    */
-  private static IDatabase setupDatabase(final File pTarget) throws AbsTTException {
+  private static IDatabase setupDatabase(final File pTarget)
+    throws AbsTTException {
     assert pTarget != null;
     final DatabaseConfiguration config = new DatabaseConfiguration(pTarget);
     Database.truncateDatabase(config);
     Database.createDatabase(config);
     final IDatabase db = Database.openDatabase(pTarget);
-    db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
+    db.createResource(new ResourceConfiguration.Builder("shredded", config)
+      .useCompression(false).build());
     return db;
   }
 }

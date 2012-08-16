@@ -116,4 +116,11 @@ public interface IPageReadTrx extends AutoCloseable {
 
   /** Determines if transaction is closed or not. */
   boolean isClosed();
+  
+  /**
+   * Get the revision number associated with the transaction.
+   * 
+   * @return the revision number
+   */
+  long getRevisionNumber();
 }

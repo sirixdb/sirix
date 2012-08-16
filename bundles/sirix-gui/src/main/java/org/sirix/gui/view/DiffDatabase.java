@@ -125,13 +125,13 @@ public class DiffDatabase implements AutoCloseable {
     final EntryBinding<Integer> keyBinding = TupleBinding.getPrimitiveBinding(Integer.class);
 
     // Use Diff serial binding for data entries.
-    final EntryBinding<DiffTuple> dataBinding = new SerialBinding<DiffTuple>(mCatalog, DiffTuple.class);
+    final EntryBinding<DiffTuple> dataBinding = new SerialBinding<>(mCatalog, DiffTuple.class);
 
     // Create a database.
     mDatabase = mEnv.openDatabase(null, NAME, conf);
 
     // Create a map view of the database.
-    mMap = new StoredMap<Integer, DiffTuple>(mDatabase, keyBinding, dataBinding, true);
+    mMap = new StoredMap<>(mDatabase, keyBinding, dataBinding, true);
   }
 
   /**

@@ -49,6 +49,14 @@ import org.sirix.index.path.PathSummary;
  * 
  */
 public interface ISession extends AutoCloseable {
+  
+  IPageReadTrx beginPageReadTrx() throws AbsTTException;
+  
+  IPageReadTrx beginPageReadTrx(@Nonnegative long pRev) throws AbsTTException;
+  
+  IPageWriteTrx beginPageWriteTrx() throws AbsTTException;
+  
+  IPageWriteTrx beginPageWriteTrx(@Nonnegative long pRev) throws AbsTTException;
 
   /**
    * Begin a read-only transaction on the latest committed revision key.
@@ -68,7 +76,7 @@ public interface ISession extends AutoCloseable {
    *           if can't begin Read Transaction
    * @return {@link INodeReadTrx} instance
    */
-  INodeReadTrx beginNodeReadTrx(@Nonnegative  long pRev) throws AbsTTException;
+  INodeReadTrx beginNodeReadTrx(@Nonnegative long pRev) throws AbsTTException;
 
   /**
    * Begin exclusive read/write transaction without auto commit.

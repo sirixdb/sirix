@@ -33,12 +33,16 @@ public class PathSummary implements INodeReadTrx {
 
   private final IPageReadTrx mPageReadTrx;
 
+  private final ISession mSession;
+
   /** Determines if path summary is closed or not. */
   private boolean mClosed;
 
-  private PathSummary(@Nonnull final IPageReadTrx pPageReadTrx) {
+  private PathSummary(final @Nonnull IPageReadTrx pPageReadTrx,
+    final @Nonnull ISession pSession) {
     mPageReadTrx = pPageReadTrx;
     mClosed = false;
+    mSession = pSession;
     try {
       final Optional<? extends INodeBase> node =
         mPageReadTrx.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
@@ -63,8 +67,8 @@ public class PathSummary implements INodeReadTrx {
    * @return new path summary instance
    */
   public static final PathSummary getInstance(
-    final @Nonnull IPageReadTrx pPageReadTrx) {
-    return new PathSummary(pPageReadTrx);
+    final @Nonnull IPageReadTrx pPageReadTrx, final @Nonnull ISession pSession) {
+    return new PathSummary(checkNotNull(pPageReadTrx), checkNotNull(pSession));
   }
 
   @Override
@@ -294,8 +298,12 @@ public class PathSummary implements INodeReadTrx {
   }
 
   @Override
-  public INodeReadTrx cloneInstance() throws AbsTTException {
-    throw new UnsupportedOperationException();
+  public synchronized INodeReadTrx cloneInstance() throws AbsTTException {
+    final INodeReadTrx rtx =
+      getInstance(mSession.beginPageReadTrx(mPageReadTrx.getRevisionNumber()),
+        mSession);
+    rtx.moveTo(mCurrentNode.getNodeKey());
+    return rtx;
   }
 
   @Override

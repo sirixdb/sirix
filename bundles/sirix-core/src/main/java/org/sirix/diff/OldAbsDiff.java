@@ -465,10 +465,6 @@ abstract class OldAbsDiff extends AbsDiffObservable {
     assert pOldRtx != null;
     assert pDepth != null;
 
-    if (pOldRtx.getNode().getNodeKey() == 9000 || pNewRtx.getNode().getNodeKey() == 9000) {
-      System.out.println();
-    }
-    
     EDiff diff = EDiff.SAMEHASH;
 
     final long newKey = pNewRtx.getNode().getNodeKey();

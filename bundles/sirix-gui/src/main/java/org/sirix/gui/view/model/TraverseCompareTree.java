@@ -103,21 +103,22 @@ import processing.core.PConstants;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TraverseCompareTree extends AbsTraverseModel implements Callable<Void>, IDiffObserver,
-  ITraverseModel {
+public final class TraverseCompareTree extends AbsTraverseModel implements
+  Callable<Void>, IDiffObserver, ITraverseModel {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
     .getLogger(TraverseCompareTree.class));
 
   /** Shared {@link ExecutorService} instance using the same thread for execution. */
-  private static final ExecutorService SAME_THREAD_EXECUTOR = MoreExecutors.sameThreadExecutor();
+  private static final ExecutorService SAME_THREAD_EXECUTOR = MoreExecutors
+    .sameThreadExecutor();
 
   /** Shared {@link ForkJoinPool} instance. */
   private static final ForkJoinPool FORK_JOIN_POOL = new ForkJoinPool();
 
   /** {@link Levenshtein} instance. */
-  private static final Levenshtein mLevenshtein = new Levenshtein();
+  private final Levenshtein mLevenshtein = new Levenshtein();
 
   /**
    * Determines the amount of diffs which have to be saved in a {@link List} before the {@link List} is
@@ -126,17 +127,18 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
   private static final int AFTER_COUNT_DIFFS = 1_000;
 
   /** Diff threshold, determining when a database has to be used. */
-  private static final int DIFF_THRESHOLD = 1_000_000;
+  private static final int DIFF_THRESHOLD = 100_000_000;
 
   /** Timeout for {@link CountDownLatch}. */
-  private static final long TIMEOUT_S = 600; // 10mins
+  private static final long TIMEOUT_S = 6000; // 100mins
 
   /** Number of available processors. */
-  private static final int PROCESSORS = Runtime.getRuntime().availableProcessors();
+  private static final int PROCESSORS = Runtime.getRuntime()
+    .availableProcessors();
 
   /** Thread pool. */
-  private final ExecutorService POOL = PROCESSORS > 3 ? Executors.newFixedThreadPool(PROCESSORS)
-    : SAME_THREAD_EXECUTOR;
+  private static final ExecutorService POOL = PROCESSORS > 3 ? Executors
+    .newFixedThreadPool(PROCESSORS) : SAME_THREAD_EXECUTOR;
 
   /** Locking changes which are fired. */
   private final Semaphore mLock;
@@ -163,53 +165,55 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
   private final List<SunburstItem> mItems;
 
   /** Maximum depth in the tree. */
-  private transient int mDepthMax;
+  private int mDepthMax;
 
   /** Minimum text length. */
-  private transient int mMinTextLength;
+  private int mMinTextLength;
 
   /** Maximum text length. */
-  private transient int mMaxTextLength;
+  private int mMaxTextLength;
 
   /** {@link ReadDb} instance. */
   private final ReadDB mDb;
 
   /** Maximum descendant count in tree. */
-  private transient int mMaxDescendantCount;
+  private int mMaxDescendantCount;
 
-  private transient Future<Modification> mMaxDescendantCountFuture;
+  /** Maximum descendant count {@link Future}. */
+  private Future<Modification> mMaxDescendantCountFuture;
 
   /** Parent processing frame. */
   private final PApplet mParent;
 
   /** {@link INodeReadTrx} instance. */
-  private transient INodeReadTrx mOldRtx;
+  private INodeReadTrx mOldRtx;
 
   /** Weighting of modifications. */
-  private transient float mModWeight;
+  private float mModWeight;
 
   /** Maximum depth in new revision. */
-  private transient int mNewDepthMax;
+  private int mNewDepthMax;
 
   /** {@link INodeReadTrx} on the revision to compare. */
-  private transient INodeReadTrx mNewRtx;
+  private INodeReadTrx mNewRtx;
 
   /** {@link Map} of {@link DiffTuple}s. */
-  private transient Map<Integer, DiffTuple> mDiffs;
+  private Map<Integer, DiffTuple> mDiffs;
 
-  private transient BlockingQueue<DiffTuple> mDiffQueue;
+  /** Queue for diff-tuples used by a . */
+  private BlockingQueue<DiffTuple> mDiffQueue;
 
   /** Start depth in the tree. */
-  private transient int mDepth;
+  private int mDepth;
 
   /** Determines if tree should be pruned or not. */
-  private transient EPruning mPrune;
+  private EPruning mPrune;
 
   /** Determines if current item is pruned or not. */
-  private transient boolean mIsPruned;
+  private boolean mIsPruned;
 
   /** {@link DiffSunburstAxis} instance. */
-  private transient AbsSunburstAxis mAxis;
+  private AbsSunburstAxis mAxis;
 
   /** GUI which extends {@link AbsSunburstGUI}. */
   private final AbsSunburstGUI mGUI;
@@ -224,7 +228,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
   private final TransactionRunner mRunner;
 
   /** Counts diff entries. */
-  private transient int mEntries;
+  private int mEntries;
 
   /** Determines if diffs have been done. */
   private volatile boolean mDone;
@@ -283,7 +287,9 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
     mModel = pContainer.getModel();
     addPropertyChangeListener(mModel);
     mDb = mModel.getDb();
-    mOldRevision = pContainer.getOldRevision() != -1 ? pContainer.getOldRevision() : mDb.getRevisionNumber();
+    mOldRevision =
+      pContainer.getOldRevision() != -1 ? pContainer.getOldRevision() : mDb
+        .getRevisionNumber();
 
     try {
       mNewRtx = mDb.getSession().beginNodeReadTrx(pContainer.getRevision());
@@ -305,13 +311,15 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
       mOldRtx.moveToFirstChild();
     }
     mOldStartKey =
-      pContainer.getNewStartKey() == 0 ? mOldRtx.getNode().getNodeKey() : pContainer.getNewStartKey();
+      pContainer.getNewStartKey() == 0 ? mOldRtx.getNode().getNodeKey()
+        : pContainer.getNewStartKey();
     mNewRtx.moveTo(pContainer.getNewStartKey());
     if (mNewRtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
       mNewRtx.moveToFirstChild();
     }
     mNewStartKey =
-      pContainer.getNewStartKey() == 0 ? mNewRtx.getNode().getNodeKey() : pContainer.getNewStartKey();
+      pContainer.getNewStartKey() == 0 ? mNewRtx.getNode().getNodeKey()
+        : pContainer.getNewStartKey();
     mPrune = pContainer.getPruning();
     mLock = pContainer.getLock();
     mCompare = pContainer.getCompare();
@@ -337,46 +345,62 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
         @Override
         public Void call() throws AbsTTException {
           EDiffOptimized optimized = EDiffOptimized.NO;
-          if (mPrune == EPruning.DIFF || mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES) {
+          if (mPrune == EPruning.DIFF
+            || mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES) {
             optimized = EDiffOptimized.HASHED;
           }
-          DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(mDb.getSession(), mNewRevision, mOldRtx
-            .getRevisionNumber(), optimized, ImmutableSet.of(mObserver)).setNewDepth(mDepth).setOldDepth(
-            mDepth).setNewStartKey(mNewStartKey).setOldStartKey(mOldStartKey));
+          DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(mDb
+            .getSession(), mNewRevision, mOldRtx.getRevisionNumber(),
+            optimized, ImmutableSet.of(mObserver)).setNewDepth(mDepth)
+            .setOldDepth(mDepth).setNewStartKey(mNewStartKey).setOldStartKey(
+              mOldStartKey));
           return null;
         }
       });
 
-//      POOL.submit(new Callable<Void>() {
-//        @Override
-//        public Void call() {
-//          if (mPrune == EPruning.NO) {
-//            // Get min and max textLength of both revisions.
-//            try (final INodeReadTrx rtxNew = mDb.getSession().beginNodeReadTrx(mNewRevision);
-//            INodeReadTrx rtxOld = mDb.getSession().beginNodeReadTrx(mOldRevision)) {
-//              getMinMaxTextLength(rtxNew, Optional.of(rtxOld));
-//            } catch (final AbsTTException e) {
-//              LOGWRAPPER.error(e.getMessage(), e);
-//            }
-//          } else {
-//            mStart.countDown();
-//          }
-//          return null;
-//        }
-//      });
+      // POOL.submit(new Callable<Void>() {
+      // @Override
+      // public Void call() {
+      // if (mPrune == EPruning.NO) {
+      // // Get min and max textLength of both revisions.
+      // try (final INodeReadTrx rtxNew = mDb.getSession().beginNodeReadTrx(mNewRevision);
+      // INodeReadTrx rtxOld = mDb.getSession().beginNodeReadTrx(mOldRevision)) {
+      // getMinMaxTextLength(rtxNew, Optional.of(rtxOld));
+      // } catch (final AbsTTException e) {
+      // LOGWRAPPER.error(e.getMessage(), e);
+      // }
+      // } else {
+      // mStart.countDown();
+      // }
+      // return null;
+      // }
+      // });
 
-      mDepthMax = POOL.submit(new Callable<Integer>() {
-        @Override
-        public Integer call() {
-          // Maximum depth in old revision.
-          return getDepthMax();
-        }
-      }).get();
+      if (PROCESSORS == 2) {
+        final ExecutorService pool = Executors.newSingleThreadExecutor();
+        mDepthMax = pool.submit(new Callable<Integer>() {
+          @Override
+          public Integer call() {
+            // Maximum depth in old revision.
+            return getDepthMax();
+          }
+        }).get();
+        pool.shutdown();
+      } else {
+        mDepthMax = POOL.submit(new Callable<Integer>() {
+          @Override
+          public Integer call() {
+            // Maximum depth in old revision.
+            return getDepthMax();
+          }
+        }).get();
+      }
 
       // Wait for diff list to complete.
       final boolean done = mStart.await(TIMEOUT_S, TimeUnit.SECONDS);
       if (!done) {
-        LOGWRAPPER.error("Diff failed - Timeout occured after " + TIMEOUT_S + " seconds!");
+        LOGWRAPPER.error("Diff failed - Timeout occured after " + TIMEOUT_S
+          + " seconds!");
       }
 
       final int size = mDiffs.size();
@@ -405,7 +429,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
 
       i = 0;
       // mLock.acquireUninterruptibly();
-      final Map<Integer, DiffTuple> diffs = mEntries > DIFF_THRESHOLD ? mDiffDatabase.getMap() : mDiffs;
+      final Map<Integer, DiffTuple> diffs =
+        mEntries > DIFF_THRESHOLD ? mDiffDatabase.getMap() : mDiffs;
       firePropertyChange("diffs", null, diffs);
       // if (mPrune == EPruning.ITEMSIZE) {
       // for (mAxis =
@@ -419,8 +444,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
       // }
       // } else {
       for (mAxis =
-        new DiffSunburstAxis(EIncludeSelf.YES, this, mNewRtx, mOldRtx, diffs, mDepthMax, mDepth, mPrune); mAxis
-        .hasNext(); i++) {
+        new DiffSunburstAxis(EIncludeSelf.YES, this, mNewRtx, mOldRtx, diffs,
+          mDepthMax, mDepth, mPrune); mAxis.hasNext(); i++) {
         mAxis.next();
         if (mCompare == ECompare.SINGLEINCREMENTAL) {
           final int progress = (int)((i / (float)size) * 100);
@@ -479,25 +504,32 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
         final Integer newIndex = mNewKeys.get(diffCont.getOldNodeKey());
         if (newIndex != null
           && (diffCont.getDiff() == EDiff.DELETED || diffCont.getDiff() == EDiff.MOVEDFROM)) {
-          LOGWRAPPER.debug("new node key: " + mDiffs.get(newIndex).getNewNodeKey());
+          LOGWRAPPER.debug("new node key: "
+            + mDiffs.get(newIndex).getNewNodeKey());
           mDiffs.get(newIndex).setDiff(EDiff.MOVEDTO);
         }
         final Integer oldIndex = mOldKeys.get(diffCont.getNewNodeKey());
-        if (oldIndex != null && (diffCont.getDiff() == EDiff.INSERTED || diffCont.getDiff() == EDiff.MOVEDTO)) {
-          mDiffs.get(oldIndex).setDiff(EDiff.MOVEDFROM).setIndex(mNewKeys.get(diffCont.getNewNodeKey()));
+        if (oldIndex != null
+          && (diffCont.getDiff() == EDiff.INSERTED || diffCont.getDiff() == EDiff.MOVEDTO)) {
+          mDiffs.get(oldIndex).setDiff(EDiff.MOVEDFROM).setIndex(
+            mNewKeys.get(diffCont.getNewNodeKey()));
         }
       }
     }
   }
 
   @Override
-  public void diffListener(@Nonnull final EDiff pDiff, @Nonnull final IStructNode pNewNode,
-    @Nonnull final IStructNode pOldNode, @Nonnull final DiffDepth pDepth) {
+  public void diffListener(@Nonnull final EDiff pDiff,
+    @Nonnull final IStructNode pNewNode, @Nonnull final IStructNode pOldNode,
+    @Nonnull final DiffDepth pDepth) {
     LOGWRAPPER.debug("kind of diff: " + pDiff);
 
     if (mPrune != EPruning.DIFF_WITHOUT_SAMEHASHES
-      || (mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES && pDiff != EDiff.SAMEHASH) || mEntries == 0) {
-      final DiffTuple diffCont = new DiffTuple(pDiff, pNewNode.getNodeKey(), pOldNode.getNodeKey(), pDepth);
+      || (mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES && pDiff != EDiff.SAMEHASH)
+      || mEntries == 0) {
+      final DiffTuple diffCont =
+        new DiffTuple(pDiff, pNewNode.getNodeKey(), pOldNode.getNodeKey(),
+          pDepth);
       final EDiff diff = diffCont.getDiff();
       if (!mHasUpdatedNodes && mLastNodeUpdated) {
         // Has at least one diff, thus it's safe.
@@ -538,7 +570,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
       if (mEntries % DIFF_THRESHOLD == 0) {
         try {
           // Works even if transactions are not enabled.
-          mRunner.run(new PopulateDatabase(mDiffDatabase, mDiffs, mDiffDatabase.getMap().size()));
+          mRunner.run(new PopulateDatabase(mDiffDatabase, mDiffs, mDiffDatabase
+            .getMap().size()));
         } catch (final Exception e) {
           LOGWRAPPER.error(e.getMessage(), e);
         }
@@ -556,7 +589,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
   private int getDepth(@Nonnull final DiffTuple pDiffCont) {
     int depth;
     final EDiff diff = pDiffCont.getDiff();
-    if (diff == EDiff.DELETED || diff == EDiff.MOVEDFROM || diff == EDiff.REPLACEDOLD) {
+    if (diff == EDiff.DELETED || diff == EDiff.MOVEDFROM
+      || diff == EDiff.REPLACEDOLD) {
       depth = pDiffCont.getDepth().getOldDepth();
     } else {
       depth = pDiffCont.getDepth().getNewDepth();
@@ -566,9 +600,10 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
 
   @Override
   public void diffDone() {
-    if (mEntries > DIFF_THRESHOLD) {
+    if (mDiffDatabase.getMap().get(1) != null) {
       try {
-        mRunner.run(new PopulateDatabase(mDiffDatabase, mDiffs, mDiffDatabase.getMap().size()));
+        mRunner.run(new PopulateDatabase(mDiffDatabase, mDiffs, mDiffDatabase
+          .getMap().size()));
       } catch (final Exception e) {
         LOGWRAPPER.error(e.getMessage(), e);
       }
@@ -625,13 +660,20 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
    */
   private int getDepthMax() {
     int depthMax = 0;
-    for (boolean isNotEmpty = true; isNotEmpty = !mDiffQueue.isEmpty() || !mDone;) {
-      if (isNotEmpty
-        && (mDiffQueue.peek().getDiff() == EDiff.SAME || mDiffQueue.peek().getDiff() == EDiff.SAMEHASH)) {
-        // Set depth max.
-        depthMax = Math.max(mDiffQueue.poll().getDepth().getOldDepth() - mDepth, depthMax);
-      } else if (isNotEmpty) {
-        mDiffQueue.poll();
+    for (boolean isNotEmpty = !mDiffQueue.isEmpty(); ((isNotEmpty =
+      !mDiffQueue.isEmpty()) == true)
+      || !mDone;) {
+      if (isNotEmpty) {
+        final DiffTuple tuple = mDiffQueue.peek();
+        final EDiff diff = tuple.getDiff();
+        if (diff == EDiff.SAME || diff == EDiff.SAMEHASH) {
+          // Set depth max.
+          depthMax =
+            Math.max(mDiffQueue.poll().getDepth().getOldDepth() - mDepth,
+              depthMax);
+        } else {
+          mDiffQueue.poll();
+        }
       }
     }
     mStart.countDown();
@@ -655,8 +697,10 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
     mMinTextLength = Integer.MAX_VALUE;
     mMaxTextLength = Integer.MIN_VALUE;
     final ExecutorService executor = Executors.newFixedThreadPool(2);
-    final Future<TextLength> newRev = executor.submit(new MinMaxTextLength(pNewRtx));
-    final Future<TextLength> oldRev = executor.submit(new MinMaxTextLength(oldRtx));
+    final Future<TextLength> newRev =
+      executor.submit(new MinMaxTextLength(pNewRtx));
+    final Future<TextLength> oldRev =
+      executor.submit(new MinMaxTextLength(oldRtx));
     executor.shutdown();
 
     try {
@@ -701,10 +745,12 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
     public TextLength call() throws Exception {
       int minTextLength = Integer.MAX_VALUE;
       int maxTextLength = Integer.MIN_VALUE;
-      for (final IAxis axis = new DescendantAxis(mOldRtx, EIncludeSelf.YES); axis.hasNext();) {
+      for (final IAxis axis = new DescendantAxis(mOldRtx, EIncludeSelf.YES); axis
+        .hasNext();) {
         axis.next();
         if (axis.getTransaction().getNode().getKind() == EKind.TEXT) {
-          final int length = axis.getTransaction().getValueOfCurrentNode().length();
+          final int length =
+            axis.getTransaction().getValueOfCurrentNode().length();
           if (length < minTextLength) {
             minTextLength = length;
           }
@@ -720,8 +766,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
   }
 
   @Override
-  public float createSunburstItem(@Nonnull final Item pItem, @Nonnegative final int pDepth,
-    @Nonnegative final int pIndex) {
+  public float createSunburstItem(@Nonnull final Item pItem,
+    @Nonnegative final int pDepth, @Nonnegative final int pIndex) {
     checkNotNull(pItem);
     checkArgument(pDepth >= 0, "pDepth must be positive!");
     checkArgument(pIndex >= 0, "pIndex must be >= 0!");
@@ -747,7 +793,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
         parentModificationCount -= FACTOR;
       }
       extension =
-        (1f - mModWeight) * (parExtension * (float)descendantCount / ((float)parentDescCount - 1f))
+        (1f - mModWeight)
+          * (parExtension * (float)descendantCount / ((float)parentDescCount - 1f))
           + mModWeight
           // -1 because we add the descendant-or-self count to the
           // modificationCount/parentModificationCount.
@@ -765,7 +812,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
     LOGWRAPPER.debug("next Depth: " + nextDepth);
     LOGWRAPPER.debug("angle: " + angle);
 
-    if (mPrune == EPruning.ITEMSIZE && extension < ITraverseModel.ANGLE_TO_PRUNE
+    if (mPrune == EPruning.ITEMSIZE
+      && extension < ITraverseModel.ANGLE_TO_PRUNE
       && modificationCount <= descendantCount) {
       nodePruned();
     } else {
@@ -777,28 +825,31 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
       }
 
       IStructNode node = null;
-      if (diffCont.getDiff() == EDiff.DELETED || diffCont.getDiff() == EDiff.MOVEDFROM
+      if (diffCont.getDiff() == EDiff.DELETED
+        || diffCont.getDiff() == EDiff.MOVEDFROM
         || diffCont.getDiff() == EDiff.REPLACEDOLD) {
         node = mOldRtx.getStructuralNode();
       } else {
         node = mNewRtx.getStructuralNode();
       }
 
-      final EStructType structKind = nextDepth > depth ? EStructType.ISINNERNODE : EStructType.ISLEAFNODE;
+      final EStructType structKind =
+        nextDepth > depth ? EStructType.ISINNERNODE : EStructType.ISLEAFNODE;
 
       // Set node relations.
       String text = "";
       NodeRelations relations = null;
       final EDiff currDiff = diffCont.getDiff();
       if (node.getKind() == EKind.TEXT) {
-        if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM || currDiff == EDiff.REPLACEDOLD) {
+        if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM
+          || currDiff == EDiff.REPLACEDOLD) {
           text = mOldRtx.getValueOfCurrentNode();
         } else {
           text = mNewRtx.getValueOfCurrentNode();
         }
         if (currDiff == EDiff.UPDATED
-          || ((currDiff == EDiff.REPLACEDNEW || currDiff == EDiff.REPLACEDOLD) && mOldRtx.getNode().getKind() == mNewRtx
-            .getNode().getKind())) {
+          || ((currDiff == EDiff.REPLACEDNEW || currDiff == EDiff.REPLACEDOLD) && mOldRtx
+            .getNode().getKind() == mNewRtx.getNode().getKind())) {
           final String oldValue = mOldRtx.getValueOfCurrentNode();
           final String newValue = mNewRtx.getValueOfCurrentNode();
           float similarity = 1;
@@ -811,22 +862,25 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
           similarity = mLevenshtein.getSimilarity(oldValue, newValue);
           // }
           relations =
-            new NodeRelations(origDepth, depth, structKind, similarity, 0, 1, indexToParent)
-              .setSubtract(subtract);
+            new NodeRelations(origDepth, depth, structKind, similarity, 0, 1,
+              indexToParent).setSubtract(subtract);
         } else if (currDiff == EDiff.SAME || currDiff == EDiff.SAMEHASH) {
           relations =
-            new NodeRelations(origDepth, depth, structKind, 1, 0, 1, indexToParent).setSubtract(subtract);
+            new NodeRelations(origDepth, depth, structKind, 1, 0, 1,
+              indexToParent).setSubtract(subtract);
           // new NodeRelations(depth, structKind, text.length(), mMinTextLength, mMaxTextLength,
           // indexToParent).setSubtract(subtract);
         } else {
           relations =
-            new NodeRelations(origDepth, depth, structKind, 0, 0, 1, indexToParent).setSubtract(subtract);
+            new NodeRelations(origDepth, depth, structKind, 0, 0, 1,
+              indexToParent).setSubtract(subtract);
         }
       } else {
         if (mMaxDescendantCount == 0) {
           if (mPrune == EPruning.NO) {
             try {
-              mMaxDescendantCount = mMaxDescendantCountFuture.get().getDescendants();
+              mMaxDescendantCount =
+                mMaxDescendantCountFuture.get().getDescendants();
             } catch (final InterruptedException | ExecutionException e) {
               LOGWRAPPER.error(e.getMessage(), e);
             }
@@ -835,24 +889,26 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
           }
         }
         relations =
-          new NodeRelations(origDepth, depth, structKind, descendantCount, 1, mMaxDescendantCount,
-            indexToParent).setSubtract(subtract);
+          new NodeRelations(origDepth, depth, structKind, descendantCount, 1,
+            mMaxDescendantCount, indexToParent).setSubtract(subtract);
       }
 
       // Build item.
       final SunburstItem.Builder builder =
-        new SunburstItem.Builder(mParent, angle, extension, relations, mDb, mGUI).setNode(node).setDiff(
-          diffCont.getDiff());
+        new SunburstItem.Builder(mParent, angle, extension, relations, mDb,
+          mGUI).setNode(node).setDiff(diffCont.getDiff());
 
       if (modificationCount > descendantCount) {
-        final int diffCounts = (modificationCount - descendantCount) / ITraverseModel.FACTOR;
+        final int diffCounts =
+          (modificationCount - descendantCount) / ITraverseModel.FACTOR;
         LOGWRAPPER.debug("modCount: " + diffCounts);
         builder.setModifications(diffCounts);
       }
 
       if (text.isEmpty()) {
         QName name = null;
-        if (diffCont.getDiff() == EDiff.DELETED || diffCont.getDiff() == EDiff.MOVEDFROM
+        if (diffCont.getDiff() == EDiff.DELETED
+          || diffCont.getDiff() == EDiff.MOVEDFROM
           || diffCont.getDiff() == EDiff.REPLACEDOLD) {
           name = mOldRtx.getQNameOfCurrentNode();
           builder.setAttributes(fillAttributes(mOldRtx));
@@ -872,7 +928,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
       } else {
         LOGWRAPPER.debug("text: " + text);
 
-        if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM || currDiff == EDiff.REPLACEDOLD) {
+        if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM
+          || currDiff == EDiff.REPLACEDOLD) {
           builder.setOldText(text);
           builder.setOldKey(mOldRtx.getNode().getNodeKey());
         } else {
@@ -911,7 +968,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
    * @param pBuilder
    *          {@link SunburstItem.Builder} reference
    */
-  private void updated(@Nonnull final EDiff pDiff, @Nonnull final SunburstItem.Builder pBuilder) {
+  private void updated(@Nonnull final EDiff pDiff,
+    @Nonnull final SunburstItem.Builder pBuilder) {
     assert pBuilder != null;
     switch (pDiff) {
     case UPDATED:
@@ -940,8 +998,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
   }
 
   @Override
-  public void descendants(@Nonnull final Optional<INodeReadTrx> pRtx) throws InterruptedException,
-    ExecutionException {
+  public void descendants(@Nonnull final Optional<INodeReadTrx> pRtx)
+    throws InterruptedException, ExecutionException {
     try {
       final ExecutorService executor = Executors.newSingleThreadExecutor();
       executor.submit(new GetDescendants());
@@ -960,39 +1018,47 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
     public Void call() throws Exception {
       final int depthThreshold = 4;
 
-      final Map<Integer, DiffTuple> diffs = mEntries > DIFF_THRESHOLD ? mDiffDatabase.getMap() : mDiffs;
+      final Map<Integer, DiffTuple> diffs =
+        mEntries > DIFF_THRESHOLD ? mDiffDatabase.getMap() : mDiffs;
       DiffTuple diff = diffs.get(0);
       final int rootDepth =
-        (diff.getDiff() == EDiff.DELETED || diff.getDiff() == EDiff.MOVEDFROM || diff.getDiff() == EDiff.REPLACEDOLD)
-          ? diff.getDepth().getOldDepth() : diff.getDepth().getNewDepth();
+        (diff.getDiff() == EDiff.DELETED || diff.getDiff() == EDiff.MOVEDFROM || diff
+          .getDiff() == EDiff.REPLACEDOLD) ? diff.getDepth().getOldDepth()
+          : diff.getDepth().getNewDepth();
       final boolean subtract =
-        (diff.getDiff() != EDiff.SAME && diff.getDiff() != EDiff.SAMEHASH) ? true : false;
+        (diff.getDiff() != EDiff.SAME && diff.getDiff() != EDiff.SAMEHASH)
+          ? true : false;
       boolean first = true;
       if (diffs.size() == 1) {
         final Future<Modification> modifications =
-          SAME_THREAD_EXECUTOR.submit(Callables.returning(new Modification(ITraverseModel.FACTOR
-            * mModifications, diffs.size(), subtract)));
+          SAME_THREAD_EXECUTOR.submit(Callables.returning(new Modification(
+            ITraverseModel.FACTOR * mModifications, diffs.size(), subtract)));
         mMaxDescendantCountFuture = modifications;
         mModificationQueue.put(modifications);
       } else {
         assert diffs.size() > 1;
         diff = diffs.get(1);
         int currDepth =
-          (diff.getDiff() == EDiff.DELETED || diff.getDiff() == EDiff.MOVEDFROM || diff.getDiff() == EDiff.REPLACEDOLD)
-            ? diff.getDepth().getOldDepth() : diff.getDepth().getNewDepth();
+          (diff.getDiff() == EDiff.DELETED || diff.getDiff() == EDiff.MOVEDFROM || diff
+            .getDiff() == EDiff.REPLACEDOLD) ? diff.getDepth().getOldDepth()
+            : diff.getDepth().getNewDepth();
         for (int index = 0; index < mDiffs.size() && currDepth > rootDepth; index++) {
           Future<Modification> modifications = null;
           if (first) {
             first = false;
             modifications =
-              SAME_THREAD_EXECUTOR.submit(Callables.returning(new Modification(ITraverseModel.FACTOR
-                * mModifications, diffs.size(), subtract)));
+              SAME_THREAD_EXECUTOR.submit(Callables
+                .returning(new Modification(ITraverseModel.FACTOR
+                  * mModifications, diffs.size(), subtract)));
             mMaxDescendantCountFuture = modifications;
           } else {
-            if (currDepth > depthThreshold) {
-              modifications = SAME_THREAD_EXECUTOR.submit(Modifications.getInstance(index, diffs));
+            if (currDepth > depthThreshold || PROCESSORS < 3) {
+              modifications =
+                SAME_THREAD_EXECUTOR.submit(Modifications.getInstance(index,
+                  diffs));
             } else {
-              final ForkJoinTask<Modification> mods = Modifications.getInstance(index, diffs);
+              final ForkJoinTask<Modification> mods =
+                Modifications.getInstance(index, diffs);
               modifications = FORK_JOIN_POOL.submit(mods);
             }
           }
@@ -1000,7 +1066,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements Calla
           mModificationQueue.put(modifications);
           if (index + 1 < diffs.size()) {
             final DiffTuple currDiffCont = diffs.get(index + 1);
-            if (currDiffCont.getDiff() == EDiff.DELETED || currDiffCont.getDiff() == EDiff.MOVEDFROM
+            if (currDiffCont.getDiff() == EDiff.DELETED
+              || currDiffCont.getDiff() == EDiff.MOVEDFROM
               || currDiffCont.getDiff() == EDiff.REPLACEDOLD) {
               currDepth = currDiffCont.getDepth().getOldDepth();
             } else {

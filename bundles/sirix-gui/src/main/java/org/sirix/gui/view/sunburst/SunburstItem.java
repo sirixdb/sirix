@@ -502,11 +502,27 @@ public final class SunburstItem implements IVisualItem {
     mIndexToParent = pBuilder.mRelations.mIndexToParent;
     mDepth = pBuilder.mRelations.mDepth;
     mSubtract = pBuilder.mRelations.mSubtract;
-    mAngleStart = pBuilder.mAngleStart; // + 0.003f;
     mDiff = pBuilder.mDiff;
-    mAngleCenter = mAngleStart + pBuilder.mExtension / 2f;
-    mAngleEnd = mAngleStart + pBuilder.mExtension;// - 0.003f;
-    assert mAngleEnd > mAngleStart;
+    
+    if (pBuilder.mAngleStart > PConstants.TWO_PI) {
+      mAngleStart = PConstants.TWO_PI;
+    } else {
+      mAngleStart = pBuilder.mAngleStart; // + 0.003f;
+    }
+        
+    if ((mAngleStart + pBuilder.mExtension * 0.5f) > PConstants.TWO_PI) {
+      mAngleCenter = PConstants.TWO_PI;
+    } else {
+      mAngleCenter = mAngleStart + pBuilder.mExtension * 0.5f;
+    }
+    
+    if (mAngleStart + pBuilder.mExtension > PConstants.TWO_PI) {
+      mAngleEnd = PConstants.TWO_PI;
+    } else {
+      mAngleEnd = mAngleStart + pBuilder.mExtension; // - 0.003f;
+    }
+    
+    assert mAngleEnd >= mAngleStart;
     mAttributes = pBuilder.mAttributes;
     mNamespaces = pBuilder.mNamespaces;
     mOldKey = pBuilder.mOldKey;

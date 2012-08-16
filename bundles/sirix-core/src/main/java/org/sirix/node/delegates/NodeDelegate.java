@@ -159,7 +159,8 @@ public class NodeDelegate implements INode {
   @Override
   public String toString() {
     return Objects.toStringHelper(this).add("node key", mNodeKey).add(
-      "type key", mTypeKey).add("hash", mHash).toString();
+      "parent key", mParentKey).add("type key", mTypeKey).add("hash", mHash)
+      .toString();
   }
 
   @Override

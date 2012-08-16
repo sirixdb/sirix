@@ -523,4 +523,9 @@ final class PageReadTrx implements IPageReadTrx {
   public boolean isClosed() {
     return mClosed;
   }
+
+  @Override
+  public long getRevisionNumber() {
+    return mRootPage.getRevision();
+  }
 }

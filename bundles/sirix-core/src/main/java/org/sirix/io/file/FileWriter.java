@@ -53,7 +53,7 @@ import org.sirix.page.interfaces.IPage;
  */
 public final class FileWriter implements IWriter {
 
-  /** Random access mFile to work on. */
+  /** Random access to work on. */
   private final RandomAccessFile mFile;
 
   /** {@link FileReader} reference for this writer. */
@@ -101,7 +101,7 @@ public final class FileWriter implements IWriter {
 
       final byte[] writtenPage =
         new byte[decryptedPage.length + FileReader.OTHER_BEACON];
-      ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
+      final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
       buffer.putInt(decryptedPage.length);
       buffer.put(decryptedPage);
       buffer.position(0);

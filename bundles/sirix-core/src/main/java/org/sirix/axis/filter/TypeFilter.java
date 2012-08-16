@@ -27,6 +27,8 @@
 
 package org.sirix.axis.filter;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 
 /**
@@ -38,32 +40,32 @@ import org.sirix.api.INodeReadTrx;
  */
 public class TypeFilter extends AbsFilter {
 
+  /** Type information. */
   private final int mType;
 
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx
-   *          Transaction this filter is bound to.
-   * @param mType
-   *          Type to match
+   * @param pRtx
+   *          transaction this filter is bound to.
+   * @param pType
+   *          type to match
    */
-  public TypeFilter(final INodeReadTrx rtx, final int mType) {
-    super(rtx);
-    this.mType = mType;
+  public TypeFilter(final @Nonnull INodeReadTrx pRtx, final int pType) {
+    super(pRtx);
+    mType = pType;
   }
 
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param rtx
-   *          Transaction this filter is bound to.
-   * @param mTypeName
-   *          Name of the type to match
+   * @param pRtx
+   *          transaction this filter is bound to
+   * @param pTypeName
+   *          name of the type to match
    */
-  public TypeFilter(final INodeReadTrx rtx, final String mTypeName) {
-    this(rtx, rtx.keyForName(mTypeName));
-
+  public TypeFilter(final INodeReadTrx pRtx, final @Nonnull String pTypeName) {
+    this(pRtx, pRtx.keyForName(pTypeName));
   }
 
   @Override

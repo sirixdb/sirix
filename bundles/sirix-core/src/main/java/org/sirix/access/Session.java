@@ -55,6 +55,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.IPageReadTrx;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.api.ISession;
 import org.sirix.cache.PageContainer;
@@ -98,8 +99,11 @@ public final class Session implements ISession {
   /** Strong reference to uber page before the begin of a write transaction. */
   private UberPage mLastCommittedUberPage;
 
-  /** Remember all running transactions (both read and write). */
-  private final Map<Long, INodeReadTrx> mTransactionMap;
+  /** Remember all running node transactions (both read and write). */
+  private final Map<Long, INodeReadTrx> mNodeTrxMap;
+  
+  /** Remember all running page transactions (both read and write). */
+  private final Map<Long, IPageReadTrx> mPageTrxMap;
 
   /** Lock for blocking the commit. */
   protected final Lock mCommitLock;
@@ -113,8 +117,11 @@ public final class Session implements ISession {
   /** abstract factory for all interaction to the storage. */
   private final IStorage mFac;
 
-  /** Atomic counter for concurrent generation of transaction id. */
-  private final AtomicLong mTransactionIDCounter;
+  /** Atomic counter for concurrent generation of node transaction id. */
+  private final AtomicLong mNodeTrxIDCounter;
+  
+  /** Atomic counter for concurrent generation of page transaction id. */
+  private final AtomicLong mPageTrxIDCounter;
 
   /** Determines if session was closed. */
   private boolean mClosed;
@@ -137,11 +144,13 @@ public final class Session implements ISession {
     mDatabase = checkNotNull(pDatabase);
     mResourceConfig = checkNotNull(pResourceConf);
     mSessionConfig = checkNotNull(pSessionConf);
-    mTransactionMap = new ConcurrentHashMap<>();
+    mNodeTrxMap = new ConcurrentHashMap<>();
+    mPageTrxMap = new ConcurrentHashMap<>();
     mWriteTransactionStateMap = new ConcurrentHashMap<>();
     mSyncTransactionsReturns = new ConcurrentHashMap<>();
 
-    mTransactionIDCounter = new AtomicLong();
+    mNodeTrxIDCounter = new AtomicLong();
+    mPageTrxIDCounter = new AtomicLong();
     mCommitLock = new ReentrantLock(false);
 
     // Init session members.
@@ -183,12 +192,12 @@ public final class Session implements ISession {
 
     // Create new read transaction.
     final INodeReadTrx rtx =
-      new NodeReadTrx(this, mTransactionIDCounter.incrementAndGet(),
+      new NodeReadTrx(this, mNodeTrxIDCounter.incrementAndGet(),
         new PageReadTrx(this, mLastCommittedUberPage, pRevisionKey, mFac
           .getReader()));
 
     // Remember transaction for debugging and safe close.
-    if (mTransactionMap.put(rtx.getTransactionID(), rtx) != null) {
+    if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
       throw new TTUsageException(
         "ID generation is bogus because of duplicate ID.");
     }
@@ -222,19 +231,20 @@ public final class Session implements ISession {
       throw new TTThreadedException(exc);
     }
 
-    final long currentID = mTransactionIDCounter.incrementAndGet();
+    // Create new page write transaction (shares the same ID with the node write trx).
+    final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
     final long lastRev = mLastCommittedUberPage.getRevisionNumber();
     final IPageWriteTrx pageWtx =
-      createPageWriteTransaction(currentID, lastRev, lastRev);
+      createPageWriteTransaction(currentTrxID, lastRev, lastRev);
 
-    // Create new write transaction.
+    // Create new node write transaction.
     final INodeWriteTrx wtx =
-      new NodeWriteTrx(currentID, this, pageWtx, pMaxNodeCount, pTimeUnit,
+      new NodeWriteTrx(currentTrxID, this, pageWtx, pMaxNodeCount, pTimeUnit,
         pMaxTime);
 
-    // Remember transaction for debugging and safe close.
-    if (mTransactionMap.put(currentID, wtx) != null
-      || mWriteTransactionStateMap.put(currentID, pageWtx) != null) {
+    // Remember node transaction for debugging and safe close.
+    if (mNodeTrxMap.put(currentTrxID, wtx) != null
+      || mWriteTransactionStateMap.put(currentTrxID, pageWtx) != null) {
       throw new TTThreadedException(
         "ID generation is bogus because of duplicate ID.");
     }
@@ -273,18 +283,23 @@ public final class Session implements ISession {
   @Override
   public synchronized void close() throws AbsTTException {
     if (!mClosed) {
-      // Forcibly close all open transactions.
-      for (INodeReadTrx rtx : mTransactionMap.values()) {
+      // Forcibly close all open node transactions.
+      for (INodeReadTrx rtx : mNodeTrxMap.values()) {
         if (rtx instanceof INodeWriteTrx) {
           ((INodeWriteTrx)rtx).abort();
         }
         rtx.close();
         rtx = null;
       }
+      // Forcibly close all open page transactions.
+      for (IPageReadTrx rtx : mPageTrxMap.values()) {
+        rtx.close();
+        rtx = null;
+      }
 
       // Immediately release all ressources.
       mLastCommittedUberPage = null;
-      mTransactionMap.clear();
+      mNodeTrxMap.clear();
       mWriteTransactionStateMap.clear();
 
       mFac.close();
@@ -325,7 +340,7 @@ public final class Session implements ISession {
    */
   void closeWriteTransaction(final long pTransactionID) {
     // Purge transaction from internal state.
-    mTransactionMap.remove(pTransactionID);
+    mNodeTrxMap.remove(pTransactionID);
     
     // Removing the write from the own internal mapping
     mWriteTransactionStateMap.remove(pTransactionID);
@@ -342,7 +357,7 @@ public final class Session implements ISession {
    */
   void closeReadTransaction(@Nonnegative final long pTransactionID) {
     // Purge transaction from internal state.
-    mTransactionMap.remove(pTransactionID);
+    mNodeTrxMap.remove(pTransactionID);
     // Make new transactions available.
     mReadSemaphore.release();
   }
@@ -456,11 +471,45 @@ public final class Session implements ISession {
     assertAccess(pRev);
 
     return PathSummary.getInstance(new PageReadTrx(this,
-      mLastCommittedUberPage, pRev, mFac.getReader()));
+      mLastCommittedUberPage, pRev, mFac.getReader()), this);
   }
 
   @Override
   public PathSummary openPathSummary() throws AbsTTException {
     return openPathSummary(mLastCommittedUberPage.getRevisionNumber());
+  }
+
+  @Override
+  public IPageReadTrx beginPageReadTrx() throws AbsTTException {
+    return beginPageReadTrx(mLastCommittedUberPage.getRevisionNumber());
+  }
+
+  @Override
+  public synchronized IPageReadTrx beginPageReadTrx(@Nonnegative long pRev)
+    throws AbsTTException {
+    return new PageReadTrx(this, mLastCommittedUberPage, pRev, mFac
+      .getReader());
+  }
+
+  @Override
+  public IPageWriteTrx beginPageWriteTrx() throws AbsTTException {
+    return beginPageWriteTrx(mLastCommittedUberPage.getRevisionNumber());
+  }
+
+  @Override
+  public synchronized IPageWriteTrx beginPageWriteTrx(@Nonnegative long pRev)
+    throws AbsTTException {
+    final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
+    final long lastRev = mLastCommittedUberPage.getRevisionNumber();
+    final IPageWriteTrx pageWtx =
+      createPageWriteTransaction(currentPageTrxID, lastRev, lastRev);
+    
+    // Remember page transaction for debugging and safe close.
+    if (mPageTrxMap.put(currentPageTrxID, pageWtx) != null) {
+      throw new TTThreadedException(
+        "ID generation is bogus because of duplicate ID.");
+    }
+    
+    return pageWtx;
   }
 }

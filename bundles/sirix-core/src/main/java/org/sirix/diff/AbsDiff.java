@@ -77,42 +77,42 @@ abstract class AbsDiff extends AbsDiffObservable {
    * 
    * @see EHashKind
    */
-  private transient EHashKind mHashKind;
+  private EHashKind mHashKind;
 
   /**
    * Kind of difference.
    * 
    * @see EDiff
    */
-  private transient EDiff mDiff;
+  private EDiff mDiff;
 
   /** Diff kind. */
-  private transient EDiffOptimized mDiffKind;
+  private EDiffOptimized mDiffKind;
 
   /** {@link DepthCounter} instance. */
-  private transient DepthCounter mDepth;
+  private final DepthCounter mDepth;
 
   /** Key of "root" node in new revision. */
-  private transient long mRootKey;
+  private long mRootKey;
 
   /** Root key of old revision. */
-  private transient long mOldRootKey;
+  private final long mOldRootKey;
 
   /**
    * Determines if {@link INodeReadTrx} on newer revision moved to the node denoted by {@code mNewStartKey}.
    */
-  private transient boolean mNewRtxMoved;
+  private boolean mNewRtxMoved;
 
   /**
    * Determines if {@link INodeReadTrx} on older revision moved to the node denoted by {@code mOldStartKey}.
    */
-  private transient boolean mOldRtxMoved;
+  private boolean mOldRtxMoved;
 
   /** Determines if the GUI uses the algorithm or not. */
-  private transient boolean mIsGUI;
+  private boolean mIsGUI;
 
   /** Determines if it's the first diff-comparison. */
-  private transient boolean mIsFirst;
+  private boolean mIsFirst;
 
   /** {@link INodeReadTrx} on new revision. */
   private final INodeReadTrx mNewRtx;
