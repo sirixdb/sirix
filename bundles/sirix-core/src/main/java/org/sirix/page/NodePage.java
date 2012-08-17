@@ -41,7 +41,6 @@ import javax.annotation.Nonnull;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
 import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
