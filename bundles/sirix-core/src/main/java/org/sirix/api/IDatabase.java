@@ -83,6 +83,22 @@ public interface IDatabase extends AutoCloseable {
    */
   boolean createResource(@Nonnull ResourceConfiguration pResConf)
     throws TTIOException;
+  
+  /**
+   * Is the resource within this database existing?
+   * 
+   * @param pResourceName
+   *            resource to be checked
+   * @return {@code true}, if existing, {@code false} otherwise
+   */
+  boolean existsResource(@Nonnull String pResourceName);
+
+  /**
+   * Listing all resources within this database.
+   * 
+   * @return all resources
+   */
+  String[] listResources();
 
   /**
    * Getting the session associated within this database.

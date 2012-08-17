@@ -1,6 +1,8 @@
 package org.sirix.index.path;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import com.google.common.base.Objects;
+import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.base.Optional;
 
 import javax.annotation.Nonnegative;
@@ -20,24 +22,41 @@ import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.INodeBase;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.page.EPage;
+import org.sirix.page.NamePage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.IConstants;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.Util;
 
+/**
+ * Path summary organizing the path classes of a resource.
+ * 
+ * @author Johannes Lichtenberger, University of Konstanz
+ * 
+ */
 public class PathSummary implements INodeReadTrx {
 
   /** Strong reference to currently selected node. */
   private INode mCurrentNode;
 
+  /** Page reader. */
   private final IPageReadTrx mPageReadTrx;
 
+  /** {@link ISession} reference. */
   private final ISession mSession;
 
   /** Determines if path summary is closed or not. */
   private boolean mClosed;
 
+  /**
+   * Private constructor.
+   * 
+   * @param pPageReadTrx
+   *          page reader
+   * @param pSession
+   *          {@link ISession} reference
+   */
   private PathSummary(final @Nonnull IPageReadTrx pPageReadTrx,
     final @Nonnull ISession pSession) {
     mPageReadTrx = pPageReadTrx;
@@ -77,6 +96,11 @@ public class PathSummary implements INodeReadTrx {
     return mCurrentNode;
   }
 
+  /**
+   * Get a path node.
+   * 
+   * @return {@link PathNode} reference or null for the document root.
+   */
   public PathNode getPathNode() {
     assertNotClosed();
     if (mCurrentNode instanceof PathNode) {
@@ -377,13 +401,26 @@ public class PathSummary implements INodeReadTrx {
 
   @Override
   public Optional<IStructNode> getLastChild() {
-    // TODO Auto-generated method stub
     return null;
   }
 
   @Override
   public int getNameCount(@Nonnull String pName, @Nonnull EKind pKind) {
-    // TODO Auto-generated method stub
-    return 0;
+    return mPageReadTrx.getNameCount(NamePageHash.generateHashForString(pName),
+      pKind);
+  }
+
+  @Override
+  public String toString() {
+    final ToStringHelper helper = Objects.toStringHelper(this);
+
+    if (mCurrentNode instanceof PathNode) {
+      final PathNode node = (PathNode)mCurrentNode;
+      helper.add("QName", mPageReadTrx.getName(node.getNameKey(), node
+        .getPathKind()));
+    }
+
+    helper.add("node", mCurrentNode);
+    return helper.toString();
   }
 }

@@ -395,4 +395,22 @@ public final class Database implements IDatabase {
   public DatabaseConfiguration getDatabaseConfig() {
     return mDBConfig;
   }
+  
+  @Override
+  public boolean existsResource(final @Nonnull String pResourceName) {
+      final File resourceFile =
+          new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data.getFile().getName()),
+              pResourceName);
+      // if file is existing and folder is a tt-dataplace, delete it
+      if (resourceFile.exists() && DatabaseConfiguration.Paths.compareStructure(resourceFile) == 0) {
+          return true;
+      } else {
+          return false;
+      }
+  }
+
+  @Override
+  public String[] listResources() {
+      return DatabaseConfiguration.Paths.Data.getFile().list();
+  }
 }
