@@ -75,4 +75,9 @@ public class DeflateCompressor implements IByteHandler {
     final byte[] result = mOut.toByteArray();
     return result;
   }
+  
+  @Override
+  public IByteHandler getInstance() {
+    return new DeflateCompressor();
+  }
 }

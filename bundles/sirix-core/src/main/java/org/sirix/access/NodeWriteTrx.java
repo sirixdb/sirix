@@ -1815,7 +1815,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     getPageTransaction().close();
     mNodeRtx.setPageReadTransaction(null);
 
-    // Reset page transaction state to new uber page.
+    // Reset page transaction to new uber page.
     mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
       .createPageWriteTransaction(trxID, revNumber, revNumber));
 

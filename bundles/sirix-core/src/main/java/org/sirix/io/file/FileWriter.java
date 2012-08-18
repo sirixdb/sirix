@@ -40,6 +40,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IWriter;
+import org.sirix.io.bytepipe.IByteHandler;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.IPage;
@@ -68,13 +69,13 @@ public final class FileWriter implements IWriter {
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  public FileWriter(@Nonnull final File pStorage) throws TTIOException {
+  public FileWriter(final @Nonnull File pStorage, final @Nonnull IByteHandler pHandler) throws TTIOException {
     try {
       mFile = new RandomAccessFile(pStorage, "rw");
     } catch (final FileNotFoundException fileExc) {
       throw new TTIOException(fileExc);
     }
-    mReader = new FileReader(pStorage);
+    mReader = new FileReader(pStorage, pHandler);
   }
 
   /**

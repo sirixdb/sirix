@@ -38,6 +38,8 @@ import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
 import org.sirix.io.IWriter;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.bytepipe.IByteHandler;
 
 /**
  * Factory to provide File access as a backend.
@@ -48,13 +50,16 @@ import org.sirix.io.IWriter;
 public final class FileStorage implements IStorage {
 
   /** Buffer size. */
-  public static final int BUFFER_SIZE = 100_000;//32767;
-  
+  public static final int BUFFER_SIZE = 100_000;// 32767;
+
   /** File name. */
   private static final String FILENAME = "tt.tnk";
 
   /** Instance to storage. */
   private final File mFile;
+
+  /** Byte handler pipeline. */
+  private final ByteHandlePipeline mByteHandler;
 
   /**
    * Constructor.
@@ -62,18 +67,22 @@ public final class FileStorage implements IStorage {
    * @param pFile
    *          the location of the database
    */
-  public FileStorage(final @Nonnull File pFile) {
+  public FileStorage(final @Nonnull File pFile,
+    final @Nonnull ByteHandlePipeline pByteHandler) {
     mFile = checkNotNull(pFile);
+    mByteHandler = checkNotNull(pByteHandler);
   }
 
   @Override
   public IReader getReader() throws TTIOException {
-    return new FileReader(getConcreteStorage());
+    return new FileReader(getConcreteStorage(), new ByteHandlePipeline(
+      mByteHandler));
   }
 
   @Override
   public IWriter getWriter() throws TTIOException {
-    return new FileWriter(getConcreteStorage());
+    return new FileWriter(getConcreteStorage(), new ByteHandlePipeline(
+      mByteHandler));
   }
 
   @Override
@@ -87,8 +96,8 @@ public final class FileStorage implements IStorage {
    * @return the concrete storage for this database
    */
   private File getConcreteStorage() {
-    return new File(mFile, new StringBuilder(ResourceConfiguration.Paths.Data.getFile().getName()).append(
-      File.separator).append(FILENAME).toString());
+    return new File(mFile, new StringBuilder(ResourceConfiguration.Paths.Data
+      .getFile().getName()).append(File.separator).append(FILENAME).toString());
   }
 
   @Override
@@ -96,5 +105,10 @@ public final class FileStorage implements IStorage {
     final File file = getConcreteStorage();
     final boolean returnVal = file.length() > 0;
     return returnVal;
+  }
+
+  @Override
+  public IByteHandler getByteHandler() {
+    return mByteHandler;
   }
 }

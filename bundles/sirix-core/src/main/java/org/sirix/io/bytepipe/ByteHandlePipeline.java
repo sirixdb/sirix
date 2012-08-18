@@ -4,6 +4,7 @@
 package org.sirix.io.bytepipe;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import javax.annotation.Nonnull;
@@ -22,13 +23,26 @@ public final class ByteHandlePipeline implements IByteHandler {
   private final List<IByteHandler> mParts;
 
   /**
+   * Copy constructor.
+   * 
+   * @param pPipeline
+   *          pipeline to copy
+   */
+  public ByteHandlePipeline(final @Nonnull ByteHandlePipeline pPipeline) {
+    mParts = new ArrayList<>(pPipeline.mParts.size());
+    for (final IByteHandler handler : pPipeline.mParts) {
+      mParts.add(handler.getInstance());
+    }
+  }
+
+  /**
    * 
    * Constructor.
    * 
    * @param pParts
    *          to be stored, Order is important!
    */
-  public ByteHandlePipeline(final IByteHandler... pParts) {
+  public ByteHandlePipeline(final @Nonnull IByteHandler... pParts) {
     mParts = new ArrayList<>();
     for (final IByteHandler part : pParts) {
       mParts.add(part);
@@ -53,6 +67,20 @@ public final class ByteHandlePipeline implements IByteHandler {
       pipeData = mParts.get(i).deserialize(pipeData);
     }
     return pipeData;
+  }
+
+  /**
+   * Get byte handler components.
+   * 
+   * @return all components
+   */
+  public List<IByteHandler> getComponents() {
+    return Collections.unmodifiableList(mParts);
+  }
+
+  @Override
+  public IByteHandler getInstance() {
+    return new ByteHandlePipeline();
   }
 
 }

@@ -27,10 +27,11 @@
 package org.sirix.io;
 
 import org.sirix.exception.TTIOException;
+import org.sirix.io.bytepipe.IByteHandler;
 
 /**
- * Interface to generate access to the storage. The storage is flexible as long as {@link IReader} 
- * and {@link IWriter}-implementations are provided. Utility methods for common interaction with 
+ * Interface to generate access to the storage. The storage is flexible as long as {@link IReader} and
+ * {@link IWriter}-implementations are provided. Utility methods for common interaction with
  * the storage are provided via {@code EStorage}.
  * 
  * @author Sebastian Graf, University of Konstanz
@@ -73,4 +74,10 @@ public interface IStorage {
    */
   boolean exists() throws TTIOException;
 
+  /**
+   * Get the byte handler pipeline.
+   * 
+   * @return byte handler pipeline
+   */
+  IByteHandler getByteHandler();
 }

@@ -35,4 +35,11 @@ public interface IByteHandler {
    */
   byte[] deserialize(@Nonnull byte[] pToDeserialize)
     throws TTIOException;
+  
+  /**
+   * Method to retrieve a new instance.
+   * 
+   * @return new instance
+   */
+  IByteHandler getInstance();
 }

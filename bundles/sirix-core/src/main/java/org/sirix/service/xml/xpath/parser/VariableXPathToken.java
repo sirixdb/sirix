@@ -49,7 +49,7 @@ public final class VariableXPathToken implements IXPathToken {
    * 
    * @param mStr
    *          the content of the token
-   * @param mType
+   * @param mStorage
    *          the type of the token
    */
   public VariableXPathToken(final String paramStr, final TokenType paramType) {

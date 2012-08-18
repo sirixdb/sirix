@@ -31,6 +31,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.file.FileStorage;
 
 /**
@@ -44,15 +45,19 @@ import org.sirix.io.file.FileStorage;
 public enum EStorage {
   File {
     @Override
-    public IStorage getInstance(final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException {
-      return new FileStorage(pResourceConf.mPath);
+    public IStorage getInstance(
+      final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException {
+      return new FileStorage(pResourceConf.mPath, new ByteHandlePipeline(
+        pResourceConf.mByteHandler));
     }
   },
 
   BerkeleyDB {
     @Override
-    public IStorage getInstance(final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException {
-      return new BerkeleyStorage(pResourceConf.mPath);
+    public IStorage getInstance(
+      final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException {
+      return new BerkeleyStorage(pResourceConf.mPath, new ByteHandlePipeline(
+        pResourceConf.mByteHandler));
     }
   };
 
@@ -65,8 +70,8 @@ public enum EStorage {
    * @throws TTIOException
    *           if an IO-error occured
    */
-  public abstract IStorage getInstance(final @Nonnull ResourceConfiguration pResourceConf)
-    throws TTIOException;
+  public abstract IStorage getInstance(
+    final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException;
 
   /**
    * Factory method to retrieve suitable {@link IStorage} instances based upon
@@ -80,8 +85,8 @@ public enum EStorage {
    * @throws NullPointerException
    *           if {@code pResourceConf} is {@code null}
    */
-  public static final IStorage getStorage(final @Nonnull ResourceConfiguration pResourceConf)
-    throws TTIOException {
-    return pResourceConf.mType.getInstance(pResourceConf);
+  public static final IStorage getStorage(
+    final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException {
+    return pResourceConf.mStorage.getInstance(pResourceConf);
   }
 }

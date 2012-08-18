@@ -146,18 +146,18 @@ public final class PageWriteTrx implements IPageWriteTrx {
     }
 
     final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
-    final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
+//    final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
     prepareNodePage(nodePageKey, pPage);
 
-    INodeBase node = ((NodePage)mNodePageCon.getModified()).getNode(nodePageOffset);
+    INodeBase node = ((NodePage)mNodePageCon.getModified()).getNode(pNodeKey);
     if (node == null) {
       final INodeBase oldNode =
-        ((NodePage)mNodePageCon.getComplete()).getNode(nodePageOffset);
+        ((NodePage)mNodePageCon.getComplete()).getNode(pNodeKey);
       if (oldNode == null) {
         throw new TTIOException("Cannot retrieve node from cache!");
       }
       node = oldNode;
-      ((NodePage)mNodePageCon.getModified()).setNode(nodePageOffset, node);
+      ((NodePage)mNodePageCon.getModified()).setNode(node);
     }
 
     return node;
@@ -214,10 +214,10 @@ public final class PageWriteTrx implements IPageWriteTrx {
     }
 
     final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
-    final int nodePageOffset = mPageRtx.nodePageOffset(nodeKey);
+//    final int nodePageOffset = mPageRtx.nodePageOffset(nodeKey);
     prepareNodePage(nodePageKey, pPage);
     final NodePage page = (NodePage)mNodePageCon.getModified();
-    page.setNode(nodePageOffset, pNode);
+    page.setNode(pNode);
     finishNodeModification(pNode, pPage);
     return pNode;
   }
@@ -231,10 +231,12 @@ public final class PageWriteTrx implements IPageWriteTrx {
     final INode delNode =
       new DeletedNode(new NodeDelegate(pNode.getNodeKey(),
         pNode.getParentKey(), pNode.getHash()));
-    ((NodePage)mNodePageCon.getModified()).setNode(mPageRtx
-      .nodePageOffset(pNode.getNodeKey()), delNode);
-    ((NodePage)mNodePageCon.getComplete()).setNode(mPageRtx
-      .nodePageOffset(pNode.getNodeKey()), delNode);
+    ((NodePage)mNodePageCon.getModified()).setNode(//mPageRtx
+      delNode);
+//      .nodePageOffset(pNode.getNodeKey()), delNode);
+    ((NodePage)mNodePageCon.getComplete()).setNode(//mPageRtx
+//      .nodePageOffset(pNode.getNodeKey()), delNode);
+      delNode);
     finishNodeModification(pNode, pPage);
   }
 
@@ -245,7 +247,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
     checkNotNull(pPage);
     // Calculate page and node part for given nodeKey.
     final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
-    final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
+//    final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
 
     final PageContainer pageCont = getPageContainer(pPage, nodePageKey);
 
@@ -253,9 +255,9 @@ public final class PageWriteTrx implements IPageWriteTrx {
       return mPageRtx.getNode(pNodeKey, pPage);
     } else {
       INodeBase node =
-        ((NodePage)pageCont.getModified()).getNode(nodePageOffset);
+        ((NodePage)pageCont.getModified()).getNode(pNodeKey);
       if (node == null) {
-        node = ((NodePage)pageCont.getComplete()).getNode(nodePageOffset);
+        node = ((NodePage)pageCont.getComplete()).getNode(pNodeKey);
         return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));
       } else {
         return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));

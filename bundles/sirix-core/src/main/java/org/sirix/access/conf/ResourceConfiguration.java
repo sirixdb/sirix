@@ -29,9 +29,20 @@ package org.sirix.access.conf;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+import com.sleepycat.je.DatabaseConfig;
 
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
@@ -39,8 +50,13 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.EHashKind;
 import org.sirix.access.Session;
-import org.sirix.access.conf.ResourceConfiguration.Builder.EConsistency;
+import org.sirix.exception.TTIOException;
 import org.sirix.io.EStorage;
+import org.sirix.io.IStorage;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.bytepipe.Encryptor;
+import org.sirix.io.bytepipe.IByteHandler;
+import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.settings.ERevisioning;
 
 /**
@@ -54,10 +70,7 @@ import org.sirix.settings.ERevisioning;
  * 
  * @author Sebastian Graf, University of Konstanz
  */
-public final class ResourceConfiguration implements IConfigureSerializable {
-
-  /** For serialization. */
-  private static final long serialVersionUID = 1790483717305421672L;
+public final class ResourceConfiguration {
 
   /**
    * Paths for a {@link Session}. Each resource has the same folder layout.
@@ -66,10 +79,10 @@ public final class ResourceConfiguration implements IConfigureSerializable {
 
     /** Folder for storage of data. */
     Data(new File("data"), true),
-    
+
     /** Folder for transaction log. */
     TransactionLog(new File("log"), true),
-    
+
     /** File to store the resource settings. */
     ConfigBinary(new File("ressetting.obj"), false);
 
@@ -140,21 +153,23 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   // FIXED STANDARD FIELDS
   /** Standard storage. */
   public static final EStorage STORAGE = EStorage.File;
+
   /** Standard Versioning Approach. */
-  public static final ERevisioning VERSIONING = ERevisioning.DIFFERENTIAL;
+  public static final ERevisioning VERSIONING = ERevisioning.INCREMENTAL;
+
   /** Type of hashing. */
   public static final EHashKind HASHKIND = EHashKind.Rolling;
+
   /** Versions to restore. */
   public static final int VERSIONSTORESTORE = 3;
-  /** Folder for tmp-database. */
-  public static final String INTRINSICTEMP = "tmp";
+
   /** Indexes to use. */
   public static final Set<EIndexes> INDEXES = EnumSet.of(EIndexes.PATH);
   // END FIXED STANDARD FIELDS
 
   // MEMBERS FOR FIXED FIELDS
   /** Type of Storage (File, BerkeleyDB). */
-  public final EStorage mType;
+  public final EStorage mStorage;
 
   /** Kind of revisioning (Full, Incremental, Differential). */
   public final ERevisioning mRevisionKind;
@@ -165,12 +180,11 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   /** Number of revisions to restore a complete set of data. */
   public final int mRevisionsToRestore;
 
-  /** Determines consistency level. */
-  public final EConsistency mConsistency;
+  /** Byte handler pipeline. */
+  public final ByteHandlePipeline mByteHandler;
 
   /** Path for the resource to be associated. */
   public final File mPath;
-  // END MEMBERS FOR FIXED FIELDS
 
   /** DatabaseConfiguration for this {@link ResourceConfiguration}. */
   public final DatabaseConfiguration mDBConfig;
@@ -181,6 +195,8 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   /** Indexes to use. */
   public final Set<EIndexes> mIndexes;
 
+  // END MEMBERS FOR FIXED FIELDS
+
   /**
    * Convenience constructor using the standard settings.
    * 
@@ -188,14 +204,14 @@ public final class ResourceConfiguration implements IConfigureSerializable {
    *          {@link Builder} reference
    */
   private ResourceConfiguration(
-    @Nonnull final ResourceConfiguration.Builder pBuilder) {
-    mType = pBuilder.mType;
+    final @Nonnull ResourceConfiguration.Builder pBuilder) {
+    mStorage = pBuilder.mType;
+    mByteHandler = pBuilder.mByteHandler;
     mRevisionKind = pBuilder.mRevisionKind;
     mHashKind = pBuilder.mHashKind;
     mRevisionsToRestore = pBuilder.mRevisionsToRestore;
     mDBConfig = pBuilder.mDBConfig;
     mCompression = pBuilder.mCompression;
-    mConsistency = pBuilder.mConsistency;
     mIndexes = pBuilder.mIndexes;
     mPath =
       new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
@@ -204,7 +220,8 @@ public final class ResourceConfiguration implements IConfigureSerializable {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(mType, mRevisionKind, mHashKind, mPath, mDBConfig);
+    return Objects.hashCode(mStorage, mRevisionKind, mHashKind, mPath,
+      mDBConfig);
   }
 
   @Override
@@ -214,7 +231,7 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     }
     if (pObj instanceof ResourceConfiguration) {
       final ResourceConfiguration other = (ResourceConfiguration)pObj;
-      return Objects.equal(mType, other.mType)
+      return Objects.equal(mStorage, other.mStorage)
         && Objects.equal(mRevisionKind, other.mRevisionKind)
         && Objects.equal(mHashKind, other.mHashKind)
         && Objects.equal(mPath, other.mPath)
@@ -227,7 +244,7 @@ public final class ResourceConfiguration implements IConfigureSerializable {
   @Override
   public String toString() {
     return Objects.toStringHelper(this).add("Resource", mPath).add("Type",
-      mType).add("Revision", mRevisionKind).add("HashKind", mHashKind)
+      mStorage).add("Revision", mRevisionKind).add("HashKind", mHashKind)
       .toString();
   }
 
@@ -240,30 +257,180 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     return mPath;
   }
 
-  @Override
+  /**
+   * Get the configuration file.
+   * 
+   * @return configuration file
+   */
   public File getConfigFile() {
     return new File(mPath, Paths.ConfigBinary.getFile().getName());
+  }
+
+  /**
+   * JSON names.
+   */
+  private static final String[] JSONNAMES = {
+    "revisioning", "revisioningClass", "numbersOfRevisiontoRestore",
+    "byteHandlerClasses", "storageKind", "hashKind", "compression", "dbConfig"
+  };
+
+  /**
+   * Serialize the configuration.
+   * 
+   * @param pConfig
+   *          configuration to serialize
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  public static void serialize(final @Nonnull ResourceConfiguration pConfig)
+    throws TTIOException {
+    final File configFile = pConfig.getConfigFile();
+    try (final FileWriter fileWriter = new FileWriter(configFile);
+    final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
+      jsonWriter.beginObject();
+      // Versioning.
+      jsonWriter.name(JSONNAMES[0]);
+      jsonWriter.beginObject();
+      jsonWriter.name(JSONNAMES[1]).value(pConfig.mRevisionKind.name());
+      jsonWriter.name(JSONNAMES[2]).value(pConfig.mRevisionsToRestore);
+      jsonWriter.endObject();
+      // ByteHandlers.
+      final ByteHandlePipeline byteHandler = pConfig.mByteHandler;
+      jsonWriter.name(JSONNAMES[3]);
+      jsonWriter.beginArray();
+      for (final IByteHandler handler : byteHandler.getComponents()) {
+        jsonWriter.value(handler.getClass().getName());
+      }
+      jsonWriter.endArray();
+      // Storage type.
+      jsonWriter.name(JSONNAMES[4]).value(pConfig.mStorage.name());
+      // Hashing type.
+      jsonWriter.name(JSONNAMES[5]).value(pConfig.mHashKind.name());
+      // Text compression.
+      jsonWriter.name(JSONNAMES[6]).value(pConfig.mCompression);
+      // Indexes.
+      jsonWriter.name(JSONNAMES[7]);
+      jsonWriter.beginArray();
+      for (final EIndexes index : pConfig.mIndexes) {
+        jsonWriter.value(index.name());
+      }
+      jsonWriter.endArray();
+      jsonWriter.endObject();
+    } catch (final IOException e) {
+      throw new TTIOException(e);
+    }
+
+    // Database config.
+    DatabaseConfiguration.serialize(pConfig.mDBConfig);
+  }
+
+  /**
+   * Deserializing a Resourceconfiguration from a JSON-file from the persistent storage.
+   * The order is important and the reader is passed through the objects as visitor.
+   * 
+   * @param pFile
+   *          where the resource lies in.
+   * @return a complete {@link ResourceConfiguration} instance
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  public static ResourceConfiguration deserialize(final @Nonnull File pFile)
+    throws TTIOException {
+    try {
+      final File configFiler =
+        new File(pFile, Paths.ConfigBinary.getFile().getName());
+      final FileReader fileReader = new FileReader(configFiler);
+      final JsonReader jsonReader = new JsonReader(fileReader);
+      jsonReader.beginObject();
+      // Versioning.
+      assert jsonReader.nextName().equals(JSONNAMES[0]);
+      jsonReader.beginObject();
+      assert jsonReader.nextName().equals(JSONNAMES[1]);
+      final ERevisioning revisioning =
+        ERevisioning.valueOf(jsonReader.nextString());
+      assert jsonReader.nextName().equals(JSONNAMES[2]);
+      final int revisionToRestore = jsonReader.nextInt();
+      jsonReader.endObject();
+      // ByteHandlers.
+      final List<IByteHandler> handlerList = new ArrayList<>();
+      assert jsonReader.nextName().equals(JSONNAMES[3]);
+      jsonReader.beginArray();
+      while (jsonReader.hasNext()) {
+        final Class<?> handlerClazz = Class.forName(jsonReader.nextString());
+        final Constructor<?> handlerCons = handlerClazz.getConstructors()[0];
+        handlerList.add((IByteHandler)handlerCons.newInstance());
+      }
+      jsonReader.endArray();
+      final ByteHandlePipeline pipeline =
+        new ByteHandlePipeline(handlerList.toArray(new IByteHandler[handlerList
+          .size()]));
+      // Storage type.
+      assert jsonReader.nextName().equals(JSONNAMES[4]);
+      final EStorage storage = EStorage.valueOf(jsonReader.nextString());
+      // Hashing type.
+      assert jsonReader.nextName().equals(JSONNAMES[5]);
+      final EHashKind hashing = EHashKind.valueOf(jsonReader.nextString());
+      // Text compression.
+      assert jsonReader.nextName().equals(JSONNAMES[6]);
+      final boolean compression = jsonReader.nextBoolean();
+      // Indexes.
+      assert jsonReader.nextName().equals(JSONNAMES[7]);
+      final List<EIndexes> listIndexes = new ArrayList<>();
+      jsonReader.beginArray();
+      while (jsonReader.hasNext()) {
+        listIndexes.add(EIndexes.valueOf(jsonReader.nextString()));
+      }
+      final Set<EIndexes> indexes = EnumSet.copyOf(listIndexes);
+      jsonReader.endArray();
+      jsonReader.endObject();
+      jsonReader.close();
+      fileReader.close();
+
+      // Deserialize database config.
+      final DatabaseConfiguration dbConfig =
+        DatabaseConfiguration
+          .deserialize(pFile.getParentFile().getParentFile());
+
+      // Builder.
+      final ResourceConfiguration.Builder builder =
+        new ResourceConfiguration.Builder(pFile.getName(), dbConfig);
+      builder.setByteHandlerPipeline(pipeline);
+      builder.setHashKind(hashing);
+      builder.setIndexes(indexes);
+      builder.setRevisionKind(revisioning);
+      builder.setRevisionsToRestore(revisionToRestore);
+      builder.setType(storage);
+      builder.useCompression(compression);
+
+      // Deserialized instance.
+      return new ResourceConfiguration(builder);
+    } catch (FileNotFoundException fileExec) {
+      throw new TTIOException(fileExec);
+    } catch (IOException ioexc) {
+      throw new TTIOException(ioexc);
+    } catch (ClassNotFoundException e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    } catch (IllegalArgumentException e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    } catch (InstantiationException e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    } catch (IllegalAccessException e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    } catch (InvocationTargetException e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    }
+    return null;
   }
 
   /**
    * Builder class for generating new {@link ResourceConfiguration} instance.
    */
   public static final class Builder {
-
-    /** Consistency level. */
-    public enum EConsistency {
-      /**
-       * Eventual consistency (currently descendantCount and hashvalues for the
-       * first revision (0) are computed after the first commit().
-       */
-      EVENTUAL,
-
-      /**
-       * All modifications are done on the fly (descendantCount and hashes are
-       * adapted right after an edit-operation has modified something).
-       */
-      FULL
-    }
 
     /** Type of Storage (File, Berkeley). */
     private EStorage mType = STORAGE;
@@ -286,11 +453,12 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     /** Determines if text-compression should be used or not (default is true). */
     private boolean mCompression = true;
 
-    /** Determines consistency level. */
-    private EConsistency mConsistency = EConsistency.FULL;
-
     /** Indexes to use. */
     private Set<EIndexes> mIndexes = INDEXES;
+
+    /** Byte handler pipeline. */
+    private ByteHandlePipeline mByteHandler = new ByteHandlePipeline(
+      new Encryptor(), new SnappyCompressor());
 
     /**
      * Constructor, setting the mandatory fields.
@@ -355,6 +523,19 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     }
 
     /**
+     * Set the byte handler pipeline.
+     * 
+     * @param pByteHandler
+     *          byte handler pipeline
+     * @return reference to the builder object
+     */
+    public Builder setByteHandlerPipeline(
+      final @Nonnull ByteHandlePipeline pByteHandler) {
+      mByteHandler = checkNotNull(pByteHandler);
+      return this;
+    }
+
+    /**
      * Set the number of revisions to restore after the last full dump.
      * 
      * @param pRevToRestore
@@ -364,18 +545,6 @@ public final class ResourceConfiguration implements IConfigureSerializable {
     public Builder setRevisionsToRestore(@Nonnegative final int pRevToRestore) {
       checkArgument(pRevToRestore > 0, "pRevisionsToRestore must be > 0!");
       mRevisionsToRestore = pRevToRestore;
-      return this;
-    }
-
-    /**
-     * Consistency level.
-     * 
-     * @param pConsistency
-     *          the consistency level
-     * @return reference to the builder object
-     */
-    public Builder setConsistency(@Nonnull final EConsistency pConsistency) {
-      mConsistency = checkNotNull(pConsistency);
       return this;
     }
 

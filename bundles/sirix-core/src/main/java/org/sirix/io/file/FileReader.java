@@ -27,6 +27,8 @@
 
 package org.sirix.io.file;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteStreams;
 
@@ -77,7 +79,7 @@ public final class FileReader implements IReader {
    * @throws TTIOException
    *           if something bad happens
    */
-  public FileReader(@Nonnull final File pConcreteStorage) throws TTIOException {
+  public FileReader(final @Nonnull File pConcreteStorage, final @Nonnull IByteHandler pHandler) throws TTIOException {
     try {
       if (!pConcreteStorage.exists()) {
         pConcreteStorage.getParentFile().mkdirs();
@@ -85,7 +87,7 @@ public final class FileReader implements IReader {
       }
 
       mFile = new RandomAccessFile(pConcreteStorage, "r");
-      mByteHandler = new ByteHandlePipeline(new Encryptor(), new SnappyCompressor());
+      mByteHandler = checkNotNull(pHandler);
     } catch (final IOException e) {
       throw new TTIOException(e);
     }
@@ -94,8 +96,8 @@ public final class FileReader implements IReader {
   /**
    * Read page from storage.
    * 
-   * @param pageReference
-   *          page reference to read
+   * @param pKey
+   *          key of page reference to read
    * @return byte array reader to read bytes from
    * @throws TTIOException
    *           if there was an error during reading.

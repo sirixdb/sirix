@@ -209,10 +209,10 @@ public final class TestHelper {
         valDel = new ValNodeDelegate(nodeDel, new byte[] {
           0, 1, 2, 3, 4
         }, false);
-        page.setNode(i, new AttributeNode(nodeDel, nameDel, valDel));
+        page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
         break;
       case 1:
-        page.setNode(i, new DeletedNode(new NodeDelegate(random.nextInt(10000),
+        page.setNode(new DeletedNode(new NodeDelegate(random.nextInt(10000),
           random.nextInt(10000), random.nextInt(10000))));
         break;
       case 2:
@@ -226,7 +226,7 @@ public final class TestHelper {
           new StructNodeDelegate(nodeDel, random.nextInt(10000), random
             .nextInt(10000), random.nextInt(10000), random.nextInt(10000),
             random.nextInt(10000));
-        page.setNode(i, new ElementNode(nodeDel, strucDel, nameDel,
+        page.setNode(new ElementNode(nodeDel, strucDel, nameDel,
           new ArrayList<Long>(), HashBiMap.<Integer, Long> create(),
           new ArrayList<Long>()));
         break;
@@ -237,7 +237,7 @@ public final class TestHelper {
         nameDel =
           new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(),
             pathNodeKey++);
-        page.setNode(i, new NamespaceNode(nodeDel, nameDel));
+        page.setNode(new NamespaceNode(nodeDel, nameDel));
         break;
       case 4:
         nodeDel =
@@ -247,7 +247,7 @@ public final class TestHelper {
           new StructNodeDelegate(nodeDel, random.nextInt(10000), random
             .nextInt(10000), random.nextInt(10000), random.nextInt(10000),
             random.nextInt(10000));
-        page.setNode(i, new DocumentRootNode(nodeDel, strucDel));
+        page.setNode(new DocumentRootNode(nodeDel, strucDel));
         break;
       case 5:
         nodeDel =
@@ -260,7 +260,7 @@ public final class TestHelper {
           new StructNodeDelegate(nodeDel, random.nextInt(10000), random
             .nextInt(10000), random.nextInt(10000), random.nextInt(10000),
             random.nextInt(10000));
-        page.setNode(i, new TextNode(nodeDel, valDel, strucDel));
+        page.setNode(new TextNode(nodeDel, valDel, strucDel));
         break;
       }
 

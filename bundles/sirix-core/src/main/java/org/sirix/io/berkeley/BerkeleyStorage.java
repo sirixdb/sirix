@@ -49,11 +49,12 @@ import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
 import org.sirix.io.IWriter;
 import org.sirix.io.berkeley.binding.PageBinding;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.bytepipe.IByteHandler;
 import org.sirix.page.delegates.PageDelegate;
 
 /**
- * Factory class to build up {@link IReader}/{@link IWriter} instances for the
- * sirix Framework.
+ * Factory class to build up {@link IReader}/{@link IWriter} instances for Sirix.
  * 
  * After all this class is implemented as a Singleton to hold one {@link BerkeleyStorage} per
  * {@link SessionConfiguration}.
@@ -64,10 +65,11 @@ import org.sirix.page.delegates.PageDelegate;
 public final class BerkeleyStorage implements IStorage {
 
   /** Binding for {@link PageDelegate}. */
-  public static final PageBinding PAGE_VAL_B = new PageBinding();
+  public final PageBinding mPageBinding;
 
   /** Binding for {@link Long}. */
-  public static final TupleBinding<Long> DATAINFO_VAL_B = TupleBinding.getPrimitiveBinding(Long.class);
+  public static final TupleBinding<Long> DATAINFO_VAL_B = TupleBinding
+    .getPrimitiveBinding(Long.class);
 
   /**
    * Name for the database.
@@ -84,6 +86,9 @@ public final class BerkeleyStorage implements IStorage {
    */
   private final Database mDatabase;
 
+  /** Byte handler pipeline. */
+  private final ByteHandlePipeline mByteHandler;
+
   /**
    * Constructor.
    * 
@@ -98,17 +103,24 @@ public final class BerkeleyStorage implements IStorage {
    * @throws NullPointerException
    *           if {@code pFile} is {@code null}
    */
-  public BerkeleyStorage(@Nonnull final File pFile) throws TTIOException {
-    final File repoFile = new File(checkNotNull(pFile), ResourceConfiguration.Paths.Data.getFile().getName());
+  public BerkeleyStorage(final @Nonnull File pFile,
+    final @Nonnull ByteHandlePipeline pHandler) throws TTIOException {
+    final File repoFile =
+      new File(checkNotNull(pFile), ResourceConfiguration.Paths.Data.getFile()
+        .getName());
     if (!repoFile.exists()) {
       repoFile.mkdirs();
     }
+
+    mByteHandler = checkNotNull(pHandler);
+    mPageBinding = new PageBinding(mByteHandler);
 
     final DatabaseConfig conf = generateDBConf();
     final EnvironmentConfig config = generateEnvConf();
 
     if (repoFile.listFiles().length == 0
-      || (repoFile.listFiles().length == 1 && "tt.tnk".equals(repoFile.listFiles()[0].getName()))) {
+      || (repoFile.listFiles().length == 1 && "tt.tnk".equals(repoFile
+        .listFiles()[0].getName()))) {
       conf.setAllowCreate(true);
       config.setAllowCreate(true);
     }
@@ -125,7 +137,7 @@ public final class BerkeleyStorage implements IStorage {
   @Override
   public IReader getReader() throws TTIOException {
     try {
-      return new BerkeleyReader(mEnv, mDatabase);
+      return new BerkeleyReader(mEnv, mDatabase, new PageBinding(mPageBinding));
     } catch (final DatabaseException exc) {
       throw new TTIOException(exc);
     }
@@ -133,7 +145,7 @@ public final class BerkeleyStorage implements IStorage {
 
   @Override
   public IWriter getWriter() throws TTIOException {
-    return new BerkeleyWriter(mEnv, mDatabase);
+    return new BerkeleyWriter(mEnv, mDatabase, new PageBinding(mPageBinding));
   }
 
   @Override
@@ -152,10 +164,11 @@ public final class BerkeleyStorage implements IStorage {
     final DatabaseEntry keyEntry = new DatabaseEntry();
     boolean returnVal = false;
     try {
-      final IReader reader = new BerkeleyReader(mEnv, mDatabase);
+      final IReader reader = new BerkeleyReader(mEnv, mDatabase, mPageBinding);
       TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
 
-      final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
+      final OperationStatus status =
+        mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
       if (status == OperationStatus.SUCCESS) {
         returnVal = true;
       }
@@ -189,6 +202,20 @@ public final class BerkeleyStorage implements IStorage {
     conf.setTransactional(true);
     conf.setKeyPrefixing(true);
     return conf;
+  }
+
+  @Override
+  public IByteHandler getByteHandler() {
+    return mByteHandler;
+  }
+
+  /**
+   * Get the page binding.
+   * 
+   * @return page binding
+   */
+  public PageBinding getPageBinding() {
+    return mPageBinding;
   }
 
 }

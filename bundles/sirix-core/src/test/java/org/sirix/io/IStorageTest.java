@@ -39,7 +39,10 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.io.bytepipe.IByteHandler;
+import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.io.file.FileStorage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
@@ -117,13 +120,15 @@ public class IStorageTest {
    */
   @DataProvider(name = "instantiateStorages")
   public Object[][] instantiateStorages() throws TTIOException {
+    final ByteHandlePipeline byteHandler =
+      new ByteHandlePipeline(new Encryptor(), new SnappyCompressor());
     Object[][] returnVal =
       {
         {
           IStorage.class,
           new IStorage[] {
-            new FileStorage(TestHelper.PATHS.PATH1.getFile()),
-            new BerkeleyStorage(TestHelper.PATHS.PATH1.getFile())
+            new FileStorage(TestHelper.PATHS.PATH1.getFile(), byteHandler),
+            new BerkeleyStorage(TestHelper.PATHS.PATH1.getFile(), byteHandler)
           }
         }
       };

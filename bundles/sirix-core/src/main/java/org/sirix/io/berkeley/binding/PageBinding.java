@@ -27,19 +27,17 @@
 
 package org.sirix.io.berkeley.binding;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
 
-import javax.annotation.Nullable;
+import javax.annotation.Nonnull;
 
 import org.sirix.exception.TTIOException;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.bytepipe.Encryptor;
-import org.sirix.io.bytepipe.IByteHandler;
-import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
@@ -58,20 +56,28 @@ public final class PageBinding extends TupleBinding<IPage> {
   /** Logger. */
   private static final Logger LOGGER = LoggerFactory
     .getLogger(PageBinding.class);
-  
-  /** {@link IByteHandler} implementation. */
-  private final IByteHandler mByteHandler;
+
+  /** {@link ByteHandlePipeline} reference. */
+  private final ByteHandlePipeline mByteHandler;
+
+  /**
+   * Copy constructor.
+   * 
+   * @param pPageBinding
+   *          page binding
+   */
+  public PageBinding(final @Nonnull PageBinding pPageBinding) {
+    mByteHandler = new ByteHandlePipeline(pPageBinding.mByteHandler);
+  }
 
   /**
    * Constructor.
+   * 
+   * @param pByteHandler
+   *          byte handler pipleine
    */
-  public PageBinding() {
-    try {
-      mByteHandler =
-        new ByteHandlePipeline(new Encryptor(), new SnappyCompressor());
-    } catch (final TTIOException e) {
-      throw new RuntimeException(e);
-    }
+  public PageBinding(final @Nonnull ByteHandlePipeline pByteHandler) {
+    mByteHandler = checkNotNull(pByteHandler);
   }
 
   @Override

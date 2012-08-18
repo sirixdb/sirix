@@ -29,27 +29,31 @@ package org.sirix.access.conf;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+
+import org.sirix.exception.TTIOException;
 
 /**
  * <h1>Database Configuration</h1>
  * 
  * <p>
  * Represents a configuration of a database. Includes all settings which have to be made when it comes to the
- * creation of the database. Since the settings are persisted after creation, it must contain a link to the
- * file defined by the interface {@link IConfigureSerializable}.
+ * creation of the database.
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz
  */
-public final class DatabaseConfiguration implements IConfigureSerializable {
-
-  /** For serialization. */
-  private static final long serialVersionUID = -5005030622296323912L;
+public final class DatabaseConfiguration {
 
   /**
    * Paths for a {@link org.access.Database}. Each {@link org.access.Database} has the same folder.layout.
@@ -175,8 +179,57 @@ public final class DatabaseConfiguration implements IConfigureSerializable {
     return Objects.hashCode(mFile, mBinaryVersion);
   }
 
-  @Override
+  /**
+   * Get the configuration file.
+   * 
+   * @return configuration file
+   */
   public File getConfigFile() {
     return new File(mFile, Paths.ConfigBinary.getFile().getName());
+  }
+
+  /**
+   * Serializing a {@link DatabaseConfiguration} to a json file.
+   * 
+   * @param pConfig
+   *          to be serialized
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  public static void serialize(final @Nonnull DatabaseConfiguration pConfig)
+    throws TTIOException {
+    try (final FileWriter fileWriter =
+      new FileWriter(pConfig.getConfigFile());
+    final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
+      jsonWriter.beginObject();
+      jsonWriter.name("file").value(pConfig.mFile.getAbsolutePath());
+      jsonWriter.endObject();
+    } catch (final IOException e) {
+      throw new TTIOException(e);
+    }
+  }
+
+  /**
+   * Generate a DatabaseConfiguration out of a file.
+   * 
+   * @param pFile
+   *          where the DatabaseConfiguration lies in as json
+   * @return a new {@link DatabaseConfiguration} class
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  public static DatabaseConfiguration deserialize(final @Nonnull File pFile)
+    throws TTIOException {
+    try (final FileReader fileReader =
+      new FileReader(new File(pFile, Paths.ConfigBinary.getFile().getName()));
+    final JsonReader jsonReader = new JsonReader(fileReader);) {
+      jsonReader.beginObject();
+      assert jsonReader.nextName().equals("file");
+      File file = new File(jsonReader.nextString());
+      jsonReader.endObject();
+      return new DatabaseConfiguration(file);
+    } catch (final IOException e) {
+      throw new TTIOException(e);
+    }
   }
 }

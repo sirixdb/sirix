@@ -168,7 +168,7 @@ final class PageReadTrx implements IPageReadTrx {
     assertNotClosed();
 
     final long nodePageKey = nodePageKey(pNodeKey);
-    final int nodePageOffset = nodePageOffset(pNodeKey);
+//    final int nodePageOffset = nodePageOffset(pNodeKey);
 
     PageContainer cont;
     switch (pPage) {
@@ -190,7 +190,7 @@ final class PageReadTrx implements IPageReadTrx {
     }
 
     // If nodePage is a weak one, moveto is not cached.
-    final INodeBase retVal = ((NodePage)cont.getComplete()).getNode(nodePageOffset);
+    final INodeBase retVal = ((NodePage)cont.getComplete()).getNode(pNodeKey);
     return Optional.fromNullable(checkItemIfDeleted(retVal));
   }
 
@@ -465,19 +465,19 @@ final class PageReadTrx implements IPageReadTrx {
     return pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT;
   }
 
-  /**
-   * Calculate node page offset for a given node key.
-   * 
-   * @param pNodeKey
-   *          node key to find offset for
-   * @return offset into node page
-   */
-  final int nodePageOffset(@Nonnegative final long pNodeKey) {
-    checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
-    final long shift =
-      ((pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT) << IConstants.NDP_NODE_COUNT_EXPONENT);
-    return (int)(pNodeKey - shift);
-  }
+//  /**
+//   * Calculate node page offset for a given node key.
+//   * 
+//   * @param pNodeKey
+//   *          node key to find offset for
+//   * @return offset into node page
+//   */
+//  final int nodePageOffset(@Nonnegative final long pNodeKey) {
+//    checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
+//    final long shift =
+//      ((pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT) << IConstants.NDP_NODE_COUNT_EXPONENT);
+//    return (int)(pNodeKey - shift);
+//  }
 
   @Override
   public RevisionRootPage getActualRevisionRootPage() throws TTIOException {

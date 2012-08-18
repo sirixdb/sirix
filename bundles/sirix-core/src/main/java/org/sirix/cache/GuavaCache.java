@@ -73,7 +73,7 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
     builder.removalListener(removalListener);
     mCache = builder.build(new CacheLoader<Tuple, PageContainer>() {
       @Override
-      public PageContainer load(final Tuple key) throws TTIOException {
+      public PageContainer load(final @Nullable Tuple key) throws TTIOException {
         if (key == null) {
           return PageContainer.EMPTY_INSTANCE;
         }

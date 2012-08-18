@@ -27,10 +27,13 @@
 
 package org.sirix.settings;
 
+import java.util.Map.Entry;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.cache.PageContainer;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.NodePage;
 
 /**
@@ -51,14 +54,6 @@ public enum ERevisioning {
     public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
       @Nonnegative final int pRevToRestore) {
       assert pPages.length == 1 : "Only one version of the page!";
-//      final long nodePageKey = pPages[0].getNodePageKey();
-//      final NodePage returnVal =
-//        new NodePage(nodePageKey, pPages[0].getRevision());
-//
-//      for (int i = 0; i < pPages[0].getNodes().length; i++) {
-//        returnVal.setNode(i, pPages[0].getNode(i));
-//      }
-
       return pPages[0];
     }
 
@@ -73,15 +68,12 @@ public enum ERevisioning {
           new NodePage(nodePageKey, pPages[0].getRevision() + 1)
         };
 
-      for (int i = 0; i < pPages[0].getNodes().length; i++) {
-        returnVal[0].setNode(i, pPages[0].getNode(i));
-        if (pPages[0].getNode(i) != null) {
-          returnVal[1].setNode(i, pPages[0].getNode(i));
-        }
+      for (final INodeBase nodes : pPages[0].getNodes().values()) {
+        returnVal[0].setNode(nodes);
+        returnVal[1].setNode(nodes);
       }
 
-      final PageContainer cont =
-        new PageContainer(returnVal[0], returnVal[1]);
+      final PageContainer cont = new PageContainer(returnVal[0], returnVal[1]);
       return cont;
     }
   },
@@ -101,20 +93,15 @@ public enum ERevisioning {
       final NodePage latest = pPages[0];
       NodePage fullDump = pPages.length == 1 ? pPages[0] : pPages[1];
 
-//      for (int i = 1; i < pPages.length; i++) {
-//        if (pPages[i].getRevision() % pRevToRestore == 0) {
-//          referencePage = pPages[i];
-//          break;
-//        }
-//      }
       assert latest.getNodePageKey() == nodePageKey;
       assert fullDump.getNodePageKey() == nodePageKey;
-      for (int i = 0; i < fullDump.getNodes().length; i++) {
-        if (latest.getNode(i) != null) {
-          returnVal.setNode(i, latest.getNode(i));
-        } else if (fullDump.getNode(i) != null){
-          returnVal.setNode(i, fullDump.getNode(i));
-        }
+
+      for (final INodeBase node : fullDump.getNodes().values()) {
+        returnVal.setNode(node);
+      }
+
+      for (final INodeBase node : latest.getNodes().values()) {
+        returnVal.setNode(node);
       }
       return returnVal;
     }
@@ -132,34 +119,23 @@ public enum ERevisioning {
 
       final NodePage latest = pPages[0];
       NodePage fullDump = pPages.length == 1 ? pPages[0] : pPages[1];
-//      if (pPages.length >= pRevToRestore + 1) {
-//        fullDump = pPages[pRevToRestore];
-//      }
-//      for (int i = 1; i < pPages.length; i++) {
-//        if (pPages[i].getRevision() % pRevToRestore == 0) {
-//          fullDump = pPages[i];
-//          break;
-//        }
-//      }
+      
+      for (final INodeBase node : fullDump.getNodes().values()) {
+        returnVal[0].setNode(node);
 
-      // iterate through all nodes
-      for (int j = 0; j < returnVal[0].getNodes().length; j++) {
-        if (latest.getNode(j) != null) {
-          returnVal[0].setNode(j, latest.getNode(j));
-          returnVal[1].setNode(j, latest.getNode(j));
-        } else {
-          if (fullDump.getNode(j) != null) {
-            returnVal[0].setNode(j, fullDump.getNode(j));
-            if ((latest.getRevision() + 1) % pRevToRestore == 0) {
-              // Fulldump.
-              returnVal[1].setNode(j, fullDump.getNode(j));
-            }
-          }
+        if ((latest.getRevision() + 1) % pRevToRestore == 0) {
+          // Fulldump.
+          returnVal[1].setNode(node);
         }
       }
 
-      final PageContainer cont =
-        new PageContainer(returnVal[0], returnVal[1]);
+      // iterate through all nodes
+      for (final INodeBase node : latest.getNodes().values()) {
+        returnVal[0].setNode(node);
+        returnVal[1].setNode(node);
+      }
+
+      final PageContainer cont = new PageContainer(returnVal[0], returnVal[1]);
       return cont;
     }
   },
@@ -176,14 +152,16 @@ public enum ERevisioning {
       final long nodePageKey = pPages[0].getNodePageKey();
       final NodePage returnVal =
         new NodePage(nodePageKey, pPages[0].getRevision());
+
       for (final NodePage page : pPages) {
         assert page.getNodePageKey() == nodePageKey;
-        for (int i = 0, length = page.getNodes().length; i < length; i++) {
-          if (page.getNode(i) != null && returnVal.getNode(i) == null) {
-            returnVal.setNode(i, page.getNode(i));
+        for (final Entry<Long, INodeBase> node : page.getNodes().entrySet()) {
+          final long nodeKey = node.getKey();
+          if (returnVal.getNode(nodeKey) == null) {
+            returnVal.setNode(node.getValue());
           }
         }
-        
+
         if (page.getRevision() % pRevToRestore == 0) {
           break;
         }
@@ -204,24 +182,26 @@ public enum ERevisioning {
 
       for (final NodePage page : pPages) {
         assert page.getNodePageKey() == nodePageKey;
-        for (int i = 0, length = page.getNodes().length; i < length; i++) {
-          // Caching the complete page.
-          if (page.getNode(i) != null && returnVal[0].getNode(i) == null) {
-            returnVal[0].setNode(i, page.getNode(i));
 
-            if (returnVal[0].getRevision() % pRevToRestore == 0) {
-              returnVal[1].setNode(i, page.getNode(i));
+        for (final Entry<Long, INodeBase> node : page.getNodes().entrySet()) {
+          // Caching the complete page.
+          final long nodeKey = node.getKey();
+          if (node != null && returnVal[0].getNode(nodeKey) == null) {
+            returnVal[0].setNode(node.getValue());
+
+            if (returnVal[1].getNode(node.getKey()) == null
+              && returnVal[0].getRevision() % pRevToRestore == 0) {
+              returnVal[1].setNode(node.getValue());
             }
           }
         }
       }
 
-      final PageContainer cont =
-        new PageContainer(returnVal[0], returnVal[1]);
+      final PageContainer cont = new PageContainer(returnVal[0], returnVal[1]);
       return cont;
     }
   };
-  
+
   /**
    * Method to reconstruct a complete {@link NodePage} with the help of partly filled
    * pages plus a revision-delta which determines the necessary steps back.

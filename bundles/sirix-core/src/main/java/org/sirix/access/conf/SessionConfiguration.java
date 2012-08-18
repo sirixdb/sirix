@@ -31,8 +31,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 
+import java.security.Key;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.crypto.spec.SecretKeySpec;
 
 import org.sirix.access.Database;
 import org.sirix.access.Session;
@@ -50,12 +53,16 @@ import org.sirix.access.Session;
 public final class SessionConfiguration {
 
   // STATIC STANDARD FIELDS
+
   /** Number of concurrent exclusive write transactions. */
   public static final int MAX_WRITE_TRANSACTIONS = 1;
+
   /** Number of concurrent shared read transactions. */
   public static final int MAX_READ_TRANSACTIONS = 128;
+
   /** Commit threshold. */
   public static final int COMMIT_THRESHOLD = 262144;
+
   /** Default User. */
   public static final String DEFAULT_USER = "ALL";
   // END STATIC STANDARD FIELDS
@@ -63,10 +70,13 @@ public final class SessionConfiguration {
   // MEMBERS FOR FLEXIBLE FIELDS
   /** Numbers of allowed IWriteTransaction Instances. */
   public final int mWtxAllowed;
+
   /** Numbers of allowed IWriteTransaction Instances. */
   public final int mRtxAllowed;
+
   /** Number of node modifications until an automatic commit occurs. */
   public final int mCommitThreshold;
+
   /** User for this session. */
   public final String mUser;
   // END MEMBERS FOR FIXED FIELDS
@@ -121,7 +131,7 @@ public final class SessionConfiguration {
   /**
    * Getter for the file.
    * 
-   * @return the file for the configuration.
+   * @return the file for the configuration
    */
   public String getResource() {
     return mResource;
@@ -205,6 +215,17 @@ public final class SessionConfiguration {
      */
     public Builder setUser(@Nonnull final String pUser) {
       mUser = checkNotNull(pUser);
+      return this;
+    }
+
+    /**
+     * Set key for cipher.
+     * 
+     * @param pKey
+     *          key for cipher
+     * @return reference to the builder object
+     */
+    public Builder setKey(final @Nonnull Key pKey) {
       return this;
     }
 

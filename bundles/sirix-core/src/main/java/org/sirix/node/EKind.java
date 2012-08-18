@@ -295,7 +295,7 @@ public enum EKind implements IKind {
   DELETE((byte)5, DeletedNode.class) {
     @Override
     public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
-      final NodeDelegate delegate = deserializeNodeDelegate(pSource);
+      final NodeDelegate delegate = new NodeDelegate(getLong(pSource), 0, 0);
       return new DeletedNode(delegate);
     }
 
@@ -303,7 +303,7 @@ public enum EKind implements IKind {
     public void serialize(@Nonnull final ByteArrayDataOutput pSink,
       @Nonnull final INodeBase pToSerialize) {
       DeletedNode node = (DeletedNode)pToSerialize;
-      serializeDelegate(node.getNodeDelegate(), pSink);
+      putLong(pSink, node.getNodeKey());
     }
   },
 
@@ -656,6 +656,14 @@ public enum EKind implements IKind {
     pSink.write(value);
   }
 
+  /**
+   * Store a compressed long value.
+   * 
+   * @param pOutput
+   *          {@link ByteArrayDataOutput} reference
+   * @param value
+   *          long value
+   */
   private static final void putLong(@Nonnull final ByteArrayDataOutput pOutput,
     long value) {
     while ((value & ~0x7F) != 0) {
@@ -665,6 +673,13 @@ public enum EKind implements IKind {
     pOutput.write((byte)value);
   }
 
+  /**
+   * Get a compressed long value.
+   * 
+   * @param pInput
+   *            {@link ByteArrayDataInput} reference
+   * @return long value
+   */
   private static final long getLong(@Nonnull final ByteArrayDataInput pInput) {
     byte singleByte = pInput.readByte();
     long value = singleByte & 0x7F;

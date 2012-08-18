@@ -39,4 +39,8 @@ public class SnappyCompressor implements IByteHandler {
     return uncompressed;
   }
 
+  @Override
+  public IByteHandler getInstance() {
+    return new SnappyCompressor();
+  }
 }

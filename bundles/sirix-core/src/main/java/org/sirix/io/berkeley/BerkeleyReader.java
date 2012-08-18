@@ -28,9 +28,6 @@
 package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.util.Objects;
-
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -40,10 +37,13 @@ import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.Transaction;
 
+import java.util.Objects;
+
 import javax.annotation.Nonnull;
 
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
+import org.sirix.io.berkeley.binding.PageBinding;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.IPage;
@@ -53,15 +53,19 @@ import org.sirix.page.interfaces.IPage;
  * implementing the {@link IReader}-interface.
  * 
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public final class BerkeleyReader implements IReader {
 
-  /** Link to the {@link Database}. */
+  /** {@link Database} reference. */
   private final Database mDatabase;
 
-  /** Link to the {@link Transaction}. */
+  /** {@link Transaction} reference. */
   private final Transaction mTxn;
+
+  /** {@link PageBinding} reference. */
+  private final PageBinding mPageBinding;
 
   /**
    * Constructor.
@@ -70,12 +74,16 @@ public final class BerkeleyReader implements IReader {
    *          {@link Database} reference to be connected to
    * @param pTxn
    *          {@link Transaction} to be used
+   * @param pPageBinding
+   *          page binding
    * @throws NullPointerException
-   *           if {@code pDatabase} or {@code pTxn} is {@code null}
+   *           if {@code pDatabase}, {@code pTxn} or {@code pBinding} is {@code null}
    */
-  public BerkeleyReader(final Database pDatabase, final Transaction pTxn) {
+  public BerkeleyReader(final @Nonnull Database pDatabase,
+    final @Nonnull Transaction pTxn, final @Nonnull PageBinding pPageBinding) {
     mTxn = checkNotNull(pTxn);
     mDatabase = checkNotNull(pDatabase);
+    mPageBinding = checkNotNull(pPageBinding);
   }
 
   /**
@@ -85,12 +93,15 @@ public final class BerkeleyReader implements IReader {
    *          {@link Envirenment} to be used
    * @param pDatabase
    *          {@link Database} to be connected to
+   * @param pPageBinding
+   *          page binding
    * @throws DatabaseException
    *           if something weird happens
    */
   public BerkeleyReader(@Nonnull final Environment pEnv,
-    @Nonnull final Database pDatabase) throws DatabaseException {
-    this(pDatabase, pEnv.beginTransaction(null, null));
+    @Nonnull final Database pDatabase, final @Nonnull PageBinding pPageBinding)
+    throws DatabaseException {
+    this(pDatabase, pEnv.beginTransaction(null, null), pPageBinding);
   }
 
   @Override
@@ -105,7 +116,7 @@ public final class BerkeleyReader implements IReader {
       final OperationStatus status =
         mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);
       if (status == OperationStatus.SUCCESS) {
-        page = BerkeleyStorage.PAGE_VAL_B.entryToObject(valueEntry);
+        page = mPageBinding.entryToObject(valueEntry);
       }
       return page;
     } catch (final DatabaseException exc) {

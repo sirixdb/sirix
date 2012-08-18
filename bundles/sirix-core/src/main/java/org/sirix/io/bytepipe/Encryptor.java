@@ -3,8 +3,6 @@
  */
 package org.sirix.io.bytepipe;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
 import java.security.Key;
@@ -13,7 +11,6 @@ import java.security.NoSuchAlgorithmException;
 import javax.annotation.Nonnull;
 import javax.crypto.Cipher;
 import javax.crypto.NoSuchPaddingException;
-import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.sirix.exception.TTIOException;
@@ -47,29 +44,17 @@ public class Encryptor implements IByteHandler {
   /**
    * Constructor.
    * 
-   * @param pComponent
-   * @throws TTByteHandleException
-   */
-  public Encryptor() throws TTIOException {
-    this(new SecretKeySpec(KEYVALUE, "AES"));
-  }
-
-  /**
-   * Constructor.
-   * 
-   * @param
-   * 
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  public Encryptor(final @Nonnull Key pKey) throws TTIOException {
+  public Encryptor() {
     try {
       mCipher = Cipher.getInstance(ALGORITHM);
-      mKey = checkNotNull(pKey);
+      mKey = new SecretKeySpec(KEYVALUE, "AES");
     } catch (final NoSuchAlgorithmException e) {
-      throw new TTIOException(e);
+      throw new IllegalStateException(e);
     } catch (final NoSuchPaddingException e) {
-      throw new TTIOException(e);
+      throw new IllegalStateException(e);
     }
   }
 
@@ -108,6 +93,10 @@ public class Encryptor implements IByteHandler {
     } catch (final GeneralSecurityException e) {
       throw new TTIOException(e);
     }
-
+  }
+  
+  @Override
+  public IByteHandler getInstance() {
+    return new Encryptor();
   }
 }

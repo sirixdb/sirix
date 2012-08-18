@@ -28,12 +28,6 @@
 package org.sirix.io.berkeley;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.util.Objects;
-
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -42,8 +36,15 @@ import com.sleepycat.je.Environment;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.Transaction;
+
+import java.util.Objects;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IWriter;
+import org.sirix.io.berkeley.binding.PageBinding;
 import org.sirix.page.NodePage;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.IPage;
@@ -70,6 +71,9 @@ public final class BerkeleyWriter implements IWriter {
   /** Key of nodepage. */
   private long mNodepagekey;
 
+  /** Page binding. */
+  private final PageBinding mPageBinding;
+
   /**
    * Simple constructor starting with an {@link Environment} and a {@link Database}.
    * 
@@ -81,16 +85,17 @@ public final class BerkeleyWriter implements IWriter {
    *           if something odd happens@Nonnull
    */
   public BerkeleyWriter(@Nonnull final Environment pEnv,
-    @Nonnull final Database pDatabase) throws TTIOException {
+    @Nonnull final Database pDatabase, final @Nonnull PageBinding pPageBinding) throws TTIOException {
     try {
       mTxn = pEnv.beginTransaction(null, null);
       mDatabase = checkNotNull(pDatabase);
       mNodepagekey = getLastNodePage();
+      mPageBinding = checkNotNull(pPageBinding);
     } catch (final DatabaseException exc) {
       throw new TTIOException(exc);
     }
 
-    mReader = new BerkeleyReader(mDatabase, mTxn);
+    mReader = new BerkeleyReader(mDatabase, mTxn, mPageBinding);
   }
 
   @Override
@@ -114,7 +119,7 @@ public final class BerkeleyWriter implements IWriter {
     // TODO make this better
     mNodepagekey++;
 
-    BerkeleyStorage.PAGE_VAL_B.objectToEntry(page, valueEntry);
+    mPageBinding.objectToEntry(page, valueEntry);
     TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(mNodepagekey,
       keyEntry);
 

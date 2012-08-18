@@ -28,22 +28,18 @@
 package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import com.google.common.base.Objects;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.IConfigureSerializable;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
@@ -134,11 +130,8 @@ public final class Database implements IDatabase {
         }
       }
       // serialization of the config
-      try {
-        serializeConfiguration(pDBConfig);
-      } catch (final IOException exc) {
-        throw new TTIOException(exc);
-      }
+      DatabaseConfiguration.serialize(pDBConfig);
+
       // if something was not correct, delete the partly created
       // substructure
       if (!returnVal) {
@@ -217,11 +210,8 @@ public final class Database implements IDatabase {
         }
       }
       // Serialization of the config.
-      try {
-        serializeConfiguration(pResConf);
-      } catch (final IOException exc) {
-        throw new TTIOException(exc);
-      }
+      ResourceConfiguration.serialize(pResConf);
+
       // If something was not correct, delete the partly created
       // substructure.
       if (!returnVal) {
@@ -279,19 +269,10 @@ public final class Database implements IDatabase {
         "DB could not be opened (since it was not created?) at location", pFile
           .toString());
     }
-    DatabaseConfiguration config = null;
-    try (final FileInputStream is =
-      new FileInputStream(new File(pFile.getAbsoluteFile(),
-        DatabaseConfiguration.Paths.ConfigBinary.getFile().getName()));
-    final ObjectInputStream de = new ObjectInputStream(is)) {
-      config = (DatabaseConfiguration)de.readObject();
-    } catch (final IOException exc) {
-      throw new TTIOException(exc);
-    } catch (final ClassNotFoundException exc) {
-      throw new TTIOException(exc.toString());
-    }
+    final DatabaseConfiguration config =
+      DatabaseConfiguration.deserialize(pFile);
     if (config == null) {
-      throw new IllegalStateException();
+      throw new IllegalStateException("Configuration may not be null!");
     }
     final Database database = new Database(config);
     final IDatabase returnVal = DATABASEMAP.putIfAbsent(pFile, database);
@@ -323,17 +304,7 @@ public final class Database implements IDatabase {
           "Resource could not be opened (since it was not created?) at location",
           resourceFile.toString());
       }
-      ResourceConfiguration config = null;
-      try (final FileInputStream is =
-        new FileInputStream(new File(resourceFile,
-          ResourceConfiguration.Paths.ConfigBinary.getFile().getName()));
-      final ObjectInputStream de = new ObjectInputStream(is)) {
-        config = (ResourceConfiguration)de.readObject();
-      } catch (final ClassNotFoundException e) {
-        throw new TTIOException(e.toString());
-      } catch (final IOException e) {
-        throw new TTIOException(e);
-      }
+      final ResourceConfiguration config = ResourceConfiguration.deserialize(resourceFile);
 
       // Resource of session must be associated to this database
       assert config.mPath.getParentFile().getParentFile().equals(
@@ -373,44 +344,27 @@ public final class Database implements IDatabase {
     return mSessions.remove(pFile) == null ? false : true;
   }
 
-  /**
-   * Serializing any {@link IConfigureSerializable} instance to a denoted
-   * file.
-   * 
-   * @param pConf
-   *          to be serializied, containing the file
-   * @throws IOException
-   *           if serialization fails
-   */
-  private static void serializeConfiguration(
-    final @Nonnull IConfigureSerializable pConf) throws IOException {
-    try (final FileOutputStream os =
-      new FileOutputStream(pConf.getConfigFile());
-    final ObjectOutputStream en = new ObjectOutputStream(os)) {
-      en.writeObject(pConf);
-    }
-  }
-
   @Override
   public DatabaseConfiguration getDatabaseConfig() {
     return mDBConfig;
   }
-  
+
   @Override
   public boolean existsResource(final @Nonnull String pResourceName) {
-      final File resourceFile =
-          new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data.getFile().getName()),
-              pResourceName);
-      // if file is existing and folder is a tt-dataplace, delete it
-      if (resourceFile.exists() && DatabaseConfiguration.Paths.compareStructure(resourceFile) == 0) {
-          return true;
-      } else {
-          return false;
-      }
+    final File resourceFile =
+      new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
+        .getFile().getName()), pResourceName);
+    // if file is existing and folder is a tt-dataplace, delete it
+    if (resourceFile.exists()
+      && DatabaseConfiguration.Paths.compareStructure(resourceFile) == 0) {
+      return true;
+    } else {
+      return false;
+    }
   }
 
   @Override
   public String[] listResources() {
-      return DatabaseConfiguration.Paths.Data.getFile().list();
+    return DatabaseConfiguration.Paths.Data.getFile().list();
   }
 }

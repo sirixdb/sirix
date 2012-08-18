@@ -33,7 +33,9 @@ import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 
-import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -44,7 +46,6 @@ import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
-import org.sirix.utils.IConstants;
 
 /**
  * <h1>NodePage</h1>
@@ -58,8 +59,8 @@ public class NodePage implements IPage {
   /** Key of node page. This is the base key of all contained nodes. */
   private final long mNodePageKey;
 
-  /** Array of nodes. This can have null nodes that were removed. */
-  private final INodeBase[] mNodes;
+  /** Nodes. */
+  private final Map<Long, INodeBase> mNodes;
 
   /** {@link PageDelegate} reference. */
   private final long mRevision;
@@ -78,7 +79,7 @@ public class NodePage implements IPage {
     checkArgument(pRevision >= 0, "pRevision must not be negative!");
     mRevision = pRevision;
     mNodePageKey = pNodePageKey;
-    mNodes = new INodeBase[IConstants.NDP_NODE_COUNT];
+    mNodes = new HashMap<>();
   }
 
   /**
@@ -90,13 +91,13 @@ public class NodePage implements IPage {
   protected NodePage(final @Nonnull ByteArrayDataInput pIn) {
     mRevision = pIn.readLong();
     mNodePageKey = pIn.readLong();
-    mNodes = new INodeBase[IConstants.NDP_NODE_COUNT];
-    for (int offset = 0; offset < mNodes.length; offset++) {
+    final int size = pIn.readInt();
+    mNodes = new HashMap<>(size);
+    for (int offset = 0; offset < size; offset++) {
       final byte id = pIn.readByte();
       final EKind enumKind = EKind.getKind(id);
-      if (enumKind != EKind.UNKOWN) {
-        mNodes[offset] = enumKind.deserialize(pIn);
-      }
+      final INodeBase node = enumKind.deserialize(pIn);
+      mNodes.put(node.getNodeKey(), node);
     }
   }
 
@@ -112,46 +113,36 @@ public class NodePage implements IPage {
   /**
    * Get node at a given offset.
    * 
-   * @param pOffset
-   *          offset of node within local node page
-   * @return node at given offset
+   * @param pKey
+   *          node key
+   * @return node with given node key
    */
-  public INodeBase getNode(final @Nonnegative int pOffset) {
-    checkArgument(pOffset >= 0 && pOffset < IConstants.NDP_NODE_COUNT,
-      "offset must not be negative and less than the max. nodes per node page!");
-    if (pOffset < mNodes.length) {
-      return mNodes[pOffset];
-    } else {
-      return null;
-    }
+  public INodeBase getNode(final @Nonnegative long pKey) {
+    checkArgument(pKey >= 0, "pKey must not be negative!");
+    return mNodes.get(pKey);
   }
 
   /**
    * Overwrite a single node at a given offset.
    * 
-   * @param pOffset
-   *          offset of node to overwrite in this node page
+   * @param pKey
+   *          key of node to overwrite in this node page
    * @param pNode
    *          node to store at given nodeOffset
    */
-  public void
-    setNode(final @Nonnegative int pOffset, final @Nonnull INodeBase pNode) {
-    checkArgument(pOffset >= 0, "pOffset may not be negative!");
-    mNodes[pOffset] = checkNotNull(pNode);
+  public void setNode(final @Nonnull INodeBase pNode) {
+    mNodes.put(pNode.getNodeKey(), checkNotNull(pNode));
   }
 
   @Override
   public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
     pOut.writeLong(mRevision);
     pOut.writeLong(mNodePageKey);
-    for (final INodeBase node : mNodes) {
-      if (node == null) {
-        pOut.writeByte(getLastByte(EKind.UNKOWN.getId()));
-      } else {
-        final byte id = node.getKind().getId();
-        pOut.writeByte(id);
-        EKind.getKind(node.getClass()).serialize(pOut, node);
-      }
+    pOut.writeInt(mNodes.size());
+    for (final INodeBase node : mNodes.values()) {
+      final byte id = node.getKind().getId();
+      pOut.writeByte(id);
+      EKind.getKind(node.getClass()).serialize(pOut, node);
     }
   }
 
@@ -175,9 +166,8 @@ public class NodePage implements IPage {
     final ToStringHelper helper =
       Objects.toStringHelper(this).add("revision", mRevision).add("pagekey",
         mNodePageKey).add("nodes", mNodes.toString());
-    for (int i = 0; i < mNodes.length; i++) {
-      final INodeBase node = mNodes[i];
-      helper.add(String.valueOf(i), node == null ? "" : node.getNodeKey());
+    for (final INodeBase node : mNodes.values()) {
+      helper.add("node", node);
     }
     return helper.toString();
   }
@@ -187,7 +177,7 @@ public class NodePage implements IPage {
    * 
    * @return the nodes
    */
-  public final INodeBase[] getNodes() {
+  public final Map<Long, INodeBase> getNodes() {
     return mNodes;
   }
 
@@ -201,12 +191,11 @@ public class NodePage implements IPage {
     if (pObj instanceof NodePage) {
       final NodePage other = (NodePage)pObj;
       return Objects.equal(mNodePageKey, other.mNodePageKey)
-        && Arrays.equals(mNodes, other.mNodes);
+        && Objects.equal(mNodes, other.mNodes);
     }
     return false;
   }
 
-  
   @Override
   public long getRevision() {
     return mRevision;

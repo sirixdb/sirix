@@ -47,23 +47,18 @@ public class IByteHandlerTest {
    */
   @DataProvider(name = "instantiateByteHandler")
   public Object[][] instantiateByteHandler() throws TTIOException {
-    // 128bit key
-    final byte[] keyValue =
-      new byte[] {
-        'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k',
-        'k', 'k'
-      };
-    final SecretKeySpec key = new SecretKeySpec(keyValue, "AES");
-
     Object[][] returnVal =
       {
         {
           IByteHandler.class,
           new IByteHandler[] {
-            new Encryptor(key),
+            new Encryptor(),
             new DeflateCompressor(),
-            new ByteHandlePipeline(new Encryptor(key), new DeflateCompressor()),
-            new ByteHandlePipeline(new DeflateCompressor(), new Encryptor(key))
+            new SnappyCompressor(),
+            new ByteHandlePipeline(new Encryptor(), new DeflateCompressor()),
+            new ByteHandlePipeline(new DeflateCompressor(), new Encryptor()),
+            new ByteHandlePipeline(new Encryptor(), new SnappyCompressor()),
+            new ByteHandlePipeline(new SnappyCompressor(), new Encryptor()),
           }
         }
       };
