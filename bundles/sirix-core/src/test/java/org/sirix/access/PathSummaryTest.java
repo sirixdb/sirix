@@ -39,6 +39,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.IAxis;
+import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.AbsTTException;
@@ -385,16 +386,14 @@ public class PathSummaryTest {
   public void testSetQNameSecond() throws AbsTTException {
     mWtx.moveTo(9);
     mWtx.setQName(new QName("d"));
-//    PathSummary pathSummary = mWtx.getPathSummary();
-//    pathSummary.moveToDocumentRoot();
-//    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
-//      axis.next();
-//      System.out.println(axis.getTransaction().getNode());
-//      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
-//    }
     mWtx.setQName(new QName("b"));
     PathSummary pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
+    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
+      axis.next();
+      System.out.println(axis.getTransaction().getNode());
+      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
+    }
     testSetQNameSecondHelper(pathSummary);
     mWtx.commit();
     mWtx.close();
@@ -551,7 +550,8 @@ public class PathSummaryTest {
     assertEquals(-1L, node.getFirstChildKey());
     assertEquals(9L, node.getLeftSiblingKey());
     assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals("{ns}x", axis.getTransaction().getQNameOfCurrentNode().toString());
+    assertEquals("{ns}x", axis.getTransaction().getQNameOfCurrentNode()
+      .toString());
     assertEquals(3, node.getLevel());
     assertEquals(0, node.getChildCount());
     assertEquals(1, node.getReferences());
@@ -573,8 +573,7 @@ public class PathSummaryTest {
     assertEquals(-1L, node.getLeftSiblingKey());
     assertEquals(-1L, node.getRightSiblingKey());
     assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode()
-      .toString());
+    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
     assertEquals(3, node.getLevel());
     assertEquals(0, node.getChildCount());
     assertEquals(1, node.getReferences());
@@ -604,7 +603,7 @@ public class PathSummaryTest {
     node = next(axis);
     assertTrue(node == null);
   }
-  
+
   /**
    * Test setQName on test document (finds no corresponding path node after rename -- after references dropped
    * to 0).
@@ -672,8 +671,7 @@ public class PathSummaryTest {
     assertEquals(7L, node.getLeftSiblingKey());
     assertEquals(3L, node.getRightSiblingKey());
     assertEquals(6L, node.getFirstChildKey());
-    assertEquals("b", axis.getTransaction().getQNameOfCurrentNode()
-      .toString());
+    assertEquals("b", axis.getTransaction().getQNameOfCurrentNode().toString());
     assertEquals(2, node.getLevel());
     assertEquals(2, node.getChildCount());
     assertEquals(2, node.getReferences());
@@ -684,7 +682,8 @@ public class PathSummaryTest {
     assertEquals(-1L, node.getLeftSiblingKey());
     assertEquals(5L, node.getRightSiblingKey());
     assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("{ns}x", axis.getTransaction().getQNameOfCurrentNode().toString());
+    assertEquals("{ns}x", axis.getTransaction().getQNameOfCurrentNode()
+      .toString());
     assertEquals(3, node.getLevel());
     assertEquals(0, node.getChildCount());
     assertEquals(1, node.getReferences());
@@ -724,6 +723,50 @@ public class PathSummaryTest {
     assertEquals(1, node.getReferences());
     node = next(axis);
     assertTrue(node == null);
+  }
+
+  @Test
+  public void testFirstMoveToFirstChild() throws AbsTTException {
+    mWtx.moveTo(5);
+    mWtx.moveSubtreeToFirstChild(9);
+    PathSummary pathSummary = mWtx.getPathSummary();
+    pathSummary.moveToDocumentRoot();
+    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
+      axis.next();
+      System.out.println(axis.getTransaction().getNode());
+      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
+    }
+    mWtx.commit();
+    mWtx.close();
+    final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+    rtx.close();
+  }
+  
+  @Test
+  public void testSecondMoveToFirstChild() throws AbsTTException {
+    mWtx.moveTo(9);
+    mWtx.insertElementAsFirstChild(new QName("foo"));
+    mWtx.insertElementAsFirstChild(new QName("bar"));
+    PathSummary pathSummary = mWtx.getPathSummary();
+    pathSummary.moveToDocumentRoot();
+    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
+      axis.next();
+      System.out.println(axis.getTransaction().getNode());
+      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
+    }
+    mWtx.moveTo(5);
+    mWtx.moveSubtreeToRightSibling(9);
+    pathSummary = mWtx.getPathSummary();
+    pathSummary.moveToDocumentRoot();
+    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
+      axis.next();
+      System.out.println(axis.getTransaction().getNode());
+      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
+    }
+    mWtx.commit();
+    mWtx.close();
+    final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+    rtx.close();
   }
 
   /**

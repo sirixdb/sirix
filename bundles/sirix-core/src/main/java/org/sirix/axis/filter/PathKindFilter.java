@@ -2,6 +2,8 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
@@ -13,7 +15,7 @@ import org.sirix.node.EKind;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public class PathFilter extends AbsFilter {
+public class PathKindFilter extends AbsFilter {
 
   /** Type to filter. */
   private EKind mType;
@@ -22,11 +24,11 @@ public class PathFilter extends AbsFilter {
    * Constructor. Initializes the internal state.
    * 
    * @param pRtx
-   *          transaction this filter is bound to.
+   *          transaction this filter is bound to
    * @param pType
    *          type to match
    */
-  public PathFilter(final INodeReadTrx pRtx, final EKind pType) {
+  public PathKindFilter(final @Nonnull INodeReadTrx pRtx, final @Nonnull EKind pType) {
     super(pRtx);
     checkArgument(pRtx instanceof PathSummary);
     mType = pType;
