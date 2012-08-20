@@ -64,7 +64,6 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.axis.FilterAxis;
 import org.sirix.axis.LevelOrderAxis;
-import org.sirix.axis.LevelOrderAxis.EIncludeNodes;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.PathKindFilter;
@@ -121,11 +120,20 @@ import org.sirix.utils.XMLToken;
 final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   INodeWriteTrx {
 
+  /**
+   * Operation type to determine behavior of path summary updates during {@code setQName(QName)} and the
+   * move-operations.
+   */
   private enum EOPType {
+    /** Move from and to is on the same level (before and after the move, the node has the same parent). */
     MOVEDSAMELEVEL,
 
+    /**
+     * Move from and to is not on the same level (before and after the move, the node has a different parent).
+     */
     MOVED,
 
+    /** A new {@link QName} is set. */
     SETNAME,
   }
 
@@ -1376,7 +1384,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     movePathSummary();
     final PathNode oldPathNode = (PathNode)mPathSummary.getNode();
 
-    if (((PathNode)mPathSummary.getNode()).getReferences() == 1) {
+    // Only one path node is referenced (after a setQName(QName) the reference-counter would be 0).
+    if (pType == EOPType.SETNAME
+      && ((PathNode)mPathSummary.getNode()).getReferences() == 1) {
       int level = moveSummaryGetLevel(pNode);
       // Search for new path entry.
       final IAxis axis =
@@ -1409,8 +1419,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         new FilterAxis(new ChildAxis(mPathSummary), new NameFilter(
           mPathSummary, PageWriteTrx.buildName(pQName)), new PathKindFilter(
           mPathSummary, pNode.getKind()));
-      if (axis.hasNext()) {
-        axis.next();
+      if (pType == EOPType.MOVEDSAMELEVEL || axis.hasNext()) {
+        if (pType != EOPType.MOVEDSAMELEVEL) {
+          axis.next();
+        }
 
         // Found node.
         processFoundPathNode(oldPathNode.getNodeKey(), mPathSummary.getNode()
@@ -1659,6 +1671,16 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     }
   }
 
+  /**
+   * Reset the path node key of a node.
+   * 
+   * @param pNewPathNodeKey
+   *          path node key of new path node
+   * @param pOldPathNode
+   *          old path node
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
   private void resetPath(final @Nonnegative long pNewPathNodeKey,
     final @Nonnull PathNode pOldPathNode) throws TTIOException {
     // Search for new path entry.
@@ -1723,63 +1745,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     currNode.setPathNodeKey(mPathSummary.getNode().getNodeKey());
     getPageTransaction().finishNodeModification(currNode, EPage.NODEPAGE);
   }
-
-  // @Override
-  // public synchronized void setURI(@Nonnull final String pUri)
-  // throws AbsTTException {
-  // checkNotNull(pUri);
-  // if (getNode() instanceof INameNode) {
-  // if (!getValueOfCurrentNode().equals(pUri)) {
-  // checkAccessAndCommit();
-  //
-  // final NamePage page =
-  // (NamePage)getPageTransaction().getActualRevisionRootPage()
-  // .getNamePageReference().getPage();
-  // page.removeName(NamePageHash
-  // .generateHashForString(getValueOfCurrentNode()), EKind.NAMESPACE);
-  //
-  // final long oldHash = mNodeReadRtx.getNode().hashCode();
-  // final int uriKey =
-  // getPageTransaction().createNameKey(pUri, EKind.NAMESPACE);
-  //
-  // final INameNode node =
-  // (INameNode)getPageTransaction().prepareNodeForModification(
-  // mNodeReadRtx.getNode().getNodeKey(), EPage.NODEPAGE);
-  // node.setURIKey(uriKey);
-  // getPageTransaction().finishNodeModification(node, EPage.NODEPAGE);
-  //
-  // mNodeReadRtx.setCurrentNode(node);
-  // adaptHashedWithUpdate(oldHash);
-  // }
-  // } else {
-  // throw new TTUsageException(
-  // "setURI is not allowed if current node is not an INameNode implementation!");
-  // }
-  // }
-
-  // /**
-  // * Adapt name of node.
-  // *
-  // * @param pNode
-  // * the node to adapt
-  // * @param pNameKey
-  // * name key
-  // * @param pUriKey
-  // * uri key
-  // * @throws AbsTTException
-  // * if anything went wrong
-  // */
-  // private void adaptNode(@Nonnull INameNode pNode, final int pNameKey,
-  // final int pUriKey) throws AbsTTException {
-  // // Set new keys for current node.
-  // pNode =
-  // (INameNode)getPageTransaction().prepareNodeForModification(
-  // pNode.getNodeKey(), EPage.NODEPAGE);
-  // pNode.setNameKey(pNameKey);
-  // pNode.setURIKey(pUriKey);
-  // pNode.setPathNodeKey(mPathSummary.getNode().getNodeKey());
-  // getPageTransaction().finishNodeModification(pNode, EPage.NODEPAGE);
-  // }
 
   @Override
   public synchronized void setValue(@Nonnull final String pValue)
@@ -1848,14 +1813,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     for (final IPreCommitHook hook : mPreCommitHooks) {
       hook.preCommit(this);
     }
-
-    // mPathSummary.moveToDocumentRoot();
-    // for (final IAxis axis = new DescendantAxis(mPathSummary); axis.hasNext();) {
-    // axis.next();
-    // final INode node = mPathSummary.getNode();
-    // System.out.println(node);
-    // System.out.println(mPathSummary.getQNameOfCurrentNode());
-    // }
 
     // Commit uber page.
     final UberPage uberPage = getPageTransaction().commit();
