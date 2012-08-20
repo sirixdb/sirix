@@ -40,4 +40,13 @@ public class PathLevelFilter extends AbsFilter {
   public boolean filter() {
     return mLevel == ((PathNode)getTransaction().getNode()).getLevel();
   }
+  
+  /**
+   * Get filter level.
+   * 
+   * @return level to filter
+   */
+  int getFilterLevel() {
+    return mLevel;
+  }
 }

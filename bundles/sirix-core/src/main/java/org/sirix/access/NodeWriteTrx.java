@@ -1573,7 +1573,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     }
 
     // For all old path nodes.
-    PathNode oldPathNode = null;
+    mPathSummary.moveToFirstChild();
+    final int oldLevel = cloned.getPathNode().getLevel();
     for (final IAxis oldDescendants = new DescendantAxis(cloned); oldDescendants
       .hasNext();) {
       oldDescendants.next();
@@ -1581,7 +1582,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       // Search for new path entry.
       final PathNode node = cloned.getPathNode();
       final IAxis axis =
-        new FilterAxis(new DescendantAxis(mPathSummary, EIncludeSelf.YES),
+        new FilterAxis(new LevelOrderAxis.Builder(mPathSummary).filterLevel(
+          node.getLevel() - oldLevel).includeSelf(EIncludeSelf.YES).build(),
           new NameFilter(mPathSummary, PageWriteTrx.buildName(cloned
             .getQNameOfCurrentNode())), new PathKindFilter(mPathSummary, node
             .getPathKind()), new PathLevelFilter(mPathSummary, node.getLevel()));
@@ -1620,9 +1622,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     mPathSummary.moveTo(pNewPathNodeKey);
     mNodeRtx.moveTo(pOldNodeKey);
 
-    if (pType == EOPType.SETNAME) {
-      mPathSummary.moveToFirstChild();
-    }
     boolean first = true;
     for (final IAxis axis = new DescendantAxis(mNodeRtx, EIncludeSelf.YES); axis
       .hasNext();) {
@@ -1631,7 +1630,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
       if (first && pType == EOPType.SETNAME) {
         first = false;
       } else if (mNodeRtx.getNode() instanceof INameNode) {
-        cloned.moveTo(((INameNode) mNodeRtx.getNode()).getPathNodeKey());
+        cloned.moveTo(((INameNode)mNodeRtx.getNode()).getPathNodeKey());
         resetPath(pNewPathNodeKey, cloned.getPathNode());
 
         if (mNodeRtx.getNode().getKind() == EKind.ELEMENT) {
@@ -1639,13 +1638,13 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
           for (int i = 0, nspCount = element.getNamespaceCount(); i < nspCount; i++) {
             mNodeRtx.moveToNamespace(i);
-            cloned.moveTo(((INameNode) mNodeRtx.getNode()).getPathNodeKey());
+            cloned.moveTo(((INameNode)mNodeRtx.getNode()).getPathNodeKey());
             resetPath(pNewPathNodeKey, cloned.getPathNode());
             mNodeRtx.moveToParent();
           }
           for (int i = 0, attCount = element.getAttributeCount(); i < attCount; i++) {
             mNodeRtx.moveToAttribute(i);
-            cloned.moveTo(((INameNode) mNodeRtx.getNode()).getPathNodeKey());
+            cloned.moveTo(((INameNode)mNodeRtx.getNode()).getPathNodeKey());
             resetPath(pNewPathNodeKey, cloned.getPathNode());
             mNodeRtx.moveToParent();
           }
@@ -1666,12 +1665,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     mPathSummary.moveTo(pNewPathNodeKey);
     final PathNode pathNode = (PathNode)mPathSummary.getNode();
     final IAxis filterAxis =
-      new FilterAxis(new LevelOrderAxis(mPathSummary,
-        EIncludeNodes.STRUCTURAL, EIncludeSelf.YES),
-        new NameFilter(mPathSummary, PageWriteTrx.buildName(mNodeRtx
-          .getQNameOfCurrentNode())), new PathKindFilter(mPathSummary, mNodeRtx
-          .getNode().getKind()), new PathLevelFilter(mPathSummary, pOldPathNode
-          .getLevel()));
+      new FilterAxis(new LevelOrderAxis.Builder(mPathSummary).includeSelf(
+        EIncludeSelf.YES).build(), new NameFilter(mPathSummary, PageWriteTrx
+        .buildName(mNodeRtx.getQNameOfCurrentNode())), new PathKindFilter(
+        mPathSummary, mNodeRtx.getNode().getKind()), new PathLevelFilter(
+        mPathSummary, pOldPathNode.getLevel()));
     if (filterAxis.hasNext()) {
       filterAxis.next();
 
