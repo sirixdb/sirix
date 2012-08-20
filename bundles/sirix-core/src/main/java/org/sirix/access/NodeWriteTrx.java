@@ -163,12 +163,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   private boolean mBulkInsert;
 
   /** Collection holding pre-commit hooks. */
-  private final List<IPreCommitHook> mPreCommitHooks = Collections
-    .synchronizedList(new ArrayList<IPreCommitHook>());
+  private final List<IPreCommitHook> mPreCommitHooks = new ArrayList<>();
 
   /** Collection holding post-commit hooks. */
-  private final List<IPostCommitHook> mPostCommitHooks = Collections
-    .synchronizedList(new ArrayList<IPostCommitHook>());
+  private final List<IPostCommitHook> mPostCommitHooks = new ArrayList<>();
 
   /** {@link PathSummary} instance. */
   private PathSummary mPathSummary;
@@ -241,9 +239,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx moveSubtreeToFirstChild(
-    @Nonnegative final long pFromKey) throws AbsTTException,
-    IllegalArgumentException {
+  public INodeWriteTrx
+    moveSubtreeToFirstChild(@Nonnegative final long pFromKey)
+      throws AbsTTException, IllegalArgumentException {
     if (pFromKey < 0 || pFromKey > getMaxNodeKey()) {
       throw new IllegalArgumentException("Argument must be a valid node key!");
     }
@@ -294,9 +292,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx moveSubtreeToLeftSibling(
-    @Nonnegative final long pFromKey) throws AbsTTException,
-    IllegalArgumentException {
+  public INodeWriteTrx
+    moveSubtreeToLeftSibling(@Nonnegative final long pFromKey)
+      throws AbsTTException, IllegalArgumentException {
     if (getStructuralNode().hasLeftSibling()) {
       moveToLeftSibling();
       return moveSubtreeToRightSibling(pFromKey);
@@ -307,7 +305,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx moveSubtreeToRightSibling(
+  public INodeWriteTrx moveSubtreeToRightSibling(
     @Nonnegative final long pFromKey) throws AbsTTException {
     if (pFromKey < 0 || pFromKey > getMaxNodeKey()) {
       throw new IllegalArgumentException("Argument must be a valid node key!");
@@ -607,8 +605,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx insertElementAsFirstChild(
-    @Nonnull final QName pQName) throws AbsTTException {
+  public INodeWriteTrx insertElementAsFirstChild(@Nonnull final QName pQName)
+    throws AbsTTException {
     if (!XMLToken.isValidQName(checkNotNull(pQName))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -697,8 +695,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx insertElementAsLeftSibling(
-    @Nonnull final QName pQName) throws AbsTTException {
+  public INodeWriteTrx insertElementAsLeftSibling(@Nonnull final QName pQName)
+    throws AbsTTException {
     if (!XMLToken.isValidQName(checkNotNull(pQName))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -730,8 +728,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx insertElementAsRightSibling(
-    @Nonnull final QName pQName) throws AbsTTException {
+  public INodeWriteTrx insertElementAsRightSibling(@Nonnull final QName pQName)
+    throws AbsTTException {
     if (!XMLToken.isValidQName(checkNotNull(pQName))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -795,8 +793,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx insertTextAsFirstChild(
-    final @Nonnull String pValue) throws AbsTTException {
+  public INodeWriteTrx insertTextAsFirstChild(final @Nonnull String pValue)
+    throws AbsTTException {
     checkNotNull(pValue);
     if (getNode() instanceof IStructNode
       && getNode().getKind() != EKind.DOCUMENT_ROOT && !pValue.isEmpty()) {
@@ -923,8 +921,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx insertTextAsRightSibling(
-    @Nonnull final String pValue) throws AbsTTException {
+  public INodeWriteTrx insertTextAsRightSibling(@Nonnull final String pValue)
+    throws AbsTTException {
     checkNotNull(pValue);
     if (getNode() instanceof IStructNode
       && getNode().getKind() != EKind.DOCUMENT_ROOT && !pValue.isEmpty()) {
@@ -989,16 +987,15 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx insertAttribute(
-    @Nonnull final QName pQName, @Nonnull final String pValue)
-    throws AbsTTException {
+  public INodeWriteTrx insertAttribute(@Nonnull final QName pQName,
+    @Nonnull final String pValue) throws AbsTTException {
     return insertAttribute(pQName, pValue, EMove.NONE);
   }
 
   @Override
-  public synchronized INodeWriteTrx insertAttribute(
-    @Nonnull final QName pQName, @Nonnull final String pValue,
-    @Nonnull final EMove pMove) throws AbsTTException {
+  public INodeWriteTrx insertAttribute(@Nonnull final QName pQName,
+    @Nonnull final String pValue, @Nonnull final EMove pMove)
+    throws AbsTTException {
     checkNotNull(pValue);
     if (!XMLToken.isValidQName(checkNotNull(pQName))) {
       throw new IllegalArgumentException("The QName is not valid!");
@@ -1053,15 +1050,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx
-    insertNamespace(@Nonnull final QName pQName) throws AbsTTException {
+  public INodeWriteTrx insertNamespace(@Nonnull final QName pQName)
+    throws AbsTTException {
     return insertNamespace(pQName, EMove.NONE);
   }
 
   @Override
-  public synchronized INodeWriteTrx insertNamespace(
-    @Nonnull final QName pQName, @Nonnull final EMove pMove)
-    throws AbsTTException {
+  public INodeWriteTrx insertNamespace(@Nonnull final QName pQName,
+    @Nonnull final EMove pMove) throws AbsTTException {
     if (!XMLToken.isValidQName(checkNotNull(pQName))) {
       throw new IllegalArgumentException("The QName is not valid!");
     }
@@ -1127,7 +1123,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized void remove() throws AbsTTException {
+  public void remove() throws AbsTTException {
     checkAccessAndCommit();
     if (getNode().getKind() == EKind.DOCUMENT_ROOT) {
       throw new TTUsageException("Document root can not be removed.");
@@ -1311,8 +1307,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized void setQName(final @Nonnull QName pQName)
-    throws AbsTTException {
+  public void setQName(final @Nonnull QName pQName) throws AbsTTException {
     checkNotNull(pQName);
     if (getNode() instanceof INameNode) {
       if (!getQNameOfCurrentNode().equals(pQName)) {
@@ -1612,7 +1607,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
           getPageTransaction().finishNodeModification(currNode,
             EPage.PATHSUMMARYPAGE);
         }
-        mPathSummary.moveTo(pNewPathNodeKey);
       } else {
         // Insert new node.
         PathNode currNode = cloned.getPathNode();
@@ -1627,6 +1621,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         getPageTransaction().finishNodeModification(currNode,
           EPage.PATHSUMMARYPAGE);
       }
+      mPathSummary.moveTo(pNewPathNodeKey);
     }
 
     // Set new path nodes.
@@ -1747,8 +1742,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized void setValue(@Nonnull final String pValue)
-    throws AbsTTException {
+  public void setValue(@Nonnull final String pValue) throws AbsTTException {
     checkNotNull(pValue);
     if (getNode() instanceof IValNode) {
       checkAccessAndCommit();
@@ -1795,7 +1789,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized void commit() throws AbsTTException {
+  public void commit() throws AbsTTException {
     mNodeRtx.assertNotClosed();
 
     // // Assert that the DocumentNode has no more than one child node (the root node).
@@ -1943,7 +1937,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized void abort() throws TTIOException {
+  public void abort() throws TTIOException {
     mNodeRtx.assertNotClosed();
 
     // Reset modification counter.
@@ -1962,7 +1956,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized void close() throws AbsTTException {
+  public void close() throws AbsTTException {
     if (!isClosed()) {
       // Make sure to commit all dirty data.
       if (mModificationCount > 0) {
@@ -2387,7 +2381,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
    * 
    * @return the page transaction.
    */
-  public synchronized IPageWriteTrx getPageTransaction() {
+  public IPageWriteTrx getPageTransaction() {
     return (IPageWriteTrx)mNodeRtx.getPageTransaction();
   }
 
@@ -2488,46 +2482,43 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     // Cursor to root
     IStructNode cursorToRoot;
     do {
-      synchronized (mNodeRtx.getNode()) {
-        cursorToRoot =
-          (IStructNode)getPageTransaction().prepareNodeForModification(
-            mNodeRtx.getNode().getNodeKey(), EPage.NODEPAGE);
-        hashCodeForParent =
-          mNodeRtx.getNode().hashCode() + hashCodeForParent * PRIME;
-        // Caring about attributes and namespaces if node is an element.
-        if (cursorToRoot.getKind() == EKind.ELEMENT) {
-          final ElementNode currentElement = (ElementNode)cursorToRoot;
-          // setting the attributes and namespaces
-          final int attCount = ((ElementNode)cursorToRoot).getAttributeCount();
-          for (int i = 0; i < attCount; i++) {
-            moveTo(currentElement.getAttributeKey(i));
-            hashCodeForParent =
-              mNodeRtx.getNode().hashCode() + hashCodeForParent * PRIME;
-          }
-          final int nspCount = ((ElementNode)cursorToRoot).getNamespaceCount();
-          for (int i = 0; i < nspCount; i++) {
-            moveTo(currentElement.getNamespaceKey(i));
-            hashCodeForParent =
-              mNodeRtx.getNode().hashCode() + hashCodeForParent * PRIME;
-          }
-          moveTo(cursorToRoot.getNodeKey());
+      cursorToRoot =
+        (IStructNode)getPageTransaction().prepareNodeForModification(
+          mNodeRtx.getNode().getNodeKey(), EPage.NODEPAGE);
+      hashCodeForParent =
+        mNodeRtx.getNode().hashCode() + hashCodeForParent * PRIME;
+      // Caring about attributes and namespaces if node is an element.
+      if (cursorToRoot.getKind() == EKind.ELEMENT) {
+        final ElementNode currentElement = (ElementNode)cursorToRoot;
+        // setting the attributes and namespaces
+        final int attCount = ((ElementNode)cursorToRoot).getAttributeCount();
+        for (int i = 0; i < attCount; i++) {
+          moveTo(currentElement.getAttributeKey(i));
+          hashCodeForParent =
+            mNodeRtx.getNode().hashCode() + hashCodeForParent * PRIME;
         }
-
-        // Caring about the children of a node
-        if (moveTo(getStructuralNode().getFirstChildKey())) {
-          do {
-            hashCodeForParent =
-              mNodeRtx.getNode().getHash() + hashCodeForParent * PRIME;
-          } while (moveTo(getStructuralNode().getRightSiblingKey()));
-          moveTo(getStructuralNode().getParentKey());
+        final int nspCount = ((ElementNode)cursorToRoot).getNamespaceCount();
+        for (int i = 0; i < nspCount; i++) {
+          moveTo(currentElement.getNamespaceKey(i));
+          hashCodeForParent =
+            mNodeRtx.getNode().hashCode() + hashCodeForParent * PRIME;
         }
-
-        // setting hash and resetting hash
-        cursorToRoot.setHash(hashCodeForParent);
-        getPageTransaction().finishNodeModification(cursorToRoot,
-          EPage.NODEPAGE);
-        hashCodeForParent = 0;
+        moveTo(cursorToRoot.getNodeKey());
       }
+
+      // Caring about the children of a node
+      if (moveTo(getStructuralNode().getFirstChildKey())) {
+        do {
+          hashCodeForParent =
+            mNodeRtx.getNode().getHash() + hashCodeForParent * PRIME;
+        } while (moveTo(getStructuralNode().getRightSiblingKey()));
+        moveTo(getStructuralNode().getParentKey());
+      }
+
+      // setting hash and resetting hash
+      cursorToRoot.setHash(hashCodeForParent);
+      getPageTransaction().finishNodeModification(cursorToRoot, EPage.NODEPAGE);
+      hashCodeForParent = 0;
     } while (moveTo(cursorToRoot.getParentKey()));
 
     mNodeRtx.setCurrentNode(startNode);
@@ -2550,20 +2541,18 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
     // go the path to the root
     do {
-      synchronized (mNodeRtx.getNode()) {
-        final INode node =
-          (INode)getPageTransaction().prepareNodeForModification(
-            mNodeRtx.getNode().getNodeKey(), EPage.NODEPAGE);
-        if (node.getNodeKey() == newNode.getNodeKey()) {
-          resultNew = node.getHash() - pOldHash;
-          resultNew = resultNew + newNodeHash;
-        } else {
-          resultNew = node.getHash() - pOldHash * PRIME;
-          resultNew = resultNew + newNodeHash * PRIME;
-        }
-        node.setHash(resultNew);
-        getPageTransaction().finishNodeModification(node, EPage.NODEPAGE);
+      final INode node =
+        (INode)getPageTransaction().prepareNodeForModification(
+          mNodeRtx.getNode().getNodeKey(), EPage.NODEPAGE);
+      if (node.getNodeKey() == newNode.getNodeKey()) {
+        resultNew = node.getHash() - pOldHash;
+        resultNew = resultNew + newNodeHash;
+      } else {
+        resultNew = node.getHash() - pOldHash * PRIME;
+        resultNew = resultNew + newNodeHash * PRIME;
       }
+      node.setHash(resultNew);
+      getPageTransaction().finishNodeModification(node, EPage.NODEPAGE);
     } while (moveTo(mNodeRtx.getNode().getParentKey()));
 
     mNodeRtx.setCurrentNode(newNode);
@@ -2583,29 +2572,27 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     long newHash = 0;
     // go the path to the root
     do {
-      synchronized (mNodeRtx.getNode()) {
-        final INode node =
-          (INode)getPageTransaction().prepareNodeForModification(
-            mNodeRtx.getNode().getNodeKey(), EPage.NODEPAGE);
-        if (node.getNodeKey() == startNode.getNodeKey()) {
-          // the begin node is always null
-          newHash = 0;
-        } else if (node.getNodeKey() == startNode.getParentKey()) {
-          // the parent node is just removed
-          newHash = node.getHash() - hashToRemove * PRIME;
-          hashToRemove = node.getHash();
-          setRemoveDescendants(startNode);
-        } else {
-          // the ancestors are all touched regarding the modification
-          newHash = node.getHash() - hashToRemove * PRIME;
-          newHash = newHash + hashToAdd * PRIME;
-          hashToRemove = node.getHash();
-          setRemoveDescendants(startNode);
-        }
-        node.setHash(newHash);
-        hashToAdd = newHash;
-        getPageTransaction().finishNodeModification(node, EPage.NODEPAGE);
+      final INode node =
+        (INode)getPageTransaction().prepareNodeForModification(
+          mNodeRtx.getNode().getNodeKey(), EPage.NODEPAGE);
+      if (node.getNodeKey() == startNode.getNodeKey()) {
+        // the begin node is always null
+        newHash = 0;
+      } else if (node.getNodeKey() == startNode.getParentKey()) {
+        // the parent node is just removed
+        newHash = node.getHash() - hashToRemove * PRIME;
+        hashToRemove = node.getHash();
+        setRemoveDescendants(startNode);
+      } else {
+        // the ancestors are all touched regarding the modification
+        newHash = node.getHash() - hashToRemove * PRIME;
+        newHash = newHash + hashToAdd * PRIME;
+        hashToRemove = node.getHash();
+        setRemoveDescendants(startNode);
       }
+      node.setHash(newHash);
+      hashToAdd = newHash;
+      getPageTransaction().finishNodeModification(node, EPage.NODEPAGE);
     } while (moveTo(mNodeRtx.getNode().getParentKey()));
 
     mNodeRtx.setCurrentNode(startNode);
@@ -2646,31 +2633,29 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     long possibleOldHash = 0;
     // go the path to the root
     do {
-      synchronized (mNodeRtx.getNode()) {
-        final INode node =
-          (INode)getPageTransaction().prepareNodeForModification(
-            mNodeRtx.getNode().getNodeKey(), EPage.NODEPAGE);
-        if (node.getNodeKey() == startNode.getNodeKey()) {
-          // at the beginning, take the hashcode of the node only
-          newHash = hashToAdd;
-        } else if (node.getNodeKey() == startNode.getParentKey()) {
-          // at the parent level, just add the node
-          possibleOldHash = node.getHash();
-          newHash = possibleOldHash + hashToAdd * PRIME;
-          hashToAdd = newHash;
-          setAddDescendants(startNode, node, descendantCount);
-        } else {
-          // at the rest, remove the existing old key for this element
-          // and add the new one
-          newHash = node.getHash() - possibleOldHash * PRIME;
-          newHash = newHash + hashToAdd * PRIME;
-          hashToAdd = newHash;
-          possibleOldHash = node.getHash();
-          setAddDescendants(startNode, node, descendantCount);
-        }
-        node.setHash(newHash);
-        getPageTransaction().finishNodeModification(node, EPage.NODEPAGE);
+      final INode node =
+        (INode)getPageTransaction().prepareNodeForModification(
+          mNodeRtx.getNode().getNodeKey(), EPage.NODEPAGE);
+      if (node.getNodeKey() == startNode.getNodeKey()) {
+        // at the beginning, take the hashcode of the node only
+        newHash = hashToAdd;
+      } else if (node.getNodeKey() == startNode.getParentKey()) {
+        // at the parent level, just add the node
+        possibleOldHash = node.getHash();
+        newHash = possibleOldHash + hashToAdd * PRIME;
+        hashToAdd = newHash;
+        setAddDescendants(startNode, node, descendantCount);
+      } else {
+        // at the rest, remove the existing old key for this element
+        // and add the new one
+        newHash = node.getHash() - possibleOldHash * PRIME;
+        newHash = newHash + hashToAdd * PRIME;
+        hashToAdd = newHash;
+        possibleOldHash = node.getHash();
+        setAddDescendants(startNode, node, descendantCount);
       }
+      node.setHash(newHash);
+      getPageTransaction().finishNodeModification(node, EPage.NODEPAGE);
     } while (moveTo(mNodeRtx.getNode().getParentKey()));
     mNodeRtx.setCurrentNode(startNode);
   }
@@ -2695,8 +2680,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx copySubtreeAsFirstChild(
-    @Nonnull final INodeReadTrx pRtx) throws AbsTTException {
+  public INodeWriteTrx
+    copySubtreeAsFirstChild(@Nonnull final INodeReadTrx pRtx)
+      throws AbsTTException {
     checkNotNull(pRtx);
     checkAccessAndCommit();
     final long nodeKey = getNode().getNodeKey();
@@ -2707,8 +2693,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx copySubtreeAsLeftSibling(
-    @Nonnull final INodeReadTrx pRtx) throws AbsTTException {
+  public INodeWriteTrx
+    copySubtreeAsLeftSibling(@Nonnull final INodeReadTrx pRtx)
+      throws AbsTTException {
     checkNotNull(pRtx);
     checkAccessAndCommit();
     final long nodeKey = getNode().getNodeKey();
@@ -2719,7 +2706,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx copySubtreeAsRightSibling(
+  public INodeWriteTrx copySubtreeAsRightSibling(
     @Nonnull final INodeReadTrx pRtx) throws AbsTTException {
     checkNotNull(pRtx);
     checkAccessAndCommit();
@@ -2740,7 +2727,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
    * @throws AbsTTException
    *           if anything fails in sirix
    */
-  private synchronized void copy(@Nonnull final INodeReadTrx pRtx,
+  private void copy(@Nonnull final INodeReadTrx pRtx,
     @Nonnull final EInsert pInsert) throws AbsTTException {
     assert pRtx != null;
     assert pInsert != null;
@@ -2779,7 +2766,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx replaceNode(@Nonnull final String pXML)
+  public INodeWriteTrx replaceNode(@Nonnull final String pXML)
     throws AbsTTException, IOException, XMLStreamException {
     checkNotNull(pXML);
     checkAccessAndCommit();
@@ -2834,8 +2821,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public synchronized INodeWriteTrx
-    replaceNode(@Nonnull final INodeReadTrx pRtx) throws AbsTTException {
+  public INodeWriteTrx replaceNode(@Nonnull final INodeReadTrx pRtx)
+    throws AbsTTException {
     checkNotNull(pRtx);
     switch (pRtx.getNode().getKind()) {
     case ELEMENT:
