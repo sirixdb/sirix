@@ -27,22 +27,29 @@
 
 package org.sirix.access;
 
+import java.util.concurrent.ConcurrentMap;
+
 /**
  * <h1>LockManager</h1>
  * 
  * <h2>Description</h2>
  * 
  * <p>
- * Each <code>Session</code> owns a <code>LockManager</code> which keeps track of all
+ * Each {@code Session} owns a <code>LockManager</code> which keeps track of all
  * <code>WriteTransaction</code> and their respective transaction root nodes. The <code>LockManager</code>
  * checks for a new <code>WriteTransaction</code> if the requested subtree is currently free for use.
+ * </p>
  * 
  */
 
-public class LockManager {
-
+//public class LockManager {
+  
   // // Locked nodes and transactionRootNodes of a LockManager
-  // private final HashMap<Long, Integer> lockedNodes;
+//  private final ConcurrentMap<Long, Integer> mLockedReadNodes;
+  
+//  public LockManager() {
+//    mLockedReadNodes
+//  }
   // private final HashMap<SynchWriteTransaction, Set<Long>> transactionRootNodes;
   // private static LockManager lock;
   //
@@ -280,4 +287,4 @@ public class LockManager {
   // }
   // swtx.moveTo(current);
   // }
-}
+//}

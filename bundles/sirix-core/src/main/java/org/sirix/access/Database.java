@@ -296,6 +296,7 @@ public final class Database implements IDatabase {
       new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
         .getFile().getName()), pSessionConf.getResource());
     Session returnVal = mSessions.get(resourceFile);
+    
     if (returnVal == null) {
       if (!resourceFile.exists()) {
         throw new TTUsageException(
@@ -310,6 +311,7 @@ public final class Database implements IDatabase {
       returnVal = new Session(this, config, pSessionConf);
       mSessions.put(resourceFile, returnVal);
     }
+    
     return returnVal;
   }
 
