@@ -331,6 +331,16 @@ public final class Session implements ISession {
         .toString());
     }
   }
+  
+  @Override
+  public int getAvailableNodeReadTrx() {
+    return mReadSemaphore.availablePermits();
+  }
+  
+  @Override
+  public int getAvailableNodeWriteTrx() {
+    return mWriteSemaphore.availablePermits();
+  }
 
   /**
    * Close a write transaction.

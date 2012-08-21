@@ -35,10 +35,12 @@ import java.security.Key;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.crypto.spec.SecretKeySpec;
+import javax.annotation.Nullable;
 
 import org.sirix.access.Database;
 import org.sirix.access.Session;
+import org.sirix.api.INodeReadTrx;
+import org.sirix.api.INodeWriteTrx;
 
 /**
  * <h1>SessionConfiguration</h1>
@@ -57,8 +59,8 @@ public final class SessionConfiguration {
   /** Number of concurrent exclusive write transactions. */
   public static final int MAX_WRITE_TRANSACTIONS = 1;
 
-  /** Number of concurrent shared read transactions. */
-  public static final int MAX_READ_TRANSACTIONS = 128;
+  /** Number of concurrent read transactions. */
+  public static final int MAX_READ_TRANSACTIONS = 512;
 
   /** Commit threshold. */
   public static final int COMMIT_THRESHOLD = 262144;
@@ -68,10 +70,10 @@ public final class SessionConfiguration {
   // END STATIC STANDARD FIELDS
 
   // MEMBERS FOR FLEXIBLE FIELDS
-  /** Numbers of allowed IWriteTransaction Instances. */
+  /** Numbers of allowed {@link INodeWriteTrx} instances. */
   public final int mWtxAllowed;
 
-  /** Numbers of allowed IWriteTransaction Instances. */
+  /** Numbers of allowed {@link INodeReadTrx} instances. */
   public final int mRtxAllowed;
 
   /** Number of node modifications until an automatic commit occurs. */
@@ -90,7 +92,8 @@ public final class SessionConfiguration {
    * @param pBuilder
    *          {@link Builder} reference
    */
-  private SessionConfiguration(final SessionConfiguration.Builder pBuilder) {
+  private SessionConfiguration(
+    final @Nonnull SessionConfiguration.Builder pBuilder) {
     mWtxAllowed = pBuilder.mWtxAllowed;
     mRtxAllowed = pBuilder.mRtxAllowed;
     mCommitThreshold = pBuilder.mCommitThreshold;
@@ -105,7 +108,7 @@ public final class SessionConfiguration {
   }
 
   @Override
-  public final boolean equals(final Object pObj) {
+  public final boolean equals(final @Nullable Object pObj) {
     if (this == pObj) {
       return true;
     }

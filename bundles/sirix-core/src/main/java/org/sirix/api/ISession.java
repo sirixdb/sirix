@@ -49,14 +49,50 @@ import org.sirix.index.path.PathSummary;
  * 
  */
 public interface ISession extends AutoCloseable {
-  
+
+  /**
+   * Begin a new {@link IPageReadTrx}.
+   * 
+   * @return new {@link IPageReadTrx} instance
+   * @throws AbsTTException
+   *           if Sirix fails to create a new instance
+   */
   IPageReadTrx beginPageReadTrx() throws AbsTTException;
-  
-  IPageReadTrx beginPageReadTrx(@Nonnegative long pRev) throws AbsTTException;
-  
+
+  /**
+   * Begin a new {@link IPageReadTrx}.
+   * 
+   * @param pRevision
+   *          revision number
+   * @return new {@link IPageReadTrx} instance
+   * @throws AbsTTException
+   *           if Sirix fails to create a new instance
+   */
+  IPageReadTrx beginPageReadTrx(@Nonnegative long pRevision)
+    throws AbsTTException;
+
+  /**
+   * Begin a new {@link IPageWriteTrx}.
+   * 
+   * @param pRevision
+   *          revision number
+   * @return new {@link IPageWriteTrx} instance
+   * @throws AbsTTException
+   *           if Sirix fails to create a new instance
+   */
   IPageWriteTrx beginPageWriteTrx() throws AbsTTException;
-  
-  IPageWriteTrx beginPageWriteTrx(@Nonnegative long pRev) throws AbsTTException;
+
+  /**
+   * Begin a new {@link IPageWriteTrx}.
+   * 
+   * @param pRevision
+   *          revision number
+   * @return new {@link IPageWriteTrx} instance
+   * @throws AbsTTException
+   *           if Sirix fails to create a new instance
+   */
+  IPageWriteTrx beginPageWriteTrx(@Nonnegative long pRevision)
+    throws AbsTTException;
 
   /**
    * Begin a read-only transaction on the latest committed revision key.
@@ -86,26 +122,24 @@ public interface ISession extends AutoCloseable {
    * @return {@link INodeWriteTrx} instance
    */
   INodeWriteTrx beginNodeWriteTrx() throws AbsTTException;
-  
+
   /**
-   * Open the path summary to allow iteration (basically implementation of
-   * {@link INodeReadTrx}.
+   * Open the path summary to allow iteration (basically implementation of {@link INodeReadTrx}.
    * 
    * @param pRev
-   *         revision key to read from
+   *          revision key to read from
    * @return {@link PathSummary} instance
    * @throws AbsTTException
-   *            if can't open path summary
+   *           if can't open path summary
    */
   PathSummary openPathSummary(@Nonnegative long pRev) throws AbsTTException;
-  
+
   /**
-   * Open the path summary to allow iteration (basically implementation of
-   * {@link INodeReadTrx}.
+   * Open the path summary to allow iteration (basically implementation of {@link INodeReadTrx}.
    * 
    * @return {@link PathSummary} instance
    * @throws AbsTTException
-   *            if can't open path summary
+   *           if can't open path summary
    */
   PathSummary openPathSummary() throws AbsTTException;
 
@@ -122,7 +156,8 @@ public interface ISession extends AutoCloseable {
    *           if can't begin Write Transaction
    * @return {@link INodeWriteTrx} instance
    */
-  INodeWriteTrx beginNodeWriteTrx(@Nonnegative final int pMaxNodes, @Nonnull final TimeUnit pTimeUnit, final int pMaxTime)
+  INodeWriteTrx beginNodeWriteTrx(@Nonnegative final int pMaxNodes,
+    @Nonnull final TimeUnit pTimeUnit, final int pMaxTime)
     throws AbsTTException;
 
   /**
@@ -166,4 +201,18 @@ public interface ISession extends AutoCloseable {
    * @return latest commited revision number
    */
   long getLastRevisionNumber();
+
+  /**
+   * Get available number of {@link INodeReadTrx}s.
+   * 
+   * @return available number of {@link INodeReadTrx}s
+   */
+  int getAvailableNodeReadTrx();
+
+  /**
+   * Get available number of {@link INodeWriteTrx}s.
+   * 
+   * @return available number of {@link INodeWriteTrx}s
+   */
+  int getAvailableNodeWriteTrx();
 }

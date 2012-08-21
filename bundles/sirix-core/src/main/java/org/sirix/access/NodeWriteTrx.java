@@ -46,6 +46,7 @@ import java.util.zip.Deflater;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamConstants;
@@ -1430,11 +1431,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
         for (final IAxis descendants =
           new DescendantAxis(mNodeRtx, EIncludeSelf.YES); descendants.hasNext();) {
           descendants.next();
-          // if (first) {
-          // first = false;
-          // } else {
           deleteOrDecrement(nodesToDelete);
-          // }
           if (mNodeRtx.getNode().getKind() == EKind.ELEMENT) {
             final ElementNode element = (ElementNode)mNodeRtx.getNode();
 
@@ -2938,17 +2935,17 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
   }
 
   @Override
-  public void addPreCommitHook(@Nonnull final IPreCommitHook pHook) {
-    mPreCommitHooks.add(pHook);
+  public void addPreCommitHook(final @Nonnull IPreCommitHook pHook) {
+    mPreCommitHooks.add(checkNotNull(pHook));
   }
 
   @Override
-  public void addPostCommitHook(@Nonnull final IPostCommitHook pHook) {
-    mPostCommitHooks.add(pHook);
+  public void addPostCommitHook(final @Nonnull IPostCommitHook pHook) {
+    mPostCommitHooks.add(checkNotNull(pHook));
   }
 
   @Override
-  public boolean equals(final Object pObj) {
+  public boolean equals(final @Nullable Object pObj) {
     if (pObj instanceof NodeWriteTrx) {
       final NodeWriteTrx wtx = (NodeWriteTrx)pObj;
       return Objects.equal(mNodeRtx, wtx.mNodeRtx);
