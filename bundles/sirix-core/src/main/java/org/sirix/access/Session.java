@@ -29,7 +29,6 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
 import com.google.common.base.Objects;
 
 import java.util.ArrayList;
@@ -68,7 +67,7 @@ import org.sirix.io.EStorage;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
 import org.sirix.io.IWriter;
-import org.sirix.page.NodePage;
+import org.sirix.page.EPage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
@@ -97,11 +96,11 @@ public final class Session implements ISession {
   private final Semaphore mReadSemaphore;
 
   /** Strong reference to uber page before the begin of a write transaction. */
-  private UberPage mLastCommittedUberPage;
+  private volatile UberPage mLastCommittedUberPage;
 
   /** Remember all running node transactions (both read and write). */
   private final Map<Long, INodeReadTrx> mNodeTrxMap;
-  
+
   /** Remember all running page transactions (both read and write). */
   private final Map<Long, IPageReadTrx> mPageTrxMap;
 
@@ -109,7 +108,7 @@ public final class Session implements ISession {
   protected final Lock mCommitLock;
 
   /** Remember the write seperately because of the concurrent writes. */
-  private final Map<Long, IPageWriteTrx> mWriteTransactionStateMap;
+  private final Map<Long, IPageWriteTrx> mNodePageTrxMap;
 
   /** Storing all return futures from the sync process. */
   private final Map<Long, Map<Long, Collection<Future<Void>>>> mSyncTransactionsReturns;
@@ -119,12 +118,12 @@ public final class Session implements ISession {
 
   /** Atomic counter for concurrent generation of node transaction id. */
   private final AtomicLong mNodeTrxIDCounter;
-  
+
   /** Atomic counter for concurrent generation of page transaction id. */
   private final AtomicLong mPageTrxIDCounter;
 
   /** Determines if session was closed. */
-  private boolean mClosed;
+  private volatile boolean mClosed;
 
   /**
    * Package private constructor.
@@ -146,7 +145,7 @@ public final class Session implements ISession {
     mSessionConfig = checkNotNull(pSessionConf);
     mNodeTrxMap = new ConcurrentHashMap<>();
     mPageTrxMap = new ConcurrentHashMap<>();
-    mWriteTransactionStateMap = new ConcurrentHashMap<>();
+    mNodePageTrxMap = new ConcurrentHashMap<>();
     mSyncTransactionsReturns = new ConcurrentHashMap<>();
 
     mNodeTrxIDCounter = new AtomicLong();
@@ -244,7 +243,7 @@ public final class Session implements ISession {
 
     // Remember node transaction for debugging and safe close.
     if (mNodeTrxMap.put(currentTrxID, wtx) != null
-      || mWriteTransactionStateMap.put(currentTrxID, pageWtx) != null) {
+      || mNodePageTrxMap.put(currentTrxID, pageWtx) != null) {
       throw new TTThreadedException(
         "ID generation is bogus because of duplicate ID.");
     }
@@ -261,7 +260,7 @@ public final class Session implements ISession {
    *          the revision which is represented
    * @param pStoreRevision
    *          revisions
-   * @return a new {@link IPageWriteTrx}
+   * @return a new {@link IPageWriteTrx} instance
    * @throws TTIOException
    *           if an I/O error occurs
    */
@@ -300,7 +299,8 @@ public final class Session implements ISession {
       // Immediately release all ressources.
       mLastCommittedUberPage = null;
       mNodeTrxMap.clear();
-      mWriteTransactionStateMap.clear();
+      mPageTrxMap.clear();
+      mNodePageTrxMap.clear();
 
       mFac.close();
       mDatabase.removeSession(mResourceConfig.mPath);
@@ -341,10 +341,10 @@ public final class Session implements ISession {
   void closeWriteTransaction(final long pTransactionID) {
     // Purge transaction from internal state.
     mNodeTrxMap.remove(pTransactionID);
-    
+
     // Removing the write from the own internal mapping
-    mWriteTransactionStateMap.remove(pTransactionID);
-    
+    mNodePageTrxMap.remove(pTransactionID);
+
     // Make new transactions available.
     mWriteSemaphore.release();
   }
@@ -378,34 +378,52 @@ public final class Session implements ISession {
     return mSessionConfig.mUser;
   }
 
-  protected synchronized void syncLogs(final PageContainer mContToSync,
-    final long mTransactionId) throws TTThreadedException {
-    final ExecutorService exec = Executors.newCachedThreadPool();
+  /**
+   * Synchronize logs.
+   * 
+   * @param pContToSync
+   *          {@link PageContainer} to synchronize
+   * @param pTransactionId
+   *          transaction ID
+   * @throws TTThreadedException
+   * 
+   */
+  protected synchronized void syncLogs(
+    final @Nonnull PageContainer pContToSync,
+    final @Nonnegative long pTransactionID, final @Nonnull EPage pPage)
+    throws TTThreadedException {
+    final ExecutorService pool = Executors.newCachedThreadPool();
     final Collection<Future<Void>> returnVals = new ArrayList<>();
-    for (final Long key : mWriteTransactionStateMap.keySet()) {
-      if (key != mTransactionId) {
-        returnVals.add(exec.submit(new LogSyncer(mWriteTransactionStateMap
-          .get(key), mContToSync)));
+    for (final Long key : mNodePageTrxMap.keySet()) {
+      if (key != pTransactionID) {
+        returnVals.add(pool.submit(new LogSyncer(mNodePageTrxMap.get(key),
+          pContToSync, pPage)));
       }
     }
-    exec.shutdown();
-    if (!mSyncTransactionsReturns.containsKey(mTransactionId)) {
-      mSyncTransactionsReturns.put(mTransactionId,
+    pool.shutdown();
+    if (!mSyncTransactionsReturns.containsKey(pTransactionID)) {
+      mSyncTransactionsReturns.put(pTransactionID,
         new ConcurrentHashMap<Long, Collection<Future<Void>>>());
     }
-
-    if (mSyncTransactionsReturns.get(mTransactionId).put(
-      ((NodePage)mContToSync.getComplete()).getNodePageKey(), returnVals) != null) {
-      // throw new TTThreadedException(
-      // "only one commit and therefore sync per id and nodepage is allowed!");
-    }
-
+    // if (mSyncTransactionsReturns.get(pTransactionId).put(
+    // ((NodePage)pContToSync.getComplete()).getNodePageKey(), returnVals) != null) {
+    // throw new TTThreadedException(
+    // "only one commit and therefore sync per id and nodepage is allowed!");
+    // }
   }
 
-  protected synchronized void waitForFinishedSync(final long mTransactionKey)
-    throws TTThreadedException {
+  /**
+   * Wait until synchronization is finished.
+   * 
+   * @param pTransactionID
+   *          transaction ID for which to wait (all others)
+   * @throws TTThreadedException
+   *           if an exception occurs
+   */
+  protected synchronized void waitForFinishedSync(
+    final @Nonnegative long pTransactionID) throws TTThreadedException {
     final Map<Long, Collection<Future<Void>>> completeVals =
-      mSyncTransactionsReturns.remove(mTransactionKey);
+      mSyncTransactionsReturns.remove(pTransactionID);
     if (completeVals != null) {
       for (final Collection<Future<Void>> singleVals : completeVals.values()) {
         for (final Future<Void> returnVal : singleVals) {
@@ -432,15 +450,29 @@ public final class Session implements ISession {
     /** {@link PageContainer} reference. */
     private final PageContainer mCont;
 
-    LogSyncer(final IPageWriteTrx pPageWriteTransaction,
-      final PageContainer pNodePageCont) {
+    /** Type of page. */
+    private final EPage mPage;
+
+    /**
+     * Log synchronizer.
+     * 
+     * @param pPageWriteTransaction
+     *          Sirix {@link IPageWriteTrx}
+     * @param pNodePageCont
+     *          {@link PageContainer} to update
+     * @param pPage
+     *          page type
+     */
+    LogSyncer(final @Nonnull IPageWriteTrx pPageWriteTransaction,
+      final @Nonnull PageContainer pNodePageCont, final @Nonnull EPage pPage) {
       mPageWriteTrx = checkNotNull(pPageWriteTransaction);
       mCont = checkNotNull(pNodePageCont);
+      mPage = checkNotNull(pPage);
     }
 
     @Override
     public Void call() throws Exception {
-      mPageWriteTrx.updateDateContainer(mCont);
+      mPageWriteTrx.updateDateContainer(mCont, mPage);
       return null;
     }
   }
@@ -451,7 +483,8 @@ public final class Session implements ISession {
    * @param pPage
    *          the new {@link UberPage}
    */
-  protected void setLastCommittedUberPage(@Nonnull final UberPage pPage) {
+  protected synchronized void setLastCommittedUberPage(
+    @Nonnull final UberPage pPage) {
     mLastCommittedUberPage = checkNotNull(pPage);
   }
 
@@ -487,8 +520,7 @@ public final class Session implements ISession {
   @Override
   public synchronized IPageReadTrx beginPageReadTrx(@Nonnegative long pRev)
     throws AbsTTException {
-    return new PageReadTrx(this, mLastCommittedUberPage, pRev, mFac
-      .getReader());
+    return new PageReadTrx(this, mLastCommittedUberPage, pRev, mFac.getReader());
   }
 
   @Override
@@ -503,13 +535,13 @@ public final class Session implements ISession {
     final long lastRev = mLastCommittedUberPage.getRevisionNumber();
     final IPageWriteTrx pageWtx =
       createPageWriteTransaction(currentPageTrxID, lastRev, lastRev);
-    
+
     // Remember page transaction for debugging and safe close.
     if (mPageTrxMap.put(currentPageTrxID, pageWtx) != null) {
       throw new TTThreadedException(
         "ID generation is bogus because of duplicate ID.");
     }
-    
+
     return pageWtx;
   }
 }

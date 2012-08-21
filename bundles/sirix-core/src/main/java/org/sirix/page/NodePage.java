@@ -33,9 +33,12 @@ import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -104,18 +107,18 @@ public class NodePage implements IPage {
   /**
    * Get key of node page.
    * 
-   * @return Node page key.
+   * @return node page key
    */
   public final long getNodePageKey() {
     return mNodePageKey;
   }
 
   /**
-   * Get node at a given offset.
+   * Get node with the specified node key.
    * 
    * @param pKey
    *          node key
-   * @return node with given node key
+   * @return node with given node key, or {@code null} if not present
    */
   public INodeBase getNode(final @Nonnegative long pKey) {
     checkArgument(pKey >= 0, "pKey must not be negative!");
@@ -146,21 +149,6 @@ public class NodePage implements IPage {
     }
   }
 
-  /**
-   * Get last byte of integer.
-   * 
-   * @param pVal
-   *          integer value
-   * @return last byte
-   */
-  private byte getLastByte(final int pVal) {
-    byte val = (byte)(pVal >>> 24);
-    val = (byte)(pVal >>> 16);
-    val = (byte)(pVal >>> 8);
-    val = (byte)pVal;
-    return val;
-  }
-
   @Override
   public final String toString() {
     final ToStringHelper helper =
@@ -173,12 +161,12 @@ public class NodePage implements IPage {
   }
 
   /**
-   * Get all nodes from this node page.
+   * Entry set of all nodes in the page.
    * 
-   * @return the nodes
+   * @return an entry set
    */
-  public final Map<Long, INodeBase> getNodes() {
-    return mNodes;
+  public final Set<Entry<Long, INodeBase>> entrySet() {
+    return Collections.unmodifiableSet(mNodes.entrySet());
   }
 
   @Override
@@ -209,6 +197,15 @@ public class NodePage implements IPage {
   @Override
   public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx)
     throws AbsTTException {
+  }
+
+  /**
+   * All available nodes.
+   * 
+   * @return a collection view of all nodes
+   */
+  public Collection<INodeBase> values() {
+    return Collections.unmodifiableCollection(mNodes.values());
   }
 
 }

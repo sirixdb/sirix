@@ -35,8 +35,8 @@ import com.sleepycat.bind.tuple.TupleOutput;
 
 import javax.annotation.Nullable;
 
+import org.sirix.page.NodePage;
 import org.sirix.page.PagePersistenter;
-import org.sirix.page.interfaces.IPage;
 
 public class PageContainerBinding extends TupleBinding<PageContainer> {
 
@@ -47,10 +47,8 @@ public class PageContainerBinding extends TupleBinding<PageContainer> {
     }
     final ByteArrayDataInput source =
       ByteStreams.newDataInput(pInput.getBufferBytes());
-    final IPage current = PagePersistenter.deserializePage(source);
-    final IPage modified = PagePersistenter.deserializePage(source);
-    //
-    @SuppressWarnings("null")
+    final NodePage current = (NodePage) PagePersistenter.deserializePage(source);
+    final NodePage modified = (NodePage) PagePersistenter.deserializePage(source);
     final PageContainer container = new PageContainer(current, modified);
     return container;
   }

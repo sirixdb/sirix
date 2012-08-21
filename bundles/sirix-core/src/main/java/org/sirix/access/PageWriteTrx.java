@@ -31,6 +31,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Optional;
 
+import java.util.Map.Entry;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -95,6 +97,9 @@ public final class PageWriteTrx implements IPageWriteTrx {
   /** {@link PageReadTrx} instance. */
   private final PageReadTrx mPageRtx;
 
+  /** Determines if multiple {@link SynchNodeWriteTrx} are working or just a single {@link NodeWriteTrx}. */
+  private EMultipleWriteTrx mMultipleWriteTrx;
+
   /**
    * Standard constructor.
    * 
@@ -113,11 +118,11 @@ public final class PageWriteTrx implements IPageWriteTrx {
    * @throws TTIOException
    *           if IO Error
    */
-  @Nonnull
   PageWriteTrx(final @Nonnull Session pSession,
     final @Nonnull UberPage pUberPage, final @Nonnull IWriter pWriter,
-    final long pId, final long pRepresentRev, final long pStoreRev,
-    final long pLastCommitedRev) throws TTIOException {
+    final @Nonnegative long pId, final @Nonnegative long pRepresentRev,
+    final @Nonnegative long pStoreRev, final @Nonnegative long pLastCommitedRev)
+    throws TTIOException {
     mPageRtx = new PageReadTrx(pSession, pUberPage, pRepresentRev, pWriter);
     final RevisionRootPage lastCommitedRoot =
       preparePreviousRevisionRootPage(pRepresentRev, pLastCommitedRev);
@@ -135,8 +140,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public INodeBase prepareNodeForModification(@Nonnegative final long pNodeKey,
-    @Nonnull final EPage pPage) throws TTIOException {
+  public INodeBase prepareNodeForModification(final @Nonnegative long pNodeKey,
+    final @Nonnull EPage pPage) throws TTIOException {
     if (pNodeKey < 0) {
       throw new IllegalArgumentException("pNodeKey must be >= 0!");
     }
@@ -146,7 +151,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
     }
 
     final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
-//    final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
+    // final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
     prepareNodePage(nodePageKey, pPage);
 
     INodeBase node = ((NodePage)mNodePageCon.getModified()).getNode(pNodeKey);
@@ -164,8 +169,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public void finishNodeModification(@Nonnull final INodeBase pNode,
-    @Nonnull final EPage pPage) {
+  public void finishNodeModification(final @Nonnull INodeBase pNode,
+    final @Nonnull EPage pPage) {
     final long nodePageKey = mPageRtx.nodePageKey(pNode.getNodeKey());
     if (mNodePageCon == null
       || pNode == null
@@ -214,7 +219,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
     }
 
     final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
-//    final int nodePageOffset = mPageRtx.nodePageOffset(nodeKey);
+    // final int nodePageOffset = mPageRtx.nodePageOffset(nodeKey);
     prepareNodePage(nodePageKey, pPage);
     final NodePage page = (NodePage)mNodePageCon.getModified();
     page.setNode(pNode);
@@ -231,31 +236,26 @@ public final class PageWriteTrx implements IPageWriteTrx {
     final INode delNode =
       new DeletedNode(new NodeDelegate(pNode.getNodeKey(),
         pNode.getParentKey(), pNode.getHash()));
-    ((NodePage)mNodePageCon.getModified()).setNode(//mPageRtx
-      delNode);
-//      .nodePageOffset(pNode.getNodeKey()), delNode);
-    ((NodePage)mNodePageCon.getComplete()).setNode(//mPageRtx
-//      .nodePageOffset(pNode.getNodeKey()), delNode);
-      delNode);
+    mNodePageCon.getModified().setNode(delNode);
+    mNodePageCon.getComplete().setNode(delNode);
     finishNodeModification(pNode, pPage);
   }
 
   @Override
-  public Optional<INodeBase> getNode(@Nonnegative final long pNodeKey,
-    @Nonnull final EPage pPage) throws TTIOException {
+  public Optional<INodeBase> getNode(final @Nonnegative long pNodeKey,
+    final @Nonnull EPage pPage) throws TTIOException {
     checkArgument(pNodeKey >= EFixed.NULL_NODE_KEY.getStandardProperty());
     checkNotNull(pPage);
     // Calculate page and node part for given nodeKey.
     final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
-//    final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
+    // final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
 
     final PageContainer pageCont = getPageContainer(pPage, nodePageKey);
 
     if (pageCont == null) {
       return mPageRtx.getNode(pNodeKey, pPage);
     } else {
-      INodeBase node =
-        ((NodePage)pageCont.getModified()).getNode(pNodeKey);
+      INodeBase node = ((NodePage)pageCont.getModified()).getNode(pNodeKey);
       if (node == null) {
         node = ((NodePage)pageCont.getComplete()).getNode(pNodeKey);
         return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));
@@ -265,6 +265,15 @@ public final class PageWriteTrx implements IPageWriteTrx {
     }
   }
 
+  /**
+   * Get the page container.
+   * 
+   * @param pPage
+   *          the kind of page
+   * @param pNodePageKey
+   *          the node page key
+   * @return the {@link PageContainer} instance from the write ahead log
+   */
   private PageContainer getPageContainer(final @Nullable EPage pPage,
     final @Nonnegative long pNodePageKey) {
     if (pPage != null) {
@@ -336,77 +345,22 @@ public final class PageWriteTrx implements IPageWriteTrx {
       pReference.setPage(null);
       // Afterwards synchronize all logs since the changes must to be
       // written to the transaction log as well.
-      if (cont != null) {
-        mPageRtx.mSession.syncLogs(cont, mTransactionID);
+      if (mMultipleWriteTrx == EMultipleWriteTrx.YES && cont != null) {
+        mPageRtx.mSession.syncLogs(cont, mTransactionID, pReference
+          .getPageKind());
       }
     }
   }
 
   @Override
-  public UberPage commit() throws AbsTTException {
+  public UberPage commit(final @Nonnull EMultipleWriteTrx pMultipleWriteTrx)
+    throws AbsTTException {
     mPageRtx.mSession.mCommitLock.lock();
+    mMultipleWriteTrx = checkNotNull(pMultipleWriteTrx);
 
     final PageReference uberPageReference = new PageReference();
     final UberPage uberPage = getUberPage();
     uberPageReference.setPage(uberPage);
-
-    // // // /////////////
-    // // // New code starts here
-    // // // /////////////
-    // final Stack<PageReference> refs = new Stack<PageReference>();
-    // refs.push(uberPageReference);
-    //
-    // final Stack<Integer> refIndex = new Stack<Integer>();
-    // refIndex.push(0);
-    // refIndex.push(0);
-    //
-    // do {
-    //
-    // assert refs.size() + 1 == refIndex.size();
-    //
-    // // Getting the next ref
-    // final PageReference currentRef = refs.peek();
-    // final int currentIndex = refIndex.pop();
-    //
-    // // Check if referenced page is valid, if not, continue
-    // AbsPage page = mLog.get(currentRef.getNodePageKey()).getModified();
-    // boolean continueFlag = true;
-    // if (page == null) {
-    // if (currentRef.isInstantiated()) {
-    // page = currentRef.getPage();
-    // } else {
-    // continueFlag = false;
-    // }
-    // } else {
-    // currentRef.setPage(page);
-    // }
-    //
-    // if (continueFlag) {
-    //
-    // if (currentIndex + 1 <= page.getReferences().length) {
-    // // go down
-    //
-    // refIndex.push(currentIndex + 1);
-    //
-    // refs.push(page.getReference(currentIndex));
-    // refIndex.push(0);
-    //
-    // } else {
-    //
-    // mPageWriter.write(currentRef);
-    // refs.pop();
-    // }
-    //
-    // } // ref is not designated to be serialized
-    // else {
-    // refs.pop();
-    // }
-    //
-    // } while (!refs.empty());
-    //
-    // // // ///////////////
-    // // // New code ends here
-    // // // ///////////////
 
     // Recursively write indirectely referenced pages.
     uberPage.commit(this);
@@ -442,7 +396,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
    */
   @SuppressWarnings("null")
   private IndirectPage prepareIndirectPage(
-    @Nonnull final PageReference pReference) throws TTIOException {
+    final @Nonnull PageReference pReference) throws TTIOException {
     IndirectPage page = (IndirectPage)pReference.getPage();
     if (page == null) {
       if (pReference.getKey() == IConstants.NULL_ID) {
@@ -466,8 +420,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  private void prepareNodePage(@Nonnegative final long pNodePageKey,
-    @Nonnull final EPage pPage) throws TTIOException {
+  private void prepareNodePage(final @Nonnegative long pNodePageKey,
+    final @Nonnull EPage pPage) throws TTIOException {
     // Last level points to node nodePageReference.
     PageContainer cont = getPageContainer(pPage, pNodePageKey);
     if (cont == null) {
@@ -491,7 +445,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
       assert cont != null;
       reference.setNodePageKey(pNodePageKey);
       reference.setPageKind(pPage);
-      
+
       switch (pPage) {
       case NODEPAGE:
         mLog.put(pNodePageKey, cont);
@@ -509,9 +463,20 @@ public final class PageWriteTrx implements IPageWriteTrx {
     mNodePageCon = cont;
   }
 
+  /**
+   * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.
+   * 
+   * @param pBaseRevision
+   *          base revision
+   * @param pRepresentRevision
+   *          the revision to represent
+   * @return new {@link RevisionRootPage} instance
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
   private RevisionRootPage preparePreviousRevisionRootPage(
-    @Nonnegative final long pBaseRevision,
-    @Nonnegative final long pRepresentRevision) throws TTIOException {
+    final @Nonnegative long pBaseRevision,
+    final @Nonnegative long pRepresentRevision) throws TTIOException {
     if (getUberPage().isBootstrap()) {
       return mPageRtx.loadRevRoot(pBaseRevision);
     } else {
@@ -542,8 +507,19 @@ public final class PageWriteTrx implements IPageWriteTrx {
     }
   }
 
+  /**
+   * Prepare the leaf of a tree, namely the reference to a {@link NodePage}.
+   * 
+   * @param pStartReference
+   *          start reference
+   * @param pKey
+   *          page key to lookup
+   * @return {@link PageReference} instance pointing to the right {@link NodePage} with the {@code pKey}
+   * @throws TTIOException
+   *           if an I/O error occured
+   */
   private PageReference prepareLeafOfTree(
-    @Nonnull final PageReference pStartReference, final long pKey)
+    final @Nonnull PageReference pStartReference, final @Nonnegative long pKey)
     throws TTIOException {
     // Initial state pointing to the indirect nodePageReference of level 0.
     PageReference reference = pStartReference;
@@ -574,7 +550,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
    *           if an I/O error occurs
    */
   private PageContainer dereferenceNodePageForModification(
-    final long pNodePageKey, @Nonnull final EPage pPage) throws TTIOException {
+    final @Nonnegative long pNodePageKey, final @Nonnull EPage pPage)
+    throws TTIOException {
     final NodePage[] revs = mPageRtx.getSnapshotPages(pNodePageKey, pPage);
     final ERevisioning revisioning =
       mPageRtx.mSession.mResourceConfig.mRevisionKind;
@@ -589,15 +566,40 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   /**
-   * Updating a container in this transaction state.
+   * Updating a container in this {@link PageWriteTrx}.
    * 
    * @param pCont
    *          {@link PageContainer} reference to be updated
+   * @param pPage
+   *          page for which the
    */
-  public void updateDateContainer(@Nonnull final PageContainer pCont) {
-    synchronized (mLog) {
-      // TODO implement for MultiWriteTrans
-      // Refer to issue #203
+  public void updateDateContainer(final @Nonnull PageContainer pContainer,
+    final @Nonnull EPage pPage) {
+    final long nodePageKey = pContainer.getComplete().getNodePageKey();
+    PageContainer container;
+    switch (pPage) {
+    case PATHSUMMARYPAGE:
+      container = mPathLog.get(nodePageKey);
+      break;
+    case VALUEPAGE:
+      container = mValueLog.get(nodePageKey);
+      break;
+    case NODEPAGE:
+      container = mLog.get(nodePageKey);
+      break;
+    default:
+      throw new IllegalStateException("page kind not known!");
+    }
+
+    // Merge containers.
+    final NodePage modified = container.getModified();
+    final NodePage otherModified = pContainer.getModified();
+    synchronized (modified) {
+      for (final Entry<Long, INodeBase> entry : otherModified.entrySet()) {
+        if (modified.getNode(entry.getKey()) == null) {
+          modified.setNode(entry.getValue());
+        }
+      }
     }
   }
 
@@ -609,7 +611,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
    *          the {@link QName} of an element
    * @return a string with [prefix:]localname
    */
-  public static String buildName(@Nonnull final QName pQName) {
+  public static String buildName(final @Nonnull QName pQName) {
     String name;
     if (pQName.getPrefix().isEmpty()) {
       name = pQName.getLocalPart();
@@ -622,13 +624,13 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public byte[] getRawName(final int pNameKey, @Nonnull final EKind pKind) {
+  public byte[] getRawName(final int pNameKey, final @Nonnull EKind pKind) {
     return mPageRtx.getRawName(pNameKey, pKind);
   }
 
   @Override
   public PageContainer getNodeFromPage(final long pKey,
-    @Nonnull final EPage pPage) throws TTIOException {
+    final @Nonnull EPage pPage) throws TTIOException {
     return mPageRtx.getNodeFromPage(pKey, pPage);
   }
 
@@ -638,7 +640,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   }
 
   @Override
-  public int getNameCount(int pKey, @Nonnull EKind pKind) {
+  public int getNameCount(final int pKey, final @Nonnull EKind pKind) {
     return mPageRtx.getNameCount(pKey, pKind);
   }
 
@@ -646,7 +648,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   public boolean isClosed() {
     return mPageRtx.isClosed();
   }
-  
+
   @Override
   public long getRevisionNumber() {
     return mPageRtx.getRevisionNumber();

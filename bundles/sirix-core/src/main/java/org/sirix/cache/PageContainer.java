@@ -63,10 +63,10 @@ import org.sirix.page.interfaces.IPage;
 public final class PageContainer {
 
   /** {@link NodePage} reference, which references the complete node page. */
-  private final IPage mComplete;
+  private final NodePage mComplete;
 
   /** {@link NodePage} reference, which references the modified node page. */
-  private final IPage mModified;
+  private final NodePage mModified;
 
   /** Empty instance. */
   public static final PageContainer EMPTY_INSTANCE = new PageContainer();
@@ -83,8 +83,8 @@ public final class PageContainer {
    * @param pComplete
    *          to be used as a base for this container
    */
-  public PageContainer(@Nonnull final IPage pComplete) {
-    this(pComplete, EPage.getKind(pComplete.getClass()).getInstance(pComplete));
+  public PageContainer(@Nonnull final NodePage pComplete) {
+    this(pComplete, new NodePage(pComplete.getNodePageKey(), pComplete.getRevision()));
   }
 
   /**
@@ -95,7 +95,7 @@ public final class PageContainer {
    * @param pModifying
    *          to be used as a base for this container
    */
-  public PageContainer(@Nonnull final IPage pComplete, @Nonnull final IPage pModifying) {
+  public PageContainer(@Nonnull final NodePage pComplete, @Nonnull final NodePage pModifying) {
     mComplete = checkNotNull(pComplete);
     mModified = checkNotNull(pModifying);
   }
@@ -105,7 +105,7 @@ public final class PageContainer {
    * 
    * @return the complete page
    */
-  public IPage getComplete() {
+  public NodePage getComplete() {
     return mComplete;
   }
 
@@ -114,7 +114,7 @@ public final class PageContainer {
    * 
    * @return the modified page
    */
-  public IPage getModified() {
+  public NodePage getModified() {
     return mModified;
   }
 

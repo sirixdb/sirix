@@ -3,6 +3,7 @@ package org.sirix.api;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
+import org.sirix.access.EMultipleWriteTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
@@ -39,7 +40,8 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  INodeBase createNode(@Nonnull INodeBase pNode, @Nonnull EPage pPage) throws TTIOException;
+  INodeBase createNode(@Nonnull INodeBase pNode, @Nonnull EPage pPage)
+    throws TTIOException;
 
   /**
    * Prepare a node for modification. This is getting the node from the
@@ -52,7 +54,8 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if an I/O-error occurs
    */
-  INodeBase prepareNodeForModification(@Nonnegative long pNodeKey, @Nonnull EPage pPage) throws TTIOException;
+  INodeBase prepareNodeForModification(@Nonnegative long pNodeKey,
+    @Nonnull EPage pPage) throws TTIOException;
 
   /**
    * Finishing the node modification. That is storing the node including the
@@ -61,7 +64,7 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @param pNode
    *          the node to be modified
    */
-   void finishNodeModification(@Nonnull INodeBase pNode, @Nonnull EPage pPage);
+  void finishNodeModification(@Nonnull INodeBase pNode, @Nonnull EPage pPage);
 
   /**
    * Removing a node from the storage.
@@ -71,7 +74,8 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if the removal fails
    */
-  void removeNode(@Nonnull INode pNode, @Nonnull EPage pPage) throws TTIOException;
+  void removeNode(@Nonnull INode pNode, @Nonnull EPage pPage)
+    throws TTIOException;
 
   /**
    * Creating a namekey for a given name.
@@ -84,18 +88,22 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @throws TTIOException
    *           if something odd happens while storing the new key
    */
-  int createNameKey(@Nonnull String pName, @Nonnull EKind pKind) throws TTIOException;
+  int createNameKey(@Nonnull String pName, @Nonnull EKind pKind)
+    throws TTIOException;
 
   /** Commit the transaction, that is persist changes if any and create a new revision. */
-  UberPage commit() throws AbsTTException;
+  UberPage commit(@Nonnull EMultipleWriteTrx pMultipleWriteTrx) throws AbsTTException;
 
   /**
    * Update log.
    * 
    * @param pNodePageCont
    *          {@link PageContainer} reference to synchronize
+   * @param pPage
+   *          type of page
    */
-  void updateDateContainer(@Nonnull PageContainer pNodePageCont);
+  void updateDateContainer(@Nonnull PageContainer pNodePageCont,
+    @Nonnull EPage pPage);
 
   /**
    * Committing a {@link INodeWriteTrx}. This method is recursively invoked by all {@link PageReference}s.

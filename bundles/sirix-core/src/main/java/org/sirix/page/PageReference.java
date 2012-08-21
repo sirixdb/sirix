@@ -30,6 +30,7 @@ package org.sirix.page;
 import com.google.common.base.Objects;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.page.interfaces.IPage;
 import org.sirix.utils.IConstants;
@@ -78,7 +79,7 @@ public final class PageReference {
    * @param pPage
    *          deserialized page
    */
-  public void setPage(final @Nonnull IPage pPage) {
+  public void setPage(final @Nullable IPage pPage) {
     mPage = pPage;
   }
 

@@ -36,7 +36,6 @@ import com.google.common.hash.Hashing;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -1809,9 +1808,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
     }
 
     // Commit uber page.
-    final UberPage uberPage = getPageTransaction().commit();
+    final UberPage uberPage = getPageTransaction().commit(EMultipleWriteTrx.NO);
 
-    // Remember succesfully committed uber page in session state.
+    // Remember succesfully committed uber page in session.
     mNodeRtx.mSession.setLastCommittedUberPage(uberPage);
 
     // Reset modification counter.
