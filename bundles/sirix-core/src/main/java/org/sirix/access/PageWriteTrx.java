@@ -358,6 +358,11 @@ public final class PageWriteTrx implements IPageWriteTrx {
     mPageRtx.mSession.mCommitLock.lock();
     mMultipleWriteTrx = checkNotNull(pMultipleWriteTrx);
 
+    // Forcefully flush write-ahead transaction logs to persistent storage.
+    mLog.toSecondCache();
+    mPathLog.toSecondCache();
+    mValueLog.toSecondCache();
+
     final PageReference uberPageReference = new PageReference();
     final UberPage uberPage = getUberPage();
     uberPageReference.setPage(uberPage);
@@ -370,7 +375,6 @@ public final class PageWriteTrx implements IPageWriteTrx {
     uberPageReference.setPage(null);
 
     mPageRtx.mSession.waitForFinishedSync(mTransactionID);
-    // mPageWriter.close();
     mPageRtx.mSession.mCommitLock.unlock();
     return uberPage;
   }

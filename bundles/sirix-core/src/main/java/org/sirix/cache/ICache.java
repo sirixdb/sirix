@@ -27,9 +27,11 @@
 
 package org.sirix.cache;
 
-import javax.annotation.Nonnull;
-
 import com.google.common.collect.ImmutableMap;
+
+import java.util.Map;
+
+import javax.annotation.Nonnull;
 
 /**
  * Interface for all upcoming cache implementations. Can be a weak one, a
@@ -58,18 +60,30 @@ public interface ICache<K, V> {
    *          the key for the requested {@link PageContainer}
    * @return {@link PageContainer} instance related to this key
    */
-  V get(@Nonnull final K pKey);
+  V get(@Nonnull K pKey);
 
   /**
-   * Putting an {@link PageContainer} into the cache with a corresponding
-   * nodepagekey.
+   * Putting an key/value into the cache.
    * 
    * @param pKey
    *          for putting the page in the cache
    * @param pValue
    *          should be putted in the cache as well
    */
-  void put(@Nonnull final K pKey, @Nonnull final V pValue);
+  void put(@Nonnull K pKey, @Nonnull V pValue);
+
+  /**
+   * Put all entries from a map into the cache.
+   * 
+   * @param pMap
+   *          map with entries to put into the cache
+   */
+  void putAll(@Nonnull Map<K, V> pMap);
+  
+  /**
+   * Save all entries of this cache in the secondary cache without removing them.
+   */
+  void toSecondCache();
 
   /**
    * Get all entries corresponding to the keys.

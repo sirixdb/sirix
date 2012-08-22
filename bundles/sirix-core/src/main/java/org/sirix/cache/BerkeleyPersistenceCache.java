@@ -28,12 +28,6 @@
 package org.sirix.cache;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.io.File;
-
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-
 import com.google.common.collect.ImmutableMap;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
@@ -44,6 +38,13 @@ import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
+
+import java.io.File;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 
 import org.sirix.exception.TTIOException;
 
@@ -177,7 +178,19 @@ public final class BerkeleyPersistenceCache extends
 
   @Override
   public ImmutableMap<Long, PageContainer> getAll(
-    @Nonnull Iterable<? extends Long> keys) {
+    final @Nonnull Iterable<? extends Long> keys) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void putAll(final @Nonnull Map<Long, PageContainer> pMap) {
+    for (final Entry<Long, PageContainer> entry : pMap.entrySet()) {
+      put(entry.getKey(), entry.getValue());      
+    }
+  }
+  
+  @Override
+  public void toSecondCache() {
     throw new UnsupportedOperationException();
   }
 }

@@ -1,5 +1,7 @@
 package org.sirix.cache;
 
+import java.util.Map;
+
 import com.google.common.collect.ImmutableMap;
 
 import javax.annotation.Nonnull;
@@ -25,6 +27,14 @@ public class EmptyCache<K, V> implements ICache<K, V> {
   @Override
   public ImmutableMap<K, V> getAll(@Nonnull Iterable<? extends K> pKeys) {
     return null;
+  }
+
+  @Override
+  public void putAll(@Nonnull Map<K, V> pMap) {
+  }
+
+  @Override
+  public void toSecondCache() {
   }
 
 }

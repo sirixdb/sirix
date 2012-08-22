@@ -8,6 +8,8 @@ import com.google.common.cache.RemovalListener;
 import com.google.common.cache.RemovalNotification;
 import com.google.common.collect.ImmutableMap;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -40,6 +42,11 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
    * {@link LoadingCache} reference.
    */
   private final LoadingCache<Tuple, PageContainer> mCache;
+  
+  /**
+   * Second cache.
+   */
+  private final ICache<Tuple, PageContainer> mSecondCache;
 
   /**
    * Constructor with second cache.
@@ -49,28 +56,26 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
    * @param pSecondCache
    *          second fallback cache
    */
-  public GuavaCache(@Nonnull final IPageReadTrx pPageReadTransaction,
-    @Nonnull final ICache<Tuple, PageContainer> pSecondCache) {
+  public GuavaCache(final @Nonnull IPageReadTrx pPageReadTransaction,
+    final @Nonnull ICache<Tuple, PageContainer> pSecondCache) {
     checkNotNull(pPageReadTransaction);
-    checkNotNull(pSecondCache);
+    mSecondCache = checkNotNull(pSecondCache);
 
     final CacheBuilder<Object, Object> builder =
       CacheBuilder.newBuilder().maximumSize(MAX_SIZE).expireAfterAccess(
         EXPIRE_AFTER, TimeUnit.SECONDS);
-    RemovalListener<Tuple, PageContainer> removalListener =
-      new RemovalListener<Tuple, PageContainer>() {
-        @Override
-        public void onRemoval(
-          @Nullable final RemovalNotification<Tuple, PageContainer> pRemoval) {
-          if (pRemoval != null) {
-            final Tuple tuple = pRemoval.getKey();
-            final PageContainer pageCont = pRemoval.getValue();
-            if (tuple != null && pageCont != null)
-              pSecondCache.put(tuple, pageCont);
-          }
+    builder.removalListener(new RemovalListener<Tuple, PageContainer>() {
+      @Override
+      public void onRemoval(
+        @Nullable final RemovalNotification<Tuple, PageContainer> pRemoval) {
+        if (pRemoval != null) {
+          final Tuple tuple = pRemoval.getKey();
+          final PageContainer pageCont = pRemoval.getValue();
+          if (tuple != null && pageCont != null)
+            pSecondCache.put(tuple, pageCont);
         }
-      };
-    builder.removalListener(removalListener);
+      }
+    });
     mCache = builder.build(new CacheLoader<Tuple, PageContainer>() {
       @Override
       public PageContainer load(final @Nullable Tuple key) throws TTIOException {
@@ -138,5 +143,16 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
     } catch (final ExecutionException e) {
       throw new IllegalStateException(e);
     }
+  }
+
+  @Override
+  public void toSecondCache() {
+    final ConcurrentMap<Tuple, PageContainer> cached = mCache.asMap();
+    mSecondCache.putAll(cached);
+  }
+
+  @Override
+  public void putAll(final @Nonnull Map<Tuple, PageContainer> pMap) {
+    mCache.putAll(pMap);
   }
 }

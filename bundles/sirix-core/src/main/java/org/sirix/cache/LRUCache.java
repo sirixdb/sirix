@@ -33,6 +33,7 @@ import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -93,7 +94,7 @@ public final class LRUCache<K, V> implements ICache<K, V> {
       }
     };
   }
-  
+
   public LRUCache() {
     this(new EmptyCache<K, V>());
   }
@@ -166,7 +167,7 @@ public final class LRUCache<K, V> implements ICache<K, V> {
   }
 
   @Override
-  public ImmutableMap<K, V> getAll(@Nonnull final Iterable<? extends K> pKeys) {
+  public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> pKeys) {
     final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
     for (final K key : pKeys) {
       if (mMap.get(key) != null) {
@@ -176,4 +177,22 @@ public final class LRUCache<K, V> implements ICache<K, V> {
     return builder.build();
   }
 
+  @Override
+  public void putAll(final @Nonnull Map<K, V> pMap) {
+    mMap.putAll(checkNotNull(pMap));
+  }
+
+  @Override
+  public void toSecondCache() {
+    mSecondCache.putAll(mMap);
+  }
+
+  /**
+   * Get a view of the underlying map.
+   * 
+   * @return an unmodifiable view of all entries in the cache
+   */
+  public Map<K, V> getMap() {
+    return Collections.unmodifiableMap(mMap);
+  }
 }

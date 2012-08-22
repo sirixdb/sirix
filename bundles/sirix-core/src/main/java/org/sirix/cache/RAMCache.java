@@ -27,6 +27,10 @@
 
 package org.sirix.cache;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.util.Map;
+
 import com.google.common.collect.ImmutableMap;
 
 import javax.annotation.Nonnull;
@@ -59,12 +63,12 @@ public final class RAMCache<K, V> implements ICache<K, V> {
   }
 
   @Override
-  public V get(@Nonnull final K pKey) {
+  public V get(final @Nonnull K pKey) {
     return mMap.get(pKey);
   }
 
   @Override
-  public void put(@Nonnull final K pKey, @Nonnull final V pPage) {
+  public void put(final @Nonnull K pKey, final @Nonnull V pPage) {
     mMap.put(pKey, pPage);
   }
 
@@ -74,7 +78,7 @@ public final class RAMCache<K, V> implements ICache<K, V> {
   }
 
   @Override
-  public ImmutableMap<K, V> getAll(@Nonnull final Iterable<? extends K> pKeys) {
+  public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> pKeys) {
     final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
     for (final K key : pKeys) {
       if (mMap.get(key) != null) {
@@ -82,6 +86,16 @@ public final class RAMCache<K, V> implements ICache<K, V> {
       }
     }
     return builder.build();
+  }
+
+  @Override
+  public void putAll(final @Nonnull Map<K, V> pMap) {
+    mMap.putAll(checkNotNull(pMap));
+  }
+  
+  @Override
+  public void toSecondCache() {
+    throw new UnsupportedOperationException();
   }
 
 }

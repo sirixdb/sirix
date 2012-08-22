@@ -31,6 +31,10 @@ import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
 
 import java.io.File;
+import java.util.Map;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -44,6 +48,7 @@ import org.sirix.exception.TTIOException;
  * persistent second cache.
  * 
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public final class TransactionLogCache implements ICache<Long, PageContainer> {
@@ -52,6 +57,20 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
    * RAM-Based first cache.
    */
   private final LRUCache<Long, PageContainer> mFirstCache;
+
+  /**
+   * Persistend second cache.
+   */
+  private final ICache<Long, PageContainer> mSecondCache;
+
+  /** {@link ReadWriteLock} instance. */
+  private final ReadWriteLock mLock = new ReentrantReadWriteLock();
+
+  /** Shared read lock. */
+  private final Lock mReadLock = mLock.readLock();
+
+  /** Write lock. */
+  private final Lock mWriteLock = mLock.writeLock();
 
   /**
    * Constructor including the {@link DatabaseConfiguration} for persistent
@@ -64,12 +83,11 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
    * @throws TTIOException
    *           if I/O is not successful
    */
-  public TransactionLogCache(@Nonnull final IPageReadTrx pPageReadTransaction,
-    @Nonnull final File pFile, @Nonnegative final long pRevision)
+  public TransactionLogCache(final @Nonnull IPageReadTrx pPageReadTransaction,
+    final @Nonnull File pFile, final @Nonnegative long pRevision)
     throws TTIOException {
-    final BerkeleyPersistenceCache secondCache =
-      new BerkeleyPersistenceCache(pFile, pRevision);
-    mFirstCache = new LRUCache<>(secondCache);
+    mSecondCache = new BerkeleyPersistenceCache(pFile, pRevision);
+    mFirstCache = new LRUCache<>(mSecondCache);
   }
 
   @Override
@@ -79,29 +97,72 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
 
   @Override
   public ImmutableMap<Long, PageContainer> getAll(
-    @Nonnull final Iterable<? extends Long> pKeys) {
+    final @Nonnull Iterable<? extends Long> pKeys) {
     final ImmutableMap.Builder<Long, PageContainer> builder =
       new ImmutableMap.Builder<>();
-    for (final long key : pKeys) {
-      if (mFirstCache.get(key) != null) {
-        builder.put(key, mFirstCache.get(key));
+    try {
+      mReadLock.lock();
+      for (final Long key : pKeys) {
+        if (mFirstCache.get(key) != null) {
+          builder.put(key, mFirstCache.get(key));
+        }
       }
+    } finally {
+      mReadLock.unlock();
     }
     return builder.build();
   }
 
   @Override
   public void clear() {
-    mFirstCache.clear();
+    try {
+      mWriteLock.lock();
+      mFirstCache.clear();
+    } finally {
+      mWriteLock.unlock();
+    }
   }
 
   @Override
-  public PageContainer get(@Nonnull Long pKey) {
-    return mFirstCache.get(pKey);
+  public PageContainer get(final @Nonnull Long pKey) {
+    PageContainer container = PageContainer.EMPTY_INSTANCE;
+    try {
+      mReadLock.lock();
+      container = mFirstCache.get(pKey);
+    } finally {
+      mReadLock.unlock();
+    }
+    return container;
   }
 
   @Override
-  public void put(@Nonnull Long pKey, @Nonnull PageContainer pValue) {
-    mFirstCache.put(pKey, pValue);
+  public void
+    put(final @Nonnull Long pKey, final @Nonnull PageContainer pValue) {
+    try {
+      mWriteLock.lock();
+      mFirstCache.put(pKey, pValue);
+    } finally {
+      mWriteLock.unlock();
+    }
+  }
+
+  @Override
+  public void putAll(final @Nonnull Map<Long, PageContainer> pMap) {
+    try {
+      mWriteLock.lock();
+      mFirstCache.putAll(pMap);
+    } finally {
+      mWriteLock.unlock();
+    }
+  }
+
+  @Override
+  public void toSecondCache() {
+    try {
+      mWriteLock.lock();
+      mSecondCache.putAll(mFirstCache.getMap());
+    } finally {
+      mWriteLock.unlock();
+    }
   }
 }
