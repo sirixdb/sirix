@@ -26,6 +26,7 @@
  */
 package org.sirix.gui.view;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import com.sleepycat.bind.EntryBinding;
 import com.sleepycat.bind.serial.ClassCatalog;
 import com.sleepycat.bind.serial.SerialBinding;
@@ -38,14 +39,13 @@ import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 
 import java.io.File;
-import java.io.IOException;
-import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.diff.DiffTuple;
+import org.sirix.exception.TTIOException;
 import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /** Database to store generated diffs. */
 public class DiffDatabase implements AutoCloseable {
@@ -53,53 +53,49 @@ public class DiffDatabase implements AutoCloseable {
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(DiffDatabase.class));
 
+  /** Class catalog. */
   private static final String CLASS_CATALOG = "java_class_catalog";
 
-  /**
-   * Berkeley {@link Environment} for the database.
-   */
-  private transient Environment mEnv;
+  /** Berkeley {@link Environment} for the database. */
+  private final Environment mEnv;
 
-  /**
-   * {@link File} where to store the database.
-   */
+  /** {@link File} where to store the database. */
   private final File mStorageFile;
 
-  /**
-   * Counter to give every instance a different place.
-   */
+  /** Counter to give every instance a different place. */
   private AtomicInteger mCounter;
 
-  /**
-   * Name for the database.
-   */
+  /** Name for the database. */
   private static final String NAME = "DiffDatabase";
 
+  /** {@link ClassCatalog} reference. */
   private ClassCatalog mCatalog;
 
+  /** {@link Database} reference. */
   private Database mDatabase;
 
+  /** {@link StoredMap} reference. */
   private StoredMap<Integer, DiffTuple> mMap;
 
   /**
    * Constructor.
    * 
-   * @param paramFile
+   * @param pFile
    *          {@link File} where the database should be stored
    * @throws NullPointerException
    *           if {@code paramFile} is {@code null}
    */
-  public DiffDatabase(final File paramFile) {
-    Objects.requireNonNull(paramFile);
+  public DiffDatabase(final File pFile) {
+    checkNotNull(pFile);
     mCounter = new AtomicInteger();
     mStorageFile =
-      new File(paramFile, new StringBuilder(new File("diff").getName()).append(File.separator).append(
+      new File(pFile, new StringBuilder(new File("diff").getName()).append(File.separator).append(
         mCounter.incrementAndGet()).toString());
     try {
       if (mStorageFile.exists()) {
         Files.recursiveRemove(mStorageFile.toPath());
       }
-    } catch (final IOException e) {
+    } catch (final TTIOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     if (!mStorageFile.mkdirs()) {
@@ -152,7 +148,6 @@ public class DiffDatabase implements AutoCloseable {
     return mEnv;
   }
 
-  /** {@inheritDoc} */
   @Override
   public void close() {
     mCatalog.close();
