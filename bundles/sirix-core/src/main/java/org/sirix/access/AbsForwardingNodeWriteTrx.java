@@ -7,7 +7,6 @@ import javax.xml.stream.XMLEventReader;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
 import org.sirix.service.xml.shredder.EInsert;
 
 /**
@@ -27,7 +26,7 @@ public abstract class AbsForwardingNodeWriteTrx extends
   protected abstract INodeWriteTrx delegate();
 
   @Override
-  public void abort() throws TTIOException {
+  public void abort() throws AbsTTException {
     delegate().abort();
   }
 

@@ -249,6 +249,16 @@ public final class RevisionRootPage extends AbsForwardingPage {
   public void setMaxPathNodeKey(final long pMaxNodeKey) {
     mMaxPathNodeKey = pMaxNodeKey;
   }
+  
+  /**
+   * Set the maximum value node key in the revision.
+   * 
+   * @param pMaxNodeKey
+   *          new maximum node key
+   */
+  public void setMaxValueNodeKey(final long pMaxNodeKey) {
+    mMaxValueNodeKey = pMaxNodeKey;
+  }
 
   @Override
   public void serialize(@Nonnull final ByteArrayDataOutput pOut) {

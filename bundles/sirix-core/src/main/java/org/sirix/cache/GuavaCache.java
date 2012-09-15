@@ -155,4 +155,9 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
   public void putAll(final @Nonnull Map<Tuple, PageContainer> pMap) {
     mCache.putAll(pMap);
   }
+  
+  @Override
+  public void remove(final @Nonnull Tuple pKey) {
+    mCache.invalidate(pKey);
+  }
 }

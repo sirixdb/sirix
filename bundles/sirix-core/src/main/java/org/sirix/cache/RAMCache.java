@@ -97,5 +97,10 @@ public final class RAMCache<K, V> implements ICache<K, V> {
   public void toSecondCache() {
     throw new UnsupportedOperationException();
   }
+  
+  @Override
+  public void remove(final @Nonnull K pKey) {
+    mMap.remove(pKey);
+  }
 
 }

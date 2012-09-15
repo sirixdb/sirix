@@ -156,11 +156,7 @@ public final class Database implements IDatabase {
       if (pConf.getFile().exists()) {
         // && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
         // instantiate the database for deletion
-        try {
-          Files.recursiveRemove(pConf.getFile().toPath());
-        } catch (final IOException e) {
-          throw new TTIOException(e);
-        }
+        Files.recursiveRemove(pConf.getFile().toPath());
       }
     }
   }
@@ -233,7 +229,7 @@ public final class Database implements IDatabase {
         // Instantiate the database for deletion.
         try {
           Files.recursiveRemove(resourceFile.toPath());
-        } catch (final IOException e) {
+        } catch (final TTIOException e) {
           LOGWRAPPER.error(e.getMessage(), e);
         }
       }
@@ -296,14 +292,15 @@ public final class Database implements IDatabase {
       new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
         .getFile().getName()), pSessionConf.getResource());
     Session returnVal = mSessions.get(resourceFile);
-    
+
     if (returnVal == null) {
       if (!resourceFile.exists()) {
         throw new TTUsageException(
           "Resource could not be opened (since it was not created?) at location",
           resourceFile.toString());
       }
-      final ResourceConfiguration config = ResourceConfiguration.deserialize(resourceFile);
+      final ResourceConfiguration config =
+        ResourceConfiguration.deserialize(resourceFile);
 
       // Resource of session must be associated to this database
       assert config.mPath.getParentFile().getParentFile().equals(
@@ -311,7 +308,7 @@ public final class Database implements IDatabase {
       returnVal = new Session(this, config, pSessionConf);
       mSessions.put(resourceFile, returnVal);
     }
-    
+
     return returnVal;
   }
 

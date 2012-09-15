@@ -22,7 +22,6 @@ import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.INodeBase;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.page.EPage;
-import org.sirix.page.NamePage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.IConstants;

@@ -94,7 +94,6 @@ public class PostOrderTest {
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {});
   }
 
-  @SuppressWarnings("null")
   @Test
   public void testIterateDocumentFirst() throws AbsTTException, IOException,
     XMLStreamException {
@@ -103,6 +102,7 @@ public class PostOrderTest {
       wtx.insertSubtree(XMLShredder
         .createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
         EInsert.ASFIRSTCHILD);
+      wtx.commit();
       AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] {
         17, 19, 20, 18, 21, 24, 25, 22, 26
       });
@@ -125,7 +125,6 @@ public class PostOrderTest {
     }
   }
 
-  @SuppressWarnings("null")
   @Test
   public void testIterateDocumentSecond() throws AbsTTException, IOException,
     XMLStreamException {
@@ -134,6 +133,7 @@ public class PostOrderTest {
       wtx.insertSubtree(XMLShredder
         .createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
         EInsert.ASFIRSTCHILD);
+      wtx.commit();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       AbsAxisTest.testIAxisConventions(

@@ -11,6 +11,8 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.Set;
 
+import org.sirix.exception.TTIOException;
+
 /**
  * Static methods for file operations.
  * 
@@ -36,30 +38,35 @@ public final class Files {
    * @throws NullPointerException
    *           if any of the arguments are {@code null}
    */
-  public static void recursiveRemove(final Path pPath, final Set<FileVisitOption> pOptions)
-    throws IOException {
-    if (java.nio.file.Files.exists(pPath)) {
-      java.nio.file.Files.walkFileTree(checkNotNull(pPath), checkNotNull(pOptions), Integer.MAX_VALUE,
-        new SimpleFileVisitor<Path>() {
-          @Override
-          public FileVisitResult visitFile(final Path pFile, final BasicFileAttributes pAttrs)
-            throws IOException {
-            java.nio.file.Files.delete(pFile);
-            return FileVisitResult.CONTINUE;
-          }
-
-          @Override
-          public FileVisitResult postVisitDirectory(final Path pDir, final IOException pExc)
-            throws IOException {
-            if (pExc == null) {
-              java.nio.file.Files.delete(pDir);
+  public static void recursiveRemove(final Path pPath,
+    final Set<FileVisitOption> pOptions) throws TTIOException {
+    try {
+      if (java.nio.file.Files.exists(pPath)) {
+        java.nio.file.Files.walkFileTree(checkNotNull(pPath),
+          checkNotNull(pOptions), Integer.MAX_VALUE,
+          new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(final Path pFile,
+              final BasicFileAttributes pAttrs) throws IOException {
+              java.nio.file.Files.delete(pFile);
               return FileVisitResult.CONTINUE;
-            } else {
-              // Directory iteration failed.
-              throw pExc;
             }
-          }
-        });
+
+            @Override
+            public FileVisitResult postVisitDirectory(final Path pDir,
+              final IOException pExc) throws IOException {
+              if (pExc == null) {
+                java.nio.file.Files.delete(pDir);
+                return FileVisitResult.CONTINUE;
+              } else {
+                // Directory iteration failed.
+                throw pExc;
+              }
+            }
+          });
+      }
+    } catch (final IOException e) {
+      throw new TTIOException(e);
     }
   }
 
@@ -73,7 +80,7 @@ public final class Files {
    * @throws NullPointerException
    *           if any of the arguments are {@code null}
    */
-  public static void recursiveRemove(final Path pPath) throws IOException {
+  public static void recursiveRemove(final Path pPath) throws TTIOException {
     recursiveRemove(pPath, EnumSet.noneOf(FileVisitOption.class));
   }
 }

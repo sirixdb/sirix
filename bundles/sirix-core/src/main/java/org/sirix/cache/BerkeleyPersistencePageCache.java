@@ -49,17 +49,18 @@ import javax.annotation.Nonnull;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
+import org.sirix.page.interfaces.IPage;
 
 /**
  * Berkeley implementation of a persistent cache. That means that all data is
  * stored in this cache and it is never removed. This is useful e.g. when it
  * comes to transaction logging.
  * 
- * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class BerkeleyPersistenceCache extends
-  AbsPersistenceCache<Long, PageContainer> {
+public final class BerkeleyPersistencePageCache extends
+  AbsPersistenceCache<Long, IPage> {
 
   /**
    * Flush after defined value.
@@ -69,7 +70,7 @@ public final class BerkeleyPersistenceCache extends
   /**
    * Name for the database.
    */
-  private static final String NAME = "berkeleyCache";
+  private static final String NAME = "berkeleyPageCache";
 
   /**
    * Berkeley database.
@@ -87,9 +88,9 @@ public final class BerkeleyPersistenceCache extends
   private final TupleBinding<Long> mKeyBinding;
 
   /**
-   * Binding for the value which is a page with related Nodes.
+   * Binding for the value which is a page.
    */
-  private final PageContainerBinding mValueBinding;
+  private final PageBinding mValueBinding;
 
   /** Cache entries. */
   private long mEntries;
@@ -109,7 +110,7 @@ public final class BerkeleyPersistenceCache extends
    * @throws AbsTTException
    *           if a Sirix operation fails
    */
-  public BerkeleyPersistenceCache(final @Nonnull IPageWriteTrx pPageWriteTrx, final @Nonnull File pFile,
+  public BerkeleyPersistencePageCache(final @Nonnull IPageWriteTrx pPageWriteTrx, final @Nonnull File pFile,
     final @Nonnegative long pRevision, final @Nonnull String pLogType) throws AbsTTException {
     super(checkNotNull(pFile), pPageWriteTrx, pRevision, pLogType);
     try {
@@ -120,13 +121,13 @@ public final class BerkeleyPersistenceCache extends
 
       // Make a database within that environment.
       final DatabaseConfig dbConfig = new DatabaseConfig();
-      dbConfig.setAllowCreate(true).setExclusiveCreate(false).setDeferredWrite(
+      dbConfig.setAllowCreate(true).setExclusiveCreate(true).setDeferredWrite(
         true);
 
       mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
       mKeyBinding = TupleBinding.getPrimitiveBinding(Long.class);
-      mValueBinding = new PageContainerBinding();
+      mValueBinding = new PageBinding();
       mEntries = 0;
     } catch (final DatabaseException e) {
       throw new TTIOException(e);
@@ -135,7 +136,7 @@ public final class BerkeleyPersistenceCache extends
 
   @Override
   public void putPersistent(@Nonnull final Long pKey,
-    @Nonnull final PageContainer pPage) throws TTIOException {
+    @Nonnull final IPage pPage) throws TTIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
     mEntries++;
@@ -164,7 +165,7 @@ public final class BerkeleyPersistenceCache extends
   }
 
   @Override
-  public PageContainer getPersistent(@Nonnull final Long pKey)
+  public IPage getPersistent(@Nonnull final Long pKey)
     throws TTIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -172,7 +173,7 @@ public final class BerkeleyPersistenceCache extends
     try {
       final OperationStatus status =
         mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
-      PageContainer val = null;
+      IPage val = null;
       if (status == OperationStatus.SUCCESS) {
         val = mValueBinding.entryToObject(valueEntry);
       }
@@ -183,14 +184,14 @@ public final class BerkeleyPersistenceCache extends
   }
 
   @Override
-  public ImmutableMap<Long, PageContainer> getAll(
+  public ImmutableMap<Long, IPage> getAll(
     final @Nonnull Iterable<? extends Long> keys) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void putAll(final @Nonnull Map<Long, PageContainer> pMap) {
-    for (final Entry<Long, PageContainer> entry : pMap.entrySet()) {
+  public void putAll(final @Nonnull Map<Long, IPage> pMap) {
+    for (final Entry<Long, IPage> entry : pMap.entrySet()) {
       put(entry.getKey(), entry.getValue());
     }
   }

@@ -29,10 +29,13 @@ package org.sirix.cache;
 
 import java.io.File;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.IPageWriteTrx;
+import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 
 /**
@@ -50,9 +53,14 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
   protected final File mPlace;
 
   /**
-   * Counter to give every instance a different place.
+   * Type of log (path, value, node or general page-log).
    */
-  private static int mCounter;
+  private final String mLogType;
+
+  /**
+   * Determines if directory has been created.
+   */
+  private final boolean mCreated;
 
   /**
    * Constructor with the place to store the data.
@@ -60,13 +68,30 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
    * @param pFile
    *          {@link File} which holds the place to store
    *          the data
+   * @param pPageWriteTrx
+   *          page write transaction
+   * @param pRevision
+   *          revision number        
+   * @param pLogType
+   *          type of log to append to the path of the log
    */
-  protected AbsPersistenceCache(@Nonnull final File pFile) {
+  protected AbsPersistenceCache(final @Nonnull File pFile,
+    final @Nonnull IPageWriteTrx pPageWriteTrx,
+    final @Nonnegative long pRevision, final @Nonnull String pLogType) throws AbsTTException {
     mPlace =
-      new File(new File(pFile, ResourceConfiguration.Paths.TransactionLog
-        .getFile().getName()), Integer.toString(mCounter));
-    mPlace.mkdirs();
-    mCounter++;
+      new File(new File(new File(pFile, ResourceConfiguration.Paths.TransactionLog
+        .getFile().getName()), Long.toString(pRevision)), pLogType);
+    mCreated = mPlace.mkdirs();
+    mLogType = pLogType;
+  }
+  
+  /**
+   * Determines if the directory is newly created or not.
+   * 
+   * @return {@code true} if it is newly created, {@code false} otherwise
+   */
+  public boolean isCreated() {
+    return mCreated;
   }
 
   @Override
@@ -90,8 +115,8 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
       if (!mPlace.delete()) {
         throw new TTIOException("Couldn't delete!");
       }
-    } catch (final TTIOException exc) {
-      throw new IllegalStateException(exc);
+    } catch (final TTIOException e) {
+      throw new IllegalStateException(e.getCause());
     }
   }
 
@@ -100,7 +125,7 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
     try {
       return getPersistent(pKey);
     } catch (final TTIOException e) {
-      throw new IllegalStateException(e);
+      throw new IllegalStateException(e.getCause());
     }
   }
 

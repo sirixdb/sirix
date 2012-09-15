@@ -28,12 +28,8 @@
 package org.sirix.access.conf;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -43,193 +39,198 @@ import javax.annotation.Nullable;
 
 import org.sirix.exception.TTIOException;
 
+import com.google.common.base.Objects;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
+
 /**
  * <h1>Database Configuration</h1>
  * 
  * <p>
- * Represents a configuration of a database. Includes all settings which have to be made when it comes to the
- * creation of the database.
+ * Represents a configuration of a database. Includes all settings which have to
+ * be made when it comes to the creation of the database.
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz
  */
 public final class DatabaseConfiguration {
 
-  /**
-   * Paths for a {@link org.access.Database}. Each {@link org.access.Database} has the same folder.layout.
-   */
-  public enum Paths {
+	/**
+	 * Paths for a {@link org.access.Database}. Each {@link org.access.Database}
+	 * has the same folder.layout.
+	 */
+	public enum Paths {
 
-    /** File to store db settings. */
-    ConfigBinary(new File("dbsetting.obj"), false),
-    /** File to store encryption db settings. */
-    KEYSELECTOR(new File("keyselector"), true),
-    /** File to store the data. */
-    Data(new File("resources"), true);
+		/** File to store db settings. */
+		ConfigBinary(new File("dbsetting.obj"), false),
+		/** File to store encryption db settings. */
+		KEYSELECTOR(new File("keyselector"), true),
+		/** File to store the data. */
+		Data(new File("resources"), true);
 
-    /** Location of the file. */
-    private final File mFile;
+		/** Location of the file. */
+		private final File mFile;
 
-    /** Is the location a folder or no? */
-    private final boolean mIsFolder;
+		/** Is the location a folder or no? */
+		private final boolean mIsFolder;
 
-    /**
-     * Constructor.
-     * 
-     * @param pFile
-     *          to be set
-     * @param pIsFolder
-     *          determines if the file is a folder instead
-     */
-    private Paths(final @Nonnull File pFile, final boolean pIsFolder) {
-      mFile = checkNotNull(pFile);
-      mIsFolder = pIsFolder;
-    }
+		/**
+		 * Constructor.
+		 * 
+		 * @param pFile
+		 *          to be set
+		 * @param pIsFolder
+		 *          determines if the file is a folder instead
+		 */
+		private Paths(final @Nonnull File pFile, final boolean pIsFolder) {
+			mFile = checkNotNull(pFile);
+			mIsFolder = pIsFolder;
+		}
 
-    /**
-     * Getting the file for the kind.
-     * 
-     * @return the file to the kind
-     */
-    public File getFile() {
-      return mFile;
-    }
+		/**
+		 * Getting the file for the kind.
+		 * 
+		 * @return the file to the kind
+		 */
+		public File getFile() {
+			return mFile;
+		}
 
-    /**
-     * Check if file is denoted as folder or not.
-     * 
-     * @return boolean if file is folder
-     */
-    public boolean isFolder() {
-      return mIsFolder;
-    }
+		/**
+		 * Check if file is denoted as folder or not.
+		 * 
+		 * @return boolean if file is folder
+		 */
+		public boolean isFolder() {
+			return mIsFolder;
+		}
 
-    /**
-     * Checking a structure in a folder to be equal with the data in this
-     * enum.
-     * 
-     * @param pFile
-     *          to be checked
-     * @return -1 if less folders are there, 0 if the structure is equal to
-     *         the one expected, 1 if the structure has more folders
-     */
-    public static int compareStructure(final @Nonnull File pFile) {
-      checkNotNull(pFile);
-      int existing = 0;
-      for (final Paths paths : values()) {
-        final File currentFile = new File(pFile, paths.getFile().getName());
-        if (currentFile.exists()) {
-          existing++;
-        }
-      }
-      return existing - values().length;
-    }
+		/**
+		 * Checking a structure in a folder to be equal with the data in this enum.
+		 * 
+		 * @param pFile
+		 *          to be checked
+		 * @return -1 if less folders are there, 0 if the structure is equal to the
+		 *         one expected, 1 if the structure has more folders
+		 */
+		public static int compareStructure(final @Nonnull File pFile) {
+			checkNotNull(pFile);
+			int existing = 0;
+			for (final Paths paths : values()) {
+				final File currentFile = new File(pFile, paths.getFile().getName());
+				if (currentFile.exists()) {
+					existing++;
+				}
+			}
+			return existing - values().length;
+		}
 
-  }
+	}
 
-  // STATIC STANDARD FIELDS
-  /** Identification for string. */
-  public static final String BINARY = "5.4.0";
-  // END STATIC STANDARD FIELDS
+	// STATIC STANDARD FIELDS
+	/** Identification for string. */
+	public static final String BINARY = "5.4.0";
+	// END STATIC STANDARD FIELDS
 
-  /** Binary version of storage. */
-  private final String mBinaryVersion;
+	/** Binary version of storage. */
+	private final String mBinaryVersion;
 
-  /** Path to file. */
-  private final File mFile;
+	/** Path to file. */
+	private final File mFile;
 
-  /**
-   * Constructor with the path to be set.
-   * 
-   * @param pFile
-   *          file to be set
-   */
-  public DatabaseConfiguration(final @Nonnull File pFile) {
-    mBinaryVersion = BINARY;
-    mFile = pFile.getAbsoluteFile();
-  }
+	/**
+	 * Constructor with the path to be set.
+	 * 
+	 * @param pFile
+	 *          file to be set
+	 */
+	public DatabaseConfiguration(final @Nonnull File pFile) {
+		mBinaryVersion = BINARY;
+		mFile = pFile.getAbsoluteFile();
+	}
 
-  /**
-   * Getting the database file.
-   * 
-   * @return the database file
-   */
-  public File getFile() {
-    return mFile;
-  }
+	/**
+	 * Getting the database file.
+	 * 
+	 * @return the database file
+	 */
+	public File getFile() {
+		return mFile;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("File", mFile).add(
-      "Binary Version", mBinaryVersion).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("File", mFile)
+				.add("Binary Version", mBinaryVersion).toString();
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object pObj) {
-    if (pObj instanceof DatabaseConfiguration) {
-      final DatabaseConfiguration other = (DatabaseConfiguration)pObj;
-      return Objects.equal(mFile, other.mFile)
-        && Objects.equal(mBinaryVersion, other.mBinaryVersion);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final @Nullable Object pObj) {
+		if (pObj instanceof DatabaseConfiguration) {
+			final DatabaseConfiguration other = (DatabaseConfiguration) pObj;
+			return Objects.equal(mFile, other.mFile)
+					&& Objects.equal(mBinaryVersion, other.mBinaryVersion);
+		}
+		return false;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mFile, mBinaryVersion);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mFile, mBinaryVersion);
+	}
 
-  /**
-   * Get the configuration file.
-   * 
-   * @return configuration file
-   */
-  public File getConfigFile() {
-    return new File(mFile, Paths.ConfigBinary.getFile().getName());
-  }
+	/**
+	 * Get the configuration file.
+	 * 
+	 * @return configuration file
+	 */
+	public File getConfigFile() {
+		return new File(mFile, Paths.ConfigBinary.getFile().getName());
+	}
 
-  /**
-   * Serializing a {@link DatabaseConfiguration} to a json file.
-   * 
-   * @param pConfig
-   *          to be serialized
-   * @throws TTIOException
-   *           if an I/O error occurs
-   */
-  public static void serialize(final @Nonnull DatabaseConfiguration pConfig)
-    throws TTIOException {
-    try (final FileWriter fileWriter =
-      new FileWriter(pConfig.getConfigFile());
-    final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
-      jsonWriter.beginObject();
-      jsonWriter.name("file").value(pConfig.mFile.getAbsolutePath());
-      jsonWriter.endObject();
-    } catch (final IOException e) {
-      throw new TTIOException(e);
-    }
-  }
+	/**
+	 * Serializing a {@link DatabaseConfiguration} to a json file.
+	 * 
+	 * @param pConfig
+	 *          to be serialized
+	 * @throws TTIOException
+	 *           if an I/O error occurs
+	 */
+	public static void serialize(final @Nonnull DatabaseConfiguration pConfig)
+			throws TTIOException {
+		try (final FileWriter fileWriter = new FileWriter(pConfig.getConfigFile());
+				final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
+			jsonWriter.beginObject();
+			final String filePath = pConfig.mFile.getAbsolutePath();
+			jsonWriter.name("file").value(filePath);
+			jsonWriter.endObject();
+		} catch (final IOException e) {
+			throw new TTIOException(e);
+		}
+	}
 
-  /**
-   * Generate a DatabaseConfiguration out of a file.
-   * 
-   * @param pFile
-   *          where the DatabaseConfiguration lies in as json
-   * @return a new {@link DatabaseConfiguration} class
-   * @throws TTIOException
-   *           if an I/O error occurs
-   */
-  public static DatabaseConfiguration deserialize(final @Nonnull File pFile)
-    throws TTIOException {
-    try (final FileReader fileReader =
-      new FileReader(new File(pFile, Paths.ConfigBinary.getFile().getName()));
-    final JsonReader jsonReader = new JsonReader(fileReader);) {
-      jsonReader.beginObject();
-      assert jsonReader.nextName().equals("file");
-      File file = new File(jsonReader.nextString());
-      jsonReader.endObject();
-      return new DatabaseConfiguration(file);
-    } catch (final IOException e) {
-      throw new TTIOException(e);
-    }
-  }
+	/**
+	 * Generate a DatabaseConfiguration out of a file.
+	 * 
+	 * @param pFile
+	 *          where the DatabaseConfiguration lies in as json
+	 * @return a new {@link DatabaseConfiguration} class
+	 * @throws TTIOException
+	 *           if an I/O error occurs
+	 */
+	public static DatabaseConfiguration deserialize(final @Nonnull File pFile)
+			throws TTIOException {
+		try (final FileReader fileReader = new FileReader(new File(pFile,
+				Paths.ConfigBinary.getFile().getName()));
+				final JsonReader jsonReader = new JsonReader(fileReader);) {
+			jsonReader.beginObject();
+			final String name = jsonReader.nextName();
+			assert name.equals("file");
+			final File file = new File(jsonReader.nextString());
+			jsonReader.endObject();
+			return new DatabaseConfiguration(file);
+		} catch (final IOException e) {
+			throw new TTIOException(e);
+		}
+	}
 }

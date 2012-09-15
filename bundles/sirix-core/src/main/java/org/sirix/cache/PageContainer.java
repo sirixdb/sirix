@@ -36,24 +36,22 @@ import com.sleepycat.bind.tuple.TupleOutput;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.page.EPage;
 import org.sirix.page.NodePage;
 import org.sirix.page.PagePersistenter;
-import org.sirix.page.interfaces.IPage;
 
 /**
  * <h1>PageContainer</h1>
  * 
  * <p>
- * This class acts as a container for revisioned {@link IPage}s. Each {@link IPage} is stored in a
- * versioned manner. If modifications occur, the versioned {@link IPage}s are dereferenced and
- * reconstructed. Afterwards, this container is used to store a complete {@link IPage} as well as one for
+ * This class acts as a container for revisioned {@link NodePage}s. Each {@link NodePage} is stored in a
+ * versioned manner. If modifications occur, the versioned {@link NodePage}s are dereferenced and
+ * reconstructed. Afterwards, this container is used to store a complete {@link NodePage} as well as one for
  * upcoming modifications.
  * </p>
  * 
  * <p>
- * Both {@link IPage}s can differ since the complete one is mainly used for read access and the modifying
- * one for write access (and therefore mostly lazy dereferenced).
+ * Both {@link NodePage}s can differ since the complete one is mainly used for read access and the modifying one
+ * for write access (and therefore mostly lazy dereferenced).
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz

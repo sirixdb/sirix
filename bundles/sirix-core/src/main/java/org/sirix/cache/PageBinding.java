@@ -25,37 +25,43 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.diff;
+package org.sirix.cache;
 
-import org.sirix.diff.DiffFactory.EDiff;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
+import com.sleepycat.bind.tuple.TupleBinding;
+import com.sleepycat.bind.tuple.TupleInput;
+import com.sleepycat.bind.tuple.TupleOutput;
+
+import javax.annotation.Nullable;
+
+import org.sirix.page.PagePersistenter;
+import org.sirix.page.interfaces.IPage;
 
 /**
- * Determines if an equal node is found and returns the appropriate diff.
- * 
- * @author Johannes Lichtenberger, University of Konstanz
- * 
+ * Binding for {@link PageContainer} reference.
  */
-enum EFoundEqualNode {
-  /** Node found. */
-  TRUE {
-    @Override
-    EDiff kindOfDiff() {
-      return EDiff.DELETED;
-    }
-  },
+public class PageBinding extends TupleBinding<IPage> {
 
-  /** Node not found. */
-  FALSE {
-    @Override
-    EDiff kindOfDiff() {
-      return EDiff.INSERTED;
+  @Override
+  public IPage entryToObject(final @Nullable TupleInput pInput) {
+    if (pInput == null) {
+      return null;
     }
-  };
+    final ByteArrayDataInput source =
+      ByteStreams.newDataInput(pInput.getBufferBytes());
+    return PagePersistenter.deserializePage(source);
+  }
 
-  /**
-   * Kind of difference between two nodes.
-   * 
-   * @return kind of difference
-   */
-  abstract EDiff kindOfDiff();
+  @Override
+  public void objectToEntry(final @Nullable IPage pPage,
+    final @Nullable TupleOutput pOutput) {
+    if (pPage != null && pOutput != null) {
+      final ByteArrayDataOutput target = ByteStreams.newDataOutput();
+      final byte[] bytes = pOutput.getBufferBytes();
+      target.write(bytes, 0, bytes.length);
+      pPage.serialize(target);
+    }
+  }
 }

@@ -96,19 +96,8 @@ public interface ITraverseModel extends IObservable {
    * @throws NullPointerException
    *           if {@code paramRtx} is {@code null}
    */
-  void descendants(@Nonnull Optional<INodeReadTrx> pRtx) throws InterruptedException, ExecutionException;
-
-  /**
-   * Get minimum and maximum global text length.
-   * 
-   * @param pNewRtx
-   *          sirix {@link INodeReadTrx} instance (on new revision)
-   * @param pOldRtx
-   *          sirix {@link INodeReadTrx} instance (on old revision / optional)
-   * @throws NullPointerException
-   *           if {@code pNewRtx} or {@code pOldRtx} is {@code null}
-   */
-  void getMinMaxTextLength(@Nonnull INodeReadTrx pNewRtx, @Nonnull Optional<INodeReadTrx> pOldRtx);
+  void descendants(@Nonnull Optional<INodeReadTrx> pRtx)
+    throws InterruptedException, ExecutionException;
 
   /**
    * Get if current item has been pruned or not.

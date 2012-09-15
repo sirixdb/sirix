@@ -31,11 +31,18 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.cache.RemovalListener;
+import com.google.common.cache.RemovalNotification;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -43,10 +50,10 @@ import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.IPageReadTrx;
-import org.sirix.cache.GuavaCache;
-import org.sirix.cache.ICache;
+import org.sirix.api.ISession;
+import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.PageContainer;
-import org.sirix.cache.Tuple;
+import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
 import org.sirix.io.IReader;
 import org.sirix.node.DeletedNode;
@@ -85,13 +92,16 @@ final class PageReadTrx implements IPageReadTrx {
   private final RevisionRootPage mRootPage;
 
   /** Internal reference to node cache. */
-  private final ICache<Tuple, PageContainer> mCache;
+  private final LoadingCache<Long, PageContainer> mNodeCache;
 
   /** Internal reference to path cache. */
-  private final ICache<Tuple, PageContainer> mPathCache;
-  
+  private final LoadingCache<Long, PageContainer> mPathCache;
+
   /** Internal reference to value cache. */
-  private final ICache<Tuple, PageContainer> mValueCache;
+  private final LoadingCache<Long, PageContainer> mValueCache;
+
+  /** Internal reference to page cache. */
+  private final LoadingCache<Long, IPage> mPageCache;
 
   /** {@link Session} reference. */
   protected final Session mSession;
@@ -113,13 +123,53 @@ final class PageReadTrx implements IPageReadTrx {
    *          key of revision to read from uber page
    * @param pReader
    *          reader to read stored pages for this transaction
+   * @param pPersistentCache
+   *          optional persistent cache
    * @throws TTIOException
    *           if reading of the persistent storage fails
    */
   PageReadTrx(@Nonnull final Session pSession,
     @Nonnull final UberPage pUberPage, @Nonnegative final long pRevision,
-    @Nonnull final IReader pReader) throws TTIOException {
+    @Nonnull final IReader pReader,
+    final @Nonnull Optional<BerkeleyPersistencePageCache> pPersistentCache)
+    throws TTIOException {
     checkArgument(pRevision >= 0, "Revision must be >= 0!");
+    mNodeCache =
+      CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(40,
+        TimeUnit.SECONDS).expireAfterAccess(5, TimeUnit.SECONDS).build(
+        new CacheLoader<Long, PageContainer>() {
+          public PageContainer load(final Long pKey) throws AbsTTException {
+            return getNodeFromPage(pKey, EPage.NODEPAGE);
+          }
+        });
+    final CacheBuilder<Object, Object> builder =
+      CacheBuilder.newBuilder().concurrencyLevel(1).maximumSize(1000);
+    mPathCache = builder.build(new CacheLoader<Long, PageContainer>() {
+      public PageContainer load(final Long pKey) throws AbsTTException {
+        return getNodeFromPage(pKey, EPage.PATHSUMMARYPAGE);
+      }
+    });
+    mValueCache = builder.build(new CacheLoader<Long, PageContainer>() {
+      public PageContainer load(final Long pKey) throws AbsTTException {
+        return getNodeFromPage(pKey, EPage.VALUEPAGE);
+      }
+    });
+
+    final CacheBuilder<Object, Object> pageCacheBuilder =
+      CacheBuilder.newBuilder();
+    if (pPersistentCache.isPresent()) {
+      pageCacheBuilder.removalListener(new RemovalListener<Long, IPage>() {
+        @Override
+        public void onRemoval(final RemovalNotification<Long, IPage> pRemoval) {
+          pPersistentCache.get().put(pRemoval.getKey(), pRemoval.getValue());
+        }
+      });
+    }
+    mPageCache = pageCacheBuilder.build(new CacheLoader<Long, IPage>() {
+      public IPage load(final Long pKey) throws AbsTTException {
+        return mPageReader.read(pKey);
+      }
+    });
     mSession = checkNotNull(pSession);
     mPageReader = checkNotNull(pReader);
     mUberPage = checkNotNull(pUberPage);
@@ -128,12 +178,18 @@ final class PageReadTrx implements IPageReadTrx {
     mNamePage = getNamePage();
     final PageReference ref = mRootPage.getPathSummaryPageReference();
     if (ref.getPage() == null) {
-      ref.setPage(mPageReader.read(ref.getKey()));
+      try {
+        ref.setPage(mPageCache.get(ref.getKey()));
+      } catch (final ExecutionException e) {
+        throw new TTIOException(e);
+      }
     }
     mClosed = false;
-    mCache = new GuavaCache(this);
-    mPathCache = new GuavaCache(this);
-    mValueCache = new GuavaCache(this);
+  }
+
+  @Override
+  public ISession getSession() {
+    return mSession;
   }
 
   /**
@@ -145,21 +201,6 @@ final class PageReadTrx implements IPageReadTrx {
     }
   }
 
-  /**
-   * Initialize NamePage.
-   * 
-   * @throws TTIOException
-   *           if an I/O error occurs
-   */
-  private final NamePage getNamePage() throws TTIOException {
-    assertNotClosed();
-    final PageReference ref = mRootPage.getNamePageReference();
-    if (ref.getPage() == null) {
-      ref.setPage(mPageReader.read(ref.getKey()));
-    }
-    return (NamePage)ref.getPage();
-  }
-
   @Override
   public Optional<INodeBase> getNode(@Nonnegative final long pNodeKey,
     @Nonnull final EPage pPage) throws TTIOException {
@@ -168,29 +209,32 @@ final class PageReadTrx implements IPageReadTrx {
     assertNotClosed();
 
     final long nodePageKey = nodePageKey(pNodeKey);
-//    final int nodePageOffset = nodePageOffset(pNodeKey);
+    // final int nodePageOffset = nodePageOffset(pNodeKey);
 
     PageContainer cont;
-    switch (pPage) {
-    case NODEPAGE:
-      cont = mCache.get(new Tuple(nodePageKey, pPage));
-      break;
-    case PATHSUMMARYPAGE:
-      cont = mPathCache.get(new Tuple(nodePageKey, pPage));
-      break;
-    case VALUEPAGE:
-      cont = mValueCache.get(new Tuple(nodePageKey, pPage));
-      break;
-    default:
-      throw new IllegalStateException();
+    try {
+      switch (pPage) {
+      case NODEPAGE:
+        cont = mNodeCache.get(nodePageKey);
+        break;
+      case PATHSUMMARYPAGE:
+        cont = mPathCache.get(nodePageKey);
+        break;
+      case VALUEPAGE:
+        cont = mValueCache.get(nodePageKey);
+        break;
+      default:
+        throw new IllegalStateException();
+      }
+    } catch (final ExecutionException e) {
+      throw new TTIOException(e);
     }
 
     if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
       return Optional.<INodeBase> absent();
     }
 
-    // If nodePage is a weak one, moveto is not cached.
-    final INodeBase retVal = ((NodePage)cont.getComplete()).getNode(pNodeKey);
+    final INodeBase retVal = cont.getComplete().getNode(pNodeKey);
     return Optional.fromNullable(checkItemIfDeleted(retVal));
   }
 
@@ -227,9 +271,10 @@ final class PageReadTrx implements IPageReadTrx {
    */
   void clearCache() {
     assertNotClosed();
-    mCache.clear();
-    mPathCache.clear();
-    mValueCache.clear();
+    mNodeCache.invalidateAll();
+    mPathCache.invalidateAll();
+    mValueCache.invalidateAll();
+    mPageCache.invalidateAll();
   }
 
   /**
@@ -257,12 +302,34 @@ final class PageReadTrx implements IPageReadTrx {
 
     // If there is no page, get it from the storage and cache it.
     if (page == null) {
-      page = (RevisionRootPage)mPageReader.read(ref.getKey());
+      try {
+        page = (RevisionRootPage)mPageCache.get(ref.getKey());
+      } catch (final ExecutionException e) {
+        throw new TTIOException(e.getCause());
+      }
     }
 
     // Get revision root page which is the leaf of the indirect tree.
-    // ref.setPage(page);
     return page;
+  }
+
+  /**
+   * Initialize NamePage.
+   * 
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  private final NamePage getNamePage() throws TTIOException {
+    assertNotClosed();
+    final PageReference ref = mRootPage.getNamePageReference();
+    if (ref.getPage() == null) {
+      try {
+        ref.setPage(mPageCache.get(ref.getKey()));
+      } catch (final ExecutionException e) {
+        throw new TTIOException(e);
+      }
+    }
+    return (NamePage)ref.getPage();
   }
 
   /**
@@ -276,23 +343,31 @@ final class PageReadTrx implements IPageReadTrx {
     assertNotClosed();
     final PageReference ref = pPage.getPathSummaryPageReference();
     if (ref.getPage() == null) {
-      ref.setPage(mPageReader.read(ref.getKey()));
+      try {
+        ref.setPage(mPageCache.get(ref.getKey()));
+      } catch (final ExecutionException e) {
+        throw new TTIOException(e);
+      }
     }
     return (PathSummaryPage)ref.getPage();
   }
-  
+
   /**
    * Initialize ValuePage.
    * 
    * @throws TTIOException
    *           if an I/O error occurs
    */
-  private final ValuePage getValuePage(
-    @Nonnull final RevisionRootPage pPage) throws TTIOException {
+  private final ValuePage getValuePage(@Nonnull final RevisionRootPage pPage)
+    throws TTIOException {
     assertNotClosed();
     final PageReference ref = pPage.getValuePageReference();
     if (ref.getPage() == null) {
-      ref.setPage(mPageReader.read(ref.getKey()));
+      try {
+        ref.setPage(mPageCache.get(ref.getKey()));
+      } catch (final ExecutionException e) {
+        throw new TTIOException(e);
+      }
     }
     return (ValuePage)ref.getPage();
   }
@@ -363,6 +438,15 @@ final class PageReadTrx implements IPageReadTrx {
     return pages;
   }
 
+  /**
+   * Get the page reference which points to the right subtree (usual nodes, path summary nodes, value index
+   * nodes).
+   * 
+   * @param pRef
+   *          {@link RevisionRootPage} instance
+   * @param pPage
+   *          the page type to determine the right subtree
+   */
   PageReference getPageReference(@Nonnull final RevisionRootPage pRef,
     @Nonnull final EPage pPage) throws TTIOException {
     assert pRef != null;
@@ -402,7 +486,11 @@ final class PageReadTrx implements IPageReadTrx {
 
       // If there is no page, get it from the storage and cache it.
       if (page == null && pReference.getKey() != IConstants.NULL_ID) {
-        page = (IndirectPage)mPageReader.read(pReference.getKey());
+        try {
+          page = (IndirectPage)mPageCache.get(pReference.getKey());
+        } catch (final ExecutionException e) {
+          throw new TTIOException(e);
+        }
         pReference.setPage(page);
       }
 
@@ -433,7 +521,7 @@ final class PageReadTrx implements IPageReadTrx {
     PageReference reference = checkNotNull(pStartReference);
     int offset = 0;
     long levelKey = pKey;
-    
+
     // Iterate through all levels.
     for (int level = 0, height =
       IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; level < height; level++) {
@@ -465,19 +553,19 @@ final class PageReadTrx implements IPageReadTrx {
     return pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT;
   }
 
-//  /**
-//   * Calculate node page offset for a given node key.
-//   * 
-//   * @param pNodeKey
-//   *          node key to find offset for
-//   * @return offset into node page
-//   */
-//  final int nodePageOffset(@Nonnegative final long pNodeKey) {
-//    checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
-//    final long shift =
-//      ((pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT) << IConstants.NDP_NODE_COUNT_EXPONENT);
-//    return (int)(pNodeKey - shift);
-//  }
+  // /**
+  // * Calculate node page offset for a given node key.
+  // *
+  // * @param pNodeKey
+  // * node key to find offset for
+  // * @return offset into node page
+  // */
+  // final int nodePageOffset(@Nonnegative final long pNodeKey) {
+  // checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
+  // final long shift =
+  // ((pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT) << IConstants.NDP_NODE_COUNT_EXPONENT);
+  // return (int)(pNodeKey - shift);
+  // }
 
   @Override
   public RevisionRootPage getActualRevisionRootPage() throws TTIOException {
@@ -527,5 +615,23 @@ final class PageReadTrx implements IPageReadTrx {
   @Override
   public long getRevisionNumber() {
     return mRootPage.getRevision();
+  }
+
+  @Override
+  public IPage getFromPageCache(final @Nonnegative long pKey)
+    throws TTIOException {
+    IPage retVal = null;
+    try {
+      retVal = mPageCache.get(pKey);
+    } catch (ExecutionException e) {
+      throw new TTIOException(e);
+    }
+    return retVal;
+  }
+
+  @Override
+  public void
+    putPageCache(final @Nonnull BerkeleyPersistencePageCache pPageLog) {
+    pPageLog.putAll(mPageCache.asMap());
   }
 }

@@ -36,5 +36,9 @@ public class EmptyCache<K, V> implements ICache<K, V> {
   @Override
   public void toSecondCache() {
   }
+  
+  @Override
+  public void remove(@Nonnull K pKey) {
+  }
 
 }

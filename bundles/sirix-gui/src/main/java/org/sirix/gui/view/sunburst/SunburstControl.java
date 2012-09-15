@@ -98,7 +98,7 @@ public final class SunburstControl extends AbsSunburstControl {
       new SunburstContainer(mSunburstGUI, mModel).setNewStartKey(mDb.getNodeKey());
     if (mSunburstGUI.mUsePruning) {
       if (mSunburstGUI.mUseDiffView == EView.DIFF && mSunburstGUI.mUseDiffView.getValue()) {
-        container.setPruning(EPruning.ITEMSIZE);
+        container.setPruning(EPruning.DIFF);
       } else {
         container.setPruning(EPruning.DEPTH);
       }
@@ -144,7 +144,7 @@ public final class SunburstControl extends AbsSunburstControl {
         mModel.addPropertyChangeListener(mSunburstGUI);
         final SunburstContainer container = new SunburstContainer(mSunburstGUI, mModel);
         if (mSunburstGUI.mUsePruning) {
-          container.setPruning(EPruning.ITEMSIZE);
+          container.setPruning(EPruning.DIFF);
         } else {
           container.setPruning(EPruning.NO);
         }
@@ -332,7 +332,7 @@ public final class SunburstControl extends AbsSunburstControl {
               final SunburstContainer container = new SunburstContainer(mSunburstGUI, mModel);
               if (mSunburstGUI.mUsePruning) {
                 if (mSunburstGUI.mUseDiffView == EView.DIFF && mSunburstGUI.mUseDiffView.getValue()) {
-                  container.setPruning(EPruning.ITEMSIZE);
+                  container.setPruning(EPruning.DIFF);
                 } else {
                   container.setPruning(EPruning.DEPTH);
                 }

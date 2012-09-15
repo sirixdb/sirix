@@ -480,10 +480,10 @@ public interface INodeWriteTrx extends INodeReadTrx {
   /**
    * Abort all modifications of the exclusive write transaction.
    * 
-   * @throws TTIOException
+   * @throws AbsTTException
    *           if this revision couldn't be aborted
    */
-  void abort() throws TTIOException;
+  void abort() throws AbsTTException;
 
   /**
    * Reverting all changes to the revision defined. This command has to be
@@ -491,10 +491,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
    * 
    * @param pRev
    *          revert to the revision
-   * @throws TTUsageException
-   *           if {@code pRevision < 0} or {@code pRevision > maxCommitedRev}
-   * @throws TTIOException
-   *           if an I/O operation fails
+   * @throws AbsTTException
+   *           if anything went wrong
    */
   void revertTo(@Nonnegative long pRev) throws AbsTTException;
 

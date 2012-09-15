@@ -40,8 +40,8 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.api.IPageReadTrx;
-import org.sirix.exception.TTIOException;
+import org.sirix.api.IPageWriteTrx;
+import org.sirix.exception.AbsTTException;
 
 /**
  * Transactionlog for storing all upcoming nodes in either the ram cache or a
@@ -76,17 +76,20 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
    * Constructor including the {@link DatabaseConfiguration} for persistent
    * storage.
    * 
+   * @param pPageWriteTransaction
+   *          page write transaction
    * @param pFile
    *          the config for having a storage-place
    * @param pRevision
    *          revision number
-   * @throws TTIOException
-   *           if I/O is not successful
+   * @throws AbsTTException 
    */
-  public TransactionLogCache(final @Nonnull IPageReadTrx pPageReadTransaction,
-    final @Nonnull File pFile, final @Nonnegative long pRevision)
-    throws TTIOException {
-    mSecondCache = new BerkeleyPersistenceCache(pFile, pRevision);
+  public TransactionLogCache(
+    final @Nonnull IPageWriteTrx pPageWriteTransaction,
+    final @Nonnull File pFile, final @Nonnegative long pRevision, final @Nonnull String pLogType)
+    throws AbsTTException {
+    mSecondCache =
+      new BerkeleyPersistenceCache(pPageWriteTransaction, pFile, pRevision, pLogType);
     mFirstCache = new LRUCache<>(mSecondCache);
   }
 
@@ -161,6 +164,19 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
     try {
       mWriteLock.lock();
       mSecondCache.putAll(mFirstCache.getMap());
+    } finally {
+      mWriteLock.unlock();
+    }
+  }
+
+  @Override
+  public void remove(final @Nonnull Long pKey) {
+    try {
+      mWriteLock.lock();
+      mFirstCache.remove(pKey);
+      if (mSecondCache.get(pKey) != null) {
+        mSecondCache.remove(pKey);
+      }
     } finally {
       mWriteLock.unlock();
     }

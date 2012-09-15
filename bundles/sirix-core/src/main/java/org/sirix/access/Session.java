@@ -30,6 +30,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
+import com.google.common.base.Optional;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -57,9 +58,9 @@ import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.api.ISession;
+import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
 import org.sirix.exception.TTThreadedException;
 import org.sirix.exception.TTUsageException;
 import org.sirix.index.path.PathSummary;
@@ -193,7 +194,7 @@ public final class Session implements ISession {
     final INodeReadTrx rtx =
       new NodeReadTrx(this, mNodeTrxIDCounter.incrementAndGet(),
         new PageReadTrx(this, mLastCommittedUberPage, pRevisionKey, mFac
-          .getReader()));
+          .getReader(), Optional.<BerkeleyPersistencePageCache> absent()));
 
     // Remember transaction for debugging and safe close.
     if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
@@ -226,8 +227,8 @@ public final class Session implements ISession {
     }
     try {
       mWriteSemaphore.acquire();
-    } catch (final InterruptedException exc) {
-      throw new TTThreadedException(exc);
+    } catch (final InterruptedException e) {
+      throw new TTThreadedException(e);
     }
 
     // Create new page write transaction (shares the same ID with the node write trx).
@@ -261,12 +262,12 @@ public final class Session implements ISession {
    * @param pStoreRevision
    *          revisions
    * @return a new {@link IPageWriteTrx} instance
-   * @throws TTIOException
-   *           if an I/O error occurs
+   * @throws AbsTTException
+   *           if an error occurs
    */
   IPageWriteTrx createPageWriteTransaction(@Nonnegative final long pId,
     @Nonnegative final long pRepresentRevision,
-    @Nonnegative final long pStoreRevision) throws TTIOException {
+    @Nonnegative final long pStoreRevision) throws AbsTTException {
     checkArgument(pId >= 0, "pId must be >= 0!");
     checkArgument(pRepresentRevision >= 0, "pRepresentRevision must be >= 0!");
     checkArgument(pStoreRevision >= 0, "pStoreRevision must be >= 0!");
@@ -318,7 +319,7 @@ public final class Session implements ISession {
    * @throws IllegalArgumentException
    *           if revision isn't valid
    */
-  protected void assertAccess(final long pRevision) {
+  protected void assertAccess(final @Nonnegative long pRevision) {
     if (mClosed) {
       throw new IllegalStateException("Session is already closed!");
     }
@@ -331,12 +332,12 @@ public final class Session implements ISession {
         .toString());
     }
   }
-  
+
   @Override
   public int getAvailableNodeReadTrx() {
     return mReadSemaphore.availablePermits();
   }
-  
+
   @Override
   public int getAvailableNodeWriteTrx() {
     return mWriteSemaphore.availablePermits();
@@ -514,7 +515,8 @@ public final class Session implements ISession {
     assertAccess(pRev);
 
     return PathSummary.getInstance(new PageReadTrx(this,
-      mLastCommittedUberPage, pRev, mFac.getReader()), this);
+      mLastCommittedUberPage, pRev, mFac.getReader(), Optional
+        .<BerkeleyPersistencePageCache> absent()), this);
   }
 
   @Override
@@ -530,7 +532,8 @@ public final class Session implements ISession {
   @Override
   public synchronized IPageReadTrx beginPageReadTrx(@Nonnegative long pRev)
     throws AbsTTException {
-    return new PageReadTrx(this, mLastCommittedUberPage, pRev, mFac.getReader());
+    return new PageReadTrx(this, mLastCommittedUberPage, pRev,
+      mFac.getReader(), Optional.<BerkeleyPersistencePageCache> absent());
   }
 
   @Override

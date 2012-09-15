@@ -28,11 +28,11 @@
 package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Optional;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeCursor;
@@ -41,198 +41,207 @@ import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.settings.EFixed;
 
+import com.google.common.base.Optional;
+
 /**
- * <h1>DescendantAxis</h1>
+ * <h1>VisitorDescendantAxis</h1>
  * 
  * <p>
- * Iterate over all descendants of kind ELEMENT or TEXT starting at a given node. Self is not included.
+ * Iterate over all descendants of kind ELEMENT or TEXT starting at a given
+ * node. Self is not optionally included. Furthermore an {@link IVisitor} can be
+ * used. Note that it is faster to use the standard {@link DescendantAxis} if no
+ * visitor is specified.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class VisitorDescendantAxis extends AbsAxis {
 
-  /** Stack for remembering next nodeKey in document order. */
-  private Deque<Long> mRightSiblingKeyStack;
+	/** Stack for remembering next nodeKey in document order. */
+	private Deque<Long> mRightSiblingKeyStack;
 
-  /** Optional visitor. */
-  private Optional<? extends IVisitor> mVisitor = Optional.absent();
+	/** Optional visitor. */
+	private Optional<? extends IVisitor> mVisitor = Optional.absent();
 
-  private boolean mFirst;
+	private boolean mFirst;
 
-  /** The builder. */
-  public static class Builder {
+	/** The builder. */
+	public static class Builder {
 
-    /** Optional visitor. */
-    private Optional<? extends IVisitor> mVisitor = Optional.absent();
+		/** Optional visitor. */
+		private Optional<? extends IVisitor> mVisitor = Optional.absent();
 
-    /** Sirix {@link INodeCursor}. */
-    private final INodeCursor mRtx;
+		/** Sirix {@link INodeCursor}. */
+		private final INodeCursor mRtx;
 
-    /** Determines if current node should be included or not. */
-    private EIncludeSelf mIncludeSelf = EIncludeSelf.NO;
+		/** Determines if current node should be included or not. */
+		private EIncludeSelf mIncludeSelf = EIncludeSelf.NO;
 
-    /**
-     * Constructor.
-     * 
-     * @param pRtx
-     *          Sirix {@link INodeCursor}
-     */
-    public Builder(final INodeCursor pRtx) {
-      mRtx = checkNotNull(pRtx);
-    }
+		/**
+		 * Constructor.
+		 * 
+		 * @param pRtx
+		 *          Sirix {@link INodeCursor}
+		 */
+		public Builder(final INodeCursor pRtx) {
+			mRtx = checkNotNull(pRtx);
+		}
 
-    /**
-     * Set include self option.
-     * 
-     * @param pIncludeSelf
-     *          include self
-     * @return this builder instance
-     */
-    public Builder includeSelf() {
-      mIncludeSelf = EIncludeSelf.YES;
-      return this;
-    }
+		/**
+		 * Set include self option.
+		 * 
+		 * @param pIncludeSelf
+		 *          include self
+		 * @return this builder instance
+		 */
+		public Builder includeSelf() {
+			mIncludeSelf = EIncludeSelf.YES;
+			return this;
+		}
 
-    /**
-     * Set visitor.
-     * 
-     * @param pVisitor
-     *          the visitor
-     * @return this builder instance
-     */
-    public Builder visitor(final Optional<? extends IVisitor> pVisitor) {
-      mVisitor = checkNotNull(pVisitor);
-      return this;
-    }
+		/**
+		 * Set visitor.
+		 * 
+		 * @param pVisitor
+		 *          the visitor
+		 * @return this builder instance
+		 */
+		public Builder visitor(final Optional<? extends IVisitor> pVisitor) {
+			mVisitor = checkNotNull(pVisitor);
+			return this;
+		}
 
-    /**
-     * Build a new instance.
-     * 
-     * @return new {@link DescendantAxis} instance
-     */
-    public VisitorDescendantAxis build() {
-      return new VisitorDescendantAxis(this);
-    }
-  }
+		/**
+		 * Build a new instance.
+		 * 
+		 * @return new {@link DescendantAxis} instance
+		 */
+		public VisitorDescendantAxis build() {
+			return new VisitorDescendantAxis(this);
+		}
+	}
 
-  /**
-   * Private constructor.
-   * 
-   * @param pBuilder
-   *          the builder to construct a new instance
-   */
-  private VisitorDescendantAxis(@Nonnull final Builder pBuilder) {
-    super(pBuilder.mRtx, pBuilder.mIncludeSelf);
-    mVisitor = pBuilder.mVisitor;
-  }
+	/**
+	 * Private constructor.
+	 * 
+	 * @param pBuilder
+	 *          the builder to construct a new instance
+	 */
+	private VisitorDescendantAxis(@Nonnull final Builder pBuilder) {
+		super(pBuilder.mRtx, pBuilder.mIncludeSelf);
+		mVisitor = pBuilder.mVisitor;
+	}
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    mFirst = true;
-    mRightSiblingKeyStack = new ArrayDeque<>();
-  }
+	@Override
+	public void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		mFirst = true;
+		mRightSiblingKeyStack = new ArrayDeque<>();
+	}
 
-  @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    resetToLastKey();
+	@Override
+	public boolean hasNext() {
+		if (!isHasNext()) {
+			return false;
+		}
+		if (isNext()) {
+			return true;
+		}
+		resetToLastKey();
 
-    // Visitor.
-    Optional<EVisitResult> result = Optional.absent();
-    if (mVisitor.isPresent()) {
-      result =
-        Optional.fromNullable(getTransaction().getNode().acceptVisitor(
-          mVisitor.get()));
-    }
+		// Visitor.
+		Optional<EVisitResult> result = Optional.absent();
+		if (mVisitor.isPresent()) {
+			result = Optional.fromNullable(getTransaction().getNode().acceptVisitor(
+					mVisitor.get()));
+		}
 
-    // If visitor is present and the return value is EVisitResult.TERMINATE than return false.
-    if (result.isPresent() && result.get() == EVisitResult.TERMINATE) {
-      resetToStartKey();
-      return false;
-    }
+		// If visitor is present and the return value is EVisitResult.TERMINATE than
+		// return false.
+		if (result.isPresent() && result.get() == EVisitResult.TERMINATE) {
+			resetToStartKey();
+			return false;
+		}
 
-    // Determines if first call to hasNext().
-    if (mFirst) {
-      mFirst = false;
+		// Determines if first call to hasNext().
+		if (mFirst) {
+			mFirst = false;
 
-      if (isSelfIncluded() == EIncludeSelf.YES) {
-        mKey = getTransaction().getNode().getNodeKey();
-      } else {
-        mKey = getTransaction().getStructuralNode().getFirstChildKey();
-      }
+			if (isSelfIncluded() == EIncludeSelf.YES) {
+				mKey = getTransaction().getNode().getNodeKey();
+			} else {
+				mKey = getTransaction().getStructuralNode().getFirstChildKey();
+			}
 
-      if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-        resetToStartKey();
-        return false;
-      }
-      return true;
-    }
+			if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+				resetToStartKey();
+				return false;
+			}
+			return true;
+		}
 
-    // If visitor is present and the the righ sibling stack must be adapted.
-    if (result.isPresent() && result.get() == EVisitResult.SKIPSUBTREEPOPSTACK) {
-      mRightSiblingKeyStack.pop();
-    }
+		// If visitor is present and the the righ sibling stack must be adapted.
+		if (result.isPresent() && result.get() == EVisitResult.SKIPSUBTREEPOPSTACK) {
+			mRightSiblingKeyStack.pop();
+		}
 
-    final IStructNode node = getTransaction().getStructuralNode();
+		final IStructNode node = getTransaction().getStructuralNode();
 
-    // If visitor is present and result is not
-    // EVisitResult.SKIPSUBTREE/EVisitResult.SKIPSUBTREEPOPSTACK or visitor is not present.
-    if ((result.isPresent() && result.get() != EVisitResult.SKIPSUBTREE && result
-      .get() != EVisitResult.SKIPSUBTREEPOPSTACK)
-      || !result.isPresent()) {
-      // Always follow first child if there is one.
-      if (node.hasFirstChild()) {
-        mKey = node.getFirstChildKey();
-        if (node.hasRightSibling()) {
-          mRightSiblingKeyStack.push(node.getRightSiblingKey());
-        }
-        return true;
-      }
-    }
+		// If visitor is present and result is not
+		// EVisitResult.SKIPSUBTREE/EVisitResult.SKIPSUBTREEPOPSTACK or visitor is
+		// not present.
+		if ((result.isPresent() && result.get() != EVisitResult.SKIPSUBTREE && result
+				.get() != EVisitResult.SKIPSUBTREEPOPSTACK) || !result.isPresent()) {
+			// Always follow first child if there is one.
+			if (node.hasFirstChild()) {
+				mKey = node.getFirstChildKey();
+				final long rightSiblNodeKey = node.getRightSiblingKey();
+				if (node.hasRightSibling()
+						&& (mRightSiblingKeyStack.isEmpty() || (!mRightSiblingKeyStack
+								.isEmpty() && mRightSiblingKeyStack.peek() != rightSiblNodeKey))) {
+					mRightSiblingKeyStack.push(rightSiblNodeKey);
+				}
+				return true;
+			}
+		}
 
-    // If visitor is present and result is not EVisitResult.SKIPSIBLINGS or visitor is not present.
-    if ((result.isPresent() && result.get() != EVisitResult.SKIPSIBLINGS)
-      || !result.isPresent()) {
-      // Then follow right sibling if there is one.
-      if (node.hasRightSibling()) {
-        mKey = node.getRightSiblingKey();
-        return hasNextNode(node.getNodeKey());
-      }
-    }
+		// If visitor is present and result is not EVisitResult.SKIPSIBLINGS or
+		// visitor is not present.
+		if ((result.isPresent() && result.get() != EVisitResult.SKIPSIBLINGS)
+				|| !result.isPresent()) {
+			// Then follow right sibling if there is one.
+			if (node.hasRightSibling()) {
+				mKey = node.getRightSiblingKey();
+				return hasNextNode(node.getNodeKey());
+			}
+		}
 
-    // Then follow right sibling on stack.
-    if (mRightSiblingKeyStack.size() > 0) {
-      mKey = mRightSiblingKeyStack.pop();
-      return hasNextNode(node.getNodeKey());
-    }
+		// Then follow right sibling on stack.
+		if (mRightSiblingKeyStack.size() > 0) {
+			mKey = mRightSiblingKeyStack.pop();
+			return hasNextNode(node.getNodeKey());
+		}
 
-    // Then end.
-    resetToStartKey();
-    return false;
-  }
+		// Then end.
+		resetToStartKey();
+		return false;
+	}
 
-  /**
-   * Determines if next node is not a right sibling of the current node.
-   * 
-   * @param pCurrKey
-   *          node key of current node
-   */
-  private boolean hasNextNode(final long pCurrKey) {
-    // Fail if the subtree is finished.
-    getTransaction().moveTo(mKey);
-    if (getTransaction().getStructuralNode().getLeftSiblingKey() == getStartKey()) {
-      resetToStartKey();
-      return false;
-    } else {
-      getTransaction().moveTo(pCurrKey);
-      return true;
-    }
-  }
+	/**
+	 * Determines if next node is not a right sibling of the current node.
+	 * 
+	 * @param pCurrKey
+	 *          node key of current node
+	 */
+	private boolean hasNextNode(final @Nonnegative long pCurrKey) {
+		// Fail if the subtree is finished.
+		getTransaction().moveTo(mKey);
+		if (getTransaction().getStructuralNode().getLeftSiblingKey() == getStartKey()) {
+			resetToStartKey();
+			return false;
+		} else {
+			getTransaction().moveTo(pCurrKey);
+			return true;
+		}
+	}
 }

@@ -5,6 +5,7 @@ import com.google.common.base.Optional;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
+import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.TTIOException;
 import org.sirix.node.EKind;
@@ -12,6 +13,7 @@ import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.EPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
+import org.sirix.page.interfaces.IPage;
 
 /**
  * Interface for reading pages.
@@ -21,6 +23,13 @@ import org.sirix.page.UberPage;
  */
 public interface IPageReadTrx extends AutoCloseable {
 
+  /**
+   * Get the session this transaction is bound to.
+   * 
+   * @return session instance
+   */
+  ISession getSession();
+  
   /**
    * Get a node from persistent storage.
    * 
@@ -123,4 +132,23 @@ public interface IPageReadTrx extends AutoCloseable {
    * @return the revision number
    */
   long getRevisionNumber();
+
+  /**
+   * Get page from cache.
+   * 
+   * @param pKey
+   *          key of persistent storage
+   * @return page instance
+   * @throws TTIOException
+   *           if an I/O error occurs
+   */
+  IPage getFromPageCache(@Nonnegative long pKey) throws TTIOException;
+
+  /**
+   * Put content from page cache into persistent storage.
+   * 
+   * @param pPageLog
+   *            persistent page log
+   */
+  void putPageCache(@Nonnull BerkeleyPersistencePageCache pPageLog);
 }

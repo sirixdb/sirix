@@ -358,24 +358,6 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
         }
       });
 
-      // POOL.submit(new Callable<Void>() {
-      // @Override
-      // public Void call() {
-      // if (mPrune == EPruning.NO) {
-      // // Get min and max textLength of both revisions.
-      // try (final INodeReadTrx rtxNew = mDb.getSession().beginNodeReadTrx(mNewRevision);
-      // INodeReadTrx rtxOld = mDb.getSession().beginNodeReadTrx(mOldRevision)) {
-      // getMinMaxTextLength(rtxNew, Optional.of(rtxOld));
-      // } catch (final AbsTTException e) {
-      // LOGWRAPPER.error(e.getMessage(), e);
-      // }
-      // } else {
-      // mStart.countDown();
-      // }
-      // return null;
-      // }
-      // });
-
       if (PROCESSORS == 2) {
         final ExecutorService pool = Executors.newSingleThreadExecutor();
         mDepthMax = pool.submit(new Callable<Integer>() {
@@ -414,35 +396,12 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
       if (mMoveDetection) {
         detectMoves();
       }
-      // for (final Diff diff : mDiffs.values()) {
-      // i++;
-      // final EDiff diffEnum = diff.getDiff();
-      // if (diffEnum == EDiff.MOVEDFROM) {
-      // LOGWRAPPER.debug("indexMovedTo: " + diff.getIndex());
-      // assert mDiffs.get(diff.getIndex()).getDiff() == EDiff.MOVEDTO;
-      // }
-      //
-      // LOGWRAPPER.debug("index: " + i);
-      // LOGWRAPPER.debug("diff: " + diffEnum);
-      // LOGWRAPPER.debug("moveToIndex: " + diff.getIndex());
-      // }
 
       i = 0;
-      // mLock.acquireUninterruptibly();
       final Map<Integer, DiffTuple> diffs =
         mEntries > DIFF_THRESHOLD ? mDiffDatabase.getMap() : mDiffs;
       firePropertyChange("diffs", null, diffs);
-      // if (mPrune == EPruning.ITEMSIZE) {
-      // for (mAxis =
-      // new SunburstCompareDescendantAxis(true, this, mNewRtx, mOldRtx, diffs, mDepthMax, mDepth,
-      // mPrune, mDb.getSession()); mAxis.hasNext(); i++) {
-      // mAxis.next();
-      // if (mCompare == ECompare.SINGLEINCREMENTAL) {
-      // final int progress = (int)((i / (float)mapSize) * 100);
-      // firePropertyChange("progress", null, progress);
-      // }
-      // }
-      // } else {
+
       for (mAxis =
         new DiffSunburstAxis(EIncludeSelf.YES, this, mNewRtx, mOldRtx, diffs,
           mDepthMax, mDepth, mPrune); mAxis.hasNext(); i++) {
@@ -451,13 +410,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
           final int progress = (int)((i / (float)size) * 100);
           firePropertyChange("progress", null, progress);
         }
-        // StatsConfig config = new StatsConfig();
-        // config.setClear(true);
-        //
-        // LOGWRAPPER.debug("stats: " + mDiffDatabase.getEnvironment().getStats(config));
       }
-      // }
-      // mLock.release();
     } catch (final InterruptedException | ExecutionException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
@@ -686,86 +639,6 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
   }
 
   @Override
-  public void getMinMaxTextLength(@Nonnull final INodeReadTrx pNewRtx,
-    @Nonnull final Optional<INodeReadTrx> pOldRtx) {
-    checkNotNull(pNewRtx);
-    checkState(!pNewRtx.isClosed());
-    checkNotNull(pOldRtx);
-    final INodeReadTrx oldRtx = pOldRtx.get();
-    checkState(!oldRtx.isClosed());
-
-    mMinTextLength = Integer.MAX_VALUE;
-    mMaxTextLength = Integer.MIN_VALUE;
-    final ExecutorService executor = Executors.newFixedThreadPool(2);
-    final Future<TextLength> newRev =
-      executor.submit(new MinMaxTextLength(pNewRtx));
-    final Future<TextLength> oldRev =
-      executor.submit(new MinMaxTextLength(oldRtx));
-    executor.shutdown();
-
-    try {
-      final TextLength newRevText = newRev.get();
-      final TextLength oldRevText = oldRev.get();
-      mMinTextLength = Math.min(newRevText.getMin(), oldRevText.getMin());
-      mMaxTextLength = Math.max(newRevText.getMax(), oldRevText.getMax());
-    } catch (final InterruptedException | ExecutionException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-
-    if (mMinTextLength == Integer.MAX_VALUE) {
-      mMinTextLength = 0;
-    }
-    if (mMaxTextLength == Integer.MIN_VALUE) {
-      mMaxTextLength = 0;
-    }
-
-    mStart.countDown();
-
-    LOGWRAPPER.debug("MINIMUM text length: " + mMinTextLength);
-    LOGWRAPPER.debug("MAXIMUM text length: " + mMaxTextLength);
-  }
-
-  /** Callable which computes the minimum and maximum text length in one revision. */
-  private static class MinMaxTextLength implements Callable<TextLength> {
-
-    /** sirix {@link INodeReadTrx}. */
-    private final INodeReadTrx mOldRtx;
-
-    /**
-     * Constructor.
-     * 
-     * @param pOldRtx
-     *          sirix {@link INodeReadTrx} to iterate over
-     */
-    public MinMaxTextLength(@Nonnull final INodeReadTrx pRtx) {
-      mOldRtx = checkNotNull(pRtx);
-    }
-
-    @Override
-    public TextLength call() throws Exception {
-      int minTextLength = Integer.MAX_VALUE;
-      int maxTextLength = Integer.MIN_VALUE;
-      for (final IAxis axis = new DescendantAxis(mOldRtx, EIncludeSelf.YES); axis
-        .hasNext();) {
-        axis.next();
-        if (axis.getTransaction().getNode().getKind() == EKind.TEXT) {
-          final int length =
-            axis.getTransaction().getValueOfCurrentNode().length();
-          if (length < minTextLength) {
-            minTextLength = length;
-          }
-
-          if (length > maxTextLength) {
-            maxTextLength = length;
-          }
-        }
-      }
-
-      return new TextLength(minTextLength, maxTextLength);
-    }
-  }
-
-  @Override
   public float createSunburstItem(@Nonnull final Item pItem,
     @Nonnegative final int pDepth, @Nonnegative final int pIndex) {
     checkNotNull(pItem);
@@ -868,8 +741,6 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
           relations =
             new NodeRelations(origDepth, depth, structKind, 1, 0, 1,
               indexToParent).setSubtract(subtract);
-          // new NodeRelations(depth, structKind, text.length(), mMinTextLength, mMaxTextLength,
-          // indexToParent).setSubtract(subtract);
         } else {
           relations =
             new NodeRelations(origDepth, depth, structKind, 0, 0, 1,
@@ -971,24 +842,13 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
   private void updated(@Nonnull final EDiff pDiff,
     @Nonnull final SunburstItem.Builder pBuilder) {
     assert pBuilder != null;
-    switch (pDiff) {
-    case UPDATED:
+    if (pDiff == EDiff.UPDATED) {
       final INode oldNode = mOldRtx.getNode();
       if (oldNode.getKind() == EKind.TEXT) {
         pBuilder.setOldText(mOldRtx.getValueOfCurrentNode());
       } else {
         pBuilder.setOldQName(mOldRtx.getQNameOfCurrentNode());
       }
-      break;
-    case REPLACEDNEW:
-    case REPLACEDOLD:
-      // final INode newNode = mNewRtx.getNode();
-      // if (newNode.getKind() == ENode.TEXT_KIND) {
-      // pBuilder.setText(mNewRtx.getValueOfCurrentNode());
-      // } else {
-      // pBuilder.setQName(mNewRtx.getQNameOfCurrentNode());
-      // }
-      break;
     }
   }
 

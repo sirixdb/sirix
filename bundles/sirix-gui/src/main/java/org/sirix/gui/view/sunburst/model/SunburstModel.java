@@ -80,6 +80,7 @@ import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.service.xml.shredder.EShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
+import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 import processing.core.PApplet;
@@ -205,7 +206,6 @@ public final class SunburstModel extends
       assert pKey >= 0;
       assert pModel != null;
       assert pGUI != null;
-      mKey = pKey == 0 ? pKey + 1 : pKey;
       mModel = pModel;
       addPropertyChangeListener(mModel);
       mPruning = pPruning;
@@ -214,7 +214,11 @@ public final class SunburstModel extends
         mModel.getDb().getSession().beginNodeReadTrx(
           mModel.getDb().getRevisionNumber());
       mMaxDescendantCount = (int)mRtx.getStructuralNode().getDescendantCount();
-      mRtx.moveTo(mKey);
+      boolean moved =
+        pKey == EFixed.DOCUMENT_NODE_KEY.getStandardProperty() ? mRtx
+          .moveToFirstChild() : mRtx.moveTo(pKey);
+      assert moved;
+      mKey = mRtx.getNode().getNodeKey();
       mParent = mModel.getParent();
       mItems = new LinkedList<>();
       mGUI = pGUI;
@@ -228,7 +232,7 @@ public final class SunburstModel extends
 
       // Get min and max textLength.
       if (mPruning == EPruning.NO) {
-        getMinMaxTextLength(mRtx, Optional.<INodeReadTrx> absent());
+        getMinMaxTextLength();
       }
 
       try {
@@ -251,10 +255,6 @@ public final class SunburstModel extends
         LOGWRAPPER.error(e.getMessage(), e);
       }
 
-      // if (mPruning != EPruning.NO) {
-      // mModel.setMinMax();
-      // }
-
       // Fire property changes.
       firePropertyChange("maxDepth", null, mDepthMax);
       firePropertyChange("items", null, mItems);
@@ -270,8 +270,8 @@ public final class SunburstModel extends
     }
 
     @Override
-    public float createSunburstItem(@Nonnull final Item pItem, @Nonnegative final int pDepth,
-      @Nonnegative final int pIndex) {
+    public float createSunburstItem(@Nonnull final Item pItem,
+      @Nonnegative final int pDepth, @Nonnegative final int pIndex) {
       checkArgument(pDepth >= 0, "must be positive: %s", pDepth);
       checkArgument(pIndex >= 0, "must be >= 0: %s", pIndex);
 
@@ -347,14 +347,13 @@ public final class SunburstModel extends
       return mPruned;
     }
 
-    @Override
-    public void getMinMaxTextLength(@Nonnull final INodeReadTrx pRtx,
-      @Nonnull final Optional<INodeReadTrx> pOldRtx) {
-      assert !pRtx.isClosed();
-
+    /**
+     * Get minimum and maximum global text length.
+     */
+    void getMinMaxTextLength() {
       mMinTextLength = Integer.MAX_VALUE;
       mMaxTextLength = Integer.MIN_VALUE;
-      for (final IAxis axis = new DescendantAxis(pRtx, EIncludeSelf.YES); axis
+      for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
         .hasNext();) {
         axis.next();
         if (axis.getTransaction().getNode().getKind() == EKind.TEXT) {

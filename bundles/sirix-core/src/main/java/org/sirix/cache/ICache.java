@@ -79,7 +79,7 @@ public interface ICache<K, V> {
    *          map with entries to put into the cache
    */
   void putAll(@Nonnull Map<K, V> pMap);
-  
+
   /**
    * Save all entries of this cache in the secondary cache without removing them.
    */
@@ -93,4 +93,12 @@ public interface ICache<K, V> {
    * @return {@link ImmutableMap} instance with corresponding values
    */
   ImmutableMap<K, V> getAll(@Nonnull Iterable<? extends K> keys);
+
+  /**
+   * Remove key from storage.
+   * 
+   * @param pKey
+   *          key to remove
+   */
+  void remove(@Nonnull K pKey);
 }

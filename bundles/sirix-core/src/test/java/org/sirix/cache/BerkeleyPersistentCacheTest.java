@@ -34,6 +34,7 @@ import java.io.File;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.exception.AbsTTException;
@@ -42,14 +43,17 @@ import org.sirix.page.NodePage;
 public class BerkeleyPersistentCacheTest {
 
   private ICache<Long, PageContainer> cache;
+  
+  private Holder holder;
 
   @Before
   public void setUp() throws AbsTTException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
+    holder = Holder.generateSession();
     cache =
-      new BerkeleyPersistenceCache(new File(new File(TestHelper.PATHS.PATH1.getFile(),
-        DatabaseConfiguration.Paths.Data.getFile().getName()), TestHelper.RESOURCE), 1);
+      new BerkeleyPersistenceCache(holder.getSession().beginPageWriteTrx(), new File(new File(TestHelper.PATHS.PATH1.getFile(),
+        DatabaseConfiguration.Paths.Data.getFile().getName()), TestHelper.RESOURCE), 1, "log");
     CacheTestHelper.setUp(cache);
   }
 

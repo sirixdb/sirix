@@ -247,25 +247,25 @@ public final class ViewUtilities {
       final PApplet applet = pGUI.getApplet();
       applet.textAlign(PConstants.LEFT, PConstants.TOP);
       applet.fill(60, 100, pGUI.getDotBrightness());
+      applet.ellipse(applet.width - 160f, applet.height - 136f, 8, 8);
+      color(pGUI);
+      applet.text("node moved", applet.width - 140f, applet.height - 146f);
+      applet.fill(200, 100, pGUI.getDotBrightness());
       applet.ellipse(applet.width - 160f, applet.height - 113f, 8, 8);
       color(pGUI);
-      applet.text("node moved", applet.width - 140f, applet.height - 123f);
-      applet.fill(200, 100, pGUI.getDotBrightness());
+      applet.text("node inserted", applet.width - 140f, applet.height - 123f);
+      applet.fill(360, 100, pGUI.getDotBrightness());
       applet.ellipse(applet.width - 160f, applet.height - 90f, 8, 8);
       color(pGUI);
-      applet.text("node inserted", applet.width - 140f, applet.height - 100f);
-      applet.fill(360, 100, pGUI.getDotBrightness());
+      applet.text("node deleted", applet.width - 140f, applet.height - 100f);
+      applet.fill(120, 100, pGUI.getDotBrightness());
       applet.ellipse(applet.width - 160f, applet.height - 67f, 8, 8);
       color(pGUI);
-      applet.text("node deleted", applet.width - 140f, applet.height - 77f);
-      applet.fill(120, 100, pGUI.getDotBrightness());
+      applet.text("node updated", applet.width - 140f, applet.height - 77f);
+      applet.fill(290, 100, pGUI.getDotBrightness());
       applet.ellipse(applet.width - 160f, applet.height - 44f, 8, 8);
       color(pGUI);
-      applet.text("node updated", applet.width - 140f, applet.height - 54f);
-      applet.fill(290, 100, pGUI.getDotBrightness());
-      applet.ellipse(applet.width - 160f, applet.height - 21f, 8, 8);
-      color(pGUI);
-      applet.text("node replaced", applet.width - 140f, applet.height - 31f);
+      applet.text("node replaced", applet.width - 140f, applet.height - 54f);
     }
   }
 

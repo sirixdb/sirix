@@ -29,6 +29,7 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
+import org.sirix.exception.TTIOException;
 import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -53,7 +54,8 @@ public final class SortWiki extends Configured implements Tool {
   /**
    * {@link LogWrapper} used for logging.
    */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(DateWritable.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
+    .getLogger(DateWritable.class));
 
   /**
    * Main method.
@@ -68,11 +70,13 @@ public final class SortWiki extends Configured implements Tool {
     LOGWRAPPER.info("Running...");
     final int res = ToolRunner.run(new Configuration(), new SortWiki(), args);
     LOGWRAPPER.info("Result: " + res);
-    LOGWRAPPER.info("Done in " + (System.nanoTime() - start) / 1_000_000_000 + "s");
+    LOGWRAPPER.info("Done in " + (System.nanoTime() - start) / 1_000_000_000
+      + "s");
   }
 
   @Override
-  public int run(final String[] args) throws IOException, ClassNotFoundException, InterruptedException {
+  public int run(final String[] args) throws IOException,
+    ClassNotFoundException, InterruptedException {
     final Job job = new Job(getConf());
     job.setJarByClass(this.getClass());
     job.setJobName(this.getClass().getName());
@@ -104,7 +108,11 @@ public final class SortWiki extends Configured implements Tool {
     config.set("fs.default.name", "local");
 
     // First delete target directory.
-    Files.recursiveRemove(new File(args[1]).toPath());
+    try {
+      Files.recursiveRemove(new File(args[1]).toPath());
+    } catch (final TTIOException e) {
+      LOGWRAPPER.error(e.getMessage(), e);
+    }
 
     FileInputFormat.setInputPaths(job, new Path(args[0]));
     FileOutputFormat.setOutputPath(job, new Path(args[1]));

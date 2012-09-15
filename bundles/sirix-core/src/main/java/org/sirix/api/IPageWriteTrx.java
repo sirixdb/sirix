@@ -4,6 +4,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.EMultipleWriteTrx;
+import org.sirix.access.PageWriteTrx.ERestore;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.AbsTTException;
 import org.sirix.exception.TTIOException;
@@ -92,7 +93,8 @@ public interface IPageWriteTrx extends IPageReadTrx {
     throws TTIOException;
 
   /** Commit the transaction, that is persist changes if any and create a new revision. */
-  UberPage commit(@Nonnull EMultipleWriteTrx pMultipleWriteTrx) throws AbsTTException;
+  UberPage commit(@Nonnull EMultipleWriteTrx pMultipleWriteTrx)
+    throws AbsTTException;
 
   /**
    * Update log.
@@ -115,4 +117,23 @@ public interface IPageWriteTrx extends IPageReadTrx {
    *           if the write fails
    */
   void commit(@Nonnull PageReference pReference) throws AbsTTException;
+
+  /**
+   * Determines if this page write trx must restore a previous failed trx.
+   * 
+   * @param pRestore
+   *          determines if this page write trx must restore a previous failed trx
+   */
+  void restore(@Nonnull ERestore pRestore);
+
+  /**
+   * Determines if a new log directory has been created.
+   * 
+   * @return {@code true} if yes, otherwise {@code false} which means that a crash occured and the log must be
+   *         re-applied
+   */
+  boolean isCreated();
+
+  /** Flush content of page cache to persistent storage for write-ahead log. */
+  void flushToPersistentCache();
 }

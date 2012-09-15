@@ -195,4 +195,12 @@ public final class LRUCache<K, V> implements ICache<K, V> {
   public Map<K, V> getMap() {
     return Collections.unmodifiableMap(mMap);
   }
+  
+  @Override
+  public void remove(final @Nonnull K pKey) {
+    mMap.remove(pKey);
+    if (mSecondCache.get(pKey) != null) {
+      mSecondCache.remove(pKey);
+    }
+  }
 }

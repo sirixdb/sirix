@@ -38,10 +38,13 @@ import javax.annotation.Nullable;
 import org.sirix.page.NodePage;
 import org.sirix.page.PagePersistenter;
 
+/**
+ * Binding for {@link PageContainer} reference.
+ */
 public class PageContainerBinding extends TupleBinding<PageContainer> {
 
   @Override
-  public PageContainer entryToObject(@Nullable final TupleInput pInput) {
+  public PageContainer entryToObject(final @Nullable TupleInput pInput) {
     if (pInput == null) {
       return PageContainer.EMPTY_INSTANCE;
     }
@@ -54,8 +57,8 @@ public class PageContainerBinding extends TupleBinding<PageContainer> {
   }
 
   @Override
-  public void objectToEntry(@Nullable final PageContainer pPageContainer,
-    @Nullable final TupleOutput pOutput) {
+  public void objectToEntry(final @Nullable PageContainer pPageContainer,
+    final @Nullable TupleOutput pOutput) {
     if (pPageContainer != null && pOutput != null) {
       pPageContainer.serialize(pOutput);
     }

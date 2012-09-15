@@ -121,8 +121,9 @@ public final class TestHelper {
   /** Common random instance for generating common tag names. */
   public final static Random random = new Random();
 
+  /** File <=> Database instances. */
   private final static Map<File, IDatabase> INSTANCES =
-    new Hashtable<File, IDatabase>();
+    new Hashtable<>();
 
   @Test
   public void testDummy() {

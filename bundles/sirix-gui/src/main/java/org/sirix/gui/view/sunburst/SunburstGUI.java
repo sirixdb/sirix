@@ -104,36 +104,36 @@ public class SunburstGUI extends AbsSunburstGUI {
   /**
    * Private constructor.
    * 
-   * @param paramApplet
+   * @param pApplet
    *          parent processing applet
-   * @param paramReadDB
+   * @param pReadDB
    *          read database
    */
-  private SunburstGUI(final PApplet paramApplet, final ISunburstControl paramControl, final ReadDB paramReadDB) {
-    super(paramApplet, paramControl, paramReadDB);
-    mDb = paramReadDB;
+	private SunburstGUI(final PApplet pApplet, final ISunburstControl pControl,
+			final ReadDB pReadDB) {
+    super(pApplet, pControl, pReadDB);
+    mDb = pReadDB;
   }
 
   /**
    * Factory method (Singleton). Note that it's always called from the animation thread, thus it doesn't
    * need to be synchronized.
    * 
-   * @param paramParentApplet
+   * @param pParentApplet
    *          parent processing applet
-   * @param paramControl
+   * @param pControl
    *          associated controller
-   * @param paramReadDB
+   * @param pReadDB
    *          read database
    * @return a {@link SunburstGUI} singleton
    */
-  public static SunburstGUI getInstance(final PApplet paramParentApplet, final ISunburstControl paramControl,
-    final ReadDB paramReadDB) {
+  public static SunburstGUI getInstance(final PApplet pParentApplet, final ISunburstControl pControl,
+    final ReadDB pReadDB) {
     if (mGUI == null) {
-
       synchronized (SunburstGUI.class) {
         if (mGUI == null) {
-          assert paramParentApplet instanceof Embedded;
-          mGUI = new SunburstGUI(paramParentApplet, paramControl, paramReadDB);
+          assert pParentApplet instanceof Embedded;
+          mGUI = new SunburstGUI(pParentApplet, pControl, pReadDB);
         }
       }
     }
@@ -216,6 +216,7 @@ public class SunburstGUI extends AbsSunburstGUI {
         // This enables zooming/panning.
         transform();
 
+        mParent.textSize(15f);
         mParent.colorMode(PConstants.HSB, 360, 100, 100, 100);
         mParent.noFill();
         mParent.ellipseMode(PConstants.RADIUS);
@@ -244,7 +245,6 @@ public class SunburstGUI extends AbsSunburstGUI {
           mParent.stroke(0);
           mParent.strokeWeight(2f);
           mParent.line(0, 0, mParent.width * 0.5f, 0);
-          mParent.textSize(14f);
         } else if (mDone) {
           LOGWRAPPER.debug("Buffered image!");
 
@@ -359,24 +359,24 @@ public class SunburstGUI extends AbsSunburstGUI {
   /**
    * Fisheye transformation.
    * 
-   * @param paramXPos
+   * @param pXPos
    *          X position of middle point of the transformation
-   * @param paramYPos
+   * @param pYPos
    *          Y position of middle point of the transformation
-   * @param paramRadius
+   * @param pRadius
    *          the radius to use
    */
-  private void fisheye(final int paramXPos, final int paramYPos, final int paramRadius) {
+  private void fisheye(final int pXPos, final int pYPos, final int pRadius) {
     // Start point of rectangle to grab.
-    final int tlx = paramXPos - paramRadius;
-    final int tly = paramYPos - paramRadius;
+    final int tlx = pXPos - pRadius;
+    final int tly = pYPos - pRadius;
     // Rectangle with pixels.
-    final PImage pi = mParent.get(tlx, tly, paramRadius * 2, paramRadius * 2);
-    for (int x = -paramRadius; x < paramRadius; x++) {
-      for (int y = -paramRadius; y < paramRadius; y++) {
+    final PImage pi = mParent.get(tlx, tly, pRadius * 2, pRadius * 2);
+    for (int x = -pRadius; x < pRadius; x++) {
+      for (int y = -pRadius; y < pRadius; y++) {
         // Rescale cartesian coords between -1 and 1.
-        final float cx = (float)x / paramRadius;
-        final float cy = (float)y / paramRadius;
+        final float cx = (float)x / pRadius;
+        final float cy = (float)y / pRadius;
 
         // Outside of the sphere -> skip.
         final float square = PApplet.sq(cx) + PApplet.sq(cy);
@@ -392,11 +392,11 @@ public class SunburstGUI extends AbsSunburstGUI {
         final float sy = PApplet.atan(EFFECT_AMOUNT * cy / cz) * 2 / PConstants.PI;
 
         // Spherical coords sx & sy -> texture coords.
-        final int tx = tlx + (int)((sx + 1) * paramRadius);
-        final int ty = tly + (int)((sy + 1) * paramRadius);
+        final int tx = tlx + (int)((sx + 1) * pRadius);
+        final int ty = tly + (int)((sy + 1) * pRadius);
 
         // Set pixel value.
-        pi.set(paramRadius + x, paramRadius + y, mParent.get(tx, ty));
+        pi.set(pRadius + x, pRadius + y, mParent.get(tx, ty));
       }
     }
     mParent.set(tlx, tly, pi);
@@ -415,25 +415,25 @@ public class SunburstGUI extends AbsSunburstGUI {
   /**
    * Method to process event for submit-button.
    * 
-   * @param paramValue
+   * @param pValue
    *          change value
    * @throws XMLStreamException
    *           if the XML fragment isn't well formed
    */
-  public void submit(final int paramValue) throws XMLStreamException {
-    mControl.submit(paramValue);
+  public void submit(final int pValue) throws XMLStreamException {
+    mControl.submit(pValue);
   }
 
   /**
    * Method to process event for submit-button.
    * 
-   * @param paramValue
+   * @param pValue
    *          change value
    * @throws XMLStreamException
    *           if the XML fragment isn't well formed
    */
-  public void commit(final int paramValue) throws XMLStreamException {
-    mControl.commit(paramValue);
+  public void commit(final int pValue) throws XMLStreamException {
+    mControl.commit(pValue);
   }
 
   @Override
@@ -477,21 +477,21 @@ public class SunburstGUI extends AbsSunburstGUI {
   /**
    * Set fisheye lense.
    * 
-   * @param paramState
+   * @param pState
    *          true if fisheye lense should be used, false otherwise
    */
-  public void setFisheye(final boolean paramState) {
-    mFisheye = paramState;
+  public void setFisheye(final boolean pState) {
+    mFisheye = pState;
   }
 
   /**
    * Set use arcs.
    * 
-   * @param paramState
+   * @param pState
    *          true if arcs should be used, false otherwise
    */
-  public void setUseArc(final boolean paramState) {
-    mUseArc = paramState;
+  public void setUseArc(final boolean pState) {
+    mUseArc = pState;
   }
 
   @Override

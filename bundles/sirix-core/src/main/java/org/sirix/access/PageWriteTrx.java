@@ -32,6 +32,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Optional;
 
 import java.util.Map.Entry;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -39,6 +42,8 @@ import javax.annotation.Nullable;
 import javax.xml.namespace.QName;
 
 import org.sirix.api.IPageWriteTrx;
+import org.sirix.api.ISession;
+import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.ICache;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionLogCache;
@@ -77,7 +82,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
   private final IWriter mPageWriter;
 
   /** Cache to store the changes in this writetransaction. */
-  private final ICache<Long, PageContainer> mLog;
+  private final ICache<Long, PageContainer> mNodeLog;
 
   /** Cache to store path changes in this writetransaction. */
   private final ICache<Long, PageContainer> mPathLog;
@@ -100,6 +105,25 @@ public final class PageWriteTrx implements IPageWriteTrx {
   /** Determines if multiple {@link SynchNodeWriteTrx} are working or just a single {@link NodeWriteTrx}. */
   private EMultipleWriteTrx mMultipleWriteTrx;
 
+  /** Determines if a log must be replayed or not. */
+  public enum ERestore {
+    /** Yes, it must be replayed. */
+    YES,
+
+    /** No, it must not be replayed. */
+    NO
+  }
+
+  /** Determines if a log must be replayed or not. */
+  private ERestore mRestore = ERestore.NO;
+
+  /** Persistent BerkeleyDB page log for all page types != NodePage. */
+  private final BerkeleyPersistencePageCache mPageLog;
+
+  /** Pool to flush pages to persistent page log. */
+  private final ScheduledExecutorService mPool = Executors
+    .newScheduledThreadPool(1);
+
   /**
    * Standard constructor.
    * 
@@ -115,28 +139,59 @@ public final class PageWriteTrx implements IPageWriteTrx {
    *          revision represent
    * @param pStoreRev
    *          revision store
-   * @throws TTIOException
-   *           if IO Error
+   * @throws AbsTTException
+   *           if an error occurs
    */
   PageWriteTrx(final @Nonnull Session pSession,
     final @Nonnull UberPage pUberPage, final @Nonnull IWriter pWriter,
     final @Nonnegative long pId, final @Nonnegative long pRepresentRev,
     final @Nonnegative long pStoreRev, final @Nonnegative long pLastCommitedRev)
-    throws TTIOException {
-    mPageRtx = new PageReadTrx(pSession, pUberPage, pRepresentRev, pWriter);
+    throws AbsTTException {
+    mPathLog =
+      new TransactionLogCache(this, pSession.mResourceConfig.mPath, pStoreRev,
+        "path");
+    mNodeLog =
+      new TransactionLogCache(this, pSession.mResourceConfig.mPath, pStoreRev,
+        "node");
+    mValueLog =
+      new TransactionLogCache(this, pSession.mResourceConfig.mPath, pStoreRev,
+        "value");
+    mPageLog =
+      new BerkeleyPersistencePageCache(this, pSession.mResourceConfig.mPath,
+        pStoreRev, "page");
+    mPageWriter = pWriter;
+    mTransactionID = pId;
+    mPageRtx =
+      new PageReadTrx(pSession, pUberPage, pRepresentRev, pWriter, Optional
+        .of(mPageLog));
+    mPool.scheduleAtFixedRate(new Runnable() {
+      @Override
+      public void run() {
+        mPageRtx.putPageCache(mPageLog);
+      }
+    }, 20, 20, TimeUnit.SECONDS);
+
     final RevisionRootPage lastCommitedRoot =
       preparePreviousRevisionRootPage(pRepresentRev, pLastCommitedRev);
     mNewRoot = preparePreviousRevisionRootPage(pRepresentRev, pStoreRev);
     mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
     mNewRoot.setMaxPathNodeKey(lastCommitedRoot.getMaxPathNodeKey());
-    mPathLog =
-      new TransactionLogCache(this, pSession.mResourceConfig.mPath, pStoreRev);
-    mLog =
-      new TransactionLogCache(this, pSession.mResourceConfig.mPath, pStoreRev);
-    mValueLog =
-      new TransactionLogCache(this, pSession.mResourceConfig.mPath, pStoreRev);
-    mPageWriter = pWriter;
-    mTransactionID = pId;
+    mNewRoot.setMaxValueNodeKey(lastCommitedRoot.getMaxValueNodeKey());
+  }
+
+  @Override
+  public boolean isCreated() {
+    return mPageLog.isCreated();
+  }
+
+  @Override
+  public void flushToPersistentCache() {
+    mPageRtx.putPageCache(mPageLog);
+  }
+
+  @Override
+  public void restore(final @Nonnull ERestore pRestore) {
+    mRestore = checkNotNull(pRestore);
   }
 
   @Override
@@ -154,15 +209,14 @@ public final class PageWriteTrx implements IPageWriteTrx {
     // final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
     prepareNodePage(nodePageKey, pPage);
 
-    INodeBase node = ((NodePage)mNodePageCon.getModified()).getNode(pNodeKey);
+    INodeBase node = mNodePageCon.getModified().getNode(pNodeKey);
     if (node == null) {
-      final INodeBase oldNode =
-        ((NodePage)mNodePageCon.getComplete()).getNode(pNodeKey);
+      final INodeBase oldNode = mNodePageCon.getComplete().getNode(pNodeKey);
       if (oldNode == null) {
         throw new TTIOException("Cannot retrieve node from cache!");
       }
       node = oldNode;
-      ((NodePage)mNodePageCon.getModified()).setNode(node);
+      mNodePageCon.getModified().setNode(node);
     }
 
     return node;
@@ -174,14 +228,14 @@ public final class PageWriteTrx implements IPageWriteTrx {
     final long nodePageKey = mPageRtx.nodePageKey(pNode.getNodeKey());
     if (mNodePageCon == null
       || pNode == null
-      || (mLog.get(nodePageKey) == null && mPathLog.get(nodePageKey) == null && mValueLog
-        .get(nodePageKey) == null)) {
+      || (mNodeLog.get(nodePageKey) == null
+        && mPathLog.get(nodePageKey) == null && mValueLog.get(nodePageKey) == null)) {
       throw new IllegalStateException();
     }
 
     switch (pPage) {
     case NODEPAGE:
-      mLog.put(nodePageKey, mNodePageCon);
+      mNodeLog.put(nodePageKey, mNodePageCon);
       break;
     case PATHSUMMARYPAGE:
       mPathLog.put(nodePageKey, mNodePageCon);
@@ -221,7 +275,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
     final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
     // final int nodePageOffset = mPageRtx.nodePageOffset(nodeKey);
     prepareNodePage(nodePageKey, pPage);
-    final NodePage page = (NodePage)mNodePageCon.getModified();
+    final NodePage page = mNodePageCon.getModified();
     page.setNode(pNode);
     finishNodeModification(pNode, pPage);
     return pNode;
@@ -255,9 +309,9 @@ public final class PageWriteTrx implements IPageWriteTrx {
     if (pageCont == null) {
       return mPageRtx.getNode(pNodeKey, pPage);
     } else {
-      INodeBase node = ((NodePage)pageCont.getModified()).getNode(pNodeKey);
+      INodeBase node = pageCont.getModified().getNode(pNodeKey);
       if (node == null) {
-        node = ((NodePage)pageCont.getComplete()).getNode(pNodeKey);
+        node = pageCont.getComplete().getNode(pNodeKey);
         return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));
       } else {
         return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));
@@ -279,7 +333,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
     if (pPage != null) {
       switch (pPage) {
       case NODEPAGE:
-        return mLog.get(pNodePageKey);
+        return mNodeLog.get(pNodePageKey);
       case PATHSUMMARYPAGE:
         return mPathLog.get(pNodePageKey);
       case VALUEPAGE:
@@ -289,6 +343,23 @@ public final class PageWriteTrx implements IPageWriteTrx {
       }
     }
     return null;
+  }
+
+  private void removePageContainer(final @Nullable EPage pPage,
+    final @Nonnegative long pNodePageKey) {
+    if (pPage != null) {
+      switch (pPage) {
+      case NODEPAGE:
+        mNodeLog.remove(pNodePageKey);
+        break;
+      case PATHSUMMARYPAGE:
+        break;
+      case VALUEPAGE:
+        break;
+      default:
+        throw new IllegalStateException();
+      }
+    }
   }
 
   @Override
@@ -323,18 +394,31 @@ public final class PageWriteTrx implements IPageWriteTrx {
       // First, try to get one from the log.
       final long nodePageKey = pReference.getNodePageKey();
       final PageContainer cont =
-        getPageContainer(pReference.getPageKind(), nodePageKey);
+        nodePageKey == -1 ? null : getPageContainer(pReference.getPageKind(),
+          nodePageKey);
       if (cont != null) {
         page = cont.getModified();
       }
 
-      // If none is in the log, test if one is instantiated, if so, get
-      // the one flexible from the reference.
+      // If none is in the log.
       if (page == null) {
-        page = pReference.getPage();
-        if (page == null) {
-          return;
-        }
+//        // // Then try to get one from the page cache.
+//        if (nodePageKey == -1 && pReference.getKey() != IConstants.NULL_ID) {
+//          page = mPageRtx.getFromPageCache(pReference.getKey());
+//        }
+//        if (page instanceof NodePage) {
+//          page = null;
+//        }
+//        if (page == null) {
+          // Test if one is instantiated, if so, get
+          // the one from the reference.
+          page = pReference.getPage();
+          if (page == null) {
+            return;
+          }
+//        } else {
+//          assert !(page instanceof NodePage);
+//        }
       }
 
       pReference.setPage(page);
@@ -342,8 +426,13 @@ public final class PageWriteTrx implements IPageWriteTrx {
       // write self.
       page.commit(this);
       mPageWriter.write(pReference);
+
+//      // Remove from transaction log.
+//      removePageContainer(pReference.getPageKind(), nodePageKey);
+
       pReference.setPage(null);
-      // Afterwards synchronize all logs since the changes must to be
+
+      // Afterwards synchronize all logs since the changes must be
       // written to the transaction log as well.
       if (mMultipleWriteTrx == EMultipleWriteTrx.YES && cont != null) {
         mPageRtx.mSession.syncLogs(cont, mTransactionID, pReference
@@ -359,9 +448,10 @@ public final class PageWriteTrx implements IPageWriteTrx {
     mMultipleWriteTrx = checkNotNull(pMultipleWriteTrx);
 
     // Forcefully flush write-ahead transaction logs to persistent storage.
-    mLog.toSecondCache();
-    mPathLog.toSecondCache();
-    mValueLog.toSecondCache();
+//    mNodeLog.toSecondCache();
+//    mPathLog.toSecondCache();
+//    mValueLog.toSecondCache();
+//    mPageRtx.putPageCache(mPageLog);
 
     final PageReference uberPageReference = new PageReference();
     final UberPage uberPage = getUberPage();
@@ -383,10 +473,12 @@ public final class PageWriteTrx implements IPageWriteTrx {
   public void close() throws TTIOException {
     mPageRtx.assertNotClosed();
     mPageRtx.clearCache();
-    mLog.clear();
+    mNodeLog.clear();
     mPathLog.clear();
     mValueLog.clear();
+    mPageLog.clear();
     mPageWriter.close();
+    mPool.shutdownNow();
   }
 
   /**
@@ -406,7 +498,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
       if (pReference.getKey() == IConstants.NULL_ID) {
         page = new IndirectPage(getUberPage().getRevision());
       } else {
-        // Shoule never be null, otherwise dereferenceIndirectPage(PageReference) fails.
+        // Should never be null, otherwise dereferenceIndirectPage(PageReference) fails.
         final IndirectPage indirectPage =
           mPageRtx.dereferenceIndirectPage(pReference);
         page = new IndirectPage(indirectPage, mNewRoot.getRevision() + 1);
@@ -452,7 +544,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
       switch (pPage) {
       case NODEPAGE:
-        mLog.put(pNodePageKey, cont);
+        mNodeLog.put(pNodePageKey, cont);
         break;
       case PATHSUMMARYPAGE:
         mPathLog.put(pNodePageKey, cont);
@@ -500,11 +592,11 @@ public final class PageWriteTrx implements IPageWriteTrx {
       // prepared indirect tree.
       revisionRootPageReference.setPage(revisionRootPage);
 
-      revisionRootPage.getNamePageReference().setPage(
-        mPageRtx.getActualRevisionRootPage().getNamePageReference().getPage());
-      revisionRootPage.getPathSummaryPageReference().setPage(
-        mPageRtx.getActualRevisionRootPage().getPathSummaryPageReference()
-          .getPage());
+      // revisionRootPage.getNamePageReference().setPage(
+      // mPageRtx.getActualRevisionRootPage().getNamePageReference().getPage());
+      // revisionRootPage.getPathSummaryPageReference().setPage(
+      // mPageRtx.getActualRevisionRootPage().getPathSummaryPageReference()
+      // .getPage());
 
       // Return prepared revision root nodePageReference.
       return revisionRootPage;
@@ -589,7 +681,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
       container = mValueLog.get(nodePageKey);
       break;
     case NODEPAGE:
-      container = mLog.get(nodePageKey);
+      container = mNodeLog.get(nodePageKey);
       break;
     default:
       throw new IllegalStateException("page kind not known!");
@@ -656,5 +748,22 @@ public final class PageWriteTrx implements IPageWriteTrx {
   @Override
   public long getRevisionNumber() {
     return mPageRtx.getRevisionNumber();
+  }
+
+  @Override
+  public ISession getSession() {
+    return mPageRtx.getSession();
+  }
+
+  @Override
+  public IPage getFromPageCache(final @Nonnegative long pKey)
+    throws TTIOException {
+    return mPageRtx.getFromPageCache(pKey);
+  }
+
+  @Override
+  public void
+    putPageCache(final @Nonnull BerkeleyPersistencePageCache pPageLog) {
+    mPageRtx.putPageCache(pPageLog);
   }
 }
