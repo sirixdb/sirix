@@ -44,123 +44,122 @@ import org.sirix.node.TextNode;
  * 
  */
 class InsertSubtreeVisitor extends AbsVisitorSupport {
-  /**
-   * Read-transaction which implements the {@link INodeReadTrx} interface.
-   */
-  private final INodeReadTrx mRtx;
 
-  /**
-   * Write-transaction which implements the {@link INodeWriteTrx} interface.
-   */
-  private final INodeWriteTrx mWtx;
+	/** Read-transaction which implements the {@link INodeReadTrx} interface. */
+	private final INodeReadTrx mRtx;
 
-  /** Determines how to insert a node. */
-  private EInsertPos mInsert;
+	/** Write-transaction which implements the {@link INodeWriteTrx} interface. */
+	private final INodeWriteTrx mWtx;
 
-  /** First visitor step. */
-  private boolean mFirst;
+	/** Determines how to insert a node. */
+	private EInsertPos mInsert;
 
-  /** Depth starting at 0. */
-  private int mDepth;
+	/** First visitor step. */
+	private boolean mFirst;
 
-  /**
-   * Constructor.
-   * 
-   * @param pRtx
-   *          read-transaction which implements the {@link INodeReadTrx} interface
-   * @param pWtx
-   *          write-transaction which implements the {@link INodeWriteTrx} interface
-   * @param pInsert
-   *          determines how to insert a node
-   */
-  InsertSubtreeVisitor(@Nonnull final INodeReadTrx pRtx, @Nonnull final INodeWriteTrx pWtx,
-    @Nonnull final EInsertPos pInsert) {
-    mRtx = checkNotNull(pRtx);
-    mWtx = checkNotNull(pWtx);
-    mInsert = checkNotNull(pInsert);
-    mFirst = true;
-  }
+	/** Depth starting at 0. */
+	private int mDepth;
 
-  @Override
-  public EVisitResult visit(@Nonnull final ElementNode pNode) {
-    mRtx.moveTo(pNode.getNodeKey());
-    try {
-      mInsert.insertNode(mWtx, mRtx);
-      mInsert = EInsertPos.ASNONSTRUCTURAL;
+	/**
+	 * Constructor.
+	 * 
+	 * @param pRtx
+	 *          read-transaction which implements the {@link INodeReadTrx}
+	 *          interface
+	 * @param pWtx
+	 *          write-transaction which implements the {@link INodeWriteTrx}
+	 *          interface
+	 * @param pInsert
+	 *          determines how to insert a node
+	 */
+	InsertSubtreeVisitor(@Nonnull final INodeReadTrx pRtx,
+			@Nonnull final INodeWriteTrx pWtx, @Nonnull final EInsertPos pInsert) {
+		mRtx = checkNotNull(pRtx);
+		mWtx = checkNotNull(pWtx);
+		mInsert = checkNotNull(pInsert);
+		mFirst = true;
+	}
 
-      for (int i = 0, nspCount = pNode.getNamespaceCount(); i < nspCount; i++) {
-        mRtx.moveToNamespace(i);
-        mInsert.insertNode(mWtx, mRtx);
-        mRtx.moveToParent();
-      }
+	@Override
+	public EVisitResult visit(@Nonnull final ElementNode pNode) {
+		mRtx.moveTo(pNode.getNodeKey());
+		try {
+			mInsert.insertNode(mWtx, mRtx);
+			mInsert = EInsertPos.ASNONSTRUCTURAL;
 
-      for (int i = 0, attrCount = pNode.getAttributeCount(); i < attrCount; i++) {
-        mRtx.moveToAttribute(i);
-        mInsert.insertNode(mWtx, mRtx);
-        mRtx.moveToParent();
-      }
+			for (int i = 0, nspCount = pNode.getNamespaceCount(); i < nspCount; i++) {
+				mRtx.moveToNamespace(i);
+				mInsert.insertNode(mWtx, mRtx);
+				mRtx.moveToParent();
+			}
 
-      if (pNode.hasFirstChild()) {
-        mFirst = false;
-        mInsert = EInsertPos.ASFIRSTCHILD;
-        mRtx.moveToFirstChild();
-        mDepth++;
-      } else if (!mFirst && pNode.hasRightSibling()) {
-        mInsert = EInsertPos.ASRIGHTSIBLING;
-        mRtx.moveToRightSibling();
-      } else if (!mFirst) {
-        if (!moveToNextNode()) {
-          return EVisitResult.TERMINATE;
-        }
-      }
-    } catch (final AbsTTException e) {
-      throw new IllegalStateException(e);
-    }
-    if (mFirst) {
-      return EVisitResult.TERMINATE;
-    }
-    return mRtx.getNode().acceptVisitor(this);
-  }
+			for (int i = 0, attrCount = pNode.getAttributeCount(); i < attrCount; i++) {
+				mRtx.moveToAttribute(i);
+				mInsert.insertNode(mWtx, mRtx);
+				mRtx.moveToParent();
+			}
 
-  @Override
-  public EVisitResult visit(@Nonnull final TextNode pNode) {
-    mRtx.moveTo(pNode.getNodeKey());
-    try {
-      mInsert.insertNode(mWtx, mRtx);
+			if (pNode.hasFirstChild()) {
+				mFirst = false;
+				mInsert = EInsertPos.ASFIRSTCHILD;
+				mRtx.moveToFirstChild();
+				mDepth++;
+			} else if (!mFirst && pNode.hasRightSibling()) {
+				mInsert = EInsertPos.ASRIGHTSIBLING;
+				mRtx.moveToRightSibling();
+			} else if (!mFirst) {
+				if (!moveToNextNode()) {
+					return EVisitResult.TERMINATE;
+				}
+			}
+		} catch (final AbsTTException e) {
+			throw new IllegalStateException(e);
+		}
+		if (mFirst) {
+			return EVisitResult.TERMINATE;
+		}
+		return mRtx.getNode().acceptVisitor(this);
+	}
 
-      if (!mFirst && mRtx.getStructuralNode().hasRightSibling()) {
-        mRtx.moveToRightSibling();
-        mInsert = EInsertPos.ASRIGHTSIBLING;
-      } else if (!mFirst) {
-        if (!moveToNextNode()) {
-          return EVisitResult.TERMINATE;
-        }
-      }
-    } catch (final AbsTTException e) {
-      throw new IllegalStateException(e);
-    }
-    if (mFirst) {
-      return EVisitResult.TERMINATE;
-    }
-    return mRtx.getNode().acceptVisitor(this);
-  }
+	@Override
+	public EVisitResult visit(@Nonnull final TextNode pNode) {
+		mRtx.moveTo(pNode.getNodeKey());
+		try {
+			mInsert.insertNode(mWtx, mRtx);
 
-  /** Insert next node in document order/preorder. */
-  private boolean moveToNextNode() {
-    boolean retVal = false;
-    while (!mRtx.getStructuralNode().hasRightSibling() && mDepth > 0) {
-      mRtx.moveToParent();
-      mWtx.moveToParent();
-      mDepth--;
-    }
+			if (!mFirst && mRtx.getStructuralNode().hasRightSibling()) {
+				mRtx.moveToRightSibling();
+				mInsert = EInsertPos.ASRIGHTSIBLING;
+			} else if (!mFirst) {
+				if (!moveToNextNode()) {
+					return EVisitResult.TERMINATE;
+				}
+			}
+		} catch (final AbsTTException e) {
+			throw new IllegalStateException(e);
+		}
+		if (mFirst) {
+			return EVisitResult.TERMINATE;
+		}
+		return mRtx.getNode().acceptVisitor(this);
+	}
 
-    if (mDepth > 0) {
-      mInsert = EInsertPos.ASRIGHTSIBLING;
-      if (mRtx.getStructuralNode().hasRightSibling()) {
-        mRtx.moveToRightSibling();
-        retVal = true;
-      }
-    }
-    return retVal;
-  }
+	/** Insert next node in document order/preorder. */
+	private boolean moveToNextNode() {
+		boolean retVal = false;
+		while (!mRtx.getStructuralNode().hasRightSibling() && mDepth > 0) {
+			mRtx.moveToParent();
+			mWtx.moveToParent();
+			mDepth--;
+		}
+
+		if (mDepth > 0) {
+			mInsert = EInsertPos.ASRIGHTSIBLING;
+			if (mRtx.getStructuralNode().hasRightSibling()) {
+				mRtx.moveToRightSibling();
+				retVal = true;
+			}
+		}
+		return retVal;
+	}
 }
