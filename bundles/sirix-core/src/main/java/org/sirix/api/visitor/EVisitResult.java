@@ -14,9 +14,6 @@ public enum EVisitResult {
 
   /** Continue traversal. */
   CONTINUE,
-  
-  /** Continue traversal without pushing a right sibling to the stack. */
-  CONTINUE_WITHOUT_PUSH_TO_STACK,
 
   /** Terminate traversal. */
   TERMINATE,

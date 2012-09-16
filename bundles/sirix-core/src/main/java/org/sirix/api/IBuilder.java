@@ -8,10 +8,10 @@ package org.sirix.api;
  *         <T> generic type parameter
  */
 public interface IBuilder<T> {
-  /**
-   * Build a new instance of type T.
-   * 
-   * @return instance of type T
-   */
-  T build();
+	/**
+	 * Build a new instance of type T.
+	 * 
+	 * @return instance of type T
+	 */
+	T build();
 }

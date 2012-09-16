@@ -7,6 +7,8 @@ Furthermore, different backends are provided while a binding to different cloud-
 
 The architecture supports the well known ACID-properties and MVCC through Snapshot Isolation which in turn supports N-reading transactions in parallel to currently 1-write transaction. Supporting N-write transactions is planned as well as the current work on indexes to support a binding to Brackit which in turn supports XQuery/XQuery Update Facility. The COW-approach used for providing MVCC through Snapshot Isolation is especially well suited for flash-disks.
 
+The GUI provides interactive visualizations of the differences between either 2 or more versions of a resource in Sirix. Please have a look into my master-thesis for screenshots.
+
 Any questions or even consider to contribute or use Sirix? Just contact lichtenberger.johannes AT gmail.com.
 
 Note that it is based on Treetank (http://treetank.org / http://github.com/disy/treetank).
