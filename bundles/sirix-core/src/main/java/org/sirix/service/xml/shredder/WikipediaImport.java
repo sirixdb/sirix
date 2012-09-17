@@ -588,7 +588,7 @@ public final class WikipediaImport implements IImport<StartElement> {
     Database.truncateDatabase(new DatabaseConfiguration(tnk));
 
     // Create necessary element nodes.
-    final String NSP_URI = "http://www.mediawiki.org/xml/export-0.5/";
+    final String NSP_URI = "http://www.mediawiki.org/xml/export-0.4/";
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     final StartElement timestamp =
       eventFactory.createStartElement(new QName(NSP_URI, "timestamp", XMLConstants.DEFAULT_NS_PREFIX), null,

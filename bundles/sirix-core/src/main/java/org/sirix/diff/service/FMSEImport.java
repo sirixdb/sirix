@@ -66,9 +66,9 @@ public final class FMSEImport {
   /**
    * Shredder new revision as temporal resource.
    * 
-   * @param paramResNewRev
+   * @param pResNewRev
    *          {@link File} reference for new revision (XML resource)
-   * @param paramNewRev
+   * @param pNewRev
    *          {@link File} reference for shreddered new revision (sirix resource)
    * @throws AbsTTException
    *           if sirix fails to shredder the file
@@ -79,18 +79,18 @@ public final class FMSEImport {
    * @throws NullPointerException
    *           if {@code paramResNewRev} or {@code paramNewRev} is {@code null}
    */
-  private void shredder(@Nonnull final File paramResNewRev, @Nonnull final File paramNewRev)
+  private void shredder(@Nonnull final File pResNewRev, @Nonnull final File pNewRev)
     throws AbsTTException, IOException, XMLStreamException {
-    assert paramResNewRev != null;
-    assert paramNewRev != null;
-    final DatabaseConfiguration conf = new DatabaseConfiguration(paramNewRev);
+    assert pResNewRev != null;
+    assert pNewRev != null;
+    final DatabaseConfiguration conf = new DatabaseConfiguration(pNewRev);
     Database.truncateDatabase(conf);
     Database.createDatabase(conf);
-    final IDatabase db = Database.openDatabase(paramNewRev);
+    final IDatabase db = Database.openDatabase(pNewRev);
     db.createResource(new ResourceConfiguration.Builder("shredded", conf).build());
     final ISession session = db.getSession(new SessionConfiguration.Builder("shredded").build());
     final INodeWriteTrx wtx = session.beginNodeWriteTrx();
-    final XMLEventReader reader = XMLShredder.createFileReader(paramResNewRev);
+    final XMLEventReader reader = XMLShredder.createFileReader(pResNewRev);
     final XMLShredder shredder = new XMLShredder(wtx, reader, EInsert.ASFIRSTCHILD);
     shredder.call();
     wtx.close();
@@ -101,24 +101,23 @@ public final class FMSEImport {
   /**
    * Import the data.
    * 
-   * @param paramResOldRev
+   * @param pResOldRev
    *          {@link File} for old revision (sirix resource)
-   * @param paramResNewRev
+   * @param pResNewRev
    *          {@link File} for new revision (XML resource)
    */
-  private void dataImport(@Nonnull final File paramResOldRev, @Nonnull final File paramResNewRev,
-    @Nonnegative final long pWriteKey, @Nonnegative final long pReadKey) {
+  private void dataImport(@Nonnull final File pResOldRev, @Nonnull final File pResNewRev) {
 
     try {
       final File newRevTarget =
         new File(new StringBuilder("target").append(File.separator).append(
-          checkNotNull(paramResNewRev).getName()).toString());
+          checkNotNull(pResNewRev).getName()).toString());
       if (newRevTarget.exists()) {
         Files.recursiveRemove(newRevTarget.toPath());
       }
-      shredder(checkNotNull(paramResNewRev), newRevTarget);
+      shredder(checkNotNull(pResNewRev), newRevTarget);
 
-      final IDatabase databaseOld = Database.openDatabase(paramResOldRev);
+      final IDatabase databaseOld = Database.openDatabase(pResOldRev);
       final ISession sessionOld =
         databaseOld.getSession(new SessionConfiguration.Builder("shredded").build());
       final INodeWriteTrx wtx = sessionOld.beginNodeWriteTrx();
@@ -163,9 +162,6 @@ public final class FMSEImport {
     final File resNewRev = new File(args[1]);
 
     final FMSEImport fmse = new FMSEImport();
-
-    final long oldKey = args.length < 3 ? 0 : Long.parseLong(args[2]);
-    final long newKey = args.length < 4 ? 0 : Long.parseLong(args[3]);
-    fmse.dataImport(resOldRev, resNewRev, oldKey, newKey);
+    fmse.dataImport(resOldRev, resNewRev);
   }
 }

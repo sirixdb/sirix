@@ -28,262 +28,266 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.utils.IConstants;
 
+import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+
 /**
  * <h1>RevisionRootPage</h1>
  * 
  * <p>
- * Revision root page holds a reference to the name page as well as the static node page tree.
+ * Revision root page holds a reference to the name page as well as the static
+ * node page tree.
  * </p>
  */
 public final class RevisionRootPage extends AbsForwardingPage {
 
-  /** Offset of name page reference. */
-  private static final int NAME_REFERENCE_OFFSET = 0;
+	/** Offset of name page reference. */
+	private static final int NAME_REFERENCE_OFFSET = 0;
 
-  /** Offset of path summary page reference. */
-  private static final int PATH_SUMMARY_REFERENCE_OFFSET = 1;
+	/** Offset of path summary page reference. */
+	private static final int PATH_SUMMARY_REFERENCE_OFFSET = 1;
 
-  /** Offset of value page reference. */
-  private static final int VALUE_REFERENCE_OFFSET = 2;
+	/** Offset of value page reference. */
+	private static final int VALUE_REFERENCE_OFFSET = 2;
 
-  /** Offset of indirect page reference. */
-  private static final int INDIRECT_REFERENCE_OFFSET = 3;
+	/** Offset of indirect page reference. */
+	private static final int INDIRECT_REFERENCE_OFFSET = 3;
 
-  /** Number of nodes of this revision. */
-  private long mRevisionSize;
+	/** Number of nodes of this revision. */
+	private long mRevisionSize;
 
-  /** Last allocated node key. */
-  private long mMaxNodeKey;
+	/** Last allocated node key. */
+	private long mMaxNodeKey;
 
-  /** Last allocated path node key. */
-  private long mMaxPathNodeKey;
+	/** Last allocated path node key. */
+	private long mMaxPathNodeKey;
 
-  /** Last allocated value node key. */
-  private long mMaxValueNodeKey;
+	/** Last allocated value node key. */
+	private long mMaxValueNodeKey;
 
-  /** Timestamp of revision. */
-  private long mRevisionTimestamp;
+	/** Timestamp of revision. */
+	private long mRevisionTimestamp;
 
-  /** {@link PageDelegate} instance. */
-  private final PageDelegate mDelegate;
+	/** {@link PageDelegate} instance. */
+	private final PageDelegate mDelegate;
 
-  /**
-   * Create revision root page.
-   */
-  public RevisionRootPage() {
-    mDelegate = new PageDelegate(4, IConstants.UBP_ROOT_REVISION_NUMBER);
-    mRevisionSize = 0L;
-    getReferences()[NAME_REFERENCE_OFFSET].setPage(new NamePage(
-      IConstants.UBP_ROOT_REVISION_NUMBER));
-    getReferences()[PATH_SUMMARY_REFERENCE_OFFSET].setPage(new PathSummaryPage(
-      IConstants.UBP_ROOT_REVISION_NUMBER));
-    getReferences()[VALUE_REFERENCE_OFFSET].setPage(new ValuePage(
-      IConstants.UBP_ROOT_REVISION_NUMBER));
-    mMaxNodeKey = -1L;
-    mMaxPathNodeKey = -1L;
-    mMaxValueNodeKey = -1L;
-  }
+	/**
+	 * Create revision root page.
+	 */
+	public RevisionRootPage() {
+		mDelegate = new PageDelegate(4, IConstants.UBP_ROOT_REVISION_NUMBER);
+		mRevisionSize = 0L;
+		getReferences()[NAME_REFERENCE_OFFSET].setPage(new NamePage(
+				IConstants.UBP_ROOT_REVISION_NUMBER));
+		getReferences()[PATH_SUMMARY_REFERENCE_OFFSET].setPage(new PathSummaryPage(
+				IConstants.UBP_ROOT_REVISION_NUMBER));
+		getReferences()[VALUE_REFERENCE_OFFSET].setPage(new ValuePage(
+				IConstants.UBP_ROOT_REVISION_NUMBER));
+		mMaxNodeKey = -1L;
+		mMaxPathNodeKey = -1L;
+		mMaxValueNodeKey = -1L;
+	}
 
-  /**
-   * Read revision root page.
-   * 
-   * @param pIn
-   *          input stream
-   */
-  protected RevisionRootPage(@Nonnull final ByteArrayDataInput pIn) {
-    mDelegate = new PageDelegate(4, pIn);
-    mRevisionSize = pIn.readLong();
-    mMaxNodeKey = pIn.readLong();
-    mMaxPathNodeKey = pIn.readLong();
-    mMaxValueNodeKey = pIn.readLong();
-    mRevisionTimestamp = pIn.readLong();
-  }
+	/**
+	 * Read revision root page.
+	 * 
+	 * @param pIn
+	 *          input stream
+	 */
+	protected RevisionRootPage(final @Nonnull ByteArrayDataInput pIn) {
+		mDelegate = new PageDelegate(4, pIn);
+		mRevisionSize = pIn.readLong();
+		mMaxNodeKey = pIn.readLong();
+		mMaxPathNodeKey = pIn.readLong();
+		mMaxValueNodeKey = pIn.readLong();
+		mRevisionTimestamp = pIn.readLong();
+	}
 
-  /**
-   * Clone revision root page.
-   * 
-   * @param pCommittedRevisionRootPage
-   *          page to clone
-   * @param pRevisionToUse
-   *          revision number to use
-   */
-  public RevisionRootPage(
-    @Nonnull final RevisionRootPage pCommittedRevisionRootPage,
-    final long pRevisionToUse) {
-    mDelegate = new PageDelegate(pCommittedRevisionRootPage, pRevisionToUse);
-    mRevisionSize = pCommittedRevisionRootPage.mRevisionSize;
-    mMaxNodeKey = pCommittedRevisionRootPage.mMaxNodeKey;
-    mMaxPathNodeKey = pCommittedRevisionRootPage.mMaxPathNodeKey;
-    mMaxValueNodeKey = pCommittedRevisionRootPage.mMaxValueNodeKey;
-    mRevisionTimestamp = pCommittedRevisionRootPage.mRevisionTimestamp;
-  }
+	/**
+	 * Clone revision root page.
+	 * 
+	 * @param pCommittedRevisionRootPage
+	 *          page to clone
+	 * @param pRevisionToUse
+	 *          revision number to use
+	 */
+	public RevisionRootPage(
+			@Nonnull final RevisionRootPage pCommittedRevisionRootPage,
+			final long pRevisionToUse) {
+		mDelegate = new PageDelegate(pCommittedRevisionRootPage, pRevisionToUse);
+		mRevisionSize = pCommittedRevisionRootPage.mRevisionSize;
+		mMaxNodeKey = pCommittedRevisionRootPage.mMaxNodeKey;
+		mMaxPathNodeKey = pCommittedRevisionRootPage.mMaxPathNodeKey;
+		mMaxValueNodeKey = pCommittedRevisionRootPage.mMaxValueNodeKey;
+		mRevisionTimestamp = pCommittedRevisionRootPage.mRevisionTimestamp;
+	}
 
-  /**
-   * Get path summary page reference.
-   * 
-   * @return path summary page reference
-   */
-  public PageReference getPathSummaryPageReference() {
-    return getReferences()[PATH_SUMMARY_REFERENCE_OFFSET];
-  }
+	/**
+	 * Get path summary page reference.
+	 * 
+	 * @return path summary page reference
+	 */
+	public PageReference getPathSummaryPageReference() {
+		return getReferences()[PATH_SUMMARY_REFERENCE_OFFSET];
+	}
 
-  /**
-   * Get value page reference.
-   * 
-   * @return value page reference
-   */
-  public PageReference getValuePageReference() {
-    return getReferences()[VALUE_REFERENCE_OFFSET];
-  }
+	/**
+	 * Get value page reference.
+	 * 
+	 * @return value page reference
+	 */
+	public PageReference getValuePageReference() {
+		return getReferences()[VALUE_REFERENCE_OFFSET];
+	}
 
-  /**
-   * Get name page reference.
-   * 
-   * @return name page reference
-   */
-  public PageReference getNamePageReference() {
-    return getReferences()[NAME_REFERENCE_OFFSET];
-  }
+	/**
+	 * Get name page reference.
+	 * 
+	 * @return name page reference
+	 */
+	public PageReference getNamePageReference() {
+		return getReferences()[NAME_REFERENCE_OFFSET];
+	}
 
-  /**
-   * Get indirect page reference.
-   * 
-   * @return Indirect page reference.
-   */
-  public PageReference getIndirectPageReference() {
-    return getReferences()[INDIRECT_REFERENCE_OFFSET];
-  }
+	/**
+	 * Get indirect page reference.
+	 * 
+	 * @return Indirect page reference.
+	 */
+	public PageReference getIndirectPageReference() {
+		return getReferences()[INDIRECT_REFERENCE_OFFSET];
+	}
 
-  /**
-   * Get size of revision, i.e., the node count visible in this revision.
-   * 
-   * @return Revision size.
-   */
-  public long getRevisionSize() {
-    return mRevisionSize;
-  }
+	/**
+	 * Get size of revision, i.e., the node count visible in this revision.
+	 * 
+	 * @return Revision size.
+	 */
+	public long getRevisionSize() {
+		return mRevisionSize;
+	}
 
-  /**
-   * Get timestamp of revision.
-   * 
-   * @return Revision timestamp.
-   */
-  public long getRevisionTimestamp() {
-    return mRevisionTimestamp;
-  }
+	/**
+	 * Get timestamp of revision.
+	 * 
+	 * @return Revision timestamp.
+	 */
+	public long getRevisionTimestamp() {
+		return mRevisionTimestamp;
+	}
 
-  /**
-   * Get last allocated node key.
-   * 
-   * @return Last allocated node key
-   */
-  public long getMaxNodeKey() {
-    return mMaxNodeKey;
-  }
+	/**
+	 * Get last allocated node key.
+	 * 
+	 * @return Last allocated node key
+	 */
+	public long getMaxNodeKey() {
+		return mMaxNodeKey;
+	}
 
-  /**
-   * Get last allocated path node key.
-   * 
-   * @return last allocated path node key
-   */
-  public long getMaxPathNodeKey() {
-    return mMaxPathNodeKey;
-  }
+	/**
+	 * Get last allocated path node key.
+	 * 
+	 * @return last allocated path node key
+	 */
+	public long getMaxPathNodeKey() {
+		return mMaxPathNodeKey;
+	}
 
-  /**
-   * Get last allocated value node key.
-   * 
-   * @return last allocated value node key
-   */
-  public long getMaxValueNodeKey() {
-    return mMaxValueNodeKey;
-  }
+	/**
+	 * Get last allocated value node key.
+	 * 
+	 * @return last allocated value node key
+	 */
+	public long getMaxValueNodeKey() {
+		return mMaxValueNodeKey;
+	}
 
-  /**
-   * Increment number of nodes by one while allocating another key.
-   */
-  public void incrementMaxNodeKey() {
-    mMaxNodeKey += 1;
-  }
+	/**
+	 * Increment number of nodes by one while allocating another key.
+	 */
+	public void incrementMaxNodeKey() {
+		mMaxNodeKey += 1;
+	}
 
-  /**
-   * Increment number of path nodes by one while allocating another key.
-   */
-  public void incrementMaxPathNodeKey() {
-    mMaxPathNodeKey += 1;
-  }
+	/**
+	 * Increment number of path nodes by one while allocating another key.
+	 */
+	public void incrementMaxPathNodeKey() {
+		mMaxPathNodeKey += 1;
+	}
 
-  /**
-   * Increment number of value nodes by one while allocating another key.
-   */
-  public void incrementMaxValueNodeKey() {
-    mMaxValueNodeKey += 1;
-  }
+	/**
+	 * Increment number of value nodes by one while allocating another key.
+	 */
+	public void incrementMaxValueNodeKey() {
+		mMaxValueNodeKey += 1;
+	}
 
-  /**
-   * Set the maximum node key in the revision.
-   * 
-   * @param pMaxNodeKey
-   *          new maximum node key
-   */
-  public void setMaxNodeKey(final long pMaxNodeKey) {
-    mMaxNodeKey = pMaxNodeKey;
-  }
+	/**
+	 * Set the maximum node key in the revision.
+	 * 
+	 * @param pMaxNodeKey
+	 *          new maximum node key
+	 */
+	public void setMaxNodeKey(final @Nonnegative long pMaxNodeKey) {
+		mMaxNodeKey = pMaxNodeKey;
+	}
 
-  /**
-   * Set the maximum path node key in the revision.
-   * 
-   * @param pMaxNodeKey
-   *          new maximum node key
-   */
-  public void setMaxPathNodeKey(final long pMaxNodeKey) {
-    mMaxPathNodeKey = pMaxNodeKey;
-  }
-  
-  /**
-   * Set the maximum value node key in the revision.
-   * 
-   * @param pMaxNodeKey
-   *          new maximum node key
-   */
-  public void setMaxValueNodeKey(final long pMaxNodeKey) {
-    mMaxValueNodeKey = pMaxNodeKey;
-  }
+	/**
+	 * Set the maximum path node key in the revision.
+	 * 
+	 * @param pMaxNodeKey
+	 *          new maximum node key
+	 */
+	public void setMaxPathNodeKey(final @Nonnegative long pMaxNodeKey) {
+		mMaxPathNodeKey = pMaxNodeKey;
+	}
 
-  @Override
-  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
-    mRevisionTimestamp = System.currentTimeMillis();
-    mDelegate.serialize(checkNotNull(pOut));
-    pOut.writeLong(mRevisionSize);
-    pOut.writeLong(mMaxNodeKey);
-    pOut.writeLong(mMaxPathNodeKey);
-    pOut.writeLong(mMaxValueNodeKey);
-    pOut.writeLong(mRevisionTimestamp);
-  }
+	/**
+	 * Set the maximum value node key in the revision.
+	 * 
+	 * @param pMaxNodeKey
+	 *          new maximum node key
+	 */
+	public void setMaxValueNodeKey(final @Nonnegative long pMaxNodeKey) {
+		mMaxValueNodeKey = pMaxNodeKey;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("revisionSize", mRevisionSize).add(
-      "revisionTimestamp", mRevisionTimestamp).add("maxNodeKey", mMaxNodeKey)
-      .add("delegate", mDelegate).add("namePage",
-        getReferences()[NAME_REFERENCE_OFFSET]).add("pathSummaryPage",
-        getReferences()[PATH_SUMMARY_REFERENCE_OFFSET]).add("valuePage",
-        getReferences()[VALUE_REFERENCE_OFFSET]).add("indirectPage",
-        getReferences()[INDIRECT_REFERENCE_OFFSET]).toString();
-  }
+	@Override
+	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
+		mRevisionTimestamp = System.currentTimeMillis();
+		mDelegate.serialize(checkNotNull(pOut));
+		pOut.writeLong(mRevisionSize);
+		pOut.writeLong(mMaxNodeKey);
+		pOut.writeLong(mMaxPathNodeKey);
+		pOut.writeLong(mMaxValueNodeKey);
+		pOut.writeLong(mRevisionTimestamp);
+	}
 
-  @Override
-  protected IPage delegate() {
-    return mDelegate;
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("revisionSize", mRevisionSize)
+				.add("revisionTimestamp", mRevisionTimestamp)
+				.add("maxNodeKey", mMaxNodeKey).add("delegate", mDelegate)
+				.add("namePage", getReferences()[NAME_REFERENCE_OFFSET])
+				.add("pathSummaryPage", getReferences()[PATH_SUMMARY_REFERENCE_OFFSET])
+				.add("valuePage", getReferences()[VALUE_REFERENCE_OFFSET])
+				.add("indirectPage", getReferences()[INDIRECT_REFERENCE_OFFSET])
+				.toString();
+	}
+
+	@Override
+	protected IPage delegate() {
+		return mDelegate;
+	}
 }

@@ -37,7 +37,7 @@ public class IPageTest {
    *          different pages
    */
   @Test(dataProvider = "instantiatePages")
-  public void testByteRepresentation(Class<IPage> pClass, IPage[] pHandlers) {
+  public void testByteRepresentation(final Class<IPage> pClass, final IPage[] pHandlers) {
     for (final IPage handler : pHandlers) {
       ByteArrayDataOutput output = ByteStreams.newDataOutput();
       handler.serialize(output);

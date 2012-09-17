@@ -10,49 +10,85 @@ import javax.annotation.Nullable;
 
 import org.sirix.node.interfaces.INodeBase;
 
+/**
+ * TextValue which saves the value of a text node.
+ * 
+ * @author Johannes Lichtenberger
+ * 
+ */
 public class TextValue implements Comparable<TextValue>, INodeBase {
-  private final byte[] mValue;
-  private final long mNodeKey;
+	/** Value in bytes. */
+	private final byte[] mValue;
 
-  public TextValue(final @Nonnull byte[] pValue,
-    final @Nonnegative long pNodeKey) {
-    mValue = checkNotNull(pValue);
-    checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
-    mNodeKey = pNodeKey;
-  }
+	/** Unique node-key. */
+	private final long mNodeKey;
 
-  public byte[] getValue() {
-    return mValue;
-  }
+	/** Path node key this text value belongs to (that is the parent path). */
+	private long mPathNodeKey;
 
-  @SuppressWarnings("null")
-  @Override
-  public int compareTo(final @Nullable TextValue pOther) {
-    return mValue.toString().compareTo(pOther.mValue.toString());
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pValue
+	 *          the String value in bytes
+	 * @param pNodeKey
+	 *          the unique node-key
+	 * @param pNodeKey
+	 *          the path node-key
+	 */
+	public TextValue(final @Nonnull byte[] pValue,
+			final @Nonnegative long pNodeKey, final @Nonnegative long pPathNodeKey) {
+		mValue = checkNotNull(pValue);
+		checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
+		mNodeKey = pNodeKey;
+		mPathNodeKey = pPathNodeKey;
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object pObj) {
-    if (pObj instanceof TextValue) {
-      final TextValue otherValue = (TextValue)pObj;
-      return otherValue.mValue.equals(mValue);
-    }
-    return false;
-  }
+	/**
+	 * Get the value.
+	 * 
+	 * @return the value
+	 */
+	public byte[] getValue() {
+		return mValue;
+	}
 
-  @Override
-  public long getNodeKey() {
-    return mNodeKey;
-  }
+	@Override
+	public int compareTo(final @Nullable TextValue pOther) {
+		return mValue.toString().compareTo(pOther.mValue.toString());
+	}
 
-  @Override
-  public EKind getKind() {
-    return EKind.TEXT_VALUE;
-  }
+	@Override
+	public boolean equals(final @Nullable Object pObj) {
+		if (pObj instanceof TextValue) {
+			final TextValue otherValue = (TextValue) pObj;
+			return otherValue.mValue.equals(mValue);
+		}
+		return false;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("nodeKey", mNodeKey).add("value",
-      mValue.toString()).toString();
-  }
+	@Override
+	public long getNodeKey() {
+		return mNodeKey;
+	}
+
+	/**
+	 * Get path node key.
+	 * 
+	 * @return path node key
+	 */
+	public long getPathNodeKey() {
+		return mPathNodeKey;
+	}
+
+	@Override
+	public EKind getKind() {
+		return EKind.TEXT_VALUE;
+	}
+
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("nodeKey", mNodeKey)
+				.add("value", mValue.toString()).toString();
+	}
 }

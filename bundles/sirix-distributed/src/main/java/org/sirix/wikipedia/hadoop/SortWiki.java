@@ -100,7 +100,7 @@ public final class SortWiki extends Configured implements Tool {
     config.set("page", "page");
     config.set("record_element_name", "revision");
     config.set("namespace_prefix", "");
-    config.set("namespace_URI", "http://www.mediawiki.org/xml/export-0.5/");
+    config.set("namespace_URI", "http://www.mediawiki.org/xml/export-0.4/");
     config.set("root", "mediawiki");
 
     // Debug settings.

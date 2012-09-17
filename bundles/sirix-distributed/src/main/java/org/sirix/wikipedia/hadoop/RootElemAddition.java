@@ -11,7 +11,7 @@ import javax.xml.stream.XMLStreamException;
 public class RootElemAddition {
   public static void main(final String[] pArgs) throws XMLStreamException, FactoryConfigurationError,
     IOException {
-    final FileWriter writer = new FileWriter(new File("target", "wikipedia-50-articles-sorted.xml"));
+    final FileWriter writer = new FileWriter(new File("/home/johannes/Desktop", "wiki-articles-sorted.xml"));
     writer.write("<mediawiki xmlns='http://www.mediawiki.org/xml/export-0.5/'>");
     final FileReader reader = new FileReader(pArgs[0]);
     for (int c, i = 0; (c = reader.read()) != -1; i++) {

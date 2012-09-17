@@ -27,6 +27,10 @@
 
 package org.sirix.utils;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import javax.annotation.Nonnull;
+
 import org.slf4j.Logger;
 
 /**
@@ -37,85 +41,85 @@ import org.slf4j.Logger;
  */
 public final class LogWrapper {
 
-  /** Logger. */
-  private final Logger mLogger;
+	/** Logger. */
+	private final Logger mLogger;
 
-  /**
-   * Constructor.
-   * 
-   * @param paramLogger
-   *          logger.
-   */
-  public LogWrapper(final Logger paramLogger) {
-    mLogger = paramLogger;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pLogger
+	 *          logger
+	 */
+	public LogWrapper(final @Nonnull Logger pLogger) {
+		mLogger = checkNotNull(pLogger);
+	}
 
-  /**
-   * Log error information.
-   * 
-   * @param paramMessage
-   *          Message to log.
-   * @param paramObjects
-   *          Objects for message
-   */
-  public void error(final String paramMessage, final Object... paramObjects) {
-    if (mLogger.isErrorEnabled()) {
-      mLogger.error(paramMessage, paramObjects);
-    }
-  }
+	/**
+	 * Log error information.
+	 * 
+	 * @param pMessage
+	 *          Message to log.
+	 * @param pObjects
+	 *          Objects for message
+	 */
+	public void error(final String pMessage, final Object... pObjects) {
+		if (mLogger.isErrorEnabled()) {
+			mLogger.error(pMessage, pObjects);
+		}
+	}
 
-  /**
-   * Log error information.
-   * 
-   * @param paramExc
-   *          Exception to log.
-   */
-  public void error(final Exception paramExc) {
-    if (mLogger.isErrorEnabled()) {
-      mLogger.error(paramExc.getMessage(), paramExc);
-    }
-  }
+	/**
+	 * Log error information.
+	 * 
+	 * @param pExc
+	 *          Exception to log.
+	 */
+	public void error(final Exception pExc) {
+		if (mLogger.isErrorEnabled()) {
+			mLogger.error(pExc.getMessage(), pExc);
+		}
+	}
 
-  /**
-   * Log debugging information.
-   * 
-   * @param paramMessage
-   *          Message to log.
-   * @param paramObjects
-   *          objects for data
-   */
-  public void debug(final String paramMessage, final Object... paramObjects) {
-    if (mLogger.isDebugEnabled()) {
-      mLogger.debug(paramMessage, paramObjects);
-    }
-  }
+	/**
+	 * Log debugging information.
+	 * 
+	 * @param pMessage
+	 *          Message to log.
+	 * @param pObjects
+	 *          objects for data
+	 */
+	public void debug(final String pMessage, final Object... pObjects) {
+		if (mLogger.isDebugEnabled()) {
+			mLogger.debug(pMessage, pObjects);
+		}
+	}
 
-  /**
-   * Log information.
-   * 
-   * @param paramMessage
-   *          Message to log.
-   * @param paramObjects
-   *          objects for data
-   */
-  public void info(final String paramMessage, final Object... paramObjects) {
-    if (mLogger.isInfoEnabled()) {
-      mLogger.info(paramMessage, paramObjects);
-    }
-  }
+	/**
+	 * Log information.
+	 * 
+	 * @param pMessage
+	 *          Message to log.
+	 * @param pObjects
+	 *          objects for data
+	 */
+	public void info(final String pMessage, final Object... pObjects) {
+		if (mLogger.isInfoEnabled()) {
+			mLogger.info(pMessage, pObjects);
+		}
+	}
 
-  /**
-   * Warn information.
-   * 
-   * @param paramMessage
-   *          Message to log.
-   * @param paramObjects
-   *          objects for data
-   */
-  public void warn(final String paramMessage, final Object... paramObjects) {
-    if (mLogger.isWarnEnabled()) {
-      mLogger.warn(paramMessage, paramObjects);
-    }
-  }
+	/**
+	 * Warn information.
+	 * 
+	 * @param pMessage
+	 *          Message to log.
+	 * @param pObjects
+	 *          objects for data
+	 */
+	public void warn(final String pMessage, final Object... pObjects) {
+		if (mLogger.isWarnEnabled()) {
+			mLogger.warn(pMessage, pObjects);
+		}
+	}
 
 }

@@ -120,19 +120,19 @@ public final class ExtractArticles extends XMLFilterImpl {
   /**
    * Main method.
    * 
-   * @param paramArgs
+   * @param pArgs
    *          First param specifies the Wikipedia dump to parse.
    */
-  public static void main(final String[] paramArgs) {
-    if (paramArgs.length != 1) {
-      new IllegalStateException("First param must be the wikipedia dump!");
+  public static void main(final String[] pArgs) {
+    if (pArgs.length != 1) {
+      new IllegalStateException("First parameter must be the wikipedia dump!");
     }
 
     start = System.nanoTime();
 
     System.out.print("Start extracting articles... ");
 
-    final String wikiDump = new File(paramArgs[0]).getAbsolutePath();
+    final String wikiDump = new File(pArgs[0]).getAbsolutePath();
     final XMLReader parser = new ExtractArticles(new SAXParser());
 
     if (parser != null) {
