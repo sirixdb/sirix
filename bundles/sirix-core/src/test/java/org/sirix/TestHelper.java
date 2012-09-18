@@ -54,7 +54,7 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.DocumentRootNode;
-import org.sirix.node.EKind;
+import org.sirix.node.EKind.DumbNode;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.TextNode;
@@ -329,40 +329,4 @@ public final class TestHelper {
 	public static final INodeBase generateOne() {
 		return new DumbNode(TestHelper.random.nextInt(Integer.MAX_VALUE));
 	}
-
-	/**
-	 * Simple DumbNode just for testing the {@link NodePage}s.
-	 * 
-	 * @author Sebastian Graf, University of Konstanz
-	 * @author Johannes Lichtenberger
-	 * 
-	 */
-	public static class DumbNode implements INodeBase {
-
-		/** Node key. */
-		private final long mNodeKey;
-
-		/**
-		 * Simple constructor.
-		 * 
-		 * @param pNodeKey
-		 *          to be set
-		 * @param pHash
-		 *          to be set
-		 */
-		public DumbNode(final @Nonnull long pNodeKey) {
-			mNodeKey = pNodeKey;
-		}
-
-		@Override
-		public long getNodeKey() {
-			return mNodeKey;
-		}
-
-		@Override
-		public EKind getKind() {
-			return EKind.NULL;
-		}
-	}
-
 }

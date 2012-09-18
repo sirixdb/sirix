@@ -38,63 +38,72 @@ import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
 /**
- * Helper class for testing the io interfaces
+ * Helper class for testing the I/O interfaces.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
 public final class IOTestHelper {
 
-  private IOTestHelper() {
+	/** Private constructor. */
+	private IOTestHelper() {
   }
 
-  /**
-   * Static method to get {@link ResourceConfiguration}
-   * 
-   * @param type
-   *          for the the {@link ResourceConfiguration} should be generated
-   * @return a suitable {@link ResourceConfiguration}
-   * @throws TTUsageException
-   */
-  public static ResourceConfiguration registerIO(final EStorage type) throws AbsTTException {
-    final ResourceConfiguration.Builder resourceConfig =
-      new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig());
-    resourceConfig.setType(type);
-    return resourceConfig.build();
-  }
+	/**
+	 * Static method to get {@link ResourceConfiguration}
+	 * 
+	 * @param type
+	 *          for the the {@link ResourceConfiguration} should be generated
+	 * @return a suitable {@link ResourceConfiguration}
+	 * @throws TTUsageException
+	 */
+	public static ResourceConfiguration registerIO(final EStorage type)
+			throws AbsTTException {
+		final ResourceConfiguration.Builder resourceConfig = new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, PATHS.PATH1.getConfig());
+		resourceConfig.setType(type);
+		return resourceConfig.build();
+	}
 
-  /**
-   * Tear down for all tests related to the io layer.
-   */
-  public static void clean() throws AbsTTException {
-    TestHelper.deleteEverything();
+	/**
+	 * Tear down for all tests related to the io layer.
+	 */
+	public static void clean() throws AbsTTException {
+		TestHelper.deleteEverything();
+	}
 
-  }
+	/**
+	 * Test reading/writing the first reference.
+	 * 
+	 * @param resourceConf
+	 *          {@link ResourceConfiguration} reference
+	 * @throws AbsTTException
+	 *           if something went wrong
+	 */
+	public static void testReadWriteFirstRef(
+			final ResourceConfiguration resourceConf) throws AbsTTException {
+		final IStorage fac = EStorage.getStorage(resourceConf);
+		final PageReference pageRef1 = new PageReference();
+		final UberPage page1 = new UberPage();
+		pageRef1.setPage(page1);
 
-  public static void testReadWriteFirstRef(final ResourceConfiguration resourceConf) throws AbsTTException {
-    final IStorage fac = EStorage.getStorage(resourceConf);
-    final PageReference pageRef1 = new PageReference();
-    final UberPage page1 = new UberPage();
-    pageRef1.setPage(page1);
+		// same instance check
+		final IWriter writer = fac.getWriter();
+		writer.writeFirstReference(pageRef1);
+		final PageReference pageRef2 = writer.readFirstReference();
+		assertEquals(pageRef1.getNodePageKey(), pageRef2.getNodePageKey());
+		assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
+				((UberPage) pageRef2.getPage()).getRevisionCount());
+		writer.close();
 
-    // same instance check
-    final IWriter writer = fac.getWriter();
-    writer.writeFirstReference(pageRef1);
-    final PageReference pageRef2 = writer.readFirstReference();
-    assertEquals(pageRef1.getNodePageKey(), pageRef2.getNodePageKey());
-    assertEquals(((UberPage)pageRef1.getPage()).getRevisionCount(), ((UberPage)pageRef2.getPage())
-      .getRevisionCount());
-    writer.close();
-
-    // new instance check
-    final IReader reader = fac.getReader();
-    final PageReference pageRef3 = reader.readFirstReference();
-    assertEquals(pageRef1.getNodePageKey(), pageRef3.getNodePageKey());
-    assertEquals(((UberPage)pageRef1.getPage()).getRevisionCount(), ((UberPage)pageRef3.getPage())
-      .getRevisionCount());
-    reader.close();
-    fac.close();
-
-  }
+		// new instance check
+		final IReader reader = fac.getReader();
+		final PageReference pageRef3 = reader.readFirstReference();
+		assertEquals(pageRef1.getNodePageKey(), pageRef3.getNodePageKey());
+		assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
+				((UberPage) pageRef3.getPage()).getRevisionCount());
+		reader.close();
+		fac.close();
+	}
 
 }

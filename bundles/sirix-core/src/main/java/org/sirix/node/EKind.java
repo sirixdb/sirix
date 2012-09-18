@@ -26,11 +26,6 @@
  */
 package org.sirix.node;
 
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,7 +35,6 @@ import java.util.Set;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.TestHelper.DumbNode;
 import org.sirix.index.path.PathNode;
 import org.sirix.index.value.AVLNode;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -49,8 +43,14 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.interfaces.IKind;
 import org.sirix.node.interfaces.INodeBase;
+import org.sirix.page.NodePage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.EFixed;
+
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Enumeration for different nodes. All nodes are determined by a unique id.
@@ -700,5 +700,40 @@ public enum EKind implements IKind {
 			value |= (singleByte & 0x7FL) << shift;
 		}
 		return value;
+	}
+	
+	/**
+	 * Simple DumbNode just for testing the {@link NodePage}s.
+	 * 
+	 * @author Sebastian Graf, University of Konstanz
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	public static class DumbNode implements INodeBase {
+
+		/** Node key. */
+		private final long mNodeKey;
+
+		/**
+		 * Simple constructor.
+		 * 
+		 * @param pNodeKey
+		 *          to be set
+		 * @param pHash
+		 *          to be set
+		 */
+		public DumbNode(final @Nonnull long pNodeKey) {
+			mNodeKey = pNodeKey;
+		}
+
+		@Override
+		public long getNodeKey() {
+			return mNodeKey;
+		}
+
+		@Override
+		public EKind getKind() {
+			return EKind.NULL;
+		}
 	}
 }
