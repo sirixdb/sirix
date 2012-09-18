@@ -40,6 +40,7 @@ import java.util.Set;
 
 import javax.annotation.Nonnull;
 
+import org.sirix.TestHelper.DumbNode;
 import org.sirix.index.path.PathNode;
 import org.sirix.index.value.AVLNode;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -59,20 +60,6 @@ import org.sirix.settings.EFixed;
  * 
  */
 public enum EKind implements IKind {
-
-	/** Unknown kind. */
-	UNKOWN((byte) 0, null) {
-		@Override
-		public INodeBase deserialize(final @Nonnull ByteArrayDataInput pSource) {
-			throw new UnsupportedOperationException();
-		}
-
-		@Override
-		public void serialize(@Nonnull final ByteArrayDataOutput pSink,
-				@Nonnull final INodeBase pToSerialize) {
-			throw new UnsupportedOperationException();
-		}
-	},
 
 	/** Node kind is element. */
 	ELEMENT((byte) 1, ElementNode.class) {
@@ -232,7 +219,6 @@ public enum EKind implements IKind {
 				@Nonnull final INodeBase pToSerialize) {
 			throw new UnsupportedOperationException();
 		}
-
 	},
 
 	/** Node kind is comment. */
@@ -315,6 +301,21 @@ public enum EKind implements IKind {
 		public void serialize(@Nonnull final ByteArrayDataOutput pSink,
 				@Nonnull final INodeBase pToSerialize) {
 			throw new UnsupportedOperationException();
+		}
+	},
+
+	/** Dumb node for testing. */
+	DUMB((byte) 20, DumbNode.class) {
+		@Override
+		public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
+			final long nodeKey = getLong(pSource);
+			return new DumbNode(nodeKey);
+		}
+
+		@Override
+		public void serialize(@Nonnull final ByteArrayDataOutput pSink,
+				@Nonnull final INodeBase pToSerialize) {
+			putLong(pSink, pToSerialize.getNodeKey());
 		}
 	},
 
@@ -462,6 +463,18 @@ public enum EKind implements IKind {
 			for (final long key : nodeKeys) {
 				pSink.writeLong(key);
 			}
+		}
+	},
+	UNKOWN((byte) 21, null) {
+		@Override
+		public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
+			throw new UnsupportedOperationException();
+		}
+
+		@Override
+		public void serialize(@Nonnull final ByteArrayDataOutput pSink,
+				@Nonnull final INodeBase pToSerialize) {
+			throw new UnsupportedOperationException();
 		}
 	};
 

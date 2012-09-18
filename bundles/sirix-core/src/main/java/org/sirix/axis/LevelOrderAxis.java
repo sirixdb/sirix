@@ -35,7 +35,6 @@ import java.util.Deque;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
@@ -78,9 +77,6 @@ public final class LevelOrderAxis extends AbsAxis {
 
     /** Determines if {@code attribute-} and {@code namespace-} nodes should be included or not. */
     private EIncludeNodes mIncludeNodes = EIncludeNodes.STRUCTURAL;
-
-    /** Determines if {@code hasNext()} is called for the first time. */
-    private boolean mFirst;
 
     /** Filter by level. */
     private int mFilterLevel = Integer.MAX_VALUE;

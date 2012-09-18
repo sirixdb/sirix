@@ -84,6 +84,7 @@ public final class FollowingAxis extends AbsAxis {
       case NAMESPACE:
         resetToStartKey();
         return false;
+      default:
       }
     }
 

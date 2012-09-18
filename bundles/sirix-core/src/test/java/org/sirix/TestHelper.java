@@ -28,7 +28,6 @@
 package org.sirix;
 
 import static org.junit.Assert.fail;
-import com.google.common.collect.HashBiMap;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -55,6 +54,7 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.DocumentRootNode;
+import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.TextNode;
@@ -62,9 +62,12 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.NodePage;
 import org.sirix.settings.ECharsForSerializing;
 import org.sirix.utils.DocumentCreater;
+
+import com.google.common.collect.HashBiMap;
 
 /**
  * 
@@ -78,259 +81,288 @@ import org.sirix.utils.DocumentCreater;
  */
 public final class TestHelper {
 
-  /** Common resource name. */
-  public static final String RESOURCE = "shredded";
+	/** Common resource name. */
+	public static final String RESOURCE = "shredded";
 
-  /** Paths where the data is stored to. */
-  public enum PATHS {
+	/** Paths where the data is stored to. */
+	public enum PATHS {
 
-    // PATH1 (TNK)
-      PATH1(new File(new StringBuilder(File.separator).append("tmp").append(
-        File.separator).append("tnk").append(File.separator).append("path1")
-        .toString())),
+		// PATH1 (TNK)
+		PATH1(new File(new StringBuilder(File.separator).append("tmp")
+				.append(File.separator).append("tnk").append(File.separator)
+				.append("path1").toString())),
 
-      // PATH2 (TNK)
-      PATH2(new File(new StringBuilder(File.separator).append("tmp").append(
-        File.separator).append("tnk").append(File.separator).append("path2")
-        .toString())),
+		// PATH2 (TNK)
+		PATH2(new File(new StringBuilder(File.separator).append("tmp")
+				.append(File.separator).append("tnk").append(File.separator)
+				.append("path2").toString())),
 
-      // PATH3 (XML)
-      PATH3(new File(new StringBuilder(File.separator).append("tmp").append(
-        File.separator).append("xml").append(File.separator).append("test.xml")
-        .toString()));
+		// PATH3 (XML)
+		PATH3(new File(new StringBuilder(File.separator).append("tmp")
+				.append(File.separator).append("xml").append(File.separator)
+				.append("test.xml").toString()));
 
-    final File file;
+		final File file;
 
-    final DatabaseConfiguration config;
+		final DatabaseConfiguration config;
 
-    PATHS(final File pFile) {
-      file = pFile;
-      config = new DatabaseConfiguration(pFile);
-    }
+		PATHS(final File pFile) {
+			file = pFile;
+			config = new DatabaseConfiguration(pFile);
+		}
 
-    public File getFile() {
-      return file;
-    }
+		public File getFile() {
+			return file;
+		}
 
-    public DatabaseConfiguration getConfig() {
-      return config;
-    }
+		public DatabaseConfiguration getConfig() {
+			return config;
+		}
 
-  }
+	}
 
-  /** Common random instance for generating common tag names. */
-  public final static Random random = new Random();
+	/** Common random instance for generating common tag names. */
+	public final static Random random = new Random();
 
-  /** File <=> Database instances. */
-  private final static Map<File, IDatabase> INSTANCES =
-    new Hashtable<>();
+	/** File <=> Database instances. */
+	private final static Map<File, IDatabase> INSTANCES = new Hashtable<>();
 
-  @Test
-  public void testDummy() {
-    // Just empty to ensure maven running
-  }
+	@Test
+	public void testDummy() {
+		// Just empty to ensure maven running
+	}
 
-  /**
-   * Getting a database and create one of not existing. This includes the
-   * creation of a resource with the settings in the builder as standard.
-   * 
-   * @param file
-   *          to be created
-   * @return a database-obj
-   */
-  @Ignore
-  public static final IDatabase getDatabase(final File file) {
-    if (INSTANCES.containsKey(file)) {
-      return INSTANCES.get(file);
-    } else {
-      try {
-        final DatabaseConfiguration config = new DatabaseConfiguration(file);
-        if (!file.exists()) {
-          Database.createDatabase(config);
-        }
-        final IDatabase database = Database.openDatabase(file);
-        database.createResource(new ResourceConfiguration.Builder(RESOURCE,
-          config).build());
-        INSTANCES.put(file, database);
-        return database;
-      } catch (final AbsTTException exc) {
-        fail(exc.toString());
-        return null;
-      }
-    }
-  }
+	/**
+	 * Getting a database and create one of not existing. This includes the
+	 * creation of a resource with the settings in the builder as standard.
+	 * 
+	 * @param file
+	 *          to be created
+	 * @return a database-obj
+	 */
+	@Ignore
+	public static final IDatabase getDatabase(final File file) {
+		if (INSTANCES.containsKey(file)) {
+			return INSTANCES.get(file);
+		} else {
+			try {
+				final DatabaseConfiguration config = new DatabaseConfiguration(file);
+				if (!file.exists()) {
+					Database.createDatabase(config);
+				}
+				final IDatabase database = Database.openDatabase(file);
+				database.createResource(new ResourceConfiguration.Builder(RESOURCE,
+						config).build());
+				INSTANCES.put(file, database);
+				return database;
+			} catch (final AbsTTException exc) {
+				fail(exc.toString());
+				return null;
+			}
+		}
+	}
 
-  /**
-   * Deleting all resources as defined in the enum {@link PATHS}.
-   * 
-   * @throws AbsTTException
-   */
-  @Ignore
-  public static final void deleteEverything() throws AbsTTException {
-    closeEverything();
-    Database.truncateDatabase(PATHS.PATH1.config);
-    Database.truncateDatabase(PATHS.PATH2.config);
-  }
+	/**
+	 * Deleting all resources as defined in the enum {@link PATHS}.
+	 * 
+	 * @throws AbsTTException
+	 */
+	@Ignore
+	public static final void deleteEverything() throws AbsTTException {
+		closeEverything();
+		Database.truncateDatabase(PATHS.PATH1.config);
+		Database.truncateDatabase(PATHS.PATH2.config);
+	}
 
-  /**
-   * Closing all resources as defined in the enum {@link PATHS}.
-   * 
-   * @throws AbsTTException
-   */
-  @Ignore
-  public static final void closeEverything() throws AbsTTException {
-    if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
-      final IDatabase database = INSTANCES.remove(PATHS.PATH1.getFile());
-      database.close();
-    }
-    if (INSTANCES.containsKey(PATHS.PATH2.getFile())) {
-      final IDatabase database = INSTANCES.remove(PATHS.PATH2.getFile());
-      database.close();
-    }
-  }
+	/**
+	 * Closing all resources as defined in the enum {@link PATHS}.
+	 * 
+	 * @throws AbsTTException
+	 */
+	@Ignore
+	public static final void closeEverything() throws AbsTTException {
+		if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
+			final IDatabase database = INSTANCES.remove(PATHS.PATH1.getFile());
+			database.close();
+		}
+		if (INSTANCES.containsKey(PATHS.PATH2.getFile())) {
+			final IDatabase database = INSTANCES.remove(PATHS.PATH2.getFile());
+			database.close();
+		}
+	}
 
-  @Ignore
-  public static NodePage getNodePage(final long revision, final int offset,
-    final int length, final long nodePageKey) {
-    final NodePage page = new NodePage(nodePageKey, revision);
-    NodeDelegate nodeDel;
-    NameNodeDelegate nameDel;
-    StructNodeDelegate strucDel;
-    ValNodeDelegate valDel;
-    int pathNodeKey = 1;
-    for (int i = offset; i < length; i++) {
-      switch (random.nextInt(6)) {
-      case 0:
-        nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random
-            .nextInt(10000));
-        nameDel =
-          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(),
-            pathNodeKey++);
-        valDel = new ValNodeDelegate(nodeDel, new byte[] {
-          0, 1, 2, 3, 4
-        }, false);
-        page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
-        break;
-      case 1:
-        page.setNode(new DeletedNode(new NodeDelegate(random.nextInt(10000),
-          random.nextInt(10000), random.nextInt(10000))));
-        break;
-      case 2:
-        nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random
-            .nextInt(10000));
-        nameDel =
-          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(),
-            pathNodeKey++);
-        strucDel =
-          new StructNodeDelegate(nodeDel, random.nextInt(10000), random
-            .nextInt(10000), random.nextInt(10000), random.nextInt(10000),
-            random.nextInt(10000));
-        page.setNode(new ElementNode(nodeDel, strucDel, nameDel,
-          new ArrayList<Long>(), HashBiMap.<Integer, Long> create(),
-          new ArrayList<Long>()));
-        break;
-      case 3:
-        nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random
-            .nextInt(10000));
-        nameDel =
-          new NameNodeDelegate(nodeDel, random.nextInt(), random.nextInt(),
-            pathNodeKey++);
-        page.setNode(new NamespaceNode(nodeDel, nameDel));
-        break;
-      case 4:
-        nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random
-            .nextInt(10000));
-        strucDel =
-          new StructNodeDelegate(nodeDel, random.nextInt(10000), random
-            .nextInt(10000), random.nextInt(10000), random.nextInt(10000),
-            random.nextInt(10000));
-        page.setNode(new DocumentRootNode(nodeDel, strucDel));
-        break;
-      case 5:
-        nodeDel =
-          new NodeDelegate(random.nextInt(10000), random.nextInt(10000), random
-            .nextInt(10000));
-        valDel = new ValNodeDelegate(nodeDel, new byte[] {
-          0, 1
-        }, false);
-        strucDel =
-          new StructNodeDelegate(nodeDel, random.nextInt(10000), random
-            .nextInt(10000), random.nextInt(10000), random.nextInt(10000),
-            random.nextInt(10000));
-        page.setNode(new TextNode(nodeDel, valDel, strucDel));
-        break;
-      }
+	@Ignore
+	public static NodePage getNodePage(final long revision, final int offset,
+			final int length, final long nodePageKey) {
+		final NodePage page = new NodePage(nodePageKey, revision);
+		NodeDelegate nodeDel;
+		NameNodeDelegate nameDel;
+		StructNodeDelegate strucDel;
+		ValNodeDelegate valDel;
+		int pathNodeKey = 1;
+		for (int i = offset; i < length; i++) {
+			switch (random.nextInt(6)) {
+			case 0:
+				nodeDel = new NodeDelegate(random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000));
+				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+						random.nextInt(), pathNodeKey++);
+				valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1, 2, 3, 4 },
+						false);
+				page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
+				break;
+			case 1:
+				page.setNode(new DeletedNode(new NodeDelegate(random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000))));
+				break;
+			case 2:
+				nodeDel = new NodeDelegate(random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000));
+				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+						random.nextInt(), pathNodeKey++);
+				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000));
+				page.setNode(new ElementNode(nodeDel, strucDel, nameDel,
+						new ArrayList<Long>(), HashBiMap.<Integer, Long> create(),
+						new ArrayList<Long>()));
+				break;
+			case 3:
+				nodeDel = new NodeDelegate(random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000));
+				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+						random.nextInt(), pathNodeKey++);
+				page.setNode(new NamespaceNode(nodeDel, nameDel));
+				break;
+			case 4:
+				nodeDel = new NodeDelegate(random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000));
+				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000));
+				page.setNode(new DocumentRootNode(nodeDel, strucDel));
+				break;
+			case 5:
+				nodeDel = new NodeDelegate(random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000));
+				valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1 }, false);
+				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000),
+						random.nextInt(10000), random.nextInt(10000));
+				page.setNode(new TextNode(nodeDel, valDel, strucDel));
+				break;
+			}
 
-    }
-    return page;
-  }
+		}
+		return page;
+	}
 
-  /**
-   * Read a file into a StringBuilder.
-   * 
-   * @param paramFile
-   *          The file to read.
-   * @param paramWhitespaces
-   *          Retrieve file and don't remove any whitespaces.
-   * @return StringBuilder instance, which has the string representation of
-   *         the document.
-   * @throws IOException
-   *           throws an IOException if any I/O operation fails.
-   */
-  @Ignore("Not a test, utility method only")
-  public static StringBuilder readFile(final File paramFile,
-    final boolean paramWhitespaces) throws IOException {
-    final BufferedReader in = new BufferedReader(new FileReader(paramFile));
-    final StringBuilder sBuilder = new StringBuilder();
-    for (String line = in.readLine(); line != null; line = in.readLine()) {
-      if (paramWhitespaces) {
-        sBuilder.append(line + ECharsForSerializing.NEWLINE);
-      } else {
-        sBuilder.append(line.trim());
-      }
-    }
+	/**
+	 * Read a file into a StringBuilder.
+	 * 
+	 * @param paramFile
+	 *          The file to read.
+	 * @param paramWhitespaces
+	 *          Retrieve file and don't remove any whitespaces.
+	 * @return StringBuilder instance, which has the string representation of the
+	 *         document.
+	 * @throws IOException
+	 *           throws an IOException if any I/O operation fails.
+	 */
+	@Ignore("Not a test, utility method only")
+	public static StringBuilder readFile(final File paramFile,
+			final boolean paramWhitespaces) throws IOException {
+		final BufferedReader in = new BufferedReader(new FileReader(paramFile));
+		final StringBuilder sBuilder = new StringBuilder();
+		for (String line = in.readLine(); line != null; line = in.readLine()) {
+			if (paramWhitespaces) {
+				sBuilder.append(line + ECharsForSerializing.NEWLINE);
+			} else {
+				sBuilder.append(line.trim());
+			}
+		}
 
-    // Remove last newline.
-    if (paramWhitespaces) {
-      sBuilder.replace(sBuilder.length() - 1, sBuilder.length(), "");
-    }
-    in.close();
+		// Remove last newline.
+		if (paramWhitespaces) {
+			sBuilder.replace(sBuilder.length() - 1, sBuilder.length(), "");
+		}
+		in.close();
 
-    return sBuilder;
-  }
+		return sBuilder;
+	}
 
-  /**
-   * Creating a test document at {@link PATHS#PATH1}.
-   * 
-   * @throws AbsTTException
-   */
-  public static void createTestDocument() throws AbsTTException {
-    final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(RESOURCE,
-      PATHS.PATH1.config).build());
-    final ISession session =
-      database.getSession(new SessionConfiguration.Builder(RESOURCE).build());
-    final INodeWriteTrx wtx = session.beginNodeWriteTrx();
-    DocumentCreater.create(wtx);
-    wtx.commit();
-    wtx.close();
-    session.close();
-  }
+	/**
+	 * Creating a test document at {@link PATHS#PATH1}.
+	 * 
+	 * @throws AbsTTException
+	 */
+	public static void createTestDocument() throws AbsTTException {
+		final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+		database.createResource(new ResourceConfiguration.Builder(RESOURCE,
+				PATHS.PATH1.config).build());
+		final ISession session = database
+				.getSession(new SessionConfiguration.Builder(RESOURCE).build());
+		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		DocumentCreater.create(wtx);
+		wtx.commit();
+		wtx.close();
+		session.close();
+	}
 
-  /**
-   * Generating random bytes.
-   * 
-   * @return the random bytes
-   */
-  public static final @Nonnull
-  byte[] generateRandomBytes(final int pSize) {
-    final byte[] returnVal = new byte[pSize];
-    random.nextBytes(returnVal);
-    return returnVal;
-  }
+	/**
+	 * Generating random bytes.
+	 * 
+	 * @return the random bytes
+	 */
+	public static final @Nonnull
+	byte[] generateRandomBytes(final int pSize) {
+		final byte[] returnVal = new byte[pSize];
+		random.nextBytes(returnVal);
+		return returnVal;
+	}
+
+	/**
+	 * Generating a single {@link DumbNode} with random values.
+	 * 
+	 * @return a {@link DumbNode} with random values
+	 */
+	public static final INodeBase generateOne() {
+		return new DumbNode(TestHelper.random.nextInt(Integer.MAX_VALUE));
+	}
+
+	/**
+	 * Simple DumbNode just for testing the {@link NodePage}s.
+	 * 
+	 * @author Sebastian Graf, University of Konstanz
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	public static class DumbNode implements INodeBase {
+
+		/** Node key. */
+		private final long mNodeKey;
+
+		/**
+		 * Simple constructor.
+		 * 
+		 * @param pNodeKey
+		 *          to be set
+		 * @param pHash
+		 *          to be set
+		 */
+		public DumbNode(final @Nonnull long pNodeKey) {
+			mNodeKey = pNodeKey;
+		}
+
+		@Override
+		public long getNodeKey() {
+			return mNodeKey;
+		}
+
+		@Override
+		public EKind getKind() {
+			return EKind.NULL;
+		}
+	}
 
 }

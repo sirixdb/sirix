@@ -171,6 +171,8 @@ public final class NamePage implements IPage {
    *          key for given name
    * @param pName
    *          name to create key for
+   * @param pNodeKind
+   * 					kind of node
    */
   public void setName(final int pKey, final @Nonnull String pName,
     final @Nonnull EKind pNodeKind) {
