@@ -45,8 +45,7 @@ public class ElementNodeTest {
 
   @Test
   public void testElementNode() {
-
-    final NodeDelegate del = new NodeDelegate(13, 14, 0);
+    final NodeDelegate del = new NodeDelegate(13, 14, 0, 0);
     final StructNodeDelegate strucDel =
       new StructNodeDelegate(del, 12l, 17l, 16l, 1l, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 18, 19, 1);

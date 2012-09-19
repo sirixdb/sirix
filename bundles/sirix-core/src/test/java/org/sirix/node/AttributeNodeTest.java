@@ -45,7 +45,7 @@ public class AttributeNodeTest {
       (byte)17, (byte)18
     };
 
-    final NodeDelegate del = new NodeDelegate(99, 13, 0);
+    final NodeDelegate del = new NodeDelegate(99, 13, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 14, 15, 1);
     final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 

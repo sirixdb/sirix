@@ -236,14 +236,16 @@ public enum EKind implements IKind {
 	},
 
 	/** Node kind is document root. */
+	// Virtualize document root node?
 	DOCUMENT_ROOT((byte) 9, DocumentRootNode.class) {
 		@Override
 		public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
 			final NodeDelegate nodeDel = new NodeDelegate(
 					EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-					EFixed.NULL_NODE_KEY.getStandardProperty(), pSource.readLong());
+					EFixed.NULL_NODE_KEY.getStandardProperty(), pSource.readLong(),
+					getLong(pSource));
 			final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-					pSource.readLong(), EFixed.NULL_NODE_KEY.getStandardProperty(),
+					getLong(pSource), EFixed.NULL_NODE_KEY.getStandardProperty(),
 					EFixed.NULL_NODE_KEY.getStandardProperty(),
 					pSource.readByte() == ((byte) 0) ? 0 : 1, pSource.readLong());
 			return new DocumentRootNode(nodeDel, structDel);
@@ -254,7 +256,8 @@ public enum EKind implements IKind {
 				@Nonnull final INodeBase pToSerialize) {
 			DocumentRootNode node = (DocumentRootNode) pToSerialize;
 			pSink.writeLong(node.getHash());
-			pSink.writeLong(node.getFirstChildKey());
+			putLong(pSink, node.getRevision());
+			putLong(pSink, node.getFirstChildKey());
 			pSink.writeByte(node.hasFirstChild() ? (byte) 1 : (byte) 0);
 			pSink.writeLong(node.getDescendantCount());
 		}
@@ -278,7 +281,7 @@ public enum EKind implements IKind {
 	DELETE((byte) 5, DeletedNode.class) {
 		@Override
 		public INodeBase deserialize(@Nonnull final ByteArrayDataInput pSource) {
-			final NodeDelegate delegate = new NodeDelegate(getLong(pSource), 0, 0);
+			final NodeDelegate delegate = new NodeDelegate(getLong(pSource), 0, 0, 0);
 			return new DeletedNode(delegate);
 		}
 
@@ -557,7 +560,8 @@ public enum EKind implements IKind {
 		final long nodeKey = getLong(pSource);
 		final long parentKey = nodeKey - getLong(pSource);
 		final long hash = pSource.readLong();
-		return new NodeDelegate(nodeKey, parentKey, hash);
+		final long revision = getLong(pSource);
+		return new NodeDelegate(nodeKey, parentKey, hash, revision);
 	}
 
 	/**
@@ -566,13 +570,14 @@ public enum EKind implements IKind {
 	 * @param pDel
 	 *          to be serialize
 	 * @param pSink
-	 *          to serialize to.
+	 *          to serialize to
 	 */
-	private static final void serializeDelegate(@Nonnull final NodeDelegate pDel,
-			@Nonnull final ByteArrayDataOutput pSink) {
+	private static final void serializeDelegate(final @Nonnull NodeDelegate pDel,
+			final @Nonnull ByteArrayDataOutput pSink) {
 		putLong(pSink, pDel.getNodeKey());
 		putLong(pSink, pDel.getNodeKey() - pDel.getParentKey());
 		pSink.writeLong(pDel.getHash());
+		putLong(pSink, pDel.getRevision());
 	}
 
 	/**
@@ -581,7 +586,7 @@ public enum EKind implements IKind {
 	 * @param pDel
 	 *          to be serialize
 	 * @param pSink
-	 *          to serialize to.
+	 *          to serialize to
 	 */
 	private static final void serializeStrucDelegate(
 			@Nonnull final StructNodeDelegate pDel,
@@ -630,7 +635,7 @@ public enum EKind implements IKind {
 		int nameKey = pSource.readInt();
 		final int uriKey = pSource.readInt();
 		nameKey += uriKey;
-		return new NameNodeDelegate(pNodeDel, nameKey, uriKey, pSource.readLong());
+		return new NameNodeDelegate(pNodeDel, nameKey, uriKey, getLong(pSource));
 	}
 
 	/**
@@ -646,7 +651,7 @@ public enum EKind implements IKind {
 			@Nonnull final ByteArrayDataOutput pSink) {
 		pSink.writeInt(pDel.getNameKey() - pDel.getURIKey());
 		pSink.writeInt(pDel.getURIKey());
-		pSink.writeLong(pDel.getPathNodeKey());
+		putLong(pSink, pDel.getPathNodeKey());
 	}
 
 	/**
@@ -701,7 +706,7 @@ public enum EKind implements IKind {
 		}
 		return value;
 	}
-	
+
 	/**
 	 * Simple DumbNode just for testing the {@link NodePage}s.
 	 * 
@@ -734,6 +739,11 @@ public enum EKind implements IKind {
 		@Override
 		public EKind getKind() {
 			return EKind.NULL;
+		}
+
+		@Override
+		public long getRevision() {
+			return 0;
 		}
 	}
 }

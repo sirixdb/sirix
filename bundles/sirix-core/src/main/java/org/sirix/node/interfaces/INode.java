@@ -32,7 +32,6 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.EKind;
 
 /**
  * <h1>INode</h1>

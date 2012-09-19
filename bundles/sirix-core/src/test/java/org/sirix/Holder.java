@@ -44,82 +44,158 @@ import org.sirix.exception.AbsTTException;
  */
 public class Holder {
 
-  private IDatabase mDatabase;
+	/** {@link IDatabase} implementation. */
+	private IDatabase mDatabase;
 
-  private ISession mSession;
+	/** {@link ISession} implementation. */
+	private ISession mSession;
 
-  private INodeReadTrx mRtx;
+	/** {@link INodeReadTrx} implementation. */
+	private INodeReadTrx mRtx;
 
-  private INodeWriteTrx mWtx;
+	/** {@link INodeWriteTrx} implementation. */
+	private INodeWriteTrx mWtx;
 
-  public static Holder generateSession() throws AbsTTException {
-    final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    database.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
-      .build());
-    final ISession session =
-      database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
-    final Holder holder = new Holder();
-    holder.setDatabase(database);
-    holder.setSession(session);
-    return holder;
-  }
+	/**
+	 * Generate a session.
+	 * 
+	 * @return this holder instance
+	 * @throws AbsTTException
+	 *           if an error occurs
+	 */
+	public static Holder generateSession() throws AbsTTException {
+		final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+		database.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
+		final ISession session = database
+				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
+						.build());
+		final Holder holder = new Holder();
+		holder.setDatabase(database);
+		holder.setSession(session);
+		return holder;
+	}
 
-  public static Holder generateWtx() throws AbsTTException {
-    final Holder holder = generateSession();
-    final INodeWriteTrx wtx = holder.mSession.beginNodeWriteTrx();
-    holder.setWtx(wtx);
-    return holder;
-  }
+	/**
+	 * Generate a {@link INodeWriteTrx}.
+	 * 
+	 * @return this holder instance
+	 * @throws AbsTTException
+	 *           if an error occurs
+	 */
+	public static Holder generateWtx() throws AbsTTException {
+		final Holder holder = generateSession();
+		final INodeWriteTrx wtx = holder.mSession.beginNodeWriteTrx();
+		holder.setWtx(wtx);
+		return holder;
+	}
 
-  public static Holder generateRtx() throws AbsTTException {
-    final Holder holder = generateSession();
-    final INodeReadTrx rtx = holder.mSession.beginNodeReadTrx();
-    holder.setRtx(rtx);
-    return holder;
-  }
+	/**
+	 * Generate a {@link INodeReadTrx}.
+	 * 
+	 * @return this holder instance
+	 * @throws AbsTTException
+	 *           if an error occurs
+	 */
+	public static Holder generateRtx() throws AbsTTException {
+		final Holder holder = generateSession();
+		final INodeReadTrx rtx = holder.mSession.beginNodeReadTrx();
+		holder.setRtx(rtx);
+		return holder;
+	}
 
-  public void close() throws AbsTTException {
-    if (mRtx != null && !mRtx.isClosed()) {
-      mRtx.close();
-    }
-    if (mWtx != null && !mWtx.isClosed()) {
-      mWtx.abort();
-      mWtx.close();
-    }
-    mSession.close();
-    mDatabase.close();
-  }
+	/**
+	 * Close the database, session, read transaction and/or write transaction.
+	 * 
+	 * @throws AbsTTException
+	 *           if an error occurs
+	 */
+	public void close() throws AbsTTException {
+		if (mRtx != null && !mRtx.isClosed()) {
+			mRtx.close();
+		}
+		if (mWtx != null && !mWtx.isClosed()) {
+			mWtx.abort();
+			mWtx.close();
+		}
+		mSession.close();
+		mDatabase.close();
+	}
 
-  public IDatabase getDatabase() {
-    return mDatabase;
-  }
+	/**
+	 * Get the {@link IDatabase} handle.
+	 * 
+	 * @return {@link IDatabase} handle
+	 */
+	public IDatabase getDatabase() {
+		return mDatabase;
+	}
 
-  public ISession getSession() {
-    return mSession;
-  }
+	/**
+	 * Get the {@link ISession} handle.
+	 * 
+	 * @return {@link ISession} handle
+	 */
+	public ISession getSession() {
+		return mSession;
+	}
 
-  public INodeReadTrx getRtx() {
-    return mRtx;
-  }
+	/**
+	 * Get the {@link INodeReadTrx} handle.
+	 * 
+	 * @return {@link INodeReadTrx} handle
+	 */
+	public INodeReadTrx getRtx() {
+		return mRtx;
+	}
 
-  public INodeWriteTrx getWtx() {
-    return mWtx;
-  }
+	/**
+	 * Get the {@link INodeWriteTrx} handle.
+	 * 
+	 * @return {@link INodeWriteTrx} handle
+	 */
+	public INodeWriteTrx getWtx() {
+		return mWtx;
+	}
 
-  private void setWtx(final INodeWriteTrx paramWtx) {
-    this.mWtx = paramWtx;
-  }
+	/**
+	 * Set the working {@link INodeWriteTrx}.
+	 * 
+	 * @param pWtx
+	 *          {@link INodeWriteTrx} instance
+	 */
+	private void setWtx(final INodeWriteTrx pWtx) {
+		this.mWtx = pWtx;
+	}
 
-  private void setRtx(final INodeReadTrx paramRtx) {
-    this.mRtx = paramRtx;
-  }
+	/**
+	 * Set the working {@link INodeReadTrx}.
+	 * 
+	 * @param pRtx
+	 *          {@link INodeReadTrx} instance
+	 */
+	private void setRtx(final INodeReadTrx pRtx) {
+		this.mRtx = pRtx;
+	}
 
-  private void setSession(final ISession paramSession) {
-    this.mSession = paramSession;
-  }
+	/**
+	 * Set the working {@link ISession}.
+	 * 
+	 * @param pRtx
+	 *          {@link INodeReadTrx} instance
+	 */
+	private void setSession(final ISession pSession) {
+		this.mSession = pSession;
+	}
 
-  private void setDatabase(final IDatabase paramDatabase) {
-    this.mDatabase = paramDatabase;
-  }
+	/**
+	 * Set the working {@link IDatabase}.
+	 * 
+	 * @param pRtx
+	 *          {@link IDatabase} instance
+	 */
+	private void setDatabase(final IDatabase pDatabase) {
+		this.mDatabase = pDatabase;
+	}
 
 }

@@ -204,6 +204,11 @@ public final class NullNode implements IStructNode {
   }
   
   @Override
+  public long getRevision() {
+  	return mNode.getRevision();
+  }
+  
+  @Override
   public boolean equals(@Nullable final Object pObj) {
     if (pObj instanceof NullNode) {
       final NullNode other = (NullNode) pObj;

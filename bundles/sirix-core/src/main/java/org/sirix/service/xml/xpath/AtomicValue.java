@@ -282,4 +282,9 @@ public class AtomicValue implements INode, IValNode {
   public boolean isSameItem(@Nullable final INode pOther) {
     return false;
   }
+
+	@Override
+	public long getRevision() {
+		return -1; // Not needed over here.
+	}
 }

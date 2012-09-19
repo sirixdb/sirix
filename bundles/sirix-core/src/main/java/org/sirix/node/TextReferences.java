@@ -90,4 +90,9 @@ public class TextReferences implements INodeBase {
 		}
 		return helper.toString();
 	}
+
+	@Override
+	public long getRevision() {
+		return -1; // Not needed over here
+	}
 }

@@ -204,7 +204,7 @@ public final class TestHelper {
 			switch (random.nextInt(6)) {
 			case 0:
 				nodeDel = new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000));
+						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
 				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
 						random.nextInt(), pathNodeKey++);
 				valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1, 2, 3, 4 },
@@ -213,11 +213,11 @@ public final class TestHelper {
 				break;
 			case 1:
 				page.setNode(new DeletedNode(new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000))));
+						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000))));
 				break;
 			case 2:
 				nodeDel = new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000));
+						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
 				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
 						random.nextInt(), pathNodeKey++);
 				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
@@ -229,14 +229,14 @@ public final class TestHelper {
 				break;
 			case 3:
 				nodeDel = new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000));
+						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
 				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
 						random.nextInt(), pathNodeKey++);
 				page.setNode(new NamespaceNode(nodeDel, nameDel));
 				break;
 			case 4:
 				nodeDel = new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000));
+						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
 				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
 						random.nextInt(10000), random.nextInt(10000),
 						random.nextInt(10000), random.nextInt(10000));
@@ -244,7 +244,7 @@ public final class TestHelper {
 				break;
 			case 5:
 				nodeDel = new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000));
+						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
 				valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1 }, false);
 				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
 						random.nextInt(10000), random.nextInt(10000),

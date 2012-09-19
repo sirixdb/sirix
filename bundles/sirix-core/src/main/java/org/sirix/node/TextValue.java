@@ -91,4 +91,9 @@ public class TextValue implements Comparable<TextValue>, INodeBase {
 		return Objects.toStringHelper(this).add("nodeKey", mNodeKey)
 				.add("value", mValue.toString()).toString();
 	}
+
+	@Override
+	public long getRevision() {
+		return -1; // Not needed over here
+	}
 }

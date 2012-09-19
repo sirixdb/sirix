@@ -109,7 +109,8 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 			// Index is empty.. create root node.
 			mRoot = (AVLNode<K, V>) mPageWriteTrx.createNode(new AVLNode<>(pKey,
 					pValue, new NodeDelegate(root.getMaxValueNodeKey() + 1,
-							EFixed.NULL_NODE_KEY.getStandardProperty(), 0)), EPage.VALUEPAGE);
+							EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0)),
+					EPage.VALUEPAGE);
 			final DocumentRootNode document = (DocumentRootNode) mPageWriteTrx
 					.prepareNodeForModification(
 							EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
@@ -135,7 +136,8 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 			final AVLNode<K, V> child = (AVLNode<K, V>) mPageWriteTrx.createNode(
 					new AVLNode<>(pKey, pValue, new NodeDelegate(root
 							.getMaxValueNodeKey(),
-							EFixed.NULL_NODE_KEY.getStandardProperty(), 0)), EPage.VALUEPAGE);
+							EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0)),
+					EPage.VALUEPAGE);
 			node = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 					node.getNodeKey(), EPage.VALUEPAGE);
 			if (c < 0) {

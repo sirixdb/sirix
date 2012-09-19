@@ -48,8 +48,10 @@ import org.sirix.exception.AbsTTException;
  */
 public class FullDiffTest {
 
+	/** Holder for testing. */
   private Holder mHolder;
 
+  /** Observer. */
   private IDiffObserver mObserver;
 
   @Before

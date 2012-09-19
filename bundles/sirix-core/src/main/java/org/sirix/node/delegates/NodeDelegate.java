@@ -41,10 +41,10 @@ import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
 
 /**
- * Delegate method for all nodes. That means that all nodes stored in Sirix
- * are represented by an instance of the interface {@link INode} namely
- * containing the position in the tree related to a parent-node, the related
- * type and the corresponding hash recursively computed.
+ * Delegate method for all nodes. That means that all nodes stored in Sirix are
+ * represented by an instance of the interface {@link INode} namely containing
+ * the position in the tree related to a parent-node, the related type and the
+ * corresponding hash recursively computed.
  * 
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
@@ -52,140 +52,149 @@ import org.sirix.utils.NamePageHash;
  */
 public class NodeDelegate implements INode {
 
-  /** Untyped type. */
-  private static final int TYPE_KEY = NamePageHash
-    .generateHashForString("xs:untyped");
+	/** Untyped type. */
+	private static final int TYPE_KEY = NamePageHash
+			.generateHashForString("xs:untyped");
 
-  /** Key of the current node. Must be unique for all nodes. */
-  private long mNodeKey;
+	/** Key of the current node. Must be unique for all nodes. */
+	private long mNodeKey;
 
-  /** Key of the parent node. */
-  private long mParentKey;
+	/** Key of the parent node. */
+	private long mParentKey;
 
-  /** Hash of the parent node. */
-  private long mHash;
+	/** Hash of the parent node. */
+	private long mHash;
 
-  /**
-   * TypeKey of the parent node. Can be referenced later on over special
-   * pages.
-   */
-  private int mTypeKey;
+	/**
+	 * TypeKey of the parent node. Can be referenced later on over special pages.
+	 */
+	private int mTypeKey;
+	
+	/** Revision this node was added. */
+	private final long mRevision;
 
-  /**
-   * Constructor.
-   * 
-   * @param pNodeKey
-   *          node key
-   * @param pParentKey
-   *          parent node key
-   * @param pHash
-   *          hash
-   */
-  public NodeDelegate(@Nonnegative final long pNodeKey,
-    @Nonnegative final long pParentKey, final long pHash) {
-    checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
-    checkArgument(pParentKey >= (EFixed.NULL_NODE_KEY.getStandardProperty()));
-    mNodeKey = pNodeKey;
-    mParentKey = pParentKey;
-    mHash = pHash;
-    mTypeKey = TYPE_KEY;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pNodeKey
+	 *          node key
+	 * @param pParentKey
+	 *          parent node key
+	 * @param pHash
+	 *          hash of the node
+	 * @param pRevision
+	 * 					revision this node was added
+	 */
+	public NodeDelegate(final @Nonnegative long pNodeKey,
+			final @Nonnegative long pParentKey, final long pHash,
+			final @Nonnegative long pRevision) {
+		checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
+		checkArgument(pParentKey >= (EFixed.NULL_NODE_KEY.getStandardProperty()));
+		mNodeKey = pNodeKey;
+		mParentKey = pParentKey;
+		mHash = pHash;
+		mRevision = pRevision;
+		mTypeKey = TYPE_KEY;
+	}
 
-  /**
-   * Copy constructor.
-   * 
-   * @param pNodeDel
-   *          old node delegate
-   */
-  public NodeDelegate(@Nonnull final NodeDelegate pNodeDel) {
-    mNodeKey = pNodeDel.mNodeKey;
-    mParentKey = pNodeDel.mParentKey;
-    mHash = pNodeDel.mHash;
-    mTypeKey = NodeDelegate.TYPE_KEY;
-  }
+	/**
+	 * Copy constructor.
+	 * 
+	 * @param pNodeDel
+	 *          old node delegate
+	 */
+	public NodeDelegate(@Nonnull final NodeDelegate pNodeDel) {
+		mNodeKey = pNodeDel.mNodeKey;
+		mParentKey = pNodeDel.mParentKey;
+		mHash = pNodeDel.mHash;
+		mRevision = pNodeDel.mRevision;
+		mTypeKey = NodeDelegate.TYPE_KEY;
+	}
 
-  @Override
-  public EKind getKind() {
-    return EKind.UNKOWN;
-  }
+	@Override
+	public EKind getKind() {
+		return EKind.UNKOWN;
+	}
 
-  @Override
-  public long getNodeKey() {
-    return mNodeKey;
-  }
+	@Override
+	public long getNodeKey() {
+		return mNodeKey;
+	}
 
-  @Override
-  public long getParentKey() {
-    return mParentKey;
-  }
+	@Override
+	public long getParentKey() {
+		return mParentKey;
+	}
 
-  @Override
-  public void setParentKey(final long pParentKey) {
-    checkArgument(pParentKey >= EFixed.NULL_NODE_KEY.getStandardProperty());
-    mParentKey = pParentKey;
-  }
+	@Override
+	public void setParentKey(final long pParentKey) {
+		checkArgument(pParentKey >= EFixed.NULL_NODE_KEY.getStandardProperty());
+		mParentKey = pParentKey;
+	}
 
-  @Override
-  public long getHash() {
-    return mHash;
-  }
+	@Override
+	public long getHash() {
+		return mHash;
+	}
 
-  @Override
-  public void setHash(final long pHash) {
-    mHash = pHash;
-  }
+	@Override
+	public void setHash(final long pHash) {
+		mHash = pHash;
+	}
 
-  @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-    return EVisitResult.CONTINUE;
-  }
+	@Override
+	public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
+		return EVisitResult.CONTINUE;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mNodeKey, mTypeKey, mHash);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mNodeKey, mTypeKey, mHash);
+	}
 
-  @Override
-  public boolean equals(final Object pObj) {
-    if (pObj instanceof NodeDelegate) {
-      final NodeDelegate other = (NodeDelegate)pObj;
-      return Objects.equal(mNodeKey, other.mNodeKey)
-        && Objects.equal(mTypeKey, other.mTypeKey)
-        && Objects.equal(mHash, other.mHash);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final Object pObj) {
+		if (pObj instanceof NodeDelegate) {
+			final NodeDelegate other = (NodeDelegate) pObj;
+			return Objects.equal(mNodeKey, other.mNodeKey)
+					&& Objects.equal(mTypeKey, other.mTypeKey)
+					&& Objects.equal(mHash, other.mHash);
+		}
+		return false;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("node key", mNodeKey).add(
-      "parent key", mParentKey).add("type key", mTypeKey).add("hash", mHash)
-      .toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("node key", mNodeKey)
+				.add("parent key", mParentKey).add("type key", mTypeKey)
+				.add("hash", mHash).toString();
+	}
 
-  @Override
-  public int getTypeKey() {
-    return mTypeKey;
-  }
+	@Override
+	public int getTypeKey() {
+		return mTypeKey;
+	}
 
-  @Override
-  public void setTypeKey(final int pTypeKey) {
-    mTypeKey = pTypeKey;
-  }
+	@Override
+	public void setTypeKey(final int pTypeKey) {
+		mTypeKey = pTypeKey;
+	}
 
-  @Override
-  public boolean hasParent() {
-    return mParentKey != EFixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public boolean hasParent() {
+		return mParentKey != EFixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public boolean isSameItem(@Nullable final INode pOther) {
-    if (pOther == null) {
-      return false;
-    }
-    if (pOther == this) {
-      return true;
-    }
-    return pOther.getNodeKey() == this.getNodeKey();
-  }
+	@Override
+	public boolean isSameItem(@Nullable final INode pOther) {
+		if (pOther == null) {
+			return false;
+		}
+		return pOther.getNodeKey() == this.getNodeKey();
+	}
+
+	@Override
+	public long getRevision() {
+		return mRevision;
+	}
 }

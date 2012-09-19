@@ -39,7 +39,7 @@ public class NamespaceNodeTest {
 
   @Test
   public void testNamespaceNode() {
-    final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0);
+    final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 15, 14, 1);
     // Create empty node.
     final NamespaceNode node1 = new NamespaceNode(nodeDel, nameDel);

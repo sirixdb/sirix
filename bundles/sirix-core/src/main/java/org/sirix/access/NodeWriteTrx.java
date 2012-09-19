@@ -28,11 +28,6 @@
 package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.base.Optional;
-import com.google.common.collect.HashBiMap;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -42,7 +37,6 @@ import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.zip.Deflater;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -77,16 +71,13 @@ import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
 import org.sirix.index.value.AVLTree;
 import org.sirix.node.AttributeNode;
+import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.TextNode;
 import org.sirix.node.TextReferences;
 import org.sirix.node.TextValue;
-import org.sirix.node.delegates.NameNodeDelegate;
-import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
@@ -99,10 +90,13 @@ import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.shredder.EShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.settings.EFixed;
-import org.sirix.utils.Compression;
 import org.sirix.utils.IConstants;
-import org.sirix.utils.NamePageHash;
 import org.sirix.utils.XMLToken;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Optional;
+import com.google.common.hash.HashFunction;
+import com.google.common.hash.Hashing;
 
 /**
  * <h1>NodeWriteTrx</h1>
@@ -183,6 +177,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	/** Indexes structures used during updates. */
 	private final Set<EIndexes> mIndexes;
 
+	/** {@link NodeFactory} to be able to create nodes. */
+	private NodeFactory mNodeFactory;
+
 	/** Determines if a path subtree must be deleted or not. */
 	private enum ERemove {
 		/** Yes, it must be deleted. */
@@ -224,13 +221,22 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		}
 
 		mNodeRtx = new NodeReadTrx(pSession, pTransactionID, pPageWriteTrx);
-		mPathSummary = PathSummary.getInstance(pPageWriteTrx, pSession);
-		mAVLTree = AVLTree.<TextValue, TextReferences> getInstance(pPageWriteTrx);
 
 		// Only auto commit by node modifications if it is more then 0.
 		mMaxNodeCount = pMaxNodeCount;
 		mModificationCount = 0L;
 		mIndexes = mNodeRtx.mSession.mResourceConfig.mIndexes;
+
+		// Indexes.
+		if (mIndexes.contains(EIndexes.PATH)) {
+			mPathSummary = PathSummary.getInstance(pPageWriteTrx, pSession);
+		}
+		if (mIndexes.contains(EIndexes.VALUE)) {
+			mAVLTree = AVLTree.<TextValue, TextReferences> getInstance(pPageWriteTrx);
+		}
+
+		// Node factory.
+		mNodeFactory = new NodeFactory(pPageWriteTrx);
 
 		if (pMaxTime > 0) {
 			mPool.scheduleAtFixedRate(new Runnable() {
@@ -541,8 +547,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		final long leftSibKey = EFixed.NULL_NODE_KEY.getStandardProperty();
 		final long rightSibKey = mPathSummary.getStructuralNode()
 				.getFirstChildKey();
-		final PathNode node = createPathNode(parentKey, leftSibKey, rightSibKey, 0,
-				pQName, pKind, pLevel);
+		final PathNode node = mNodeFactory.createPathNode(parentKey, leftSibKey,
+				rightSibKey, 0, pQName, pKind, pLevel);
 
 		mPathSummary.setCurrentNode(node);
 		adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.PATHSUMMARYPAGE);
@@ -569,8 +575,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			final long pathNodeKey = mIndexes.contains(EIndexes.PATH) ? getPathNodeKey(
 					pQName, EKind.ELEMENT) : 0;
 
-			final ElementNode node = createElementNode(parentKey, leftSibKey,
-					rightSibKey, 0, pQName, pathNodeKey);
+			final ElementNode node = mNodeFactory.createElementNode(parentKey,
+					leftSibKey, rightSibKey, 0, pQName, pathNodeKey);
 
 			mNodeRtx.setCurrentNode(node);
 			adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.NODEPAGE);
@@ -648,8 +654,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			final long parentKey = getNode().getParentKey();
 			final long leftSibKey = ((IStructNode) getNode()).getLeftSiblingKey();
 			final long rightSibKey = getNode().getNodeKey();
-			final ElementNode node = createElementNode(parentKey, leftSibKey,
-					rightSibKey, 0, pQName, pathNodeKey);
+			final ElementNode node = mNodeFactory.createElementNode(parentKey,
+					leftSibKey, rightSibKey, 0, pQName, pathNodeKey);
 
 			mNodeRtx.setCurrentNode(node);
 			adaptForInsert(node, EInsertPos.ASLEFTSIBLING, EPage.NODEPAGE);
@@ -681,8 +687,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			final long parentKey = getNode().getParentKey();
 			final long leftSibKey = getNode().getNodeKey();
 			final long rightSibKey = ((IStructNode) getNode()).getRightSiblingKey();
-			final ElementNode node = createElementNode(parentKey, leftSibKey,
-					rightSibKey, 0, pQName, pathNodeKey);
+			final ElementNode node = mNodeFactory.createElementNode(parentKey,
+					leftSibKey, rightSibKey, 0, pQName, pathNodeKey);
 
 			mNodeRtx.setCurrentNode(node);
 			adaptForInsert(node, EInsertPos.ASRIGHTSIBLING, EPage.NODEPAGE);
@@ -754,8 +760,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 			// Insert new text node if no adjacent text nodes are found.
 			final byte[] value = getBytes(pValue);
-			final TextNode node = createTextNode(parentKey, leftSibKey, rightSibKey,
-					value, mNodeRtx.mSession.mResourceConfig.mCompression);
+			final TextNode node = mNodeFactory.createTextNode(parentKey, leftSibKey,
+					rightSibKey, value, mNodeRtx.mSession.mResourceConfig.mCompression);
 
 			// Adapt local nodes and hashes.
 			mNodeRtx.setCurrentNode(node);
@@ -842,8 +848,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			// Insert new text node if no adjacent text nodes are found.
 			moveTo(rightSibKey);
 			final byte[] value = getBytes(builder.toString());
-			final TextNode node = createTextNode(parentKey, leftSibKey, rightSibKey,
-					value, mNodeRtx.mSession.mResourceConfig.mCompression);
+			final TextNode node = mNodeFactory.createTextNode(parentKey, leftSibKey,
+					rightSibKey, value, mNodeRtx.mSession.mResourceConfig.mCompression);
 
 			// Adapt local nodes and hashes.
 			mNodeRtx.setCurrentNode(node);
@@ -902,8 +908,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			// Insert new text node if no adjacent text nodes are found.
 			moveTo(leftSibKey);
 			final byte[] value = getBytes(builder.toString());
-			final TextNode node = createTextNode(parentKey, leftSibKey, rightSibKey,
-					value, mNodeRtx.mSession.mResourceConfig.mCompression);
+			final TextNode node = mNodeFactory.createTextNode(parentKey, leftSibKey,
+					rightSibKey, value, mNodeRtx.mSession.mResourceConfig.mCompression);
 
 			// Adapt local nodes and hashes.
 			mNodeRtx.setCurrentNode(node);
@@ -975,8 +981,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					pQName, EKind.ATTRIBUTE) : 0;
 			final byte[] value = getBytes(pValue);
 			final long elementKey = getNode().getNodeKey();
-			final AttributeNode node = createAttributeNode(elementKey, pQName, value,
-					pathNodeKey);
+			final AttributeNode node = mNodeFactory.createAttributeNode(elementKey,
+					pQName, value, pathNodeKey);
 
 			final INode parentNode = (INode) getPageTransaction()
 					.prepareNodeForModification(node.getParentKey(), EPage.NODEPAGE);
@@ -1029,8 +1035,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					pQName.getPrefix(), EKind.NAMESPACE);
 			final long elementKey = getNode().getNodeKey();
 
-			final NamespaceNode node = createNamespaceNode(elementKey, uriKey,
-					prefixKey, pathNodeKey);
+			final NamespaceNode node = mNodeFactory.createNamespaceNode(elementKey,
+					uriKey, prefixKey, pathNodeKey);
 
 			final INode parentNode = (INode) getPageTransaction()
 					.prepareNodeForModification(node.getParentKey(), EPage.NODEPAGE);
@@ -1724,6 +1730,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		// Reset internal transaction state to new uber page.
 		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
 				.createPageWriteTransaction(trxID, pRevision, revNumber - 1));
+		mNodeFactory = new NodeFactory(
+				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
 		// New path summary.
 		mPathSummary = null;
@@ -1739,18 +1747,17 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	public void commit() throws AbsTTException {
 		mNodeRtx.assertNotClosed();
 
-		// // Assert that the DocumentNode has no more than one child node (the root
+		// Assert that the DocumentNode has no more than one child node (the root
 		// node).
-		// final long nodeKey = mNodeReadRtx.getNode().getNodeKey();
-		// moveToDocumentRoot();
-		// final DocumentRootNode document =
-		// (DocumentRootNode)mNodeReadRtx.getNode();
-		// if (document.getChildCount() > 1) {
-		// moveTo(nodeKey);
-		// throw new IllegalStateException(
-		// "DocumentRootNode may not have more than one child node!");
-		// }
-		// moveTo(nodeKey);
+		final long nodeKey = mNodeRtx.getNode().getNodeKey();
+		moveToDocumentRoot();
+		final DocumentRootNode document = (DocumentRootNode) mNodeRtx.getNode();
+		if (document.getChildCount() > 1) {
+			moveTo(nodeKey);
+			throw new IllegalStateException(
+					"DocumentRootNode may not have more than one child node!");
+		}
+		moveTo(nodeKey);
 
 		// Execute pre-commit hooks.
 		for (final IPreCommitHook hook : mPreCommitHooks) {
@@ -1776,6 +1783,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		// Reset page transaction to new uber page.
 		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
 				.createPageWriteTransaction(trxID, revNumber, revNumber));
+		mNodeFactory = new NodeFactory(
+				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
 		// Get a new path summary instance.
 		mPathSummary = PathSummary.getInstance(mNodeRtx.getPageTransaction(),
@@ -2081,18 +2090,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		// Remove non structural nodes of old node.
 		if (pOldNode.getKind() == EKind.ELEMENT) {
 			removeNonStructural((ElementNode) pOldNode);
-			// // Removing attributes.
-			// for (int i = 0; i < ((ElementNode)pOldNode).getAttributeCount(); i++) {
-			// moveTo(((ElementNode)pOldNode).getAttributeKey(i));
-			// removeName();
-			// getPageTransaction().removeNode(mNodeReadRtx.getNode(), pPage);
-			// }
-			// // Removing namespaces.
-			// for (int i = 0; i < ((ElementNode)pOldNode).getNamespaceCount(); i++) {
-			// moveTo(((ElementNode)pOldNode).getNamespaceKey(i));
-			// removeName();
-			// getPageTransaction().removeNode(mNodeReadRtx.getNode(), pPage);
-			// }
 		}
 
 		// Remove old node.
@@ -2102,195 +2099,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	// ////////////////////////////////////////////////////////////
 	// end of remove operation
-	// ////////////////////////////////////////////////////////////
-
-	// ////////////////////////////////////////////////////////////
-	// start of node creations
-	// ////////////////////////////////////////////////////////////
-
-	/**
-	 * Create a {@link PathNode}.
-	 * 
-	 * @param pParentKey
-	 *          parent node key
-	 * @param pLeftSibKey
-	 *          left sibling key
-	 * @param pRightSibKey
-	 *          right sibling key
-	 * @param pHash
-	 *          hash value associated with the node
-	 * @param pName
-	 *          {@link QName} of the node
-	 * @param pPCR
-	 *          path class record of node
-	 * @return the created node
-	 * @throws TTIOException
-	 *           if an I/O error occurs
-	 */
-	PathNode createPathNode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey, final long pRightSibKey,
-			final long pHash, @Nonnull final QName pName, @Nonnull final EKind pKind,
-			@Nonnegative final int pLevel) throws TTIOException {
-		final IPageWriteTrx pageTransaction = getPageTransaction();
-		final int nameKey = pKind == EKind.NAMESPACE ? NamePageHash
-				.generateHashForString(pName.getPrefix()) : NamePageHash
-				.generateHashForString(PageWriteTrx.buildName(pName));
-		final int uriKey = NamePageHash.generateHashForString(pName
-				.getNamespaceURI());
-
-		final NodeDelegate nodeDel = new NodeDelegate(pageTransaction
-				.getActualRevisionRootPage().getMaxPathNodeKey() + 1, pParentKey, 0);
-		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-				EFixed.NULL_NODE_KEY.getStandardProperty(), pRightSibKey, pLeftSibKey,
-				0, 0);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
-				uriKey, 0);
-
-		return (PathNode) pageTransaction.createNode(new PathNode(nodeDel,
-				structDel, nameDel, pKind, 1, pLevel), EPage.PATHSUMMARYPAGE);
-	}
-
-	/**
-	 * Create an {@link ElementNode}.
-	 * 
-	 * @param pParentKey
-	 *          parent node key
-	 * @param pLeftSibKey
-	 *          left sibling key
-	 * @param pRightSibKey
-	 *          right sibling key
-	 * @param pHash
-	 *          hash value associated with the node
-	 * @param pName
-	 *          {@link QName} of the node
-	 * @param pPCR
-	 *          path class record of node
-	 * @return the created node
-	 * @throws TTIOException
-	 *           if an I/O error occurs
-	 */
-	ElementNode createElementNode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey,
-			@Nonnegative final long pRightSibKey, final long pHash,
-			@Nonnull final QName pName, @Nonnegative final long pPathNodeKey)
-			throws TTIOException {
-		final IPageWriteTrx pageTransaction = getPageTransaction();
-		final int nameKey = pageTransaction.createNameKey(
-				PageWriteTrx.buildName(pName), EKind.ELEMENT);
-		final int uriKey = pageTransaction.createNameKey(pName.getNamespaceURI(),
-				EKind.NAMESPACE);
-
-		final NodeDelegate nodeDel = new NodeDelegate(pageTransaction
-				.getActualRevisionRootPage().getMaxNodeKey() + 1, pParentKey, 0);
-		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-				EFixed.NULL_NODE_KEY.getStandardProperty(), pRightSibKey, pLeftSibKey,
-				0, 0);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
-				uriKey, pPathNodeKey);
-
-		return (ElementNode) pageTransaction.createNode(
-				new ElementNode(nodeDel, structDel, nameDel, new ArrayList<Long>(),
-						HashBiMap.<Integer, Long> create(), new ArrayList<Long>()),
-				EPage.NODEPAGE);
-	}
-
-	/**
-	 * Create a {@link TextNode}.
-	 * 
-	 * @param pParentKey
-	 *          parent node key
-	 * @param pLeftSibKey
-	 *          left sibling key
-	 * @param pRightSibKey
-	 *          right sibling key
-	 * @param pValue
-	 *          value of the node
-	 * @param pIsCompressed
-	 *          determines if the value should be compressed or not
-	 * @return the created node
-	 * @throws TTIOException
-	 *           if an I/O error occurs
-	 */
-	TextNode createTextNode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey,
-			@Nonnegative final long pRightSibKey, @Nonnull final byte[] pValue,
-			final boolean pIsCompressed) throws TTIOException {
-		final IPageWriteTrx pageTransaction = getPageTransaction();
-		final NodeDelegate nodeDel = new NodeDelegate(pageTransaction
-				.getActualRevisionRootPage().getMaxNodeKey() + 1, pParentKey, 0);
-		final boolean compression = pIsCompressed && pValue.length > 10;
-		final byte[] value = compression ? Compression.compress(pValue,
-				Deflater.HUFFMAN_ONLY) : pValue;
-		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, value,
-				compression);
-		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-				EFixed.NULL_NODE_KEY.getStandardProperty(), pRightSibKey, pLeftSibKey,
-				0, 0);
-		return (TextNode) pageTransaction.createNode(new TextNode(nodeDel, valDel,
-				structDel), EPage.NODEPAGE);
-	}
-
-	/**
-	 * Create an {@link AttributeNode}.
-	 * 
-	 * @param pParentKey
-	 *          parent node key
-	 * @param pName
-	 *          the {@link QName} of the attribute
-	 * @param pPCR
-	 *          the path class record
-	 * @return the created node
-	 * @throws TTIOException
-	 *           if an I/O error occurs
-	 */
-	AttributeNode createAttributeNode(@Nonnegative final long pParentKey,
-			@Nonnull final QName pName, @Nonnull final byte[] pValue,
-			@Nonnegative final long pPathNodeKey) throws TTIOException {
-		final IPageWriteTrx pageTransaction = getPageTransaction();
-		final int nameKey = pageTransaction.createNameKey(
-				PageWriteTrx.buildName(pName), EKind.ATTRIBUTE);
-		final int uriKey = pageTransaction.createNameKey(pName.getNamespaceURI(),
-				EKind.NAMESPACE);
-		final NodeDelegate nodeDel = new NodeDelegate(pageTransaction
-				.getActualRevisionRootPage().getMaxNodeKey() + 1, pParentKey, 0);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
-				uriKey, pPathNodeKey);
-		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, pValue, false);
-
-		return (AttributeNode) pageTransaction.createNode(new AttributeNode(
-				nodeDel, nameDel, valDel), EPage.NODEPAGE);
-	}
-
-	/**
-	 * Create an {@link AttributeNode}.
-	 * 
-	 * @param pParentKey
-	 *          parent node key
-	 * @param pUriKey
-	 *          the URI key
-	 * @param pPrefixKey
-	 *          the prefix key
-	 * @param pPCR
-	 *          the path class record
-	 * @return the created node
-	 * @throws TTIOException
-	 *           if an I/O error occurs
-	 */
-	NamespaceNode createNamespaceNode(@Nonnegative final long pParentKey,
-			final int pUriKey, final int pPrefixKey,
-			@Nonnegative final long pPathNodeKey) throws TTIOException {
-		final IPageWriteTrx pageTransaction = getPageTransaction();
-		final NodeDelegate nodeDel = new NodeDelegate(pageTransaction
-				.getActualRevisionRootPage().getMaxNodeKey() + 1, pParentKey, 0);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, pPrefixKey,
-				pUriKey, pPathNodeKey);
-
-		return (NamespaceNode) pageTransaction.createNode(new NamespaceNode(
-				nodeDel, nameDel), EPage.NODEPAGE);
-	}
-
-	// ////////////////////////////////////////////////////////////
-	// end of node creations
 	// ////////////////////////////////////////////////////////////
 
 	/**
@@ -2773,6 +2581,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			}
 			insertNamespace(pRtx.getQNameOfCurrentNode());
 			break;
+		default:
+			throw new UnsupportedOperationException("Node type not supported!");
 		}
 		return this;
 	}

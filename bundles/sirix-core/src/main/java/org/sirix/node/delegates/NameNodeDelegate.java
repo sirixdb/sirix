@@ -50,6 +50,7 @@ import org.sirix.node.interfaces.INameNode;
  * stored referencing later on to the string stored in dedicated pages.
  * 
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
  * 
  */
 public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
@@ -65,7 +66,7 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
 
   /** Path node key. */
   private long mPathNodeKey;
-
+  
   /**
    * Constructor.
    * 
@@ -76,8 +77,8 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
    * @param pUriKey
    *          urikey to be stored
    */
-  public NameNodeDelegate(@Nonnull final NodeDelegate pDel, final int pNameKey,
-    final int pUriKey, @Nonnegative final long pPathNodeKey) {
+  public NameNodeDelegate(final @Nonnull NodeDelegate pDel, final int pNameKey,
+    final int pUriKey, final @Nonnegative long pPathNodeKey) {
     mDelegate = checkNotNull(pDel);
     mNameKey = pNameKey;
     mUriKey = pUriKey;
@@ -91,7 +92,7 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
    * @param pNameDel
    *          old name node delegate
    */
-  public NameNodeDelegate(@Nonnull NameNodeDelegate pNameDel) {
+  public NameNodeDelegate(final @Nonnull NameNodeDelegate pNameDel) {
     mDelegate = pNameDel.mDelegate;
     mNameKey = pNameDel.mNameKey;
     mUriKey = pNameDel.mUriKey;
@@ -104,7 +105,7 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 
@@ -158,8 +159,7 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
     if (pObj instanceof NameNodeDelegate) {
       final NameNodeDelegate other = (NameNodeDelegate)pObj;
       return Objects.equal(mNameKey, other.mNameKey)
-        && Objects.equal(mUriKey, other.mNameKey);
-//        && Objects.equal(mPathNodeKey, other.mPathNodeKey);
+        && Objects.equal(mUriKey, other.mUriKey);
     }
     return false;
   }
@@ -174,4 +174,9 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
   protected NodeDelegate delegate() {
     return mDelegate;
   }
+
+	@Override
+	public long getRevision() {
+		return mDelegate.getRevision();
+	}
 }
