@@ -157,7 +157,6 @@ public final class NodeReadTrx implements INodeReadTrx {
 					newNode = Optional.absent();
 				}
 			} else {
-				@SuppressWarnings("unchecked")
 				final Optional<? extends INodeBase> node = mPageReadTrx.getNode(
 						pNodeKey, EPage.NODEPAGE);
 				newNode = node;

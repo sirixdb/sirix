@@ -59,153 +59,153 @@ import org.sirix.page.interfaces.IPage;
  */
 public class NodePage implements IPage {
 
-  /** Key of node page. This is the base key of all contained nodes. */
-  private final long mNodePageKey;
+	/** Key of node page. This is the base key of all contained nodes. */
+	private final long mNodePageKey;
 
-  /** Nodes. */
-  private final Map<Long, INodeBase> mNodes;
+	/** Nodes. */
+	private final Map<Long, INodeBase> mNodes;
 
-  /** {@link PageDelegate} reference. */
-  private final long mRevision;
+	/** {@link PageDelegate} reference. */
+	private final long mRevision;
 
-  /**
-   * Create node page.
-   * 
-   * @param pNodePageKey
-   *          base key assigned to this node page
-   * @param pRevision
-   *          revision the page belongs to
-   */
-  public NodePage(@Nonnegative final long pNodePageKey,
-    @Nonnegative final long pRevision) {
-    checkArgument(pNodePageKey >= 0, "pNodePageKey must not be negative!");
-    checkArgument(pRevision >= 0, "pRevision must not be negative!");
-    mRevision = pRevision;
-    mNodePageKey = pNodePageKey;
-    mNodes = new HashMap<>();
-  }
+	/**
+	 * Create node page.
+	 * 
+	 * @param pNodePageKey
+	 *          base key assigned to this node page
+	 * @param pRevision
+	 *          revision the page belongs to
+	 */
+	public NodePage(@Nonnegative final long pNodePageKey,
+			@Nonnegative final long pRevision) {
+		checkArgument(pNodePageKey >= 0, "pNodePageKey must not be negative!");
+		checkArgument(pRevision >= 0, "pRevision must not be negative!");
+		mRevision = pRevision;
+		mNodePageKey = pNodePageKey;
+		mNodes = new HashMap<>();
+	}
 
-  /**
-   * Read node page.
-   * 
-   * @param pIn
-   *          input bytes to read page from
-   */
-  protected NodePage(final @Nonnull ByteArrayDataInput pIn) {
-    mRevision = pIn.readLong();
-    mNodePageKey = pIn.readLong();
-    final int size = pIn.readInt();
-    mNodes = new HashMap<>(size);
-    for (int offset = 0; offset < size; offset++) {
-      final byte id = pIn.readByte();
-      final EKind enumKind = EKind.getKind(id);
-      final INodeBase node = enumKind.deserialize(pIn);
-      mNodes.put(node.getNodeKey(), node);
-    }
-  }
+	/**
+	 * Read node page.
+	 * 
+	 * @param pIn
+	 *          input bytes to read page from
+	 */
+	protected NodePage(final @Nonnull ByteArrayDataInput pIn) {
+		mRevision = pIn.readLong();
+		mNodePageKey = pIn.readLong();
+		final int size = pIn.readInt();
+		mNodes = new HashMap<>(size);
+		for (int offset = 0; offset < size; offset++) {
+			final byte id = pIn.readByte();
+			final EKind enumKind = EKind.getKind(id);
+			final INodeBase node = enumKind.deserialize(pIn);
+			mNodes.put(node.getNodeKey(), node);
+		}
+	}
 
-  /**
-   * Get key of node page.
-   * 
-   * @return node page key
-   */
-  public final long getNodePageKey() {
-    return mNodePageKey;
-  }
+	/**
+	 * Get key of node page.
+	 * 
+	 * @return node page key
+	 */
+	public final long getNodePageKey() {
+		return mNodePageKey;
+	}
 
-  /**
-   * Get node with the specified node key.
-   * 
-   * @param pKey
-   *          node key
-   * @return node with given node key, or {@code null} if not present
-   */
-  public INodeBase getNode(final @Nonnegative long pKey) {
-    checkArgument(pKey >= 0, "pKey must not be negative!");
-    return mNodes.get(pKey);
-  }
+	/**
+	 * Get node with the specified node key.
+	 * 
+	 * @param pKey
+	 *          node key
+	 * @return node with given node key, or {@code null} if not present
+	 */
+	public INodeBase getNode(final @Nonnegative long pKey) {
+		checkArgument(pKey >= 0, "pKey must not be negative!");
+		return mNodes.get(pKey);
+	}
 
-  /**
-   * Overwrite a single node at a given offset.
-   * 
-   * @param pKey
-   *          key of node to overwrite in this node page
-   * @param pNode
-   *          node to store at given nodeOffset
-   */
-  public void setNode(final @Nonnull INodeBase pNode) {
-    mNodes.put(pNode.getNodeKey(), checkNotNull(pNode));
-  }
+	/**
+	 * Overwrite a single node at a given offset.
+	 * 
+	 * @param pKey
+	 *          key of node to overwrite in this node page
+	 * @param pNode
+	 *          node to store at given nodeOffset
+	 */
+	public void setNode(final @Nonnull INodeBase pNode) {
+		mNodes.put(pNode.getNodeKey(), checkNotNull(pNode));
+	}
 
-  @Override
-  public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
-    pOut.writeLong(mRevision);
-    pOut.writeLong(mNodePageKey);
-    pOut.writeInt(mNodes.size());
-    for (final INodeBase node : mNodes.values()) {
-      final byte id = node.getKind().getId();
-      pOut.writeByte(id);
-      EKind.getKind(node.getClass()).serialize(pOut, node);
-    }
-  }
+	@Override
+	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
+		pOut.writeLong(mRevision);
+		pOut.writeLong(mNodePageKey);
+		pOut.writeInt(mNodes.size());
+		for (final INodeBase node : mNodes.values()) {
+			final byte id = node.getKind().getId();
+			pOut.writeByte(id);
+			EKind.getKind(node.getClass()).serialize(pOut, node);
+		}
+	}
 
-  @Override
-  public final String toString() {
-    final ToStringHelper helper =
-      Objects.toStringHelper(this).add("revision", mRevision).add("pagekey",
-        mNodePageKey).add("nodes", mNodes.toString());
-    for (final INodeBase node : mNodes.values()) {
-      helper.add("node", node);
-    }
-    return helper.toString();
-  }
+	@Override
+	public final String toString() {
+		final ToStringHelper helper = Objects.toStringHelper(this)
+				.add("revision", mRevision).add("pagekey", mNodePageKey)
+				.add("nodes", mNodes.toString());
+		for (final INodeBase node : mNodes.values()) {
+			helper.add("node", node);
+		}
+		return helper.toString();
+	}
 
-  /**
-   * Entry set of all nodes in the page.
-   * 
-   * @return an entry set
-   */
-  public final Set<Entry<Long, INodeBase>> entrySet() {
-    return Collections.unmodifiableSet(mNodes.entrySet());
-  }
+	/**
+	 * Entry set of all nodes in the page.
+	 * 
+	 * @return an entry set
+	 */
+	public final Set<Entry<Long, INodeBase>> entrySet() {
+		return Collections.unmodifiableSet(mNodes.entrySet());
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mNodePageKey, mNodes);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mNodePageKey, mNodes);
+	}
 
-  @Override
-  public boolean equals(final Object pObj) {
-    if (pObj instanceof NodePage) {
-      final NodePage other = (NodePage)pObj;
-      return Objects.equal(mNodePageKey, other.mNodePageKey)
-        && Objects.equal(mNodes, other.mNodes);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final Object pObj) {
+		if (pObj instanceof NodePage) {
+			final NodePage other = (NodePage) pObj;
+			return Objects.equal(mNodePageKey, other.mNodePageKey)
+					&& Objects.equal(mNodes, other.mNodes);
+		}
+		return false;
+	}
 
-  @Override
-  public long getRevision() {
-    return mRevision;
-  }
+	@Override
+	public long getRevision() {
+		return mRevision;
+	}
 
-  @Override
-  public PageReference[] getReferences() {
-    return null;
-  }
+	@Override
+	public PageReference[] getReferences() {
+		return null;
+	}
 
-  @Override
-  public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx)
-    throws AbsTTException {
-  }
+	@Override
+	public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx)
+			throws AbsTTException {
+	}
 
-  /**
-   * All available nodes.
-   * 
-   * @return a collection view of all nodes
-   */
-  public Collection<INodeBase> values() {
-    return Collections.unmodifiableCollection(mNodes.values());
-  }
+	/**
+	 * All available nodes.
+	 * 
+	 * @return a collection view of all nodes
+	 */
+	public Collection<INodeBase> values() {
+		return Collections.unmodifiableCollection(mNodes.values());
+	}
 
 }

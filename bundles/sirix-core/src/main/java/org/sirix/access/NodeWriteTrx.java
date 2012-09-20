@@ -210,9 +210,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 *           if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
 	 */
 	NodeWriteTrx(@Nonnegative final long pTransactionID,
-			@Nonnull final Session pSession,
-			@Nonnull final IPageWriteTrx pPageWriteTrx,
-			@Nonnegative final int pMaxNodeCount, @Nonnull final TimeUnit pTimeUnit,
+			final @Nonnull Session pSession,
+			final @Nonnull IPageWriteTrx pPageWriteTrx,
+			@Nonnegative final int pMaxNodeCount, final @Nonnull TimeUnit pTimeUnit,
 			@Nonnegative final int pMaxTime) throws TTIOException, TTUsageException {
 
 		// Do not accept negative values.
@@ -389,7 +389,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @throws TTIOException
 	 *           if any I/O operation fails
 	 */
-	private void adaptHashesForMove(@Nonnull final IStructNode pNodeToMove)
+	private void adaptHashesForMove(final @Nonnull IStructNode pNodeToMove)
 			throws TTIOException {
 		assert pNodeToMove != null;
 		mNodeRtx.setCurrentNode(pNodeToMove);
@@ -409,8 +409,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @throws AbsTTException
 	 *           if removing a node fails after merging text nodes
 	 */
-	private void adaptForMove(@Nonnull final IStructNode pFromNode,
-			@Nonnull final IStructNode pToNode, @Nonnull final EInsertPos pInsert)
+	private void adaptForMove(final @Nonnull IStructNode pFromNode,
+			final @Nonnull IStructNode pToNode, final @Nonnull EInsertPos pInsert)
 			throws AbsTTException {
 		assert pFromNode != null;
 		assert pToNode != null;
@@ -535,7 +535,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @throws AbsTTException
 	 *           if an I/O error occurs
 	 */
-	private INodeWriteTrx insertPathAsFirstChild(@Nonnull final QName pQName,
+	private INodeWriteTrx insertPathAsFirstChild(final @Nonnull QName pQName,
 			final EKind pKind, final int pLevel) throws AbsTTException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
@@ -558,7 +558,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx insertElementAsFirstChild(@Nonnull final QName pQName)
+	public INodeWriteTrx insertElementAsFirstChild(final @Nonnull QName pQName)
 			throws AbsTTException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
@@ -590,8 +590,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		}
 	}
 
-	private long getPathNodeKey(@Nonnull final QName pQName,
-			@Nonnull final EKind pKind) throws AbsTTException {
+	private long getPathNodeKey(final @Nonnull QName pQName,
+			final @Nonnull EKind pKind) throws AbsTTException {
 		final EKind kind = mNodeRtx.getNode().getKind();
 		int level = 0;
 		if (kind == EKind.DOCUMENT_ROOT) {
@@ -637,7 +637,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx insertElementAsLeftSibling(@Nonnull final QName pQName)
+	public INodeWriteTrx insertElementAsLeftSibling(final @Nonnull QName pQName)
 			throws AbsTTException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
@@ -670,7 +670,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx insertElementAsRightSibling(@Nonnull final QName pQName)
+	public INodeWriteTrx insertElementAsRightSibling(final @Nonnull QName pQName)
 			throws AbsTTException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
@@ -703,8 +703,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx insertSubtree(@Nonnull final XMLEventReader pReader,
-			@Nonnull final EInsert pInsert) throws AbsTTException {
+	public INodeWriteTrx insertSubtree(final @Nonnull XMLEventReader pReader,
+			final @Nonnull EInsert pInsert) throws AbsTTException {
 		mBulkInsert = true;
 		long nodeKey = getNode().getNodeKey();
 		final XMLShredder shredder = new XMLShredder(this, pReader, pInsert,
@@ -723,7 +723,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			break;
 		}
 		nodeKey = getNode().getNodeKey();
-		mBulkInsert = false;
 		postOrderTraversalHashes();
 		final INode startNode = getNode();
 		moveToParent();
@@ -732,6 +731,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			addParentHash(startNode);
 		}
 		moveTo(nodeKey);
+		mBulkInsert = false;
 		return this;
 	}
 
@@ -812,7 +812,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx insertTextAsLeftSibling(@Nonnull final String pValue)
+	public INodeWriteTrx insertTextAsLeftSibling(final @Nonnull String pValue)
 			throws AbsTTException {
 		checkNotNull(pValue);
 		if (getNode() instanceof IStructNode
@@ -868,7 +868,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx insertTextAsRightSibling(@Nonnull final String pValue)
+	public INodeWriteTrx insertTextAsRightSibling(final @Nonnull String pValue)
 			throws AbsTTException {
 		checkNotNull(pValue);
 		if (getNode() instanceof IStructNode
@@ -939,14 +939,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx insertAttribute(@Nonnull final QName pQName,
-			@Nonnull final String pValue) throws AbsTTException {
+	public INodeWriteTrx insertAttribute(final @Nonnull QName pQName,
+			final @Nonnull String pValue) throws AbsTTException {
 		return insertAttribute(pQName, pValue, EMove.NONE);
 	}
 
 	@Override
-	public INodeWriteTrx insertAttribute(@Nonnull final QName pQName,
-			@Nonnull final String pValue, @Nonnull final EMove pMove)
+	public INodeWriteTrx insertAttribute(final @Nonnull QName pQName,
+			final @Nonnull String pValue, final @Nonnull EMove pMove)
 			throws AbsTTException {
 		checkNotNull(pValue);
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
@@ -1003,14 +1003,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx insertNamespace(@Nonnull final QName pQName)
+	public INodeWriteTrx insertNamespace(final @Nonnull QName pQName)
 			throws AbsTTException {
 		return insertNamespace(pQName, EMove.NONE);
 	}
 
 	@Override
-	public INodeWriteTrx insertNamespace(@Nonnull final QName pQName,
-			@Nonnull final EMove pMove) throws AbsTTException {
+	public INodeWriteTrx insertNamespace(final @Nonnull QName pQName,
+			final @Nonnull EMove pMove) throws AbsTTException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
 		}
@@ -1692,7 +1692,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void setValue(@Nonnull final String pValue) throws AbsTTException {
+	public void setValue(final @Nonnull String pValue) throws AbsTTException {
 		checkNotNull(pValue);
 		if (getNode() instanceof IValNode) {
 			checkAccessAndCommit();
@@ -1765,6 +1765,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		}
 
 		// Commit uber page.
+		final UberPage currUberPage = getPageTransaction().getUberPage();
+		if (currUberPage.isBootstrap()) {
+			currUberPage.setIsBulkInserted(mBulkInsert);
+		}
 		final UberPage uberPage = getPageTransaction().commit(EMultipleWriteTrx.NO);
 
 		// Remember succesfully committed uber page in session.
@@ -1833,7 +1837,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @param pStartNode
 	 *          start node
 	 */
-	private void addParentHash(@Nonnull final INode pStartNode)
+	private void addParentHash(final @Nonnull INode pStartNode)
 			throws TTIOException {
 		switch (mHashKind) {
 		case Rolling:
@@ -1956,8 +1960,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @throws TTIOException
 	 *           if anything weird happens
 	 */
-	private void adaptForInsert(@Nonnull final INode pNewNode,
-			@Nonnull final EInsertPos pInsert, @Nonnull final EPage pPage)
+	private void adaptForInsert(final @Nonnull INode pNewNode,
+			final @Nonnull EInsertPos pInsert, final @Nonnull EPage pPage)
 			throws TTIOException {
 		assert pNewNode != null;
 		assert pInsert != null;
@@ -2004,8 +2008,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @throws AbsTTException
 	 *           if anything weird happens
 	 */
-	private void adaptForRemove(@Nonnull final IStructNode pOldNode,
-			@Nonnull final EPage pPage) throws AbsTTException {
+	private void adaptForRemove(final @Nonnull IStructNode pOldNode,
+			final @Nonnull EPage pPage) throws AbsTTException {
 		assert pOldNode != null;
 
 		// Concatenate neighbor text nodes if they exist (the right sibling is
@@ -2342,7 +2346,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @param pStartNode
 	 *          the node which has been removed
 	 */
-	private void setRemoveDescendants(@Nonnull final INode pStartNode) {
+	private void setRemoveDescendants(final @Nonnull INode pStartNode) {
 		assert pStartNode != null;
 		if (pStartNode instanceof IStructNode) {
 			final IStructNode node = ((IStructNode) getNode());
@@ -2403,8 +2407,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @param pStartNode
 	 *          the node which has been removed
 	 */
-	private void setAddDescendants(@Nonnull final INode pStartNode,
-			@Nonnull final INode pNodeToModifiy,
+	private void setAddDescendants(final @Nonnull INode pStartNode,
+			final @Nonnull INode pNodeToModifiy,
 			@Nonnegative final long pDescendantCount) {
 		assert pStartNode != null;
 		assert pDescendantCount >= 0;
@@ -2417,7 +2421,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx copySubtreeAsFirstChild(@Nonnull final INodeReadTrx pRtx)
+	public INodeWriteTrx copySubtreeAsFirstChild(final @Nonnull INodeReadTrx pRtx)
 			throws AbsTTException {
 		checkNotNull(pRtx);
 		checkAccessAndCommit();
@@ -2429,7 +2433,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx copySubtreeAsLeftSibling(@Nonnull final INodeReadTrx pRtx)
+	public INodeWriteTrx copySubtreeAsLeftSibling(final @Nonnull INodeReadTrx pRtx)
 			throws AbsTTException {
 		checkNotNull(pRtx);
 		checkAccessAndCommit();
@@ -2442,7 +2446,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx copySubtreeAsRightSibling(
-			@Nonnull final INodeReadTrx pRtx) throws AbsTTException {
+			final @Nonnull INodeReadTrx pRtx) throws AbsTTException {
 		checkNotNull(pRtx);
 		checkAccessAndCommit();
 		final long nodeKey = getNode().getNodeKey();
@@ -2462,8 +2466,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @throws AbsTTException
 	 *           if anything fails in sirix
 	 */
-	private void copy(@Nonnull final INodeReadTrx pRtx,
-			@Nonnull final EInsert pInsert) throws AbsTTException {
+	private void copy(final @Nonnull INodeReadTrx pRtx,
+			final @Nonnull EInsert pInsert) throws AbsTTException {
 		assert pRtx != null;
 		assert pInsert != null;
 		final INodeReadTrx rtx = pRtx.getSession().beginNodeReadTrx(
@@ -2502,7 +2506,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx replaceNode(@Nonnull final String pXML)
+	public INodeWriteTrx replaceNode(final @Nonnull String pXML)
 			throws AbsTTException, IOException, XMLStreamException {
 		checkNotNull(pXML);
 		checkAccessAndCommit();
@@ -2557,7 +2561,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx replaceNode(@Nonnull final INodeReadTrx pRtx)
+	public INodeWriteTrx replaceNode(final @Nonnull INodeReadTrx pRtx)
 			throws AbsTTException {
 		checkNotNull(pRtx);
 		switch (pRtx.getNode().getKind()) {
@@ -2605,7 +2609,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @throws AbsTTException
 	 *           if anything fails
 	 */
-	private INode replaceWithTextNode(@Nonnull final String pValue)
+	private INode replaceWithTextNode(final @Nonnull String pValue)
 			throws AbsTTException {
 		assert pValue != null;
 		final IStructNode currentNode = getStructuralNode();
@@ -2633,7 +2637,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @return
 	 * @throws AbsTTException
 	 */
-	private INode replace(@Nonnull final INodeReadTrx pRtx) throws AbsTTException {
+	private INode replace(final @Nonnull INodeReadTrx pRtx) throws AbsTTException {
 		assert pRtx != null;
 		final IStructNode currentNode = getStructuralNode();
 		long key = currentNode.getNodeKey();
@@ -2656,7 +2660,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @param pKey
 	 * @throws AbsTTException
 	 */
-	private void removeReplaced(@Nonnull final IStructNode pNode,
+	private void removeReplaced(final @Nonnull IStructNode pNode,
 			@Nonnegative long pKey) throws AbsTTException {
 		assert pNode != null;
 		assert pKey >= 0;

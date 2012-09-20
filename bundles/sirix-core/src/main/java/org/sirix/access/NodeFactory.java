@@ -14,6 +14,7 @@ import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.TTIOException;
 import org.sirix.index.path.PathNode;
 import org.sirix.node.AttributeNode;
+import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
@@ -51,10 +52,10 @@ public class NodeFactory implements INodeFactory {
 	}
 
 	@Override
-	public PathNode createPathNode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey, final long pRightSibKey,
+	public PathNode createPathNode(final @Nonnegative long pParentKey,
+			final @Nonnegative long pLeftSibKey, final long pRightSibKey,
 			final long pHash, @Nonnull final QName pName, @Nonnull final EKind pKind,
-			@Nonnegative final int pLevel) throws TTIOException {
+			final @Nonnegative int pLevel) throws TTIOException {
 		final int nameKey = pKind == EKind.NAMESPACE ? NamePageHash
 				.generateHashForString(pName.getPrefix()) : NamePageHash
 				.generateHashForString(PageWriteTrx.buildName(pName));
@@ -76,10 +77,10 @@ public class NodeFactory implements INodeFactory {
 	}
 
 	@Override
-	public ElementNode createElementNode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey,
-			@Nonnegative final long pRightSibKey, final long pHash,
-			@Nonnull final QName pName, @Nonnegative final long pPathNodeKey)
+	public ElementNode createElementNode(final @Nonnegative long pParentKey,
+			final @Nonnegative long pLeftSibKey,
+			final @Nonnegative long pRightSibKey, final long pHash,
+			@Nonnull final QName pName, final @Nonnegative long pPathNodeKey)
 			throws TTIOException {
 		final int nameKey = mPageWriteTrx.createNameKey(
 				PageWriteTrx.buildName(pName), EKind.ELEMENT);
@@ -103,9 +104,9 @@ public class NodeFactory implements INodeFactory {
 	}
 
 	@Override
-	public TextNode createTextNode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey,
-			@Nonnegative final long pRightSibKey, @Nonnull final byte[] pValue,
+	public TextNode createTextNode(final @Nonnegative long pParentKey,
+			final @Nonnegative long pLeftSibKey,
+			final @Nonnegative long pRightSibKey, @Nonnull final byte[] pValue,
 			final boolean pIsCompressed) throws TTIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
@@ -124,9 +125,9 @@ public class NodeFactory implements INodeFactory {
 	}
 
 	@Override
-	public AttributeNode createAttributeNode(@Nonnegative final long pParentKey,
+	public AttributeNode createAttributeNode(final @Nonnegative long pParentKey,
 			@Nonnull final QName pName, @Nonnull final byte[] pValue,
-			@Nonnegative final long pPathNodeKey) throws TTIOException {
+			final @Nonnegative long pPathNodeKey) throws TTIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final int nameKey = mPageWriteTrx.createNameKey(
 				PageWriteTrx.buildName(pName), EKind.ATTRIBUTE);
@@ -144,9 +145,9 @@ public class NodeFactory implements INodeFactory {
 	}
 
 	@Override
-	public NamespaceNode createNamespaceNode(@Nonnegative final long pParentKey,
+	public NamespaceNode createNamespaceNode(final @Nonnegative long pParentKey,
 			final int pUriKey, final int pPrefixKey,
-			@Nonnegative final long pPathNodeKey) throws TTIOException {
+			final @Nonnegative long pPathNodeKey) throws TTIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, pParentKey, 0,
@@ -156,5 +157,33 @@ public class NodeFactory implements INodeFactory {
 
 		return (NamespaceNode) mPageWriteTrx.createNode(new NamespaceNode(nodeDel,
 				nameDel), EPage.NODEPAGE);
+	}
+
+	@Override
+	public ElementNode createElementNode() throws TTIOException {
+		return createElementNode(0, 0, 0, 0, new QName(""), 0);
+	}
+
+	@Override
+	public TextNode createTextNode() throws TTIOException {
+		return createTextNode(0, 0, 0, "".getBytes(), false);
+	}
+
+	@Override
+	public AttributeNode createAttributeNode() throws TTIOException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public NamespaceNode createNamespaceNode() throws TTIOException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public DocumentRootNode createDocumentNode() throws TTIOException {
+		// TODO Auto-generated method stub
+		return null;
 	}
 }

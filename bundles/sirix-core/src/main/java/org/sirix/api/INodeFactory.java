@@ -7,6 +7,7 @@ import javax.xml.namespace.QName;
 import org.sirix.exception.TTIOException;
 import org.sirix.index.path.PathNode;
 import org.sirix.node.AttributeNode;
+import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
@@ -36,7 +37,15 @@ public interface INodeFactory {
 			@Nonnegative final long pLeftSibKey, final long pRightSibKey,
 			final long pHash, @Nonnull final QName pName, @Nonnull final EKind pKind,
 			@Nonnegative final int pLevel) throws TTIOException;
-	
+
+	/**
+	 * Create an {@link ElementNode}.
+	 * 
+	 * @throws TTIOException
+	 *           if an I/O error occurs
+	 */
+	ElementNode createElementNode() throws TTIOException;
+
 	/**
 	 * Create an {@link ElementNode}.
 	 * 
@@ -61,7 +70,15 @@ public interface INodeFactory {
 			@Nonnegative final long pRightSibKey, final long pHash,
 			@Nonnull final QName pName, @Nonnegative final long pPathNodeKey)
 			throws TTIOException;
-	
+
+	/**
+	 * Create a {@link TextNode}.
+	 * 
+	 * @throws TTIOException
+	 *           if an I/O error occurs
+	 */
+	TextNode createTextNode() throws TTIOException;
+
 	/**
 	 * Create a {@link TextNode}.
 	 * 
@@ -83,7 +100,15 @@ public interface INodeFactory {
 			@Nonnegative final long pLeftSibKey,
 			@Nonnegative final long pRightSibKey, @Nonnull final byte[] pValue,
 			final boolean pIsCompressed) throws TTIOException;
-	
+
+	/**
+	 * Create an {@link AttributeNode}.
+	 * 
+	 * @throws TTIOException
+	 *           if an I/O error occurs
+	 */
+	AttributeNode createAttributeNode() throws TTIOException;
+
 	/**
 	 * Create an {@link AttributeNode}.
 	 * 
@@ -100,7 +125,15 @@ public interface INodeFactory {
 	AttributeNode createAttributeNode(@Nonnegative final long pParentKey,
 			@Nonnull final QName pName, @Nonnull final byte[] pValue,
 			@Nonnegative final long pPathNodeKey) throws TTIOException;
-	
+
+	/**
+	 * Create an {@link NamespaceNode}.
+	 * 
+	 * @throws TTIOException
+	 *           if an I/O error occurs
+	 */
+	NamespaceNode createNamespaceNode() throws TTIOException;
+
 	/**
 	 * Create a {@link NamespaceNode}.
 	 * 
@@ -119,4 +152,12 @@ public interface INodeFactory {
 	NamespaceNode createNamespaceNode(@Nonnegative final long pParentKey,
 			final int pUriKey, final int pPrefixKey,
 			@Nonnegative final long pPathNodeKey) throws TTIOException;
+	
+	/**
+	 * Create a {@link DocumentRootNode}.
+	 * 
+	 * @throws TTIOException
+	 *           if an I/O error occurs
+	 */
+	DocumentRootNode createDocumentNode() throws TTIOException;
 }

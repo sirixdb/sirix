@@ -48,7 +48,7 @@ import com.google.gson.stream.JsonWriter;
  * 
  * <p>
  * Represents a configuration of a database. Includes all settings which have to
- * be made when it comes to the creation of the database.
+ * be made during the creation of the database.
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz
@@ -57,7 +57,7 @@ public final class DatabaseConfiguration {
 
 	/**
 	 * Paths for a {@link org.access.Database}. Each {@link org.access.Database}
-	 * has the same folder.layout.
+	 * has the same folder layout.
 	 */
 	public enum Paths {
 
@@ -66,7 +66,9 @@ public final class DatabaseConfiguration {
 		/** File to store encryption db settings. */
 		KEYSELECTOR(new File("keyselector"), true),
 		/** File to store the data. */
-		Data(new File("resources"), true);
+		Data(new File("resources"), true),
+		/** Lock file. */
+		LOCK(new File(".lock"), false);
 
 		/** Location of the file. */
 		private final File mFile;

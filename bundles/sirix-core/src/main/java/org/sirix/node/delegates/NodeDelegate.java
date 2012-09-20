@@ -37,6 +37,7 @@ import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
 
@@ -69,7 +70,7 @@ public class NodeDelegate implements INode {
 	 * TypeKey of the parent node. Can be referenced later on over special pages.
 	 */
 	private int mTypeKey;
-	
+
 	/** Revision this node was added. */
 	private final long mRevision;
 
@@ -83,7 +84,7 @@ public class NodeDelegate implements INode {
 	 * @param pHash
 	 *          hash of the node
 	 * @param pRevision
-	 * 					revision this node was added
+	 *          revision this node was added
 	 */
 	public NodeDelegate(final @Nonnegative long pNodeKey,
 			final @Nonnegative long pParentKey, final long pHash,

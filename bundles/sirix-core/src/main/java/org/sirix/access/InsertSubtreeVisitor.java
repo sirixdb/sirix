@@ -42,6 +42,7 @@ import org.sirix.node.TextNode;
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
+ * Currently not used because of tail recursion which isn't optimized in Java.
  */
 class InsertSubtreeVisitor extends AbsVisitorSupport {
 
@@ -72,8 +73,8 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 	 * @param pInsert
 	 *          determines how to insert a node
 	 */
-	InsertSubtreeVisitor(@Nonnull final INodeReadTrx pRtx,
-			@Nonnull final INodeWriteTrx pWtx, @Nonnull final EInsertPos pInsert) {
+	InsertSubtreeVisitor(final @Nonnull INodeReadTrx pRtx,
+			final @Nonnull INodeWriteTrx pWtx, final @Nonnull EInsertPos pInsert) {
 		mRtx = checkNotNull(pRtx);
 		mWtx = checkNotNull(pWtx);
 		mInsert = checkNotNull(pInsert);
@@ -81,7 +82,7 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 	}
 
 	@Override
-	public EVisitResult visit(@Nonnull final ElementNode pNode) {
+	public EVisitResult visit(final @Nonnull ElementNode pNode) {
 		mRtx.moveTo(pNode.getNodeKey());
 		try {
 			mInsert.insertNode(mWtx, mRtx);
@@ -122,7 +123,7 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 	}
 
 	@Override
-	public EVisitResult visit(@Nonnull final TextNode pNode) {
+	public EVisitResult visit(final @Nonnull TextNode pNode) {
 		mRtx.moveTo(pNode.getNodeKey());
 		try {
 			mInsert.insertNode(mWtx, mRtx);

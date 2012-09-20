@@ -36,6 +36,7 @@ import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.node.interfaces.IValNode;
 import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.settings.EFixed;
@@ -45,243 +46,244 @@ import org.sirix.utils.TypedValue;
 /**
  * <h1>AtomicValue</h1>
  * <p>
- * An item represents either an atomic value or a node. An atomic value is a value in the value space of an
- * atomic type, as defined in <a href="http://www.w3.org/TR/xmlschema11-2/">XMLSchema 1.1</a>. (Definition:
+ * An item represents either an atomic value or a node. An atomic value is a
+ * value in the value space of an atomic type, as defined in <a
+ * href="http://www.w3.org/TR/xmlschema11-2/">XMLSchema 1.1</a>. (Definition:
  * Atomic types are anyAtomicType and all types derived from it.)
  * </p>
  */
 public class AtomicValue implements INode, IValNode {
 
-  /** Value of the item as byte array. */
-  private byte[] mValue;
+	/** Value of the item as byte array. */
+	private byte[] mValue;
 
-  /** The item's value type. */
-  private int mType;
+	/** The item's value type. */
+	private int mType;
 
-  /**
-   * The item's key. In case of an Atomic value this is always a negative to
-   * make them distinguishable from nodes.
-   */
-  private long mItemKey;
+	/**
+	 * The item's key. In case of an Atomic value this is always a negative to
+	 * make them distinguishable from nodes.
+	 */
+	private long mItemKey;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pValue
-   *          the value of the Item
-   * @param pType
-   *          the item's type
-   */
-  public AtomicValue(@Nonnull final byte[] pValue, final int pType) {
-    mValue = checkNotNull(pValue);
-    mType = pType;
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pValue
+	 *          the value of the Item
+	 * @param pType
+	 *          the item's type
+	 */
+	public AtomicValue(@Nonnull final byte[] pValue, final int pType) {
+		mValue = checkNotNull(pValue);
+		mType = pType;
+	}
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pValue
-   *          the value of the Item
-   */
-  public AtomicValue(final boolean pValue) {
-    mValue = TypedValue.getBytes(Boolean.toString(pValue));
-    mType = NamePageHash.generateHashForString("xs:boolean");
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pValue
+	 *          the value of the Item
+	 */
+	public AtomicValue(final boolean pValue) {
+		mValue = TypedValue.getBytes(Boolean.toString(pValue));
+		mType = NamePageHash.generateHashForString("xs:boolean");
+	}
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pValue
-   *          the value of the Item
-   * @param pType
-   *          the item's type
-   */
-  public AtomicValue(final Number pValue, final Type pType) {
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pValue
+	 *          the value of the Item
+	 * @param pType
+	 *          the item's type
+	 */
+	public AtomicValue(final Number pValue, final Type pType) {
 
-    mValue = TypedValue.getBytes(pValue.toString());
-    mType = NamePageHash.generateHashForString(pType.getStringRepr());
-  }
+		mValue = TypedValue.getBytes(pValue.toString());
+		mType = NamePageHash.generateHashForString(pType.getStringRepr());
+	}
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pValue
-   *          the value of the Item
-   * @param pType
-   *          the item's type
-   */
-  public AtomicValue(@Nonnull final String pValue, @Nonnull final Type pType) {
-    mValue = TypedValue.getBytes(pValue);
-    mType = NamePageHash.generateHashForString(pType.getStringRepr());
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pValue
+	 *          the value of the Item
+	 * @param pType
+	 *          the item's type
+	 */
+	public AtomicValue(@Nonnull final String pValue, @Nonnull final Type pType) {
+		mValue = TypedValue.getBytes(pValue);
+		mType = NamePageHash.generateHashForString(pType.getStringRepr());
+	}
 
-  /**
-   * Set node key.
-   * 
-   * @param pItemKey
-   *          unique item key
-   */
-  public void setNodeKey(final long pItemKey) {
-    mItemKey = pItemKey;
-  }
+	/**
+	 * Set node key.
+	 * 
+	 * @param pItemKey
+	 *          unique item key
+	 */
+	public void setNodeKey(final long pItemKey) {
+		mItemKey = pItemKey;
+	}
 
-  @Override
-  public long getParentKey() {
-    return EFixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public long getParentKey() {
+		return EFixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public boolean hasParent() {
-    return false;
-  }
+	@Override
+	public boolean hasParent() {
+		return false;
+	}
 
-  @Override
-  public long getNodeKey() {
-    return mItemKey;
-  }
+	@Override
+	public long getNodeKey() {
+		return mItemKey;
+	}
 
-  @Override
-  public EKind getKind() {
-    return EKind.ATOMIC;
-  }
+	@Override
+	public EKind getKind() {
+		return EKind.ATOMIC;
+	}
 
-  /**
-   * Check if is fulltext.
-   * 
-   * @return true if fulltext, false otherwise
-   */
-  public boolean isFullText() {
+	/**
+	 * Check if is fulltext.
+	 * 
+	 * @return true if fulltext, false otherwise
+	 */
+	public boolean isFullText() {
 
-    return false;
-  }
+		return false;
+	}
 
-  /**
-   * Test if the lead is tes.
-   * 
-   * @return true if fulltest leaf, false otherwise
-   */
-  public boolean isFullTextLeaf() {
-    return false;
-  }
+	/**
+	 * Test if the lead is tes.
+	 * 
+	 * @return true if fulltest leaf, false otherwise
+	 */
+	public boolean isFullTextLeaf() {
+		return false;
+	}
 
-  /**
-   * Test if the root is full text.
-   * 
-   * @return true if fulltest root, false otherwise
-   */
-  public boolean isFullTextRoot() {
-    return false;
-  }
+	/**
+	 * Test if the root is full text.
+	 * 
+	 * @return true if fulltest root, false otherwise
+	 */
+	public boolean isFullTextRoot() {
+		return false;
+	}
 
-  @Override
-  public final int getTypeKey() {
-    return mType;
-  }
+	@Override
+	public final int getTypeKey() {
+		return mType;
+	}
 
-  /**
-   * Getting the type of the value.
-   * 
-   * @return the type of this value
-   */
-  public final String getType() {
-    return Type.getType(mType).getStringRepr();
-  }
+	/**
+	 * Getting the type of the value.
+	 * 
+	 * @return the type of this value
+	 */
+	public final String getType() {
+		return Type.getType(mType).getStringRepr();
+	}
 
-  /**
-   * Returns the atomic value as an integer.
-   * 
-   * @return the value as an integer
-   */
-  public int getInt() {
-    return (int)getDBL();
-  }
+	/**
+	 * Returns the atomic value as an integer.
+	 * 
+	 * @return the value as an integer
+	 */
+	public int getInt() {
+		return (int) getDBL();
+	}
 
-  /**
-   * Returns the atomic value as a boolean.
-   * 
-   * @return the value as a boolean
-   */
-  public boolean getBool() {
-    return Boolean.parseBoolean(new String(mValue));
-  }
+	/**
+	 * Returns the atomic value as a boolean.
+	 * 
+	 * @return the value as a boolean
+	 */
+	public boolean getBool() {
+		return Boolean.parseBoolean(new String(mValue));
+	}
 
-  /**
-   * Returns the atomic value as a float.
-   * 
-   * @return the value as a float
-   */
-  public float getFLT() {
-    return Float.parseFloat(new String(mValue));
-  }
+	/**
+	 * Returns the atomic value as a float.
+	 * 
+	 * @return the value as a float
+	 */
+	public float getFLT() {
+		return Float.parseFloat(new String(mValue));
+	}
 
-  /**
-   * Returns the atomic value as a double.
-   * 
-   * @return the value as a double
-   */
-  public double getDBL() {
-    return Double.parseDouble(new String(mValue));
-  }
+	/**
+	 * Returns the atomic value as a double.
+	 * 
+	 * @return the value as a double
+	 */
+	public double getDBL() {
+		return Double.parseDouble(new String(mValue));
+	}
 
-  /**
-   * To String method.
-   * 
-   * @return String representation of this node
-   */
-  @Override
-  public String toString() {
-    final StringBuilder builder = new StringBuilder();
-    builder.append("Atomic Value: ");
-    builder.append(new String(mValue));
-    builder.append("\nKey: ");
-    builder.append(mItemKey);
-    return builder.toString();
-  }
+	/**
+	 * To String method.
+	 * 
+	 * @return String representation of this node
+	 */
+	@Override
+	public String toString() {
+		final StringBuilder builder = new StringBuilder();
+		builder.append("Atomic Value: ");
+		builder.append(new String(mValue));
+		builder.append("\nKey: ");
+		builder.append(mItemKey);
+		return builder.toString();
+	}
 
-  @Override
-  public void setHash(final long pHash) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setHash(final long pHash) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getHash() {
-    return 0;
-  }
+	@Override
+	public long getHash() {
+		return 0;
+	}
 
-  @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-    return EVisitResult.CONTINUE;
-  }
+	@Override
+	public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
+		return EVisitResult.CONTINUE;
+	}
 
-  @Override
-  public AtomicValue clone() {
-    return this;
-  }
+	@Override
+	public AtomicValue clone() {
+		return this;
+	}
 
-  @Override
-  public void setParentKey(final long pKey) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setParentKey(final long pKey) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void setTypeKey(final int pType) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void setTypeKey(final int pType) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public byte[] getRawValue() {
-    return mValue;
-  }
+	@Override
+	public byte[] getRawValue() {
+		return mValue;
+	}
 
-  @Override
-  public void setValue(@Nonnull byte[] pVal) {
-    mValue = checkNotNull(pVal);
-  }
+	@Override
+	public void setValue(@Nonnull byte[] pVal) {
+		mValue = checkNotNull(pVal);
+	}
 
-  @Override
-  public boolean isSameItem(@Nullable final INode pOther) {
-    return false;
-  }
+	@Override
+	public boolean isSameItem(@Nullable final INode pOther) {
+		return false;
+	}
 
 	@Override
 	public long getRevision() {

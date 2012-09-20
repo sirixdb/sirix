@@ -41,6 +41,7 @@ import org.sirix.node.interfaces.IStructNode;
  * 
  * <p>
  * Iterate over all preceding nodes of kind ELEMENT or TEXT starting at a given node. Self is not included.
+ * Note that the nodes are retrieved in reverse document order.
  * </p>
  */
 public final class PrecedingAxis extends AbsAxis {

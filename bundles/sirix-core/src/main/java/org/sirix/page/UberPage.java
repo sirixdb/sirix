@@ -52,196 +52,221 @@ import org.sirix.utils.IConstants;
  */
 public final class UberPage extends AbsForwardingPage {
 
-  /** Offset of indirect page reference. */
-  private static final int INDIRECT_REFERENCE_OFFSET = 0;
+	/** Offset of indirect page reference. */
+	private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
-  /** Number of revisions. */
-  private final long mRevisionCount;
+	/** Number of revisions. */
+	private final long mRevisionCount;
 
-  /** {@code true} if this uber page is the uber page of a fresh sirix file, {@code false} otherwise. */
-  private boolean mBootstrap;
+	/**
+	 * {@code true} if this uber page is the uber page of a fresh sirix file,
+	 * {@code false} otherwise.
+	 */
+	private boolean mBootstrap;
 
-  /** {@link PageDelegate} reference. */
-  private final PageDelegate mDelegate;
+	/** {@link PageDelegate} reference. */
+	private final PageDelegate mDelegate;
 
-  /**
-   * Create uber page.
-   */
-  public UberPage() {
-    mDelegate = new PageDelegate(1, IConstants.UBP_ROOT_REVISION_NUMBER);
-    mRevisionCount = IConstants.UBP_ROOT_REVISION_COUNT;
-    mBootstrap = true;
+	/** Determines if the first revision has been bulk inserted. */
+	private boolean mBulkInserted;
 
-    // --- Create revision tree
-    // ------------------------------------------------
+	/**
+	 * Create uber page.
+	 */
+	public UberPage() {
+		mDelegate = new PageDelegate(1, IConstants.UBP_ROOT_REVISION_NUMBER);
+		mRevisionCount = IConstants.UBP_ROOT_REVISION_COUNT;
+		mBootstrap = true;
+		mBulkInserted = true;
 
-    // Initialize revision tree to guarantee that there is a revision root
-    // page.
-    IPage page = null;
-    PageReference reference = getReferences()[INDIRECT_REFERENCE_OFFSET];
+		// --- Create revision tree
+		// ------------------------------------------------
 
-    // Remaining levels.
-    for (int i = 0, l = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
-      page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
-      reference.setPage(page);
-      reference = page.getReferences()[0];
-    }
+		// Initialize revision tree to guarantee that there is a revision root
+		// page.
+		IPage page = null;
+		PageReference reference = getReferences()[INDIRECT_REFERENCE_OFFSET];
 
-    final RevisionRootPage rrp = new RevisionRootPage();
-    reference.setPage(rrp);
+		// Remaining levels.
+		for (int i = 0, l = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
+			page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
+			reference.setPage(page);
+			reference = page.getReferences()[0];
+		}
 
-    // --- Create node tree
-    // ----------------------------------------------------
+		final RevisionRootPage rrp = new RevisionRootPage();
+		reference.setPage(rrp);
 
-    // Initialize revision tree to guarantee that there is a revision root
-    // page.
-    reference = rrp.getIndirectPageReference();
-    createTree(reference);
-    rrp.incrementMaxNodeKey();
+		// --- Create node tree
+		// ----------------------------------------------------
 
-    // Initialize path tree to guarantee that there is a revision root
-    // page.
-    reference =
-      rrp.getPathSummaryPageReference().getPage().getReferences()[INDIRECT_REFERENCE_OFFSET];
-    createTree(reference);
-    rrp.incrementMaxPathNodeKey();
-    
-    // Initialize value tree to guarantee that there is a revision root
-    // page.
-    reference =
-      rrp.getValuePageReference().getPage().getReferences()[INDIRECT_REFERENCE_OFFSET];
-    createTree(reference);
-    rrp.incrementMaxValueNodeKey();
-  }
+		// Initialize revision tree to guarantee that there is a revision root
+		// page.
+		reference = rrp.getIndirectPageReference();
+		createTree(reference);
+		rrp.incrementMaxNodeKey();
 
-  /**
-   * Create the initial tree structure.
-   * 
-   * @param pReference
-   *          reference from revision root
-   */
-  private void createTree(@Nonnull PageReference pReference) {
-    IPage page = null;
+		// Initialize path tree to guarantee that there is a revision root
+		// page.
+		reference = rrp.getPathSummaryPageReference().getPage().getReferences()[INDIRECT_REFERENCE_OFFSET];
+		createTree(reference);
+		rrp.incrementMaxPathNodeKey();
 
-    // Remaining levels.
-    for (int i = 0, l = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
-      page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
-      pReference.setPage(page);
-      pReference = page.getReferences()[0];
-    }
+		// Initialize value tree to guarantee that there is a revision root
+		// page.
+		reference = rrp.getValuePageReference().getPage().getReferences()[INDIRECT_REFERENCE_OFFSET];
+		createTree(reference);
+		rrp.incrementMaxValueNodeKey();
+	}
 
-    final NodePage ndp =
-      new NodePage(EFixed.ROOT_PAGE_KEY.getStandardProperty(),
-        IConstants.UBP_ROOT_REVISION_NUMBER);
-    pReference.setPage(ndp);
+	/**
+	 * Determines if first (revision 0) has been solely bulk inserted.
+	 */
+	public boolean isBulkInserted() {
+		return mBulkInserted;
+	}
 
-    final NodeDelegate nodeDel =
-      new NodeDelegate(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-        EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY
-          .getStandardProperty(), 0);
-    final StructNodeDelegate strucDel =
-      new StructNodeDelegate(nodeDel, EFixed.NULL_NODE_KEY
-        .getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty(),
-        EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
-    ndp.setNode(new DocumentRootNode(nodeDel, strucDel));
-  }
+	/**
+	 * Set if first revision has been bulk inserted.
+	 * 
+	 * @param pIsBulkInserted
+	 *          bulk inserted or not
+	 */
+	public void setIsBulkInserted(final boolean pIsBulkInserted) {
+		mBulkInserted = pIsBulkInserted;
+	}
 
-  /**
-   * Read uber page.
-   * 
-   * @param pIn
-   *          input bytes
-   */
-  protected UberPage(final @Nonnull ByteArrayDataInput pIn) {
-    mDelegate = new PageDelegate(1, pIn);
-    mRevisionCount = pIn.readLong();
-    mBootstrap = false;
-  }
+	/**
+	 * Create the initial tree structure.
+	 * 
+	 * @param pReference
+	 *          reference from revision root
+	 */
+	private void createTree(@Nonnull PageReference pReference) {
+		IPage page = null;
 
-  /**
-   * Clone uber page.
-   * 
-   * @param pCommittedUberPage
-   *          Page to clone.
-   * @param pRevisionToUse
-   *          Revision number to use.
-   */
-  public UberPage(final @Nonnull UberPage pCommittedUberPage,
-    @Nonnegative final long pRevisionToUse) {
-    mDelegate = new PageDelegate(pCommittedUberPage, pRevisionToUse);
-    if (pCommittedUberPage.isBootstrap()) {
-      mRevisionCount = pCommittedUberPage.mRevisionCount;
-      mBootstrap = pCommittedUberPage.mBootstrap;
-    } else {
-      mRevisionCount = pCommittedUberPage.mRevisionCount + 1;
-      mBootstrap = false;
-    }
-  }
+		// Remaining levels.
+		for (int i = 0, l = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
+			page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
+			pReference.setPage(page);
+			pReference = page.getReferences()[0];
+		}
 
-  /**
-   * Get indirect page reference.
-   * 
-   * @return Indirect page reference.
-   */
-  public PageReference getIndirectPageReference() {
-    return getReferences()[INDIRECT_REFERENCE_OFFSET];
-  }
+		final NodePage ndp = new NodePage(
+				EFixed.ROOT_PAGE_KEY.getStandardProperty(),
+				IConstants.UBP_ROOT_REVISION_NUMBER);
+		pReference.setPage(ndp);
 
-  /**
-   * Get number of revisions.
-   * 
-   * @return Number of revisions.
-   */
-  public long getRevisionCount() {
-    return mRevisionCount;
-  }
+		final NodeDelegate nodeDel = new NodeDelegate(
+				EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+				EFixed.NULL_NODE_KEY.getStandardProperty(),
+				EFixed.NULL_NODE_KEY.getStandardProperty(), 0);
+		final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
+				EFixed.NULL_NODE_KEY.getStandardProperty(),
+				EFixed.NULL_NODE_KEY.getStandardProperty(),
+				EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+		ndp.setNode(new DocumentRootNode(nodeDel, strucDel));
+	}
 
-  /**
-   * Get key of last committed revision.
-   * 
-   * @return Key of last committed revision.
-   */
-  public long getLastCommitedRevisionNumber() {
-    return mRevisionCount - 2;
-  }
+	/**
+	 * Read uber page.
+	 * 
+	 * @param pIn
+	 *          input bytes
+	 */
+	protected UberPage(final @Nonnull ByteArrayDataInput pIn) {
+		mDelegate = new PageDelegate(1, pIn);
+		mRevisionCount = pIn.readLong();
+		mBulkInserted = pIn.readBoolean();
+		mBootstrap = false;
+	}
 
-  /**
-   * Get revision key of current in-memory state.
-   * 
-   * @return Revision key.
-   */
-  public long getRevisionNumber() {
-    return mRevisionCount - 1;
-  }
+	/**
+	 * Clone uber page.
+	 * 
+	 * @param pCommittedUberPage
+	 *          Page to clone.
+	 * @param pRevisionToUse
+	 *          Revision number to use.
+	 */
+	public UberPage(final @Nonnull UberPage pCommittedUberPage,
+			@Nonnegative final long pRevisionToUse) {
+		mDelegate = new PageDelegate(pCommittedUberPage, pRevisionToUse);
+		if (pCommittedUberPage.isBootstrap()) {
+			mRevisionCount = pCommittedUberPage.mRevisionCount;
+			mBootstrap = pCommittedUberPage.mBootstrap;
+		} else {
+			mRevisionCount = pCommittedUberPage.mRevisionCount + 1;
+			mBootstrap = false;
+		}
+	}
 
-  /**
-   * Flag to indicate whether this uber page is the first ever.
-   * 
-   * @return {@code true} if this uber page is the first oINDIRECT_REFERENCE_OFFSETne of sirix, {@code false}
-   *         otherwise.
-   */
-  public boolean isBootstrap() {
-    return mBootstrap;
-  }
+	/**
+	 * Get indirect page reference.
+	 * 
+	 * @return Indirect page reference.
+	 */
+	public PageReference getIndirectPageReference() {
+		return getReferences()[INDIRECT_REFERENCE_OFFSET];
+	}
 
-  @Override
-  public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
-    mBootstrap = false;
-    mDelegate.serialize(checkNotNull(pOut));
-    pOut.writeLong(mRevisionCount);
-  }
+	/**
+	 * Get number of revisions.
+	 * 
+	 * @return Number of revisions.
+	 */
+	public long getRevisionCount() {
+		return mRevisionCount;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this)
-      .add("forwarding page", super.toString()).add("revisionCount",
-        mRevisionCount).add("indirectPage",
-        getReferences()[INDIRECT_REFERENCE_OFFSET]).add("isBootstrap",
-        mBootstrap).toString();
-  }
+	/**
+	 * Get key of last committed revision.
+	 * 
+	 * @return Key of last committed revision.
+	 */
+	public long getLastCommitedRevisionNumber() {
+		return mRevisionCount - 2;
+	}
 
-  @Override
-  protected IPage delegate() {
-    return mDelegate;
-  }
+	/**
+	 * Get revision key of current in-memory state.
+	 * 
+	 * @return Revision key.
+	 */
+	public long getRevisionNumber() {
+		return mRevisionCount - 1;
+	}
+
+	/**
+	 * Flag to indicate whether this uber page is the first ever.
+	 * 
+	 * @return {@code true} if this uber page is the first
+	 *         one of sirix, {@code false} otherwise
+	 */
+	public boolean isBootstrap() {
+		return mBootstrap;
+	}
+
+	@Override
+	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
+		mBootstrap = false;
+		mDelegate.serialize(checkNotNull(pOut));
+		pOut.writeLong(mRevisionCount);
+		pOut.writeBoolean(mBulkInserted);
+	}
+
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this)
+				.add("forwarding page", super.toString())
+				.add("revisionCount", mRevisionCount)
+				.add("indirectPage", getReferences()[INDIRECT_REFERENCE_OFFSET])
+				.add("isBootstrap", mBootstrap).add("isBulkInserted", mBulkInserted)
+				.toString();
+	}
+
+	@Override
+	protected IPage delegate() {
+		return mDelegate;
+	}
 }

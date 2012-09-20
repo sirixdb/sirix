@@ -10,17 +10,17 @@ import org.sirix.node.EKind;
  */
 public interface INodeBase {
   /**
-   * Get unique item key.
+   * Get unique node key.
    * 
-   * @return item key
+   * @return node key
    */
   long getNodeKey();
   
   /**
-   * Gets the kind of the item (atomic value, element node, attribute
+   * Gets the kind of the node (element node, text node, attribute
    * node....).
    * 
-   * @return kind of item
+   * @return kind of node
    */
   EKind getKind();
   

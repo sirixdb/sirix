@@ -28,7 +28,6 @@
 package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
 import java.io.File;
 import java.io.IOException;
@@ -36,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -49,319 +49,372 @@ import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.Objects;
+
 /**
- * This class represents one concrete database for enabling several {@link ISession} instances.
+ * This class represents one concrete database for enabling several
+ * {@link ISession} instances.
  * 
  * @see IDatabase
  * @author Sebastian Graf, University of Konstanz
  */
 public final class Database implements IDatabase {
 
-  /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
-    .getLogger(Database.class));
+	/** {@link LogWrapper} reference. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(Database.class));
 
-  /** Central repository of all running databases. */
-  private static final ConcurrentMap<File, Database> DATABASEMAP =
-    new ConcurrentHashMap<>();
+	/** Central repository of all running databases. */
+	private static final ConcurrentMap<File, Database> DATABASEMAP = new ConcurrentHashMap<>();
 
-  /** Central repository of all running sessions. */
-  private final ConcurrentMap<File, Session> mSessions;
+	/** Central repository of all running sessions. */
+	private final ConcurrentMap<File, Session> mSessions;
 
-  /** DatabaseConfiguration with fixed settings. */
-  private final DatabaseConfiguration mDBConfig;
+	/** DatabaseConfiguration with fixed settings. */
+	private final DatabaseConfiguration mDBConfig;
 
-  /**
-   * Private constructor.
-   * 
-   * @param pDBConf
-   *          {@link ResourceConfiguration} reference to configure the {@link IDatabase}
-   * @throws AbsTTException
-   *           if something weird happens
-   */
-  private Database(@Nonnull final DatabaseConfiguration pDBConf)
-    throws AbsTTException {
-    mDBConfig = checkNotNull(pDBConf);
-    mSessions = new ConcurrentHashMap<>();
-  }
+	/**
+	 * Private constructor.
+	 * 
+	 * @param pDBConf
+	 *          {@link ResourceConfiguration} reference to configure the
+	 *          {@link IDatabase}
+	 * @throws AbsTTException
+	 *           if something weird happens
+	 */
+	private Database(final @Nonnull DatabaseConfiguration pDBConf)
+			throws AbsTTException {
+		mDBConfig = checkNotNull(pDBConf);
+		mSessions = new ConcurrentHashMap<>();
+	}
 
-  // //////////////////////////////////////////////////////////
-  // START Creation/Deletion of Databases /////////////////////
-  // //////////////////////////////////////////////////////////
-  /**
-   * Creating a database. This includes loading the database configuration,
-   * building up the structure and preparing everything for login.
-   * 
-   * @param pDBConfig
-   *          config which is used for the database, including storage location
-   * @return true if creation is valid, false otherwise
-   * @throws TTIOException
-   *           if something odd happens within the creation process.
-   */
-  public static synchronized boolean createDatabase(
-    @Nonnull final DatabaseConfiguration pDBConfig) throws TTIOException {
-    boolean returnVal = true;
-    // if file is existing, skipping
-    if (pDBConfig.getFile().exists()) {
-      return false;
-    } else {
-      returnVal = pDBConfig.getFile().mkdirs();
-      if (returnVal) {
-        // creation of folder structure
-        for (DatabaseConfiguration.Paths paths : DatabaseConfiguration.Paths
-          .values()) {
-          final File toCreate =
-            new File(pDBConfig.getFile().getAbsoluteFile(), paths.getFile()
-              .getName());
-          if (paths.isFolder()) {
-            returnVal = toCreate.mkdir();
-          } else {
-            try {
-              returnVal = toCreate.createNewFile();
-            } catch (final IOException exc) {
-              throw new TTIOException(exc);
-            }
-          }
-          if (!returnVal) {
-            break;
-          }
-        }
-      }
-      // serialization of the config
-      DatabaseConfiguration.serialize(pDBConfig);
+	// //////////////////////////////////////////////////////////
+	// START Creation/Deletion of Databases /////////////////////
+	// //////////////////////////////////////////////////////////
+	/**
+	 * Creating a database. This includes loading the database configuration,
+	 * building up the structure and preparing everything for login.
+	 * 
+	 * @param pDBConfig
+	 *          config which is used for the database, including storage location
+	 * @return true if creation is valid, false otherwise
+	 * @throws TTIOException
+	 *           if something odd happens within the creation process.
+	 */
+	public static synchronized boolean createDatabase(
+			final @Nonnull DatabaseConfiguration pDBConfig) throws TTIOException {
+		boolean returnVal = true;
+		// if file is existing, skipping
+		if (pDBConfig.getFile().exists()) {
+			return false;
+		} else {
+			returnVal = pDBConfig.getFile().mkdirs();
+			if (returnVal) {
+				// creation of folder structure
+				for (DatabaseConfiguration.Paths paths : DatabaseConfiguration.Paths
+						.values()) {
+					final File toCreate = new File(pDBConfig.getFile(), paths.getFile()
+							.getName());
+					if (paths.isFolder()) {
+						returnVal = toCreate.mkdir();
+					} else {
+						try {
+							returnVal = toCreate.getName().equals(
+									DatabaseConfiguration.Paths.LOCK.getFile().getName()) ? true
+									: toCreate.createNewFile();
+						} catch (final IOException exc) {
+							throw new TTIOException(exc);
+						}
+					}
+					if (!returnVal) {
+						break;
+					}
+				}
+			}
+			// serialization of the config
+			DatabaseConfiguration.serialize(pDBConfig);
 
-      // if something was not correct, delete the partly created
-      // substructure
-      if (!returnVal) {
-        pDBConfig.getFile().delete();
-      }
-      return returnVal;
-    }
-  }
+			// if something was not correct, delete the partly created
+			// substructure
+			if (!returnVal) {
+				pDBConfig.getFile().delete();
+			}
+			return returnVal;
+		}
+	}
 
-  /**
-   * Truncate a database. This deletes all relevant data. All running sessions
-   * must be closed beforehand.
-   * 
-   * @param pConf
-   *          the database at this path should be deleted.
-   * @throws AbsTTException
-   *           if Sirix fails to delete the database
-   */
-  public static synchronized void truncateDatabase(
-    @Nonnull final DatabaseConfiguration pConf) throws AbsTTException {
-    // check that database must be closed beforehand
-    if (!DATABASEMAP.containsKey(pConf.getFile())) {
-      // if file is existing and folder is a tt-dataplace, delete it
-      if (pConf.getFile().exists()) {
-        // && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
-        // instantiate the database for deletion
-        Files.recursiveRemove(pConf.getFile().toPath());
-      }
-    }
-  }
+	/**
+	 * Truncate a database. This deletes all relevant data. All running sessions
+	 * must be closed beforehand.
+	 * 
+	 * @param pConf
+	 *          the database at this path should be deleted.
+	 * @throws AbsTTException
+	 *           if Sirix fails to delete the database
+	 */
+	public static synchronized void truncateDatabase(
+			final @Nonnull DatabaseConfiguration pConf) throws TTIOException {
+		// check that database must be closed beforehand
+		if (!DATABASEMAP.containsKey(pConf.getFile())) {
+			// if file is existing and folder is a tt-dataplace, delete it
+			if (pConf.getFile().exists()) {
+				// && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) ==
+				// 0) {
+				// instantiate the database for deletion
+				Files.recursiveRemove(pConf.getFile().toPath());
+			}
+		}
+	}
 
-  // //////////////////////////////////////////////////////////
-  // END Creation/Deletion of Databases ///////////////////////
-  // //////////////////////////////////////////////////////////
+	// //////////////////////////////////////////////////////////
+	// END Creation/Deletion of Databases ///////////////////////
+	// //////////////////////////////////////////////////////////
 
-  // //////////////////////////////////////////////////////////
-  // START Creation/Deletion of Resources /////////////////////
-  // //////////////////////////////////////////////////////////
+	// //////////////////////////////////////////////////////////
+	// START Creation/Deletion of Resources /////////////////////
+	// //////////////////////////////////////////////////////////
 
-  @Override
-  public synchronized boolean createResource(
-    @Nonnull final ResourceConfiguration pResConf) throws TTIOException {
-    boolean returnVal = true;
-    // Setting the missing parameters in the settings, this overrides already
-    // set data.
-    final File path =
-      new File(new File(mDBConfig.getFile().getAbsoluteFile(),
-        DatabaseConfiguration.Paths.Data.getFile().getName()), pResConf.mPath
-        .getName());
-    // If file is existing, skip.
-    if (path.exists()) {
-      return false;
-    } else {
-      returnVal = path.mkdir();
-      if (returnVal) {
-        // Creation of the folder structure.
-        for (final ResourceConfiguration.Paths paths : ResourceConfiguration.Paths
-          .values()) {
-          final File toCreate = new File(path, paths.getFile().getName());
-          if (paths.isFolder()) {
-            returnVal = toCreate.mkdir();
-          } else {
-            try {
-              returnVal = toCreate.createNewFile();
-            } catch (final IOException exc) {
-              throw new TTIOException(exc);
-            }
-          }
-          if (!returnVal) {
-            break;
-          }
-        }
-      }
-      // Serialization of the config.
-      ResourceConfiguration.serialize(pResConf);
+	@Override
+	public synchronized boolean createResource(
+			final @Nonnull ResourceConfiguration pResConf) throws TTIOException {
+		boolean returnVal = true;
+		// Setting the missing parameters in the settings, this overrides already
+		// set data.
+		final File path = new File(new File(mDBConfig.getFile().getAbsoluteFile(),
+				DatabaseConfiguration.Paths.Data.getFile().getName()),
+				pResConf.mPath.getName());
+		// If file is existing, skip.
+		if (path.exists()) {
+			return false;
+		} else {
+			returnVal = path.mkdir();
+			if (returnVal) {
+				// Creation of the folder structure.
+				for (final ResourceConfiguration.Paths paths : ResourceConfiguration.Paths
+						.values()) {
+					final File toCreate = new File(path, paths.getFile().getName());
+					if (paths.isFolder()) {
+						returnVal = toCreate.mkdir();
+					} else {
+						try {
+							returnVal = toCreate.createNewFile();
+						} catch (final IOException exc) {
+							throw new TTIOException(exc);
+						}
+					}
+					if (!returnVal) {
+						break;
+					}
+				}
+			}
+			// Serialization of the config.
+			ResourceConfiguration.serialize(pResConf);
 
-      // If something was not correct, delete the partly created
-      // substructure.
-      if (!returnVal) {
-        pResConf.mPath.delete();
-      }
-      return returnVal;
-    }
-  }
+			// If something was not correct, delete the partly created
+			// substructure.
+			if (!returnVal) {
+				pResConf.mPath.delete();
+			}
+			return returnVal;
+		}
+	}
 
-  @Override
-  public synchronized void truncateResource(
-    @Nonnull final ResourceConfiguration pResConf) {
-    final File resourceFile =
-      new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
-        .getFile().getName()), pResConf.mPath.getName());
-    // Check that database must be closed beforehand.
-    if (!mSessions.containsKey(resourceFile)) {
-      // If file is existing and folder is a tt-dataplace, delete it.
-      if (resourceFile.exists()
-        && ResourceConfiguration.Paths.compareStructure(resourceFile) == 0) {
-        // Instantiate the database for deletion.
-        try {
-          Files.recursiveRemove(resourceFile.toPath());
-        } catch (final TTIOException e) {
-          LOGWRAPPER.error(e.getMessage(), e);
-        }
-      }
-    }
-  }
+	@Override
+	public synchronized void truncateResource(
+			final @Nonnull ResourceConfiguration pResConf) {
+		final File resourceFile = new File(new File(mDBConfig.getFile(),
+				DatabaseConfiguration.Paths.Data.getFile().getName()),
+				pResConf.mPath.getName());
+		// Check that database must be closed beforehand.
+		if (!mSessions.containsKey(resourceFile)) {
+			// If file is existing and folder is a tt-dataplace, delete it.
+			if (resourceFile.exists()
+					&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0) {
+				// Instantiate the database for deletion.
+				try {
+					Files.recursiveRemove(resourceFile.toPath());
+				} catch (final TTIOException e) {
+					LOGWRAPPER.error(e.getMessage(), e);
+				}
+			}
+		}
+	}
 
-  // //////////////////////////////////////////////////////////
-  // END Creation/Deletion of Resources ///////////////////////
-  // //////////////////////////////////////////////////////////
+	// //////////////////////////////////////////////////////////
+	// END Creation/Deletion of Resources ///////////////////////
+	// //////////////////////////////////////////////////////////
 
-  // //////////////////////////////////////////////////////////
-  // START Opening of Databases ///////////////////////
-  // //////////////////////////////////////////////////////////
-  /**
-   * Open database. A database can be opened only once. Afterwards a
-   * singleton instance bound to the {@link File} is returned.
-   * 
-   * @param pFile
-   *          determines where the database is located sessionConf a {@link SessionConfiguration} object to
-   *          set up the session
-   * @return {@link IDatabase} instance.
-   * @throws AbsTTException
-   *           if something odd happens
-   * @throws NullPointerException
-   *           if {@code pFile} is {@code null}
-   */
-  public static synchronized IDatabase openDatabase(final @Nonnull File pFile)
-    throws AbsTTException {
-    if (!pFile.exists()) {
-      throw new TTUsageException(
-        "DB could not be opened (since it was not created?) at location", pFile
-          .toString());
-    }
-    final DatabaseConfiguration config =
-      DatabaseConfiguration.deserialize(pFile);
-    if (config == null) {
-      throw new IllegalStateException("Configuration may not be null!");
-    }
-    final Database database = new Database(config);
-    final IDatabase returnVal = DATABASEMAP.putIfAbsent(pFile, database);
-    if (returnVal == null) {
-      return database;
-    } else {
-      return returnVal;
-    }
-  }
+	// //////////////////////////////////////////////////////////
+	// START Opening of Databases ///////////////////////
+	// //////////////////////////////////////////////////////////
+	/**
+	 * Open database. A database can be opened only once (even across JVMs).
+	 * Afterwards a singleton instance bound to the {@link File} is returned.
+	 * 
+	 * @param pFile
+	 *          determines where the database is located sessionConf a
+	 *          {@link SessionConfiguration} object to set up the session
+	 * @return {@link IDatabase} instance.
+	 * @throws AbsTTException
+	 *           if something odd happens
+	 * @throws NullPointerException
+	 *           if {@code pFile} is {@code null}
+	 */
+	public static synchronized IDatabase openDatabase(final @Nonnull File pFile)
+			throws AbsTTException {
+		if (!pFile.exists()) {
+			throw new TTUsageException(
+					"DB could not be opened (since it was not created?) at location",
+					pFile.toString());
+		}
+		final DatabaseConfiguration config = DatabaseConfiguration
+				.deserialize(pFile);
+		if (config == null) {
+			throw new IllegalStateException("Configuration may not be null!");
+		}
+		final File lock = new File(pFile, DatabaseConfiguration.Paths.LOCK
+				.getFile().getName());
+		final Database database = new Database(config);
+		if (lock.exists() && DATABASEMAP.get(pFile) == null) {
+			throw new TTUsageException(
+					"DB could not be opened (since it is in use by another JVM)",
+					pFile.toString());
+		} else {
+			try {
+				lock.createNewFile();
+			} catch (final IOException e) {
+				throw new TTIOException(e.getCause());
+			}
+		}
+		final IDatabase returnVal = DATABASEMAP.putIfAbsent(pFile, database);
+		if (returnVal == null) {
+			return database;
+		} else {
+			return returnVal;
+		}
+	}
 
-  // //////////////////////////////////////////////////////////
-  // END Opening of Databases ///////////////////////
-  // //////////////////////////////////////////////////////////
+	// //////////////////////////////////////////////////////////
+	// END Opening of Databases ///////////////////////
+	// //////////////////////////////////////////////////////////
 
-  // //////////////////////////////////////////////////////////
-  // START DB-Operations//////////////////////////////////
-  // /////////////////////////////////////////////////////////
+	// //////////////////////////////////////////////////////////
+	// START DB-Operations//////////////////////////////////
+	// /////////////////////////////////////////////////////////
 
-  @Override
-  public synchronized ISession getSession(
-    final @Nonnull SessionConfiguration pSessionConf) throws AbsTTException {
-    final File resourceFile =
-      new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
-        .getFile().getName()), pSessionConf.getResource());
-    Session returnVal = mSessions.get(resourceFile);
+	@Override
+	public synchronized ISession getSession(
+			final @Nonnull SessionConfiguration pSessionConf) throws AbsTTException {
+		final File resourceFile = new File(new File(mDBConfig.getFile(),
+				DatabaseConfiguration.Paths.Data.getFile().getName()),
+				pSessionConf.getResource());
+		Session returnVal = mSessions.get(resourceFile);
 
-    if (returnVal == null) {
-      if (!resourceFile.exists()) {
-        throw new TTUsageException(
-          "Resource could not be opened (since it was not created?) at location",
-          resourceFile.toString());
-      }
-      final ResourceConfiguration config =
-        ResourceConfiguration.deserialize(resourceFile);
+		if (returnVal == null) {
+			if (!resourceFile.exists()) {
+				throw new TTUsageException(
+						"Resource could not be opened (since it was not created?) at location",
+						resourceFile.toString());
+			}
+			final ResourceConfiguration config = ResourceConfiguration
+					.deserialize(resourceFile);
 
-      // Resource of session must be associated to this database
-      assert config.mPath.getParentFile().getParentFile().equals(
-        mDBConfig.getFile());
-      returnVal = new Session(this, config, pSessionConf);
-      mSessions.put(resourceFile, returnVal);
-    }
+			// Resource of session must be associated to this database
+			assert config.mPath.getParentFile().getParentFile()
+					.equals(mDBConfig.getFile());
+			returnVal = new Session(this, config, pSessionConf);
+			mSessions.put(resourceFile, returnVal);
+		}
 
-    return returnVal;
-  }
+		return returnVal;
+	}
 
-  @Override
-  public synchronized void close() throws AbsTTException {
-    for (final ISession session : mSessions.values()) {
-      session.close();
-    }
-    DATABASEMAP.remove(mDBConfig.getFile());
-  }
+	@Override
+	public synchronized void close() throws AbsTTException {
+		// Close all sessions.
+		for (final ISession session : mSessions.values()) {
+			session.close();
+		}
 
-  // //////////////////////////////////////////////////////////
-  // End DB-Operations//////////////////////////////////
-  // /////////////////////////////////////////////////////////
+		// Remove from database mapping.
+		DATABASEMAP.remove(mDBConfig.getFile());
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("dbConfig", mDBConfig).toString();
-  }
+		// Remove lock file.
+		Files.recursiveRemove(new File(mDBConfig.getFile().getAbsoluteFile(),
+				DatabaseConfiguration.Paths.LOCK.getFile().getName()).toPath());
+	}
 
-  /**
-   * Closing a resource. This callback is necessary due to centralized
-   * handling of all sessions within a database.
-   * 
-   * @param pFile
-   *          {@link File} to be closed
-   * @return {@code true} if close successful, {@code false} otherwise
-   */
-  protected boolean removeSession(final @Nonnull File pFile) {
-    return mSessions.remove(pFile) == null ? false : true;
-  }
+	// //////////////////////////////////////////////////////////
+	// End DB-Operations//////////////////////////////////
+	// /////////////////////////////////////////////////////////
 
-  @Override
-  public DatabaseConfiguration getDatabaseConfig() {
-    return mDBConfig;
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("dbConfig", mDBConfig).toString();
+	}
+	
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mDBConfig);
+	}
+	
+	@Override
+	public boolean equals(final @Nullable Object pObj) {
+		if (pObj instanceof Database) {
+			final Database other = (Database) pObj;
+			return other.mDBConfig.equals(mDBConfig);
+		}
+		return false;
+	}
 
-  @Override
-  public boolean existsResource(final @Nonnull String pResourceName) {
-    final File resourceFile =
-      new File(new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
-        .getFile().getName()), pResourceName);
-    // if file is existing and folder is a tt-dataplace, delete it
-    if (resourceFile.exists()
-      && DatabaseConfiguration.Paths.compareStructure(resourceFile) == 0) {
-      return true;
-    } else {
-      return false;
-    }
-  }
+	/**
+	 * Closing a resource. This callback is necessary due to centralized handling
+	 * of all sessions within a database.
+	 * 
+	 * @param pFile
+	 *          {@link File} to be closed
+	 * @return {@code true} if close successful, {@code false} otherwise
+	 */
+	protected boolean removeSession(final @Nonnull File pFile) {
+		return mSessions.remove(pFile) == null ? false : true;
+	}
 
-  @Override
-  public String[] listResources() {
-    return DatabaseConfiguration.Paths.Data.getFile().list();
-  }
+	@Override
+	public DatabaseConfiguration getDatabaseConfig() {
+		return mDBConfig;
+	}
+
+	/**
+	 * Determines if a database already exists.
+	 * 
+	 * @param pConfiguration
+	 *          database configuration
+	 * @return {@code true}, if database exists, {@code false} otherwise
+	 */
+	public synchronized static boolean existsDatabase(
+			final @Nonnull DatabaseConfiguration pConfiguration) {
+		boolean retVal = pConfiguration.getFile().exists() ? true : false;
+		if (retVal
+				&& DatabaseConfiguration.Paths.compareStructure(pConfiguration
+						.getFile()) == 0) {
+			retVal = true;
+		}
+		return retVal;
+	}
+
+	@Override
+	public synchronized boolean existsResource(final @Nonnull String pResourceName) {
+		final File resourceFile = new File(new File(mDBConfig.getFile(),
+				DatabaseConfiguration.Paths.Data.getFile().getName()), pResourceName);
+		boolean retVal = resourceFile.exists() ? true : false;
+		// if file is existing and folder is a tt-dataplace
+		return retVal
+				&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0 ? true
+				: false;
+	}
+
+	@Override
+	public String[] listResources() {
+		return DatabaseConfiguration.Paths.Data.getFile().list();
+	}
 }

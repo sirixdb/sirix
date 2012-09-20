@@ -7,6 +7,7 @@ import javax.annotation.Nullable;
 
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 
 /**
  * Skeletal implementation of {@link INode} interface.
@@ -14,77 +15,78 @@ import org.sirix.node.interfaces.INode;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbsForwardingNode extends ForwardingObject implements INode {
+public abstract class AbsForwardingNode extends ForwardingObject implements
+		INode {
 
-  /** Constructor for use by subclasses. */
-  protected AbsForwardingNode() {
-  }
+	/** Constructor for use by subclasses. */
+	protected AbsForwardingNode() {
+	}
 
-  @Override
-  protected abstract NodeDelegate delegate();
-  
-  /**
-   * Get a snapshot of the node delegate.
-   * 
-   * @return new {@link NodeDelegate} instance (snapshot of the current one)
-   */
-  @Nonnull
-  public NodeDelegate getNodeDelegate() {
-    return new NodeDelegate(delegate());
-  }
+	@Override
+	protected abstract NodeDelegate delegate();
 
-  @Override
-  public int getTypeKey() {
-    return delegate().getTypeKey();
-  }
+	/**
+	 * Get a snapshot of the node delegate.
+	 * 
+	 * @return new {@link NodeDelegate} instance (snapshot of the current one)
+	 */
+	@Nonnull
+	public NodeDelegate getNodeDelegate() {
+		return new NodeDelegate(delegate());
+	}
 
-  @Override
-  public void setTypeKey(final int pTypeKey) {
-    delegate().setTypeKey(pTypeKey);
-  }
+	@Override
+	public int getTypeKey() {
+		return delegate().getTypeKey();
+	}
 
-  @Override
-  public boolean hasParent() {
-    return delegate().hasParent();
-  }
+	@Override
+	public void setTypeKey(final int pTypeKey) {
+		delegate().setTypeKey(pTypeKey);
+	}
 
-  @Override
-  public long getNodeKey() {
-    return delegate().getNodeKey();
-  }
+	@Override
+	public boolean hasParent() {
+		return delegate().hasParent();
+	}
 
-  @Override
-  public long getParentKey() {
-    return delegate().getParentKey();
-  }
+	@Override
+	public long getNodeKey() {
+		return delegate().getNodeKey();
+	}
 
-  @Override
-  public void setParentKey(final long pParentKey) {
-    delegate().setParentKey(pParentKey);
-  }
+	@Override
+	public long getParentKey() {
+		return delegate().getParentKey();
+	}
 
-  @Override
-  public long getHash() {
-    return delegate().getHash();
-  }
+	@Override
+	public void setParentKey(final long pParentKey) {
+		delegate().setParentKey(pParentKey);
+	}
 
-  @Override
-  public void setHash(final long pHash) {
-    delegate().setHash(pHash);
-  }
-  
-  @Override
-  public long getRevision() {
-  	return delegate().getRevision();
-  }
+	@Override
+	public long getHash() {
+		return delegate().getHash();
+	}
 
-  @Override
-  public String toString() {
-    return delegate().toString();
-  }
-  
-  @Override
-  public boolean isSameItem(@Nullable final INode pOther) {
-    return delegate().isSameItem(pOther);
-  }
+	@Override
+	public void setHash(final long pHash) {
+		delegate().setHash(pHash);
+	}
+
+	@Override
+	public long getRevision() {
+		return delegate().getRevision();
+	}
+
+	@Override
+	public String toString() {
+		return delegate().toString();
+	}
+
+	@Override
+	public boolean isSameItem(final @Nullable INode pOther) {
+		return delegate().isSameItem(pOther);
+	}
 }

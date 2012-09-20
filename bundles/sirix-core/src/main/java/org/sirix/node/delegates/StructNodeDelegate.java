@@ -40,6 +40,7 @@ import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.INodeBase;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.settings.EFixed;
 

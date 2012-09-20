@@ -98,7 +98,7 @@ public final class ResourceConfiguration {
 		 * @param pIsFolder
 		 *          to be set.
 		 */
-		private Paths(@Nonnull final File pFile, final boolean pIsFolder) {
+		private Paths(final @Nonnull File pFile, final boolean pIsFolder) {
 			mFile = checkNotNull(pFile);
 			mIsFolder = checkNotNull(pIsFolder);
 		}
@@ -437,10 +437,10 @@ public final class ResourceConfiguration {
 		/** Number of revisions to restore a complete set of data. */
 		private int mRevisionsToRestore = VERSIONSTORESTORE;
 
-		/** Resource for the this session. */
+		/** Resource for this session. */
 		private final String mResource;
 
-		/** Resource for the this session. */
+		/** Resource for this session. */
 		private final DatabaseConfiguration mDBConfig;
 
 		/** Determines if text-compression should be used or not (default is true). */
@@ -461,8 +461,8 @@ public final class ResourceConfiguration {
 		 * @param pConfig
 		 *          the related {@link DatabaseConfiguration}, must to be set.
 		 */
-		public Builder(@Nonnull final String pResource,
-				@Nonnull final DatabaseConfiguration pConfig) {
+		public Builder(final @Nonnull String pResource,
+				final @Nonnull DatabaseConfiguration pConfig) {
 			mResource = checkNotNull(pResource);
 			mDBConfig = checkNotNull(pConfig);
 		}
@@ -474,7 +474,7 @@ public final class ResourceConfiguration {
 		 *          storage type to use
 		 * @return reference to the builder object
 		 */
-		public Builder setType(@Nonnull final EStorage pType) {
+		public Builder setType(final @Nonnull EStorage pType) {
 			mType = checkNotNull(pType);
 			return this;
 		}
@@ -486,7 +486,7 @@ public final class ResourceConfiguration {
 		 *          indexes to use
 		 * @return reference to the builder object
 		 */
-		public Builder setIndexes(@Nonnull final Set<EIndexes> pIndexes) {
+		public Builder setIndexes(final @Nonnull Set<EIndexes> pIndexes) {
 			mIndexes = checkNotNull(pIndexes);
 			return this;
 		}
@@ -498,7 +498,7 @@ public final class ResourceConfiguration {
 		 *          revisioning algorithm to use
 		 * @return reference to the builder object
 		 */
-		public Builder setRevisionKind(@Nonnull final ERevisioning pRevKind) {
+		public Builder setRevisionKind(final @Nonnull ERevisioning pRevKind) {
 			mRevisionKind = checkNotNull(pRevKind);
 			return this;
 		}
@@ -510,7 +510,7 @@ public final class ResourceConfiguration {
 		 *          hash kind to use
 		 * @return reference to the builder object
 		 */
-		public Builder setHashKind(@Nonnull final EHashKind pHash) {
+		public Builder setHashKind(final @Nonnull EHashKind pHash) {
 			mHashKind = checkNotNull(pHash);
 			return this;
 		}

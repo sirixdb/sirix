@@ -30,6 +30,7 @@ import org.sirix.exception.AbsTTException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.EShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
@@ -279,7 +280,7 @@ public final class FMSETest extends XMLTestCase {
           try (final INodeWriteTrx wtx = session.beginNodeWriteTrx()) {
             final XMLShredder shredder =
               new XMLShredder(wtx, XMLShredder.createFileReader(file),
-                EInsert.ASFIRSTCHILD);
+                EInsert.ASFIRSTCHILD, EShredderCommit.COMMIT);
             shredder.call();
           }
         } else {

@@ -16,7 +16,7 @@ import org.sirix.node.interfaces.INodeBase;
  * @author Johannes Lichtenberger
  * 
  */
-public class TextValue implements Comparable<TextValue>, INodeBase {
+public class TextValue implements Comparable<INodeBase>, INodeBase {
 	/** Value in bytes. */
 	private final byte[] mValue;
 
@@ -54,8 +54,9 @@ public class TextValue implements Comparable<TextValue>, INodeBase {
 	}
 
 	@Override
-	public int compareTo(final @Nullable TextValue pOther) {
-		return mValue.toString().compareTo(pOther.mValue.toString());
+	public int compareTo(final @Nullable INodeBase pOther) {
+		final TextValue value = (TextValue) pOther;
+		return mValue.toString().compareTo(value.toString());
 	}
 
 	@Override

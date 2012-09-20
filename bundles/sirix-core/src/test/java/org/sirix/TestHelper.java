@@ -155,8 +155,8 @@ public final class TestHelper {
 						config).build());
 				INSTANCES.put(file, database);
 				return database;
-			} catch (final AbsTTException exc) {
-				fail(exc.toString());
+			} catch (final AbsTTException e) {
+				fail(e.toString());
 				return null;
 			}
 		}
