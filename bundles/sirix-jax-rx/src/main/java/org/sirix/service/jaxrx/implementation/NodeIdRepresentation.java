@@ -43,7 +43,7 @@ import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.service.jaxrx.enums.EIdAccessType;
 import org.sirix.service.jaxrx.util.RestXPathProcessor;
@@ -200,7 +200,7 @@ public class NodeIdRepresentation {
                 final RestXPathProcessor xpathProcessor = new RestXPathProcessor(mStoragePath);
                 try {
                     xpathProcessor.getXpathResource(dbFile, nodeId, query, nodeid, rev, output, wrapResult);
-                } catch (final AbsTTException exce) {
+                } catch (final SirixException exce) {
                     throw new JaxRxException(exce);
                 }
             }
@@ -241,13 +241,13 @@ public class NodeIdRepresentation {
                         // workerHelper.closeWTX(abort, wtx, session, database);
                         throw new JaxRxException(404, NOTFOUND);
                     }
-                } catch (final AbsTTException exce) {
+                } catch (final SirixException exce) {
                     abort = true;
                     throw new JaxRxException(exce);
                 } finally {
                     try {
                         WorkerHelper.closeWTX(abort, wtx, session, database);
-                    } catch (final AbsTTException exce) {
+                    } catch (final SirixException exce) {
                         throw new JaxRxException(exce);
                     }
                 }
@@ -296,13 +296,13 @@ public class NodeIdRepresentation {
                         throw new JaxRxException(404, NOTFOUND);
                     }
 
-                } catch (final AbsTTException exc) {
+                } catch (final SirixException exc) {
                     abort = true;
                     throw new JaxRxException(exc);
                 } finally {
                     try {
                         WorkerHelper.closeWTX(abort, wtx, session, database);
-                    } catch (final AbsTTException exce) {
+                    } catch (final SirixException exce) {
                         throw new JaxRxException(exce);
                     }
                 }
@@ -386,7 +386,7 @@ public class NodeIdRepresentation {
                 } finally {
                     try {
                         WorkerHelper.closeWTX(abort, wtx, session, database);
-                    } catch (final AbsTTException exce) {
+                    } catch (final SirixException exce) {
                         throw new JaxRxException(exce);
                     }
                 }
@@ -442,7 +442,7 @@ public class NodeIdRepresentation {
                     serializer.call();
 
                 }
-            } catch (final AbsTTException ttExcep) {
+            } catch (final SirixException ttExcep) {
                 throw new JaxRxException(ttExcep);
             } catch (final IOException ioExcep) {
                 throw new JaxRxException(ioExcep);
@@ -459,7 +459,7 @@ public class NodeIdRepresentation {
             } finally {
                 try {
                     WorkerHelper.closeRTX(null, session, database);
-                } catch (final AbsTTException exce) {
+                } catch (final SirixException exce) {
                     throw new JaxRxException(exce);
                 }
             }
@@ -562,7 +562,7 @@ public class NodeIdRepresentation {
                 } else {
                     throw new JaxRxException(404, NOTFOUND);
                 }
-            } catch (final AbsTTException ttExcep) {
+            } catch (final SirixException ttExcep) {
                 throw new JaxRxException(ttExcep);
             } catch (final IOException ioExcep) {
                 throw new JaxRxException(ioExcep);
@@ -579,7 +579,7 @@ public class NodeIdRepresentation {
             } finally {
                 try {
                     WorkerHelper.closeRTX(rtx, session, database);
-                } catch (final AbsTTException exce) {
+                } catch (final SirixException exce) {
                     throw new JaxRxException(exce);
                 }
             }

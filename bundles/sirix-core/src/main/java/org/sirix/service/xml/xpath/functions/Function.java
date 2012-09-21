@@ -33,7 +33,7 @@ import java.util.List;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IValNode;
@@ -44,7 +44,7 @@ import org.sirix.service.xml.xpath.types.Type;
 
 public class Function {
 
-  public static boolean ebv(final IAxis axis) throws TTXPathException {
+  public static boolean ebv(final IAxis axis) throws SirixXPathException {
     final FuncDef ebv = FuncDef.BOOLEAN;
     final List<IAxis> param = new ArrayList<IAxis>();
     param.add(axis);
@@ -72,7 +72,7 @@ public class Function {
     return true;
   }
 
-  public static boolean exactlyOne(final INodeReadTrx rtx, final AbsAxis axis) throws TTXPathException {
+  public static boolean exactlyOne(final INodeReadTrx rtx, final AbsAxis axis) throws SirixXPathException {
 
     if (axis.hasNext()) {
       if (axis.hasNext()) {
@@ -121,9 +121,9 @@ public class Function {
    * @param axis
    *          Expression to get the effective boolean value for
    * @return true if sucessfull, false otherwise
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
-  public static boolean fnBoolean(final INodeReadTrx rtx, final AbsAxis axis) throws TTXPathException {
+  public static boolean fnBoolean(final INodeReadTrx rtx, final AbsAxis axis) throws SirixXPathException {
 
     final boolean ebv = ebv(axis);
     final int itemKey = rtx.getItemList().addItem(new AtomicValue(ebv));
@@ -266,7 +266,7 @@ public class Function {
     return new AtomicValue(!Boolean.parseBoolean(new String(mValue.getRawValue())));
   }
 
-  public static boolean oneOrMore(final INodeReadTrx rtx, final AbsAxis axis) throws TTXPathException {
+  public static boolean oneOrMore(final INodeReadTrx rtx, final AbsAxis axis) throws SirixXPathException {
 
     if (!axis.hasNext()) {
       throw EXPathError.FORG0004.getEncapsulatedException();
@@ -308,7 +308,7 @@ public class Function {
     return true;
   }
 
-  public static boolean zeroOrOne(final INodeReadTrx rtx, final AbsAxis axis) throws TTXPathException {
+  public static boolean zeroOrOne(final INodeReadTrx rtx, final AbsAxis axis) throws SirixXPathException {
 
     final boolean result = true;
 

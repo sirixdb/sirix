@@ -38,7 +38,7 @@ import org.jaxrx.JaxRx;
 import org.jaxrx.core.JaxRxException;
 import org.jaxrx.core.QueryParameter;
 import org.jaxrx.core.ResourcePath;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.enums.EIdAccessType;
 import org.sirix.service.jaxrx.util.WorkerHelper;
 
@@ -110,7 +110,7 @@ public final class SirixMediator implements JaxRx {
                     return null;
                 } catch (final NumberFormatException exce) {
                     throw new JaxRxException(400, "False value for REVISION paramter: " + exce.getMessage());
-                } catch (final AbsTTException exce) {
+                } catch (final SirixException exce) {
                     throw new JaxRxException(exce);
                 }
             }

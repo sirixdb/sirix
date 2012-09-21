@@ -47,8 +47,8 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 
 /**
  * Berkeley implementation of a persistent cache. That means that all data is
@@ -106,11 +106,11 @@ public final class BerkeleyPersistenceCache extends
    *          the correct way
    * @param pLogType
    *          type of log to append to the path of the log
-   * @throws AbsTTException
+   * @throws SirixException
    *           if a Sirix operation fails
    */
   public BerkeleyPersistenceCache(final @Nonnull IPageWriteTrx pPageWriteTrx, final @Nonnull File pFile,
-    final @Nonnegative long pRevision, final @Nonnull String pLogType) throws AbsTTException {
+    final @Nonnegative long pRevision, final @Nonnull String pLogType) throws SirixException {
     super(checkNotNull(pFile), pPageWriteTrx, pRevision, pLogType);
     try {
       // Create a new, transactional database environment.
@@ -129,13 +129,13 @@ public final class BerkeleyPersistenceCache extends
       mValueBinding = new PageContainerBinding();
       mEntries = 0;
     } catch (final DatabaseException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
   @Override
   public void putPersistent(@Nonnull final Long pKey,
-    @Nonnull final PageContainer pPage) throws TTIOException {
+    @Nonnull final PageContainer pPage) throws SirixIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
     mEntries++;
@@ -144,7 +144,7 @@ public final class BerkeleyPersistenceCache extends
     try {
       mDatabase.put(null, keyEntry, valueEntry);
     } catch (final DatabaseException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
 
     if (mEntries % FLUSH_AFTER == 0) {
@@ -153,19 +153,19 @@ public final class BerkeleyPersistenceCache extends
   }
 
   @Override
-  public void clearPersistent() throws TTIOException {
+  public void clearPersistent() throws SirixIOException {
     try {
       mDatabase.close();
       mEnv.removeDatabase(null, NAME);
       mEnv.close();
     } catch (final DatabaseException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
   @Override
   public PageContainer getPersistent(@Nonnull final Long pKey)
-    throws TTIOException {
+    throws SirixIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
     mKeyBinding.objectToEntry(checkNotNull(pKey), keyEntry);
@@ -178,7 +178,7 @@ public final class BerkeleyPersistenceCache extends
       }
       return val;
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
   }
 

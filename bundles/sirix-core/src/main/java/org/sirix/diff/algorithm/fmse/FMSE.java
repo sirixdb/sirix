@@ -53,8 +53,8 @@ import org.sirix.axis.LevelOrderAxis.EIncludeNodes;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.axis.VisitorDescendantAxis;
 import org.sirix.diff.algorithm.IImportDiff;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTUsageException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.TextNode;
@@ -185,7 +185,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 
   @Override
   public void diff(final INodeWriteTrx pWtx, final INodeReadTrx pRtx)
-    throws AbsTTException {
+    throws SirixException {
     mWtx = checkNotNull(pWtx);
     mRtx = checkNotNull(pRtx);
     mOldStartKey = mWtx.getNode().getNodeKey();
@@ -208,7 +208,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     firstFMESStep(mWtx, mRtx);
     try {
       secondFMESStep(mWtx, mRtx);
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
   }
@@ -252,7 +252,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    * @param pRtx
    *          {@link INodeReadTrx} implementation reference on new
    *          revision
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything in sirix fails
    */
   private void
@@ -300,7 +300,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
           try {
             mTotalMatching.remove(w);
             pWtx.remove();
-          } catch (final AbsTTException e) {
+          } catch (final SirixException e) {
             LOGWRAPPER.error(e.getMessage(), e);
           }
           w = emitInsert(x, z, -1, pWtx, pRtx);
@@ -328,7 +328,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    */
   private void
     secondFMESStep(final INodeWriteTrx pWtx, final INodeReadTrx pRtx)
-      throws AbsTTException {
+      throws SirixException {
     assert pWtx != null;
     assert pRtx != null;
     pWtx.moveTo(mOldStartKey);
@@ -585,7 +585,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         pWtx.moveTo(pWtx.moveSubtreeToRightSibling(pChild).getNode()
           .getNodeKey());
       }
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
 
@@ -668,7 +668,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         break;
       default:
       }
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
 
@@ -692,7 +692,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    *          {@link INodeReadTrx} implementation reference on new
    *          revision
    * @return inserted {@link INode} implementation reference
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything in sirix fails
    */
   private long emitInsert(final long pChild, final long pParent,
@@ -716,7 +716,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
         try {
           pWtx.insertAttribute(pRtx.getQNameOfCurrentNode(), pRtx
             .getValueOfCurrentNode());
-        } catch (final TTUsageException e) {
+        } catch (final SirixUsageException e) {
           mTotalMatching.remove(pWtx.getNode().getNodeKey());
           pWtx.setValue(pRtx.getValueOfCurrentNode());
         }
@@ -729,7 +729,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
             .insertNamespace(new QName(pRtx.getQNameOfCurrentNode()
               .getNamespaceURI(), "", pRtx.getQNameOfCurrentNode()
               .getLocalPart()));
-        } catch (final TTUsageException e) {
+        } catch (final SirixUsageException e) {
           mTotalMatching.remove(pWtx.getNode().getNodeKey());
         }
         process(pWtx.getNode().getNodeKey(), pRtx.getNode().getNodeKey());
@@ -845,7 +845,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
           newAxis.getTransaction().moveTo(newNodeKey);
         }
       }
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
 
@@ -857,11 +857,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    * 
    * @param pWtx
    *          sirix {@link INodeWriteTrx}
-   * @throws AbsTTException
+   * @throws SirixException
    *           if removing of node in the storage fails
    */
   private void removeRightSiblingTextNode(final INodeWriteTrx pWtx)
-    throws AbsTTException {
+    throws SirixException {
     assert pWtx != null;
     if (pWtx.getStructuralNode().hasRightSibling()) {
       final long nodeKey = pWtx.getNode().getNodeKey();
@@ -1001,7 +1001,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    *          {@link INodeReadTrx} implementation reference on new
    *          revision
    * @return {@link Matching} reference with matched nodes
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything in sirix fails
    */
   private Matching fastMatch(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
@@ -1134,7 +1134,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
    *          revision
    * @param pVisitor
    *          {@link IVisitor} reference
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything in sirix fails
    */
   private void init(final INodeReadTrx pRtx, final IVisitor pVisitor) {
@@ -1447,7 +1447,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
   }
 
   @Override
-  public void close() throws AbsTTException {
+  public void close() throws SirixException {
     mWtx.commit();
   }
 }

@@ -31,7 +31,7 @@ import java.util.List;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.expr.AbsExpression;
@@ -101,11 +101,11 @@ public abstract class AbsFunction extends AbsExpression {
    *          max number of allowed function arguments
    * @param returnType
    *          the type that the function's result will have
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if the verify process is failing.
    */
   public AbsFunction(final INodeReadTrx rtx, final List<IAxis> args, final int min, final int max,
-    final int returnType) throws TTXPathException {
+    final int returnType) throws SirixXPathException {
 
     super(rtx);
     mArgs = args;
@@ -124,10 +124,10 @@ public abstract class AbsFunction extends AbsExpression {
    * 
    * @param mNumber
    *          number of given function arguments
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if function call fails.
    */
-  public final void varifyParam(final int mNumber) throws TTXPathException {
+  public final void varifyParam(final int mNumber) throws SirixXPathException {
 
     if (mNumber < mMin || mNumber > mMax) {
       throw EXPathError.XPST0017.getEncapsulatedException();
@@ -152,7 +152,7 @@ public abstract class AbsFunction extends AbsExpression {
    * {@inheritDoc}
    */
   @Override
-  public void evaluate() throws TTXPathException {
+  public void evaluate() throws SirixXPathException {
 
     // compute the function's result
     final byte[] value = computeResult();
@@ -169,10 +169,10 @@ public abstract class AbsFunction extends AbsExpression {
    * classes, otherwise an exception is thrown.
    * 
    * @return value of the result
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if anythin odd happens while execution
    */
-  protected abstract byte[] computeResult() throws TTXPathException;
+  protected abstract byte[] computeResult() throws SirixXPathException;
 
   /**
    * @return the list of function arguments

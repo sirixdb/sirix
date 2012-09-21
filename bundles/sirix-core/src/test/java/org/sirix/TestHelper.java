@@ -50,7 +50,7 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.DocumentRootNode;
@@ -155,7 +155,7 @@ public final class TestHelper {
 						config).build());
 				INSTANCES.put(file, database);
 				return database;
-			} catch (final AbsTTException e) {
+			} catch (final SirixException e) {
 				fail(e.toString());
 				return null;
 			}
@@ -165,10 +165,10 @@ public final class TestHelper {
 	/**
 	 * Deleting all resources as defined in the enum {@link PATHS}.
 	 * 
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 */
 	@Ignore
-	public static final void deleteEverything() throws AbsTTException {
+	public static final void deleteEverything() throws SirixException {
 		closeEverything();
 		Database.truncateDatabase(PATHS.PATH1.config);
 		Database.truncateDatabase(PATHS.PATH2.config);
@@ -177,10 +177,10 @@ public final class TestHelper {
 	/**
 	 * Closing all resources as defined in the enum {@link PATHS}.
 	 * 
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 */
 	@Ignore
-	public static final void closeEverything() throws AbsTTException {
+	public static final void closeEverything() throws SirixException {
 		if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
 			final IDatabase database = INSTANCES.remove(PATHS.PATH1.getFile());
 			database.close();
@@ -294,9 +294,9 @@ public final class TestHelper {
 	/**
 	 * Creating a test document at {@link PATHS#PATH1}.
 	 * 
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 */
-	public static void createTestDocument() throws AbsTTException {
+	public static void createTestDocument() throws SirixException {
 		final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		database.createResource(new ResourceConfiguration.Builder(RESOURCE,
 				PATHS.PATH1.config).build());

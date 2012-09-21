@@ -27,7 +27,7 @@
 
 package org.sirix.api;
 
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 
 public interface IExpression {
 
@@ -35,9 +35,9 @@ public interface IExpression {
    * Performs the expression dependent evaluation of the expression. (Template
    * method)
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if evaluation fails.
    */
-  void evaluate() throws TTXPathException;
+  void evaluate() throws SirixXPathException;
 
 }

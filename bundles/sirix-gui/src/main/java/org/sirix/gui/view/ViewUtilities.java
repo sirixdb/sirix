@@ -39,7 +39,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.ProgressGlassPane;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.model.interfaces.IModel;
@@ -95,10 +95,10 @@ public final class ViewUtilities {
    * @param pDb
    *          {@link ReadDB} instance which has to be closed
    * @return a new {@link ReadDB} instance
-   * @throws AbsTTException
+   * @throws SirixException
    *           if something went wrong while reading the newest revision
    */
-  public static ReadDB refreshResource(@Nonnull final ReadDB pDb) throws AbsTTException {
+  public static ReadDB refreshResource(@Nonnull final ReadDB pDb) throws SirixException {
     final File file = pDb.getDatabase().getDatabaseConfig().getFile();
     if (pDb != null) {
       pDb.close();

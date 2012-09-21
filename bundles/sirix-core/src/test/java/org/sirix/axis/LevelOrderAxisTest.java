@@ -33,7 +33,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.LevelOrderAxis.EIncludeNodes;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * Test {@link LevelOrderAxis}.
@@ -46,20 +46,20 @@ public class LevelOrderAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testAxisConventions() throws AbsTTException {
+  public void testAxisConventions() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(11L);

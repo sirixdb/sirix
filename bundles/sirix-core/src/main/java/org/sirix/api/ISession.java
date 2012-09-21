@@ -33,7 +33,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.index.path.PathSummary;
 
 /**
@@ -42,177 +42,187 @@ import org.sirix.index.path.PathSummary;
  * <h2>Description</h2>
  * 
  * <p>
- * Each <code>IDatabase</code> is bound to multiple instances implementing <code>ISession</code>. Transactions
- * can then be started from this instance. There can only be one <code>IWriteTransaction</code> at the time.
- * However, multiple <code>IReadTransactions</code> can coexist concurrently.
+ * Each <code>IDatabase</code> is bound to multiple instances implementing
+ * <code>ISession</code>. Transactions can then be started from this instance.
+ * There can only be one <code>IWriteTransaction</code> at the time. However,
+ * multiple <code>IReadTransactions</code> can coexist concurrently.
  * </p>
  * 
  */
 public interface ISession extends AutoCloseable {
 
-  /**
-   * Begin a new {@link IPageReadTrx}.
-   * 
-   * @return new {@link IPageReadTrx} instance
-   * @throws AbsTTException
-   *           if Sirix fails to create a new instance
-   */
-  IPageReadTrx beginPageReadTrx() throws AbsTTException;
+	/**
+	 * Get the {@link IDatabase} this session is bound to.
+	 * 
+	 * @return {@link IDatabase} this session is bound to
+	 */
+	IDatabase getDatabase();
 
-  /**
-   * Begin a new {@link IPageReadTrx}.
-   * 
-   * @param pRevision
-   *          revision number
-   * @return new {@link IPageReadTrx} instance
-   * @throws AbsTTException
-   *           if Sirix fails to create a new instance
-   */
-  IPageReadTrx beginPageReadTrx(@Nonnegative long pRevision)
-    throws AbsTTException;
+	/**
+	 * Begin a new {@link IPageReadTrx}.
+	 * 
+	 * @return new {@link IPageReadTrx} instance
+	 * @throws SirixException
+	 *           if Sirix fails to create a new instance
+	 */
+	IPageReadTrx beginPageReadTrx() throws SirixException;
 
-  /**
-   * Begin a new {@link IPageWriteTrx}.
-   * 
-   * @param pRevision
-   *          revision number
-   * @return new {@link IPageWriteTrx} instance
-   * @throws AbsTTException
-   *           if Sirix fails to create a new instance
-   */
-  IPageWriteTrx beginPageWriteTrx() throws AbsTTException;
+	/**
+	 * Begin a new {@link IPageReadTrx}.
+	 * 
+	 * @param pRevision
+	 *          revision number
+	 * @return new {@link IPageReadTrx} instance
+	 * @throws SirixException
+	 *           if Sirix fails to create a new instance
+	 */
+	IPageReadTrx beginPageReadTrx(@Nonnegative long pRevision)
+			throws SirixException;
 
-  /**
-   * Begin a new {@link IPageWriteTrx}.
-   * 
-   * @param pRevision
-   *          revision number
-   * @return new {@link IPageWriteTrx} instance
-   * @throws AbsTTException
-   *           if Sirix fails to create a new instance
-   */
-  IPageWriteTrx beginPageWriteTrx(@Nonnegative long pRevision)
-    throws AbsTTException;
+	/**
+	 * Begin a new {@link IPageWriteTrx}.
+	 * 
+	 * @param pRevision
+	 *          revision number
+	 * @return new {@link IPageWriteTrx} instance
+	 * @throws SirixException
+	 *           if Sirix fails to create a new instance
+	 */
+	IPageWriteTrx beginPageWriteTrx() throws SirixException;
 
-  /**
-   * Begin a read-only transaction on the latest committed revision key.
-   * 
-   * @throws AbsTTException
-   *           if can't begin Read Transaction
-   * @return {@link INodeReadTrx} instance
-   */
-  INodeReadTrx beginNodeReadTrx() throws AbsTTException;
+	/**
+	 * Begin a new {@link IPageWriteTrx}.
+	 * 
+	 * @param pRevision
+	 *          revision number
+	 * @return new {@link IPageWriteTrx} instance
+	 * @throws SirixException
+	 *           if Sirix fails to create a new instance
+	 */
+	IPageWriteTrx beginPageWriteTrx(@Nonnegative long pRevision)
+			throws SirixException;
 
-  /**
-   * Begin a read-only transaction on the given revision key.
-   * 
-   * @param pRev
-   *          revision key to read from
-   * @throws AbsTTException
-   *           if can't begin Read Transaction
-   * @return {@link INodeReadTrx} instance
-   */
-  INodeReadTrx beginNodeReadTrx(@Nonnegative long pRev) throws AbsTTException;
+	/**
+	 * Begin a read-only transaction on the latest committed revision key.
+	 * 
+	 * @throws SirixException
+	 *           if can't begin Read Transaction
+	 * @return {@link INodeReadTrx} instance
+	 */
+	INodeReadTrx beginNodeReadTrx() throws SirixException;
 
-  /**
-   * Begin exclusive read/write transaction without auto commit.
-   * 
-   * @throws AbsTTException
-   *           if can't begin Write Transaction
-   * @return {@link INodeWriteTrx} instance
-   */
-  INodeWriteTrx beginNodeWriteTrx() throws AbsTTException;
+	/**
+	 * Begin a read-only transaction on the given revision key.
+	 * 
+	 * @param pRev
+	 *          revision key to read from
+	 * @throws SirixException
+	 *           if can't begin Read Transaction
+	 * @return {@link INodeReadTrx} instance
+	 */
+	INodeReadTrx beginNodeReadTrx(@Nonnegative long pRev) throws SirixException;
 
-  /**
-   * Open the path summary to allow iteration (basically implementation of {@link INodeReadTrx}.
-   * 
-   * @param pRev
-   *          revision key to read from
-   * @return {@link PathSummary} instance
-   * @throws AbsTTException
-   *           if can't open path summary
-   */
-  PathSummary openPathSummary(@Nonnegative long pRev) throws AbsTTException;
+	/**
+	 * Begin exclusive read/write transaction without auto commit.
+	 * 
+	 * @throws SirixException
+	 *           if can't begin Write Transaction
+	 * @return {@link INodeWriteTrx} instance
+	 */
+	INodeWriteTrx beginNodeWriteTrx() throws SirixException;
 
-  /**
-   * Open the path summary to allow iteration (basically implementation of {@link INodeReadTrx}.
-   * 
-   * @return {@link PathSummary} instance
-   * @throws AbsTTException
-   *           if can't open path summary
-   */
-  PathSummary openPathSummary() throws AbsTTException;
+	/**
+	 * Open the path summary to allow iteration (basically implementation of
+	 * {@link INodeReadTrx}.
+	 * 
+	 * @param pRev
+	 *          revision key to read from
+	 * @return {@link PathSummary} instance
+	 * @throws SirixException
+	 *           if can't open path summary
+	 */
+	PathSummary openPathSummary(@Nonnegative long pRev) throws SirixException;
 
-  /**
-   * Begin exclusive read/write transaction with auto commit.
-   * 
-   * @param pMaxNodes
-   *          count of node modifications after which a commit is issued
-   * @param pTimeUnit
-   *          unit used for time
-   * @param pMaxTime
-   *          time after which a commit is issued
-   * @throws AbsTTException
-   *           if can't begin Write Transaction
-   * @return {@link INodeWriteTrx} instance
-   */
-  INodeWriteTrx beginNodeWriteTrx(@Nonnegative final int pMaxNodes,
-    @Nonnull final TimeUnit pTimeUnit, final int pMaxTime)
-    throws AbsTTException;
+	/**
+	 * Open the path summary to allow iteration (basically implementation of
+	 * {@link INodeReadTrx}.
+	 * 
+	 * @return {@link PathSummary} instance
+	 * @throws SirixException
+	 *           if can't open path summary
+	 */
+	PathSummary openPathSummary() throws SirixException;
 
-  /**
-   * Safely close session and immediately release all resources. If there are
-   * running transactions, they will automatically be closed.
-   * 
-   * This is an idempotent operation and does nothing if the session is
-   * already closed.
-   * 
-   * @throws AbsTTException
-   *           if can't close session
-   */
-  @Override
-  void close() throws AbsTTException;
+	/**
+	 * Begin exclusive read/write transaction with auto commit.
+	 * 
+	 * @param pMaxNodes
+	 *          count of node modifications after which a commit is issued
+	 * @param pTimeUnit
+	 *          unit used for time
+	 * @param pMaxTime
+	 *          time after which a commit is issued
+	 * @throws SirixException
+	 *           if can't begin Write Transaction
+	 * @return {@link INodeWriteTrx} instance
+	 */
+	INodeWriteTrx beginNodeWriteTrx(@Nonnegative final int pMaxNodes,
+			@Nonnull final TimeUnit pTimeUnit, final int pMaxTime)
+			throws SirixException;
 
-  /**
-   * Test if session is closed. Needed for check against database for creation
-   * of a new one.
-   * 
-   * @return if session was closed
-   */
-  boolean isClosed();
+	/**
+	 * Safely close session and immediately release all resources. If there are
+	 * running transactions, they will automatically be closed.
+	 * 
+	 * This is an idempotent operation and does nothing if the session is already
+	 * closed.
+	 * 
+	 * @throws SirixException
+	 *           if can't close session
+	 */
+	@Override
+	void close() throws SirixException;
 
-  /**
-   * Returns user that is bound to the session.
-   * 
-   * @return current session bound user.
-   */
-  String getUser();
+	/**
+	 * Test if session is closed. Needed for check against database for creation
+	 * of a new one.
+	 * 
+	 * @return if session was closed
+	 */
+	boolean isClosed();
 
-  /**
-   * Returns {@link ResourceConfiguration} that is bound to the session.
-   * 
-   * @return {@link ResourceConfiguration} instance bound to session
-   */
-  ResourceConfiguration getResourceConfig();
+	/**
+	 * Returns user that is bound to the session.
+	 * 
+	 * @return current session bound user.
+	 */
+	String getUser();
 
-  /**
-   * Get the latest commited revision number.
-   * 
-   * @return latest commited revision number
-   */
-  long getLastRevisionNumber();
+	/**
+	 * Returns {@link ResourceConfiguration} that is bound to the session.
+	 * 
+	 * @return {@link ResourceConfiguration} instance bound to session
+	 */
+	ResourceConfiguration getResourceConfig();
 
-  /**
-   * Get available number of {@link INodeReadTrx}s.
-   * 
-   * @return available number of {@link INodeReadTrx}s
-   */
-  int getAvailableNodeReadTrx();
+	/**
+	 * Get the latest commited revision number.
+	 * 
+	 * @return latest commited revision number
+	 */
+	long getLastRevisionNumber();
 
-  /**
-   * Get available number of {@link INodeWriteTrx}s.
-   * 
-   * @return available number of {@link INodeWriteTrx}s
-   */
-  int getAvailableNodeWriteTrx();
+	/**
+	 * Get available number of {@link INodeReadTrx}s.
+	 * 
+	 * @return available number of {@link INodeReadTrx}s
+	 */
+	int getAvailableNodeReadTrx();
+
+	/**
+	 * Get available number of {@link INodeWriteTrx}s.
+	 * 
+	 * @return available number of {@link INodeWriteTrx}s
+	 */
+	int getAvailableNodeWriteTrx();
 }

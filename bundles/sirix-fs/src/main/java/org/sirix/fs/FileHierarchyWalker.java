@@ -18,7 +18,7 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * Parses a directory in the file system and creates a sirix {@IDatabase} with an initial
@@ -39,7 +39,7 @@ public class FileHierarchyWalker {
    *          sirix {@IDatabase} to shred into
    * @param pVisitor
    *          an optional visitor
-   * @throws AbsTTException
+   * @throws SirixException
    *           if any sirix operation fails
    * @throws IOException
    *           if an I/O error occurs
@@ -47,7 +47,7 @@ public class FileHierarchyWalker {
    *           if one of the arguments is {@code null}
    */
   public static Map<Path, EPath> parseDir(final Path pPath, final IDatabase pDatabase,
-    Optional<IVisitor<INodeWriteTrx>> pVisitor) throws AbsTTException, IOException {
+    Optional<IVisitor<INodeWriteTrx>> pVisitor) throws SirixException, IOException {
     checkNotNull(pVisitor);
     final Path path = checkNotNull(pPath);
     final ISession session =

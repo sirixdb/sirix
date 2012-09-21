@@ -29,7 +29,7 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -110,7 +110,7 @@ public final class SortWiki extends Configured implements Tool {
     // First delete target directory.
     try {
       Files.recursiveRemove(new File(args[1]).toPath());
-    } catch (final TTIOException e) {
+    } catch (final SirixIOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
 

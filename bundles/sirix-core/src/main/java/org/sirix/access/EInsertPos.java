@@ -31,7 +31,7 @@ import javax.xml.namespace.QName;
 
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.IStructNode;
@@ -51,7 +51,7 @@ enum EInsertPos {
     @Override
     void processMove(final @Nonnull IStructNode pFromNode,
       final @Nonnull IStructNode pToNode, final @Nonnull NodeWriteTrx pWtx)
-      throws AbsTTException {
+      throws SirixException {
       assert pFromNode != null;
       assert pToNode != null;
       assert pWtx != null;
@@ -145,7 +145,7 @@ enum EInsertPos {
 
     @Override
     void insertNode(final @Nonnull INodeWriteTrx pWtx,
-      final @Nonnull INodeReadTrx pRtx) throws AbsTTException {
+      final @Nonnull INodeReadTrx pRtx) throws SirixException {
       assert pWtx != null;
       assert pRtx != null;
       assert pWtx.getNode().getKind() == EKind.ELEMENT
@@ -169,7 +169,7 @@ enum EInsertPos {
     @Override
     void processMove(final @Nonnull IStructNode pFromNode,
       final @Nonnull IStructNode pToNode, final @Nonnull NodeWriteTrx pWtx)
-      throws AbsTTException {
+      throws SirixException {
       assert pFromNode != null;
       assert pToNode != null;
       assert pWtx != null;
@@ -309,7 +309,7 @@ enum EInsertPos {
 
     @Override
     void insertNode(final @Nonnull INodeWriteTrx pWtx,
-      final @Nonnull INodeReadTrx pRtx) throws AbsTTException {
+      final @Nonnull INodeReadTrx pRtx) throws SirixException {
       assert pWtx != null;
       assert pRtx != null;
       assert pWtx.getNode().getKind() == EKind.ELEMENT
@@ -331,14 +331,14 @@ enum EInsertPos {
     @Override
     void processMove(final @Nonnull IStructNode pFromNode,
       final @Nonnull IStructNode pToNode, final @Nonnull NodeWriteTrx pWtx)
-      throws AbsTTException {
+      throws SirixException {
       // Not allowed.
       throw new AssertionError("May never be invoked!");
     }
 
     @Override
     void insertNode(final @Nonnull INodeWriteTrx pWtx,
-      final @Nonnull INodeReadTrx pRtx) throws AbsTTException {
+      final @Nonnull INodeReadTrx pRtx) throws SirixException {
       assert pWtx != null;
       assert pRtx != null;
       assert pWtx.getNode().getKind() == EKind.ELEMENT;
@@ -365,13 +365,13 @@ enum EInsertPos {
     @Override
     void processMove(final @Nonnull IStructNode pFromNode,
       final @Nonnull IStructNode pToNode, final @Nonnull NodeWriteTrx pWtx)
-      throws AbsTTException {
+      throws SirixException {
       throw new UnsupportedOperationException();
     }
 
     @Override
     void insertNode(@Nonnull final INodeWriteTrx pWtx,
-      @Nonnull final INodeReadTrx pRtx) throws AbsTTException {
+      @Nonnull final INodeReadTrx pRtx) throws SirixException {
       assert pWtx != null;
       assert pRtx != null;
       assert pWtx.getNode().getKind() == EKind.ELEMENT
@@ -398,12 +398,12 @@ enum EInsertPos {
    *          determines where the subtree has to be inserted
    * @param pWtx
    *          write-transaction which implements the {@link INodeWriteTrx} interface
-   * @throws AbsTTException
+   * @throws SirixException
    *           if an I/O error occurs
    */
   abstract void processMove(@Nonnull final IStructNode pFromNode,
     @Nonnull final IStructNode pToNode, @Nonnull final NodeWriteTrx pWtx)
-    throws AbsTTException;
+    throws SirixException;
 
   /**
    * Insert a node (copy operation).
@@ -412,9 +412,9 @@ enum EInsertPos {
    *          read-transaction which implements the {@link INodeReadTrx} interface
    * @param pWtx
    *          write-transaction which implements the {@link INodeWriteTrx} interface
-   * @throws AbsTTException
+   * @throws SirixException
    *           if insertion of node fails
    */
   abstract void insertNode(@Nonnull final INodeWriteTrx pWtx,
-    @Nonnull final INodeReadTrx pRtx) throws AbsTTException;
+    @Nonnull final INodeReadTrx pRtx) throws SirixException;
 }

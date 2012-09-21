@@ -38,7 +38,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.DocumentCreater;
@@ -54,20 +54,20 @@ public class PostOrderTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testIterateWhole() throws AbsTTException {
+  public void testIterateWhole() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveToDocumentRoot();
@@ -77,7 +77,7 @@ public class PostOrderTest {
   }
 
   @Test
-  public void testIterateFirstSubtree() throws AbsTTException {
+  public void testIterateFirstSubtree() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(5);
@@ -87,7 +87,7 @@ public class PostOrderTest {
   }
 
   @Test
-  public void testIterateZero() throws AbsTTException {
+  public void testIterateZero() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(8);
@@ -95,7 +95,7 @@ public class PostOrderTest {
   }
 
   @Test
-  public void testIterateDocumentFirst() throws AbsTTException, IOException,
+  public void testIterateDocumentFirst() throws SirixException, IOException,
     XMLStreamException {
     try (final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
       wtx.moveTo(9);
@@ -126,7 +126,7 @@ public class PostOrderTest {
   }
 
   @Test
-  public void testIterateDocumentSecond() throws AbsTTException, IOException,
+  public void testIterateDocumentSecond() throws SirixException, IOException,
     XMLStreamException {
     try (final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
       wtx.moveTo(11);

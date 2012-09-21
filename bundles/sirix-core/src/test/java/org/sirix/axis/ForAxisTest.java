@@ -35,7 +35,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 
 /**
@@ -49,20 +49,20 @@ public class ForAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testFor() throws AbsTTException {
+  public void testFor() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(1L);

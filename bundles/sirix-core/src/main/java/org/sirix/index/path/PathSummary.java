@@ -13,8 +13,8 @@ import org.sirix.api.IItemList;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.INameNode;
@@ -71,7 +71,7 @@ public class PathSummary implements INodeReadTrx {
         throw new IllegalStateException(
           "Node couldn't be fetched from persistent storage!");
       }
-    } catch (final TTIOException e) {
+    } catch (final SirixIOException e) {
       // TODO Auto-generated catch block
       e.printStackTrace();
     }
@@ -123,7 +123,7 @@ public class PathSummary implements INodeReadTrx {
         (Optional<? extends INode>)mPageReadTrx.getNode(pNodeKey,
           EPage.PATHSUMMARYPAGE);
       newNode = node;
-    } catch (final TTIOException e) {
+    } catch (final SirixIOException e) {
       newNode = Optional.absent();
     }
 
@@ -170,7 +170,7 @@ public class PathSummary implements INodeReadTrx {
   }
 
   @Override
-  public void close() throws AbsTTException {
+  public void close() throws SirixException {
     if (!mClosed) {
       // Immediately release all references.
       mCurrentNode = null;
@@ -215,17 +215,17 @@ public class PathSummary implements INodeReadTrx {
   }
 
   @Override
-  public long getRevisionNumber() throws TTIOException {
+  public long getRevisionNumber() throws SirixIOException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public long getRevisionTimestamp() throws TTIOException {
+  public long getRevisionTimestamp() throws SirixIOException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public long getMaxNodeKey() throws TTIOException {
+  public long getMaxNodeKey() throws SirixIOException {
     return mPageReadTrx.getActualRevisionRootPage().getMaxPathNodeKey();
   }
 
@@ -321,7 +321,7 @@ public class PathSummary implements INodeReadTrx {
   }
 
   @Override
-  public synchronized INodeReadTrx cloneInstance() throws AbsTTException {
+  public synchronized INodeReadTrx cloneInstance() throws SirixException {
     final INodeReadTrx rtx =
       getInstance(mSession.beginPageReadTrx(mPageReadTrx.getRevisionNumber()),
         mSession);

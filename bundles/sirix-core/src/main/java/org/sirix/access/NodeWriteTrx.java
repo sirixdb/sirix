@@ -63,10 +63,10 @@ import org.sirix.axis.PostOrderAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.PathKindFilter;
 import org.sirix.axis.filter.PathLevelFilter;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
-import org.sirix.exception.TTThreadedException;
-import org.sirix.exception.TTUsageException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixThreadedException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
 import org.sirix.index.value.AVLTree;
@@ -204,20 +204,20 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 *          unit of the number of the next param {@code pMaxTime}
 	 * @param pMaxTime
 	 *          maximum number of seconds before auto commit
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if the reading of the props is failing
-	 * @throws TTUsageException
+	 * @throws SirixUsageException
 	 *           if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
 	 */
 	NodeWriteTrx(@Nonnegative final long pTransactionID,
 			final @Nonnull Session pSession,
 			final @Nonnull IPageWriteTrx pPageWriteTrx,
 			@Nonnegative final int pMaxNodeCount, final @Nonnull TimeUnit pTimeUnit,
-			@Nonnegative final int pMaxTime) throws TTIOException, TTUsageException {
+			@Nonnegative final int pMaxTime) throws SirixIOException, SirixUsageException {
 
 		// Do not accept negative values.
 		if ((pMaxNodeCount < 0) || (pMaxTime < 0)) {
-			throw new TTUsageException("Negative arguments are not accepted.");
+			throw new SirixUsageException("Negative arguments are not accepted.");
 		}
 
 		mNodeRtx = new NodeReadTrx(pSession, pTransactionID, pPageWriteTrx);
@@ -244,7 +244,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				public void run() {
 					try {
 						commit();
-					} catch (final AbsTTException e) {
+					} catch (final SirixException e) {
 						throw new IllegalStateException(e);
 					}
 				}
@@ -257,7 +257,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		if (!pPageWriteTrx.isCreated()) {
 			try {
 				commit();
-			} catch (final AbsTTException e) {
+			} catch (final SirixException e) {
 				throw new IllegalStateException(e);
 			}
 		}
@@ -265,7 +265,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx moveSubtreeToFirstChild(@Nonnegative final long pFromKey)
-			throws AbsTTException, IllegalArgumentException {
+			throws SirixException, IllegalArgumentException {
 		if (pFromKey < 0 || pFromKey > getMaxNodeKey()) {
 			throw new IllegalArgumentException("Argument must be a valid node key!");
 		}
@@ -310,14 +310,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 			return this;
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"Move is not allowed if moved node is not an ElementNode and the node isn't inserted at an element node!");
 		}
 	}
 
 	@Override
 	public INodeWriteTrx moveSubtreeToLeftSibling(@Nonnegative final long pFromKey)
-			throws AbsTTException, IllegalArgumentException {
+			throws SirixException, IllegalArgumentException {
 		if (getStructuralNode().hasLeftSibling()) {
 			moveToLeftSibling();
 			return moveSubtreeToRightSibling(pFromKey);
@@ -329,7 +329,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx moveSubtreeToRightSibling(
-			@Nonnegative final long pFromKey) throws AbsTTException {
+			@Nonnegative final long pFromKey) throws SirixException {
 		if (pFromKey < 0 || pFromKey > getMaxNodeKey()) {
 			throw new IllegalArgumentException("Argument must be a valid node key!");
 		}
@@ -376,7 +376,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			}
 			return this;
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"Move is not allowed if moved node is not an ElementNode or TextNode and the node isn't inserted at an ElementNode or TextNode!");
 		}
 	}
@@ -386,11 +386,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * 
 	 * @param pNodeToMove
 	 *          node which implements {@link IStructNode} and is moved
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if any I/O operation fails
 	 */
 	private void adaptHashesForMove(final @Nonnull IStructNode pNodeToMove)
-			throws TTIOException {
+			throws SirixIOException {
 		assert pNodeToMove != null;
 		mNodeRtx.setCurrentNode(pNodeToMove);
 		adaptHashesWithRemove();
@@ -406,12 +406,12 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @param pInsert
 	 *          determines if it has to be inserted as a first child or a right
 	 *          sibling
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if removing a node fails after merging text nodes
 	 */
 	private void adaptForMove(final @Nonnull IStructNode pFromNode,
 			final @Nonnull IStructNode pToNode, final @Nonnull EInsertPos pInsert)
-			throws AbsTTException {
+			throws SirixException {
 		assert pFromNode != null;
 		assert pToNode != null;
 		assert pInsert != null;
@@ -532,11 +532,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @param pLevel
 	 *          level in the path summary
 	 * @return this {@link WriteTransaction} instance
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if an I/O error occurs
 	 */
 	private INodeWriteTrx insertPathAsFirstChild(final @Nonnull QName pQName,
-			final EKind pKind, final int pLevel) throws AbsTTException {
+			final EKind pKind, final int pLevel) throws SirixException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
 		}
@@ -559,7 +559,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx insertElementAsFirstChild(final @Nonnull QName pQName)
-			throws AbsTTException {
+			throws SirixException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
 		}
@@ -585,13 +585,13 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 			return this;
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"Insert is not allowed if current node is not an ElementNode!");
 		}
 	}
 
 	private long getPathNodeKey(final @Nonnull QName pQName,
-			final @Nonnull EKind pKind) throws AbsTTException {
+			final @Nonnull EKind pKind) throws SirixException {
 		final EKind kind = mNodeRtx.getNode().getKind();
 		int level = 0;
 		if (kind == EKind.DOCUMENT_ROOT) {
@@ -638,7 +638,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx insertElementAsLeftSibling(final @Nonnull QName pQName)
-			throws AbsTTException {
+			throws SirixException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
 		}
@@ -664,14 +664,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 			return this;
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"Insert is not allowed if current node is not an StructuralNode (either Text or Element)!");
 		}
 	}
 
 	@Override
 	public INodeWriteTrx insertElementAsRightSibling(final @Nonnull QName pQName)
-			throws AbsTTException {
+			throws SirixException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
 		}
@@ -697,14 +697,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 			return this;
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"Insert is not allowed if current node is not an StructuralNode (either Text or Element)!");
 		}
 	}
 
 	@Override
 	public INodeWriteTrx insertSubtree(final @Nonnull XMLEventReader pReader,
-			final @Nonnull EInsert pInsert) throws AbsTTException {
+			final @Nonnull EInsert pInsert) throws SirixException {
 		mBulkInsert = true;
 		long nodeKey = getNode().getNodeKey();
 		final XMLShredder shredder = new XMLShredder(this, pReader, pInsert,
@@ -737,7 +737,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx insertTextAsFirstChild(final @Nonnull String pValue)
-			throws AbsTTException {
+			throws SirixException {
 		checkNotNull(pValue);
 		if (getNode() instanceof IStructNode
 				&& getNode().getKind() != EKind.DOCUMENT_ROOT && !pValue.isEmpty()) {
@@ -774,7 +774,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 			return this;
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"Insert is not allowed if current node is not an ElementNode or TextNode!");
 		}
 	}
@@ -784,10 +784,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * 
 	 * @param pValue
 	 *          text value
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void indexText(final @Nonnull byte[] pValue) throws TTIOException {
+	private void indexText(final @Nonnull byte[] pValue) throws SirixIOException {
 		if (mIndexes.contains(EIndexes.VALUE)) {
 			final IStructNode parent = mNodeRtx.getParent().get();
 			final long pathNodeKey = parent instanceof INameNode ? ((INameNode) parent)
@@ -813,7 +813,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx insertTextAsLeftSibling(final @Nonnull String pValue)
-			throws AbsTTException {
+			throws SirixException {
 		checkNotNull(pValue);
 		if (getNode() instanceof IStructNode
 				&& getNode().getKind() != EKind.DOCUMENT_ROOT && !pValue.isEmpty()) {
@@ -862,14 +862,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 			return this;
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"Insert is not allowed if current node is not an Element- or Text-node!");
 		}
 	}
 
 	@Override
 	public INodeWriteTrx insertTextAsRightSibling(final @Nonnull String pValue)
-			throws AbsTTException {
+			throws SirixException {
 		checkNotNull(pValue);
 		if (getNode() instanceof IStructNode
 				&& getNode().getKind() != EKind.DOCUMENT_ROOT && !pValue.isEmpty()) {
@@ -922,7 +922,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 			return this;
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"Insert is not allowed if current node is not an Element- or Text-node!");
 		}
 	}
@@ -940,14 +940,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx insertAttribute(final @Nonnull QName pQName,
-			final @Nonnull String pValue) throws AbsTTException {
+			final @Nonnull String pValue) throws SirixException {
 		return insertAttribute(pQName, pValue, EMove.NONE);
 	}
 
 	@Override
 	public INodeWriteTrx insertAttribute(final @Nonnull QName pQName,
 			final @Nonnull String pValue, final @Nonnull EMove pMove)
-			throws AbsTTException {
+			throws SirixException {
 		checkNotNull(pValue);
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
@@ -971,7 +971,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					if (!getValueOfCurrentNode().equals(pValue)) {
 						setValue(pValue);
 					} else {
-						throw new TTUsageException("Duplicate attribute!");
+						throw new SirixUsageException("Duplicate attribute!");
 					}
 				}
 				moveToParent();
@@ -997,20 +997,20 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			}
 			return this;
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"Insert is not allowed if current node is not an ElementNode!");
 		}
 	}
 
 	@Override
 	public INodeWriteTrx insertNamespace(final @Nonnull QName pQName)
-			throws AbsTTException {
+			throws SirixException {
 		return insertNamespace(pQName, EMove.NONE);
 	}
 
 	@Override
 	public INodeWriteTrx insertNamespace(final @Nonnull QName pQName,
-			final @Nonnull EMove pMove) throws AbsTTException {
+			final @Nonnull EMove pMove) throws SirixException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
 		}
@@ -1022,7 +1022,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				moveToNamespace(i);
 				final QName qName = getQNameOfCurrentNode();
 				if (pQName.getPrefix().equals(qName.getPrefix())) {
-					throw new TTUsageException("Duplicate namespace!");
+					throw new SirixUsageException("Duplicate namespace!");
 				}
 				moveToParent();
 			}
@@ -1050,7 +1050,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			}
 			return this;
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"Insert is not allowed if current node is not an ElementNode!");
 		}
 	}
@@ -1076,10 +1076,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void remove() throws AbsTTException {
+	public void remove() throws SirixException {
 		checkAccessAndCommit();
 		if (getNode().getKind() == EKind.DOCUMENT_ROOT) {
-			throw new TTUsageException("Document root can not be removed.");
+			throw new SirixUsageException("Document root can not be removed.");
 		} else if (getNode() instanceof IStructNode) {
 			final IStructNode node = (IStructNode) mNodeRtx.getNode();
 
@@ -1149,11 +1149,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * 
 	 * @param pElement
 	 *          the element
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if anything goes wrong
 	 */
 	private void removeNonStructural(final @Nonnull ElementNode pElement)
-			throws AbsTTException {
+			throws SirixException {
 		moveTo(pElement.getNodeKey());
 		final int attCount = pElement.getAttributeCount();
 		for (int i = 0; i < attCount; i++) {
@@ -1175,10 +1175,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * Remove a name from the {@link NamePage} reference and the path summary if
 	 * needed.
 	 * 
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if Sirix fails
 	 */
-	private void removeName() throws AbsTTException {
+	private void removeName() throws SirixException {
 		assert getNode() instanceof INameNode;
 		final INameNode node = ((INameNode) getNode());
 		final EKind nodeKind = node.getKind();
@@ -1210,11 +1210,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	/**
 	 * Remove a path summary node with the specified PCR.
 	 * 
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if Sirix fails to remove the path node
 	 */
 	private void removePathSummaryNode(final @Nonnull ERemove pRemove)
-			throws AbsTTException {
+			throws SirixException {
 		// Remove all descendant nodes.
 		if (pRemove == ERemove.YES) {
 			for (final IAxis axis = new DescendantAxis(mPathSummary); axis.hasNext();) {
@@ -1261,7 +1261,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void setQName(final @Nonnull QName pQName) throws AbsTTException {
+	public void setQName(final @Nonnull QName pQName) throws SirixException {
 		checkNotNull(pQName);
 		if (getNode() instanceof INameNode) {
 			if (!getQNameOfCurrentNode().equals(pQName)) {
@@ -1304,7 +1304,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				adaptHashedWithUpdate(oldHash);
 			}
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"setQName is not allowed if current node is not an INameNode implementation!");
 		}
 	}
@@ -1321,14 +1321,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 *          nameKey of the new node
 	 * @param uriKey
 	 *          uriKey of the new node
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if a Sirix operation fails
 	 * @throws NullPointerException
 	 *           if {@code pNode} or {@code pQName} is null
 	 */
 	private void adaptPathForChangedNode(final @Nonnull INameNode pNode,
 			final @Nonnull QName pQName, final int nameKey, final int uriKey,
-			final @Nonnull EOPType pType) throws AbsTTException {
+			final @Nonnull EOPType pType) throws SirixException {
 		// Possibly either reset a path node or decrement its reference counter
 		// and search for the new path node or insert it.
 		movePathSummary();
@@ -1474,11 +1474,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * 
 	 * @param pNodesToDelete
 	 *          stores nodeKeys which should be deleted
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs while decrementing the reference counter
 	 */
 	private void deleteOrDecrement(final @Nonnull Set<Long> pNodesToDelete)
-			throws TTIOException {
+			throws SirixIOException {
 		if (mNodeRtx.getNode() instanceof INameNode) {
 			movePathSummary();
 			if (mPathSummary.getPathNode().getReferences() == 1) {
@@ -1503,14 +1503,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @param pOldNodeKey
 	 *          key of old node
 	 * 
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if Sirix fails to do so
 	 */
 	private void processFoundPathNode(final @Nonnegative long pOldPathNodeKey,
 			final @Nonnegative long pNewPathNodeKey,
 			final @Nonnegative long pOldNodeKey, final int pNameKey,
 			final int pUriKey, final @Nonnull ERemove pRemove,
-			final @Nonnull EOPType pType) throws AbsTTException {
+			final @Nonnull EOPType pType) throws SirixException {
 		final PathSummary cloned = PathSummary.getInstance(getPageTransaction(),
 				mNodeRtx.getSession());
 		boolean moved = cloned.moveTo(pOldPathNodeKey);
@@ -1625,11 +1625,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 *          path node key of new path node
 	 * @param pOldPathNode
 	 *          old path node
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	private void resetPath(final @Nonnegative long pNewPathNodeKey,
-			final @Nonnull PathNode pOldPathNode) throws TTIOException {
+			final @Nonnull PathNode pOldPathNode) throws SirixIOException {
 		// Search for new path entry.
 		mPathSummary.moveTo(pNewPathNodeKey);
 		final IAxis filterAxis = new FilterAxis(new LevelOrderAxis.Builder(
@@ -1680,11 +1680,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * 
 	 * @param pNodeKey
 	 *          the nodeKey of the node to adapt
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if anything fails
 	 */
 	private void resetPathNodeKey(final @Nonnegative long pNodeKey)
-			throws AbsTTException {
+			throws SirixException {
 		final INameNode currNode = (INameNode) getPageTransaction()
 				.prepareNodeForModification(pNodeKey, EPage.NODEPAGE);
 		currNode.setPathNodeKey(mPathSummary.getNode().getNodeKey());
@@ -1692,7 +1692,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void setValue(final @Nonnull String pValue) throws AbsTTException {
+	public void setValue(final @Nonnull String pValue) throws SirixException {
 		checkNotNull(pValue);
 		if (getNode() instanceof IValNode) {
 			checkAccessAndCommit();
@@ -1711,13 +1711,13 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			// Index new value.
 			indexText(byteVal);
 		} else {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"setValue(String) is not allowed if current node is not an IValNode implementation!");
 		}
 	}
 
 	@Override
-	public void revertTo(@Nonnegative final long pRevision) throws AbsTTException {
+	public void revertTo(@Nonnegative final long pRevision) throws SirixException {
 		mNodeRtx.assertNotClosed();
 		mNodeRtx.mSession.assertAccess(pRevision);
 
@@ -1744,7 +1744,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void commit() throws AbsTTException {
+	public void commit() throws SirixException {
 		mNodeRtx.assertNotClosed();
 
 		// Assert that the DocumentNode has no more than one child node (the root
@@ -1806,10 +1806,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	/**
 	 * Modifying hashes in a postorder-traversal.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void postOrderTraversalHashes() throws TTIOException {
+	private void postOrderTraversalHashes() throws SirixIOException {
 		for (final IAxis axis = new PostOrderAxis(this, EIncludeSelf.YES); axis
 				.hasNext();) {
 			axis.next();
@@ -1838,7 +1838,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 *          start node
 	 */
 	private void addParentHash(final @Nonnull INode pStartNode)
-			throws TTIOException {
+			throws SirixIOException {
 		switch (mHashKind) {
 		case Rolling:
 			long hashToAdd = mHash.hashLong(pStartNode.hashCode()).asLong();
@@ -1858,7 +1858,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	/** Add a hash and the descendant count. */
-	private void addHashAndDescendantCount() throws TTIOException {
+	private void addHashAndDescendantCount() throws SirixIOException {
 		switch (mHashKind) {
 		case Rolling:
 			// Setup.
@@ -1894,7 +1894,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void abort() throws AbsTTException {
+	public void abort() throws SirixException {
 		mNodeRtx.assertNotClosed();
 
 		// Reset modification counter.
@@ -1912,11 +1912,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void close() throws AbsTTException {
+	public void close() throws SirixException {
 		if (!isClosed()) {
 			// Make sure to commit all dirty data.
 			if (mModificationCount > 0) {
-				throw new TTUsageException("Must commit/abort transaction first");
+				throw new SirixUsageException("Must commit/abort transaction first");
 			}
 			// Release all state immediately.
 			mNodeRtx.mSession.closeWriteTransaction(getTransactionID());
@@ -1929,7 +1929,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			try {
 				mPool.awaitTermination(5, TimeUnit.SECONDS);
 			} catch (final InterruptedException e) {
-				throw new TTThreadedException(e);
+				throw new SirixThreadedException(e);
 			}
 		}
 	}
@@ -1937,10 +1937,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	/**
 	 * Checking write access and intermediate commit.
 	 * 
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if anything weird happens
 	 */
-	private void checkAccessAndCommit() throws AbsTTException {
+	private void checkAccessAndCommit() throws SirixException {
 		mNodeRtx.assertNotClosed();
 		mModificationCount++;
 		intermediateCommitIfRequired();
@@ -1957,12 +1957,12 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 *          pointer of the new node to be inserted
 	 * @param pInsert
 	 *          determines the position where to insert
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if anything weird happens
 	 */
 	private void adaptForInsert(final @Nonnull INode pNewNode,
 			final @Nonnull EInsertPos pInsert, final @Nonnull EPage pPage)
-			throws TTIOException {
+			throws SirixIOException {
 		assert pNewNode != null;
 		assert pInsert != null;
 		assert pPage != null;
@@ -2005,11 +2005,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * 
 	 * @param pOldNode
 	 *          pointer of the old node to be replaced
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if anything weird happens
 	 */
 	private void adaptForRemove(final @Nonnull IStructNode pOldNode,
-			final @Nonnull EPage pPage) throws AbsTTException {
+			final @Nonnull EPage pPage) throws SirixException {
 		assert pOldNode != null;
 
 		// Concatenate neighbor text nodes if they exist (the right sibling is
@@ -2108,10 +2108,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	/**
 	 * Making an intermediate commit based on set attributes.
 	 * 
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if commit fails
 	 */
-	private void intermediateCommitIfRequired() throws AbsTTException {
+	private void intermediateCommitIfRequired() throws SirixException {
 		mNodeRtx.assertNotClosed();
 		if ((mMaxNodeCount > 0) && (mModificationCount > mMaxNodeCount)) {
 			commit();
@@ -2130,10 +2130,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	/**
 	 * Adapting the structure with a hash for all ancestors only with insert.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void adaptHashesWithAdd() throws TTIOException {
+	private void adaptHashesWithAdd() throws SirixIOException {
 		if (!mBulkInsert) {
 			switch (mHashKind) {
 			case Rolling:
@@ -2150,10 +2150,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	/**
 	 * Adapting the structure with a hash for all ancestors only with remove.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void adaptHashesWithRemove() throws TTIOException {
+	private void adaptHashesWithRemove() throws SirixIOException {
 		if (!mBulkInsert) {
 			switch (mHashKind) {
 			case Rolling:
@@ -2172,10 +2172,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * 
 	 * @param pOldHash
 	 *          pOldHash to be removed
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void adaptHashedWithUpdate(final long pOldHash) throws TTIOException {
+	private void adaptHashedWithUpdate(final long pOldHash) throws SirixIOException {
 		if (!mBulkInsert) {
 			switch (mHashKind) {
 			case Rolling:
@@ -2192,10 +2192,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	/**
 	 * Removal operation for postorder hash computation.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if anything weird happens
 	 */
-	private void postorderRemove() throws TTIOException {
+	private void postorderRemove() throws SirixIOException {
 		moveTo(getNode().getParentKey());
 		postorderAdd();
 	}
@@ -2204,10 +2204,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * Adapting the structure with a rolling hash for all ancestors only with
 	 * insert.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if anything weird happened
 	 */
-	private void postorderAdd() throws TTIOException {
+	private void postorderAdd() throws SirixIOException {
 		// start with hash to add
 		final INode startNode = getNode();
 		// long for adapting the hash of the parent
@@ -2272,10 +2272,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * 
 	 * @param pOldHash
 	 *          pOldHash to be removed
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if anything weird happened
 	 */
-	private void rollingUpdate(final long pOldHash) throws TTIOException {
+	private void rollingUpdate(final long pOldHash) throws SirixIOException {
 		final INode newNode = getNode();
 		final long hash = newNode.hashCode();
 		final long newNodeHash = hash;
@@ -2304,10 +2304,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * Adapting the structure with a rolling hash for all ancestors only with
 	 * remove.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if anything weird happened
 	 */
-	private void rollingRemove() throws TTIOException {
+	private void rollingRemove() throws SirixIOException {
 		final INode startNode = getNode();
 		long hashToRemove = startNode.getHash();
 		long hashToAdd = 0;
@@ -2359,10 +2359,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * Adapting the structure with a rolling hash for all ancestors only with
 	 * insert.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void rollingAdd() throws TTIOException {
+	private void rollingAdd() throws SirixIOException {
 		// start with hash to add
 		final INode startNode = mNodeRtx.getNode();
 		final long oldDescendantCount = getStructuralNode().getDescendantCount();
@@ -2422,7 +2422,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx copySubtreeAsFirstChild(final @Nonnull INodeReadTrx pRtx)
-			throws AbsTTException {
+			throws SirixException {
 		checkNotNull(pRtx);
 		checkAccessAndCommit();
 		final long nodeKey = getNode().getNodeKey();
@@ -2434,7 +2434,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx copySubtreeAsLeftSibling(final @Nonnull INodeReadTrx pRtx)
-			throws AbsTTException {
+			throws SirixException {
 		checkNotNull(pRtx);
 		checkAccessAndCommit();
 		final long nodeKey = getNode().getNodeKey();
@@ -2446,7 +2446,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx copySubtreeAsRightSibling(
-			final @Nonnull INodeReadTrx pRtx) throws AbsTTException {
+			final @Nonnull INodeReadTrx pRtx) throws SirixException {
 		checkNotNull(pRtx);
 		checkAccessAndCommit();
 		final long nodeKey = getNode().getNodeKey();
@@ -2463,11 +2463,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 *          the source {@link INodeReadTrx}
 	 * @param pInsert
 	 *          the insertion strategy
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if anything fails in sirix
 	 */
 	private void copy(final @Nonnull INodeReadTrx pRtx,
-			final @Nonnull EInsert pInsert) throws AbsTTException {
+			final @Nonnull EInsert pInsert) throws SirixException {
 		assert pRtx != null;
 		assert pInsert != null;
 		final INodeReadTrx rtx = pRtx.getSession().beginNodeReadTrx(
@@ -2507,7 +2507,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx replaceNode(final @Nonnull String pXML)
-			throws AbsTTException, IOException, XMLStreamException {
+			throws SirixException, IOException, XMLStreamException {
 		checkNotNull(pXML);
 		checkAccessAndCommit();
 		final XMLEventReader reader = XMLShredder
@@ -2562,7 +2562,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	@Override
 	public INodeWriteTrx replaceNode(final @Nonnull INodeReadTrx pRtx)
-			throws AbsTTException {
+			throws SirixException {
 		checkNotNull(pRtx);
 		switch (pRtx.getNode().getKind()) {
 		case ELEMENT:
@@ -2606,11 +2606,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @param pValue
 	 *          text value
 	 * @return inserted node
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if anything fails
 	 */
 	private INode replaceWithTextNode(final @Nonnull String pValue)
-			throws AbsTTException {
+			throws SirixException {
 		assert pValue != null;
 		final IStructNode currentNode = getStructuralNode();
 		long key = currentNode.getNodeKey();
@@ -2635,9 +2635,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @param pRtx
 	 *          the transaction which is located at the node to replace
 	 * @return
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 */
-	private INode replace(final @Nonnull INodeReadTrx pRtx) throws AbsTTException {
+	private INode replace(final @Nonnull INodeReadTrx pRtx) throws SirixException {
 		assert pRtx != null;
 		final IStructNode currentNode = getStructuralNode();
 		long key = currentNode.getNodeKey();
@@ -2658,10 +2658,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * 
 	 * @param pNode
 	 * @param pKey
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 */
 	private void removeReplaced(final @Nonnull IStructNode pNode,
-			@Nonnegative long pKey) throws AbsTTException {
+			@Nonnegative long pKey) throws SirixException {
 		assert pNode != null;
 		assert pKey >= 0;
 		moveTo(pNode.getNodeKey());

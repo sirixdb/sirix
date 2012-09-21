@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.operators;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.INode;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.XPathError;
@@ -64,7 +64,7 @@ public class ModOpAxis extends AbsObAxis {
    * {@inheritDoc}
    */
   @Override
-  public INode operate(final AtomicValue mOperand1, final AtomicValue mOperand2) throws TTXPathException {
+  public INode operate(final AtomicValue mOperand1, final AtomicValue mOperand2) throws SirixXPathException {
 
     final Type returnType = getReturnType(mOperand1.getTypeKey(), mOperand2.getTypeKey());
     final int typeKey = getTransaction().keyForName(returnType.getStringRepr());
@@ -101,7 +101,7 @@ public class ModOpAxis extends AbsObAxis {
    * {@inheritDoc}
    */
   @Override
-  protected Type getReturnType(final int mOp1, final int mOp2) throws TTXPathException {
+  protected Type getReturnType(final int mOp1, final int mOp2) throws SirixXPathException {
     Type type1;
     Type type2;
     try {

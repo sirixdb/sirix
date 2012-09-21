@@ -33,7 +33,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.ElementNode;
 import org.sirix.node.TextNode;
 
@@ -113,7 +113,7 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 					return EVisitResult.TERMINATE;
 				}
 			}
-		} catch (final AbsTTException e) {
+		} catch (final SirixException e) {
 			throw new IllegalStateException(e);
 		}
 		if (mFirst) {
@@ -136,7 +136,7 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 					return EVisitResult.TERMINATE;
 				}
 			}
-		} catch (final AbsTTException e) {
+		} catch (final SirixException e) {
 			throw new IllegalStateException(e);
 		}
 		if (mFirst) {

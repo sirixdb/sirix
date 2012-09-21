@@ -12,7 +12,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreater;
 
 public class PowerFailureTest {
@@ -20,12 +20,12 @@ public class PowerFailureTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     holder = Holder.generateSession();
   }
   
   @Test
-  public void testDelete() throws AbsTTException {
+  public void testDelete() throws SirixException {
 //    final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
 //    DocumentCreater.create(wtx);
 //    wtx.moveTo(4);

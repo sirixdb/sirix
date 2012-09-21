@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * JUnit-test class to test the functionality of the RangeAxis.
@@ -45,20 +45,20 @@ public class RangeAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testRangeExpr() throws AbsTTException {
+  public void testRangeExpr() throws SirixException {
     // // Build simple test tree.
     // final IDatabase database =
     // TestHelper.getDatabase(PATHS.PATH1.getFile());

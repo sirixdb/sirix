@@ -32,7 +32,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.settings.EFixed;
 
@@ -181,13 +181,13 @@ public class ConcurrentExceptAxis extends AbsAxis {
    * @param nodeKey
    *          the nodekey to validate
    * @return true, if key is a key of a node, otherwise throws an exception
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   private boolean isValid(final long nodeKey) {
     if (nodeKey < 0) {
       try {
         throw EXPathError.XPTY0004.getEncapsulatedException();
-      } catch (final TTXPathException mExp) {
+      } catch (final SirixXPathException mExp) {
         mExp.printStackTrace();
       }
     }

@@ -42,7 +42,7 @@ import org.sirix.axis.FollowingSiblingAxis;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.ParentAxis;
 import org.sirix.axis.SelfAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 import org.sirix.service.xml.xpath.filter.DupFilterAxis;
 
@@ -51,20 +51,20 @@ public class ExpressionSingleTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testAdd() throws AbsTTException {
+  public void testAdd() throws SirixException {
     // Verify.
     final ExpressionSingle builder = new ExpressionSingle();
 
@@ -83,7 +83,7 @@ public class ExpressionSingleTest {
   }
 
   @Test
-  public void testDup() throws AbsTTException {
+  public void testDup() throws SirixException {
     ExpressionSingle builder = new ExpressionSingle();
     builder.add(new ChildAxis(holder.getRtx()));
     builder.add(new DescendantAxis(holder.getRtx()));

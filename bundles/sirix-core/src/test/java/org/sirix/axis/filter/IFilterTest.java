@@ -35,12 +35,12 @@ import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.api.IFilter;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class IFilterTest {
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
   }
 
@@ -64,7 +64,7 @@ public class IFilterTest {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     TestHelper.closeEverything();
   }
 }

@@ -29,7 +29,7 @@ package org.sirix.gui.view.tree;
 
 import org.slf4j.LoggerFactory;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
@@ -67,7 +67,7 @@ public final class TreeModel extends AbsTreeModel {
     try {
       mRtx = pDB.getSession().beginNodeReadTrx(pDB.getRevisionNumber());
       mRtx.moveTo(pDB.getNodeKey());
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
   }

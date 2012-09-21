@@ -40,27 +40,27 @@ import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.NestedFilter;
 import org.sirix.axis.filter.NodeFilter;
 import org.sirix.axis.filter.TextFilter;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class NestedFilterTest {
 
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.deleteEverything();
   }
 
   @Test
-  public void testIFilterConvetions() throws AbsTTException {
+  public void testIFilterConvetions() throws SirixException {
 
     holder.getRtx().moveTo(9L);
     IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(), new ItemFilter(holder.getRtx()),

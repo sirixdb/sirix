@@ -47,8 +47,8 @@ import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.ICache;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionLogCache;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.IWriter;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.EKind;
@@ -142,14 +142,14 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	 *          revision represent
 	 * @param pStoreRev
 	 *          revision store
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if an error occurs
 	 */
 	PageWriteTrx(final @Nonnull Session pSession,
 			final @Nonnull UberPage pUberPage, final @Nonnull IWriter pWriter,
 			final @Nonnegative long pId, final @Nonnegative long pRepresentRev,
 			final @Nonnegative long pStoreRev,
-			final @Nonnegative long pLastCommitedRev) throws AbsTTException {
+			final @Nonnegative long pLastCommitedRev) throws SirixException {
 		mPathLog = new TransactionLogCache(this, pSession.mResourceConfig.mPath,
 				pStoreRev, "path");
 		mNodeLog = new TransactionLogCache(this, pSession.mResourceConfig.mPath,
@@ -194,7 +194,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
 	@Override
 	public INodeBase prepareNodeForModification(final @Nonnegative long pNodeKey,
-			final @Nonnull EPage pPage) throws TTIOException {
+			final @Nonnull EPage pPage) throws SirixIOException {
 		if (pNodeKey < 0) {
 			throw new IllegalArgumentException("pNodeKey must be >= 0!");
 		}
@@ -211,7 +211,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 		if (node == null) {
 			final INodeBase oldNode = mNodePageCon.getComplete().getNode(pNodeKey);
 			if (oldNode == null) {
-				throw new TTIOException("Cannot retrieve node from cache!");
+				throw new SirixIOException("Cannot retrieve node from cache!");
 			}
 			node = oldNode;
 			mNodePageCon.getModified().setNode(node);
@@ -250,7 +250,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
 	@Override
 	public INodeBase createNode(final @Nonnull INodeBase pNode,
-			final @Nonnull EPage pPage) throws TTIOException {
+			final @Nonnull EPage pPage) throws SirixIOException {
 		// Allocate node key and increment node count.
 		long nodeKey;
 		switch (pPage) {
@@ -281,7 +281,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
 	@Override
 	public void removeNode(@Nonnull final INode pNode, @Nonnull final EPage pPage)
-			throws TTIOException {
+			throws SirixIOException {
 		final long nodePageKey = mPageRtx.nodePageKey(pNode.getNodeKey());
 		prepareNodePage(nodePageKey, pPage);
 		final INode delNode = new DeletedNode(new NodeDelegate(pNode.getNodeKey(),
@@ -293,7 +293,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
 	@Override
 	public Optional<INodeBase> getNode(final @Nonnegative long pNodeKey,
-			final @Nonnull EPage pPage) throws TTIOException {
+			final @Nonnull EPage pPage) throws SirixIOException {
 		checkArgument(pNodeKey >= EFixed.NULL_NODE_KEY.getStandardProperty());
 		checkNotNull(pPage);
 		// Calculate page.
@@ -354,7 +354,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
 	@Override
 	public int createNameKey(final @Nullable String pName,
-			final @Nonnull EKind pNodeKind) throws TTIOException {
+			final @Nonnull EKind pNodeKind) throws SirixIOException {
 		checkNotNull(pNodeKind);
 		final String string = (pName == null ? "" : pName);
 		final int nameKey = NamePageHash.generateHashForString(string);
@@ -366,7 +366,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
 	@Override
 	public void commit(final @Nullable PageReference pReference)
-			throws AbsTTException {
+			throws SirixException {
 		IPage page = null;
 
 		// If reference is not null, get one from the persistent storage.
@@ -422,7 +422,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
 	@Override
 	public UberPage commit(final @Nonnull EMultipleWriteTrx pMultipleWriteTrx)
-			throws AbsTTException {
+			throws SirixException {
 		mPageRtx.mSession.mCommitLock.lock();
 		mMultipleWriteTrx = checkNotNull(pMultipleWriteTrx);
 
@@ -449,7 +449,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	}
 
 	@Override
-	public void close() throws TTIOException {
+	public void close() throws SirixIOException {
 		mPageRtx.assertNotClosed();
 		mPageRtx.clearCache();
 		mNodeLog.clear();
@@ -468,11 +468,11 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	 *          {@link PageReference} to get the indirect page from or to create a
 	 *          new one
 	 * @return {@link IndirectPage} reference
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	private IndirectPage prepareIndirectPage(
-			final @Nonnull PageReference pReference) throws TTIOException {
+			final @Nonnull PageReference pReference) throws SirixIOException {
 		IndirectPage page = (IndirectPage) pReference.getPage();
 		if (page == null) {
 			if (pReference.getKey() == IConstants.NULL_ID) {
@@ -494,11 +494,11 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	 * 
 	 * @param pNodePageKey
 	 *          the key of the node page
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	private void prepareNodePage(final @Nonnegative long pNodePageKey,
-			final @Nonnull EPage pPage) throws TTIOException {
+			final @Nonnull EPage pPage) throws SirixIOException {
 		// Last level points to node nodePageReference.
 		PageContainer cont = getPageContainer(pPage, pNodePageKey);
 		if (cont == null) {
@@ -547,12 +547,12 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	 * @param pRepresentRevision
 	 *          the revision to represent
 	 * @return new {@link RevisionRootPage} instance
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	private RevisionRootPage preparePreviousRevisionRootPage(
 			final @Nonnegative long pBaseRevision,
-			final @Nonnegative long pRepresentRevision) throws TTIOException {
+			final @Nonnegative long pRepresentRevision) throws SirixIOException {
 		if (getUberPage().isBootstrap()) {
 			return mPageRtx.loadRevRoot(pBaseRevision);
 		} else {
@@ -584,12 +584,12 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	 *          page key to lookup
 	 * @return {@link PageReference} instance pointing to the right
 	 *         {@link NodePage} with the {@code pKey}
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occured
 	 */
 	private PageReference prepareLeafOfTree(
 			final @Nonnull PageReference pStartReference, final @Nonnegative long pKey)
-			throws TTIOException {
+			throws SirixIOException {
 		// Initial state pointing to the indirect nodePageReference of level 0.
 		PageReference reference = pStartReference;
 		int offset = 0;
@@ -613,12 +613,12 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	 * @param pNodePageKey
 	 *          key of node page
 	 * @return dereferenced page
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	private PageContainer dereferenceNodePageForModification(
 			final @Nonnegative long pNodePageKey, final @Nonnull EPage pPage)
-			throws TTIOException {
+			throws SirixIOException {
 		final NodePage[] revs = mPageRtx.getSnapshotPages(pNodePageKey, pPage);
 		final ERevisioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
 		final int mileStoneRevision = mPageRtx.mSession.mResourceConfig.mRevisionsToRestore;
@@ -694,7 +694,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
 	@Override
 	public PageContainer getNodeFromPage(final long pKey,
-			final @Nonnull EPage pPage) throws TTIOException {
+			final @Nonnull EPage pPage) throws SirixIOException {
 		return mPageRtx.getNodeFromPage(pKey, pPage);
 	}
 
@@ -725,7 +725,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 
 	@Override
 	public IPage getFromPageCache(final @Nonnegative long pKey)
-			throws TTIOException {
+			throws SirixIOException {
 		return mPageRtx.getFromPageCache(pKey);
 	}
 

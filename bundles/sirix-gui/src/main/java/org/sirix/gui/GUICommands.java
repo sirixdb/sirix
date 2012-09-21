@@ -51,7 +51,7 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.view.smallmultiple.SmallmultipleView;
 import org.sirix.gui.view.sunburst.SunburstView;
 import org.sirix.gui.view.text.TextView;
@@ -162,7 +162,7 @@ public enum GUICommands implements IGUICommand {
             session.close();
             outputStream.close();
             JOptionPane.showMessageDialog(paramGUI, "Serializing done!");
-          } catch (final AbsTTException e) {
+          } catch (final SirixException e) {
             LOGWRAPPER.error(e.getMessage(), e);
           } catch (final IOException e) {
             LOGWRAPPER.error(e.getMessage(), e);
@@ -382,7 +382,7 @@ public enum GUICommands implements IGUICommand {
                 .beginNodeReadTrx();
             revNumber = rtx.getRevisionNumber();
             rtx.close();
-          } catch (final AbsTTException e) {
+          } catch (final SirixException e) {
             // Selected directory is not a sirix storage.
             error = true;
           }
@@ -438,7 +438,7 @@ public enum GUICommands implements IGUICommand {
           rtx.close();
           session.close();
           paramGUI.execute(target, rev);
-        } catch (final AbsTTException e) {
+        } catch (final SirixException e) {
           LOGWRAPPER.error(e.getMessage(), e);
         }
       }

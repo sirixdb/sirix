@@ -36,27 +36,27 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.NodeFilter;
 import org.sirix.axis.filter.TextFilter;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class NestedAxisTest {
 
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testNestedAxisTest() throws AbsTTException {
+  public void testNestedAxisTest() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     // Find descendants starting from nodeKey 0L (root).
@@ -78,7 +78,7 @@ public class NestedAxisTest {
   }
 
   @Test
-  public void testNestedAxisTest2() throws AbsTTException {
+  public void testNestedAxisTest2() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     // Find descendants starting from nodeKey 0L (root).
@@ -101,7 +101,7 @@ public class NestedAxisTest {
   }
 
   @Test
-  public void testNestedAxisTest3() throws AbsTTException {
+  public void testNestedAxisTest3() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     // Find desceFndants starting from nodeKey 0L (root).

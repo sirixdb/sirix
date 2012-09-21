@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.xmark;
 
 import java.lang.reflect.Field;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 
 /**
  * This class defines all XMark queries by factor and its corresponding results.
@@ -343,8 +343,8 @@ public class XMarkBenchQueries {
       fac = "10";
     } else {
       try {
-        throw new TTIOException("XMark Benchmarking query factor does not exist!");
-      } catch (final TTIOException mExp) {
+        throw new SirixIOException("XMark Benchmarking query factor does not exist!");
+      } catch (final SirixIOException mExp) {
         mExp.printStackTrace();
       }
     }
@@ -387,8 +387,8 @@ public class XMarkBenchQueries {
       fac = "10";
     } else {
       try {
-        throw new TTIOException("XMark Benchmarking result factor does not exist!");
-      } catch (final TTIOException mExp) {
+        throw new SirixIOException("XMark Benchmarking result factor does not exist!");
+      } catch (final SirixIOException mExp) {
         mExp.printStackTrace();
       }
     }

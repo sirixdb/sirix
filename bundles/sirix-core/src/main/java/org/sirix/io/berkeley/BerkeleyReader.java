@@ -41,7 +41,7 @@ import java.util.Objects;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.IReader;
 import org.sirix.io.berkeley.binding.PageBinding;
 import org.sirix.page.PageReference;
@@ -105,7 +105,7 @@ public final class BerkeleyReader implements IReader {
   }
 
   @Override
-  public IPage read(final long pKey) throws TTIOException {
+  public IPage read(final long pKey) throws SirixIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
 
@@ -120,12 +120,12 @@ public final class BerkeleyReader implements IReader {
       }
       return page;
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
   }
 
   @Override
-  public PageReference readFirstReference() throws TTIOException {
+  public PageReference readFirstReference() throws SirixIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
     TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
@@ -146,16 +146,16 @@ public final class BerkeleyReader implements IReader {
 
       return uberPageReference;
     } catch (final DatabaseException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
   @Override
-  public void close() throws TTIOException {
+  public void close() throws SirixIOException {
     try {
       mTxn.abort();
     } catch (final DatabaseException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 

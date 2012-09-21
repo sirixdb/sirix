@@ -34,7 +34,7 @@ import static org.junit.Assert.fail;
 
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 
 public class TypeTest {
 
@@ -297,7 +297,7 @@ public class TypeTest {
 
   // set modifier of getPrimitiveBaseType to private
   @Test
-  public final void testgetPrimBT() throws TTXPathException {
+  public final void testgetPrimBT() throws SirixXPathException {
 
     assertEquals(notation.getPrimitiveBaseType(), Type.NOTATION);
     assertEquals(integerT.getPrimitiveBaseType(), Type.DECIMAL);
@@ -343,31 +343,31 @@ public class TypeTest {
   }
 
   @Test
-  public final void testCastability() throws TTXPathException {
+  public final void testCastability() throws SirixXPathException {
     assertEquals(true, string.isCastableTo(Type.INTEGER, "-1232138"));
     assertEquals(true, string.isCastableTo(Type.BOOLEAN, "1"));
 
   }
 
   @Test
-  public final void testCastException() throws TTXPathException {
+  public final void testCastException() throws SirixXPathException {
     try {
       string.isCastableTo(Type.INTEGER, "hallo welt!");
       fail();
-    } catch (final TTXPathException exc) {
+    } catch (final SirixXPathException exc) {
       assertThat(exc.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
         + "typedoes not match a required type as specified by the matching rules. "));
     }
     try {
       string.isCastableTo(Type.BOOLEAN, "13");
       fail();
-    } catch (final TTXPathException exc) {
+    } catch (final SirixXPathException exc) {
       assertThat(exc.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
         + "typedoes not match a required type as specified by the matching rules. "));
     }
     try {
       string.isCastableTo(Type.NOTATION, "\"");
-    } catch (final TTXPathException exc) {
+    } catch (final SirixXPathException exc) {
       assertThat(exc.getMessage(), is("err:XPST0080 Target type of a cast or castable expression "
         + "must not be xs:NOTATION or xs:anyAtomicType. "));
     }

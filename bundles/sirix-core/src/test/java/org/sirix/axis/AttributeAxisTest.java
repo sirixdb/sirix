@@ -37,27 +37,27 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class AttributeAxisTest {
 
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testIterate() throws AbsTTException {
+  public void testIterate() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveToDocumentRoot();
@@ -81,7 +81,7 @@ public class AttributeAxisTest {
   }
 
   @Test
-  public void testMultipleAttributes() throws AbsTTException {
+  public void testMultipleAttributes() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     final long nodeKey = wtx.insertElementAsFirstChild(new QName("foo")).getNode().getNodeKey();
     wtx.insertAttribute(new QName("foo0"), "0");

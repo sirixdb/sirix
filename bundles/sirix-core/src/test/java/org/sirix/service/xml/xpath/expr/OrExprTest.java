@@ -36,7 +36,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.XPathError;
@@ -51,20 +51,20 @@ public class OrExprTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testOr() throws AbsTTException {
+  public void testOr() throws SirixException {
 
     long iTrue = holder.getRtx().getItemList().addItem(new AtomicValue(true));
     long iFalse = holder.getRtx().getItemList().addItem(new AtomicValue(false));
@@ -100,7 +100,7 @@ public class OrExprTest {
   }
 
   @Test
-  public void testOrQuery() throws AbsTTException {
+  public void testOrQuery() throws SirixException {
 
     holder.getRtx().moveTo(1L);
 

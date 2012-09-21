@@ -30,7 +30,7 @@ package org.sirix.service.xml.xpath.comparators;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.expr.LiteralExpr;
 import org.sirix.service.xml.xpath.types.Type;
@@ -129,13 +129,13 @@ public abstract class AbsComparator extends AbsAxis {
               // add retrieved AtomicValue to item list
               final int itemKey = getTransaction().getItemList().addItem(result);
               mKey = itemKey;
-            } catch (TTXPathException e) {
+            } catch (SirixXPathException e) {
               throw new RuntimeException(e);
             }
             return true;
 
           }
-        } catch (final TTXPathException exc) {
+        } catch (final SirixXPathException exc) {
           throw new RuntimeException(exc);
         }
       }
@@ -167,7 +167,7 @@ public abstract class AbsComparator extends AbsAxis {
    * @return the result of the comparison
    */
   protected abstract boolean
-    compare(final AtomicValue[] paramOperandOne, final AtomicValue[] paramOperandTwo) throws TTXPathException;
+    compare(final AtomicValue[] paramOperandOne, final AtomicValue[] paramOperandTwo) throws SirixXPathException;
 
   /**
    * Atomizes an operand according to the rules specified in the XPath
@@ -176,10 +176,10 @@ public abstract class AbsComparator extends AbsAxis {
    * @param paramOperand
    *          the operand that will be atomized.
    * @return the atomized operand. (always an atomic value)
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if any goes wrong.
    */
-  protected abstract AtomicValue[] atomize(final IAxis paramOperand) throws TTXPathException;
+  protected abstract AtomicValue[] atomize(final IAxis paramOperand) throws SirixXPathException;
 
   /**
    * Returns the common comparable type of the two operands, or an error, if
@@ -192,7 +192,7 @@ public abstract class AbsComparator extends AbsAxis {
    *          second comparison operand's type key
    * @return the type the comparison can be evaluated on
    */
-  protected abstract Type getType(final int mKey1, final int mKey2) throws TTXPathException;
+  protected abstract Type getType(final int mKey1, final int mKey2) throws SirixXPathException;
 
   /**
    * Getting CompKind for this Comparator.

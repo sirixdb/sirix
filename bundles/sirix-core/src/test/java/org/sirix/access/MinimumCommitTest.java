@@ -36,7 +36,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreater;
 
 public class MinimumCommitTest {
@@ -44,19 +44,19 @@ public class MinimumCommitTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void test() throws AbsTTException {
+  public void test() throws SirixException {
     assertEquals(0L, holder.getWtx().getRevisionNumber());
     holder.getWtx().commit();
     holder.close();
@@ -78,7 +78,7 @@ public class MinimumCommitTest {
   }
 
   @Test
-  public void testTimestamp() throws AbsTTException {
+  public void testTimestamp() throws SirixException {
     assertEquals(0L, holder.getWtx().getRevisionTimestamp());
     holder.getWtx().commit();
 

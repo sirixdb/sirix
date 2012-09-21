@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.SingleType;
 import org.sirix.service.xml.xpath.XPathError;
@@ -99,7 +99,7 @@ public class CastableExpr extends AbsExpression {
    * 
    */
   @Override
-  public void evaluate() throws TTXPathException {
+  public void evaluate() throws SirixXPathException {
 
     // defines if current item is castable to the target type, or not
     boolean isCastable;

@@ -35,27 +35,27 @@ import org.sirix.TestHelper;
 import org.sirix.axis.filter.IFilterTest;
 import org.sirix.axis.filter.WildcardFilter;
 import org.sirix.axis.filter.WildcardFilter.EType;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class WildcardFilterTest {
 
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.deleteEverything();
   }
 
   @Test
-  public void testIFilterConvetions() throws AbsTTException {
+  public void testIFilterConvetions() throws SirixException {
     holder.getRtx().moveTo(9L);
     IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "b", EType.LOCALNAME), true);
     holder.getRtx().moveToAttribute(0);

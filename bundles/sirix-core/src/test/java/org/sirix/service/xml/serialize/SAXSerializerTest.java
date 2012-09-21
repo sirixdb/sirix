@@ -35,7 +35,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreater;
 import org.xml.sax.Attributes;
 import org.xml.sax.ContentHandler;
@@ -53,7 +53,7 @@ public class SAXSerializerTest extends XMLTestCase {
 
   @Override
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
@@ -61,13 +61,13 @@ public class SAXSerializerTest extends XMLTestCase {
 
   @Override
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testSAXSerializer() throws AbsTTException, SAXException,
+  public void testSAXSerializer() throws SirixException, SAXException,
     IOException {
 
     final StringBuilder strBuilder = new StringBuilder();

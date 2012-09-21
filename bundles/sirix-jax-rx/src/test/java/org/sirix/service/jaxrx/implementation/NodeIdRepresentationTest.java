@@ -51,7 +51,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.enums.EIdAccessType;
 import org.sirix.service.jaxrx.util.DOMHelper;
 import org.w3c.dom.Attr;
@@ -439,11 +439,11 @@ public class NodeIdRepresentationTest {
      * {@link org.sirix.service.jaxrx.implementation.NodeIdRepresentation#modifyResource(java.lang.String, long, java.io.InputStream)}
      * .
      * 
-     * @throws AbsTTException
+     * @throws SirixException
      * @throws JaxRxException
      */
     @Test
-    public final void testModifyResource() throws JaxRxException, AbsTTException {
+    public final void testModifyResource() throws JaxRxException, SirixException {
         final InputStream inputStream = new ByteArrayInputStream("<testNode/>".getBytes());
         long lastRevision = sirix.getLastRevision(RESOURCENAME);
         ridWorker.modifyResource(RESOURCENAME, NODEIDTOMODIFY, inputStream);

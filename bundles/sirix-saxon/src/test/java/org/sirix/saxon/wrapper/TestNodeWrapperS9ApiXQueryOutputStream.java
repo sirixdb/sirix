@@ -34,7 +34,7 @@ import java.io.OutputStream;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.access.Database;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.saxon.evaluator.XQueryEvaluatorOutputStream;
 
 import org.junit.After;
@@ -61,7 +61,7 @@ public final class TestNodeWrapperS9ApiXQueryOutputStream {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     mHolder.close();
     TestHelper.deleteEverything();
   }

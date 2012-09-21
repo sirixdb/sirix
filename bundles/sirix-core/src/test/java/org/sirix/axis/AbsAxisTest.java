@@ -40,7 +40,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.IAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.settings.EFixed;
 
 public class AbsAxisTest {
@@ -48,14 +48,14 @@ public class AbsAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
@@ -107,7 +107,7 @@ public class AbsAxisTest {
   }
 
   @Test
-  public void testIAxisUserExample() throws AbsTTException {
+  public void testIAxisUserExample() throws SirixException {
     final IAxis axis = new DescendantAxis(holder.getRtx());
     long count = 0L;
     while (axis.hasNext()) {

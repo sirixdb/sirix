@@ -33,7 +33,7 @@ import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * Generating a standard resource within the {@link PATHS#PATH1} path. It also
@@ -60,10 +60,10 @@ public class Holder {
 	 * Generate a session.
 	 * 
 	 * @return this holder instance
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if an error occurs
 	 */
-	public static Holder generateSession() throws AbsTTException {
+	public static Holder generateSession() throws SirixException {
 		final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		database.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
@@ -80,10 +80,10 @@ public class Holder {
 	 * Generate a {@link INodeWriteTrx}.
 	 * 
 	 * @return this holder instance
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if an error occurs
 	 */
-	public static Holder generateWtx() throws AbsTTException {
+	public static Holder generateWtx() throws SirixException {
 		final Holder holder = generateSession();
 		final INodeWriteTrx wtx = holder.mSession.beginNodeWriteTrx();
 		holder.setWtx(wtx);
@@ -94,10 +94,10 @@ public class Holder {
 	 * Generate a {@link INodeReadTrx}.
 	 * 
 	 * @return this holder instance
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if an error occurs
 	 */
-	public static Holder generateRtx() throws AbsTTException {
+	public static Holder generateRtx() throws SirixException {
 		final Holder holder = generateSession();
 		final INodeReadTrx rtx = holder.mSession.beginNodeReadTrx();
 		holder.setRtx(rtx);
@@ -107,10 +107,10 @@ public class Holder {
 	/**
 	 * Close the database, session, read transaction and/or write transaction.
 	 * 
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if an error occurs
 	 */
-	public void close() throws AbsTTException {
+	public void close() throws SirixException {
 		if (mRtx != null && !mRtx.isClosed()) {
 			mRtx.close();
 		}

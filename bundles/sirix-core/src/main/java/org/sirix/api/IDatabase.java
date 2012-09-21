@@ -27,114 +27,123 @@
 
 package org.sirix.api;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 
 /**
- * This interface describes database instances handled by Sirix. A database
- * is a persistent place where all data is stored. {@link ISession}s are used to access the data.
- * 
- * Furthermore, databases are created by {@link org.access.conf.DatabaseConfiguration}s.
- * After creation, the settings of a database cannot be changed.
- * 
- * <h2>Usage Example</h2>
+ * <p>
+ * This interface describes database instances handled by Sirix. A database is a
+ * persistent place where all data is stored. {@link ISession}s are used to
+ * access the data.
+ * </p>
  * 
  * <p>
- * 
- * <pre>
- * // Simple session with standards as defined in <code>EDatabaseSetting</code> and 
- * <code>ESessionSetting</code>. Creation takes place in open-process
- * final IDatabase database = Database.openDatabase(&quot;examplek&quot;);
- * final ISession session = database.getSession()
- * 
- * // Database with berkeley db and incremental revisioning.
- * final Properties dbProps = new Properties();
- * dbProps.setProperty(STORAGE_TYPE.name(),StorageType.Berkeley.name());
- * dbProps.setProperty(REVISION_TYPE.name(), ERevisioning.INCREMENTAL.name());
- * final DatabaseConfiguration dbConfig = new DatabaseConfiguration(&quot;example&quot;, dbProps);
- * Database.create(dbConfig);
- * final IDatabase database = Database.openDatabase(&quot;examplek&quot;);
- * final ISession session = database.getSession();
- * </pre>
- * 
+ * Furthermore, databases are created by
+ * {@link org.access.conf.DatabaseConfiguration}s. After creation, the settings
+ * of a database cannot be changed.
  * </p>
  * 
  * 
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
  * 
  */
 public interface IDatabase extends AutoCloseable {
-  /**
-   * Creation of a resource. Since databases can consist out of several
-   * resources, those can be created within this method. This includes the
-   * creation of a suitable folder structure as well as the serialization of
-   * the configuration of this resource.
-   * 
-   * @param pResConf
-   *          the config of the resource
-   * @return boolean with true if successful, false otherwise
-   * @throws TTIOException
-   *           if anything happens while creating the resource
-   */
-  boolean createResource(@Nonnull ResourceConfiguration pResConf)
-    throws TTIOException;
-  
-  /**
-   * Is the resource within this database existing?
-   * 
-   * @param pResourceName
-   *            resource to be checked
-   * @return {@code true}, if existing, {@code false} otherwise
-   */
-  boolean existsResource(@Nonnull String pResourceName);
+	/**
+	 * Creation of a resource. Since databases can consist out of several
+	 * resources, those can be created within this method. This includes the
+	 * creation of a suitable folder structure as well as the serialization of the
+	 * configuration of this resource.
+	 * 
+	 * @param pResConf
+	 *          the config of the resource
+	 * @return boolean with true if successful, false otherwise
+	 * @throws SirixIOException
+	 *           if anything happens while creating the resource
+	 */
+	boolean createResource(@Nonnull ResourceConfiguration pResConf)
+			throws SirixIOException;
 
-  /**
-   * Listing all resources within this database.
-   * 
-   * @return all resources
-   */
-  String[] listResources();
+	/**
+	 * Is the resource within this database existing?
+	 * 
+	 * @param pResourceName
+	 *          resource to be checked
+	 * @return {@code true}, if existing, {@code false} otherwise
+	 */
+	boolean existsResource(@Nonnull String pResourceName);
 
-  /**
-   * Getting the session associated within this database.
-   * 
-   * @param pSessionConf
-   *          {@link SessionConfiguration.Builder} reference
-   * @return the session
-   * @throws AbsTTException
-   *           if can't get session
-   */
-  ISession getSession(@Nonnull SessionConfiguration pSessionConf)
-    throws AbsTTException;
+	/**
+	 * Listing all resources within this database.
+	 * 
+	 * @return all resources
+	 */
+	String[] listResources();
 
-  /**
-   * Truncating a resource. This includes the removal of all data stored
-   * within this resource.
-   * 
-   * @param pResConf
-   *          storing the name of the resource
-   * 
-   */
-  void truncateResource(@Nonnull ResourceConfiguration pResConf);
+	/**
+	 * Getting the session associated within this database.
+	 * 
+	 * @param pSessionConf
+	 *          {@link SessionConfiguration.Builder} reference
+	 * @return the session
+	 * @throws SirixException
+	 *           if can't get session
+	 */
+	ISession getSession(@Nonnull SessionConfiguration pSessionConf)
+			throws SirixException;
 
-  /**
-   * Closing the database for further access.
-   * 
-   * @throws AbsTTException
-   *           if anything happens within sirix.
-   */
-  @Override
-  void close() throws AbsTTException;
+	/**
+	 * Truncating a resource. This includes the removal of all data stored within
+	 * this resource.
+	 * 
+	 * @param pName
+	 *          resource name
+	 * 
+	 */
+	void truncateResource(@Nonnull String pName);
 
-  /**
-   * Get the {@link DatabaseConfiguration} associated with this database.
-   * 
-   * @return {@link DatabaseConfiguration} reference associated with this database
-   */
-  DatabaseConfiguration getDatabaseConfig();
+	/**
+	 * Closing the database for further access.
+	 * 
+	 * @throws SirixException
+	 *           if anything happens within sirix.
+	 */
+	@Override
+	void close() throws SirixException;
+
+	/**
+	 * Get the {@link DatabaseConfiguration} associated with this database.
+	 * 
+	 * @return {@link DatabaseConfiguration} reference associated with this
+	 *         database
+	 */
+	DatabaseConfiguration getDatabaseConfig();
+
+	/**
+	 * Get the resource name associated with the given ID.
+	 * 
+	 * @param pID
+	 *          unique ID of resource
+	 * @return resource name
+	 * @throws IllegalArgumentException
+	 *           if {@code pID} is negative
+	 */
+	String getResourceName(@Nonnegative long pID);
+
+	/**
+	 * Get the resource-ID associated with the given resource name.
+	 * 
+	 * @param pName
+	 *          name of resource
+	 * @return ID of resource with the given name
+	 * @throws NullPointerException
+	 *           if {@code pName} is {@code null}
+	 */
+	long getResourceID(@Nonnull String pName);
 }

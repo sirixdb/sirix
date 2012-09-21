@@ -27,48 +27,23 @@
 
 package org.sirix.exception;
 
-import java.util.concurrent.ExecutionException;
-
 /**
- * This class holds all exceptions which can occure with the usage of
- * multithreaded exceptions.
+ * Exception thrown when an error during encryption process occurs.
  * 
- * @author Sebastian Graf, University of Konstanz
+ * @author Patrick lang, University of Konstanz
  * 
  */
-public final class TTThreadedException extends AbsTTException {
-
-  /** Generated ID. */
-  private static final long serialVersionUID = -2891221683798924769L;
+public class SirixEncryptionException extends SirixException {
 
   /**
-   * Constructor for threaded exceptions.
-   * 
-   * @param mExc
-   *          tp be stored
-   */
-  public TTThreadedException(final InterruptedException mExc) {
-    super(mExc);
-  }
-
-  /**
-   * Exception for weird thread behaviour.
+   * Constructor.
    * 
    * @param message
-   *          to be stored
+   *          message as string, they are concatenated with spaces in
+   *          between
    */
-  public TTThreadedException(final String... message) {
+  public SirixEncryptionException(final String... message) {
     super(message);
-  }
-
-  /**
-   * Constructor for execution exception exceptions.
-   * 
-   * @param mExc
-   *          to be stored
-   */
-  public TTThreadedException(final ExecutionException mExc) {
-    super(mExc);
   }
 
 }

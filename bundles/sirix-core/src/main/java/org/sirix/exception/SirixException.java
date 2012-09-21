@@ -27,52 +27,73 @@
 
 package org.sirix.exception;
 
-import java.io.IOException;
-
 /**
- * All sirix IO Exception are wrapped in this class. It inherits from
- * IOException since it is a sirix IO Exception.
+ * Exception to hold all relevant failures upcoming from Sirix.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class TTIOException extends AbsTTException {
+public class SirixException extends Exception {
+
+  /** General ID. */
+  private static final long serialVersionUID = 1L;
 
   /**
-   * serializable id.
-   */
-  private static final long serialVersionUID = 4099242625448155216L;
-
-  /**
-   * Constructor.
+   * Constructor to encapsulate parsing.
    * 
-   * @param pMessage
-   *          to be used
+   * @param pThrowable
+   *          to encapsulate
    */
-  public TTIOException(final String pMessage) {
-    super(pMessage);
+  public SirixException(final Throwable pThrowable) {
+    super(pThrowable);
   }
 
   /**
    * Constructor.
    * 
-   * @param pThrowable
-   *          {@link Throwable} exception
    * @param pMessage
-   *          for the overlaying {@link IOException}
+   *          message
    */
-  public TTIOException(final String pMessage, final Throwable pThrowable) {
+  private SirixException(final StringBuilder pMessage) {
+    super(pMessage.toString());
+  }
+
+  /**
+   * Constructor.
+   * 
+   * @param pMessage
+   *          message as string, they are concatenated with spaces in
+   *          between
+   */
+  public SirixException(final String... pMessage) {
+    this(concat(pMessage));
+  }
+
+  /**
+   * Constructor
+   * 
+   * @param pMessage
+   *            message as string
+   * @param pThrowable
+   */
+  public SirixException(final String pMessage, final Throwable pThrowable) {
     super(pMessage, pThrowable);
   }
 
   /**
-   * Constructor.
+   * Util method to provide StringBuilder functionality.
    * 
-   * @param pThrowable
-   *          {@link Throwable} exception
+   * @param message
+   *          to be concatenated
+   * @return the StringBuilder for the combined string
    */
-  public TTIOException(final Throwable pThrowable) {
-    super(pThrowable);
+  public static StringBuilder concat(final String... pMessage) {
+    final StringBuilder builder = new StringBuilder();
+    for (final String mess : pMessage) {
+      builder.append(mess);
+      builder.append(" ");
+    }
+    return builder;
   }
 
 }

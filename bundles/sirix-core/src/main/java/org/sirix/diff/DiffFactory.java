@@ -35,7 +35,7 @@ import java.util.Set;
 import org.sirix.access.EHashKind;
 import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * Factory method for public access.
@@ -96,7 +96,7 @@ public final class DiffFactory {
     /** Full diff. */
     FULL {
       @Override
-      void invoke(final Builder pBuilder) throws AbsTTException {
+      void invoke(final Builder pBuilder) throws SirixException {
         new FullDiff(pBuilder).diffMovement();
       }
     },
@@ -104,7 +104,7 @@ public final class DiffFactory {
     /** Structural diff (doesn't recognize differences in namespace and attribute nodes. */
     STRUCTURAL {
       @Override
-      void invoke(final Builder pBuilder) throws AbsTTException {
+      void invoke(final Builder pBuilder) throws SirixException {
         new StructuralDiff(pBuilder).diffMovement();
       }
     };
@@ -114,10 +114,10 @@ public final class DiffFactory {
      * 
      * @param pBuilder
      *          {@link Builder} reference
-     * @throws AbsTTException
+     * @throws SirixException
      *           if anything while diffing goes wrong related to sirix
      */
-    abstract void invoke(final Builder pBuilder) throws AbsTTException;
+    abstract void invoke(final Builder pBuilder) throws SirixException;
   }
 
   /** Builder to simplify static methods. */
@@ -288,9 +288,9 @@ public final class DiffFactory {
    * 
    * @param pBuilder
    *          {@link Builder} reference
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  public static synchronized void invokeFullDiff(final Builder pBuilder) throws AbsTTException {
+  public static synchronized void invokeFullDiff(final Builder pBuilder) throws SirixException {
     EDiffKind.FULL.invoke(pBuilder);
   }
 
@@ -299,9 +299,9 @@ public final class DiffFactory {
    * 
    * @param pBuilder
    *          {@link Builder} reference
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  public static synchronized void invokeStructuralDiff(final Builder pBuilder) throws AbsTTException {
+  public static synchronized void invokeStructuralDiff(final Builder pBuilder) throws SirixException {
     EDiffKind.STRUCTURAL.invoke(pBuilder);
   }
 }

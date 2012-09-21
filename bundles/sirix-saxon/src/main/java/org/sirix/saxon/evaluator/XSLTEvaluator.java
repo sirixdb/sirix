@@ -47,7 +47,7 @@ import net.sf.saxon.s9api.XsltCompiler;
 import net.sf.saxon.s9api.XsltExecutable;
 import net.sf.saxon.s9api.XsltTransformer;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.saxon.wrapper.DocumentWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -147,7 +147,7 @@ public final class XSLTEvaluator implements Callable<OutputStream> {
       trans.transform();
     } catch (final SaxonApiException e) {
       LOGGER.error("Saxon exception: " + e.getMessage(), e);
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGGER.error("TT exception: " + e.getMessage(), e);
     }
 

@@ -50,7 +50,7 @@ import org.slf4j.LoggerFactory;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.diff.DiffFactory.EDiff;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.AbsObservableComponent;
 import org.sirix.gui.view.IVisualItem;
@@ -147,7 +147,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
       mSession = pDb.getSession();
       mRtx = mSession.beginNodeReadTrx(pDb.getRevisionNumber());
       mRtx.moveTo(pDb.getNodeKey());
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     mItems = new ArrayList<>();
@@ -176,7 +176,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
       mSession = pDb.getSession();
       mRtx = mSession.beginNodeReadTrx(pDb.getRevisionNumber());
       mRtx.moveTo(pDb.getNodeKey());
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     mItems = new ArrayList<>();
@@ -390,7 +390,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
         if (mRTX.getNode().getKind() == EKind.DOCUMENT_ROOT) {
           mRTX.moveToFirstChild();
         }
-      } catch (final AbsTTException exc) {
+      } catch (final SirixException exc) {
         exc.printStackTrace();
       }
     }
@@ -426,7 +426,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
 
         shutdown(executor);
         firePropertyChange("done", null, true);
-      } catch (final AbsTTException e) {
+      } catch (final SirixException e) {
         LOGWRAPPER.error(e.getMessage(), e);
       }
     }
@@ -459,7 +459,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
       try {
         mRTX = mSession.beginNodeReadTrx(mRtx.getRevisionNumber());
         mRTX.moveTo(mRtx.getNode().getNodeKey());
-      } catch (final AbsTTException exc) {
+      } catch (final SirixException exc) {
         exc.printStackTrace();
       }
     }

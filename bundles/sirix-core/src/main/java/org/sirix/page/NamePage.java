@@ -36,7 +36,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.index.name.Names;
 import org.sirix.node.EKind;
 import org.sirix.page.interfaces.IPage;
@@ -240,6 +240,6 @@ public final class NamePage implements IPage {
 
   @Override
   public void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
-    throws AbsTTException {
+    throws SirixException {
   }
 }

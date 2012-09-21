@@ -48,7 +48,7 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 
@@ -104,13 +104,13 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 
   @Override
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
   }
 
   @Override
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     TestHelper.closeEverything();
   }
 

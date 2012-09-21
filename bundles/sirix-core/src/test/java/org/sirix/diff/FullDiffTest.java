@@ -37,7 +37,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.diff.DiffFactory.EDiffOptimized;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * FullDiff test.
@@ -55,33 +55,33 @@ public class FullDiffTest {
   private IDiffObserver mObserver;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     DiffTestHelper.setUp();
     mHolder = Holder.generateWtx();
     mObserver = DiffTestHelper.createMock();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testFullDiffFirst() throws AbsTTException, InterruptedException {
+  public void testFullDiffFirst() throws SirixException, InterruptedException {
     DiffTestHelper.setUpFirst(mHolder);
     DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);
     DiffTestHelper.verifyDiffFirst(mObserver);
   }
 
   @Test
-  public void testOptimizedFirst() throws InterruptedException, AbsTTException {
+  public void testOptimizedFirst() throws InterruptedException, SirixException {
     DiffTestHelper.setUpFirst(mHolder);
     DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);
     DiffTestHelper.verifyDiffFirst(mObserver);
   }
 
   @Test
-  public void testFullDiffSecond() throws AbsTTException, InterruptedException, IOException,
+  public void testFullDiffSecond() throws SirixException, InterruptedException, IOException,
     XMLStreamException {
     DiffTestHelper.setUpSecond(mHolder);
     DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);
@@ -89,7 +89,7 @@ public class FullDiffTest {
   }
 
   @Test
-  public void testFullDiffThird() throws AbsTTException, IOException, XMLStreamException,
+  public void testFullDiffThird() throws SirixException, IOException, XMLStreamException,
     InterruptedException {
     DiffTestHelper.setUpThird(mHolder);
     DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);

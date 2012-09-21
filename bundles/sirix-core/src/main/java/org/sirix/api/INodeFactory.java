@@ -4,7 +4,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.PathNode;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.DocumentRootNode;
@@ -30,21 +30,21 @@ public interface INodeFactory {
 	 * @param pPCR
 	 *          path class record of node
 	 * @return the created node
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	PathNode createPathNode(@Nonnegative final long pParentKey,
 			@Nonnegative final long pLeftSibKey, final long pRightSibKey,
 			final long pHash, @Nonnull final QName pName, @Nonnull final EKind pKind,
-			@Nonnegative final int pLevel) throws TTIOException;
+			@Nonnegative final int pLevel) throws SirixIOException;
 
 	/**
 	 * Create an {@link ElementNode}.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	ElementNode createElementNode() throws TTIOException;
+	ElementNode createElementNode() throws SirixIOException;
 
 	/**
 	 * Create an {@link ElementNode}.
@@ -62,22 +62,22 @@ public interface INodeFactory {
 	 * @param pPCR
 	 *          path class record of node
 	 * @return the created node
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	ElementNode createElementNode(@Nonnegative final long pParentKey,
 			@Nonnegative final long pLeftSibKey,
 			@Nonnegative final long pRightSibKey, final long pHash,
 			@Nonnull final QName pName, @Nonnegative final long pPathNodeKey)
-			throws TTIOException;
+			throws SirixIOException;
 
 	/**
 	 * Create a {@link TextNode}.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	TextNode createTextNode() throws TTIOException;
+	TextNode createTextNode() throws SirixIOException;
 
 	/**
 	 * Create a {@link TextNode}.
@@ -93,21 +93,21 @@ public interface INodeFactory {
 	 * @param pIsCompressed
 	 *          determines if the value should be compressed or not
 	 * @return the created node
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	TextNode createTextNode(@Nonnegative final long pParentKey,
 			@Nonnegative final long pLeftSibKey,
 			@Nonnegative final long pRightSibKey, @Nonnull final byte[] pValue,
-			final boolean pIsCompressed) throws TTIOException;
+			final boolean pIsCompressed) throws SirixIOException;
 
 	/**
 	 * Create an {@link AttributeNode}.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	AttributeNode createAttributeNode() throws TTIOException;
+	AttributeNode createAttributeNode() throws SirixIOException;
 
 	/**
 	 * Create an {@link AttributeNode}.
@@ -119,20 +119,20 @@ public interface INodeFactory {
 	 * @param pPCR
 	 *          the path class record
 	 * @return the created node
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	AttributeNode createAttributeNode(@Nonnegative final long pParentKey,
 			@Nonnull final QName pName, @Nonnull final byte[] pValue,
-			@Nonnegative final long pPathNodeKey) throws TTIOException;
+			@Nonnegative final long pPathNodeKey) throws SirixIOException;
 
 	/**
 	 * Create an {@link NamespaceNode}.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	NamespaceNode createNamespaceNode() throws TTIOException;
+	NamespaceNode createNamespaceNode() throws SirixIOException;
 
 	/**
 	 * Create a {@link NamespaceNode}.
@@ -146,18 +146,18 @@ public interface INodeFactory {
 	 * @param pPCR
 	 *          the path class record
 	 * @return the created node
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	NamespaceNode createNamespaceNode(@Nonnegative final long pParentKey,
 			final int pUriKey, final int pPrefixKey,
-			@Nonnegative final long pPathNodeKey) throws TTIOException;
+			@Nonnegative final long pPathNodeKey) throws SirixIOException;
 	
 	/**
 	 * Create a {@link DocumentRootNode}.
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	DocumentRootNode createDocumentNode() throws TTIOException;
+	DocumentRootNode createDocumentNode() throws SirixIOException;
 }

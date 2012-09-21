@@ -60,7 +60,7 @@ import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.model.AbsModel;
 import org.sirix.gui.view.model.AbsTraverseModel;
@@ -136,7 +136,7 @@ public final class SunburstModel extends
     try {
       executor.submit(new TraverseTree(container.getNewStartKey(), container
         .getPruning(), container.getGUI(), this));
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     shutdown(executor);
@@ -202,7 +202,7 @@ public final class SunburstModel extends
      */
     private TraverseTree(@Nonnegative final long pKey,
       @Nonnull final EPruning pPruning, @Nonnull final AbsSunburstGUI pGUI,
-      @Nonnull final SunburstModel pModel) throws AbsTTException {
+      @Nonnull final SunburstModel pModel) throws SirixException {
       assert pKey >= 0;
       assert pModel != null;
       assert pGUI != null;
@@ -251,7 +251,7 @@ public final class SunburstModel extends
 
         LOGWRAPPER.debug("Built " + mItems.size() + " SunburstItems!");
         mRtx.close();
-      } catch (final AbsTTException e) {
+      } catch (final SirixException e) {
         LOGWRAPPER.error(e.getMessage(), e);
       }
 
@@ -388,7 +388,7 @@ public final class SunburstModel extends
         final ExecutorService executor = Executors.newSingleThreadExecutor();
         executor.submit(new GetDescendants(pRtx.get()));
         mModel.shutdown(executor);
-      } catch (final AbsTTException e) {
+      } catch (final SirixException e) {
         LOGWRAPPER.error(e.getMessage(), e);
       }
     }
@@ -406,17 +406,17 @@ public final class SunburstModel extends
        * 
        * @param pRtx
        *          {@link INodeReadTrx} implementation
-       * @throws AbsTTException
+       * @throws SirixException
        *           if traversing a sirix resource fails
        */
-      GetDescendants(final INodeReadTrx pRtx) throws AbsTTException {
+      GetDescendants(final INodeReadTrx pRtx) throws SirixException {
         mRtx = mDb.getSession().beginNodeReadTrx(mDb.getRevisionNumber());
         mRtx.moveTo(pRtx.getNode().getNodeKey());
       }
 
       /** {@inheritDoc} */
       @Override
-      public Void call() throws AbsTTException, ExecutionException,
+      public Void call() throws SirixException, ExecutionException,
         InterruptedException {
         final ExecutorService executor =
           Executors.newFixedThreadPool(Runtime.getRuntime()
@@ -546,14 +546,14 @@ public final class SunburstModel extends
      *          {@link INodeReadTrx} instance
      */
     Future<Integer> countDescendants(final INodeReadTrx pRtx,
-      final ExecutorService pExecutor) throws AbsTTException {
+      final ExecutorService pExecutor) throws SirixException {
       assert pRtx != null;
       assert pExecutor != null;
 
       try {
         return pExecutor.submit(new PrunedDescendants(mDb.getSession(), pRtx
           .getRevisionNumber(), pRtx.getNode().getNodeKey(), mDepth));
-      } catch (final AbsTTException e) {
+      } catch (final SirixException e) {
         LOGWRAPPER.error(e.getMessage(), e);
         return null;
       }
@@ -575,7 +575,7 @@ public final class SunburstModel extends
        *          {@link INodeReadTrx} over which to iterate
        */
       PrunedDescendants(final ISession pSession, final long pRevision,
-        final long pNodeKey, final int pDepth) throws AbsTTException {
+        final long pNodeKey, final int pDepth) throws SirixException {
         assert pSession != null;
         assert !pSession.isClosed();
         assert pRevision >= 0;
@@ -659,7 +659,7 @@ public final class SunburstModel extends
         assert pRevision >= 0;
         try {
           mRtx = pSession.beginNodeReadTrx(pRevision);
-        } catch (final AbsTTException e) {
+        } catch (final SirixException e) {
           LOGWRAPPER.error(e.getMessage(), e);
         }
         mRtx.moveTo(pNodeKey);
@@ -687,13 +687,13 @@ public final class SunburstModel extends
    * 
    * @param pFragment
    *          XML fragment to shredder (might be text as well)
-   * @throws AbsTTException
+   * @throws SirixException
    *           if shredding in sirix fails
    * @throws XMLStreamException
    *           if parser can't parse the XML fragment
    */
   @Override
-  public void addXMLFragment(final String pFragment) throws AbsTTException,
+  public void addXMLFragment(final String pFragment) throws SirixException,
     XMLStreamException {
     if (!pFragment.isEmpty()) {
       try {
@@ -728,11 +728,11 @@ public final class SunburstModel extends
   /**
    * Commit changes.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if commiting or closeing transaction fails
    */
   @Override
-  public void commit() throws AbsTTException {
+  public void commit() throws SirixException {
     mWtx.commit();
     mWtx.close();
   }
@@ -746,10 +746,10 @@ public final class SunburstModel extends
    *          {@link ControlGroup} to insert XML fragment
    * @param pHitTestIndex
    *          the index of the {@link SunburstItem} which is currently hovered
-   * @throws AbsTTException
+   * @throws SirixException
    */
   public void popupMenu(final MouseEvent pEvent, final ControlGroup<?> pCtrl,
-    final int pHitTestIndex) throws AbsTTException {
+    final int pHitTestIndex) throws SirixException {
     if (mWtx == null || mWtx.isClosed()) {
       mWtx = getDb().getSession().beginNodeWriteTrx();
       mWtx.revertTo(getDb().getRevisionNumber());

@@ -39,7 +39,7 @@ import org.sirix.access.AbsVisitorSupport;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.api.visitor.EVisitResult;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.TextNode;
@@ -66,10 +66,10 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
    * 
    * @param pSession
    *          {@link ISession} implementation
-   * @throws AbsTTException
+   * @throws SirixException
    *           if setting up sirix fails
    */
-  public LabelFMSEVisitor(@Nonnull final INodeReadTrx pReadTrx) throws AbsTTException {
+  public LabelFMSEVisitor(@Nonnull final INodeReadTrx pReadTrx) throws SirixException {
     mRtx = checkNotNull(pReadTrx);
     mLabels = new HashMap<>();
     mLeafLabels = new HashMap<>();

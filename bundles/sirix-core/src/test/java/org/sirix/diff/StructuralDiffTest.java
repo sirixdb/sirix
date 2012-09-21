@@ -37,7 +37,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.diff.DiffFactory.EDiffOptimized;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * Test StructuralDiff.
@@ -53,14 +53,14 @@ public final class StructuralDiffTest {
   private IDiffObserver mObserver;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     DiffTestHelper.setUp();
     mHolder = Holder.generateWtx();
     mObserver = DiffTestHelper.createMock();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     TestHelper.closeEverything();
   }
 
@@ -79,7 +79,7 @@ public final class StructuralDiffTest {
   }
 
   @Test
-  public void testStructuralDiffSecond() throws AbsTTException, InterruptedException, IOException,
+  public void testStructuralDiffSecond() throws SirixException, InterruptedException, IOException,
     XMLStreamException {
     DiffTestHelper.setUpSecond(mHolder);
     DiffTestHelper.checkStructuralDiff(mHolder, mObserver, EDiffOptimized.NO);
@@ -87,7 +87,7 @@ public final class StructuralDiffTest {
   }
 
   @Test
-  public void testStructuralDiffOptimizedSecond() throws AbsTTException, IOException, XMLStreamException,
+  public void testStructuralDiffOptimizedSecond() throws SirixException, IOException, XMLStreamException,
     InterruptedException {
     DiffTestHelper.setUpSecond(mHolder);
     DiffTestHelper.checkStructuralDiff(mHolder, mObserver, EDiffOptimized.HASHED);
@@ -95,7 +95,7 @@ public final class StructuralDiffTest {
   }
 
   @Test
-  public void testStructuralDiffThird() throws AbsTTException, IOException, XMLStreamException,
+  public void testStructuralDiffThird() throws SirixException, IOException, XMLStreamException,
     InterruptedException {
     DiffTestHelper.setUpThird(mHolder);
     DiffTestHelper.checkStructuralDiff(mHolder, mObserver, EDiffOptimized.NO);
@@ -103,7 +103,7 @@ public final class StructuralDiffTest {
   }
 
   @Test
-  public void testStructuralDiffOptimizedThird() throws AbsTTException, IOException, XMLStreamException,
+  public void testStructuralDiffOptimizedThird() throws SirixException, IOException, XMLStreamException,
     InterruptedException {
     DiffTestHelper.setUpThird(mHolder);
     DiffTestHelper.checkStructuralDiff(mHolder, mObserver, EDiffOptimized.HASHED);

@@ -13,7 +13,7 @@ import java.awt.event.WindowStateListener;
 import javax.swing.JPanel;
 
 import org.slf4j.LoggerFactory;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.GUI;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.sunburst.SunburstView;
@@ -169,7 +169,7 @@ public abstract class AbsView extends JPanel implements IView {
   public void refreshUpdate(final Optional<VisualItemAxis> pAxis) {
     try {
       mDB = ViewUtilities.refreshResource(mDB);
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     mEmbed.refreshUpdate();

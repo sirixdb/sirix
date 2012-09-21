@@ -36,7 +36,7 @@ import com.sleepycat.bind.tuple.TupleOutput;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.delegates.PageDelegate;
@@ -85,7 +85,7 @@ public final class PageBinding extends TupleBinding<IPage> {
     byte[] deserialized = new byte[0];
     try {
       deserialized = mByteHandler.deserialize(pInput.getBufferBytes());
-    } catch (final TTIOException e) {
+    } catch (final SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
     }
     return PagePersistenter.deserializePage(ByteStreams
@@ -98,7 +98,7 @@ public final class PageBinding extends TupleBinding<IPage> {
     PagePersistenter.serializePage(output, pPage);
     try {
       pOutput.write(mByteHandler.serialize(output.toByteArray()));
-    } catch (final TTIOException e) {
+    } catch (final SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
     }
   }

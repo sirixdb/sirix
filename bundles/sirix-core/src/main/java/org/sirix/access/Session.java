@@ -53,6 +53,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.IPageReadTrx;
@@ -60,9 +61,9 @@ import org.sirix.api.IPageWriteTrx;
 import org.sirix.api.ISession;
 import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.PageContainer;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTThreadedException;
-import org.sirix.exception.TTUsageException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixThreadedException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.PathSummary;
 import org.sirix.io.EStorage;
 import org.sirix.io.IReader;
@@ -76,485 +77,496 @@ import org.sirix.page.UberPage;
  * <h1>Session</h1>
  * 
  * <p>
- * Makes sure that there only is a single session instance bound to a Sirix resource.
+ * Makes sure that there only is a single session instance bound to a Sirix
+ * resource.
  * </p>
  */
 public final class Session implements ISession {
 
-  /** Session configuration. */
-  protected final ResourceConfiguration mResourceConfig;
+	/** Session configuration. */
+	protected final ResourceConfiguration mResourceConfig;
 
-  /** Session configuration. */
-  protected final SessionConfiguration mSessionConfig;
+	/** Session configuration. */
+	protected final SessionConfiguration mSessionConfig;
 
-  /** Database for centralized closure of related Sessions. */
-  private final Database mDatabase;
+	/** Database for centralized closure of related Sessions. */
+	private final Database mDatabase;
 
-  /** Write semaphore to assure only one exclusive write transaction exists. */
-  private final Semaphore mWriteSemaphore;
+	/** Write semaphore to assure only one exclusive write transaction exists. */
+	private final Semaphore mWriteSemaphore;
 
-  /** Read semaphore to control running read transactions. */
-  private final Semaphore mReadSemaphore;
+	/** Read semaphore to control running read transactions. */
+	private final Semaphore mReadSemaphore;
 
-  /** Strong reference to uber page before the begin of a write transaction. */
-  private volatile UberPage mLastCommittedUberPage;
+	/** Strong reference to uber page before the begin of a write transaction. */
+	private volatile UberPage mLastCommittedUberPage;
 
-  /** Remember all running node transactions (both read and write). */
-  private final Map<Long, INodeReadTrx> mNodeTrxMap;
+	/** Remember all running node transactions (both read and write). */
+	private final Map<Long, INodeReadTrx> mNodeTrxMap;
 
-  /** Remember all running page transactions (both read and write). */
-  private final Map<Long, IPageReadTrx> mPageTrxMap;
+	/** Remember all running page transactions (both read and write). */
+	private final Map<Long, IPageReadTrx> mPageTrxMap;
 
-  /** Lock for blocking the commit. */
-  protected final Lock mCommitLock;
+	/** Lock for blocking the commit. */
+	protected final Lock mCommitLock;
 
-  /** Remember the write seperately because of the concurrent writes. */
-  private final Map<Long, IPageWriteTrx> mNodePageTrxMap;
+	/** Remember the write seperately because of the concurrent writes. */
+	private final Map<Long, IPageWriteTrx> mNodePageTrxMap;
 
-  /** Storing all return futures from the sync process. */
-  private final Map<Long, Map<Long, Collection<Future<Void>>>> mSyncTransactionsReturns;
+	/** Storing all return futures from the sync process. */
+	private final Map<Long, Map<Long, Collection<Future<Void>>>> mSyncTransactionsReturns;
 
-  /** abstract factory for all interaction to the storage. */
-  private final IStorage mFac;
+	/** abstract factory for all interaction to the storage. */
+	private final IStorage mFac;
 
-  /** Atomic counter for concurrent generation of node transaction id. */
-  private final AtomicLong mNodeTrxIDCounter;
+	/** Atomic counter for concurrent generation of node transaction id. */
+	private final AtomicLong mNodeTrxIDCounter;
 
-  /** Atomic counter for concurrent generation of page transaction id. */
-  private final AtomicLong mPageTrxIDCounter;
+	/** Atomic counter for concurrent generation of page transaction id. */
+	private final AtomicLong mPageTrxIDCounter;
 
-  /** Determines if session was closed. */
-  private volatile boolean mClosed;
+	/** Determines if session was closed. */
+	private volatile boolean mClosed;
 
-  /**
-   * Package private constructor.
-   * 
-   * @param pDatabase
-   *          {@link Database} for centralized operations on related sessions
-   * @param pDatabaseConf
-   *          {@link DatabaseConfiguration} for general setting about the storage
-   * @param pSessionConf
-   *          {@link SessionConfiguration} for handling this specific session
-   * @throws AbsTTException
-   *           if sirix encounters an error
-   */
-  Session(@Nonnull final Database pDatabase,
-    @Nonnull final ResourceConfiguration pResourceConf,
-    @Nonnull final SessionConfiguration pSessionConf) throws AbsTTException {
-    mDatabase = checkNotNull(pDatabase);
-    mResourceConfig = checkNotNull(pResourceConf);
-    mSessionConfig = checkNotNull(pSessionConf);
-    mNodeTrxMap = new ConcurrentHashMap<>();
-    mPageTrxMap = new ConcurrentHashMap<>();
-    mNodePageTrxMap = new ConcurrentHashMap<>();
-    mSyncTransactionsReturns = new ConcurrentHashMap<>();
+	/**
+	 * Package private constructor.
+	 * 
+	 * @param pDatabase
+	 *          {@link Database} for centralized operations on related sessions
+	 * @param pDatabaseConf
+	 *          {@link DatabaseConfiguration} for general setting about the
+	 *          storage
+	 * @param pSessionConf
+	 *          {@link SessionConfiguration} for handling this specific session
+	 * @throws SirixException
+	 *           if sirix encounters an error
+	 */
+	Session(@Nonnull final Database pDatabase,
+			@Nonnull final ResourceConfiguration pResourceConf,
+			@Nonnull final SessionConfiguration pSessionConf) throws SirixException {
+		mDatabase = checkNotNull(pDatabase);
+		mResourceConfig = checkNotNull(pResourceConf);
+		mSessionConfig = checkNotNull(pSessionConf);
+		mNodeTrxMap = new ConcurrentHashMap<>();
+		mPageTrxMap = new ConcurrentHashMap<>();
+		mNodePageTrxMap = new ConcurrentHashMap<>();
+		mSyncTransactionsReturns = new ConcurrentHashMap<>();
 
-    mNodeTrxIDCounter = new AtomicLong();
-    mPageTrxIDCounter = new AtomicLong();
-    mCommitLock = new ReentrantLock(false);
+		mNodeTrxIDCounter = new AtomicLong();
+		mPageTrxIDCounter = new AtomicLong();
+		mCommitLock = new ReentrantLock(false);
 
-    // Init session members.
-    mWriteSemaphore = new Semaphore(pSessionConf.mWtxAllowed);
-    mReadSemaphore = new Semaphore(pSessionConf.mRtxAllowed);
+		// Init session members.
+		mWriteSemaphore = new Semaphore(pSessionConf.mWtxAllowed);
+		mReadSemaphore = new Semaphore(pSessionConf.mRtxAllowed);
 
-    mFac = EStorage.getStorage(mResourceConfig);
-    if (mFac.exists()) {
-      final IReader reader = mFac.getReader();
-      final PageReference firstRef = reader.readFirstReference();
-      if (firstRef.getPage() == null) {
-        mLastCommittedUberPage = (UberPage)reader.read(firstRef.getKey());
-      } else {
-        mLastCommittedUberPage = (UberPage)firstRef.getPage();
-      }
-      reader.close();
-    } else {
-      // Bootstrap uber page and make sure there already is a root node.
-      mLastCommittedUberPage = new UberPage();
-    }
-    mClosed = false;
-  }
+		mFac = EStorage.getStorage(mResourceConfig);
+		if (mFac.exists()) {
+			final IReader reader = mFac.getReader();
+			final PageReference firstRef = reader.readFirstReference();
+			if (firstRef.getPage() == null) {
+				mLastCommittedUberPage = (UberPage) reader.read(firstRef.getKey());
+			} else {
+				mLastCommittedUberPage = (UberPage) firstRef.getPage();
+			}
+			reader.close();
+		} else {
+			// Bootstrap uber page and make sure there already is a root node.
+			mLastCommittedUberPage = new UberPage();
+		}
+		mClosed = false;
+	}
 
-  @Override
-  public INodeReadTrx beginNodeReadTrx() throws AbsTTException {
-    return beginNodeReadTrx(mLastCommittedUberPage.getRevisionNumber());
-  }
+	@Override
+	public INodeReadTrx beginNodeReadTrx() throws SirixException {
+		return beginNodeReadTrx(mLastCommittedUberPage.getRevisionNumber());
+	}
 
-  @Override
-  public synchronized INodeReadTrx beginNodeReadTrx(
-    @Nonnegative final long pRevisionKey) throws AbsTTException {
-    assertAccess(pRevisionKey);
-    // Make sure not to exceed available number of read transactions.
-    try {
-      mReadSemaphore.acquire();
-    } catch (final InterruptedException exc) {
-      throw new TTThreadedException(exc);
-    }
+	@Override
+	public synchronized INodeReadTrx beginNodeReadTrx(
+			@Nonnegative final long pRevisionKey) throws SirixException {
+		assertAccess(pRevisionKey);
+		// Make sure not to exceed available number of read transactions.
+		try {
+			if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
+				throw new SirixUsageException(
+						"No read transactions available, please close at least one read transaction at first!");
+			}
+		} catch (final InterruptedException exc) {
+			throw new SirixThreadedException(exc);
+		}
 
-    // Create new read transaction.
-    final INodeReadTrx rtx =
-      new NodeReadTrx(this, mNodeTrxIDCounter.incrementAndGet(),
-        new PageReadTrx(this, mLastCommittedUberPage, pRevisionKey, mFac
-          .getReader(), Optional.<BerkeleyPersistencePageCache> absent()));
+		// Create new read transaction.
+		final INodeReadTrx rtx = new NodeReadTrx(this,
+				mNodeTrxIDCounter.incrementAndGet(), new PageReadTrx(this,
+						mLastCommittedUberPage, pRevisionKey, mFac.getReader(),
+						Optional.<BerkeleyPersistencePageCache> absent()));
 
-    // Remember transaction for debugging and safe close.
-    if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
-      throw new TTUsageException(
-        "ID generation is bogus because of duplicate ID.");
-    }
-    return rtx;
-  }
+		// Remember transaction for debugging and safe close.
+		if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
+			throw new SirixUsageException(
+					"ID generation is bogus because of duplicate ID.");
+		}
+		return rtx;
+	}
 
-  @Override
-  public INodeWriteTrx beginNodeWriteTrx() throws AbsTTException {
-    return beginNodeWriteTrx(0, TimeUnit.MINUTES, 0);
-  }
+	@Override
+	public INodeWriteTrx beginNodeWriteTrx() throws SirixException {
+		return beginNodeWriteTrx(0, TimeUnit.MINUTES, 0);
+	}
 
-  @Override
-  public synchronized INodeWriteTrx beginNodeWriteTrx(
-    @Nonnegative final int pMaxNodeCount, @Nonnull final TimeUnit pTimeUnit,
-    @Nonnegative final int pMaxTime) throws AbsTTException {
-    // Checks.
-    assertAccess(mLastCommittedUberPage.getRevision());
-    if (pMaxNodeCount < 0 || pMaxTime < 0) {
-      throw new TTUsageException("pMaxNodeCount may not be < 0!");
-    }
-    checkNotNull(pTimeUnit);
+	@Override
+	public synchronized INodeWriteTrx beginNodeWriteTrx(
+			@Nonnegative final int pMaxNodeCount, @Nonnull final TimeUnit pTimeUnit,
+			@Nonnegative final int pMaxTime) throws SirixException {
+		// Checks.
+		assertAccess(mLastCommittedUberPage.getRevision());
+		if (pMaxNodeCount < 0 || pMaxTime < 0) {
+			throw new SirixUsageException("pMaxNodeCount may not be < 0!");
+		}
+		checkNotNull(pTimeUnit);
 
-    // Make sure not to exceed available number of write transactions.
-    if (mWriteSemaphore.availablePermits() == 0) {
-      throw new IllegalStateException(
-        "There already is a running exclusive write transaction.");
-    }
-    try {
-      mWriteSemaphore.acquire();
-    } catch (final InterruptedException e) {
-      throw new TTThreadedException(e);
-    }
+		// Make sure not to exceed available number of write transactions.
+		if (mWriteSemaphore.availablePermits() == 0) {
+			throw new IllegalStateException(
+					"There already is a running exclusive write transaction.");
+		}
+		try {
+			mWriteSemaphore.acquire();
+		} catch (final InterruptedException e) {
+			throw new SirixThreadedException(e);
+		}
 
-    // Create new page write transaction (shares the same ID with the node write trx).
-    final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
-    final long lastRev = mLastCommittedUberPage.getRevisionNumber();
-    final IPageWriteTrx pageWtx =
-      createPageWriteTransaction(currentTrxID, lastRev, lastRev);
+		// Create new page write transaction (shares the same ID with the node write
+		// trx).
+		final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
+		final long lastRev = mLastCommittedUberPage.getRevisionNumber();
+		final IPageWriteTrx pageWtx = createPageWriteTransaction(currentTrxID,
+				lastRev, lastRev);
 
-    // Create new node write transaction.
-    final INodeWriteTrx wtx =
-      new NodeWriteTrx(currentTrxID, this, pageWtx, pMaxNodeCount, pTimeUnit,
-        pMaxTime);
+		// Create new node write transaction.
+		final INodeWriteTrx wtx = new NodeWriteTrx(currentTrxID, this, pageWtx,
+				pMaxNodeCount, pTimeUnit, pMaxTime);
 
-    // Remember node transaction for debugging and safe close.
-    if (mNodeTrxMap.put(currentTrxID, wtx) != null
-      || mNodePageTrxMap.put(currentTrxID, pageWtx) != null) {
-      throw new TTThreadedException(
-        "ID generation is bogus because of duplicate ID.");
-    }
+		// Remember node transaction for debugging and safe close.
+		if (mNodeTrxMap.put(currentTrxID, wtx) != null
+				|| mNodePageTrxMap.put(currentTrxID, pageWtx) != null) {
+			throw new SirixThreadedException(
+					"ID generation is bogus because of duplicate ID.");
+		}
 
-    return wtx;
-  }
+		return wtx;
+	}
 
-  /**
-   * Create a new {@link IPageWriteTrx}.
-   * 
-   * @param pId
-   *          the transaction ID
-   * @param pRepresentRevision
-   *          the revision which is represented
-   * @param pStoreRevision
-   *          revisions
-   * @return a new {@link IPageWriteTrx} instance
-   * @throws AbsTTException
-   *           if an error occurs
-   */
-  IPageWriteTrx createPageWriteTransaction(@Nonnegative final long pId,
-    @Nonnegative final long pRepresentRevision,
-    @Nonnegative final long pStoreRevision) throws AbsTTException {
-    checkArgument(pId >= 0, "pId must be >= 0!");
-    checkArgument(pRepresentRevision >= 0, "pRepresentRevision must be >= 0!");
-    checkArgument(pStoreRevision >= 0, "pStoreRevision must be >= 0!");
-    final IWriter writer = mFac.getWriter();
-    final long lastCommitedRev =
-      mLastCommittedUberPage.getLastCommitedRevisionNumber() > 0
-        ? mLastCommittedUberPage.getLastCommitedRevisionNumber() : 0;
-    return new PageWriteTrx(this, new UberPage(mLastCommittedUberPage,
-      pStoreRevision + 1), writer, pId, pRepresentRevision, pStoreRevision,
-      lastCommitedRev);
-  }
+	/**
+	 * Create a new {@link IPageWriteTrx}.
+	 * 
+	 * @param pId
+	 *          the transaction ID
+	 * @param pRepresentRevision
+	 *          the revision which is represented
+	 * @param pStoreRevision
+	 *          revisions
+	 * @return a new {@link IPageWriteTrx} instance
+	 * @throws SirixException
+	 *           if an error occurs
+	 */
+	IPageWriteTrx createPageWriteTransaction(@Nonnegative final long pId,
+			@Nonnegative final long pRepresentRevision,
+			@Nonnegative final long pStoreRevision) throws SirixException {
+		checkArgument(pId >= 0, "pId must be >= 0!");
+		checkArgument(pRepresentRevision >= 0, "pRepresentRevision must be >= 0!");
+		checkArgument(pStoreRevision >= 0, "pStoreRevision must be >= 0!");
+		final IWriter writer = mFac.getWriter();
+		final long lastCommitedRev = mLastCommittedUberPage
+				.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage
+				.getLastCommitedRevisionNumber() : 0;
+		return new PageWriteTrx(this, new UberPage(mLastCommittedUberPage,
+				pStoreRevision + 1), writer, pId, pRepresentRevision, pStoreRevision,
+				lastCommitedRev);
+	}
 
-  @Override
-  public synchronized void close() throws AbsTTException {
-    if (!mClosed) {
-      // Forcibly close all open node transactions.
-      for (INodeReadTrx rtx : mNodeTrxMap.values()) {
-        if (rtx instanceof INodeWriteTrx) {
-          ((INodeWriteTrx)rtx).abort();
-        }
-        rtx.close();
-        rtx = null;
-      }
-      // Forcibly close all open page transactions.
-      for (IPageReadTrx rtx : mPageTrxMap.values()) {
-        rtx.close();
-        rtx = null;
-      }
+	@Override
+	public synchronized void close() throws SirixException {
+		if (!mClosed) {
+			// Forcibly close all open node transactions.
+			for (INodeReadTrx rtx : mNodeTrxMap.values()) {
+				if (rtx instanceof INodeWriteTrx) {
+					((INodeWriteTrx) rtx).abort();
+				}
+				rtx.close();
+				rtx = null;
+			}
+			// Forcibly close all open page transactions.
+			for (IPageReadTrx rtx : mPageTrxMap.values()) {
+				rtx.close();
+				rtx = null;
+			}
 
-      // Immediately release all ressources.
-      mLastCommittedUberPage = null;
-      mNodeTrxMap.clear();
-      mPageTrxMap.clear();
-      mNodePageTrxMap.clear();
+			// Immediately release all ressources.
+			mLastCommittedUberPage = null;
+			mNodeTrxMap.clear();
+			mPageTrxMap.clear();
+			mNodePageTrxMap.clear();
 
-      mFac.close();
-      mDatabase.removeSession(mResourceConfig.mPath);
-      mClosed = true;
-    }
-  }
+			mFac.close();
+			mDatabase.removeSession(mResourceConfig.mPath);
+			mClosed = true;
+		}
+	}
 
-  /**
-   * Checks for valid revision.
-   * 
-   * @param pRevision
-   *          revision number to check
-   * @throws IllegalStateException
-   *           if {@link Session} is already closed
-   * @throws IllegalArgumentException
-   *           if revision isn't valid
-   */
-  protected void assertAccess(final @Nonnegative long pRevision) {
-    if (mClosed) {
-      throw new IllegalStateException("Session is already closed!");
-    }
-    if (pRevision < 0) {
-      throw new IllegalArgumentException("Revision must be at least 0!");
-    } else if (pRevision > mLastCommittedUberPage.getRevision()) {
-      throw new IllegalArgumentException(new StringBuilder(
-        "Revision must not be bigger than").append(
-        Long.toString(mLastCommittedUberPage.getRevision())).append("!")
-        .toString());
-    }
-  }
+	/**
+	 * Checks for valid revision.
+	 * 
+	 * @param pRevision
+	 *          revision number to check
+	 * @throws IllegalStateException
+	 *           if {@link Session} is already closed
+	 * @throws IllegalArgumentException
+	 *           if revision isn't valid
+	 */
+	protected void assertAccess(final @Nonnegative long pRevision) {
+		if (mClosed) {
+			throw new IllegalStateException("Session is already closed!");
+		}
+		if (pRevision < 0) {
+			throw new IllegalArgumentException("Revision must be at least 0!");
+		} else if (pRevision > mLastCommittedUberPage.getRevision()) {
+			throw new IllegalArgumentException(new StringBuilder(
+					"Revision must not be bigger than")
+					.append(Long.toString(mLastCommittedUberPage.getRevision()))
+					.append("!").toString());
+		}
+	}
 
-  @Override
-  public int getAvailableNodeReadTrx() {
-    return mReadSemaphore.availablePermits();
-  }
+	@Override
+	public int getAvailableNodeReadTrx() {
+		return mReadSemaphore.availablePermits();
+	}
 
-  @Override
-  public int getAvailableNodeWriteTrx() {
-    return mWriteSemaphore.availablePermits();
-  }
+	@Override
+	public int getAvailableNodeWriteTrx() {
+		return mWriteSemaphore.availablePermits();
+	}
 
-  /**
-   * Close a write transaction.
-   * 
-   * @param pTransactionID
-   *          write transaction ID
-   */
-  void closeWriteTransaction(final long pTransactionID) {
-    // Purge transaction from internal state.
-    mNodeTrxMap.remove(pTransactionID);
+	/**
+	 * Close a write transaction.
+	 * 
+	 * @param pTransactionID
+	 *          write transaction ID
+	 */
+	void closeWriteTransaction(final long pTransactionID) {
+		// Purge transaction from internal state.
+		mNodeTrxMap.remove(pTransactionID);
 
-    // Removing the write from the own internal mapping
-    mNodePageTrxMap.remove(pTransactionID);
+		// Removing the write from the own internal mapping
+		mNodePageTrxMap.remove(pTransactionID);
 
-    // Make new transactions available.
-    mWriteSemaphore.release();
-  }
+		// Make new transactions available.
+		mWriteSemaphore.release();
+	}
 
-  /**
-   * Close a read transaction.
-   * 
-   * @param pTransactionID
-   *          read transaction ID
-   */
-  void closeReadTransaction(@Nonnegative final long pTransactionID) {
-    // Purge transaction from internal state.
-    mNodeTrxMap.remove(pTransactionID);
-    // Make new transactions available.
-    mReadSemaphore.release();
-  }
+	/**
+	 * Close a read transaction.
+	 * 
+	 * @param pTransactionID
+	 *          read transaction ID
+	 */
+	void closeReadTransaction(@Nonnegative final long pTransactionID) {
+		// Purge transaction from internal state.
+		mNodeTrxMap.remove(pTransactionID);
+		// Make new transactions available.
+		mReadSemaphore.release();
+	}
 
-  @Override
-  public synchronized boolean isClosed() {
-    return mClosed;
-  }
+	@Override
+	public synchronized boolean isClosed() {
+		return mClosed;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("sessionConf", mSessionConfig).add(
-      "resourceConf", mResourceConfig).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("sessionConf", mSessionConfig)
+				.add("resourceConf", mResourceConfig).toString();
+	}
 
-  @Override
-  public String getUser() {
-    return mSessionConfig.mUser;
-  }
+	@Override
+	public String getUser() {
+		return mSessionConfig.mUser;
+	}
 
-  /**
-   * Synchronize logs.
-   * 
-   * @param pContToSync
-   *          {@link PageContainer} to synchronize
-   * @param pTransactionId
-   *          transaction ID
-   * @throws TTThreadedException
-   * 
-   */
-  protected synchronized void syncLogs(
-    final @Nonnull PageContainer pContToSync,
-    final @Nonnegative long pTransactionID, final @Nonnull EPage pPage)
-    throws TTThreadedException {
-    final ExecutorService pool = Executors.newCachedThreadPool();
-    final Collection<Future<Void>> returnVals = new ArrayList<>();
-    for (final Long key : mNodePageTrxMap.keySet()) {
-      if (key != pTransactionID) {
-        returnVals.add(pool.submit(new LogSyncer(mNodePageTrxMap.get(key),
-          pContToSync, pPage)));
-      }
-    }
-    pool.shutdown();
-    if (!mSyncTransactionsReturns.containsKey(pTransactionID)) {
-      mSyncTransactionsReturns.put(pTransactionID,
-        new ConcurrentHashMap<Long, Collection<Future<Void>>>());
-    }
-    // if (mSyncTransactionsReturns.get(pTransactionId).put(
-    // ((NodePage)pContToSync.getComplete()).getNodePageKey(), returnVals) != null) {
-    // throw new TTThreadedException(
-    // "only one commit and therefore sync per id and nodepage is allowed!");
-    // }
-  }
+	/**
+	 * Synchronize logs.
+	 * 
+	 * @param pContToSync
+	 *          {@link PageContainer} to synchronize
+	 * @param pTransactionId
+	 *          transaction ID
+	 * @throws SirixThreadedException
+	 * 
+	 */
+	protected synchronized void syncLogs(
+			final @Nonnull PageContainer pContToSync,
+			final @Nonnegative long pTransactionID, final @Nonnull EPage pPage)
+			throws SirixThreadedException {
+		final ExecutorService pool = Executors.newCachedThreadPool();
+		final Collection<Future<Void>> returnVals = new ArrayList<>();
+		for (final Long key : mNodePageTrxMap.keySet()) {
+			if (key != pTransactionID) {
+				returnVals.add(pool.submit(new LogSyncer(mNodePageTrxMap.get(key),
+						pContToSync, pPage)));
+			}
+		}
+		pool.shutdown();
+		if (!mSyncTransactionsReturns.containsKey(pTransactionID)) {
+			mSyncTransactionsReturns.put(pTransactionID,
+					new ConcurrentHashMap<Long, Collection<Future<Void>>>());
+		}
+		// if (mSyncTransactionsReturns.get(pTransactionId).put(
+		// ((NodePage)pContToSync.getComplete()).getNodePageKey(), returnVals) !=
+		// null) {
+		// throw new TTThreadedException(
+		// "only one commit and therefore sync per id and nodepage is allowed!");
+		// }
+	}
 
-  /**
-   * Wait until synchronization is finished.
-   * 
-   * @param pTransactionID
-   *          transaction ID for which to wait (all others)
-   * @throws TTThreadedException
-   *           if an exception occurs
-   */
-  protected synchronized void waitForFinishedSync(
-    final @Nonnegative long pTransactionID) throws TTThreadedException {
-    final Map<Long, Collection<Future<Void>>> completeVals =
-      mSyncTransactionsReturns.remove(pTransactionID);
-    if (completeVals != null) {
-      for (final Collection<Future<Void>> singleVals : completeVals.values()) {
-        for (final Future<Void> returnVal : singleVals) {
-          try {
-            returnVal.get();
-          } catch (final InterruptedException exc) {
-            throw new TTThreadedException(exc);
-          } catch (final ExecutionException exc) {
-            throw new TTThreadedException(exc);
-          }
-        }
-      }
-    }
-  }
+	/**
+	 * Wait until synchronization is finished.
+	 * 
+	 * @param pTransactionID
+	 *          transaction ID for which to wait (all others)
+	 * @throws SirixThreadedException
+	 *           if an exception occurs
+	 */
+	protected synchronized void waitForFinishedSync(
+			final @Nonnegative long pTransactionID) throws SirixThreadedException {
+		final Map<Long, Collection<Future<Void>>> completeVals = mSyncTransactionsReturns
+				.remove(pTransactionID);
+		if (completeVals != null) {
+			for (final Collection<Future<Void>> singleVals : completeVals.values()) {
+				for (final Future<Void> returnVal : singleVals) {
+					try {
+						returnVal.get();
+					} catch (final InterruptedException exc) {
+						throw new SirixThreadedException(exc);
+					} catch (final ExecutionException exc) {
+						throw new SirixThreadedException(exc);
+					}
+				}
+			}
+		}
+	}
 
-  /**
-   * Synchronize the log.
-   */
-  class LogSyncer implements Callable<Void> {
+	/**
+	 * Synchronize the log.
+	 */
+	class LogSyncer implements Callable<Void> {
 
-    /** {@link IPageWriteTrx} to interact with the page layer. */
-    private final IPageWriteTrx mPageWriteTrx;
+		/** {@link IPageWriteTrx} to interact with the page layer. */
+		private final IPageWriteTrx mPageWriteTrx;
 
-    /** {@link PageContainer} reference. */
-    private final PageContainer mCont;
+		/** {@link PageContainer} reference. */
+		private final PageContainer mCont;
 
-    /** Type of page. */
-    private final EPage mPage;
+		/** Type of page. */
+		private final EPage mPage;
 
-    /**
-     * Log synchronizer.
-     * 
-     * @param pPageWriteTransaction
-     *          Sirix {@link IPageWriteTrx}
-     * @param pNodePageCont
-     *          {@link PageContainer} to update
-     * @param pPage
-     *          page type
-     */
-    LogSyncer(final @Nonnull IPageWriteTrx pPageWriteTransaction,
-      final @Nonnull PageContainer pNodePageCont, final @Nonnull EPage pPage) {
-      mPageWriteTrx = checkNotNull(pPageWriteTransaction);
-      mCont = checkNotNull(pNodePageCont);
-      mPage = checkNotNull(pPage);
-    }
+		/**
+		 * Log synchronizer.
+		 * 
+		 * @param pPageWriteTransaction
+		 *          Sirix {@link IPageWriteTrx}
+		 * @param pNodePageCont
+		 *          {@link PageContainer} to update
+		 * @param pPage
+		 *          page type
+		 */
+		LogSyncer(final @Nonnull IPageWriteTrx pPageWriteTransaction,
+				final @Nonnull PageContainer pNodePageCont, final @Nonnull EPage pPage) {
+			mPageWriteTrx = checkNotNull(pPageWriteTransaction);
+			mCont = checkNotNull(pNodePageCont);
+			mPage = checkNotNull(pPage);
+		}
 
-    @Override
-    public Void call() throws Exception {
-      mPageWriteTrx.updateDateContainer(mCont, mPage);
-      return null;
-    }
-  }
+		@Override
+		public Void call() throws Exception {
+			mPageWriteTrx.updateDateContainer(mCont, mPage);
+			return null;
+		}
+	}
 
-  /**
-   * Set last commited UberPage.
-   * 
-   * @param pPage
-   *          the new {@link UberPage}
-   */
-  protected synchronized void setLastCommittedUberPage(
-    @Nonnull final UberPage pPage) {
-    mLastCommittedUberPage = checkNotNull(pPage);
-  }
+	/**
+	 * Set last commited UberPage.
+	 * 
+	 * @param pPage
+	 *          the new {@link UberPage}
+	 */
+	protected synchronized void setLastCommittedUberPage(
+			@Nonnull final UberPage pPage) {
+		mLastCommittedUberPage = checkNotNull(pPage);
+	}
 
-  @Override
-  public ResourceConfiguration getResourceConfig() {
-    return mResourceConfig;
-  }
+	@Override
+	public ResourceConfiguration getResourceConfig() {
+		return mResourceConfig;
+	}
 
-  @Override
-  public long getLastRevisionNumber() {
-    return mLastCommittedUberPage.getRevisionNumber();
-  }
+	@Override
+	public long getLastRevisionNumber() {
+		return mLastCommittedUberPage.getRevisionNumber();
+	}
 
-  @Override
-  public PathSummary openPathSummary(@Nonnegative long pRev)
-    throws AbsTTException {
-    assertAccess(pRev);
+	@Override
+	public PathSummary openPathSummary(@Nonnegative long pRev)
+			throws SirixException {
+		assertAccess(pRev);
 
-    return PathSummary.getInstance(new PageReadTrx(this,
-      mLastCommittedUberPage, pRev, mFac.getReader(), Optional
-        .<BerkeleyPersistencePageCache> absent()), this);
-  }
+		return PathSummary.getInstance(
+				new PageReadTrx(this, mLastCommittedUberPage, pRev, mFac.getReader(),
+						Optional.<BerkeleyPersistencePageCache> absent()), this);
+	}
 
-  @Override
-  public PathSummary openPathSummary() throws AbsTTException {
-    return openPathSummary(mLastCommittedUberPage.getRevisionNumber());
-  }
+	@Override
+	public PathSummary openPathSummary() throws SirixException {
+		return openPathSummary(mLastCommittedUberPage.getRevisionNumber());
+	}
 
-  @Override
-  public IPageReadTrx beginPageReadTrx() throws AbsTTException {
-    return beginPageReadTrx(mLastCommittedUberPage.getRevisionNumber());
-  }
+	@Override
+	public IPageReadTrx beginPageReadTrx() throws SirixException {
+		return beginPageReadTrx(mLastCommittedUberPage.getRevisionNumber());
+	}
 
-  @Override
-  public synchronized IPageReadTrx beginPageReadTrx(@Nonnegative long pRev)
-    throws AbsTTException {
-    return new PageReadTrx(this, mLastCommittedUberPage, pRev,
-      mFac.getReader(), Optional.<BerkeleyPersistencePageCache> absent());
-  }
+	@Override
+	public synchronized IPageReadTrx beginPageReadTrx(@Nonnegative long pRev)
+			throws SirixException {
+		return new PageReadTrx(this, mLastCommittedUberPage, pRev,
+				mFac.getReader(), Optional.<BerkeleyPersistencePageCache> absent());
+	}
 
-  @Override
-  public IPageWriteTrx beginPageWriteTrx() throws AbsTTException {
-    return beginPageWriteTrx(mLastCommittedUberPage.getRevisionNumber());
-  }
+	@Override
+	public IPageWriteTrx beginPageWriteTrx() throws SirixException {
+		return beginPageWriteTrx(mLastCommittedUberPage.getRevisionNumber());
+	}
 
-  @Override
-  public synchronized IPageWriteTrx beginPageWriteTrx(@Nonnegative long pRev)
-    throws AbsTTException {
-    final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
-    final long lastRev = mLastCommittedUberPage.getRevisionNumber();
-    final IPageWriteTrx pageWtx =
-      createPageWriteTransaction(currentPageTrxID, lastRev, lastRev);
+	@Override
+	public synchronized IPageWriteTrx beginPageWriteTrx(@Nonnegative long pRev)
+			throws SirixException {
+		final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
+		final long lastRev = mLastCommittedUberPage.getRevisionNumber();
+		final IPageWriteTrx pageWtx = createPageWriteTransaction(currentPageTrxID,
+				lastRev, lastRev);
 
-    // Remember page transaction for debugging and safe close.
-    if (mPageTrxMap.put(currentPageTrxID, pageWtx) != null) {
-      throw new TTThreadedException(
-        "ID generation is bogus because of duplicate ID.");
-    }
+		// Remember page transaction for debugging and safe close.
+		if (mPageTrxMap.put(currentPageTrxID, pageWtx) != null) {
+			throw new SirixThreadedException(
+					"ID generation is bogus because of duplicate ID.");
+		}
 
-    return pageWtx;
-  }
+		return pageWtx;
+	}
+
+	@Override
+	public IDatabase getDatabase() {
+		return mDatabase;
+	}
 }

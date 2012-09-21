@@ -43,7 +43,7 @@ import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.utils.DocumentCreater;
 import org.sirix.utils.IConstants;
@@ -53,19 +53,19 @@ public class SessionTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testSingleton() throws AbsTTException {
+  public void testSingleton() throws SirixException {
     final IDatabase database = Holder.generateSession().getDatabase();
     assertEquals(database, holder.getDatabase());
     final ISession session =
@@ -80,7 +80,7 @@ public class SessionTest {
   }
 
   @Test
-  public void testClosed() throws AbsTTException {
+  public void testClosed() throws SirixException {
     INodeReadTrx rtx = holder.getRtx();
     rtx.close();
 
@@ -95,14 +95,14 @@ public class SessionTest {
   }
 
   @Test
-  public void testNonExisting() throws AbsTTException, InterruptedException {
+  public void testNonExisting() throws SirixException, InterruptedException {
     final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     final IDatabase database2 = TestHelper.getDatabase(PATHS.PATH1.getFile());
     assertTrue(database == database2);
   }
 
   @Test
-  public void testInsertChild() throws AbsTTException {
+  public void testInsertChild() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     assertNotNull(wtx.moveToDocumentRoot());
@@ -118,7 +118,7 @@ public class SessionTest {
   }
 
   @Test
-  public void testRevision() throws AbsTTException {
+  public void testRevision() throws SirixException {
     INodeReadTrx rtx = holder.getRtx();
     assertEquals(0L, rtx.getRevisionNumber());
 
@@ -140,7 +140,7 @@ public class SessionTest {
   }
 
   @Test
-  public void testShreddedRevision() throws AbsTTException {
+  public void testShreddedRevision() throws SirixException {
 
     final INodeWriteTrx wtx1 = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx1);
@@ -172,7 +172,7 @@ public class SessionTest {
   }
 
   @Test
-  public void testExisting() throws AbsTTException {
+  public void testExisting() throws SirixException {
     final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     final ISession session1 =
       database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
@@ -218,7 +218,7 @@ public class SessionTest {
   }
 
   @Test
-  public void testIdempotentClose() throws AbsTTException {
+  public void testIdempotentClose() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -233,13 +233,13 @@ public class SessionTest {
   }
 
   @Test
-  public void testAutoCommit() throws AbsTTException {
+  public void testAutoCommit() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
   }
 
   @Test
-  public void testAutoClose() throws AbsTTException {
+  public void testAutoClose() throws SirixException {
 
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);

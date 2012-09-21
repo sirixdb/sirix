@@ -38,7 +38,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.settings.EFixed;
@@ -56,13 +56,13 @@ public final class OverallTest extends TestCase {
 
   @Override
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
   @Test
-  public void testJustEverything() throws AbsTTException {
+  public void testJustEverything() throws SirixException {
     holder.getWtx().insertElementAsFirstChild(new QName(getString()));
     holder.getWtx().insertElementAsFirstChild(new QName(getString()));
     for (int i = 0; i < ELEMENTS; i++) {
@@ -140,7 +140,7 @@ public final class OverallTest extends TestCase {
 
   @Override
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }

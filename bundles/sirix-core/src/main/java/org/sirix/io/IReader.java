@@ -27,7 +27,7 @@
 
 package org.sirix.io;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.IPage;
 
@@ -43,10 +43,10 @@ public interface IReader {
    * Getting the first reference of the {@code Uberpage}.
    * 
    * @return a {@link PageReference} with link to the first reference
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something bad happens
    */
-  PageReference readFirstReference() throws TTIOException;
+  PageReference readFirstReference() throws SirixIOException;
 
   /**
    * Getting a reference for the given pointer.
@@ -54,17 +54,17 @@ public interface IReader {
    * @param pKey
    *          the reference for the page to be determined
    * @return a {@link PageDelegate} as the base for a page
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something bad happens during read
    */
-  IPage read(final long pKey) throws TTIOException;
+  IPage read(final long pKey) throws SirixIOException;
 
   /**
    * Closing the storage.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something bad happens while access
    */
-  void close() throws TTIOException;
+  void close() throws SirixIOException;
 
 }

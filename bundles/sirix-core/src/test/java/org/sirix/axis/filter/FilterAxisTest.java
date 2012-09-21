@@ -37,27 +37,27 @@ import org.sirix.axis.AbsAxisTest;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.FilterAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class FilterAxisTest {
 
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testNameAxisTest() throws AbsTTException {
+  public void testNameAxisTest() throws SirixException {
     // Build simple test tree.
     final INodeReadTrx rtx = holder.getRtx();
 
@@ -69,7 +69,7 @@ public class FilterAxisTest {
   }
 
   @Test
-  public void testValueAxisTest() throws AbsTTException {
+  public void testValueAxisTest() throws SirixException {
     // Build simple test tree.
     final INodeReadTrx rtx = holder.getRtx();
 
@@ -81,7 +81,7 @@ public class FilterAxisTest {
   }
 
   @Test
-  public void testValueAndNameAxisTest() throws AbsTTException {
+  public void testValueAndNameAxisTest() throws SirixException {
     // Build simple test tree.
     final INodeReadTrx rtx = holder.getRtx();
 

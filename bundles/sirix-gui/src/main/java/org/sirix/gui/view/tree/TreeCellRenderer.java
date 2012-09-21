@@ -40,7 +40,7 @@ import javax.xml.XMLConstants;
 import javax.xml.namespace.QName;
 
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INameNode;
@@ -87,7 +87,7 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
 
     try {
       mRTX = pReadDB.getSession().beginNodeReadTrx(pReadDB.getRevisionNumber());
-    } catch (final AbsTTException exc) {
+    } catch (final SirixException exc) {
       exc.printStackTrace();
     }
 

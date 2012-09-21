@@ -35,8 +35,8 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.IPageWriteTrx;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 
 /**
  * Abstract class for holding all persistence caches. Each instance of this
@@ -77,7 +77,7 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
    */
   protected AbsPersistenceCache(final @Nonnull File pFile,
     final @Nonnull IPageWriteTrx pPageWriteTrx,
-    final @Nonnegative long pRevision, final @Nonnull String pLogType) throws AbsTTException {
+    final @Nonnegative long pRevision, final @Nonnull String pLogType) throws SirixException {
     mPlace =
       new File(new File(new File(pFile, ResourceConfiguration.Paths.TransactionLog
         .getFile().getName()), Long.toString(pRevision)), pLogType);
@@ -98,7 +98,7 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
   public final void put(@Nonnull final K pKey, @Nonnull final V pPage) {
     try {
       putPersistent(pKey, pPage);
-    } catch (final TTIOException exc) {
+    } catch (final SirixIOException exc) {
       throw new IllegalStateException(exc);
     }
   }
@@ -109,13 +109,13 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
       clearPersistent();
       for (final File file : mPlace.listFiles()) {
         if (!file.delete()) {
-          throw new TTIOException("Couldn't delete!");
+          throw new SirixIOException("Couldn't delete!");
         }
       }
       if (!mPlace.delete()) {
-        throw new TTIOException("Couldn't delete!");
+        throw new SirixIOException("Couldn't delete!");
       }
-    } catch (final TTIOException e) {
+    } catch (final SirixIOException e) {
       throw new IllegalStateException(e.getCause());
     }
   }
@@ -124,7 +124,7 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
   public final V get(@Nonnull final K pKey) {
     try {
       return getPersistent(pKey);
-    } catch (final TTIOException e) {
+    } catch (final SirixIOException e) {
       throw new IllegalStateException(e.getCause());
     }
   }
@@ -132,10 +132,10 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
   /**
    * Clearing a persistent cache.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something odd happens
    */
-  public abstract void clearPersistent() throws TTIOException;
+  public abstract void clearPersistent() throws SirixIOException;
 
   /**
    * Putting a page into a persistent log.
@@ -144,11 +144,11 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
    *          to be put
    * @param pPage
    *          to be put
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something odd happens
    */
   public abstract void putPersistent(@Nonnull final K pKey,
-    @Nonnull final V pPage) throws TTIOException;
+    @Nonnull final V pPage) throws SirixIOException;
 
   /**
    * Getting a NodePage from the persistent cache.
@@ -156,9 +156,9 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
    * @param pKey
    *          to get the page
    * @return the Nodepage to be fetched
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something odd happens.
    */
-  public abstract V getPersistent(@Nonnull final K pKey) throws TTIOException;
+  public abstract V getPersistent(@Nonnull final K pKey) throws SirixIOException;
 
 }

@@ -27,7 +27,7 @@
 
 package org.sirix.service.xml.xpath;
 
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.types.Type;
 
 /**
@@ -50,9 +50,9 @@ public class SingleType {
    *          string representation of the atomic value
    * @param mIntero
    *          true, if interrogation sign is present
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
-  public SingleType(final String atomic, final boolean mIntero) throws TTXPathException {
+  public SingleType(final String atomic, final boolean mIntero) throws SirixXPathException {
 
     // get atomic type
     mAtomicType = null; // TODO. = null is not good style

@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.ElementNode;
 
 public class AttributeAndNamespaceTest {
@@ -42,20 +42,20 @@ public class AttributeAndNamespaceTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testAttribute() throws AbsTTException {
+  public void testAttribute() throws SirixException {
     holder.getRtx().moveTo(1L);
     assertEquals(1, ((ElementNode)holder.getRtx().getNode()).getAttributeCount());
     holder.getRtx().moveToAttribute(0);
@@ -70,7 +70,7 @@ public class AttributeAndNamespaceTest {
   }
 
   @Test
-  public void testNamespace() throws AbsTTException {
+  public void testNamespace() throws SirixException {
     holder.getRtx().moveTo(1L);
     assertEquals(1, ((ElementNode)holder.getRtx().getNode()).getNamespaceCount());
     holder.getRtx().moveToNamespace(0);

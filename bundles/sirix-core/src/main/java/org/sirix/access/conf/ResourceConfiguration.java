@@ -45,7 +45,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.EHashKind;
 import org.sirix.access.Session;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.EStorage;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.DeflateCompressor;
@@ -69,7 +69,7 @@ import com.google.gson.stream.JsonWriter;
  * @author Sebastian Graf, University of Konstanz
  */
 public final class ResourceConfiguration {
-
+	
 	/**
 	 * Paths for a {@link Session}. Each resource has the same folder layout.
 	 */
@@ -128,8 +128,10 @@ public final class ResourceConfiguration {
 		 *          to be checked
 		 * @return -1 if less folders are there, 0 if the structure is equal to the
 		 *         one expected, 1 if the structure has more folders
+		 * @throws NullPointerException
+		 *           if {@code pFile} is {@code null}
 		 */
-		public static int compareStructure(final File pFile) {
+		public static int compareStructure(final @Nonnull File pFile) {
 			int existing = 0;
 			for (final Paths paths : values()) {
 				final File currentFile = new File(pFile, paths.getFile().getName());
@@ -198,6 +200,9 @@ public final class ResourceConfiguration {
 	/** Indexes to use. */
 	public final Set<EIndexes> mIndexes;
 
+	/** Unique ID. */
+	private long mID;
+
 	// END MEMBERS FOR FIXED FIELDS
 
 	/**
@@ -219,6 +224,28 @@ public final class ResourceConfiguration {
 		mPath = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.Data.getFile().getName()),
 				pBuilder.mResource);
+	}
+
+	/**
+	 * Set a unique ID.
+	 * 
+	 * @param pID
+	 *          the ID to set
+	 * @return this instance
+	 */
+	public ResourceConfiguration setID(final @Nonnegative long pID) {
+		checkArgument(pID >= 0, "pID must be >= 0!");
+		mID = pID;
+		return this;
+	}
+	
+	/**
+	 * Get the unique ID.
+	 * 
+	 * @return the unique resource ID
+	 */
+	public long getID() {
+		return mID;
 	}
 
 	@Override
@@ -274,18 +301,18 @@ public final class ResourceConfiguration {
 	 */
 	private static final String[] JSONNAMES = { "revisioning",
 			"revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
-			"storageKind", "hashKind", "compression", "dbConfig" };
+			"storageKind", "hashKind", "compression", "dbConfig", "ID" };
 
 	/**
 	 * Serialize the configuration.
 	 * 
 	 * @param pConfig
 	 *          configuration to serialize
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	public static void serialize(final @Nonnull ResourceConfiguration pConfig)
-			throws TTIOException {
+			throws SirixIOException {
 		final File configFile = pConfig.getConfigFile();
 		try (final FileWriter fileWriter = new FileWriter(configFile);
 				final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
@@ -317,9 +344,11 @@ public final class ResourceConfiguration {
 				jsonWriter.value(index.name());
 			}
 			jsonWriter.endArray();
+			// ID.
+			jsonWriter.name(JSONNAMES[8]).value(pConfig.mID);
 			jsonWriter.endObject();
 		} catch (final IOException e) {
-			throw new TTIOException(e);
+			throw new SirixIOException(e);
 		}
 
 		// Database config.
@@ -334,11 +363,11 @@ public final class ResourceConfiguration {
 	 * @param pFile
 	 *          where the resource lies in.
 	 * @return a complete {@link ResourceConfiguration} instance
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	public static ResourceConfiguration deserialize(final @Nonnull File pFile)
-			throws TTIOException {
+			throws SirixIOException {
 		try {
 			final File configFiler = new File(pFile, Paths.ConfigBinary.getFile()
 					.getName());
@@ -392,6 +421,10 @@ public final class ResourceConfiguration {
 			}
 			final Set<EIndexes> indexes = EnumSet.copyOf(listIndexes);
 			jsonReader.endArray();
+			// Unique ID.
+			name = jsonReader.nextName();
+			assert name.equals(JSONNAMES[8]);
+			final int ID = jsonReader.nextInt();
 			jsonReader.endObject();
 			jsonReader.close();
 			fileReader.close();
@@ -412,11 +445,12 @@ public final class ResourceConfiguration {
 			builder.useCompression(compression);
 
 			// Deserialized instance.
-			return new ResourceConfiguration(builder);
+			final ResourceConfiguration config = new ResourceConfiguration(builder);
+			return config.setID(ID);
 		} catch (IOException | ClassNotFoundException | IllegalArgumentException
 				| InstantiationException | IllegalAccessException
 				| InvocationTargetException e) {
-			throw new TTIOException(e);
+			throw new SirixIOException(e);
 		}
 	}
 

@@ -27,19 +27,52 @@
 
 package org.sirix.exception;
 
+import java.io.IOException;
+
 /**
- * Static class for handling the Enum as an {@link AbsTTException}.
+ * All sirix IO Exception are wrapped in this class. It inherits from
+ * IOException since it is a sirix IO Exception.
+ * 
+ * @author Sebastian Graf, University of Konstanz
+ * 
  */
-public class TTXPathException extends AbsTTException {
+public final class SirixIOException extends SirixException {
+
+  /**
+   * Serializable id.
+   */
+  private static final long serialVersionUID = 4099242625448155216L;
 
   /**
    * Constructor.
    * 
-   * @param paramMessage
-   *          message of the XPath Error.
+   * @param pMessage
+   *          to be used
    */
-  public TTXPathException(final String paramMessage) {
-    super(paramMessage);
+  public SirixIOException(final String pMessage) {
+    super(pMessage);
+  }
+
+  /**
+   * Constructor.
+   * 
+   * @param pThrowable
+   *          {@link Throwable} exception
+   * @param pMessage
+   *          for the overlaying {@link IOException}
+   */
+  public SirixIOException(final String pMessage, final Throwable pThrowable) {
+    super(pMessage, pThrowable);
+  }
+
+  /**
+   * Constructor.
+   * 
+   * @param pThrowable
+   *          {@link Throwable} exception
+   */
+  public SirixIOException(final Throwable pThrowable) {
+    super(pThrowable);
   }
 
 }

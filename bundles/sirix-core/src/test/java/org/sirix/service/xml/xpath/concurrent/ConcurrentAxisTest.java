@@ -49,8 +49,8 @@ import org.sirix.axis.EIncludeSelf;
 import org.sirix.axis.FilterAxis;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.NameFilter;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
 
@@ -69,7 +69,7 @@ public class ConcurrentAxisTest {
    * Method is called once before each test. It deletes all states, shreds XML
    * file to database and initializes the required variables.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    * 
    * @throws Exception
    */
@@ -106,7 +106,7 @@ public class ConcurrentAxisTest {
         axis.next();
       }
       assertEquals(false, axis.hasNext());
-    } catch (final TTXPathException ttExp) {
+    } catch (final SirixXPathException ttExp) {
       fail();
     }
   }
@@ -137,9 +137,9 @@ public class ConcurrentAxisTest {
   /**
    * Test concurrent.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Bench
   @Test
@@ -170,7 +170,7 @@ public class ConcurrentAxisTest {
         axis.next();
       }
       assertEquals(false, axis.hasNext());
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       fail();
     }
   }
@@ -178,7 +178,7 @@ public class ConcurrentAxisTest {
   /**
    * Test concurrent.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Bench
   @Test
@@ -201,7 +201,7 @@ public class ConcurrentAxisTest {
         axis.next();
       }
       assertEquals(false, axis.hasNext());
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       fail();
     }
   }
@@ -209,7 +209,7 @@ public class ConcurrentAxisTest {
   /**
    * Test concurrent.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Bench
   @Test
@@ -232,7 +232,7 @@ public class ConcurrentAxisTest {
         axis.next();
       }
       assertEquals(axis.hasNext(), false);
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       fail();
     }
 
@@ -1154,7 +1154,7 @@ public class ConcurrentAxisTest {
   /**
    * Close all connections.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    */
   @AfterEachRun
   @After
@@ -1162,7 +1162,7 @@ public class ConcurrentAxisTest {
     try {
       holder.close();
       TestHelper.closeEverything();
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
     }
   }
 

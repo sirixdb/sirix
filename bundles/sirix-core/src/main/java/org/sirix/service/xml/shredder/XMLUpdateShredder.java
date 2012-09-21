@@ -55,9 +55,9 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
-import org.sirix.exception.TTUsageException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INameNode;
@@ -229,17 +229,17 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    *          {@link File}
    * @param paramCommit
    *          determines if changes should be commited
-   * @throws TTUsageException
+   * @throws SirixUsageException
    *           if insertasfirstChild && updateOnly is both true OR if wtx is
    *           not pointing to doc-root and updateOnly= true
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if sirix cannot access node keys
    * 
    */
   @SuppressWarnings("unchecked")
   public XMLUpdateShredder(final INodeWriteTrx paramWtx, final XMLEventReader paramReader,
     final EInsert paramAddAsFirstChild, final Object paramData, final EShredderCommit paramCommit)
-    throws TTIOException {
+    throws SirixIOException {
     super(paramWtx, paramReader, paramAddAsFirstChild);
     if (paramData == null || paramCommit == null) {
       throw new IllegalArgumentException("None of the constructor parameters may be null!");
@@ -257,12 +257,12 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
   /**
    * Invoking the shredder.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if sirix encounters something went wrong
    * @return revision of last revision (before commit)
    */
   @Override
-  public Long call() throws AbsTTException {
+  public Long call() throws SirixException {
     final long revision = mWtx.getRevisionNumber();
     updateOnly();
     if (mCommit == EShredderCommit.COMMIT) {
@@ -274,10 +274,10 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
   /**
    * Update a shreddered file.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if sirix encounters something went wrong
    */
-  private void updateOnly() throws AbsTTException {
+  private void updateOnly() throws SirixException {
     try {
       // Initialize variables.
       mLevelInToShredder = 0;
@@ -396,9 +396,9 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
       }
       // TODO: use Java7 multi-catch feature.
     } catch (final XMLStreamException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     } catch (final IOException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
 
   }
@@ -412,11 +412,11 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    *           In case of any StAX parsing error.
    * @throws IOException
    *           In case of any I/O error.
-   * @throws AbsTTException
+   * @throws SirixException
    *           In case of any sirix error.
    */
   private void processStartTag(final StartElement paramElem) throws IOException, XMLStreamException,
-    AbsTTException {
+    SirixException {
     assert paramElem != null;
 
     // Initialize variables.
@@ -452,11 +452,11 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    *           In case of any StAX parsing error.
    * @throws IOException
    *           In case of any I/O error.
-   * @throws AbsTTException
+   * @throws SirixException
    *           In case of any sirix error.
    */
   private void processCharacters(final Characters paramText) throws IOException, XMLStreamException,
-    AbsTTException {
+    SirixException {
     assert paramText != null;
     // Initialize variables.
     initializeVars();
@@ -487,10 +487,10 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    * 
    * @throws XMLStreamException
    *           In case of any parsing error.
-   * @throws AbsTTException
+   * @throws SirixException
    *           In case anything went wrong while moving/deleting nodes in sirix.
    */
-  private void processEndTag() throws XMLStreamException, AbsTTException {
+  private void processEndTag() throws XMLStreamException, SirixException {
     mLevelInToShredder--;
 
     if (mInserted) {
@@ -630,12 +630,12 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    * In case they are the same nodes move cursor to next node and update
    * stack.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           In case of any sirix error.
    * @throws XMLStreamException
    *           In case of any StAX parsing error.
    */
-  private void sameTextNode() throws TTIOException, XMLStreamException {
+  private void sameTextNode() throws SirixIOException, XMLStreamException {
     // Update variables.
     mInsert = EInternalInsert.NOINSERT;
     mDelete = EDelete.NODELETE;
@@ -713,10 +713,10 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    * 
    * @throws XMLStreamException
    *           In case of any StAX parsing error.
-   * @throws AbsTTException
+   * @throws SirixException
    *           In case anything went wrong while moving the sirix transaction.
    */
-  private void sameElementNode() throws XMLStreamException, AbsTTException {
+  private void sameElementNode() throws XMLStreamException, SirixException {
     // Update variables.
     mInsert = EInternalInsert.NOINSERT;
     mDelete = EDelete.NODELETE;
@@ -790,13 +790,13 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    * 
    * @param paramElement
    *          {@link StartElement}, which is going to be inserted.
-   * @throws AbsTTException
+   * @throws SirixException
    *           In case any exception occurs while moving the cursor or
    *           deleting nodes in sirix.
    * @throws XMLStreamException
    *           In case of any StAX parsing error.
    */
-  private void insertElementNode(final StartElement paramElement) throws AbsTTException, XMLStreamException {
+  private void insertElementNode(final StartElement paramElement) throws SirixException, XMLStreamException {
     assert paramElement != null;
     /*
      * Add node if it's either not found among right siblings (and the
@@ -867,13 +867,13 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    * 
    * @param paramText
    *          {@link Characters}, which is going to be inserted.
-   * @throws AbsTTException
+   * @throws SirixException
    *           In case any exception occurs while moving the cursor or
    *           deleting nodes in sirix.
    * @throws XMLStreamException
    *           In case of any StAX parsing error.
    */
-  private void insertTextNode(final Characters paramText) throws AbsTTException, XMLStreamException {
+  private void insertTextNode(final Characters paramText) throws SirixException, XMLStreamException {
     assert paramText != null;
     /*
      * Add node if it's either not found among right siblings (and the
@@ -964,11 +964,11 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
   /**
    * Delete node.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           In case any exception occurs while moving the cursor or
    *           deleting nodes in sirix.
    */
-  private void deleteNode() throws AbsTTException {
+  private void deleteNode() throws SirixException {
     /*
      * If found in one of the rightsiblings in the current shreddered
      * structure remove all nodes until the transaction points to the found
@@ -1071,10 +1071,10 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    *          determines how to add the node
    * @param paramTextEvent
    *          the current {@link Character} event from the StAX parser.
-   * @throws AbsTTException
+   * @throws SirixException
    *           if adding text node fails
    */
-  private void addNewText(final EAdd paramAdd, final Characters paramTextEvent) throws AbsTTException {
+  private void addNewText(final EAdd paramAdd, final Characters paramTextEvent) throws SirixException {
     assert paramTextEvent != null;
     final String text = paramTextEvent.getData().trim();
     final ByteBuffer textByteBuffer = ByteBuffer.wrap(TypedValue.getBytes(text));
@@ -1094,10 +1094,10 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    *          determines wether node is added as first child or right sibling
    * @param paramStartElement
    *          the current {@link StartElement}
-   * @throws AbsTTException
+   * @throws SirixException
    *           if inserting node fails
    */
-  private void addNewElement(final EAdd paramAdd, final StartElement paramStartElement) throws AbsTTException {
+  private void addNewElement(final EAdd paramAdd, final StartElement paramStartElement) throws SirixException {
     assert paramStartElement != null;
     final QName name = paramStartElement.getName();
     long key;
@@ -1373,7 +1373,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
 
       wtx.close();
       session.close();
-    } catch (final AbsTTException | XMLStreamException | IOException e) {
+    } catch (final SirixException | XMLStreamException | IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
 

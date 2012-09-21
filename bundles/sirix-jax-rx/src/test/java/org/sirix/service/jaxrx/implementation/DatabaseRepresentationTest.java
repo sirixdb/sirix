@@ -51,7 +51,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.util.DOMHelper;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
@@ -115,10 +115,10 @@ public class DatabaseRepresentationTest {
     /**
      * This a simple setUp.
      * 
-     * @throws AbsTTException
+     * @throws SirixException
      */
     @Before
-    public void setUp() throws AbsTTException {
+    public void setUp() throws SirixException {
         TestHelper.closeEverything();
         TestHelper.deleteEverything();
         TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
@@ -130,10 +130,10 @@ public class DatabaseRepresentationTest {
     /**
      * This is a simple tear down.
      * 
-     * @throws AbsTTException
+     * @throws SirixException
      */
     @After
-    public void tearDown() throws AbsTTException {
+    public void tearDown() throws SirixException {
         TestHelper.closeEverything();
         TestHelper.deleteEverything();
     }
@@ -159,14 +159,14 @@ public class DatabaseRepresentationTest {
     /**
      * This method tests {@link DatabaseRepresentation#getResource(String, java.util.Map)}
      * 
-     * @throws AbsTTException
+     * @throws SirixException
      * @throws IOException
      * @throws WebApplicationException
      * @throws SAXException
      * @throws ParserConfigurationException
      */
     @Test
-    public void getResource() throws AbsTTException, WebApplicationException, IOException,
+    public void getResource() throws SirixException, WebApplicationException, IOException,
         ParserConfigurationException, SAXException {
         final Map<QueryParameter, String> queryParams = new HashMap<QueryParameter, String>();
         Document doc;
@@ -234,7 +234,7 @@ public class DatabaseRepresentationTest {
      * @throws ParserConfigurationException
      */
     @Test
-    public void getResourcesNames() throws AbsTTException, ParserConfigurationException, SAXException,
+    public void getResourcesNames() throws SirixException, ParserConfigurationException, SAXException,
         IOException {
 
         final StreamingOutput sOutput = sirix.getResourcesNames();
@@ -262,12 +262,12 @@ public class DatabaseRepresentationTest {
      * @throws WebApplicationException
      * @throws SAXException
      * @throws ParserConfigurationException
-     * @throws AbsTTException
+     * @throws SirixException
      * 
      */
     @Test
     public void addResource() throws WebApplicationException, IOException, ParserConfigurationException,
-        SAXException, AbsTTException {
+        SAXException, SirixException {
         final InputStream input = DatabaseRepresentationTest.class.getResourceAsStream("/books.xml");
         sirix.deleteResource(RESOURCENAME);
         assertTrue(sirix.add(input, RESOURCENAME));
@@ -287,14 +287,14 @@ public class DatabaseRepresentationTest {
     /**
      * This method tests {@link DatabaseRepresentation#deleteResource(String)}
      * 
-     * @throws AbsTTException
+     * @throws SirixException
      * @throws IOException
      * @throws WebApplicationException
      * @throws SAXException
      * @throws ParserConfigurationException
      */
     @Test
-    public void deleteResource() throws AbsTTException, WebApplicationException, IOException,
+    public void deleteResource() throws SirixException, WebApplicationException, IOException,
         ParserConfigurationException, SAXException {
         final InputStream input = DatabaseRepresentationTest.class.getResourceAsStream(XMLFILE);
         sirix.shred(input, RESOURCENAME + "99");
@@ -319,10 +319,10 @@ public class DatabaseRepresentationTest {
     /**
      * This method tests {@link DatabaseRepresentation#shred(java.io.InputStream, String)}
      * 
-     * @throws AbsTTException
+     * @throws SirixException
      */
     @Test
-    public void shred() throws AbsTTException {
+    public void shred() throws SirixException {
         final InputStream input = DatabaseRepresentationTest.class.getResourceAsStream(XMLFILE);
         assertTrue(ASSTRUE, sirix.shred(input, RESOURCENAME + "88"));
         sirix.deleteResource(RESOURCENAME + "88");
@@ -357,10 +357,10 @@ public class DatabaseRepresentationTest {
     /**
      * This method tests {@link DatabaseRepresentation#getLastRevision(String)}
      * 
-     * @throws AbsTTException
+     * @throws SirixException
      */
     @Test
-    public void getLastRevision() throws AbsTTException {
+    public void getLastRevision() throws SirixException {
         assertEquals(ASSEQUALS, 0, sirix.getLastRevision(RESOURCENAME));
         final NodeIdRepresentation rid = new NodeIdRepresentation(TestHelper.PATHS.PATH1.getFile());
         rid.deleteResource(RESOURCENAME, 8);
@@ -371,14 +371,14 @@ public class DatabaseRepresentationTest {
      * This method tests
      * {@link DatabaseRepresentation#getModificHistory(String, String, boolean, java.io.OutputStream, boolean)}
      * 
-     * @throws AbsTTException
+     * @throws SirixException
      * @throws WebApplicationException
      * @throws ParserConfigurationException
      * @throws IOException
      * @throws SAXException
      */
     @Test
-    public void getModificHistory() throws WebApplicationException, AbsTTException, SAXException,
+    public void getModificHistory() throws WebApplicationException, SirixException, SAXException,
         IOException, ParserConfigurationException {
         final NodeIdRepresentation rid = new NodeIdRepresentation(TestHelper.PATHS.PATH1.getFile());
         rid.deleteResource(RESOURCENAME, 8);
@@ -394,7 +394,7 @@ public class DatabaseRepresentationTest {
     /**
      * This method tests {@link DatabaseRepresentation#revertToRevision(String, long)}
      * 
-     * @throws AbsTTException
+     * @throws SirixException
      * @throws IOException
      * @throws WebApplicationException
      * @throws SAXException
@@ -402,7 +402,7 @@ public class DatabaseRepresentationTest {
      * @throws InterruptedException
      */
     @Test
-    public void revertToRevision() throws AbsTTException, WebApplicationException, IOException,
+    public void revertToRevision() throws SirixException, WebApplicationException, IOException,
         ParserConfigurationException, SAXException, InterruptedException {
         final NodeIdRepresentation rid = new NodeIdRepresentation(TestHelper.PATHS.PATH1.getFile());
         rid.deleteResource(RESOURCENAME, 8);

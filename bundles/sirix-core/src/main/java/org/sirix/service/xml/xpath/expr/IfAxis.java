@@ -30,7 +30,7 @@ package org.sirix.service.xml.xpath.expr;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.functions.Function;
 
 /**
@@ -111,7 +111,7 @@ public class IfAxis extends AbsAxis {
       mFirst = false;
       try {
         mResult = (Function.ebv(mIf)) ? mThen : mElse;
-      } catch (TTXPathException e) {
+      } catch (SirixXPathException e) {
         throw new RuntimeException(e);
       }
     }

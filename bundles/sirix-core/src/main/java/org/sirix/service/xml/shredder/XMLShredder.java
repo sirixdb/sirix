@@ -57,9 +57,9 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
-import org.sirix.exception.TTUsageException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -81,16 +81,16 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLShredder.class));
 
   /** {@link INodeWriteTrx}. */
-  protected transient INodeWriteTrx mWtx;
+  protected final INodeWriteTrx mWtx;
 
   /** {@link XMLEventReader}. */
-  protected transient XMLEventReader mReader;
+  protected final XMLEventReader mReader;
 
   /** Append as first child or not. */
-  protected transient EInsert mFirstChildAppend;
+  protected final EInsert mFirstChildAppend;
 
   /** Determines if changes are going to be commit right after shredding. */
-  private transient EShredderCommit mCommit;
+  private final EShredderCommit mCommit;
 
   /**
    * Normal constructor to invoke a shredding process on a existing {@link NodeWriteTrx}.
@@ -123,7 +123,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
    *          not possible when wtx is on root node
    * @param pCommit
    *          determines if inserted nodes should be commited right afterwards
-   * @throws TTUsageException
+   * @throws SirixUsageException
    *           if insertasfirstChild && updateOnly is both true OR if wtx is
    *           not pointing to doc-root and updateOnly= true
    */
@@ -139,12 +139,12 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
   /**
    * Invoking the shredder.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if any kind of sirix exception which has occured
    * @return revision of file
    */
   @Override
-  public Long call() throws AbsTTException {
+  public Long call() throws SirixException {
     final long revision = mWtx.getRevisionNumber();
     insertNewContent();
     mCommit.commit(mWtx);
@@ -154,10 +154,10 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
   /**
    * Insert new content based on a StAX parser {@link XMLStreamReader}.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if something went wrong while inserting
    */
-  protected final void insertNewContent() throws AbsTTException {
+  protected final void insertNewContent() throws SirixException {
     try {
       boolean firstElement = true;
       int level = 0;
@@ -203,7 +203,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 
       mWtx.moveTo(insertedRootNodeKey);
     } catch (final XMLStreamException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
@@ -217,10 +217,10 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
    * @param pEvent
    *          the current event from the StAX parser
    * @return the modified stack
-   * @throws AbsTTException
+   * @throws SirixException
    *           if adding {@link ElementNode} fails
    */
-  private void addNewElement(@Nonnull final StartElement pEvent) throws AbsTTException {
+  private void addNewElement(@Nonnull final StartElement pEvent) throws SirixException {
     assert pEvent != null;
     final QName name = pEvent.getName();
     processStartTag(name);

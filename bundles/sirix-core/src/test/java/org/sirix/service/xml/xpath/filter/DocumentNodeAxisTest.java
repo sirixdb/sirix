@@ -33,7 +33,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxisTest;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.settings.EFixed;
 
 public class DocumentNodeAxisTest {
@@ -41,20 +41,20 @@ public class DocumentNodeAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.deleteEverything();
   }
 
   @Test
-  public void testIterate() throws AbsTTException {
+  public void testIterate() throws SirixException {
 
     holder.getRtx().moveTo(1L);
     AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {

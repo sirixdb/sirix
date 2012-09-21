@@ -44,7 +44,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
 import org.sirix.io.IWriter;
@@ -98,13 +98,13 @@ public final class BerkeleyStorage implements IStorage {
    *          for the Database settings
    * @param pSession
    *          for the settings
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something odd happens while database-connection
    * @throws NullPointerException
    *           if {@code pFile} is {@code null}
    */
   public BerkeleyStorage(final @Nonnull File pFile,
-    final @Nonnull ByteHandlePipeline pHandler) throws TTIOException {
+    final @Nonnull ByteHandlePipeline pHandler) throws SirixIOException {
     final File repoFile =
       new File(checkNotNull(pFile), ResourceConfiguration.Paths.Data.getFile()
         .getName());
@@ -129,37 +129,37 @@ public final class BerkeleyStorage implements IStorage {
       mEnv = new Environment(repoFile, config);
       mDatabase = mEnv.openDatabase(null, NAME, conf);
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
 
   }
 
   @Override
-  public IReader getReader() throws TTIOException {
+  public IReader getReader() throws SirixIOException {
     try {
       return new BerkeleyReader(mEnv, mDatabase, new PageBinding(mPageBinding));
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
   }
 
   @Override
-  public IWriter getWriter() throws TTIOException {
+  public IWriter getWriter() throws SirixIOException {
     return new BerkeleyWriter(mEnv, mDatabase, new PageBinding(mPageBinding));
   }
 
   @Override
-  public void close() throws TTIOException {
+  public void close() throws SirixIOException {
     try {
       mDatabase.close();
       mEnv.close();
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
   }
 
   @Override
-  public boolean exists() throws TTIOException {
+  public boolean exists() throws SirixIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
     boolean returnVal = false;
@@ -174,7 +174,7 @@ public final class BerkeleyStorage implements IStorage {
       }
       reader.close();
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
     return returnVal;
 

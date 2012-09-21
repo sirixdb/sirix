@@ -37,8 +37,8 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.IAxis;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.expr.LiteralExpr;
 import org.sirix.service.xml.xpath.types.Type;
@@ -49,7 +49,7 @@ public class NodeCompTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
@@ -59,13 +59,13 @@ public class NodeCompTest {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testCompare() throws TTXPathException {
+  public void testCompare() throws SirixXPathException {
 
     AtomicValue[] op1 = {
       new AtomicValue(2, Type.INTEGER)
@@ -103,7 +103,7 @@ public class NodeCompTest {
   }
 
   @Test
-  public void testAtomize() throws TTXPathException {
+  public void testAtomize() throws SirixXPathException {
     IAxis axis = new LiteralExpr(holder.getRtx(), -2);
     axis.hasNext();
     axis.next();
@@ -116,7 +116,7 @@ public class NodeCompTest {
       axis = new DescendantAxis(holder.getRtx());
       axis.hasNext();
       comparator.atomize(axis);
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       assertEquals("err:XPTY0004 The type is not appropriate the expression or"
         + " the typedoes not match a required type as specified by the " + "matching rules. ", e.getMessage());
     }
@@ -124,7 +124,7 @@ public class NodeCompTest {
   }
 
   @Test
-  public void testGetType() throws TTXPathException {
+  public void testGetType() throws SirixXPathException {
 
     assertEquals(Type.INTEGER, comparator.getType(123, 2435));
   }

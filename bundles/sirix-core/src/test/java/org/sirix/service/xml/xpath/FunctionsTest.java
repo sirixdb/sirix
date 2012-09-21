@@ -33,8 +33,8 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixXPathException;
 
 /**
  * This class contains test cases for not yet implemented xpath/xquery functions
@@ -63,10 +63,10 @@ public class FunctionsTest {
   /**
    * Test function boolean().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testBoolean() throws TTXPathException {
+  public final void testBoolean() throws SirixXPathException {
     final String query = "fn:boolean(0)";
     final String result = "false";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -77,10 +77,10 @@ public class FunctionsTest {
   /**
    * Test function boolean() for XPath 1.0.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testBooleanXPath10() throws TTXPathException {
+  public final void testBooleanXPath10() throws SirixXPathException {
     final String query = "boolean(1)";
     final String result = "true";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -91,10 +91,10 @@ public class FunctionsTest {
   /**
    * Test function count().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testCount() throws TTXPathException {
+  public final void testCount() throws SirixXPathException {
     final String query = "fn:count(//p:a/b)";
     final String result = "2";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -105,10 +105,10 @@ public class FunctionsTest {
   /**
    * Test function count() for XPath 1.0.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testCountXPath10() throws TTXPathException {
+  public final void testCountXPath10() throws SirixXPathException {
     final String query = "count(//p:a/b)";
     final String result = "2";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -119,10 +119,10 @@ public class FunctionsTest {
   /**
    * Test function string().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testString() throws TTXPathException {
+  public final void testString() throws SirixXPathException {
     final String query = "fn:string(/p:a/b)";
     final String result = "foo bar";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -133,10 +133,10 @@ public class FunctionsTest {
   /**
    * Test function string() for XPath 1.0.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testStringXPath10() throws TTXPathException {
+  public final void testStringXPath10() throws SirixXPathException {
     final String query = "string(/p:a/b)";
     final String result = "foo bar";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -147,10 +147,10 @@ public class FunctionsTest {
   /**
    * Test comment.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testComment() throws TTXPathException {
+  public final void testComment() throws SirixXPathException {
     final String query = "2 (: this is a comment :)";
     final String result = "2";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -161,10 +161,10 @@ public class FunctionsTest {
   /**
    * Test function node().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testNode() throws TTXPathException {
+  public final void testNode() throws SirixXPathException {
     final String query = "p:a[./node()/node()]";
     final String result = "{ns}a";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -175,10 +175,10 @@ public class FunctionsTest {
   /**
    * Test function text().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testText() throws TTXPathException {
+  public final void testText() throws SirixXPathException {
     final String query = "p:a[./text()]";
     final String result = "{ns}a";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -189,10 +189,10 @@ public class FunctionsTest {
   /**
    * Test function not().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testNot() throws TTXPathException {
+  public final void testNot() throws SirixXPathException {
     final String query = "fn:not(//b)";
     final String result = "false";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -203,10 +203,10 @@ public class FunctionsTest {
   /**
    * Test function not() for XPath 1.0.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testNotXPath10() throws TTXPathException {
+  public final void testNotXPath10() throws SirixXPathException {
     final String query = "not(//b)";
     final String result = "false";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -217,10 +217,10 @@ public class FunctionsTest {
   /**
    * Test function sum().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testSum() throws TTXPathException {
+  public final void testSum() throws SirixXPathException {
     final String query = "fn:sum(5)";
     final String result = "1";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -231,10 +231,10 @@ public class FunctionsTest {
   /**
    * Test function sum() for XPath 1.0.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
-  public final void testSumXPath10() throws TTXPathException {
+  public final void testSumXPath10() throws SirixXPathException {
     final String query = "sum(5)";
     final String result = "1";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -245,11 +245,11 @@ public class FunctionsTest {
   /**
    * Test function position().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Test
   @Ignore
-  public final void testPosition() throws TTXPathException {
+  public final void testPosition() throws SirixXPathException {
     final String query = "//b[position()=2]";
     final String result = "{ns}b";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -260,11 +260,11 @@ public class FunctionsTest {
   /**
    * Test function id().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testId() throws TTXPathException {
+  public final void testId() throws SirixXPathException {
     final String query = "//b/fn:id()";
     final String result = "";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -275,11 +275,11 @@ public class FunctionsTest {
   /**
    * Test function data().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testData() throws TTXPathException {
+  public final void testData() throws SirixXPathException {
     final String query = "fn:data(//b)";
     final String result = "foo bar";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -290,11 +290,11 @@ public class FunctionsTest {
   /**
    * Test function contains().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testContains() throws TTXPathException {
+  public final void testContains() throws SirixXPathException {
     final String query = "fn:contains(/p:a/b, \"\")";
     final String result = "true";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -305,11 +305,11 @@ public class FunctionsTest {
   /**
    * Test function exactly-one().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testExactlyOne() throws TTXPathException {
+  public final void testExactlyOne() throws SirixXPathException {
     final String query = "fn:exactly-one(\"a\")";
     final String result = "a";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -320,11 +320,11 @@ public class FunctionsTest {
   /**
    * Test function zero-or-one().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testZeroOrOne() throws TTXPathException {
+  public final void testZeroOrOne() throws SirixXPathException {
     final String query = "fn:zero-or-one(\"a\")";
     final String result = "a";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -335,11 +335,11 @@ public class FunctionsTest {
   /**
    * Test function max().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testMax() throws TTXPathException {
+  public final void testMax() throws SirixXPathException {
     final String query = "fn:max((2, 1, 5, 4, 3))";
     final String result = "5";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -350,11 +350,11 @@ public class FunctionsTest {
   /**
    * Test function min().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testMin() throws TTXPathException {
+  public final void testMin() throws SirixXPathException {
     final String query = "fn:min((2, 1, 5, 4, 3))";
     final String result = "1";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -365,11 +365,11 @@ public class FunctionsTest {
   /**
    * Test function empty().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testEmpty() throws TTXPathException {
+  public final void testEmpty() throws SirixXPathException {
     final String query = "fn:empty(/p:a)";
     final String result = "true";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -380,11 +380,11 @@ public class FunctionsTest {
   /**
    * Test function one-or-more().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testOneOrMore() throws TTXPathException {
+  public final void testOneOrMore() throws SirixXPathException {
     final String query = "fn:one-or-more(//b/c)";
     final String result = "<c xmlns:p=\"ns\"/><c xmlns:p=\"ns\"/>";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -395,11 +395,11 @@ public class FunctionsTest {
   /**
    * Test function exists().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testExists() throws TTXPathException {
+  public final void testExists() throws SirixXPathException {
     final String query = "fn:exists(('a', 'b', 'c'))";
     final String result = "true";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -410,11 +410,11 @@ public class FunctionsTest {
   /**
    * Test function substring-after().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testSubstringAfter() throws TTXPathException {
+  public final void testSubstringAfter() throws SirixXPathException {
     final String query = "fn:substring-after(\"query\", \"u\")";
     final String result = "ery";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -425,11 +425,11 @@ public class FunctionsTest {
   /**
    * Test function substring-before().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testSubstringBefore() throws TTXPathException {
+  public final void testSubstringBefore() throws SirixXPathException {
     final String query = "fn:substring-before(\"query\", \"r\")";
     final String result = "que";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -440,11 +440,11 @@ public class FunctionsTest {
   /**
    * Test function last().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testLast() throws TTXPathException {
+  public final void testLast() throws SirixXPathException {
     final String query = "//b[last()]";
     final String result = "<b xmlns:p=\"ns\" p:x=\"y\"><c/>bar</b>";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -455,11 +455,11 @@ public class FunctionsTest {
   /**
    * Test function number().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testNumber() throws TTXPathException {
+  public final void testNumber() throws SirixXPathException {
     final String query = "fn:number('29.99')";
     final String result = "29.99";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -470,11 +470,11 @@ public class FunctionsTest {
   /**
    * Test function distinct-values().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testDistinctValues() throws TTXPathException {
+  public final void testDistinctValues() throws SirixXPathException {
     final String query = "fn:distinct-values(('a', 'a'))";
     final String result = "a";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -485,11 +485,11 @@ public class FunctionsTest {
   /**
    * Test function root().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testRoot() throws TTXPathException {
+  public final void testRoot() throws SirixXPathException {
     final String query = "fn:root()//c";
     final String result = "<c xmlns:p=\"ns\"/><c xmlns:p=\"ns\"/>";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -500,11 +500,11 @@ public class FunctionsTest {
   /**
    * Test function floor().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testFloor() throws TTXPathException {
+  public final void testFloor() throws SirixXPathException {
     final String query = "fn:floor(5.7)";
     final String result = "5";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -515,11 +515,11 @@ public class FunctionsTest {
   /**
    * Test <element attribute=""/> in return statement.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testElementAttributeInReturn() throws TTXPathException {
+  public final void testElementAttributeInReturn() throws SirixXPathException {
     final String query = "for $x in //b/text() return <element attr=\"{$x}\"/>";
     final String result = "<element attr=\"foo\"/><element attr=\"bar\"/>";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -530,10 +530,10 @@ public class FunctionsTest {
   /**
    * Close all connections.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    */
   @After
-  public final void tearDown() throws AbsTTException {
+  public final void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
 

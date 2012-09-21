@@ -46,7 +46,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.diff.DiffFactory.EDiffOptimized;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.service.xml.shredder.EShredderCommit;
 import org.sirix.service.xml.shredder.EInsert;
@@ -59,20 +59,20 @@ public final class DiffTestHelper {
   protected static final String RESOURCES = "src" + File.separator + "test" + File.separator + "resources";
   protected static final long TIMEOUT_S = 5;
 
-  static void setUp() throws AbsTTException {
+  static void setUp() throws SirixException {
     TestHelper.deleteEverything();
   }
 
-  static void setUpFirst(final Holder pHolder) throws AbsTTException {
+  static void setUpFirst(final Holder pHolder) throws SirixException {
     DocumentCreater.createVersioned(pHolder.getWtx());
   }
 
-  static void setUpSecond(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+  static void setUpSecond(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
     initializeData(pHolder, new File(RESOURCES + File.separator + "revXMLsAll4" + File.separator
       + "1.xml"), new File(RESOURCES + File.separator + "revXMLsAll4" + File.separator + "2.xml"));
   }
 
-  static void setUpThird(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+  static void setUpThird(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
     new XMLShredder(pHolder.getWtx(), XMLShredder.createFileReader(new File(RESOURCES + File.separator
       + "revXMLsDelete1" + File.separator + "1.xml")), EInsert.ASFIRSTCHILD).call();
     final INodeWriteTrx wtx = pHolder.getWtx();
@@ -89,22 +89,22 @@ public final class DiffTestHelper {
     wtx.commit();
   }
 
-  static void setUpFourth(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+  static void setUpFourth(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
     initializeData(pHolder, new File(RESOURCES + File.separator + "revXMLsAll3" + File.separator
       + "1.xml"), new File(RESOURCES + File.separator + "revXMLsAll3" + File.separator + "2.xml"));
   }
 
-  static void setUpFifth(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+  static void setUpFifth(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
     initializeData(pHolder, new File(RESOURCES + File.separator + "revXMLsAll2" + File.separator
       + "1.xml"), new File(RESOURCES + File.separator + "revXMLsAll2" + File.separator + "2.xml"));
   }
 
-  static void setUpSixth(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+  static void setUpSixth(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
     initializeData(pHolder, new File(RESOURCES + File.separator + "revXMLsDelete2" + File.separator
       + "1.xml"), new File(RESOURCES + File.separator + "revXMLsDelete2" + File.separator + "2.xml"));
   }
 
-  static void setUpSeventh(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+  static void setUpSeventh(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
     final INodeWriteTrx wtx = pHolder.getWtx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -116,7 +116,7 @@ public final class DiffTestHelper {
     rtx.close();
   }
 
-  static void setUpEighth(final Holder pHolder) throws AbsTTException, IOException, XMLStreamException {
+  static void setUpEighth(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
     final INodeWriteTrx wtx = pHolder.getWtx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -129,7 +129,7 @@ public final class DiffTestHelper {
   }
 
   private static void initializeData(final Holder pHolder, final File... pFile)
-    throws AbsTTException, IOException, XMLStreamException {
+    throws SirixException, IOException, XMLStreamException {
 
     int i = 0;
     for (final File file : pFile) {
@@ -302,7 +302,7 @@ public final class DiffTestHelper {
   }
 
   static void checkFullDiff(final Holder pHolder, final IDiffObserver pObserver,
-    final EDiffOptimized pOptimized) throws AbsTTException, InterruptedException {
+    final EDiffOptimized pOptimized) throws SirixException, InterruptedException {
     final Set<IDiffObserver> observers = new HashSet<IDiffObserver>();
     observers.add(pObserver);
     DiffFactory.invokeFullDiff(new DiffFactory.Builder(pHolder.getSession(), 1, 0, pOptimized,
@@ -310,7 +310,7 @@ public final class DiffTestHelper {
   }
 
   static void checkStructuralDiff(final Holder pHolder, final IDiffObserver pObserver,
-    final EDiffOptimized pOptimized) throws AbsTTException, InterruptedException {
+    final EDiffOptimized pOptimized) throws SirixException, InterruptedException {
     final Set<IDiffObserver> observers = new HashSet<IDiffObserver>();
     observers.add(pObserver);
     DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(pHolder.getSession(), 1, 0, pOptimized,

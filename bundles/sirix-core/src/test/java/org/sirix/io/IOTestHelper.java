@@ -32,8 +32,8 @@ import static org.junit.Assert.assertEquals;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTUsageException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
@@ -55,10 +55,10 @@ public final class IOTestHelper {
 	 * @param type
 	 *          for the the {@link ResourceConfiguration} should be generated
 	 * @return a suitable {@link ResourceConfiguration}
-	 * @throws TTUsageException
+	 * @throws SirixUsageException
 	 */
 	public static ResourceConfiguration registerIO(final EStorage type)
-			throws AbsTTException {
+			throws SirixException {
 		final ResourceConfiguration.Builder resourceConfig = new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, PATHS.PATH1.getConfig());
 		resourceConfig.setType(type);
@@ -68,7 +68,7 @@ public final class IOTestHelper {
 	/**
 	 * Tear down for all tests related to the io layer.
 	 */
-	public static void clean() throws AbsTTException {
+	public static void clean() throws SirixException {
 		TestHelper.deleteEverything();
 	}
 
@@ -77,11 +77,11 @@ public final class IOTestHelper {
 	 * 
 	 * @param resourceConf
 	 *          {@link ResourceConfiguration} reference
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if something went wrong
 	 */
 	public static void testReadWriteFirstRef(
-			final ResourceConfiguration resourceConf) throws AbsTTException {
+			final ResourceConfiguration resourceConf) throws SirixException {
 		final IStorage fac = EStorage.getStorage(resourceConf);
 		final PageReference pageRef1 = new PageReference();
 		final UberPage page1 = new UberPage();

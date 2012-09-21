@@ -41,8 +41,8 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
@@ -78,7 +78,7 @@ public final class XPathWriteTransactionTest {
   }
 
   @Test
-  public void test() throws TTXPathException {
+  public void test() throws SirixXPathException {
     wtx.moveToDocumentRoot();
     // final XPathAxis xpa =
     // new XPathAxis(wtx, "//revision[./parent::page/title/text() = '"
@@ -92,7 +92,7 @@ public final class XPathWriteTransactionTest {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     // wtx.abort();
     wtx.close();
     session.close();

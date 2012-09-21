@@ -43,17 +43,17 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class XMLSerializerPropertiesTest {
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     TestHelper.closeEverything();
   }
 

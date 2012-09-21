@@ -35,7 +35,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 
 public class XPathParserTest {
@@ -43,20 +43,20 @@ public class XPathParserTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.deleteEverything();
   }
 
   @Test
-  public void testLiterals() throws AbsTTException {
+  public void testLiterals() throws SirixException {
 
     holder.getRtx().moveTo(2L);
 
@@ -101,7 +101,7 @@ public class XPathParserTest {
   }
 
   @Test
-  public void testEBNF() throws AbsTTException {
+  public void testEBNF() throws SirixException {
 
     XPathParser parser = new XPathParser(holder.getRtx(), "/p:a");
     parser.parseQuery();

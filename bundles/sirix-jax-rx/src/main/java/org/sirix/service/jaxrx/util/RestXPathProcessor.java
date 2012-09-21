@@ -40,7 +40,7 @@ import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.settings.EFixed;
 
@@ -98,12 +98,12 @@ public class RestXPathProcessor {
    * @return the queried XML fragment
    * @throws IOException
    *           The exception occurred.
-   * @throws AbsTTException
+   * @throws SirixException
    */
   public OutputStream getXpathResource(final String resourceName,
     final String xpath, final boolean nodeid, final Long revision,
     final OutputStream output, final boolean wrapResult) throws IOException,
-    AbsTTException {
+    SirixException {
 
     // work around because of query root char '/'
     String qQuery = xpath;
@@ -145,11 +145,11 @@ public class RestXPathProcessor {
    *          specifies whether node id should be shown
    * @param doWrap
    *          output of result elements
-   * @throws AbsTTException
+   * @throws SirixException
    */
   public void getXpathResource(final File dbFile, final long rId,
     final String query, final boolean doNodeId, final Long doRevision,
-    final OutputStream output, final boolean doWrap) throws AbsTTException {
+    final OutputStream output, final boolean doWrap) throws SirixException {
 
     // work around because of query root char '/'
     String qQuery = query;
@@ -216,11 +216,11 @@ public class RestXPathProcessor {
    *          <code>true</code> if node id's have to be delivered. <code>false</code> otherwise.
    * @param xpath
    *          The XPath expression.
-   * @throws AbsTTException
+   * @throws SirixException
    */
   private void doXPathRes(final String resource, final Long revision,
     final OutputStream output, final boolean nodeid, final String xpath)
-    throws AbsTTException {
+    throws SirixException {
     // Database connection to sirix
     IDatabase database = null;
     ISession session = null;

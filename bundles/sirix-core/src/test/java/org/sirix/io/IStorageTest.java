@@ -36,8 +36,8 @@ import javax.annotation.Nonnull;
 
 import org.sirix.TestHelper;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.Encryptor;
@@ -54,7 +54,7 @@ import org.testng.annotations.Test;
 public class IStorageTest {
 
   @BeforeMethod
-  public void setUp() throws AbsTTException, IOException {
+  public void setUp() throws SirixException, IOException {
     TestHelper.closeEverything();
     TestHelper.deleteEverything();
     TestHelper.PATHS.PATH1.getFile().mkdirs();
@@ -67,7 +67,7 @@ public class IStorageTest {
   }
 
   @AfterMethod
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     TestHelper.closeEverything();
     TestHelper.deleteEverything();
   }
@@ -76,11 +76,11 @@ public class IStorageTest {
    * Test method for {@link org.treetank.io.bytepipe.IByteHandler#deserialize(byte[])} and for
    * {@link org.treetank.io.bytepipe.IByteHandler#serialize(byte[])}.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    */
   @Test(dataProvider = "instantiateStorages")
   public void testFirstRef(final @Nonnull Class<IStorage> pClass,
-    final @Nonnull IStorage[] pStorages) throws AbsTTException {
+    final @Nonnull IStorage[] pStorages) throws SirixException {
     for (final IStorage handler : pStorages) {
       final PageReference pageRef1 = new PageReference();
       final UberPage page1 = new UberPage();
@@ -116,10 +116,10 @@ public class IStorageTest {
    * Providing different implementations of the {@link IByteHandler} as Dataprovider to the test class.
    * 
    * @return different classes of the {@link IByteHandler}
-   * @throws TTIOException
+   * @throws SirixIOException
    */
   @DataProvider(name = "instantiateStorages")
-  public Object[][] instantiateStorages() throws TTIOException {
+  public Object[][] instantiateStorages() throws SirixIOException {
     final ByteHandlePipeline byteHandler =
       new ByteHandlePipeline(new Encryptor(), new SnappyCompressor());
     Object[][] returnVal =

@@ -34,7 +34,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.utils.TypedValue;
@@ -65,11 +65,11 @@ public class FNString extends AbsFunction {
    *          max number of allowed function arguments
    * @param returnType
    *          the type that the function's result will have
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if function check fails
    */
   public FNString(final INodeReadTrx rtx, final List<IAxis> args, final int min, final int max,
-    final int returnType) throws TTXPathException {
+    final int returnType) throws SirixXPathException {
 
     super(rtx, args, min, max, returnType);
   }

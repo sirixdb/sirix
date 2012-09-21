@@ -33,7 +33,7 @@ import com.google.common.io.ByteArrayDataOutput;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.page.interfaces.IPage;
 
 /**
@@ -54,7 +54,7 @@ public abstract class AbsForwardingPage extends ForwardingObject implements
 
   @Override
   public void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
-    throws AbsTTException {
+    throws SirixException {
     delegate().commit(checkNotNull(pPageWriteTrx));
   }
 

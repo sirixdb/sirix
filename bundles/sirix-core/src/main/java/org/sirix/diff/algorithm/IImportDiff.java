@@ -28,7 +28,7 @@ package org.sirix.diff.algorithm;
 
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * Diff interface which import algorithms have to implement.
@@ -46,10 +46,10 @@ public interface IImportDiff {
    *          on new revision
    * @throws NullPointerException
    *           if {@code pWtx} or {@code pRtx} is {@code null}
-   * @throws AbsTTException
+   * @throws SirixException
    *           if something in sirix went wrong
    */
-  void diff(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws AbsTTException;
+  void diff(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) throws SirixException;
 
   /**
    * Name of algorithm.

@@ -8,7 +8,7 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * Interface for operations for usage with the command pattern.
@@ -33,9 +33,9 @@ public interface IOperation<S extends INodeReadTrx> {
    *          simple index structure
    * @param pChild
    *          the {@link Path} instance for which a new node element should be inserted into sirix
-   * @throws AbsTTException
+   * @throws SirixException
    *           if any operation in sirix fails
    */
   void execute(S pTransaction, Optional<IVisitor<S>> pVisitor, Map<Path, EPath> pIndex, Path pChild)
-    throws AbsTTException;
+    throws SirixException;
 }

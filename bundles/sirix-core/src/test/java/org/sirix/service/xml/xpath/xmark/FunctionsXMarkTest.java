@@ -36,8 +36,8 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.XPathStringChecker;
@@ -75,11 +75,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function string().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testString() throws TTXPathException {
+  public final void testString() throws SirixXPathException {
     final String query = "fn:string(/site/people/person[@id=\"person3\"]/name)";
     final String result = "Limor Simone";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -90,11 +90,11 @@ public class FunctionsXMarkTest {
   /**
    * Test comment.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testComment() throws TTXPathException {
+  public final void testComment() throws SirixXPathException {
     final String query = "2 (: this is a comment :)";
     final String result = "2";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -105,11 +105,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function node().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testNode() throws TTXPathException {
+  public final void testNode() throws SirixXPathException {
     final String query = "for $b in /site/people/person[@id=\"person1\"] return $b/name/node()";
     final String result = "Keung Yetim";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -120,11 +120,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function text().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testText() throws TTXPathException {
+  public final void testText() throws SirixXPathException {
     final String query = "for $b in /site/people/person[@id=\"person0\"] return $b/name/text()";
     final String result = "Krishna Merle";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -135,11 +135,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function count().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testCount() throws TTXPathException {
+  public final void testCount() throws SirixXPathException {
     final String query =
       "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] return $i/price)";
     final String result = "670";
@@ -151,11 +151,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function position().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testPosition() throws TTXPathException {
+  public final void testPosition() throws SirixXPathException {
     final String query = "/site/open_auctions/open_auction/bidder/increase[position()=1]";
     final String result = "<increase>10.50</increase>";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -166,11 +166,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function not().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testNot() throws TTXPathException {
+  public final void testNot() throws SirixXPathException {
     final String query = "/site/people/person[not(homepage)][@id=\"person1\"]/name/text()";
     final String result = "<name>Keung Yetim</name>";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -181,11 +181,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function id().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testId() throws TTXPathException {
+  public final void testId() throws SirixXPathException {
     final String query = "fn:id(/site/people/person[@id=\"person1\"]/watches/watch/@open_auction)";
     final String result = "";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -196,11 +196,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function data().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testData() throws TTXPathException {
+  public final void testData() throws SirixXPathException {
     final String query = "for $b in /site/people/person[@id=\"person0\"] return fn:data($b/name)";
     final String result = "Krishna Merle";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -211,11 +211,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function contains().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testContains() throws TTXPathException {
+  public final void testContains() throws SirixXPathException {
     final String query =
       "/site/regions/*/item[contains(description,\"gold\")]/location[text()=\"El Salvador\"]";
     final String result = "<location>El Salvador</location>";
@@ -228,11 +228,11 @@ public class FunctionsXMarkTest {
    * Test function exactly-one(). alternative query: exactly-one('a') ->
    * result: a
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testExactlyOne() throws TTXPathException {
+  public final void testExactlyOne() throws SirixXPathException {
     final String query = "exactly-one(/site/people/person[@id=\"person0\"]/name)";
     final String result = "<name>Krishna Merle</name>";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -243,11 +243,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function sum().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testSum() throws TTXPathException {
+  public final void testSum() throws SirixXPathException {
     final String query = "fn:sum(/site/open_auctions/open_auction/bidder/increase/text())";
     final String result = "96496.5";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -259,11 +259,11 @@ public class FunctionsXMarkTest {
    * Test function zero-or-one(). alternative query: zero-or-one('a') ->
    * result: a
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testZeroOrOne() throws TTXPathException {
+  public final void testZeroOrOne() throws SirixXPathException {
     final String query =
       " for $i in /site/open_auctions/open_auction return zero-or-one($i/reserve[text()=\"20.54\"]/text())";
     final String result = "20.54";
@@ -275,11 +275,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function max().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testMax() throws TTXPathException {
+  public final void testMax() throws SirixXPathException {
     final String query = "fn:max(for $i in /site/open_auctions/open_auction return $i/reserve/text())";
     final String result = "4701.79";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -290,11 +290,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function min().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testMin() throws TTXPathException {
+  public final void testMin() throws SirixXPathException {
     final String query = "fn:min(for $i in /site/open_auctions/open_auction return $i/reserve/text())";
     final String result = "0.43";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -305,11 +305,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function empty().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testEmpty() throws TTXPathException {
+  public final void testEmpty() throws SirixXPathException {
     final String query = "fn:empty(for $i in /site/open_auctions/open_auction return $i/reserve/text())";
     final String result = "false";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -320,11 +320,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function one-or-more().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testOneOrMore() throws TTXPathException {
+  public final void testOneOrMore() throws SirixXPathException {
     final String query = "fn:one-or-more(\"a\")";
     final String result = "a";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -335,11 +335,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function exists().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testExists() throws TTXPathException {
+  public final void testExists() throws SirixXPathException {
     final String query = "fn:exists( ('a', 'b', 'c') )";
     final String result = "true";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -350,11 +350,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function substring-after().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testSubstringAfter() throws TTXPathException {
+  public final void testSubstringAfter() throws SirixXPathException {
     final String query = "fn:substring-after(\"query\", \"u\")";
     final String result = "ery";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -365,11 +365,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function substring-before().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testSubstringBefore() throws TTXPathException {
+  public final void testSubstringBefore() throws SirixXPathException {
     final String query = "fn:substring-before(\"query\", \"r\")";
     final String result = "que";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -380,11 +380,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function last().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testLast() throws TTXPathException {
+  public final void testLast() throws SirixXPathException {
     final String query = "/site/open_auctions/open_auction/reserve[last()]";
     final String result = "<reserve>539.66</reserve>";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -395,11 +395,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function boolean().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testBoolean() throws TTXPathException {
+  public final void testBoolean() throws SirixXPathException {
     final String query = "fn:boolean(0)";
     final String result = "false";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -410,11 +410,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function number().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testNumber() throws TTXPathException {
+  public final void testNumber() throws SirixXPathException {
     final String query =
       "/site/open_auctions/open_auction/bidder[personref[@person=\"person2436\"]]/increase/number()";
     final String result = "12 12";
@@ -426,11 +426,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function distinct-values().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testDistinctValues() throws TTXPathException {
+  public final void testDistinctValues() throws SirixXPathException {
     final String query =
       "fn:distinct-values(/site/open_auctions/open_auction/bidder[personref[@person=\"person2436\"]]/increase)";
     final String result = "12.00";
@@ -442,11 +442,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function root().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testRoot() throws TTXPathException {
+  public final void testRoot() throws SirixXPathException {
     final String query = "fn:root()/site/people/person[@id=\"person0\"]/name/text()";
     final String result = "Krishna Merle";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -457,11 +457,11 @@ public class FunctionsXMarkTest {
   /**
    * Test function floor().
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testFloor() throws TTXPathException {
+  public final void testFloor() throws SirixXPathException {
     final String query = "fn:floor(5.7)";
     final String result = "5";
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -472,11 +472,11 @@ public class FunctionsXMarkTest {
   /**
    * Test <element attribute=""/> in return statement.
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Ignore
   @Test
-  public final void testElementAttributeInReturn() throws TTXPathException {
+  public final void testElementAttributeInReturn() throws SirixXPathException {
     final String query =
       "for $b in /site/open_auctions/open_auction/bidder[personref[@person=\"person2436\"]]/increase return <element attribute=\"{$b/text()}\"/>";
     final String result = "<element attribute=\"12.00\"/><element attribute=\"12.00\"/>";
@@ -488,11 +488,11 @@ public class FunctionsXMarkTest {
   /**
    * Close all connections.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    */
   @AfterClass
   @Ignore
-  public static final void tearDown() throws AbsTTException {
+  public static final void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
 

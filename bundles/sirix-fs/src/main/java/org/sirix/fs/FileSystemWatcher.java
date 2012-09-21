@@ -65,8 +65,8 @@ import org.sirix.api.IDatabase;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
@@ -138,7 +138,7 @@ public class FileSystemWatcher implements AutoCloseable {
    *          {@link IDatabase} to use for importing changed data into sirix
    */
   private FileSystemWatcher(@Nonnull final Path pPath, @Nonnull final IDatabase pDatabase)
-    throws AbsTTException {
+    throws SirixException {
     mPath = checkNotNull(pPath);
     mDatabase = checkNotNull(pDatabase);
     mSession = mDatabase.getSession(new SessionConfiguration.Builder("shredded").build());
@@ -150,7 +150,7 @@ public class FileSystemWatcher implements AutoCloseable {
       public void run() {
         try {
           mWtx.commit();
-        } catch (final AbsTTException e) {
+        } catch (final SirixException e) {
           LOGWRAPPER.error(e.getMessage(), e);
         }
       }
@@ -166,11 +166,11 @@ public class FileSystemWatcher implements AutoCloseable {
    * @return a new {@link FileSystemWatcher} instance
    * @throws NullPointerException
    *           if any of the arguments are {@code null}
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything while setting up sirix failes
    */
   public static synchronized FileSystemWatcher getInstance(@Nonnull final Path pPath,
-    @Nonnull final IDatabase pDatabase) throws AbsTTException {
+    @Nonnull final IDatabase pDatabase) throws SirixException {
     final PathDBContainer container = new PathDBContainer(pPath, pDatabase);
     FileSystemWatcher watcher = INSTANCES.putIfAbsent(container, new FileSystemWatcher(pPath, pDatabase));
     if (watcher == null) {
@@ -333,12 +333,12 @@ public class FileSystemWatcher implements AutoCloseable {
    * 
    * @param pXPath
    *          xpath expression
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if expression isn't valid
    * @throws NullPointerException
    *           if {@code pXPath} is {@code null}
    */
-  private void findNode(@Nonnull final String pXPath) throws TTXPathException {
+  private void findNode(@Nonnull final String pXPath) throws SirixXPathException {
     final AbsAxis axis = new XPathAxis(mWtx, checkNotNull(pXPath));
     int countResults = 0;
     long resultNodeKey = (Long)EFixed.NULL_NODE_KEY.getStandardProperty();
@@ -355,7 +355,7 @@ public class FileSystemWatcher implements AutoCloseable {
     @Nonnull final Map<Path, EPath> pIndex, @Nonnull final Path pPath) {
     try {
       execute(EOperation.UPDATE, pVisitor, pIndex, pPath);
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
   }
@@ -365,7 +365,7 @@ public class FileSystemWatcher implements AutoCloseable {
     @Nonnull final Map<Path, EPath> pIndex, @Nonnull final Path pPath) {
     try {
       execute(EOperation.DELETE, pVisitor, pIndex, pPath);
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
   }
@@ -375,7 +375,7 @@ public class FileSystemWatcher implements AutoCloseable {
     @Nonnull final Map<Path, EPath> pIndex, @Nonnull final Path pPath) {
     try {
       execute(EOperation.INSERT, pVisitor, pIndex, pPath);
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
   }
@@ -389,12 +389,12 @@ public class FileSystemWatcher implements AutoCloseable {
    *          optional visitor
    * @param pIndex
    *          simple path index
-   * @throws AbsTTException
+   * @throws SirixException
    *           if operation in sirix fails
    */
   private void execute(@Nonnull final IOperation<INodeWriteTrx> pOperation,
     @Nonnull final Optional<IVisitor<INodeWriteTrx>> pVisitor, @Nonnull final Map<Path, EPath> pIndex,
-    @Nonnull final Path pPath) throws AbsTTException {
+    @Nonnull final Path pPath) throws SirixException {
     assert pOperation != null;
     assert pIndex != null;
     Path path =
@@ -435,7 +435,7 @@ public class FileSystemWatcher implements AutoCloseable {
   }
 
   @Override
-  public void close() throws AbsTTException {
+  public void close() throws SirixException {
     mWtx.commit();
     mWtx.close();
     mSession.close();
@@ -455,12 +455,12 @@ public class FileSystemWatcher implements AutoCloseable {
    *          first argument speficies the path/directory to watch for changes, the second argument
    *          specifies the database to which to append incoming events; <strong>note that any existing
    *          database is truncated first if an optional third argument is set to {@code true}</strong>
-   * @throws AbsTTException
+   * @throws SirixException
    *           if sirix encounters any error
    * @throws IOException
    *           if any I/O error occurs
    */
-  public static void main(final String[] pArgs) throws AbsTTException, IOException {
+  public static void main(final String[] pArgs) throws SirixException, IOException {
     if (pArgs.length < 2 || pArgs.length > 3) {
       LOGWRAPPER.info("Usage: FileSystemWatcher pathToWatch pathToDatabase [true|false]");
     }

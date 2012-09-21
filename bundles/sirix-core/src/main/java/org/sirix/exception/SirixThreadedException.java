@@ -27,28 +27,48 @@
 
 package org.sirix.exception;
 
+import java.util.concurrent.ExecutionException;
+
 /**
- * Exception throw when an incorrect usage of sirix occur.
+ * This class holds all exceptions which can occure with the usage of
+ * multithreaded exceptions.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class TTUsageException extends AbsTTException {
+public final class SirixThreadedException extends SirixException {
+
+  /** Generated ID. */
+  private static final long serialVersionUID = -2891221683798924769L;
 
   /**
-     * 
-     */
-  private static final long serialVersionUID = 1L;
+   * Constructor for threaded exceptions.
+   * 
+   * @param mExc
+   *          tp be stored
+   */
+  public SirixThreadedException(final InterruptedException mExc) {
+    super(mExc);
+  }
 
   /**
-   * Constructor.
+   * Exception for weird thread behaviour.
    * 
    * @param message
-   *          message as string, they are concatenated with spaces in
-   *          between
+   *          to be stored
    */
-  public TTUsageException(final String... message) {
+  public SirixThreadedException(final String... message) {
     super(message);
+  }
+
+  /**
+   * Constructor for execution exception exceptions.
+   * 
+   * @param mExc
+   *          to be stored
+   */
+  public SirixThreadedException(final ExecutionException mExc) {
+    super(mExc);
   }
 
 }

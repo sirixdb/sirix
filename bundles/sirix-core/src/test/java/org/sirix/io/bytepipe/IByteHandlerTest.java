@@ -8,7 +8,7 @@ import java.util.Arrays;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.sirix.TestHelper;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -26,7 +26,7 @@ public class IByteHandlerTest {
    */
   @Test(dataProvider = "instantiateByteHandler")
   public void testSerializeAndDeserialize(Class<IByteHandler> clazz,
-    IByteHandler[] pHandlers) throws TTIOException {
+    IByteHandler[] pHandlers) throws SirixIOException {
     for (final IByteHandler handler : pHandlers) {
       final byte[] bytes = TestHelper.generateRandomBytes(10000);
       final byte[] serialized = handler.serialize(bytes);
@@ -42,11 +42,11 @@ public class IByteHandlerTest {
    * Providing different implementations of the {@link IByteHandler} as Dataprovider to the test class.
    * 
    * @return different classes of the {@link IByteHandler}
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occurs
    */
   @DataProvider(name = "instantiateByteHandler")
-  public Object[][] instantiateByteHandler() throws TTIOException {
+  public Object[][] instantiateByteHandler() throws SirixIOException {
     Object[][] returnVal =
       {
         {

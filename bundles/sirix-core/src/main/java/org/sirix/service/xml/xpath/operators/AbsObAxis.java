@@ -32,7 +32,7 @@ import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.INode;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
@@ -118,7 +118,7 @@ public abstract class AbsObAxis extends AbsAxis {
             mKey = itemKey;
 
             return true;
-          } catch (TTXPathException e) {
+          } catch (SirixXPathException e) {
             throw new RuntimeException(e);
           }
         }
@@ -188,11 +188,11 @@ public abstract class AbsObAxis extends AbsAxis {
    * @param mOperand2
    *          second input operand
    * @return result of the operation
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if the operations fails
    */
   protected abstract INode operate(final AtomicValue mOperand1, final AtomicValue mOperand2)
-    throws TTXPathException;
+    throws SirixXPathException;
 
   /**
    * Checks if the types of the operands are a valid combination for the
@@ -206,9 +206,9 @@ public abstract class AbsObAxis extends AbsAxis {
    *          second operand's type key
    * @return return type of the arithmetic function according to the operand
    *         type combination.
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if type is not specified
    */
-  protected abstract Type getReturnType(final int mOp1, final int mOp2) throws TTXPathException;
+  protected abstract Type getReturnType(final int mOp1, final int mOp2) throws SirixXPathException;
 
 }

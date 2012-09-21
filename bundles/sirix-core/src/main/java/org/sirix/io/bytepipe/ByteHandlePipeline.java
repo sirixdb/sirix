@@ -9,7 +9,7 @@ import java.util.List;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 
 /**
  * Pipeline to handle Bytes before stored in the backends.
@@ -51,7 +51,7 @@ public final class ByteHandlePipeline implements IByteHandler {
 
   @Override
   public byte[] serialize(final @Nonnull byte[] pToSerialize)
-    throws TTIOException {
+    throws SirixIOException {
     byte[] pipeData = pToSerialize;
     for (final IByteHandler part : mParts) {
       pipeData = part.serialize(pipeData);
@@ -61,7 +61,7 @@ public final class ByteHandlePipeline implements IByteHandler {
 
   @Override
   public byte[] deserialize(final @Nonnull byte[] pToDeserialize)
-    throws TTIOException {
+    throws SirixIOException {
     byte[] pipeData = pToDeserialize;
     for (int i = mParts.size() - 1; i >= 0; i--) {
       pipeData = mParts.get(i).deserialize(pipeData);

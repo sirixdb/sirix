@@ -7,7 +7,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.PageContainer;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.EPage;
@@ -38,21 +38,21 @@ public interface IPageReadTrx extends AutoCloseable {
    * @param pPage
    *          the page from which to fetch the node
    * @return an {@link Optional} reference usually containing the node reference
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occured
    */
   Optional<? extends INodeBase> getNode(@Nonnegative final long pKey,
-    @Nonnull final EPage pPage) throws TTIOException;
+    @Nonnull final EPage pPage) throws SirixIOException;
 
   /**
    * Current reference to actual rev-root page.
    * 
    * @return the current revision root page
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something odd happens within the creation process.
    */
-  RevisionRootPage getActualRevisionRootPage() throws TTIOException;
+  RevisionRootPage getActualRevisionRootPage() throws SirixIOException;
 
   /**
    * Getting the name corresponding to the given key.
@@ -94,11 +94,11 @@ public interface IPageReadTrx extends AutoCloseable {
   /**
    * Close transaction.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something weird happened in the storage
    */
   @Override
-  void close() throws TTIOException;
+  void close() throws SirixIOException;
 
   /**
    * Get a node from the page layer.
@@ -106,7 +106,7 @@ public interface IPageReadTrx extends AutoCloseable {
    * @param pKey
    *          {@code nodeKey} of node
    * @return {@code the node} or {@code null} if it's not available
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if can't read nodePage
    * @throws NullPointerException
    *           if {@code pPage} is {@code null}
@@ -114,7 +114,7 @@ public interface IPageReadTrx extends AutoCloseable {
    *           if {@code pKey} is negative
    */
   PageContainer getNodeFromPage(@Nonnegative long pKey, @Nonnull EPage pPage)
-    throws TTIOException;
+    throws SirixIOException;
 
   /**
    * Get the {@link UberPage}.
@@ -139,10 +139,10 @@ public interface IPageReadTrx extends AutoCloseable {
    * @param pKey
    *          key of persistent storage
    * @return page instance
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occurs
    */
-  IPage getFromPageCache(@Nonnegative long pKey) throws TTIOException;
+  IPage getFromPageCache(@Nonnegative long pKey) throws SirixIOException;
 
   /**
    * Put content from page cache into persistent storage.

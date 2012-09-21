@@ -26,7 +26,7 @@
  */
 package org.sirix.io;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.IByteHandler;
 
 /**
@@ -43,36 +43,36 @@ public interface IStorage {
    * Getting a writer.
    * 
    * @return an {@link IWriter} instance
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if the initialization fails
    */
-  IWriter getWriter() throws TTIOException;
+  IWriter getWriter() throws SirixIOException;
 
   /**
    * Getting a reader.
    * 
    * @return an {@link IReader} instance
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if the initialization fails
    */
-  IReader getReader() throws TTIOException;
+  IReader getReader() throws SirixIOException;
 
   /**
    * Closing this storage.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occurs
    */
-  void close() throws TTIOException;
+  void close() throws SirixIOException;
 
   /**
    * Check if storage exists.
    * 
    * @return true if storage holds data, false otherwise
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if storage is not accessible
    */
-  boolean exists() throws TTIOException;
+  boolean exists() throws SirixIOException;
 
   /**
    * Get the byte handler pipeline.

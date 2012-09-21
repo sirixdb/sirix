@@ -54,7 +54,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.util.RESTResponseHelper;
 import org.sirix.service.jaxrx.util.RESTXMLShredder;
 import org.sirix.service.jaxrx.util.RestXPathProcessor;
@@ -117,7 +117,7 @@ public class DatabaseRepresentation {
       } else {
         try {
           shred(inputStream, resourceName);
-        } catch (final AbsTTException exce) {
+        } catch (final SirixException exce) {
           throw new JaxRxException(exce);
         }
       }
@@ -165,7 +165,7 @@ public class DatabaseRepresentation {
           }
         } catch (final NumberFormatException exce) {
           throw new JaxRxException(400, exce.getMessage());
-        } catch (final AbsTTException exce) {
+        } catch (final SirixException exce) {
           throw new JaxRxException(exce);
         }
       }
@@ -200,7 +200,7 @@ public class DatabaseRepresentation {
         final RestXPathProcessor xpathProcessor = new RestXPathProcessor(mStoragePath);
         try {
           xpathProcessor.getXpathResource(resource, query, nodeid, rev, output, wrapResult);
-        } catch (final AbsTTException exce) {
+        } catch (final SirixException exce) {
           throw new JaxRxException(exce);
         }
       }
@@ -247,7 +247,7 @@ public class DatabaseRepresentation {
     synchronized (resource) {
       try {
         return shred(input, resource);
-      } catch (final AbsTTException exce) {
+      } catch (final SirixException exce) {
         throw new JaxRxException(exce);
       }
     }
@@ -264,10 +264,9 @@ public class DatabaseRepresentation {
   public void deleteResource(final String resourceName) throws WebApplicationException {
     synchronized (resourceName) {
       try {
-        final DatabaseConfiguration dbConfig = new DatabaseConfiguration(mStoragePath);
         final IDatabase database = Database.openDatabase(mStoragePath);
-        database.truncateResource(new ResourceConfiguration.Builder(resourceName, dbConfig).build());
-      } catch (final AbsTTException exc) {
+        database.truncateResource(resourceName);
+      } catch (final SirixException exc) {
         throw new JaxRxException(500, "Deletion could not be performed");
       }
     }
@@ -282,10 +281,10 @@ public class DatabaseRepresentation {
    * @param resource
    *          name of the resource
    * @return {@code true} if shredding process has been successful, {@code false} otherwise.
-   * @throws AbsTTException
+   * @throws SirixException
    *          if any sirix related exception occurs
    */
-  public final boolean shred(final InputStream xmlInput, final String resource) throws AbsTTException {
+  public final boolean shred(final InputStream xmlInput, final String resource) throws SirixException {
     boolean allOk = false;
     INodeWriteTrx wtx = null;
     IDatabase database = null;
@@ -331,11 +330,11 @@ public class DatabaseRepresentation {
    *          than response the latest revision.
    * @return The {@link OutputStream} containing the serialized XML file.
    * @throws IOException
-   * @throws AbsTTException
+   * @throws SirixException
    * @throws WebApplicationException
    */
   private final OutputStream serialize(final String resource, final Long revision, final boolean nodeid,
-    final OutputStream output, final boolean wrapResult) throws IOException, JaxRxException, AbsTTException {
+    final OutputStream output, final boolean wrapResult) throws IOException, JaxRxException, SirixException {
 
     if (WorkerHelper.checkExistingResource(mStoragePath, resource)) {
       try {
@@ -365,9 +364,9 @@ public class DatabaseRepresentation {
    * @return The {@link OutputStream} containing the result
    * @throws WebApplicationException
    *           The Exception occurred.
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  public long getLastRevision(final String resourceName) throws JaxRxException, AbsTTException {
+  public long getLastRevision(final String resourceName) throws JaxRxException, SirixException {
     long lastRevision;
     if (WorkerHelper.checkExistingResource(mStoragePath, resourceName)) {
       IDatabase database = Database.openDatabase(mStoragePath);
@@ -404,14 +403,14 @@ public class DatabaseRepresentation {
    * @param wrap
    *          <code>true</code> if the results have to be wrapped. <code>false</code> otherwise.
    * @return The {@link OutputStream} containing the result
-   * @throws AbsTTException
+   * @throws SirixException
    * @throws WebApplicationException
    *           The Exception occurred.
    */
   public OutputStream getModificHistory(final String resourceName, // NOPMD this method needs alls these
     // functions
     final String revisionRange, final boolean nodeid, final OutputStream output, final boolean wrap)
-    throws JaxRxException, AbsTTException {
+    throws JaxRxException, SirixException {
 
     // extract both revision from given String value
     final StringTokenizer tokenizer = new StringTokenizer(revisionRange, "-");
@@ -556,10 +555,10 @@ public class DatabaseRepresentation {
    *          id's. <code>false</code> otherwise.
    * @throws WebApplicationException
    *           The exception occurred.
-   * @throws AbsTTException
+   * @throws SirixException
    */
   private void serializIt(final String resource, final Long revision, final OutputStream output,
-    final boolean nodeid) throws JaxRxException, AbsTTException {
+    final boolean nodeid) throws JaxRxException, SirixException {
     // Connection to sirix, creating a session
     IDatabase database = null;
     ISession session = null;
@@ -599,10 +598,10 @@ public class DatabaseRepresentation {
    * @param backToRevision
    *          The revision value, which has to be set as the latest.
    * @throws WebApplicationException
-   * @throws AbsTTException
+   * @throws SirixException
    */
   public void revertToRevision(final String resourceName, final long backToRevision) throws JaxRxException,
-    AbsTTException {
+    SirixException {
     IDatabase database = null;
     ISession session = null;
     INodeWriteTrx wtx = null;
@@ -613,7 +612,7 @@ public class DatabaseRepresentation {
       wtx = session.beginNodeWriteTrx();
       wtx.revertTo(backToRevision);
       wtx.commit();
-    } catch (final AbsTTException exce) {
+    } catch (final SirixException exce) {
       abort = true;
       throw new JaxRxException(exce);
     } finally {

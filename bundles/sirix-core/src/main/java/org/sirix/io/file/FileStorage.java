@@ -34,7 +34,7 @@ import java.io.File;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.IReader;
 import org.sirix.io.IStorage;
 import org.sirix.io.IWriter;
@@ -74,13 +74,13 @@ public final class FileStorage implements IStorage {
   }
 
   @Override
-  public IReader getReader() throws TTIOException {
+  public IReader getReader() throws SirixIOException {
     return new FileReader(getConcreteStorage(), new ByteHandlePipeline(
       mByteHandler));
   }
 
   @Override
-  public IWriter getWriter() throws TTIOException {
+  public IWriter getWriter() throws SirixIOException {
     return new FileWriter(getConcreteStorage(), new ByteHandlePipeline(
       mByteHandler));
   }
@@ -101,7 +101,7 @@ public final class FileStorage implements IStorage {
   }
 
   @Override
-  public boolean exists() throws TTIOException {
+  public boolean exists() throws SirixIOException {
     final File file = getConcreteStorage();
     final boolean returnVal = file.length() > 0;
     return returnVal;

@@ -42,8 +42,8 @@ import org.sirix.api.IItemList;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
@@ -97,12 +97,12 @@ public final class NodeReadTrx implements INodeReadTrx {
 	 *          ID of transaction
 	 * @param pPageReadTransaction
 	 *          {@link IPageReadTrx} to interact with the page layer
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	NodeReadTrx(@Nonnull final Session pSession,
 			@Nonnegative final long pTransactionID,
-			@Nonnull final IPageReadTrx pPageReadTransaction) throws TTIOException {
+			@Nonnull final IPageReadTrx pPageReadTransaction) throws SirixIOException {
 		mSession = checkNotNull(pSession);
 		checkArgument(pTransactionID >= 0);
 		mId = pTransactionID;
@@ -127,13 +127,13 @@ public final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public final long getRevisionNumber() throws TTIOException {
+	public final long getRevisionNumber() throws SirixIOException {
 		assertNotClosed();
 		return mPageReadTrx.getActualRevisionRootPage().getRevision();
 	}
 
 	@Override
-	public final long getRevisionTimestamp() throws TTIOException {
+	public final long getRevisionTimestamp() throws SirixIOException {
 		assertNotClosed();
 		return mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp();
 	}
@@ -161,7 +161,7 @@ public final class NodeReadTrx implements INodeReadTrx {
 						pNodeKey, EPage.NODEPAGE);
 				newNode = node;
 			}
-		} catch (final TTIOException e) {
+		} catch (final SirixIOException e) {
 			newNode = Optional.absent();
 		}
 
@@ -306,7 +306,7 @@ public final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public void close() throws AbsTTException {
+	public void close() throws SirixException {
 		if (!mClosed) {
 			// Close own state.
 			mPageReadTrx.close();
@@ -329,7 +329,7 @@ public final class NodeReadTrx implements INodeReadTrx {
 		ToStringHelper helper = Objects.toStringHelper(this);
 		try {
 			helper.add("Revision number", getRevisionNumber());
-		} catch (final TTIOException e) {
+		} catch (final SirixIOException e) {
 		}
 
 		if (getNode().getKind() == EKind.ATTRIBUTE
@@ -416,7 +416,7 @@ public final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public final long getMaxNodeKey() throws TTIOException {
+	public final long getMaxNodeKey() throws SirixIOException {
 		assertNotClosed();
 		return getPageTransaction().getActualRevisionRootPage().getMaxNodeKey();
 	}
@@ -459,7 +459,7 @@ public final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public INodeReadTrx cloneInstance() throws AbsTTException {
+	public INodeReadTrx cloneInstance() throws SirixException {
 		final INodeReadTrx rtx = mSession.beginNodeReadTrx(mPageReadTrx
 				.getActualRevisionRootPage().getRevision());
 		rtx.moveTo(mCurrentNode.getNodeKey());

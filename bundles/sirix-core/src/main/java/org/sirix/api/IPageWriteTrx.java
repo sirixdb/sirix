@@ -6,9 +6,9 @@ import javax.annotation.Nonnull;
 import org.sirix.access.EMultipleWriteTrx;
 import org.sirix.access.PageWriteTrx.ERestore;
 import org.sirix.cache.PageContainer;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
-import org.sirix.exception.TTThreadedException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixThreadedException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.INodeBase;
@@ -38,11 +38,11 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @param pNode
    *          node to add
    * @return unmodified node for convenience
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occurs
    */
   INodeBase createNode(@Nonnull INodeBase pNode, @Nonnull EPage pPage)
-    throws TTIOException;
+    throws SirixIOException;
 
   /**
    * Prepare a node for modification. This is getting the node from the
@@ -52,11 +52,11 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @param pNodeKey
    *          key of the node to be modified
    * @return an {@link INode} instance
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O-error occurs
    */
   INodeBase prepareNodeForModification(@Nonnegative long pNodeKey,
-    @Nonnull EPage pPage) throws TTIOException;
+    @Nonnull EPage pPage) throws SirixIOException;
 
   /**
    * Finishing the node modification. That is storing the node including the
@@ -72,11 +72,11 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * 
    * @param pNode
    *          node to be removed
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if the removal fails
    */
   void removeNode(@Nonnull INode pNode, @Nonnull EPage pPage)
-    throws TTIOException;
+    throws SirixIOException;
 
   /**
    * Creating a namekey for a given name.
@@ -86,15 +86,15 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * @param pKind
    *          kind of node
    * @return an int, representing the namekey
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something odd happens while storing the new key
    */
   int createNameKey(@Nonnull String pName, @Nonnull EKind pKind)
-    throws TTIOException;
+    throws SirixIOException;
 
   /** Commit the transaction, that is persist changes if any and create a new revision. */
   UberPage commit(@Nonnull EMultipleWriteTrx pMultipleWriteTrx)
-    throws AbsTTException;
+    throws SirixException;
 
   /**
    * Update log.
@@ -112,11 +112,11 @@ public interface IPageWriteTrx extends IPageReadTrx {
    * 
    * @param reference
    *          to be commited
-   * @throws TTThreadedException
-   * @throws AbsTTException
+   * @throws SirixThreadedException
+   * @throws SirixException
    *           if the write fails
    */
-  void commit(@Nonnull PageReference pReference) throws AbsTTException;
+  void commit(@Nonnull PageReference pReference) throws SirixException;
 
   /**
    * Determines if this page write trx must restore a previous failed trx.

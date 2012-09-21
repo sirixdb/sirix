@@ -40,7 +40,7 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.view.model.TraverseCompareTree;
 import org.sirix.utils.LogWrapper;
 
@@ -80,10 +80,10 @@ public final class ReadDB implements AutoCloseable {
    * 
    * @param paramFile
    *          The {@link File} to open.
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything went wrong while opening a file
    */
-  public ReadDB(final File paramFile) throws AbsTTException {
+  public ReadDB(final File paramFile) throws SirixException {
     this(paramFile, -1, 0);
   }
 
@@ -94,10 +94,10 @@ public final class ReadDB implements AutoCloseable {
    *          The {@link File} to open.
    * @param paramRevision
    *          The revision to open.
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything went wrong while opening a file
    */
-  public ReadDB(final File paramFile, final long paramRevision) throws AbsTTException {
+  public ReadDB(final File paramFile, final long paramRevision) throws SirixException {
     this(paramFile, paramRevision, 0);
   }
 
@@ -110,10 +110,10 @@ public final class ReadDB implements AutoCloseable {
    *          The revision to open.
    * @param pNodekeyToStart
    *          The key of the node where the transaction initially has to move to.
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything went wrong while opening a file
    */
-  public ReadDB(final File pFile, final long pRevision, final long pNodekeyToStart) throws AbsTTException {
+  public ReadDB(final File pFile, final long pRevision, final long pNodekeyToStart) throws SirixException {
     checkNotNull(pFile);
     checkArgument(pRevision >= -1, "pRevision must be >= -1!");
     checkArgument(pNodekeyToStart >= 0, "pNodekeyToStart must be >= 0!");
@@ -204,7 +204,7 @@ public final class ReadDB implements AutoCloseable {
     try {
       mRtx.close();
       mSession.close();
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
   }

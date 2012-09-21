@@ -28,7 +28,7 @@
 /**
  * <h1>Exception Layer</h1>
  * <p>
- * All exceptions thrown by sirix are instance of these classes.
+ * All exceptions thrown by Sirix are instance of these classes.
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz

@@ -43,8 +43,8 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTUsageException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.service.xml.shredder.EInsert;
@@ -58,19 +58,19 @@ public class UpdateTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     holder = Holder.generateSession();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testDelete() throws AbsTTException {
+  public void testDelete() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(4);
@@ -100,7 +100,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testInsert() throws AbsTTException {
+  public void testInsert() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     testInsert(wtx);
@@ -140,7 +140,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testNodeTransactionIsolation() throws AbsTTException {
+  public void testNodeTransactionIsolation() throws SirixException {
     INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     wtx.insertElementAsFirstChild(new QName(""));
     testNodeTransactionIsolation(wtx);
@@ -162,9 +162,9 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testNodeTransactionIsolation(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testNodeTransactionIsolation(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveToDocumentRoot());
     assertEquals(0, pRtx.getNode().getNodeKey());
     assertTrue(pRtx.moveToFirstChild());
@@ -177,7 +177,7 @@ public class UpdateTest {
 
   /** Test NamePage. */
   @Test
-  public void testNamePage() throws AbsTTException {
+  public void testNamePage() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -206,7 +206,7 @@ public class UpdateTest {
 
   /** Test update of text value in case two adjacent text nodes would be the result of an insert. */
   @Test
-  public void testInsertAsFirstChildUpdateText() throws AbsTTException {
+  public void testInsertAsFirstChildUpdateText() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -226,7 +226,7 @@ public class UpdateTest {
 
   /** Test update of text value in case two adjacent text nodes would be the result of an insert. */
   @Test
-  public void testInsertAsRightSiblingUpdateTextFirst() throws AbsTTException {
+  public void testInsertAsRightSiblingUpdateTextFirst() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -246,7 +246,7 @@ public class UpdateTest {
 
   /** Test update of text value in case two adjacent text nodes would be the result of an insert. */
   @Test
-  public void testInsertAsRightSiblingUpdateTextSecond() throws AbsTTException {
+  public void testInsertAsRightSiblingUpdateTextSecond() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -266,7 +266,7 @@ public class UpdateTest {
 
   /** Ordinary remove test. */
   @Test
-  public void testRemoveDescendantFirst() throws AbsTTException {
+  public void testRemoveDescendantFirst() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -295,7 +295,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testInsertChild() throws AbsTTException {
+  public void testInsertChild() throws SirixException {
     INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     wtx.insertElementAsFirstChild(new QName("foo"));
     wtx.commit();
@@ -336,7 +336,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testInsertPath() throws AbsTTException {
+  public void testInsertPath() throws SirixException {
     INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     wtx.commit();
     wtx.close();
@@ -360,7 +360,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testPageBoundary() throws AbsTTException {
+  public void testPageBoundary() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
 
     // Document root.
@@ -384,15 +384,15 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testPageBoundary(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testPageBoundary(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveTo(2L));
     assertEquals(2L, pRtx.getNode().getNodeKey());
   }
 
-  @Test(expected = TTUsageException.class)
-  public void testRemoveDocument() throws AbsTTException {
+  @Test(expected = SirixUsageException.class)
+  public void testRemoveDocument() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveToDocumentRoot();
@@ -406,7 +406,7 @@ public class UpdateTest {
 
   /** Test for text concatenation. */
   @Test
-  public void testRemoveDescendant() throws AbsTTException {
+  public void testRemoveDescendant() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(0L);
@@ -429,9 +429,9 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testRemoveDescendant(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testRemoveDescendant(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveToDocumentRoot());
     assertEquals(0, pRtx.getNode().getNodeKey());
     assertEquals(6, pRtx.getStructuralNode().getDescendantCount());
@@ -451,7 +451,7 @@ public class UpdateTest {
 
   /** Test for text concatenation. */
   @Test
-  public void testRemoveDescendantTextConcat2() throws AbsTTException {
+  public void testRemoveDescendantTextConcat2() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -473,9 +473,9 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testRemoveDescendantTextConcat2(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testRemoveDescendantTextConcat2(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveToDocumentRoot());
     assertEquals(0, pRtx.getNode().getNodeKey());
     assertEquals(2, pRtx.getStructuralNode().getDescendantCount());
@@ -491,7 +491,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testReplaceTextNode() throws AbsTTException, IOException, XMLStreamException {
+  public void testReplaceTextNode() throws SirixException, IOException, XMLStreamException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -508,7 +508,7 @@ public class UpdateTest {
     rtx.close();
   }
 
-  private void testReplaceTextNode(final INodeReadTrx pRtx) throws AbsTTException {
+  private void testReplaceTextNode(final INodeReadTrx pRtx) throws SirixException {
     assertFalse(pRtx.moveTo(5));
     assertTrue(pRtx.moveTo(4));
     assertEquals("oops1baroops2", pRtx.getValueOfCurrentNode());
@@ -524,7 +524,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testReplaceElementNode() throws AbsTTException, IOException, XMLStreamException {
+  public void testReplaceElementNode() throws SirixException, IOException, XMLStreamException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
@@ -541,7 +541,7 @@ public class UpdateTest {
     rtx.close();
   }
 
-  private void testReplaceElementNode(final INodeReadTrx pRtx) throws AbsTTException {
+  private void testReplaceElementNode(final INodeReadTrx pRtx) throws SirixException {
     assertFalse(pRtx.moveTo(5));
     assertTrue(pRtx.moveTo(4));
     assertEquals(14, pRtx.getStructuralNode().getRightSiblingKey());
@@ -557,7 +557,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testReplaceElement() throws AbsTTException, IOException, XMLStreamException {
+  public void testReplaceElement() throws SirixException, IOException, XMLStreamException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(5);
@@ -576,9 +576,9 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testReplaceElement(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testReplaceElement(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveTo(14));
     assertEquals("d", pRtx.getQNameOfCurrentNode().getLocalPart());
     assertTrue(pRtx.moveTo(4));
@@ -600,7 +600,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testReplaceElementMergeTextNodes() throws AbsTTException, IOException, XMLStreamException {
+  public void testReplaceElementMergeTextNodes() throws SirixException, IOException, XMLStreamException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(5);
@@ -619,9 +619,9 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testReplaceElementMergeTextNodes(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testReplaceElementMergeTextNodes(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveTo(4));
     assertEquals("oops1foooops2", pRtx.getValueOfCurrentNode());
     assertEquals(9, pRtx.getStructuralNode().getRightSiblingKey());
@@ -633,7 +633,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testFirstMoveToFirstChild() throws AbsTTException {
+  public void testFirstMoveToFirstChild() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(7);
@@ -652,9 +652,9 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testFirstMoveToFirstChild(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testFirstMoveToFirstChild(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveToDocumentRoot());
     assertEquals(10L, pRtx.getStructuralNode().getDescendantCount());
     assertTrue(pRtx.moveTo(4));
@@ -675,7 +675,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testSecondMoveToFirstChild() throws AbsTTException {
+  public void testSecondMoveToFirstChild() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(5);
@@ -694,9 +694,9 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testSecondMoveToFirstChild(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testSecondMoveToFirstChild(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveTo(1));
     assertEquals(4L, pRtx.getStructuralNode().getChildCount());
     assertEquals(8L, pRtx.getStructuralNode().getDescendantCount());
@@ -717,7 +717,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testThirdMoveToFirstChild() throws AbsTTException {
+  public void testThirdMoveToFirstChild() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(5);
@@ -736,9 +736,9 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testThirdMoveToFirstChild(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testThirdMoveToFirstChild(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveTo(0));
     assertEquals(10L, pRtx.getStructuralNode().getDescendantCount());
     assertTrue(pRtx.moveTo(1));
@@ -759,8 +759,8 @@ public class UpdateTest {
     assertEquals(1L, pRtx.getStructuralNode().getDescendantCount());
   }
 
-  @Test(expected = TTUsageException.class)
-  public void testFourthMoveToFirstChild() throws AbsTTException {
+  @Test(expected = SirixUsageException.class)
+  public void testFourthMoveToFirstChild() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(4);
@@ -770,7 +770,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testFirstMoveSubtreeToRightSibling() throws AbsTTException {
+  public void testFirstMoveSubtreeToRightSibling() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(7);
@@ -789,9 +789,9 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testFirstMoveSubtreeToRightSibling(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testFirstMoveSubtreeToRightSibling(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveTo(7));
     assertFalse(pRtx.getStructuralNode().hasLeftSibling());
     assertTrue(pRtx.getStructuralNode().hasRightSibling());
@@ -808,7 +808,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testSecondMoveSubtreeToRightSibling() throws AbsTTException {
+  public void testSecondMoveSubtreeToRightSibling() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(9);
@@ -827,10 +827,10 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
   private final static void testSecondMoveSubtreeToRightSibling(final INodeReadTrx pRtx)
-    throws AbsTTException {
+    throws SirixException {
     assertTrue(pRtx.moveToDocumentRoot());
     assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());
     assertTrue(pRtx.moveToFirstChild());
@@ -848,7 +848,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testThirdMoveSubtreeToRightSibling() throws AbsTTException {
+  public void testThirdMoveSubtreeToRightSibling() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(9);
@@ -867,9 +867,9 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  private final static void testThirdMoveSubtreeToRightSibling(final INodeReadTrx pRtx) throws AbsTTException {
+  private final static void testThirdMoveSubtreeToRightSibling(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveToDocumentRoot());
     assertTrue(pRtx.moveToFirstChild());
     assertEquals(4, pRtx.getStructuralNode().getChildCount());
@@ -885,7 +885,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testFourthMoveSubtreeToRightSibling() throws AbsTTException {
+  public void testFourthMoveSubtreeToRightSibling() throws SirixException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(8);
@@ -904,10 +904,10 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
   private final static void testFourthMoveSubtreeToRightSibling(final INodeReadTrx pRtx)
-    throws AbsTTException {
+    throws SirixException {
     assertTrue(pRtx.moveTo(4));
     // Assert that oops2 and oops1 text nodes merged.
     assertEquals("oops2oops1", pRtx.getValueOfCurrentNode());
@@ -922,7 +922,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testFirstCopySubtreeAsFirstChild() throws AbsTTException {
+  public void testFirstCopySubtreeAsFirstChild() throws SirixException {
     // Test for one node.
     INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
@@ -946,7 +946,7 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
   private final static void testFirstCopySubtreeAsFirstChild(final INodeReadTrx pRtx) {
     assertTrue(pRtx.moveTo(9));
@@ -962,7 +962,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testSecondCopySubtreeAsFirstChild() throws AbsTTException {
+  public void testSecondCopySubtreeAsFirstChild() throws SirixException {
     // Test for more than one node.
     INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
@@ -986,7 +986,7 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
   private final static void testSecondCopySubtreeAsFirstChild(final INodeReadTrx pRtx) {
     assertTrue(pRtx.moveTo(9));
@@ -1011,7 +1011,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testFirstCopySubtreeAsRightSibling() throws AbsTTException {
+  public void testFirstCopySubtreeAsRightSibling() throws SirixException {
     // Test for more than one node.
     INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
@@ -1035,7 +1035,7 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
   private final static void testFirstCopySubtreeAsRightSibling(final INodeReadTrx pRtx) {
     assertTrue(pRtx.moveTo(9));
@@ -1056,7 +1056,7 @@ public class UpdateTest {
   }
 
   @Test
-  public void testSubtreeInsertAsFirstChildFirst() throws AbsTTException, IOException, XMLStreamException {
+  public void testSubtreeInsertAsFirstChildFirst() throws SirixException, IOException, XMLStreamException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(5);
@@ -1078,7 +1078,7 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
   private final static void testSubtreeInsertAsFirstChildFirst(final INodeReadTrx pRtx) {
     assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());
@@ -1091,7 +1091,7 @@ public class UpdateTest {
   }
   
   @Test
-  public void testSubtreeInsertAsFirstChildSecond() throws AbsTTException, IOException, XMLStreamException {
+  public void testSubtreeInsertAsFirstChildSecond() throws SirixException, IOException, XMLStreamException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(11);
@@ -1114,7 +1114,7 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
   private final static void testSubtreeInsertAsFirstChildSecond(final INodeReadTrx pRtx) {
     assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());
@@ -1129,7 +1129,7 @@ public class UpdateTest {
   }
   
   @Test
-  public void testSubtreeInsertAsRightSibling() throws AbsTTException, IOException, XMLStreamException {
+  public void testSubtreeInsertAsRightSibling() throws SirixException, IOException, XMLStreamException {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(5);
@@ -1151,7 +1151,7 @@ public class UpdateTest {
    * 
    * @param pRtx
    *          to test with
-   * @throws AbsTTException
+   * @throws SirixException
    */
   private final static void testSubtreeInsertAsRightSibling(final INodeReadTrx pRtx) {
     assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());

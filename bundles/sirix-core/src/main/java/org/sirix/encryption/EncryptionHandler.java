@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.SortedMap;
 
 import org.sirix.cache.KeyCache;
-import org.sirix.exception.TTEncryptionException;
+import org.sirix.exception.SirixEncryptionException;
 
 /**
  * Singleton class holding and handling all necessary operations and
@@ -124,10 +124,10 @@ public final class EncryptionHandler {
    *          new user name joining a group.
    * @param paramGroup
    *          name of goup the user joins.
-   * @throws TTEncryptionException
+   * @throws SirixEncryptionException
    *           Exception occurred during joining process.
    */
-  public void joinGroup(final String paramUser, final String paramGroup) throws TTEncryptionException {
+  public void joinGroup(final String paramUser, final String paramGroup) throws SirixEncryptionException {
     try {
       // check if group exits.
       if (nodeExists(paramGroup)) {
@@ -179,7 +179,7 @@ public final class EncryptionHandler {
             transmitKEK(paramUser, mTek);
 
           } else {
-            throw new TTEncryptionException("User is already member of this group!");
+            throw new SirixEncryptionException("User is already member of this group!");
           }
         } else {
           // user does not exist yet. create user and its keying
@@ -214,10 +214,10 @@ public final class EncryptionHandler {
         }
 
       } else {
-        throw new TTEncryptionException("Group does not exist!");
+        throw new SirixEncryptionException("Group does not exist!");
       }
 
-    } catch (final TTEncryptionException ttee) {
+    } catch (final SirixEncryptionException ttee) {
       ttee.printStackTrace();
       System.exit(0);
     }
@@ -339,14 +339,14 @@ public final class EncryptionHandler {
           removeUser(paramUser, mGroupId);
 
         } else {
-          throw new TTEncryptionException("User is not member of given group!");
+          throw new SirixEncryptionException("User is not member of given group!");
         }
 
       } else {
-        throw new TTEncryptionException("Group and/or user do not exist!");
+        throw new SirixEncryptionException("Group and/or user do not exist!");
       }
 
-    } catch (final TTEncryptionException ttee) {
+    } catch (final SirixEncryptionException ttee) {
       ttee.printStackTrace();
       System.exit(0);
     }

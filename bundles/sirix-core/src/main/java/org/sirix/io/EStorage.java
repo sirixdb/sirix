@@ -29,7 +29,7 @@ package org.sirix.io;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.file.FileStorage;
@@ -46,7 +46,7 @@ public enum EStorage {
   File {
     @Override
     public IStorage getInstance(
-      final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException {
+      final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {
       return new FileStorage(pResourceConf.mPath, new ByteHandlePipeline(
         pResourceConf.mByteHandler));
     }
@@ -55,7 +55,7 @@ public enum EStorage {
   BerkeleyDB {
     @Override
     public IStorage getInstance(
-      final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException {
+      final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {
       return new BerkeleyStorage(pResourceConf.mPath, new ByteHandlePipeline(
         pResourceConf.mByteHandler));
     }
@@ -67,11 +67,11 @@ public enum EStorage {
    * @param pResourceConf
    *          {@link ResourceConfiguration} reference
    * @return instance of a storage backend specified within the {@link ResourceConfiguration}
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an IO-error occured
    */
   public abstract IStorage getInstance(
-    final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException;
+    final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException;
 
   /**
    * Factory method to retrieve suitable {@link IStorage} instances based upon
@@ -80,13 +80,13 @@ public enum EStorage {
    * @param pResourceConf
    *          determining the storage
    * @return an implementation of the {@link IStorage} interface
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an IO-error occurs
    * @throws NullPointerException
    *           if {@code pResourceConf} is {@code null}
    */
   public static final IStorage getStorage(
-    final @Nonnull ResourceConfiguration pResourceConf) throws TTIOException {
+    final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {
     return pResourceConf.mStorage.getInstance(pResourceConf);
   }
 }

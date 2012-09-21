@@ -17,7 +17,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.IPageReadTrx;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.page.EPage;
 
 /**
@@ -78,7 +78,7 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
     });
     mCache = builder.build(new CacheLoader<Tuple, PageContainer>() {
       @Override
-      public PageContainer load(final @Nullable Tuple key) throws TTIOException {
+      public PageContainer load(final @Nullable Tuple key) throws SirixIOException {
         if (key == null) {
           return PageContainer.EMPTY_INSTANCE;
         }

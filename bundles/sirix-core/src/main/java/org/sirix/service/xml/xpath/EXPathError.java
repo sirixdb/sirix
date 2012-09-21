@@ -27,7 +27,7 @@
 
 package org.sirix.service.xml.xpath;
 
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 
 public enum EXPathError {
 
@@ -130,7 +130,7 @@ public enum EXPathError {
   /**
    * Encapsulated Exception for the specified Enum.
    */
-  private final TTXPathException mException;
+  private final SirixXPathException mException;
 
   /**
    * Constructor. Initializes the internal state.
@@ -140,7 +140,7 @@ public enum EXPathError {
    */
   private EXPathError(final String msg) {
     mMessage = msg;
-    mException = new TTXPathException(mMessage);
+    mException = new SirixXPathException(mMessage);
   }
 
   /**
@@ -155,9 +155,9 @@ public enum EXPathError {
   /**
    * Getting the specific exception for a type.
    * 
-   * @return {@link TTXPathException} encapsulated
+   * @return {@link SirixXPathException} encapsulated
    */
-  public TTXPathException getEncapsulatedException() {
+  public SirixXPathException getEncapsulatedException() {
     return mException;
   }
 

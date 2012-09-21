@@ -30,7 +30,7 @@ package org.sirix.diff;
 import javax.annotation.Nonnull;
 
 import org.sirix.diff.DiffFactory.EDiff;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.IStructNode;
 
 /**
@@ -61,10 +61,10 @@ interface IDiffObservable {
   /**
    * Diff computation done, thus inform listeners.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if closing transactions failes
    */
-  void done() throws AbsTTException;
+  void done() throws SirixException;
 
   /**
    * Add an observer. This means add an instance of a class which implements the {@link IDiffObserver}

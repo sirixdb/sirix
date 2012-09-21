@@ -37,7 +37,7 @@ import java.io.IOException;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 
 import com.google.common.base.Objects;
 import com.google.gson.stream.JsonReader;
@@ -120,11 +120,12 @@ public final class DatabaseConfiguration {
 			int existing = 0;
 			for (final Paths paths : values()) {
 				final File currentFile = new File(pFile, paths.getFile().getName());
-				if (currentFile.exists()) {
+				if (currentFile.exists()
+						&& !Paths.LOCK.getFile().getName().equals(currentFile.getName())) {
 					existing++;
 				}
 			}
-			return existing - values().length;
+			return existing - values().length + 1;
 		}
 
 	}
@@ -195,11 +196,11 @@ public final class DatabaseConfiguration {
 	 * 
 	 * @param pConfig
 	 *          to be serialized
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	public static void serialize(final @Nonnull DatabaseConfiguration pConfig)
-			throws TTIOException {
+			throws SirixIOException {
 		try (final FileWriter fileWriter = new FileWriter(pConfig.getConfigFile());
 				final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
 			jsonWriter.beginObject();
@@ -207,7 +208,7 @@ public final class DatabaseConfiguration {
 			jsonWriter.name("file").value(filePath);
 			jsonWriter.endObject();
 		} catch (final IOException e) {
-			throw new TTIOException(e);
+			throw new SirixIOException(e);
 		}
 	}
 
@@ -217,11 +218,11 @@ public final class DatabaseConfiguration {
 	 * @param pFile
 	 *          where the DatabaseConfiguration lies in as json
 	 * @return a new {@link DatabaseConfiguration} class
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	public static DatabaseConfiguration deserialize(final @Nonnull File pFile)
-			throws TTIOException {
+			throws SirixIOException {
 		try (final FileReader fileReader = new FileReader(new File(pFile,
 				Paths.ConfigBinary.getFile().getName()));
 				final JsonReader jsonReader = new JsonReader(fileReader);) {
@@ -232,7 +233,7 @@ public final class DatabaseConfiguration {
 			jsonReader.endObject();
 			return new DatabaseConfiguration(file);
 		} catch (final IOException e) {
-			throw new TTIOException(e);
+			throw new SirixIOException(e);
 		}
 	}
 }

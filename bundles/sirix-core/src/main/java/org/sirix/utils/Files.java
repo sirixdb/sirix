@@ -11,7 +11,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.Set;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 
 /**
  * Static methods for file operations.
@@ -39,7 +39,7 @@ public final class Files {
    *           if any of the arguments are {@code null}
    */
   public static void recursiveRemove(final Path pPath,
-    final Set<FileVisitOption> pOptions) throws TTIOException {
+    final Set<FileVisitOption> pOptions) throws SirixIOException {
     try {
       if (java.nio.file.Files.exists(pPath)) {
         java.nio.file.Files.walkFileTree(checkNotNull(pPath),
@@ -66,7 +66,7 @@ public final class Files {
           });
       }
     } catch (final IOException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
@@ -80,7 +80,7 @@ public final class Files {
    * @throws NullPointerException
    *           if any of the arguments are {@code null}
    */
-  public static void recursiveRemove(final Path pPath) throws TTIOException {
+  public static void recursiveRemove(final Path pPath) throws SirixIOException {
     recursiveRemove(pPath, EnumSet.noneOf(FileVisitOption.class));
   }
 }

@@ -40,7 +40,7 @@ import org.sirix.api.IFilter;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.FilterAxis;
 import org.sirix.axis.ForAxis;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.comparators.AbsComparator;
 import org.sirix.service.xml.xpath.comparators.CompKind;
 import org.sirix.service.xml.xpath.expr.AndExpr;
@@ -732,11 +732,11 @@ public final class PipelineBuilder {
    *          The name of the function
    * @param mNum
    *          The number of arguments that are passed to the function
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if function can't be added
    */
   public void addFunction(final INodeReadTrx mTransaction, final String mFuncName, final int mNum)
-    throws TTXPathException {
+    throws SirixXPathException {
 
     assert getPipeStack().size() >= mNum;
 

@@ -7,7 +7,7 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.INodeCursor;
 import org.sirix.api.IPageWriteTrx;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.NullNode;
@@ -73,7 +73,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 				throw new IllegalStateException(
 						"Node couldn't be fetched from persistent storage!");
 			}
-		} catch (final TTIOException e) {
+		} catch (final SirixIOException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
 	}
@@ -98,12 +98,12 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	 * @param token
 	 *          token to be indexed
 	 * @return indexed token reference
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	@SuppressWarnings("unchecked")
 	public V index(final @Nonnull K pKey, final @Nonnull V pValue)
-			throws TTIOException {
+			throws SirixIOException {
 		final RevisionRootPage root = mPageWriteTrx.getActualRevisionRootPage();
 		if (mRoot == null) {
 			// Index is empty.. create root node.
@@ -208,9 +208,9 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	 * 
 	 * @param pNode
 	 *          node to be adjusted
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 */
-	private void adjust(@Nonnull AVLNode<K, V> pNode) throws TTIOException {
+	private void adjust(@Nonnull AVLNode<K, V> pNode) throws SirixIOException {
 		pNode.setChanged(true);
 
 		while (pNode != null && pNode != mRoot && parent(pNode) != null
@@ -261,11 +261,11 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	 *          node to adjust
 	 * @param pChanged
 	 *          changed value
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	private void setChanged(final @Nonnull AVLNode<K, V> pNode,
-			final boolean pChanged) throws TTIOException {
+			final boolean pChanged) throws SirixIOException {
 		@SuppressWarnings("unchecked")
 		final AVLNode<K, V> node = (AVLNode<K, V>) mPageWriteTrx
 				.prepareNodeForModification(pNode.getNodeKey(), EPage.VALUEPAGE);
@@ -316,11 +316,11 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	 * 
 	 * @param node
 	 *          node to be rotated
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	@SuppressWarnings({ "unchecked" })
-	private void rotateLeft(@Nonnull AVLNode<K, V> pNode) throws TTIOException {
+	private void rotateLeft(@Nonnull AVLNode<K, V> pNode) throws SirixIOException {
 		moveTo(pNode.getNodeKey());
 
 		AVLNode<K, V> right = (AVLNode<K, V>) getLastChild().get();
@@ -373,11 +373,11 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	 * 
 	 * @param node
 	 *          node to be rotated
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	@SuppressWarnings({ "unchecked" })
-	private void rotateRight(@Nonnull AVLNode<K, V> pNode) throws TTIOException {
+	private void rotateRight(@Nonnull AVLNode<K, V> pNode) throws SirixIOException {
 		moveTo(pNode.getNodeKey());
 
 		AVLNode<K, V> leftChild = (AVLNode<K, V>) getFirstChild().get();

@@ -36,7 +36,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.IPage;
 
@@ -127,12 +127,12 @@ public class PageDelegate implements IPage {
    * 
    * @param pState
    *          IWriteTransaction state
-   * @throws AbsTTException
+   * @throws SirixException
    *           if a write-error occured
    */
   @Override
   public final void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
-    throws AbsTTException {
+    throws SirixException {
     for (final PageReference reference : mReferences) {
       pPageWriteTrx.commit(reference);
     }

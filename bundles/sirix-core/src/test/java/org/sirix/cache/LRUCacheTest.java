@@ -32,7 +32,7 @@ import static org.junit.Assert.assertNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.page.NodePage;
 
 /**
@@ -44,13 +44,13 @@ public class LRUCacheTest {
   private ICache<Long, PageContainer> cache;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     cache = new LRUCache<>();
     CacheTestHelper.setUp(cache);
   }
   
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     cache = null;
   }
 

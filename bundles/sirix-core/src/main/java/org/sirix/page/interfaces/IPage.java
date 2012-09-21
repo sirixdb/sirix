@@ -31,7 +31,7 @@ import com.google.common.io.ByteArrayDataOutput;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.page.PageReference;
 
 public interface IPage {
@@ -42,7 +42,7 @@ public interface IPage {
 
   PageReference[] getReferences();
 
-  void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws AbsTTException;
+  void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws SirixException;
   
   
 

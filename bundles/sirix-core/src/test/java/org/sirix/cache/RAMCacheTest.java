@@ -32,7 +32,7 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Before;
 import org.junit.Test;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * Testing the RAMCache.
@@ -45,7 +45,7 @@ public class RAMCacheTest {
   private ICache<Long, PageContainer> cache;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     cache = new RAMCache();
     CacheTestHelper.setUp(cache);
   }

@@ -10,8 +10,8 @@ import javax.xml.namespace.QName;
 import org.sirix.api.IItemList;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
@@ -39,7 +39,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public long getMaxNodeKey() throws TTIOException {
+  public long getMaxNodeKey() throws SirixIOException {
     return delegate().getMaxNodeKey();
   }
 
@@ -49,7 +49,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public void close() throws AbsTTException {
+  public void close() throws SirixException {
     delegate().close();
   }
 
@@ -59,12 +59,12 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public long getRevisionNumber() throws TTIOException {
+  public long getRevisionNumber() throws SirixIOException {
     return delegate().getRevisionNumber();
   }
 
   @Override
-  public long getRevisionTimestamp() throws TTIOException {
+  public long getRevisionTimestamp() throws SirixIOException {
     return delegate().getRevisionTimestamp();
   }
 
@@ -169,7 +169,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public INodeReadTrx cloneInstance() throws AbsTTException {
+  public INodeReadTrx cloneInstance() throws SirixException {
     return delegate().cloneInstance();
   }
   

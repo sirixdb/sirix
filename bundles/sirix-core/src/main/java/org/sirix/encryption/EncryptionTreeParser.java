@@ -17,7 +17,7 @@ import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
 
-import org.sirix.exception.TTEncryptionException;
+import org.sirix.exception.SirixEncryptionException;
 
 /**
  * Class for parsing the initial given right tree and storing
@@ -252,9 +252,9 @@ public class EncryptionTreeParser extends DefaultHandler {
             while (mParentList.size() != 0) {
               if (mParentList.size() > 1) {
                 try {
-                  throw new TTEncryptionException("Initial right tree is not valid. A group node can "
+                  throw new SirixEncryptionException("Initial right tree is not valid. A group node can "
                     + "only have one parent.");
-                } catch (final TTEncryptionException ttee) {
+                } catch (final SirixEncryptionException ttee) {
                   ttee.printStackTrace();
                 }
               } else {

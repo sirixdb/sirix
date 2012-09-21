@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.comparators;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.types.Type;
@@ -64,7 +64,7 @@ public class NodeComp extends AbsComparator {
    * {@inheritDoc}
    */
   @Override
-  protected AtomicValue[] atomize(final IAxis mOperand) throws TTXPathException {
+  protected AtomicValue[] atomize(final IAxis mOperand) throws SirixXPathException {
 
     final INodeReadTrx rtx = getTransaction();
     // store item key as atomic value
@@ -100,7 +100,7 @@ public class NodeComp extends AbsComparator {
    */
   @Override
   protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2)
-    throws TTXPathException {
+    throws SirixXPathException {
 
     final String op1 = new String(mOperand1[0].getRawValue());
     final String op2 = new String(mOperand2[0].getRawValue());

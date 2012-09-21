@@ -54,7 +54,7 @@ import org.slf4j.LoggerFactory;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.IVisualItem;
 import org.sirix.gui.view.VisualItemAxis;
@@ -221,7 +221,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
     }
 
     @Override
-    public Void call() throws AbsTTException {
+    public Void call() throws SirixException {
       final List<SunburstItem> sortedItems = new ArrayList<>(mItems);
       final ExecutorService executor = Executors.newFixedThreadPool(3);
       executor.submit(new XPathEvaluation(mSession, mOldRevision, mQuery));

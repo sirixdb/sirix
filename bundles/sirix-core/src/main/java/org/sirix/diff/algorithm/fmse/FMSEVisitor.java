@@ -36,7 +36,7 @@ import org.sirix.access.AbsVisitorSupport;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.api.visitor.EVisitResult;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.TextNode;
@@ -68,14 +68,14 @@ public final class FMSEVisitor extends AbsVisitorSupport {
    *          {@link Map} reference to track ordered nodes
    * @param pDescendants
    *          {@link Map} reference to track descendants per node
-   * @throws AbsTTException
+   * @throws SirixException
    *           if setting up sirix fails
    * @throws NullPointerException
    *           if one of the arguments is {@code null}
    */
   public FMSEVisitor(@Nonnull final INodeReadTrx pReadTransaction,
     @Nonnull final Map<Long, Boolean> pInOrder,
-    @Nonnull final Map<Long, Long> pDescendants) throws AbsTTException {
+    @Nonnull final Map<Long, Long> pDescendants) throws SirixException {
     mRtx = checkNotNull(pReadTransaction);
     mInOrder = checkNotNull(pInOrder);
     mDescendants = checkNotNull(pDescendants);

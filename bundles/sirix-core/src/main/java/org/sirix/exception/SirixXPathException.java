@@ -28,22 +28,18 @@
 package org.sirix.exception;
 
 /**
- * Exception thrown when an error during encryption process occurs.
- * 
- * @author Patrick lang, University of Konstanz
- * 
+ * Static class for handling the Enum as an {@link SirixException}.
  */
-public class TTEncryptionException extends AbsTTException {
+public class SirixXPathException extends SirixException {
 
   /**
    * Constructor.
    * 
-   * @param message
-   *          message as string, they are concatenated with spaces in
-   *          between
+   * @param paramMessage
+   *          message of the XPath Error.
    */
-  public TTEncryptionException(final String... message) {
-    super(message);
+  public SirixXPathException(final String paramMessage) {
+    super(paramMessage);
   }
 
 }

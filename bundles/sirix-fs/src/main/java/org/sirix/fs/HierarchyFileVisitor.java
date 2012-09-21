@@ -21,7 +21,7 @@ import javax.xml.namespace.QName;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbsShredder;
 import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.utils.LogWrapper;
@@ -95,10 +95,10 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
      * Build a new {@link HierarchyFileVisitor} instance.
      * 
      * @return {@link HierarchyFileVisitor} reference
-     * @throws AbsTTException
+     * @throws SirixException
      *           if setting up sirix fails
      */
-    public HierarchyFileVisitor build() throws AbsTTException {
+    public HierarchyFileVisitor build() throws SirixException {
       return new HierarchyFileVisitor(this);
     }
   }
@@ -113,7 +113,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
    * @throws NullPointerException
    *           if {@code pBuilder} is {@code null}
    */
-  private HierarchyFileVisitor(final Builder pBuilder) throws AbsTTException {
+  private HierarchyFileVisitor(final Builder pBuilder) throws SirixException {
     super(pBuilder.mWtx, EInsert.ASFIRSTCHILD);
     mVisitor = pBuilder.mVisitor;
     mWtx = pBuilder.mWtx;
@@ -130,10 +130,10 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
    * @return a new {@link FileHierarchyWalker} instance
    * @throws NullPointerException
    *           if {@code pBuilder} is {@code null}
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything while setting up sirix failes
    */
-  public static synchronized HierarchyFileVisitor getInstance(final Builder pBuilder) throws AbsTTException {
+  public static synchronized HierarchyFileVisitor getInstance(final Builder pBuilder) throws SirixException {
     HierarchyFileVisitor visitor = INSTANCES.putIfAbsent(pBuilder.mWtx, pBuilder.build());
     if (visitor == null) {
       visitor = INSTANCES.get(pBuilder.mWtx);
@@ -169,7 +169,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
       final long nodeKey = mWtx.getNode().getNodeKey();
       processDirectory(mVisitor, mWtx, pDir, pAttrs);
       mWtx.moveTo(nodeKey);
-    } catch (AbsTTException e) {
+    } catch (SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     return FileVisitResult.CONTINUE;
@@ -211,7 +211,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
         processFile(mVisitor, mWtx, pFile, pAttrs);
         mWtx.moveTo(nodeKey);
       }
-    } catch (AbsTTException e) {
+    } catch (SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     return FileVisitResult.CONTINUE;
@@ -254,7 +254,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
   }
 
   @Override
-  public void close() throws AbsTTException {
+  public void close() throws SirixException {
     mWtx.commit();
     mWtx.close();
   }

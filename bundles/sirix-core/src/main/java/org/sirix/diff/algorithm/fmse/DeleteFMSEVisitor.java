@@ -14,7 +14,7 @@ import org.sirix.access.AbsVisitorSupport;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.TextNode;
@@ -98,7 +98,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
         mWtx.moveTo(keyToDelete);
         try {
           mWtx.remove();
-        } catch (final AbsTTException e) {
+        } catch (final SirixException e) {
           LOGWRAPPER.error(e.getMessage(), e);
         }
       }
@@ -205,7 +205,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
 			final long parentKey = mWtx.getParent().get().getNodeKey();
 			mWtx.remove();
 			assert mWtx.getNode().getNodeKey() == parentKey;
-		} catch (final AbsTTException e) {
+		} catch (final SirixException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
 		return EVisitResult.CONTINUE;

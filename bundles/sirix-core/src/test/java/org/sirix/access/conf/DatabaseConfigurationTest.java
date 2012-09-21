@@ -8,8 +8,8 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 import org.sirix.TestHelper;
 import org.sirix.access.Database;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 
 /**
  * Test case for de-/serialization of {@link DatabaseConfiguration}s.
@@ -20,12 +20,12 @@ import org.sirix.exception.TTIOException;
 public class DatabaseConfigurationTest {
 
 	@BeforeMethod
-	public void setUp() throws AbsTTException {
+	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
 	}
 
 	@AfterMethod
-	public void tearDown() throws AbsTTException {
+	public void tearDown() throws SirixException {
 		TestHelper.deleteEverything();
 	}
 
@@ -36,11 +36,11 @@ public class DatabaseConfigurationTest {
 	 * {@link org.treetank.access.conf.DatabaseConfiguration#deserialize(java.io.File)}
 	 * .
 	 * 
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O exception occurs
 	 */
 	@Test
-	public void testDeSerialize() throws TTIOException {
+	public void testDeSerialize() throws SirixIOException {
 		DatabaseConfiguration conf = new DatabaseConfiguration(
 				TestHelper.PATHS.PATH1.getFile());
 		assertTrue(Database.createDatabase(conf));

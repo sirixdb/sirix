@@ -33,27 +33,27 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class ValueFilterTest {
 
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testIFilterConvetions() throws AbsTTException {
+  public void testIFilterConvetions() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
     rtx.moveTo(4L);
     IFilterTest.testIFilterConventions(new ValueFilter(rtx, "oops1"), true);

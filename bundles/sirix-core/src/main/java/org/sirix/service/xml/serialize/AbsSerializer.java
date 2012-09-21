@@ -41,7 +41,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 
 /**
@@ -129,11 +129,11 @@ public abstract class AbsSerializer implements Callable<Void> {
    * Serialize the storage.
    * 
    * @return null.
-   * @throws AbsTTException
+   * @throws SirixException
    *           if can't call serailzer
    */
   @Override
-  public Void call() throws AbsTTException {
+  public Void call() throws SirixException {
     emitStartDocument();
 
     final int length =

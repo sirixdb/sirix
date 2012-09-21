@@ -39,7 +39,7 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.axis.AbsAxis;
 import org.sirix.axis.AbsAxisTest;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 public class XPathAxisWideTest {
@@ -56,7 +56,7 @@ public class XPathAxisWideTest {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     TestHelper.closeEverything();
   }
 

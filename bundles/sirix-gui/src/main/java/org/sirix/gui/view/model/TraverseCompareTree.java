@@ -73,7 +73,7 @@ import org.sirix.diff.DiffFactory.EDiffOptimized;
 import org.sirix.diff.DiffTuple;
 import org.sirix.diff.IDiffObserver;
 import org.sirix.diff.algorithm.fmse.Levenshtein;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.DiffDatabase;
 import org.sirix.gui.view.model.interfaces.IModel;
@@ -294,7 +294,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
     try {
       mNewRtx = mDb.getSession().beginNodeReadTrx(pContainer.getRevision());
       mOldRtx = mModel.getDb().getSession().beginNodeReadTrx(mOldRevision);
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
 
@@ -343,7 +343,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 
       POOL.submit(new Callable<Void>() {
         @Override
-        public Void call() throws AbsTTException {
+        public Void call() throws SirixException {
           EDiffOptimized optimized = EDiffOptimized.NO;
           if (mPrune == EPruning.DIFF
             || mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES) {
@@ -418,7 +418,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
     try {
       mOldRtx.close();
       mNewRtx.close();
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     LOGWRAPPER.info(mItems.size() + " SunburstItems created!");

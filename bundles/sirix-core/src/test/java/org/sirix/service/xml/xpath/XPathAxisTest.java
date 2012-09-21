@@ -33,7 +33,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxisTest;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * JUnit-test class to test the functionality of the XPathAxis.
@@ -45,20 +45,20 @@ public class XPathAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     TestHelper.closeEverything();
     holder.close();
   }
 
   @Test
-  public void testSteps() throws AbsTTException {
+  public void testSteps() throws SirixException {
     // Verify.
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "/text:p/b"), new long[] {});
@@ -87,7 +87,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testAttributes() throws AbsTTException {
+  public void testAttributes() throws SirixException {
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "/p:a[@i]"), new long[] {
       1L
@@ -182,7 +182,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testNodeTests() throws AbsTTException {
+  public void testNodeTests() throws SirixException {
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "/p:a/node()"), new long[] {
       4L, 5L, 8L, 9L, 13L
@@ -202,7 +202,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testDescendant() throws AbsTTException {
+  public void testDescendant() throws SirixException {
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "/p:a//b"), new long[] {
       5L, 9L
@@ -230,7 +230,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testAncestor() throws AbsTTException {
+  public void testAncestor() throws SirixException {
     // Find ancestor starting from nodeKey 8L.
     holder.getRtx().moveTo(11L);
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "ancestor::p:a"), new long[] {
@@ -254,7 +254,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testParent() throws AbsTTException {
+  public void testParent() throws SirixException {
     // Find ancestor starting from nodeKey 8L.
     holder.getRtx().moveTo(9L);
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "parent::p:a"), new long[] {
@@ -278,7 +278,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testPreceding() throws AbsTTException {
+  public void testPreceding() throws SirixException {
     // Find preceding nodes starting from nodeKey 13.
     holder.getRtx().moveTo(13L);
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "preceding-sibling::node()"), new long[] {
@@ -287,7 +287,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testSelf() throws AbsTTException {
+  public void testSelf() throws SirixException {
     holder.getRtx().moveTo(1L);
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "self::p:a"), new long[] {
       1L
@@ -314,7 +314,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testPosition() throws AbsTTException {
+  public void testPosition() throws SirixException {
     holder.getRtx().moveTo(1L);
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "b"), new long[] {
@@ -337,7 +337,7 @@ public class XPathAxisTest {
 
   //
   @Test
-  public void testDupElemination() throws AbsTTException {
+  public void testDupElemination() throws SirixException {
     holder.getRtx().moveTo(1L);
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "child::node()/parent::node()"),
@@ -360,7 +360,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testUnabbreviate() throws AbsTTException {
+  public void testUnabbreviate() throws SirixException {
     holder.getRtx().moveTo(1L);
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "child::b"), new long[] {
@@ -413,7 +413,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testMultiExpr() throws AbsTTException {
+  public void testMultiExpr() throws SirixException {
     holder.getRtx().moveTo(1L);
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "b, b, b"), new long[] {
@@ -437,7 +437,7 @@ public class XPathAxisTest {
   }
 
   @Test
-  public void testCount() throws AbsTTException {
+  public void testCount() throws SirixException {
     // Verify.
     holder.getRtx().moveTo(1L);
 

@@ -35,8 +35,8 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxisTest;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.XPathStringChecker;
 
@@ -51,14 +51,14 @@ public class ConXPathAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
@@ -91,7 +91,7 @@ public class ConXPathAxisTest {
           7L, 11L
         });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
 
@@ -193,7 +193,7 @@ public class ConXPathAxisTest {
         9L
       });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
 
@@ -222,7 +222,7 @@ public class ConXPathAxisTest {
         6L, 7L, 11L, 12L
       });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
 
@@ -258,7 +258,7 @@ public class ConXPathAxisTest {
 
       AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "p:a/descendant::p:a"), new long[] {});
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
   }
@@ -289,7 +289,7 @@ public class ConXPathAxisTest {
           11L, 9L, 1L
         });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
 
@@ -319,7 +319,7 @@ public class ConXPathAxisTest {
         1L
       });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
   }
@@ -351,7 +351,7 @@ public class ConXPathAxisTest {
         6L, 7L, 11L, 12L
       });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
 
@@ -379,7 +379,7 @@ public class ConXPathAxisTest {
         7L, 11L
       });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
 
@@ -409,7 +409,7 @@ public class ConXPathAxisTest {
         7L, 11L
       });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
 
@@ -507,7 +507,7 @@ public class ConXPathAxisTest {
           5l, 9L, 1L, 7L, 11L
         });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
 
@@ -537,7 +537,7 @@ public class ConXPathAxisTest {
           7L, 11L, 5L, 1L, 6L
         });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
 
@@ -553,7 +553,7 @@ public class ConXPathAxisTest {
           "10"
         });
 
-    } catch (final TTXPathException mExp) {
+    } catch (final SirixXPathException mExp) {
       mExp.getStackTrace();
     }
 

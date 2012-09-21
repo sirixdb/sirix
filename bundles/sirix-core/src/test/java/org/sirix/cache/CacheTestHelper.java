@@ -28,7 +28,7 @@ package org.sirix.cache;
 
 import org.junit.Test;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.page.NodePage;
 
 /**
@@ -41,7 +41,7 @@ public class CacheTestHelper {
 
   protected static NodePage[][] PAGES;
 
-  public static void setUp(final ICache<Long, PageContainer> cache) throws AbsTTException {
+  public static void setUp(final ICache<Long, PageContainer> cache) throws SirixException {
     PAGES = new NodePage[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
       final NodePage page = new NodePage(i, 0);

@@ -31,7 +31,7 @@ import java.util.List;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.utils.TypedValue;
 
 /**
@@ -62,11 +62,11 @@ public class FNNot extends AbsFunction {
    *          max number of allowed function arguments
    * @param returnType
    *          the type that the function's result will have
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if function check fails
    */
   public FNNot(final INodeReadTrx rtx, final List<IAxis> args, final int min, final int max,
-    final int returnType) throws TTXPathException {
+    final int returnType) throws SirixXPathException {
 
     super(rtx, args, min, max, returnType);
   }
@@ -74,10 +74,10 @@ public class FNNot extends AbsFunction {
   /**
    * {@inheritDoc}
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Override
-  protected byte[] computeResult() throws TTXPathException {
+  protected byte[] computeResult() throws SirixXPathException {
     final IAxis axis = getArgs().get(0);
     final boolean value = !Function.ebv(axis);
 

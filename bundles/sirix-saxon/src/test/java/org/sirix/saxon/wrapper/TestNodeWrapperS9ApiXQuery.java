@@ -35,7 +35,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.saxon.evaluator.XQueryEvaluator;
 
 /**
@@ -55,7 +55,7 @@ public final class TestNodeWrapperS9ApiXQuery {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     mHolder.close();
     TestHelper.deleteEverything();
   }

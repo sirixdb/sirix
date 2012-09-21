@@ -33,7 +33,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.io.EStorage;
 import org.sirix.io.IOTestHelper;
 
@@ -42,19 +42,19 @@ public class BerkeleyTest {
   private ResourceConfiguration resourceConf;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     Holder.generateSession().close();
     resourceConf = IOTestHelper.registerIO(EStorage.BerkeleyDB);
   }
 
   @Test
-  public void testFirstRef() throws AbsTTException {
+  public void testFirstRef() throws SirixException {
     IOTestHelper.testReadWriteFirstRef(resourceConf);
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     IOTestHelper.clean();
   }
 

@@ -37,7 +37,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.page.NodePage;
 
 public class BerkeleyPersistentCacheTest {
@@ -47,7 +47,7 @@ public class BerkeleyPersistentCacheTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateSession();
@@ -68,7 +68,7 @@ public class BerkeleyPersistentCacheTest {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     TestHelper.closeEverything();
   }
 }

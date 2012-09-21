@@ -37,7 +37,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.axis.AbsAxisTest;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
@@ -63,13 +63,13 @@ public class XPathFunctionTest {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testA_Axes() throws AbsTTException {
+  public void testA_Axes() throws SirixException {
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "//L/*"), new long[] {
       58L, 63L, 77L
@@ -122,7 +122,7 @@ public class XPathFunctionTest {
   }
 
   @Test
-  public void testP_Filters() throws AbsTTException {
+  public void testP_Filters() throws SirixException {
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "//*[L]"), new long[] {
       20L
@@ -188,7 +188,7 @@ public class XPathFunctionTest {
   }
 
   @Test
-  public void testT_NodeTests() throws AbsTTException {
+  public void testT_NodeTests() throws SirixException {
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "//L/text()"), new long[] {
       57L, 62L
@@ -219,7 +219,7 @@ public class XPathFunctionTest {
   }
 
   @Test
-  public void testQ_Operators() throws AbsTTException {
+  public void testQ_Operators() throws SirixException {
 
     AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "//*[preceding::Q]"), new long[] {
       111L, 83L, 97L, 87L, 92L, 101L, 106L, 115L, 120L

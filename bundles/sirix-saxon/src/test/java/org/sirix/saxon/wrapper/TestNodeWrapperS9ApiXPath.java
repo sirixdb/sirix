@@ -37,7 +37,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.IDatabase;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.saxon.evaluator.XPathEvaluator;
 
 /**
@@ -55,7 +55,7 @@ public final class TestNodeWrapperS9ApiXPath extends XMLTestCase {
 
   @Override
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     XMLUnit.setIgnoreWhitespace(true);
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
@@ -64,7 +64,7 @@ public final class TestNodeWrapperS9ApiXPath extends XMLTestCase {
 
   @Override
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     mHolder.close();
   }
 

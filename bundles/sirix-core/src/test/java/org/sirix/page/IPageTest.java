@@ -11,7 +11,7 @@ import com.google.common.io.ByteStreams;
 import java.util.Arrays;
 
 import org.sirix.TestHelper;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.IByteHandler;
 import org.sirix.node.EKind;
 import org.sirix.page.interfaces.IPage;
@@ -61,11 +61,11 @@ public class IPageTest {
 	 * the test class.
 	 * 
 	 * @return different classes of the {@link IByteHandler}
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	@DataProvider(name = "instantiatePages")
-	public Object[][] instantiatePages() throws TTIOException {
+	public Object[][] instantiatePages() throws SirixIOException {
 		// IndirectPage setup.
 		final IndirectPage indirectPage = new IndirectPage(0);
 		// RevisionRootPage setup.

@@ -40,7 +40,7 @@ import org.sirix.TestHelper;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.shredder.XMLShredder;
 
@@ -149,11 +149,11 @@ public final class DocumentCreater {
    * 
    * @param pWtx
    *          {@link INodeWriteTrx} to write to
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything weird happens
    */
   public static void create(final @Nonnull INodeWriteTrx pWtx)
-    throws AbsTTException {
+    throws SirixException {
     assertNotNull(pWtx);
     assertTrue(pWtx.moveToDocumentRoot());
 
@@ -191,11 +191,11 @@ public final class DocumentCreater {
    * 
    * @param pWtx
    *          {@link INodeWriteTrx} to write to
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything went wrong
    */
   public static void createVersioned(final @Nonnull INodeWriteTrx pWtx)
-    throws AbsTTException {
+    throws SirixException {
     assertNotNull(pWtx);
     create(pWtx);
     pWtx.commit();
@@ -214,11 +214,11 @@ public final class DocumentCreater {
    * 
    * @param paramWtx
    *          {@link INodeWriteTrx} to write to
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything went wrong
    */
   public static void createWithoutAttributes(final @Nonnull INodeWriteTrx pWtx)
-    throws AbsTTException {
+    throws SirixException {
     assertNotNull(pWtx);
     pWtx.moveToDocumentRoot();
     pWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
@@ -242,11 +242,11 @@ public final class DocumentCreater {
    * 
    * @param pWtx
    *          {@link INodeWriteTrx} to write to
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything went wrong
    */
   public static void createWithoutNamespace(final @Nonnull INodeWriteTrx pWtx)
-    throws AbsTTException {
+    throws SirixException {
     assertNotNull(pWtx);
     pWtx.moveToDocumentRoot();
     pWtx.insertElementAsFirstChild(new QName("a"));
@@ -271,7 +271,7 @@ public final class DocumentCreater {
   /**
    * Create revisioned document.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if shredding fails
    * @throws XMLStreamException
    *           if StAX reader couldn't be created
@@ -279,7 +279,7 @@ public final class DocumentCreater {
    *           if reading XML string fails
    */
   public static void createRevisioned(final IDatabase pDB)
-    throws AbsTTException, IOException, XMLStreamException {
+    throws SirixException, IOException, XMLStreamException {
 
     final INodeWriteTrx firstWtx =
       pDB.getSession(

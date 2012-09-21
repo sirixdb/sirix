@@ -31,7 +31,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.ElementNode;
 
 /**
@@ -47,9 +47,9 @@ final class StructuralDiff extends AbsDiff {
    * 
    * @param pBuilder
    *          {@link Builder} reference
-   * @throws AbsTTException
+   * @throws SirixException
    */
-  public StructuralDiff(@Nonnull final Builder pBuilder) throws AbsTTException {
+  public StructuralDiff(@Nonnull final Builder pBuilder) throws SirixException {
     super(pBuilder);
   }
 

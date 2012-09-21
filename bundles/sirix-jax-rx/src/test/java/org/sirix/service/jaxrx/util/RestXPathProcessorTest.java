@@ -46,7 +46,7 @@ import javax.xml.parsers.ParserConfigurationException;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.implementation.DatabaseRepresentation;
 import org.w3c.dom.Document;
 import org.w3c.dom.NodeList;
@@ -89,7 +89,7 @@ public class RestXPathProcessorTest {
     public static final transient String PARAMJRESTSEQ = "rest:sequence";
 
     @BeforeClass
-    public static void setUpGlobal() throws AbsTTException {
+    public static void setUpGlobal() throws SirixException {
         deleteDirectory(TestHelper.PATHS.PATH1.getFile());
         final InputStream xmlInput = RestXPathProcessorTest.class.getResourceAsStream("/books.xml");
         new DatabaseRepresentation(TestHelper.PATHS.PATH1.getFile()).shred(xmlInput, RESOURCENAME);
@@ -116,7 +116,7 @@ public class RestXPathProcessorTest {
      */
     @Test
     public final void testGetXpathResourceStringStringBooleanLongOutputStreamBoolean() throws IOException,
-        SAXException, ParserConfigurationException, AbsTTException {
+        SAXException, ParserConfigurationException, SirixException {
         String xPath = "//book";
         boolean withNodeIds = true;
         OutputStream output = new ByteArrayOutputStream();
@@ -160,7 +160,7 @@ public class RestXPathProcessorTest {
      */
     @Test
     public final void testGetXpathResourceFileLongStringBooleanLongOutputStreamBoolean() throws SAXException,
-        IOException, ParserConfigurationException, AbsTTException {
+        IOException, ParserConfigurationException, SirixException {
         String xPath = "//author";
         boolean withNodeIds = true;
         OutputStream output = new ByteArrayOutputStream();

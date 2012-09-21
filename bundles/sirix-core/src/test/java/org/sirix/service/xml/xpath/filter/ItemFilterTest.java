@@ -34,27 +34,27 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.filter.IFilterTest;
 import org.sirix.axis.filter.ItemFilter;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class ItemFilterTest {
 
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.deleteEverything();
   }
 
   @Test
-  public void testIFilterConvetions() throws AbsTTException {
+  public void testIFilterConvetions() throws SirixException {
     holder.getRtx().moveTo(9L);
     IFilterTest.testIFilterConventions(new ItemFilter(holder.getRtx()), true);
 

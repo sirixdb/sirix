@@ -42,7 +42,7 @@ import java.util.Objects;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.IWriter;
 import org.sirix.io.berkeley.binding.PageBinding;
 import org.sirix.page.NodePage;
@@ -81,36 +81,36 @@ public final class BerkeleyWriter implements IWriter {
    *          {@link Environment} reference for the write
    * @param pDatabase
    *          {@link Database} reference where the data should be written to
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something odd happens@Nonnull
    */
   public BerkeleyWriter(@Nonnull final Environment pEnv,
-    @Nonnull final Database pDatabase, final @Nonnull PageBinding pPageBinding) throws TTIOException {
+    @Nonnull final Database pDatabase, final @Nonnull PageBinding pPageBinding) throws SirixIOException {
     try {
       mTxn = pEnv.beginTransaction(null, null);
       mDatabase = checkNotNull(pDatabase);
       mNodepagekey = getLastNodePage();
       mPageBinding = checkNotNull(pPageBinding);
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
 
     mReader = new BerkeleyReader(mDatabase, mTxn, mPageBinding);
   }
 
   @Override
-  public void close() throws TTIOException {
+  public void close() throws SirixIOException {
     try {
       setLastNodePage(mNodepagekey);
       mTxn.commit();
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
   }
 
   @Override
   public long write(@Nonnull final PageReference pageReference)
-    throws TTIOException {
+    throws SirixIOException {
     final IPage page = pageReference.getPage();
 
     final DatabaseEntry valueEntry = new DatabaseEntry();
@@ -125,7 +125,7 @@ public final class BerkeleyWriter implements IWriter {
 
     final OperationStatus status = mDatabase.put(mTxn, keyEntry, valueEntry);
     if (status != OperationStatus.SUCCESS) {
-      throw new TTIOException(new StringBuilder("Write of ").append(
+      throw new SirixIOException(new StringBuilder("Write of ").append(
         pageReference.toString()).append(" failed!").toString());
     }
 
@@ -138,11 +138,11 @@ public final class BerkeleyWriter implements IWriter {
    * 
    * @param pData
    *          key to be stored
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if can't set last {@link NodePage}
    */
   private void setLastNodePage(@Nonnegative final long pData)
-    throws TTIOException {
+    throws SirixIOException {
     final DatabaseEntry keyEntry = new DatabaseEntry();
     final DatabaseEntry valueEntry = new DatabaseEntry();
 
@@ -153,18 +153,18 @@ public final class BerkeleyWriter implements IWriter {
     try {
       mDatabase.put(mTxn, keyEntry, valueEntry);
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
   }
 
   /**
    * Getting the last nodePage from the persistent storage.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           If can't get last Node page
    * @return the last nodepage-key
    */
-  private long getLastNodePage() throws TTIOException {
+  private long getLastNodePage() throws SirixIOException {
     final DatabaseEntry keyEntry = new DatabaseEntry();
     final DatabaseEntry valueEntry = new DatabaseEntry();
 
@@ -176,13 +176,13 @@ public final class BerkeleyWriter implements IWriter {
       return status == OperationStatus.SUCCESS ? BerkeleyStorage.DATAINFO_VAL_B
         .entryToObject(valueEntry) : 0L;
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
   }
 
   @Override
   public void writeFirstReference(@Nonnull final PageReference pPageReference)
-    throws TTIOException {
+    throws SirixIOException {
     write(pPageReference);
 
     final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -195,18 +195,18 @@ public final class BerkeleyWriter implements IWriter {
     try {
       mDatabase.put(mTxn, keyEntry, valueEntry);
     } catch (final DatabaseException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
 
   }
 
   @Override
-  public IPage read(final long pKey) throws TTIOException {
+  public IPage read(final long pKey) throws SirixIOException {
     return mReader.read(pKey);
   }
 
   @Override
-  public PageReference readFirstReference() throws TTIOException {
+  public PageReference readFirstReference() throws SirixIOException {
     return mReader.readFirstReference();
   }
 

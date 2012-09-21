@@ -35,7 +35,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.gui.view.model.AbsModel;
 import org.sirix.gui.view.sunburst.SunburstView.Embedded;
@@ -119,7 +119,7 @@ enum EMenu {
         pWtx.commit();
         pWtx.close();
         ((Embedded)pParent).refresh(Optional.<VisualItemAxis> absent());
-      } catch (final AbsTTException e) {
+      } catch (final SirixException e) {
         JOptionPane.showMessageDialog(pParent, "Failed to delete node: " + e.getMessage());
       }
     }

@@ -44,7 +44,7 @@ import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.enums.EIdAccessType;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
@@ -219,7 +219,7 @@ public final class WorkerHelper {
    * @throws sirixException
    */
   public static void closeWTX(final boolean abortTransaction, final INodeWriteTrx wtx, final ISession ses,
-    final IDatabase dbase) throws AbsTTException {
+    final IDatabase dbase) throws SirixException {
     synchronized (dbase) {
       if (abortTransaction) {
         wtx.abort();
@@ -238,10 +238,10 @@ public final class WorkerHelper {
    *          ISession to be closed
    * @param dbase
    *          IDatabase to be closed
-   * @throws AbsTTException
+   * @throws SirixException
    */
   public static void closeRTX(final INodeReadTrx rtx, final ISession ses, final IDatabase dbase)
-    throws AbsTTException {
+    throws SirixException {
     synchronized (dbase) {
       dbase.close();
     }

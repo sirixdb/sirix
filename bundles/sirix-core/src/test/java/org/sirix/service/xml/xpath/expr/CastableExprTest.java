@@ -37,7 +37,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.XPathError;
 
@@ -51,20 +51,20 @@ public class CastableExprTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testCastableExpr() throws AbsTTException {
+  public void testCastableExpr() throws SirixException {
 
     final AbsAxis axis1 = new XPathAxis(holder.getRtx(), "1 castable as xs:decimal");
     assertEquals(true, axis1.hasNext());

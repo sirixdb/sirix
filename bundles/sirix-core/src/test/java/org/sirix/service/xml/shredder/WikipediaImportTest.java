@@ -45,7 +45,7 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.Database;
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.shredder.WikipediaImport.EDateBy;
 
@@ -64,12 +64,12 @@ public class WikipediaImportTest {
     + File.separator + "testWikipediaExpected.xml";
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     TestHelper.closeEverything();
   }
 

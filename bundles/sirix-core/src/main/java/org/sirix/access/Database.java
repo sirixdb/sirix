@@ -27,13 +27,16 @@
 
 package org.sirix.access;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -42,14 +45,17 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
-import org.sirix.exception.TTUsageException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Objects;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
+import com.google.common.collect.Maps;
 
 /**
  * This class represents one concrete database for enabling several
@@ -64,11 +70,17 @@ public final class Database implements IDatabase {
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
 			LoggerFactory.getLogger(Database.class));
 
+	/** Unique ID of a resource. */
+	private final AtomicInteger mResourceID = new AtomicInteger();
+
 	/** Central repository of all running databases. */
 	private static final ConcurrentMap<File, Database> DATABASEMAP = new ConcurrentHashMap<>();
 
 	/** Central repository of all running sessions. */
 	private final ConcurrentMap<File, Session> mSessions;
+
+	/** Central repository of all resource-ID/ResourceConfiguration tuples. */
+	private final BiMap<Integer, String> mResources;
 
 	/** DatabaseConfiguration with fixed settings. */
 	private final DatabaseConfiguration mDBConfig;
@@ -79,13 +91,14 @@ public final class Database implements IDatabase {
 	 * @param pDBConf
 	 *          {@link ResourceConfiguration} reference to configure the
 	 *          {@link IDatabase}
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if something weird happens
 	 */
 	private Database(final @Nonnull DatabaseConfiguration pDBConf)
-			throws AbsTTException {
+			throws SirixException {
 		mDBConfig = checkNotNull(pDBConf);
 		mSessions = new ConcurrentHashMap<>();
+		mResources = Maps.synchronizedBiMap(HashBiMap.<Integer, String> create());
 	}
 
 	// //////////////////////////////////////////////////////////
@@ -98,11 +111,11 @@ public final class Database implements IDatabase {
 	 * @param pDBConfig
 	 *          config which is used for the database, including storage location
 	 * @return true if creation is valid, false otherwise
-	 * @throws TTIOException
+	 * @throws SirixIOException
 	 *           if something odd happens within the creation process.
 	 */
 	public static synchronized boolean createDatabase(
-			final @Nonnull DatabaseConfiguration pDBConfig) throws TTIOException {
+			final @Nonnull DatabaseConfiguration pDBConfig) throws SirixIOException {
 		boolean returnVal = true;
 		// if file is existing, skipping
 		if (pDBConfig.getFile().exists()) {
@@ -122,8 +135,9 @@ public final class Database implements IDatabase {
 							returnVal = toCreate.getName().equals(
 									DatabaseConfiguration.Paths.LOCK.getFile().getName()) ? true
 									: toCreate.createNewFile();
-						} catch (final IOException exc) {
-							throw new TTIOException(exc);
+						} catch (final IOException e) {
+							Files.recursiveRemove(pDBConfig.getFile().toPath());
+							throw new SirixIOException(e);
 						}
 					}
 					if (!returnVal) {
@@ -137,7 +151,7 @@ public final class Database implements IDatabase {
 			// if something was not correct, delete the partly created
 			// substructure
 			if (!returnVal) {
-				pDBConfig.getFile().delete();
+				Files.recursiveRemove(pDBConfig.getFile().toPath());
 			}
 			return returnVal;
 		}
@@ -149,17 +163,16 @@ public final class Database implements IDatabase {
 	 * 
 	 * @param pConf
 	 *          the database at this path should be deleted.
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if Sirix fails to delete the database
 	 */
 	public static synchronized void truncateDatabase(
-			final @Nonnull DatabaseConfiguration pConf) throws TTIOException {
+			final @Nonnull DatabaseConfiguration pConf) throws SirixIOException {
 		// check that database must be closed beforehand
 		if (!DATABASEMAP.containsKey(pConf.getFile())) {
 			// if file is existing and folder is a tt-dataplace, delete it
-			if (pConf.getFile().exists()) {
-				// && DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) ==
-				// 0) {
+			if (pConf.getFile().exists()
+					&& DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
 				// instantiate the database for deletion
 				Files.recursiveRemove(pConf.getFile().toPath());
 			}
@@ -176,10 +189,8 @@ public final class Database implements IDatabase {
 
 	@Override
 	public synchronized boolean createResource(
-			final @Nonnull ResourceConfiguration pResConf) throws TTIOException {
+			final @Nonnull ResourceConfiguration pResConf) throws SirixIOException {
 		boolean returnVal = true;
-		// Setting the missing parameters in the settings, this overrides already
-		// set data.
 		final File path = new File(new File(mDBConfig.getFile().getAbsoluteFile(),
 				DatabaseConfiguration.Paths.Data.getFile().getName()),
 				pResConf.mPath.getName());
@@ -198,8 +209,9 @@ public final class Database implements IDatabase {
 					} else {
 						try {
 							returnVal = toCreate.createNewFile();
-						} catch (final IOException exc) {
-							throw new TTIOException(exc);
+						} catch (final IOException e) {
+							Files.recursiveRemove(path.toPath());
+							throw new SirixIOException(e);
 						}
 					}
 					if (!returnVal) {
@@ -208,23 +220,35 @@ public final class Database implements IDatabase {
 				}
 			}
 			// Serialization of the config.
-			ResourceConfiguration.serialize(pResConf);
+			ResourceConfiguration.serialize(pResConf.setID(mResourceID
+					.getAndIncrement()));
+			mResources.put(mResourceID.get(), pResConf.getResource()
+					.getName());
 
 			// If something was not correct, delete the partly created
 			// substructure.
 			if (!returnVal) {
-				pResConf.mPath.delete();
+				Files.recursiveRemove(pResConf.mPath.toPath());
 			}
 			return returnVal;
 		}
 	}
 
 	@Override
-	public synchronized void truncateResource(
-			final @Nonnull ResourceConfiguration pResConf) {
+	public synchronized String getResourceName(final @Nonnegative long pID) {
+		checkArgument(pID >= 0, "pID must be >= 0!");
+		return mResources.get(pID);
+	}
+
+	@Override
+	public synchronized long getResourceID(final @Nonnull String pName) {
+		return mResources.inverse().get(checkNotNull(pName));
+	}
+
+	@Override
+	public synchronized void truncateResource(final @Nonnull String pName) {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.Data.getFile().getName()),
-				pResConf.mPath.getName());
+				DatabaseConfiguration.Paths.Data.getFile().getName()), pName);
 		// Check that database must be closed beforehand.
 		if (!mSessions.containsKey(resourceFile)) {
 			// If file is existing and folder is a tt-dataplace, delete it.
@@ -233,7 +257,7 @@ public final class Database implements IDatabase {
 				// Instantiate the database for deletion.
 				try {
 					Files.recursiveRemove(resourceFile.toPath());
-				} catch (final TTIOException e) {
+				} catch (final SirixIOException e) {
 					LOGWRAPPER.error(e.getMessage(), e);
 				}
 			}
@@ -255,15 +279,15 @@ public final class Database implements IDatabase {
 	 *          determines where the database is located sessionConf a
 	 *          {@link SessionConfiguration} object to set up the session
 	 * @return {@link IDatabase} instance.
-	 * @throws AbsTTException
+	 * @throws SirixException
 	 *           if something odd happens
 	 * @throws NullPointerException
 	 *           if {@code pFile} is {@code null}
 	 */
 	public static synchronized IDatabase openDatabase(final @Nonnull File pFile)
-			throws AbsTTException {
+			throws SirixException {
 		if (!pFile.exists()) {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"DB could not be opened (since it was not created?) at location",
 					pFile.toString());
 		}
@@ -276,14 +300,14 @@ public final class Database implements IDatabase {
 				.getFile().getName());
 		final Database database = new Database(config);
 		if (lock.exists() && DATABASEMAP.get(pFile) == null) {
-			throw new TTUsageException(
+			throw new SirixUsageException(
 					"DB could not be opened (since it is in use by another JVM)",
 					pFile.toString());
 		} else {
 			try {
 				lock.createNewFile();
 			} catch (final IOException e) {
-				throw new TTIOException(e.getCause());
+				throw new SirixIOException(e.getCause());
 			}
 		}
 		final IDatabase returnVal = DATABASEMAP.putIfAbsent(pFile, database);
@@ -304,7 +328,7 @@ public final class Database implements IDatabase {
 
 	@Override
 	public synchronized ISession getSession(
-			final @Nonnull SessionConfiguration pSessionConf) throws AbsTTException {
+			final @Nonnull SessionConfiguration pSessionConf) throws SirixException {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.Data.getFile().getName()),
 				pSessionConf.getResource());
@@ -312,7 +336,7 @@ public final class Database implements IDatabase {
 
 		if (returnVal == null) {
 			if (!resourceFile.exists()) {
-				throw new TTUsageException(
+				throw new SirixUsageException(
 						"Resource could not be opened (since it was not created?) at location",
 						resourceFile.toString());
 			}
@@ -330,7 +354,7 @@ public final class Database implements IDatabase {
 	}
 
 	@Override
-	public synchronized void close() throws AbsTTException {
+	public synchronized void close() throws SirixException {
 		// Close all sessions.
 		for (final ISession session : mSessions.values()) {
 			session.close();
@@ -352,12 +376,12 @@ public final class Database implements IDatabase {
 	public String toString() {
 		return Objects.toStringHelper(this).add("dbConfig", mDBConfig).toString();
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return Objects.hashCode(mDBConfig);
 	}
-	
+
 	@Override
 	public boolean equals(final @Nullable Object pObj) {
 		if (pObj instanceof Database) {

@@ -43,7 +43,7 @@ import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class ThreadTest {
 
@@ -52,14 +52,14 @@ public class ThreadTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateSession();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }

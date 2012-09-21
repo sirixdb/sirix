@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.sirix.diff.DiffTuple;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory.EDiff;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.view.model.interfaces.ITraverseModel;
 import org.sirix.utils.LogWrapper;
 
@@ -50,11 +50,11 @@ public final class Modifications extends RecursiveTask<Modification> implements 
    * @throws NullPointerException
    *           if {@code paramDiffs} is {@code null}
    * @return {@link Modifications} reference
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything inside sirix fails
    */
   public static Modifications getInstance(final int paramIndex, final Map<Integer, DiffTuple> paramDiffs)
-    throws AbsTTException {
+    throws SirixException {
     checkArgument(paramIndex > -1, "paramIndex must be > -1!");
     checkNotNull(paramDiffs);
     return new Modifications(paramIndex, paramDiffs);
@@ -98,10 +98,10 @@ public final class Modifications extends RecursiveTask<Modification> implements 
    * Count how many differences in the subtree exists and add descendant-or-self count.
    * 
    * @return number of differences and descendants
-   * @throws AbsTTException
+   * @throws SirixException
    *           if sirix can't close the transaction
    */
-  public Modification countDiffs() throws AbsTTException {
+  public Modification countDiffs() throws SirixException {
     int index = mIndex;
     final DiffTuple diffCont = mDiffs.get(index);
     final EDiff diff = diffCont.getDiff();
@@ -156,7 +156,7 @@ public final class Modifications extends RecursiveTask<Modification> implements 
     Modification result = Modifications.emptyModification();
     try {
       result = countDiffs();
-    } catch (AbsTTException e) {
+    } catch (SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     return result;

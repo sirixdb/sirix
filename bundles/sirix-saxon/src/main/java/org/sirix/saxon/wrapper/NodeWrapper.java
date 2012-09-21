@@ -74,7 +74,7 @@ import org.sirix.axis.ParentAxis;
 import org.sirix.axis.PrecedingAxis;
 import org.sirix.axis.PrecedingSiblingAxis;
 import org.sirix.axis.filter.TextFilter;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INode;
@@ -135,10 +135,10 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
    *          sirix database.
    * @param pNodeKeyToStart
    *          start noeKey to move to
-   * @throws AbsTTException
+   * @throws SirixException
    */
   NodeWrapper(final DocumentWrapper pDocWrapper, final long pNodeKeyToStart)
-    throws AbsTTException {
+    throws SirixException {
     mDocWrapper = checkNotNull(pDocWrapper);
     checkArgument(pNodeKeyToStart >= 0, "pNodeKeyToStart must be >= 0!");
     final INodeReadTrx rtx =
@@ -276,7 +276,7 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
             retVal[n++] = pool.allocateNamespaceCode(prefix, uri);
           }
           rtx.close();
-        } catch (final AbsTTException exc) {
+        } catch (final SirixException exc) {
           LOGGER.error(exc.toString());
         }
         /*
@@ -400,7 +400,7 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
       }
       rtx.close();
       return parent;
-    } catch (final AbsTTException exc) {
+    } catch (final SirixException exc) {
       LOGGER.error(exc.toString());
       return null;
     }
@@ -466,7 +466,7 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
       }
 
       rtx.close();
-    } catch (final AbsTTException exc) {
+    } catch (final SirixException exc) {
       LOGGER.error(exc.toString());
     }
 
@@ -492,7 +492,7 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
         axis.next();
       }
       rtx.close();
-    } catch (final AbsTTException exc) {
+    } catch (final SirixException exc) {
       LOGGER.error(exc.toString());
     }
     return fsb.condense().toString();
@@ -547,7 +547,7 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
         hasChildNodes = true;
       }
       rtx.close();
-    } catch (final AbsTTException exc) {
+    } catch (final SirixException exc) {
       LOGGER.error(exc.toString());
     }
     return hasChildNodes;
@@ -715,7 +715,7 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
       default:
         throw new IllegalArgumentException("Unknown axis number " + axisNumber);
       }
-    } catch (final AbsTTException exc) {
+    } catch (final SirixException exc) {
       LOGGER.error(exc.toString());
     }
     return returnVal;
@@ -751,7 +751,7 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
         index++;
       }
       rtx.close();
-    } catch (final AbsTTException exc) {
+    } catch (final SirixException exc) {
       LOGGER.error(exc.toString());
     }
     return index;
@@ -761,10 +761,10 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
    * Create a new {@link IReadTransaction} and move to {@link mKey}.
    * 
    * @return new read transaction instance which is moved to {@link mKey}
-   * @throws AbsTTException
+   * @throws SirixException
    *           if sirix fails to setup new transaction
    */
-  private final INodeReadTrx createRtxAndMove() throws AbsTTException {
+  private final INodeReadTrx createRtxAndMove() throws SirixException {
     final INodeReadTrx rtx = mDocWrapper.mSession.beginNodeReadTrx(mRevision);
     rtx.moveTo(mKey);
     return rtx;
@@ -809,11 +809,11 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
         final long nextKey = mAxis.next();
         try {
           current = new NodeWrapper(mDocWrapper, nextKey);
-        } catch (final AbsTTException e) {
+        } catch (final SirixException e) {
           current = null;
           try {
             mAxis.getTransaction().close();
-          } catch (final AbsTTException exc) {
+          } catch (final SirixException exc) {
             LOGGER.error(exc.toString());
           }
         }
@@ -821,7 +821,7 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
         current = null;
         try {
           mAxis.getTransaction().close();
-        } catch (AbsTTException exc) {
+        } catch (SirixException exc) {
           LOGGER.error(exc.toString());
         }
       }

@@ -48,7 +48,7 @@ import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.implementation.DatabaseRepresentation;
 import org.sirix.service.xml.shredder.EInsert;
 
@@ -88,7 +88,7 @@ public class WorkerHelperTest {
      * @throws FileNotFoundException
      */
     @Before
-    public void setUp() throws FileNotFoundException, AbsTTException {
+    public void setUp() throws FileNotFoundException, SirixException {
         TestHelper.closeEverything();
         TestHelper.deleteEverything();
         TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
@@ -98,7 +98,7 @@ public class WorkerHelperTest {
     }
 
     @After
-    public void after() throws AbsTTException {
+    public void after() throws SirixException {
         TestHelper.closeEverything();
         TestHelper.deleteEverything();
     }
@@ -124,7 +124,7 @@ public class WorkerHelperTest {
      * This method tests {@link WorkerHelper#serializeXML(ISession, OutputStream, boolean, boolean,Long)}
      */
     @Test
-    public void testSerializeXML() throws AbsTTException, IOException {
+    public void testSerializeXML() throws SirixException, IOException {
         final IDatabase database = Database.openDatabase(DBFILE.getParentFile());
         final ISession session =
             database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
@@ -140,7 +140,7 @@ public class WorkerHelperTest {
      * This method tests {@link WorkerHelper#shredInputStream(INodeWriteTrx, InputStream, EInsert)}
      */
     @Test
-    public void testShredInputStream() throws AbsTTException, IOException {
+    public void testShredInputStream() throws SirixException, IOException {
         long lastRevision = sirix.getLastRevision(RESOURCENAME);
         final IDatabase database = Database.openDatabase(DBFILE.getParentFile());
         final ISession session =
@@ -160,7 +160,7 @@ public class WorkerHelperTest {
      * This method tests {@link WorkerHelper#closeWTX(boolean, INodeWriteTrx, ISession, IDatabase)}
      */
     @Test(expected = IllegalStateException.class)
-    public void testClose() throws AbsTTException {
+    public void testClose() throws SirixException {
         IDatabase database = Database.openDatabase(DBFILE.getParentFile());
         ISession session = database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
         final INodeWriteTrx wtx = session.beginNodeWriteTrx();

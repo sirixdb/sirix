@@ -47,7 +47,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.implementation.DatabaseRepresentation;
 import org.sirix.service.jaxrx.implementation.NodeIdRepresentationTest;
 import org.w3c.dom.Attr;
@@ -95,14 +95,14 @@ public class RESTResponseHelperTest {
     private static final String RESPATH = "/factbook.xml";
 
     @Before
-    public void before() throws AbsTTException {
+    public void before() throws SirixException {
         TestHelper.closeEverything();
         TestHelper.deleteEverything();
         TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
     }
 
     @After
-    public void after() throws AbsTTException {
+    public void after() throws SirixException {
         TestHelper.closeEverything();
         TestHelper.deleteEverything();
     }
@@ -115,12 +115,12 @@ public class RESTResponseHelperTest {
      * @throws WebApplicationException
      * @throws SAXException
      * @throws ParserConfigurationException
-     * @throws AbsTTException
+     * @throws SirixException
      * @throws InterruptedException
      */
     @Test
     public final void testBuildResponseOfDomLR() throws WebApplicationException, IOException,
-        ParserConfigurationException, SAXException, AbsTTException, InterruptedException {
+        ParserConfigurationException, SAXException, SirixException, InterruptedException {
 
         final List<String> availResources = new ArrayList<String>();
         availResources.add(FACT);

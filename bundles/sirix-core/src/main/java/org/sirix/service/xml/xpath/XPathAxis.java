@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.parser.XPathParser;
 
 /**
@@ -99,10 +99,10 @@ public final class XPathAxis extends AbsAxis {
    *          Transaction to operate with.
    * @param pQuery
    *          XPath query to process.
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           throw a sirix xpath exception.
    */
-  public XPathAxis(final INodeReadTrx pRtx, final String pQuery) throws TTXPathException {
+  public XPathAxis(final INodeReadTrx pRtx, final String pQuery) throws SirixXPathException {
     super(pRtx);
 
     // /** Initializing executor service with fixed thread pool. */

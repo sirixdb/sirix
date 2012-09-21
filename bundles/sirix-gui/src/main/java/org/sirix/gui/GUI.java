@@ -44,7 +44,7 @@ import javax.swing.UnsupportedLookAndFeelException;
 import javax.swing.WindowConstants;
 
 import org.slf4j.LoggerFactory;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.view.IView;
 import org.sirix.gui.view.ViewContainer;
 import org.sirix.gui.view.ViewNotifier;
@@ -195,7 +195,7 @@ public final class GUI extends JFrame {
 			}
 			try {
 				mReadDB = new ReadDB(pFile, pRevision);
-			} catch (final AbsTTException e) {
+			} catch (final SirixException e) {
 				LOGWRAPPER.error(e.getMessage(), e);
 			}
 		}

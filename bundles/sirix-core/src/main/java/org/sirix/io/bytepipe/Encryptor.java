@@ -13,7 +13,7 @@ import javax.crypto.Cipher;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.SecretKeySpec;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 
 /**
  * Decorator for encrypting any content.
@@ -44,7 +44,7 @@ public class Encryptor implements IByteHandler {
   /**
    * Constructor.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occurs
    */
   public Encryptor() {
@@ -60,7 +60,7 @@ public class Encryptor implements IByteHandler {
 
   @Override
   public byte[] serialize(@Nonnull final byte[] pToSerialize)
-    throws TTIOException {
+    throws SirixIOException {
     try {
       mCipher.init(Cipher.ENCRYPT_MODE, mKey);
 
@@ -71,13 +71,13 @@ public class Encryptor implements IByteHandler {
       }
       return toEncrypt;
     } catch (final GeneralSecurityException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
   @Override
   public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
-    throws TTIOException {
+    throws SirixIOException {
     try {
       mCipher.init(Cipher.DECRYPT_MODE, mKey);
 
@@ -89,9 +89,9 @@ public class Encryptor implements IByteHandler {
       return toDecrypt;
 
     } catch (final InvalidKeyException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     } catch (final GeneralSecurityException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
   

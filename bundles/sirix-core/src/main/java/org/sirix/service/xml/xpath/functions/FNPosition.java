@@ -31,7 +31,7 @@ import java.util.List;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.utils.TypedValue;
 
 /**
@@ -62,11 +62,11 @@ public class FNPosition extends AbsFunction {
    *          max number of allowed function arguments
    * @param returnType
    *          the type that the function's result will have
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if function check fails
    */
   public FNPosition(final INodeReadTrx rtx, final List<IAxis> args, final int min, final int max,
-    final int returnType) throws TTXPathException {
+    final int returnType) throws SirixXPathException {
     super(rtx, args, min, max, returnType);
   }
 

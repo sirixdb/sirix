@@ -41,7 +41,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.IPageWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * Transactionlog for storing all upcoming nodes in either the ram cache or a
@@ -82,12 +82,12 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
    *          the config for having a storage-place
    * @param pRevision
    *          revision number
-   * @throws AbsTTException 
+   * @throws SirixException 
    */
   public TransactionLogCache(
     final @Nonnull IPageWriteTrx pPageWriteTransaction,
     final @Nonnull File pFile, final @Nonnegative long pRevision, final @Nonnull String pLogType)
-    throws AbsTTException {
+    throws SirixException {
     mSecondCache =
       new BerkeleyPersistenceCache(pPageWriteTransaction, pFile, pRevision, pLogType);
     mFirstCache = new LRUCache<>(mSecondCache);

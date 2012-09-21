@@ -44,7 +44,7 @@ import javax.xml.stream.FactoryConfigurationError;
 import javax.xml.stream.XMLStreamException;
 
 import org.slf4j.LoggerFactory;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewNotifier;
 import org.sirix.gui.view.ViewUtilities;
@@ -252,7 +252,7 @@ public final class SunburstControl extends AbsSunburstControl {
               mSunburstGUI.mDb.getSession().beginNodeReadTrx().getRevisionNumber(); i <= newestRev; i++) {
               mSunburstGUI.mRevisions.addItem("Revision " + i, (int)i);
             }
-          } catch (final AbsTTException e) {
+          } catch (final SirixException e) {
             LOGWRAPPER.error(e.getMessage(), e);
             JOptionPane.showMessageDialog(mSunburstGUI.mParent, this, "Failed to open read transaction: "
               + e.getMessage(), JOptionPane.ERROR_MESSAGE);
@@ -361,7 +361,7 @@ public final class SunburstControl extends AbsSunburstControl {
               if (mSunburstGUI.mUseDiffView == EView.NODIFF) {
                 try {
                   ((SunburstModel)mModel).popupMenu(pEvent, mSunburstGUI.mCtrl, mHitTestIndex);
-                } catch (final AbsTTException e) {
+                } catch (final SirixException e) {
                   LOGWRAPPER.error(e.getMessage(), e);
                   JOptionPane.showMessageDialog(mSunburstGUI.mParent, this, "Failed to commit change: "
                     + e.getMessage(), JOptionPane.ERROR_MESSAGE);
@@ -467,7 +467,7 @@ public final class SunburstControl extends AbsSunburstControl {
       mSunburstGUI.mCtrl.setOpen(false);
       ((SunburstModel)mModel).addXMLFragment(mSunburstGUI.mTextArea.getText());
       mSunburstGUI.mTextArea.clear();
-    } catch (final FactoryConfigurationError | AbsTTException e) {
+    } catch (final FactoryConfigurationError | SirixException e) {
       JOptionPane.showMessageDialog(mSunburstGUI.mParent, "Failed to commit change: " + e.getMessage());
     }
   }
@@ -489,7 +489,7 @@ public final class SunburstControl extends AbsSunburstControl {
       ((SunburstModel)mModel).addXMLFragment(mSunburstGUI.mTextArea.getText());
       ((SunburstModel)mModel).commit();
       mSunburstGUI.mTextArea.clear();
-    } catch (final FactoryConfigurationError | AbsTTException e) {
+    } catch (final FactoryConfigurationError | SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
       JOptionPane.showMessageDialog(mSunburstGUI.mParent, "Failed to commit change: " + e.getMessage());
     }

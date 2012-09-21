@@ -41,7 +41,7 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 
@@ -50,20 +50,20 @@ public class ReadTransactionTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testEmptyRtx() throws AbsTTException {
+  public void testEmptyRtx() throws SirixException {
     assertFalse(PATHS.PATH2.getFile().exists());
     Database.createDatabase(PATHS.PATH2.getConfig());
     final IDatabase db = Database.openDatabase(PATHS.PATH2.getFile());
@@ -80,7 +80,7 @@ public class ReadTransactionTest {
   }
 
   @Test
-  public void testDocumentRoot() throws AbsTTException {
+  public void testDocumentRoot() throws SirixException {
     assertEquals(true, holder.getRtx().moveToDocumentRoot());
     assertEquals(EKind.DOCUMENT_ROOT, holder.getRtx().getNode().getKind());
     assertEquals(false, holder.getRtx().getNode().hasParent());
@@ -93,7 +93,7 @@ public class ReadTransactionTest {
   }
 
   @Test
-  public void testConventions() throws AbsTTException {
+  public void testConventions() throws SirixException {
 
     // IReadTransaction Convention 1.
     assertEquals(true, holder.getRtx().moveToDocumentRoot());

@@ -33,13 +33,13 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
 import org.junit.Test;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.types.Type;
 
 public class CompKindTest {
 
   @Test
-  public void testEQ() throws TTXPathException {
+  public void testEQ() throws SirixXPathException {
 
     assertEquals(CompKind.EQ.compare("2.0", "2", Type.DOUBLE), true);
     assertEquals(CompKind.EQ.compare("2.0", "2.01", Type.DOUBLE), false);
@@ -104,7 +104,7 @@ public class CompKindTest {
     try {
       assertEquals(CompKind.EQ.compare("2.0", "2.01", Type.YEAR_MONTH_DURATION), false);
       fail("Expected exception");
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate "
         + "the expression or the typedoes not match a required type as"
         + " specified by the matching rules. "));
@@ -113,7 +113,7 @@ public class CompKindTest {
   }
 
   @Test
-  public void testNE() throws TTXPathException {
+  public void testNE() throws SirixXPathException {
 
     assertEquals(CompKind.NE.compare("2.0", "2", Type.DOUBLE), false);
     assertEquals(CompKind.NE.compare("2.0", "2.01", Type.DOUBLE), true);
@@ -178,7 +178,7 @@ public class CompKindTest {
     try {
       assertEquals(CompKind.NE.compare("2.0", "2.01", Type.YEAR_MONTH_DURATION), true);
       fail("Expected exception");
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate "
         + "the expression or the typedoes not match a required type as"
         + " specified by the matching rules. "));
@@ -186,7 +186,7 @@ public class CompKindTest {
   }
 
   @Test
-  public void testLT() throws TTXPathException {
+  public void testLT() throws SirixXPathException {
 
     assertEquals(CompKind.LT.compare("2.0", "2", Type.DOUBLE), false);
     assertEquals(CompKind.LT.compare("2.0", "2.01", Type.DOUBLE), true);
@@ -251,7 +251,7 @@ public class CompKindTest {
     try {
       assertEquals(CompKind.LT.compare("2.0", "2.01", Type.G_MONTH), true);
       fail("Expected exception");
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate "
         + "the expression or the typedoes not match a required type as"
         + " specified by the matching rules. "));
@@ -259,7 +259,7 @@ public class CompKindTest {
   }
 
   @Test
-  public void testLE() throws TTXPathException {
+  public void testLE() throws SirixXPathException {
 
     assertEquals(CompKind.LE.compare("2.0", "2", Type.DOUBLE), true);
     assertEquals(CompKind.LE.compare("2.0", "2.01", Type.DOUBLE), true);
@@ -324,7 +324,7 @@ public class CompKindTest {
     try {
       assertEquals(CompKind.LE.compare("2.0", "2.01", Type.G_MONTH), true);
       fail("Expected exception");
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate "
         + "the expression or the typedoes not match a required type as"
         + " specified by the matching rules. "));
@@ -333,7 +333,7 @@ public class CompKindTest {
   }
 
   @Test
-  public void testGT() throws TTXPathException {
+  public void testGT() throws SirixXPathException {
 
     assertEquals(CompKind.GT.compare("2.0", "2", Type.DOUBLE), false);
     assertEquals(CompKind.GT.compare("2.0", "2.01", Type.DOUBLE), false);
@@ -398,7 +398,7 @@ public class CompKindTest {
     try {
       assertEquals(CompKind.GT.compare("2.0", "2.01", Type.G_MONTH), false);
       fail("Expected exception");
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate "
         + "the expression or the typedoes not match a required type as"
         + " specified by the matching rules. "));
@@ -406,7 +406,7 @@ public class CompKindTest {
   }
 
   @Test
-  public void testGE() throws TTXPathException {
+  public void testGE() throws SirixXPathException {
 
     assertEquals(CompKind.GE.compare("2.0", "2", Type.DOUBLE), true);
     assertEquals(CompKind.GE.compare("2.0", "2.01", Type.DOUBLE), false);
@@ -471,7 +471,7 @@ public class CompKindTest {
     try {
       assertEquals(CompKind.GE.compare("2.0", "2.01", Type.G_MONTH), false);
       fail("Expected exception");
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate "
         + "the expression or the typedoes not match a required type as"
         + " specified by the matching rules. "));
@@ -479,7 +479,7 @@ public class CompKindTest {
   }
 
   @Test
-  public void testFO() throws TTXPathException {
+  public void testFO() throws SirixXPathException {
 
     try {
       assertEquals(CompKind.FO.compare("2.0", "2", Type.DATE), false);
@@ -490,7 +490,7 @@ public class CompKindTest {
   }
 
   @Test
-  public void testPRE() throws TTXPathException {
+  public void testPRE() throws SirixXPathException {
 
     try {
       assertEquals(CompKind.PRE.compare("2.0", "2", Type.DATE), false);
@@ -501,7 +501,7 @@ public class CompKindTest {
   }
 
   @Test
-  public void testIS() throws TTXPathException {
+  public void testIS() throws SirixXPathException {
 
     assertEquals(CompKind.IS.compare("2.0", "2", Type.DOUBLE), true);
     assertEquals(CompKind.IS.compare("2.0", "2.01", Type.DOUBLE), true);

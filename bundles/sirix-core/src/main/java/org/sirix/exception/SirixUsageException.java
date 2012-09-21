@@ -28,72 +28,21 @@
 package org.sirix.exception;
 
 /**
- * Exception to hold all relevant failures upcoming from sirix.
+ * Exception throw when an incorrect usage of sirix occur.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public abstract class AbsTTException extends Exception {
-
-  /** General ID. */
-  private static final long serialVersionUID = 1L;
-
-  /**
-   * Constructor to encapsulate parsing.
-   * 
-   * @param pThrowable
-   *          to encapsulate
-   */
-  public AbsTTException(final Throwable pThrowable) {
-    super(pThrowable);
-  }
-
+public class SirixUsageException extends SirixException {
   /**
    * Constructor.
    * 
-   * @param pMessage
-   *          message
-   */
-  private AbsTTException(final StringBuilder pMessage) {
-    super(pMessage.toString());
-  }
-
-  /**
-   * Constructor.
-   * 
-   * @param pMessage
+   * @param message
    *          message as string, they are concatenated with spaces in
    *          between
    */
-  public AbsTTException(final String... pMessage) {
-    this(concat(pMessage));
-  }
-
-  /**
-   * Constructor
-   * 
-   * @param pMessage
-   *            message as string
-   * @param pThrowable
-   */
-  public AbsTTException(final String pMessage, final Throwable pThrowable) {
-    super(pMessage, pThrowable);
-  }
-
-  /**
-   * Util method to provide StringBuilder functionality.
-   * 
-   * @param message
-   *          to be concatenated
-   * @return the StringBuilder for the combined string
-   */
-  public static StringBuilder concat(final String... pMessage) {
-    final StringBuilder builder = new StringBuilder();
-    for (final String mess : pMessage) {
-      builder.append(mess);
-      builder.append(" ");
-    }
-    return builder;
+  public SirixUsageException(final String... message) {
+    super(message);
   }
 
 }

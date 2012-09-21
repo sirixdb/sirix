@@ -31,7 +31,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INode;
 
@@ -48,10 +48,10 @@ final class FullDiff extends AbsDiff {
    * 
    * @param pBuilder
    *          {@link Builder} reference
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything goes wrong while setting up sirix transactions
    */
-  FullDiff(@Nonnull final Builder pBuilder) throws AbsTTException {
+  FullDiff(@Nonnull final Builder pBuilder) throws SirixException {
     super(pBuilder);
   }
 

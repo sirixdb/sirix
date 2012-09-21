@@ -43,7 +43,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.DocumentCreater;
@@ -53,19 +53,19 @@ public class MultipleCommitTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     holder = Holder.generateWtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void test() throws AbsTTException {
+  public void test() throws SirixException {
     Assert.assertEquals(0L, holder.getWtx().getRevisionNumber());
 
     holder.getWtx().commit();
@@ -80,7 +80,7 @@ public class MultipleCommitTest {
   }
 
   @Test
-  public void testAutoCommit() throws AbsTTException {
+  public void testAutoCommit() throws SirixException {
     DocumentCreater.create(holder.getWtx());
     holder.getWtx().commit();
 
@@ -89,7 +89,7 @@ public class MultipleCommitTest {
   }
 
   @Test
-  public void testRemove() throws AbsTTException {
+  public void testRemove() throws SirixException {
     DocumentCreater.create(holder.getWtx());
     holder.getWtx().commit();
     assertEquals(1L, holder.getWtx().getRevisionNumber());
@@ -102,7 +102,7 @@ public class MultipleCommitTest {
   }
 
   @Test
-  public void testAttributeRemove() throws AbsTTException {
+  public void testAttributeRemove() throws SirixException {
     DocumentCreater.create(holder.getWtx());
     holder.getWtx().commit();
     holder.getWtx().moveToDocumentRoot();

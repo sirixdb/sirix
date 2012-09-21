@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.SingleType;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
@@ -95,7 +95,7 @@ public class CastExpr extends AbsExpression {
    * {@inheritDoc}
    */
   @Override
-  public void evaluate() throws TTXPathException {
+  public void evaluate() throws SirixXPathException {
 
     // atomic type must not be xs:anyAtomicType or xs:NOTATION
     if (mTargetType == Type.ANY_ATOMIC_TYPE || mTargetType == Type.NOTATION) {

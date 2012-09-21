@@ -46,7 +46,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.diff.algorithm.fmse.FMSE;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.Files;
@@ -70,7 +70,7 @@ public final class FMSEImport {
    *          {@link File} reference for new revision (XML resource)
    * @param pNewRev
    *          {@link File} reference for shreddered new revision (sirix resource)
-   * @throws AbsTTException
+   * @throws SirixException
    *           if sirix fails to shredder the file
    * @throws IOException
    *           if file couldn't be read
@@ -80,7 +80,7 @@ public final class FMSEImport {
    *           if {@code paramResNewRev} or {@code paramNewRev} is {@code null}
    */
   private void shredder(@Nonnull final File pResNewRev, @Nonnull final File pNewRev)
-    throws AbsTTException, IOException, XMLStreamException {
+    throws SirixException, IOException, XMLStreamException {
     assert pResNewRev != null;
     assert pNewRev != null;
     final DatabaseConfiguration conf = new DatabaseConfiguration(pNewRev);
@@ -135,7 +135,7 @@ public final class FMSEImport {
       sessionNew.close();
       databaseOld.close();
       databaseNew.close();
-    } catch (final AbsTTException | IOException | XMLStreamException e) {
+    } catch (final SirixException | IOException | XMLStreamException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
   }

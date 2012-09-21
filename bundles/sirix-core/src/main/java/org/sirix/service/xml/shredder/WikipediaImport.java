@@ -65,7 +65,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.diff.algorithm.fmse.FMSE;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.service.xml.xpath.XPathAxis;
@@ -137,7 +137,7 @@ public final class WikipediaImport implements IImport<StartElement> {
    *          The sirix destination storage directory.
    * 
    */
-  public WikipediaImport(final File pXMLFile, final File pTTDir) throws AbsTTException {
+  public WikipediaImport(final File pXMLFile, final File pTTDir) throws SirixException {
     mPageEvents = new ArrayDeque<>();
     final XMLInputFactory xmlif = XMLInputFactory.newInstance();
     try {
@@ -277,13 +277,13 @@ public final class WikipediaImport implements IImport<StartElement> {
       mWtx.close();
       mSession.close();
       mDatabase.close();
-    } catch (final XMLStreamException | AbsTTException | IOException e) {
+    } catch (final XMLStreamException | SirixException | IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
   }
 
   /** Update shredder. */
-  private void updateShredder() throws AbsTTException, IOException, XMLStreamException {
+  private void updateShredder() throws SirixException, IOException, XMLStreamException {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(TMP_PATH.toFile());
     Database.truncateDatabase(dbConf);
     Database.createDatabase(dbConf);
@@ -340,12 +340,12 @@ public final class WikipediaImport implements IImport<StartElement> {
    *          </dl>
    * @throws XMLStreamException
    *           In case of any XML parsing errors.
-   * @throws AbsTTException
+   * @throws SirixException
    *           In case of any sirix errors.
    */
   private void parseStartTag(final XMLEvent pEvent, final StartElement pTimestamp, final StartElement pPage,
     final StartElement pRev, final StartElement pID, final EDateBy pDateRange) throws XMLStreamException,
-    AbsTTException {
+    SirixException {
     XMLEvent event = pEvent;
 
     if (checkStAXStartElement(event.asStartElement(), pID)) {
@@ -572,10 +572,10 @@ public final class WikipediaImport implements IImport<StartElement> {
    * 
    * @param args
    *          Arguments.
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything within sirix fails
    */
-  public static void main(final String... args) throws AbsTTException {
+  public static void main(final String... args) throws SirixException {
     if (args.length != 2) {
       throw new IllegalArgumentException("Usage: WikipediaImport path/to/xmlFile path/to/TTStorage");
     }

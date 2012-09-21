@@ -32,7 +32,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.utils.NamePageHash;
 
@@ -1000,10 +1000,10 @@ public enum Type {
    * @param mValue
    *          value of the source value
    * @return true, if the source value is castable to the target type.
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if casts fails
    */
-  public boolean isCastableTo(final Type mTargetType, final String mValue) throws TTXPathException {
+  public boolean isCastableTo(final Type mTargetType, final String mValue) throws SirixXPathException {
 
     // casting to or from NOTATION or anySimpleType is not possible
     if (mTargetType == NOTATION || this == NOTATION || mTargetType == ANY_SIMPLE_TYPE
@@ -1056,7 +1056,7 @@ public enum Type {
    * 
    * @return primitive base type of the current type
    */
-  public Type getPrimitiveBaseType() throws TTXPathException {
+  public Type getPrimitiveBaseType() throws SirixXPathException {
 
     Type type = this;
 
@@ -1064,7 +1064,7 @@ public enum Type {
       return type; // real primitive type
     }
     if (type.mPrecedence <= 3 && type != ANY_ATOMIC_TYPE) {
-      throw new TTXPathException("Type " + type.mStringRepr + " has no primitive base type.");
+      throw new SirixXPathException("Type " + type.mStringRepr + " has no primitive base type.");
     }
 
     while (!type.mIsPrimitive) {

@@ -39,7 +39,7 @@ import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 /**
  * This class acts as a commando line interface to navigate through a sirix
@@ -356,7 +356,7 @@ public final class CommandoLineExplorer {
             builder.append(" not succeed, Please login with write-right "
               + "(that means without revision parameter");
           }
-        } catch (final AbsTTException exc) {
+        } catch (final SirixException exc) {
           builder.append(" throws exception: ").append(exc);
         }
         return builder.toString();

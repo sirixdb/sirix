@@ -9,7 +9,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import javax.xml.namespace.QName;
 
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -42,7 +42,7 @@ public class ProcessFileSystemAttributes implements IVisitor<INodeWriteTrx> {
           try {
             pTransaction.insertAttribute(new QName("suffix"), file.substring(index + 1));
             pTransaction.moveToParent();
-          } catch (AbsTTException e) {
+          } catch (SirixException e) {
             LOGWRAPPER.error(e.getMessage(), e);
           }
         }

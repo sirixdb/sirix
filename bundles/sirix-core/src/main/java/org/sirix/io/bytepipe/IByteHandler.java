@@ -2,7 +2,7 @@ package org.sirix.io.bytepipe;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 
 /**
  * Interface for the decorator, representing any byte representation to be
@@ -19,10 +19,10 @@ public interface IByteHandler {
    * @param pToSerialize
    *          byte to be serialized
    * @return result of the serialization
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if a byte handling exception occurs
    */
-  byte[] serialize(@Nonnull byte[] pToSerialize) throws TTIOException;
+  byte[] serialize(@Nonnull byte[] pToSerialize) throws SirixIOException;
 
   /**
    * Method to deserialize any byte-chunk.
@@ -30,11 +30,11 @@ public interface IByteHandler {
    * @param pToDeserialize
    *          to deserialize
    * @return result of the deserialization
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if a byte handling exception occurs
    */
   byte[] deserialize(@Nonnull byte[] pToDeserialize)
-    throws TTIOException;
+    throws SirixIOException;
   
   /**
    * Method to retrieve a new instance.

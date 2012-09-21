@@ -50,7 +50,7 @@ import org.sirix.axis.EIncludeSelf;
 import org.sirix.axis.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
 import org.sirix.diff.DiffFactory.EDiff;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.view.DiffAxis;
 import org.sirix.gui.view.TransactionTuple;
 import org.sirix.gui.view.VisualItemAxis;
@@ -215,7 +215,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
     if (mCloseRtx) {
       try {
         mAxis.getTransaction().close();
-      } catch (final AbsTTException e) {
+      } catch (final SirixException e) {
         throw new XMLStreamException(e);
       }
     }

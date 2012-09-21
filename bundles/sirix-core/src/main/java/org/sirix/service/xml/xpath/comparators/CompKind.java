@@ -30,7 +30,7 @@ package org.sirix.service.xml.xpath.comparators;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.types.Type;
 
@@ -50,7 +50,7 @@ public enum CompKind {
      */
     @Override
     public boolean compare(final String mOperand1, final String mOperand2, final Type mType)
-      throws TTXPathException {
+      throws SirixXPathException {
 
       switch (mType) {
       case FLOAT:
@@ -101,7 +101,7 @@ public enum CompKind {
      */
     @Override
     public boolean compare(final String mOperand1, final String mOperand2, final Type mType)
-      throws TTXPathException {
+      throws SirixXPathException {
 
       switch (mType) {
       case FLOAT:
@@ -150,7 +150,7 @@ public enum CompKind {
      */
     @Override
     public boolean compare(final String mOperand1, final String mOperand2, final Type mType)
-      throws TTXPathException {
+      throws SirixXPathException {
 
       switch (mType) {
       case FLOAT:
@@ -194,7 +194,7 @@ public enum CompKind {
      */
     @Override
     public boolean compare(final String mOperand1, final String mOperand2, final Type mType)
-      throws TTXPathException {
+      throws SirixXPathException {
 
       switch (mType) {
       case FLOAT:
@@ -237,7 +237,7 @@ public enum CompKind {
      */
     @Override
     public boolean compare(final String mOperand1, final String mOperand2, final Type mType)
-      throws TTXPathException {
+      throws SirixXPathException {
 
       switch (mType) {
       case FLOAT:
@@ -279,7 +279,7 @@ public enum CompKind {
      */
     @Override
     public boolean compare(final String mOperand1, final String mOperand2, final Type mType)
-      throws TTXPathException {
+      throws SirixXPathException {
 
       switch (mType) {
       case FLOAT:
@@ -321,7 +321,7 @@ public enum CompKind {
      */
     @Override
     public boolean compare(final String mOperand1, final String mOperand2, final Type mType)
-      throws TTXPathException {
+      throws SirixXPathException {
 
       throw new IllegalStateException("Evaluation of node comparisons not possible");
     }
@@ -335,7 +335,7 @@ public enum CompKind {
      */
     @Override
     public boolean compare(final String mOperand1, final String mOperand2, final Type mType)
-      throws TTXPathException {
+      throws SirixXPathException {
 
       throw new IllegalStateException("Evaluation of node comparisons not possible");
     }
@@ -349,7 +349,7 @@ public enum CompKind {
      */
     @Override
     public boolean compare(final String mOperand1, final String mOperand2, final Type mType)
-      throws TTXPathException {
+      throws SirixXPathException {
 
       return (int)Double.parseDouble(mOperand1) == (int)Double.parseDouble(mOperand2);
     }
@@ -390,11 +390,11 @@ public enum CompKind {
    * @param mType
    *          comparison type
    * @return result of the boolean comparison
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if anything weird happens while comparison.
    */
   public abstract boolean compare(final String mOperand1, final String mOperand2, final Type mType)
-    throws TTXPathException;
+    throws SirixXPathException;
 
   /**
    * Public method to easy retrieve the Function-Class for a name.

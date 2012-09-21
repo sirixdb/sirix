@@ -37,7 +37,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.INode;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.XPathError;
@@ -50,20 +50,20 @@ public class IDivOpAxisTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.deleteEverything();
   }
 
   @Test
-  public final void testOperate() throws AbsTTException {
+  public final void testOperate() throws SirixException {
     AtomicValue item1 = new AtomicValue(3.0, Type.DOUBLE);
     AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
@@ -82,7 +82,7 @@ public class IDivOpAxisTest {
   }
 
   @Test
-  public final void testGetReturnType() throws AbsTTException {
+  public final void testGetReturnType() throws SirixException {
 
     AbsAxis op1 = new SequenceAxis(holder.getRtx());
     AbsAxis op2 = new SequenceAxis(holder.getRtx());

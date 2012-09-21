@@ -4,7 +4,7 @@ import java.io.IOException;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.xerial.snappy.Snappy;
 
 /**
@@ -17,24 +17,24 @@ public class SnappyCompressor implements IByteHandler {
 
   @Override
   public byte[] serialize(final @Nonnull byte[] pToSerialize)
-    throws TTIOException {
+    throws SirixIOException {
     byte[] compressed;
     try {
       compressed = Snappy.compress(pToSerialize);
     } catch (final IOException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
     return compressed;
   }
 
   @Override
   public byte[] deserialize(final @Nonnull byte[] pToDeserialize)
-    throws TTIOException {
+    throws SirixIOException {
     byte[] uncompressed;
     try {
       uncompressed = Snappy.uncompress(pToDeserialize);
     } catch (final IOException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
     return uncompressed;
   }

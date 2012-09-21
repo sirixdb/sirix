@@ -60,7 +60,7 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.shredder.XMLShredder;
 
@@ -84,7 +84,7 @@ public class TestNodeWrapper {
   private NodeWrapper node;
 
   @Before
-  public void beforeMethod() throws AbsTTException {
+  public void beforeMethod() throws SirixException {
     Database.truncateDatabase(DB_CONFIG);
     Database.createDatabase(DB_CONFIG);
     TestHelper.createTestDocument();
@@ -97,7 +97,7 @@ public class TestNodeWrapper {
   }
 
   @After
-  public void afterMethod() throws AbsTTException {
+  public void afterMethod() throws SirixException {
     mHolder.close();
   }
 
@@ -109,7 +109,7 @@ public class TestNodeWrapper {
   }
 
   @Test
-  public void testCompareOrder() throws XPathException, AbsTTException {
+  public void testCompareOrder() throws XPathException, SirixException {
     final Processor proc = new Processor(false);
     final Configuration config = proc.getUnderlyingConfiguration();
 
@@ -144,7 +144,7 @@ public class TestNodeWrapper {
   }
 
   @Test
-  public void testGetAttributeValue() throws AbsTTException {
+  public void testGetAttributeValue() throws SirixException {
     final Processor proc = new Processor(false);
     node = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), proc.getUnderlyingConfiguration()), 1);
 
@@ -282,7 +282,7 @@ public class TestNodeWrapper {
   }
 
   @Ignore
-  public ISession generateSession() throws AbsTTException {
+  public ISession generateSession() throws SirixException {
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(TestHelper.PATHS.PATH2.getFile());
     Database.truncateDatabase(dbConfig);
     Database.createDatabase(dbConfig);

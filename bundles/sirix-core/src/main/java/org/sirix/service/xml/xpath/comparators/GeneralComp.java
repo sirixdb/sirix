@@ -34,7 +34,7 @@ import java.util.List;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
 import org.sirix.service.xml.xpath.types.Type;
@@ -70,7 +70,7 @@ public class GeneralComp extends AbsComparator {
    */
   @Override
   protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2)
-    throws TTXPathException {
+    throws SirixXPathException {
 
     assert mOperand1.length >= 1 && mOperand2.length >= 1;
 
@@ -120,7 +120,7 @@ public class GeneralComp extends AbsComparator {
    * {@inheritDoc}
    */
   @Override
-  protected Type getType(final int mKey1, final int mKey2) throws TTXPathException {
+  protected Type getType(final int mKey1, final int mKey2) throws SirixXPathException {
 
     final Type mType1 = Type.getType(mKey1).getPrimitiveBaseType();
     final Type mType2 = Type.getType(mKey2).getPrimitiveBaseType();

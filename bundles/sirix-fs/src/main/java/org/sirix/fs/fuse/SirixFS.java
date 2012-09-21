@@ -46,7 +46,7 @@ import org.sirix.axis.AbsAxis;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.filter.NameFilter;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.LogWrapper;
@@ -98,16 +98,16 @@ public class SirixFS {
    * 
    * @param pPath
    *          {@code path} to database
-   * @throws AbsTTException
+   * @throws SirixException
    *           if anything fails while opening a new transaction
    */
-  private SirixFS(final File pPath) throws AbsTTException {
+  private SirixFS(final File pPath) throws SirixException {
     mPath = checkNotNull(pPath);
     final IDatabase database = Database.openDatabase(pPath);
     mWtx = database.getSession(new SessionConfiguration.Builder("shredded").build()).beginNodeWriteTrx();
   }
 
-  public static SirixFS getInstance(final File pPath) throws AbsTTException {
+  public static SirixFS getInstance(final File pPath) throws SirixException {
     if (mInstance == null) {
       mInstance = new SirixFS(pPath);
     }

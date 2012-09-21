@@ -11,7 +11,7 @@ import java.util.zip.Inflater;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 
 /**
  * Decorator to zip any data.
@@ -43,7 +43,7 @@ public class DeflateCompressor implements IByteHandler {
 
   @Override
   public byte[] serialize(@Nonnull final byte[] pToSerialize)
-    throws TTIOException {
+    throws SirixIOException {
     mCompressor.reset();
     mOut.reset();
     mCompressor.setInput(pToSerialize);
@@ -59,7 +59,7 @@ public class DeflateCompressor implements IByteHandler {
 
   @Override
   public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
-    throws TTIOException {
+    throws SirixIOException {
     mDecompressor.reset();
     mOut.reset();
     mDecompressor.setInput(pToDeserialize);
@@ -68,7 +68,7 @@ public class DeflateCompressor implements IByteHandler {
       try {
         count = mDecompressor.inflate(mTmp);
       } catch (final DataFormatException e) {
-        throw new TTIOException(e);
+        throw new SirixIOException(e);
       }
       mOut.write(mTmp, 0, count);
     }

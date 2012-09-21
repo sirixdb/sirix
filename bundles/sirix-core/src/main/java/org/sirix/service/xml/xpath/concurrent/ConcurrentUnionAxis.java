@@ -32,7 +32,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.settings.EFixed;
 
@@ -122,7 +122,7 @@ public class ConcurrentUnionAxis extends AbsAxis {
         if (nodeKey < 0) {
           try {
             throw EXPathError.XPTY0004.getEncapsulatedException();
-          } catch (final TTXPathException mExp) {
+          } catch (final SirixXPathException mExp) {
             mExp.printStackTrace();
           }
         }
@@ -183,10 +183,10 @@ public class ConcurrentUnionAxis extends AbsAxis {
     if (nodeKey < 0) {
       // throw new XPathError(ErrorType.XPTY0004);
       try {
-        throw new TTXPathException(
+        throw new SirixXPathException(
           "err:XPTY0004 The type is not appropriate the expression or the "
             + "typedoes not match a required type as specified by the matching rules.");
-      } catch (TTXPathException mExp) {
+      } catch (SirixXPathException mExp) {
         mExp.printStackTrace();
       }
     }

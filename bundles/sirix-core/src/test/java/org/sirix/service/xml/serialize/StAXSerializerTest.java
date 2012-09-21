@@ -51,7 +51,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 
 /**
@@ -63,14 +63,14 @@ public class StAXSerializerTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
@@ -196,7 +196,7 @@ public class StAXSerializerTest {
       rtx.close();
     } catch (final XMLStreamException e) {
       fail("XML error while parsing: " + e.getMessage());
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       fail("Sirix exception occured: " + e.getMessage());
     } catch (final Exception e) {
       fail("Any exception occured: " + e.getMessage());

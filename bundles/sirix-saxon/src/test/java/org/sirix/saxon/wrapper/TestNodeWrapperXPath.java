@@ -53,7 +53,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 
@@ -74,7 +74,7 @@ public final class TestNodeWrapperXPath {
   private static transient Configuration config;
 
   @Before
-  public void setUp() throws AbsTTException, XPathFactoryConfigurationException {
+  public void setUp() throws SirixException, XPathFactoryConfigurationException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     mHolder = Holder.generateRtx();

@@ -42,7 +42,7 @@ import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
 import org.sirix.node.EKind;
@@ -64,7 +64,7 @@ public class PathSummaryTest {
   private INodeWriteTrx mWtx;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     holder = Holder.generateSession();
     mWtx = holder.getSession().beginNodeWriteTrx();
@@ -72,7 +72,7 @@ public class PathSummaryTest {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
@@ -80,11 +80,11 @@ public class PathSummaryTest {
   /**
    * Test insert on test document.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if Sirix fails
    */
   @Test
-  public void testInsert() throws AbsTTException {
+  public void testInsert() throws SirixException {
     PathSummary pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
     testInsertHelper(pathSummary);
@@ -96,7 +96,7 @@ public class PathSummaryTest {
   }
 
   private void testInsertHelper(final @Nonnull PathSummary pSummary)
-    throws AbsTTException {
+    throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
     PathNode node = next(axis);
     assertTrue(node != null);
@@ -168,11 +168,11 @@ public class PathSummaryTest {
   /**
    * Test delete on test document.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if Sirix fails
    */
   @Test
-  public void testDelete() throws AbsTTException {
+  public void testDelete() throws SirixException {
     PathSummary pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
     testInsertHelper(pathSummary);
@@ -190,7 +190,7 @@ public class PathSummaryTest {
   }
 
   private void testDeleteHelper(final @Nonnull PathSummary pSummary)
-    throws AbsTTException {
+    throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
     PathNode node = next(axis);
     assertTrue(node != null);
@@ -255,11 +255,11 @@ public class PathSummaryTest {
   /**
    * Test setQName on test document (does not find a corresponding path node after rename).
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if Sirix fails
    */
   @Test
-  public void testSetQNameFirst() throws AbsTTException {
+  public void testSetQNameFirst() throws SirixException {
     mWtx.moveTo(9);
     mWtx.setQName(new QName("foo"));
     PathSummary pathSummary = mWtx.getPathSummary();
@@ -278,7 +278,7 @@ public class PathSummaryTest {
   }
 
   private void testSetQNameFirstHelper(final @Nonnull PathSummary pSummary)
-    throws AbsTTException {
+    throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
     PathNode node = next(axis);
     assertTrue(node != null);
@@ -379,11 +379,11 @@ public class PathSummaryTest {
   /**
    * Test setQName on test document (finds a corresponding path node after rename).
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if Sirix fails
    */
   @Test
-  public void testSetQNameSecond() throws AbsTTException {
+  public void testSetQNameSecond() throws SirixException {
     mWtx.moveTo(9);
     mWtx.setQName(new QName("d"));
     mWtx.setQName(new QName("b"));
@@ -403,7 +403,7 @@ public class PathSummaryTest {
   }
 
   private void testSetQNameSecondHelper(final @Nonnull PathSummary pSummary)
-    throws AbsTTException {
+    throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
     PathNode node = next(axis);
     assertTrue(node != null);
@@ -482,11 +482,11 @@ public class PathSummaryTest {
    * Test setQName on test document (finds no corresponding path node after rename -- after references dropped
    * to 0).
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if Sirix fails
    */
   @Test
-  public void testSetQNameThird() throws AbsTTException {
+  public void testSetQNameThird() throws SirixException {
     mWtx.moveTo(9);
     mWtx.setQName(new QName("d"));
     mWtx.moveTo(5);
@@ -507,7 +507,7 @@ public class PathSummaryTest {
   }
 
   private void testSetQNameThirdHelper(final @Nonnull PathSummary pSummary)
-    throws AbsTTException {
+    throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
     PathNode node = next(axis);
     assertTrue(node != null);
@@ -608,11 +608,11 @@ public class PathSummaryTest {
    * Test setQName on test document (finds no corresponding path node after rename -- after references dropped
    * to 0).
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if Sirix fails
    */
   @Test
-  public void testSetQNameFourth() throws AbsTTException {
+  public void testSetQNameFourth() throws SirixException {
     mWtx.moveTo(1);
     mWtx.insertElementAsFirstChild(new QName("b"));
     mWtx.moveTo(5);
@@ -628,7 +628,7 @@ public class PathSummaryTest {
   }
 
   private void testSetQNameFourthHelper(final @Nonnull PathSummary pSummary)
-    throws AbsTTException {
+    throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
     PathNode node = next(axis);
     assertTrue(node != null);
@@ -726,7 +726,7 @@ public class PathSummaryTest {
   }
 
   @Test
-  public void testFirstMoveToFirstChild() throws AbsTTException {
+  public void testFirstMoveToFirstChild() throws SirixException {
     mWtx.moveTo(5);
     mWtx.moveSubtreeToFirstChild(9);
     PathSummary pathSummary = mWtx.getPathSummary();
@@ -743,7 +743,7 @@ public class PathSummaryTest {
   }
   
   @Test
-  public void testSecondMoveToFirstChild() throws AbsTTException {
+  public void testSecondMoveToFirstChild() throws SirixException {
     mWtx.moveTo(9);
     mWtx.insertElementAsFirstChild(new QName("foo"));
     mWtx.insertElementAsFirstChild(new QName("bar"));

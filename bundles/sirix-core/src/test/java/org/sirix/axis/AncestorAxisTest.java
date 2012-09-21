@@ -33,27 +33,27 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class AncestorAxisTest {
 
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testAxisConventions() throws AbsTTException {
+  public void testAxisConventions() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(12L);
@@ -76,7 +76,7 @@ public class AncestorAxisTest {
   }
 
   @Test
-  public void testAxisConventionsIncludingSelf() throws AbsTTException {
+  public void testAxisConventionsIncludingSelf() throws SirixException {
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(11L);

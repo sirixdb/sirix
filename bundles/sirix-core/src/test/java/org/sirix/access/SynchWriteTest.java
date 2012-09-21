@@ -46,7 +46,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 
 public class SynchWriteTest {
   Exchanger<Boolean> threadsFinished = new Exchanger<Boolean>();
@@ -55,7 +55,7 @@ public class SynchWriteTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     holder = Holder.generateWtx();
     holder.getWtx().moveToDocumentRoot();
@@ -71,7 +71,7 @@ public class SynchWriteTest {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.getSession().close();
     TestHelper.closeEverything();
   }
@@ -82,7 +82,7 @@ public class SynchWriteTest {
    * Two threads are launched which access the file concurrently, performing changes 
    * that have to persist.
    */
-  public void testConcurrentWrite() throws AbsTTException, InterruptedException, ExecutionException {
+  public void testConcurrentWrite() throws SirixException, InterruptedException, ExecutionException {
     final Semaphore semaphore = new Semaphore(1);
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     final INodeWriteTrx wtx2 = holder.getSession().beginNodeWriteTrx();

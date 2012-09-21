@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.comparators;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.types.Type;
@@ -66,7 +66,7 @@ public class ValueComp extends AbsComparator {
    */
   @Override
   protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2)
-    throws TTXPathException {
+    throws SirixXPathException {
     final Type type = getType(mOperand1[0].getTypeKey(), mOperand2[0].getTypeKey());
     final String op1 = new String(mOperand1[0].getRawValue());
     final String op2 = new String(mOperand2[0].getRawValue());
@@ -78,7 +78,7 @@ public class ValueComp extends AbsComparator {
    * {@inheritDoc}
    */
   @Override
-  protected AtomicValue[] atomize(final IAxis mOperand) throws TTXPathException {
+  protected AtomicValue[] atomize(final IAxis mOperand) throws SirixXPathException {
 
     final INodeReadTrx trx = getTransaction();
 
@@ -107,10 +107,10 @@ public class ValueComp extends AbsComparator {
   /**
    * {@inheritDoc}
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Override
-  protected Type getType(final int mKey1, final int mKey2) throws TTXPathException {
+  protected Type getType(final int mKey1, final int mKey2) throws SirixXPathException {
 
     Type type1 = Type.getType(mKey1).getPrimitiveBaseType();
     Type type2 = Type.getType(mKey2).getPrimitiveBaseType();

@@ -38,7 +38,7 @@ import java.nio.ByteBuffer;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.IWriter;
 import org.sirix.io.bytepipe.IByteHandler;
 import org.sirix.page.PagePersistenter;
@@ -66,14 +66,14 @@ public final class FileWriter implements IWriter {
    * 
    * @param pStorage
    *          the concrete storage
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occurs
    */
-  public FileWriter(final @Nonnull File pStorage, final @Nonnull IByteHandler pHandler) throws TTIOException {
+  public FileWriter(final @Nonnull File pStorage, final @Nonnull IByteHandler pHandler) throws SirixIOException {
     try {
       mFile = new RandomAccessFile(pStorage, "rw");
     } catch (final FileNotFoundException fileExc) {
-      throw new TTIOException(fileExc);
+      throw new SirixIOException(fileExc);
     }
     mReader = new FileReader(pStorage, pHandler);
   }
@@ -83,12 +83,12 @@ public final class FileWriter implements IWriter {
    * 
    * @param pageReference
    *          Page reference to write.
-   * @throws TTIOException
+   * @throws SirixIOException
    *           due to errors during writing.
    */
   @Override
   public long write(@Nonnull final PageReference pPageReference)
-    throws TTIOException {
+    throws SirixIOException {
     // Serialise page.
     final IPage page = pPageReference.getPage();
     assert page != null;
@@ -119,12 +119,12 @@ public final class FileWriter implements IWriter {
       pPageReference.setKey(offset);
       return offset;
     } catch (final IOException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
   @Override
-  public void close() throws TTIOException {
+  public void close() throws SirixIOException {
     try {
       if (mFile != null) {
         mFile.close();
@@ -133,29 +133,29 @@ public final class FileWriter implements IWriter {
         mReader.close();
       }
     } catch (final IOException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
   @Override
   public void writeFirstReference(@Nonnull final PageReference pPageReference)
-    throws TTIOException {
+    throws SirixIOException {
     try {
       write(pPageReference);
       mFile.seek(0);
       mFile.writeLong(pPageReference.getKey());
     } catch (final IOException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
   }
 
   @Override
-  public IPage read(final long pKey) throws TTIOException {
+  public IPage read(final long pKey) throws SirixIOException {
     return mReader.read(pKey);
   }
 
   @Override
-  public PageReference readFirstReference() throws TTIOException {
+  public PageReference readFirstReference() throws SirixIOException {
     return mReader.readFirstReference();
   }
 

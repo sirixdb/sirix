@@ -43,7 +43,7 @@ import org.sirix.axis.EIncludeSelf;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.diff.DiffFactory.EDiffOptimized;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
 
@@ -141,10 +141,10 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
    * 
    * @param pBuilder
    *          {@link Builder} reference
-   * @throws AbsTTException
+   * @throws SirixException
    *           if setting up transactions failes
    */
-  NeeeeeewAbsDiff(final Builder pBuilder) throws AbsTTException {
+  NeeeeeewAbsDiff(final Builder pBuilder) throws SirixException {
     mDiffKind = checkNotNull(pBuilder).mKind;
     synchronized (pBuilder.mSession) {
       mNewRtx = pBuilder.mSession.beginNodeReadTrx(pBuilder.mNewRev);
@@ -178,10 +178,10 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
   /**
    * Do the diff.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if setting up transactions failes
    */
-  void diffMovement() throws AbsTTException {
+  void diffMovement() throws SirixException {
     assert mHashKind != null;
     assert mNewRtx != null;
     assert mOldRtx != null;
@@ -263,10 +263,10 @@ abstract class NeeeeeewAbsDiff extends AbsDiffObservable {
   /**
    * Done processing diffs. Fire remaining diffs and signal that the algorithm is done.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if sirix fails to close the transactions
    */
-  private void diffDone() throws AbsTTException {
+  private void diffDone() throws SirixException {
     fireTuples();
     mNewRtx.close();
     mOldRtx.close();

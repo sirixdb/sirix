@@ -64,7 +64,7 @@ import org.slf4j.LoggerFactory;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.diff.DiffFactory.EDiff;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.GUI;
 import org.sirix.gui.GUIProp;
 import org.sirix.gui.ReadDB;
@@ -235,7 +235,7 @@ public final class TextView extends JScrollPane implements IView {
       if (mRtx != null) {
         mRtx.close();
       }
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     final JScrollBar bar = this.getVerticalScrollBar();
@@ -277,7 +277,7 @@ public final class TextView extends JScrollPane implements IView {
       serialize();
       mText.setCaretPosition(0);
       repaint();
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     addAdjustmentListener();
@@ -417,7 +417,7 @@ public final class TextView extends JScrollPane implements IView {
       default:
         throw new IllegalStateException("Node kind not known!");
       }
-    } catch (final AbsTTException | BadLocationException | XMLStreamException e) {
+    } catch (final SirixException | BadLocationException | XMLStreamException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
   }

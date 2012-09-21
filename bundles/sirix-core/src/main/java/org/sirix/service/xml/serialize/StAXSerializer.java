@@ -51,7 +51,7 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.axis.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.XMLToken;
@@ -209,7 +209,7 @@ public final class StAXSerializer implements XMLEventReader {
     if (mCloseRtx) {
       try {
         mAxis.getTransaction().close();
-      } catch (final AbsTTException e) {
+      } catch (final SirixException e) {
         throw new XMLStreamException(e);
       }
     }

@@ -35,8 +35,8 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.XPathStringChecker;
@@ -67,7 +67,7 @@ public class XMarkBenchTest {
   }
 
   @Test
-  public void xMarkTest_Q1() throws TTXPathException {
+  public void xMarkTest_Q1() throws SirixXPathException {
     String query = xmbq.getQuery(1, FACTOR);
     String result = xmbq.getResult(1, FACTOR);
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -76,7 +76,7 @@ public class XMarkBenchTest {
   }
 
   @Test
-  public void xMarkTest_Q5() throws TTXPathException {
+  public void xMarkTest_Q5() throws SirixXPathException {
     String query = xmbq.getQuery(5, FACTOR);
     String result = xmbq.getResult(5, FACTOR);
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -85,7 +85,7 @@ public class XMarkBenchTest {
   }
 
   @Test
-  public void xMarkTest_Q6() throws TTXPathException {
+  public void xMarkTest_Q6() throws SirixXPathException {
     String query = xmbq.getQuery(6, FACTOR);
     String result = xmbq.getResult(6, FACTOR);
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -94,7 +94,7 @@ public class XMarkBenchTest {
   }
 
   @Test
-  public void xMarkTest_Q7() throws TTXPathException {
+  public void xMarkTest_Q7() throws SirixXPathException {
     String query = xmbq.getQuery(7, FACTOR);
     String result = xmbq.getResult(7, FACTOR);
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(), query), new String[] {
@@ -120,7 +120,7 @@ public class XMarkBenchTest {
    */
 
   @AfterClass
-  public static void tearDown() throws AbsTTException {
+  public static void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }

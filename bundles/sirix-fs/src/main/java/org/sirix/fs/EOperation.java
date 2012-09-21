@@ -13,7 +13,7 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 
 /**
@@ -27,7 +27,7 @@ enum EOperation implements IOperation<INodeWriteTrx> {
   INSERT {
     @Override
     public void execute(final INodeWriteTrx pWtx, final Optional<IVisitor<INodeWriteTrx>> pVisitor,
-      final Map<Path, EPath> pIndex, final Path pChild) throws AbsTTException {
+      final Map<Path, EPath> pIndex, final Path pChild) throws SirixException {
       checkNotNull(pWtx);
       checkNotNull(pChild);
       checkNotNull(pVisitor);
@@ -52,7 +52,7 @@ enum EOperation implements IOperation<INodeWriteTrx> {
   UPDATE {
     @Override
     public void execute(final INodeWriteTrx pWtx, final Optional<IVisitor<INodeWriteTrx>> pVisitor,
-      final Map<Path, EPath> pIndex, final Path pChild) throws AbsTTException {
+      final Map<Path, EPath> pIndex, final Path pChild) throws SirixException {
       checkNotNull(pWtx);
       checkNotNull(pChild);
       checkNotNull(pVisitor);
@@ -68,7 +68,7 @@ enum EOperation implements IOperation<INodeWriteTrx> {
   DELETE {
     @Override
     public void execute(final INodeWriteTrx pWtx, final Optional<IVisitor<INodeWriteTrx>> pVisitor,
-      final Map<Path, EPath> pIndex, final Path pChild) throws AbsTTException {
+      final Map<Path, EPath> pIndex, final Path pChild) throws SirixException {
       checkNotNull(pWtx);
       checkNotNull(pChild);
       checkNotNull(pVisitor);

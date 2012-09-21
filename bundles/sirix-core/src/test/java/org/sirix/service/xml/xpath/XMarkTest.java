@@ -36,7 +36,7 @@ import org.perfidix.annotation.BenchClass;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
@@ -63,13 +63,13 @@ public class XMarkTest {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testQ1_10() throws AbsTTException {
+  public void testQ1_10() throws SirixException {
     // Verify.
 
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(),
@@ -79,7 +79,7 @@ public class XMarkTest {
   }
 
   @Test
-  public void testQ1() throws AbsTTException {
+  public void testQ1() throws SirixException {
 
     // Q1 The name of the person with ID 'person0' {projecting}
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(),
@@ -89,7 +89,7 @@ public class XMarkTest {
   }
 
   @Test
-  public void testQ5() throws AbsTTException {
+  public void testQ5() throws SirixException {
 
     // Q5 How many sold items cost more than 40?
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(),
@@ -100,7 +100,7 @@ public class XMarkTest {
   }
 
   @Test
-  public void testQ6() throws AbsTTException {
+  public void testQ6() throws SirixException {
 
     // Q6 How many items are listed on all continents?
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(),
@@ -110,7 +110,7 @@ public class XMarkTest {
   }
 
   @Test
-  public void testQ7() throws AbsTTException {
+  public void testQ7() throws SirixException {
     // Q7 How many pieces of prose are in our database?
     XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(),
       "for $p in /site return fn:count($p//description) + "

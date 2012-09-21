@@ -35,7 +35,7 @@ import org.xml.sax.helpers.XMLFilterImpl;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.access.Database;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.saxon.evaluator.XQueryEvaluatorSAXHandler;
 
 import org.junit.After;
@@ -66,7 +66,7 @@ public class TestNodeWrapperS9ApiXQuerySAXHandler {
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     mHolder.close();
     TestHelper.deleteEverything();
   }

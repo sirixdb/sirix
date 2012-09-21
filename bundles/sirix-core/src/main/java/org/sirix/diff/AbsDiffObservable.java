@@ -33,7 +33,7 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 
 import org.sirix.diff.DiffFactory.EDiff;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.IStructNode;
 
 /**
@@ -65,7 +65,7 @@ abstract class AbsDiffObservable implements IDiffObservable {
   }
 
   @Override
-  public final void done() throws AbsTTException {
+  public final void done() throws SirixException {
     for (final IDiffObserver observer : mDiffObservers) {
       observer.diffDone();
     }

@@ -31,8 +31,8 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 
@@ -139,28 +139,28 @@ public interface INodeReadTrx extends INodeCursor {
    * Get the revision number of this transaction.
    * 
    * @return immutable revision number of this IReadTransaction
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if can't get revision number
    */
-  long getRevisionNumber() throws TTIOException;
+  long getRevisionNumber() throws SirixIOException;
 
   /**
    * UNIX-style timestamp of the commit of the revision.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if can't get timestamp
    * @return timestamp of revision commit
    */
-  long getRevisionTimestamp() throws TTIOException;
+  long getRevisionTimestamp() throws SirixIOException;
 
   /**
    * Getting the maximum nodekey available in this revision.
    * 
    * @return the maximum nodekey
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if can't get maxNodKey
    */
-  long getMaxNodeKey() throws TTIOException;
+  long getMaxNodeKey() throws SirixIOException;
 
   // --- Node Selectors
   // --------------------------------------------------------
@@ -263,11 +263,11 @@ public interface INodeReadTrx extends INodeCursor {
    * This is an idempotent operation and does nothing if the transaction is
    * already closed.
    * 
-   * @throws AbsTTException
+   * @throws SirixException
    *           if can't close {@link INodeReadTrx}
    */
   @Override
-  void close() throws AbsTTException;
+  void close() throws SirixException;
 
   /**
    * Is this transaction closed?
@@ -288,10 +288,10 @@ public interface INodeReadTrx extends INodeCursor {
    * current node.
    * 
    * @return new instance
-   * @throws AbsTTException
+   * @throws SirixException
    *           if Sirix fails
    */
-  INodeReadTrx cloneInstance() throws AbsTTException;
+  INodeReadTrx cloneInstance() throws SirixException;
 
   /**
    * Get the number of nodes which reference to the name.

@@ -42,7 +42,7 @@ import java.io.File;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.sirix.diff.DiffTuple;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -95,7 +95,7 @@ public class DiffDatabase implements AutoCloseable {
       if (mStorageFile.exists()) {
         Files.recursiveRemove(mStorageFile.toPath());
       }
-    } catch (final TTIOException e) {
+    } catch (final SirixIOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     if (!mStorageFile.mkdirs()) {

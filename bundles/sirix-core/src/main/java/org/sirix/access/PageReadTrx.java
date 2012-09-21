@@ -53,8 +53,8 @@ import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.PageContainer;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.IReader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.EKind;
@@ -125,32 +125,32 @@ final class PageReadTrx implements IPageReadTrx {
    *          reader to read stored pages for this transaction
    * @param pPersistentCache
    *          optional persistent cache
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if reading of the persistent storage fails
    */
   PageReadTrx(@Nonnull final Session pSession,
     @Nonnull final UberPage pUberPage, @Nonnegative final long pRevision,
     @Nonnull final IReader pReader,
     final @Nonnull Optional<BerkeleyPersistencePageCache> pPersistentCache)
-    throws TTIOException {
+    throws SirixIOException {
     checkArgument(pRevision >= 0, "Revision must be >= 0!");
     mNodeCache =
       CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(40,
         TimeUnit.SECONDS).expireAfterAccess(5, TimeUnit.SECONDS).build(
         new CacheLoader<Long, PageContainer>() {
-          public PageContainer load(final Long pKey) throws AbsTTException {
+          public PageContainer load(final Long pKey) throws SirixException {
             return getNodeFromPage(pKey, EPage.NODEPAGE);
           }
         });
     final CacheBuilder<Object, Object> builder =
       CacheBuilder.newBuilder().concurrencyLevel(1).maximumSize(1000);
     mPathCache = builder.build(new CacheLoader<Long, PageContainer>() {
-      public PageContainer load(final Long pKey) throws AbsTTException {
+      public PageContainer load(final Long pKey) throws SirixException {
         return getNodeFromPage(pKey, EPage.PATHSUMMARYPAGE);
       }
     });
     mValueCache = builder.build(new CacheLoader<Long, PageContainer>() {
-      public PageContainer load(final Long pKey) throws AbsTTException {
+      public PageContainer load(final Long pKey) throws SirixException {
         return getNodeFromPage(pKey, EPage.VALUEPAGE);
       }
     });
@@ -166,7 +166,7 @@ final class PageReadTrx implements IPageReadTrx {
       });
     }
     mPageCache = pageCacheBuilder.build(new CacheLoader<Long, IPage>() {
-      public IPage load(final Long pKey) throws AbsTTException {
+      public IPage load(final Long pKey) throws SirixException {
         return mPageReader.read(pKey);
       }
     });
@@ -181,7 +181,7 @@ final class PageReadTrx implements IPageReadTrx {
       try {
         ref.setPage(mPageCache.get(ref.getKey()));
       } catch (final ExecutionException e) {
-        throw new TTIOException(e);
+        throw new SirixIOException(e);
       }
     }
     mClosed = false;
@@ -203,7 +203,7 @@ final class PageReadTrx implements IPageReadTrx {
 
   @Override
   public Optional<INodeBase> getNode(@Nonnegative final long pNodeKey,
-    @Nonnull final EPage pPage) throws TTIOException {
+    @Nonnull final EPage pPage) throws SirixIOException {
     checkArgument(pNodeKey >= 0);
     checkNotNull(pPage);
     assertNotClosed();
@@ -227,7 +227,7 @@ final class PageReadTrx implements IPageReadTrx {
         throw new IllegalStateException();
       }
     } catch (final ExecutionException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
 
     if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
@@ -284,11 +284,11 @@ final class PageReadTrx implements IPageReadTrx {
    *          key of revision to find revision root page for
    * @return revision root page of this revision key
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something odd happens within the creation process
    */
   final RevisionRootPage loadRevRoot(@Nonnegative final long pRevisionKey)
-    throws TTIOException {
+    throws SirixIOException {
     checkArgument(pRevisionKey >= 0
       && pRevisionKey <= mSession.getLastRevisionNumber(),
       "pRevisionKey must be >= 0 and <= last stored revision!");
@@ -305,7 +305,7 @@ final class PageReadTrx implements IPageReadTrx {
       try {
         page = (RevisionRootPage)mPageCache.get(ref.getKey());
       } catch (final ExecutionException e) {
-        throw new TTIOException(e.getCause());
+        throw new SirixIOException(e.getCause());
       }
     }
 
@@ -316,17 +316,17 @@ final class PageReadTrx implements IPageReadTrx {
   /**
    * Initialize NamePage.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occurs
    */
-  private final NamePage getNamePage() throws TTIOException {
+  private final NamePage getNamePage() throws SirixIOException {
     assertNotClosed();
     final PageReference ref = mRootPage.getNamePageReference();
     if (ref.getPage() == null) {
       try {
         ref.setPage(mPageCache.get(ref.getKey()));
       } catch (final ExecutionException e) {
-        throw new TTIOException(e);
+        throw new SirixIOException(e);
       }
     }
     return (NamePage)ref.getPage();
@@ -335,18 +335,18 @@ final class PageReadTrx implements IPageReadTrx {
   /**
    * Initialize PathSummaryPage.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occurs
    */
   private final PathSummaryPage getPathSummaryPage(
-    @Nonnull final RevisionRootPage pPage) throws TTIOException {
+    @Nonnull final RevisionRootPage pPage) throws SirixIOException {
     assertNotClosed();
     final PageReference ref = pPage.getPathSummaryPageReference();
     if (ref.getPage() == null) {
       try {
         ref.setPage(mPageCache.get(ref.getKey()));
       } catch (final ExecutionException e) {
-        throw new TTIOException(e);
+        throw new SirixIOException(e);
       }
     }
     return (PathSummaryPage)ref.getPage();
@@ -355,18 +355,18 @@ final class PageReadTrx implements IPageReadTrx {
   /**
    * Initialize ValuePage.
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occurs
    */
   private final ValuePage getValuePage(@Nonnull final RevisionRootPage pPage)
-    throws TTIOException {
+    throws SirixIOException {
     assertNotClosed();
     final PageReference ref = pPage.getValuePageReference();
     if (ref.getPage() == null) {
       try {
         ref.setPage(mPageCache.get(ref.getKey()));
       } catch (final ExecutionException e) {
-        throw new TTIOException(e);
+        throw new SirixIOException(e);
       }
     }
     return (ValuePage)ref.getPage();
@@ -384,11 +384,11 @@ final class PageReadTrx implements IPageReadTrx {
    *          key of node page
    * @return dereferenced pages
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O-error occurs within the creation process
    */
   final NodePage[] getSnapshotPages(@Nonnegative final long pNodePageKey,
-    @Nonnull final EPage pPage) throws TTIOException {
+    @Nonnull final EPage pPage) throws SirixIOException {
     checkNotNull(pPage);
     assertNotClosed();
     final List<PageReference> refs = new ArrayList<>();
@@ -448,7 +448,7 @@ final class PageReadTrx implements IPageReadTrx {
    *          the page type to determine the right subtree
    */
   PageReference getPageReference(@Nonnull final RevisionRootPage pRef,
-    @Nonnull final EPage pPage) throws TTIOException {
+    @Nonnull final EPage pPage) throws SirixIOException {
     assert pRef != null;
     PageReference ref = null;
     switch (pPage) {
@@ -475,11 +475,11 @@ final class PageReadTrx implements IPageReadTrx {
    *          reference to dereference
    * @return dereferenced page
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something odd happens within the creation process.
    */
   final IndirectPage dereferenceIndirectPage(
-    @Nonnull final PageReference pReference) throws TTIOException {
+    @Nonnull final PageReference pReference) throws SirixIOException {
     final IPage tmpPage = pReference.getPage();
     if (tmpPage == null || tmpPage instanceof IndirectPage) {
       IndirectPage page = (IndirectPage)tmpPage;
@@ -489,7 +489,7 @@ final class PageReadTrx implements IPageReadTrx {
         try {
           page = (IndirectPage)mPageCache.get(pReference.getKey());
         } catch (final ExecutionException e) {
-          throw new TTIOException(e);
+          throw new SirixIOException(e);
         }
         pReference.setPage(page);
       }
@@ -510,12 +510,12 @@ final class PageReadTrx implements IPageReadTrx {
    *          key to look up in the indirect tree
    * @return reference denoted by key pointing to the leaf page
    * 
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if an I/O error occurs
    */
   final PageReference dereferenceLeafOfTree(
     final @Nonnull PageReference pStartReference, final @Nonnegative long pKey)
-    throws TTIOException {
+    throws SirixIOException {
 
     // Initial state pointing to the indirect page of level 0.
     PageReference reference = checkNotNull(pStartReference);
@@ -568,7 +568,7 @@ final class PageReadTrx implements IPageReadTrx {
   // }
 
   @Override
-  public RevisionRootPage getActualRevisionRootPage() throws TTIOException {
+  public RevisionRootPage getActualRevisionRootPage() throws SirixIOException {
     return mRootPage;
   }
 
@@ -581,7 +581,7 @@ final class PageReadTrx implements IPageReadTrx {
 
   @Override
   public PageContainer getNodeFromPage(final long pNodePageKey,
-    @Nonnull final EPage pPage) throws TTIOException {
+    @Nonnull final EPage pPage) throws SirixIOException {
     final NodePage[] revs = getSnapshotPages(pNodePageKey, pPage);
     if (revs.length == 0) {
       return PageContainer.EMPTY_INSTANCE;
@@ -596,7 +596,7 @@ final class PageReadTrx implements IPageReadTrx {
   }
 
   @Override
-  public void close() throws TTIOException {
+  public void close() throws SirixIOException {
     clearCache();
     mClosed = true;
     mPageReader.close();
@@ -619,12 +619,12 @@ final class PageReadTrx implements IPageReadTrx {
 
   @Override
   public IPage getFromPageCache(final @Nonnegative long pKey)
-    throws TTIOException {
+    throws SirixIOException {
     IPage retVal = null;
     try {
       retVal = mPageCache.get(pKey);
     } catch (ExecutionException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
     return retVal;
   }

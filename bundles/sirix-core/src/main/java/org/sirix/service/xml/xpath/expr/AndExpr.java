@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
 import org.sirix.utils.TypedValue;
@@ -114,10 +114,10 @@ public class AndExpr extends AbsExpression {
   /**
    * {@inheritDoc}
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    */
   @Override
-  public void evaluate() throws TTXPathException {
+  public void evaluate() throws SirixXPathException {
 
     // first find the effective boolean values of the two operands, then
     // determine value of the and-expression and store it in an item

@@ -48,9 +48,9 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTIOException;
-import org.sirix.exception.TTUsageException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.service.xml.shredder.EShredderCommit;
 import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.shredder.IShredder;
@@ -104,7 +104,7 @@ enum EShredder {
     NORMAL {
       @Override
       Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx)
-        throws IOException, XMLStreamException, TTUsageException {
+        throws IOException, XMLStreamException, SirixUsageException {
         final XMLEventReader reader = XMLShredder.createFileReader(pSource);
         return new XMLShredder(pWtx, reader, EInsert.ASFIRSTCHILD);
       }
@@ -114,12 +114,12 @@ enum EShredder {
     UPDATE {
       @Override
       Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx)
-        throws IOException, XMLStreamException, TTUsageException {
+        throws IOException, XMLStreamException, SirixUsageException {
         final XMLEventReader reader = XMLShredder.createFileReader(pSource);
         try {
           return new XMLUpdateShredder(pWtx, reader, EInsert.ASFIRSTCHILD,
             pSource, EShredderCommit.COMMIT);
-        } catch (final TTIOException e) {
+        } catch (final SirixIOException e) {
           throw new IOException(e);
         }
       }
@@ -137,12 +137,12 @@ enum EShredder {
      *           if {@code pSource} can't be read
      * @throws XMLStreamException
      *           if parser encounters an error
-     * @throws TTUsageException
+     * @throws SirixUsageException
      *           if the shredder isn't used properly
      */
     abstract Callable<Long> newInstance(final File pSource,
       final INodeWriteTrx pWtx) throws IOException, XMLStreamException,
-      TTUsageException;
+      SirixUsageException;
   }
 
   /**
@@ -171,7 +171,7 @@ enum EShredder {
         executor.awaitTermination(5 * 60, TimeUnit.SECONDS);
       }
     } catch (final IOException | XMLStreamException | InterruptedException
-    | AbsTTException e) {
+    | SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
       retVal = false;
     }
@@ -185,11 +185,11 @@ enum EShredder {
    * @param pTarget
    *          the database to create/open
    * @return {@link IDatabase} implementation
-   * @throws AbsTTException
+   * @throws SirixException
    *           if something went wrong
    */
   private static IDatabase setupDatabase(final File pTarget)
-    throws AbsTTException {
+    throws SirixException {
     assert pTarget != null;
     final DatabaseConfiguration config = new DatabaseConfiguration(pTarget);
     Database.truncateDatabase(config);

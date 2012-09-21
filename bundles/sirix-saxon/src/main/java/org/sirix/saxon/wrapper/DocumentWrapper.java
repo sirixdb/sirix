@@ -51,7 +51,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.LogWrapper;
@@ -105,12 +105,12 @@ public final class DocumentWrapper implements DocumentInfo {
    *          the revision to open
    * @param pConfig
    *          Saxon {@link Configuration} instance
-   * @throws AbsTTException
+   * @throws SirixException
    *           if sirix encounters an error
    */
   public DocumentWrapper(@Nonnull final ISession pSession,
     @Nonnegative final long pRevision, @Nonnull final Configuration pConfig)
-    throws AbsTTException {
+    throws SirixException {
     mSession = checkNotNull(pSession);
     mRevision = checkNotNull(pRevision);
     mBaseURI = pSession.getResourceConfig().getResource().getAbsolutePath();
@@ -125,11 +125,11 @@ public final class DocumentWrapper implements DocumentInfo {
    *          Sirix {@link ISession}
    * @param pConfig
    *          Saxon {@link Configuration} instance
-   * @throws AbsTTException
+   * @throws SirixException
    *           if Sirix encounters an error
    */
   public DocumentWrapper(final ISession pSession, final Configuration pConfig)
-    throws AbsTTException {
+    throws SirixException {
     this(pSession, pSession.beginNodeReadTrx().getRevisionNumber(), pConfig);
   }
 
@@ -178,7 +178,7 @@ public final class DocumentWrapper implements DocumentInfo {
         axis.next();
       }
       rtx.close();
-    } catch (final AbsTTException e) {
+    } catch (final SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     return null;

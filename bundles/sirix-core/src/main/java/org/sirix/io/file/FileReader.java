@@ -38,7 +38,7 @@ import java.io.RandomAccessFile;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.TTIOException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.io.IReader;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.Encryptor;
@@ -76,10 +76,10 @@ public final class FileReader implements IReader {
    * 
    * @param pConcreteStorage
    *          storage file
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if something bad happens
    */
-  public FileReader(final @Nonnull File pConcreteStorage, final @Nonnull IByteHandler pHandler) throws TTIOException {
+  public FileReader(final @Nonnull File pConcreteStorage, final @Nonnull IByteHandler pHandler) throws SirixIOException {
     try {
       if (!pConcreteStorage.exists()) {
         pConcreteStorage.getParentFile().mkdirs();
@@ -89,7 +89,7 @@ public final class FileReader implements IReader {
       mFile = new RandomAccessFile(pConcreteStorage, "r");
       mByteHandler = checkNotNull(pHandler);
     } catch (final IOException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
@@ -99,11 +99,11 @@ public final class FileReader implements IReader {
    * @param pKey
    *          key of page reference to read
    * @return byte array reader to read bytes from
-   * @throws TTIOException
+   * @throws SirixIOException
    *           if there was an error during reading.
    */
   @Override
-  public IPage read(final long pKey) throws TTIOException {
+  public IPage read(final long pKey) throws SirixIOException {
     try {
       // Read page from file.
       mFile.seek(pKey);
@@ -118,12 +118,12 @@ public final class FileReader implements IReader {
       // Return reader required to instantiate and deserialize page.
       return PagePersistenter.deserializePage(input);
     } catch (final IOException e) {
-      throw new TTIOException(e);
+      throw new SirixIOException(e);
     }
   }
 
   @Override
-  public PageReference readFirstReference() throws TTIOException {
+  public PageReference readFirstReference() throws SirixIOException {
     final PageReference uberPageReference = new PageReference();
     try {
       // Read primary beacon.
@@ -133,16 +133,16 @@ public final class FileReader implements IReader {
       uberPageReference.setPage(page);
       return uberPageReference;
     } catch (final IOException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
   }
 
   @Override
-  public void close() throws TTIOException {
+  public void close() throws SirixIOException {
     try {
       mFile.close();
     } catch (final IOException exc) {
-      throw new TTIOException(exc);
+      throw new SirixIOException(exc);
     }
   }
 }

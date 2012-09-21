@@ -32,7 +32,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.IExpression;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 
 /**
  * <h1>AbstractExpression</h1>
@@ -80,7 +80,7 @@ public abstract class AbsExpression extends AbsAxis implements IExpression {
       // Evaluate expression.
       try {
         evaluate();
-      } catch (final TTXPathException e) {
+      } catch (final SirixXPathException e) {
         throw new RuntimeException(e);
       }
 
@@ -100,10 +100,10 @@ public abstract class AbsExpression extends AbsAxis implements IExpression {
    * Performs the expression dependent evaluation of the expression. (Template
    * method)
    * 
-   * @throws TTXPathException
+   * @throws SirixXPathException
    *           if evaluation fails
    */
   @Override
-  public abstract void evaluate() throws TTXPathException;
+  public abstract void evaluate() throws SirixXPathException;
 
 }

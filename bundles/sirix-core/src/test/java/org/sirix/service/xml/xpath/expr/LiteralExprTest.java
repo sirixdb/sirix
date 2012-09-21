@@ -34,7 +34,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.types.Type;
 
@@ -48,20 +48,20 @@ public class LiteralExprTest {
   private Holder holder;
 
   @Before
-  public void setUp() throws AbsTTException {
+  public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     TestHelper.createTestDocument();
     holder = Holder.generateRtx();
   }
 
   @After
-  public void tearDown() throws AbsTTException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
   }
 
   @Test
-  public void testLiteralExpr() throws AbsTTException {
+  public void testLiteralExpr() throws SirixException {
     // Build simple test tree.
     final AtomicValue item1 = new AtomicValue(false);
     final AtomicValue item2 = new AtomicValue(14, Type.INTEGER);

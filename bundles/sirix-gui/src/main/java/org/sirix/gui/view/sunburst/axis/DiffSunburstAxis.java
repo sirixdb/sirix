@@ -46,7 +46,7 @@ import org.sirix.axis.EIncludeSelf;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.diff.DiffTuple;
-import org.sirix.exception.AbsTTException;
+import org.sirix.exception.SirixException;
 import org.sirix.gui.view.model.interfaces.IModel;
 import org.sirix.gui.view.model.interfaces.ITraverseModel;
 import org.sirix.gui.view.sunburst.EMoved;
@@ -522,7 +522,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
       } else {
         modification = mModificationsQueue.take().get();
       }
-    } catch (final InterruptedException | ExecutionException | AbsTTException e) {
+    } catch (final InterruptedException | ExecutionException | SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     }
     return Optional.fromNullable(modification);

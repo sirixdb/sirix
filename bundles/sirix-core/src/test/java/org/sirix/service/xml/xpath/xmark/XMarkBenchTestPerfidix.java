@@ -30,8 +30,8 @@ package org.sirix.service.xml.xpath.xmark;
 import org.perfidix.annotation.AfterEachRun;
 import org.perfidix.annotation.BeforeEachRun;
 import org.perfidix.annotation.Bench;
-import org.sirix.exception.AbsTTException;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixXPathException;
 
 public class XMarkBenchTestPerfidix {
 
@@ -46,7 +46,7 @@ public class XMarkBenchTestPerfidix {
   public void testXMark_Q1() {
     try {
       xmbt.xMarkTest_Q1();
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       // TODO Auto-generated catch block
       e.printStackTrace();
     }
@@ -56,7 +56,7 @@ public class XMarkBenchTestPerfidix {
   public void testXMark_Q5() {
     try {
       xmbt.xMarkTest_Q5();
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       // TODO Auto-generated catch block
       e.printStackTrace();
     }
@@ -66,7 +66,7 @@ public class XMarkBenchTestPerfidix {
   public void testXMark_Q6() {
     try {
       xmbt.xMarkTest_Q6();
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       // TODO Auto-generated catch block
       e.printStackTrace();
     }
@@ -76,7 +76,7 @@ public class XMarkBenchTestPerfidix {
   public void testXMark_Q7() {
     try {
       xmbt.xMarkTest_Q7();
-    } catch (TTXPathException e) {
+    } catch (SirixXPathException e) {
       // TODO Auto-generated catch block
       e.printStackTrace();
     }
@@ -98,7 +98,7 @@ public class XMarkBenchTestPerfidix {
   // }
 
   @AfterEachRun
-  public static void tearDownTest() throws AbsTTException {
+  public static void tearDownTest() throws SirixException {
     XMarkBenchTest.tearDown();
 
   }

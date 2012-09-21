@@ -30,7 +30,7 @@ package org.sirix.service.xml.xpath.concurrent;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.TTXPathException;
+import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.settings.EFixed;
 
@@ -177,7 +177,7 @@ public class ConcurrentIntersectAxis extends AbsAxis {
     if (nodeKey < 0) {
       try {
         throw EXPathError.XPTY0004.getEncapsulatedException();
-      } catch (final TTXPathException mExp) {
+      } catch (final SirixXPathException mExp) {
         mExp.printStackTrace();
       }
     }
