@@ -199,7 +199,7 @@
 					</execution>
 				</executions>
 			</plugin>
-			<plugin>
+			<!-- <plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-gpg-plugin</artifactId>
 				<executions>
@@ -211,10 +211,10 @@
 						</goals>
 					</execution>
 				</executions>
-			</plugin>
+			</plugin> -->
 		</plugins>
 	</build>
-	<profiles>
+	<!-- <profiles>
 		<profile>
 			<id>release-sign-artifacts</id>
 			<activation>
@@ -242,7 +242,7 @@
 				</plugins>
 			</build>
 		</profile>
-	</profiles>
+	</profiles> -->
 	<dependencies>
 		<dependency>
 			<groupId>org.testng</groupId>
