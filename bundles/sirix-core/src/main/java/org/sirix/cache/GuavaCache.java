@@ -121,6 +121,9 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
         container = mCache.get(pKey);
       } else if (container == null) {
         container = mCache.get(pKey);
+        if (container == null) {
+        	container = mSecondCache.get(pKey);
+        }
       }
       assert container != null;
       return container;

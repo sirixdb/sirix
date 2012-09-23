@@ -42,8 +42,8 @@ import javax.annotation.Nullable;
 import javax.xml.namespace.QName;
 
 import org.sirix.access.conf.ResourceConfiguration.EIndexes;
+import org.sirix.api.IPageReadTrx;
 import org.sirix.api.IPageWriteTrx;
-import org.sirix.api.ISession;
 import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.ICache;
 import org.sirix.cache.PageContainer;
@@ -79,7 +79,7 @@ import com.google.common.base.Optional;
  * to the persistent storage layer.
  * </p>
  */
-public final class PageWriteTrx implements IPageWriteTrx {
+final class PageWriteTrx extends AbsForwardingPageReadTrx implements IPageWriteTrx {
 
 	/** Page writer to serialize. */
 	private final IWriter mPageWriter;
@@ -110,15 +110,6 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	 * single {@link NodeWriteTrx}.
 	 */
 	private EMultipleWriteTrx mMultipleWriteTrx;
-
-	/** Determines if a log must be replayed or not. */
-	public enum ERestore {
-		/** Yes, it must be replayed. */
-		YES,
-
-		/** No, it must not be replayed. */
-		NO
-	}
 
 	/** Determines if a log must be replayed or not. */
 	private ERestore mRestore = ERestore.NO;
@@ -678,69 +669,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
 		}
 	}
 
-	/**
-	 * Building name consisting out of prefix and name. NamespaceUri is not used
-	 * over here.
-	 * 
-	 * @param pQName
-	 *          the {@link QName} of an element
-	 * @return a string with [prefix:]localname
-	 */
-	public static String buildName(final @Nonnull QName pQName) {
-		String name;
-		if (pQName.getPrefix().isEmpty()) {
-			name = pQName.getLocalPart();
-		} else {
-			name = new StringBuilder(pQName.getPrefix()).append(":")
-					.append(pQName.getLocalPart()).toString();
-		}
-		return name;
-	}
-
 	@Override
-	public byte[] getRawName(final int pNameKey, final @Nonnull EKind pKind) {
-		return mPageRtx.getRawName(pNameKey, pKind);
-	}
-
-	@Override
-	public PageContainer getNodeFromPage(final long pKey,
-			final @Nonnull EPage pPage) throws SirixIOException {
-		return mPageRtx.getNodeFromPage(pKey, pPage);
-	}
-
-	@Override
-	public UberPage getUberPage() {
-		return mPageRtx.getUberPage();
-	}
-
-	@Override
-	public int getNameCount(final int pKey, final @Nonnull EKind pKind) {
-		return mPageRtx.getNameCount(pKey, pKind);
-	}
-
-	@Override
-	public boolean isClosed() {
-		return mPageRtx.isClosed();
-	}
-
-	@Override
-	public int getRevisionNumber() {
-		return mPageRtx.getRevisionNumber();
-	}
-
-	@Override
-	public ISession getSession() {
-		return mPageRtx.getSession();
-	}
-
-	@Override
-	public IPage getFromPageCache(final @Nonnegative long pKey)
-			throws SirixIOException {
-		return mPageRtx.getFromPageCache(pKey);
-	}
-
-	@Override
-	public void putPageCache(final @Nonnull BerkeleyPersistencePageCache pPageLog) {
-		mPageRtx.putPageCache(pPageLog);
+	protected IPageReadTrx delegate() {
+		return mPageRtx;
 	}
 }

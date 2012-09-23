@@ -606,7 +606,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		final IAxis axis = new FilterAxis(new ChildAxis(mPathSummary),
 				new NameFilter(mPathSummary,
 						pKind == EKind.NAMESPACE ? pQName.getPrefix()
-								: PageWriteTrx.buildName(pQName)), new PathKindFilter(
+								: Utils.buildName(pQName)), new PathKindFilter(
 						mPathSummary, pKind));
 		long retVal = nodeKey;
 		if (axis.hasNext()) {
@@ -1273,7 +1273,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 				// Create new keys for mapping.
 				final int nameKey = getPageTransaction().createNameKey(
-						PageWriteTrx.buildName(pQName), node.getKind());
+						Utils.buildName(pQName), node.getKind());
 				final int uriKey = getPageTransaction().createNameKey(
 						pQName.getNamespaceURI(), EKind.NAMESPACE);
 
@@ -1342,7 +1342,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			moveSummaryGetLevel(pNode);
 			// Search for new path entry.
 			final IAxis axis = new FilterAxis(new ChildAxis(mPathSummary),
-					new NameFilter(mPathSummary, PageWriteTrx.buildName(pQName)),
+					new NameFilter(mPathSummary, Utils.buildName(pQName)),
 					new PathKindFilter(mPathSummary, pNode.getKind()));
 			if (axis.hasNext()) {
 				axis.next();
@@ -1367,7 +1367,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			int level = moveSummaryGetLevel(pNode);
 			// Search for new path entry.
 			final IAxis axis = new FilterAxis(new ChildAxis(mPathSummary),
-					new NameFilter(mPathSummary, PageWriteTrx.buildName(pQName)),
+					new NameFilter(mPathSummary, Utils.buildName(pQName)),
 					new PathKindFilter(mPathSummary, pNode.getKind()));
 			if (pType == EOPType.MOVEDSAMELEVEL || axis.hasNext()) {
 				if (pType != EOPType.MOVEDSAMELEVEL) {
@@ -1543,7 +1543,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					new LevelOrderAxis.Builder(mPathSummary)
 							.filterLevel(node.getLevel() - oldLevel)
 							.includeSelf(EIncludeSelf.YES).build(), new NameFilter(
-							mPathSummary, PageWriteTrx.buildName(cloned
+							mPathSummary, Utils.buildName(cloned
 									.getQNameOfCurrentNode())), new PathKindFilter(mPathSummary,
 							node.getPathKind()), new PathLevelFilter(mPathSummary,
 							node.getLevel()));
@@ -1635,7 +1635,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		mPathSummary.moveTo(pNewPathNodeKey);
 		final IAxis filterAxis = new FilterAxis(new LevelOrderAxis.Builder(
 				mPathSummary).includeSelf(EIncludeSelf.YES).build(),
-				new NameFilter(mPathSummary, PageWriteTrx.buildName(mNodeRtx
+				new NameFilter(mPathSummary, Utils.buildName(mNodeRtx
 						.getQNameOfCurrentNode())), new PathKindFilter(mPathSummary,
 						mNodeRtx.getNode().getKind()), new PathLevelFilter(mPathSummary,
 						pOldPathNode.getLevel()));

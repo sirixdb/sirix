@@ -37,7 +37,7 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.sirix.access.Database;
-import org.sirix.access.PageWriteTrx;
+import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
@@ -46,7 +46,6 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.XMLToken;
-
 import org.xml.sax.ContentHandler;
 import org.xml.sax.DTDHandler;
 import org.xml.sax.EntityResolver;
@@ -115,7 +114,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
     final QName qName = pRtx.getQNameOfCurrentNode();
     final String mURI = qName.getNamespaceURI();
     try {
-      mContHandler.endElement(mURI, qName.getLocalPart(), PageWriteTrx
+      mContHandler.endElement(mURI, qName.getLocalPart(), Utils
         .buildName(qName));
     } catch (final SAXException exc) {
       exc.printStackTrace();
@@ -178,7 +177,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
         pRtx.moveToAttribute(i);
         final QName qName = pRtx.getQNameOfCurrentNode();
         final String mURI = qName.getNamespaceURI();
-        atts.addAttribute(mURI, qName.getLocalPart(), PageWriteTrx
+        atts.addAttribute(mURI, qName.getLocalPart(), Utils
           .buildName(qName), pRtx.getTypeOfCurrentNode(), pRtx
           .getValueOfCurrentNode());
         pRtx.moveTo(key);
@@ -187,12 +186,12 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
       // Create SAX events.
       final QName qName = pRtx.getQNameOfCurrentNode();
       mContHandler.startElement(qName.getNamespaceURI(), qName.getLocalPart(),
-        PageWriteTrx.buildName(qName), atts);
+        Utils.buildName(qName), atts);
 
       // Empty elements.
       if (!((ElementNode)pRtx.getNode()).hasFirstChild()) {
         mContHandler.endElement(qName.getNamespaceURI(), qName.getLocalPart(),
-          PageWriteTrx.buildName(qName));
+          Utils.buildName(qName));
       }
     } catch (final SAXException exc) {
       exc.printStackTrace();

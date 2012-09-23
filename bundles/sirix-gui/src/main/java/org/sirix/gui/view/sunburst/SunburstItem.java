@@ -29,9 +29,6 @@ package org.sirix.gui.view.sunburst;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Equivalence;
-
-import org.gicentre.utils.move.Ease;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -46,7 +43,8 @@ import javax.xml.namespace.QName;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 
-import org.sirix.access.PageWriteTrx;
+import org.gicentre.utils.move.Ease;
+import org.sirix.access.Utils;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.EHover;
@@ -54,10 +52,13 @@ import org.sirix.gui.view.IVisualItem;
 import org.sirix.gui.view.splines.BSpline;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
 import processing.core.PGraphics;
 import processing.core.PVector;
+
+import com.google.common.base.Equivalence;
 
 /**
  * <h1>SunburstItem</h1>
@@ -1245,13 +1246,13 @@ public final class SunburstItem implements IVisualItem {
 			builder.append("\n");
 		} else if (mOldQName != null) {
 			builder.append("\n").append("old QName: ");
-			appendText(builder, PageWriteTrx.buildName(mOldQName));
+			appendText(builder, Utils.buildName(mOldQName));
 			builder.append("\n");
 		}
 		if (mQName != null) {
 			appendWhiteSpace(builder);
 			builder.append("QName: ");
-			appendText(builder, PageWriteTrx.buildName(mQName));
+			appendText(builder, Utils.buildName(mQName));
 			builder.append("\n");
 		} else if (mText != null) {
 			appendWhiteSpace(builder);

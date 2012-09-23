@@ -44,7 +44,7 @@ import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.SirixException;
 
 /**
- * Transactionlog for storing all upcoming nodes in either the ram cache or a
+ * Thread safe transaction-log for storing all upcoming nodes in either the ram cache or a
  * persistent second cache.
  * 
  * @author Sebastian Graf, University of Konstanz
@@ -53,14 +53,10 @@ import org.sirix.exception.SirixException;
  */
 public final class TransactionLogCache implements ICache<Long, PageContainer> {
 
-  /**
-   * RAM-Based first cache.
-   */
+  /** RAM-Based first cache. */
   private final LRUCache<Long, PageContainer> mFirstCache;
 
-  /**
-   * Persistend second cache.
-   */
+  /** Persistend second cache. */
   private final ICache<Long, PageContainer> mSecondCache;
 
   /** {@link ReadWriteLock} instance. */

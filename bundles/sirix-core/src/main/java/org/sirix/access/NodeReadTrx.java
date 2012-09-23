@@ -68,7 +68,7 @@ import org.sirix.utils.Util;
  * transaction works on a given revision key.
  * </p>
  */
-public final class NodeReadTrx implements INodeReadTrx {
+final class NodeReadTrx implements INodeReadTrx {
 
 	/** ID of transaction. */
 	private final long mId;

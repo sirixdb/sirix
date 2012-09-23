@@ -58,7 +58,7 @@ public class NodeFactory implements INodeFactory {
 			final @Nonnegative int pLevel) throws SirixIOException {
 		final int nameKey = pKind == EKind.NAMESPACE ? NamePageHash
 				.generateHashForString(pName.getPrefix()) : NamePageHash
-				.generateHashForString(PageWriteTrx.buildName(pName));
+				.generateHashForString(Utils.buildName(pName));
 		final int uriKey = NamePageHash.generateHashForString(pName
 				.getNamespaceURI());
 
@@ -83,7 +83,7 @@ public class NodeFactory implements INodeFactory {
 			@Nonnull final QName pName, final @Nonnegative long pPathNodeKey)
 			throws SirixIOException {
 		final int nameKey = mPageWriteTrx.createNameKey(
-				PageWriteTrx.buildName(pName), EKind.ELEMENT);
+				Utils.buildName(pName), EKind.ELEMENT);
 		final int uriKey = mPageWriteTrx.createNameKey(pName.getNamespaceURI(),
 				EKind.NAMESPACE);
 
@@ -130,7 +130,7 @@ public class NodeFactory implements INodeFactory {
 			final @Nonnegative long pPathNodeKey) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final int nameKey = mPageWriteTrx.createNameKey(
-				PageWriteTrx.buildName(pName), EKind.ATTRIBUTE);
+				Utils.buildName(pName), EKind.ATTRIBUTE);
 		final int uriKey = mPageWriteTrx.createNameKey(pName.getNamespaceURI(),
 				EKind.NAMESPACE);
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx

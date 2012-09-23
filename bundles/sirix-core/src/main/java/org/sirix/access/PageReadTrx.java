@@ -142,7 +142,7 @@ final class PageReadTrx implements IPageReadTrx {
 		checkArgument(pRevision >= 0, "Revision must be >= 0!");
 		mNodeCache = CacheBuilder.newBuilder().maximumSize(1000)
 				.expireAfterWrite(40, TimeUnit.SECONDS)
-				.expireAfterAccess(5, TimeUnit.SECONDS)
+				.expireAfterAccess(15, TimeUnit.SECONDS)
 				.build(new CacheLoader<Long, PageContainer>() {
 					public PageContainer load(final Long pKey) throws SirixException {
 						return getNodeFromPage(pKey, EPage.NODEPAGE);

@@ -27,7 +27,6 @@
 package org.sirix.diff.algorithm.fmse;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Optional;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -38,8 +37,7 @@ import java.util.Set;
 
 import javax.xml.namespace.QName;
 
-import org.slf4j.LoggerFactory;
-import org.sirix.access.PageWriteTrx;
+import org.sirix.access.Utils;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
@@ -61,6 +59,9 @@ import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.INode;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.Pair;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Optional;
 
 /**
  * Provides the fast match / edit script (fmes) tree to tree correction
@@ -1225,7 +1226,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
     case ELEMENT:
     case NAMESPACE:
     case ATTRIBUTE:
-      retVal.append(PageWriteTrx.buildName(pRtx.getQNameOfCurrentNode()));
+      retVal.append(Utils.buildName(pRtx.getQNameOfCurrentNode()));
       break;
     case TEXT:
       retVal.append(pRtx.getValueOfCurrentNode());

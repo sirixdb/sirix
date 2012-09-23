@@ -28,9 +28,6 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.base.Optional;
-import com.google.common.collect.BiMap;
 
 import java.util.Collections;
 import java.util.List;
@@ -39,7 +36,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.access.PageWriteTrx;
+import org.sirix.access.Utils;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -48,6 +45,10 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Optional;
+import com.google.common.collect.BiMap;
 
 /**
  * <h1>ElementNode</h1>
@@ -137,7 +138,7 @@ public final class ElementNode extends AbsStructForwardingNode implements
    */
   public Optional<Long> getAttributeKeyByName(@Nonnull final QName pQName) {
     final int nameIndex =
-      NamePageHash.generateHashForString(PageWriteTrx.buildName(pQName));
+      NamePageHash.generateHashForString(Utils.buildName(pQName));
     return Optional.fromNullable(mAttributes.get(nameIndex));
   }
 

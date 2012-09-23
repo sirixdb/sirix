@@ -134,8 +134,8 @@ public final class BerkeleyPersistenceCache extends
   }
 
   @Override
-  public void putPersistent(@Nonnull final Long pKey,
-    @Nonnull final PageContainer pPage) throws SirixIOException {
+  public void putPersistent(final @Nonnull Long pKey,
+    final @Nonnull PageContainer pPage) throws SirixIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
     mEntries++;
@@ -164,7 +164,7 @@ public final class BerkeleyPersistenceCache extends
   }
 
   @Override
-  public PageContainer getPersistent(@Nonnull final Long pKey)
+  public PageContainer getPersistent(final @Nonnull Long pKey)
     throws SirixIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -177,8 +177,8 @@ public final class BerkeleyPersistenceCache extends
         val = mValueBinding.entryToObject(valueEntry);
       }
       return val;
-    } catch (final DatabaseException exc) {
-      throw new SirixIOException(exc);
+    } catch (final DatabaseException e) {
+      throw new SirixIOException(e);
     }
   }
 
