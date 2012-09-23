@@ -430,7 +430,7 @@ public final class Database implements IDatabase {
 	public synchronized boolean existsResource(final @Nonnull String pResourceName) {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.Data.getFile().getName()), pResourceName);
-		boolean retVal = resourceFile.exists() ? true : false;
+		final boolean retVal = resourceFile.exists() ? true : false;
 		// if file is existing and folder is a tt-dataplace
 		return retVal
 				&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0 ? true
