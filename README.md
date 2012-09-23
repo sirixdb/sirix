@@ -1,11 +1,6 @@
-#Sirix - Secure Treebased Storage
+#Sirix - a versioned, treebased storage system
 
-Sirix stores data securely by applying different layers on the stored data. Flexible handling of flat as well as tree-based data is supported by a native encoding of the tree-structures ongoing with suitable paging supporting integrity and confidentiality to provide throughout security.
-
-Secure in this context includes integrity-checks, confidentiality with tree-aware key handling, versioning to provide accountability.
-Furthermore, different backends are provided while a binding to different cloud-infrastructures is in progress.
-
-The architecture supports the well known ACID-properties and Snapshot Isolation through MVCC which in turn supports N-reading transactions in parallel to currently 1-write transaction. Supporting N-write transactions is planned as well as the current work on indexes to support a binding to Brackit which in turn supports XQuery/XQuery Update Facility. The COW-approach used for providing Snapshot Isolation through MVCC is especially well suited for flash-disks. We support several well known versioning strategies.
+The architecture supports the well known ACID-properties (durability currently isn't guaranted if the transaction crashes) and Snapshot Isolation through MVCC which in turn supports N-reading transactions in parallel to currently 1-write transaction. Supporting N-write transactions is planned as well as the current work on indexes to support a binding to Brackit which in turn supports XQuery/XQuery Update Facility. The COW-approach used for providing Snapshot Isolation through MVCC is especially well suited for flash-disks. We support several well known versioning strategies.
 
 The GUI provides interactive visualizations of the differences between either 2 or more versions of a resource in Sirix. Please have a look into my master-thesis for screenshots.
 
