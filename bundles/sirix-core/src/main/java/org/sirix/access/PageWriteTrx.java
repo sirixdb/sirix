@@ -29,9 +29,9 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Optional;
 
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +41,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.xml.namespace.QName;
 
+import org.sirix.access.conf.ResourceConfiguration.EIndexes;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.api.ISession;
 import org.sirix.cache.BerkeleyPersistencePageCache;
@@ -65,8 +66,10 @@ import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.settings.EFixed;
 import org.sirix.settings.ERevisioning;
-import org.sirix.utils.IConstants;
+import org.sirix.settings.IConstants;
 import org.sirix.utils.NamePageHash;
+
+import com.google.common.base.Optional;
 
 /**
  * <h1>PageWriteTrx</h1>
@@ -142,14 +145,14 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	 *          revision represent
 	 * @param pStoreRev
 	 *          revision store
-	 * @throws SirixException
+	 * @throws AbsTTException
 	 *           if an error occurs
 	 */
 	PageWriteTrx(final @Nonnull Session pSession,
 			final @Nonnull UberPage pUberPage, final @Nonnull IWriter pWriter,
-			final @Nonnegative long pId, final @Nonnegative long pRepresentRev,
-			final @Nonnegative long pStoreRev,
-			final @Nonnegative long pLastCommitedRev) throws SirixException {
+			final @Nonnegative long pId, final @Nonnegative int pRepresentRev,
+			final @Nonnegative int pStoreRev, final @Nonnegative int pLastCommitedRev)
+			throws SirixException {
 		mPathLog = new TransactionLogCache(this, pSession.mResourceConfig.mPath,
 				pStoreRev, "path");
 		mNodeLog = new TransactionLogCache(this, pSession.mResourceConfig.mPath,
@@ -173,8 +176,14 @@ public final class PageWriteTrx implements IPageWriteTrx {
 				pRepresentRev, pLastCommitedRev);
 		mNewRoot = preparePreviousRevisionRootPage(pRepresentRev, pStoreRev);
 		mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
-		mNewRoot.setMaxPathNodeKey(lastCommitedRoot.getMaxPathNodeKey());
-		mNewRoot.setMaxValueNodeKey(lastCommitedRoot.getMaxValueNodeKey());
+
+		final Set<EIndexes> indexes = pSession.getResourceConfig().mIndexes;
+		if (indexes.contains(EIndexes.PATH)) {
+			mNewRoot.setMaxPathNodeKey(lastCommitedRoot.getMaxPathNodeKey());
+		}
+		if (indexes.contains(EIndexes.VALUE)) {
+			mNewRoot.setMaxValueNodeKey(lastCommitedRoot.getMaxValueNodeKey());
+		}
 	}
 
 	@Override
@@ -504,7 +513,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 		if (cont == null) {
 			// Indirect reference.
 			final PageReference reference = prepareLeafOfTree(
-					mPageRtx.getPageReference(mNewRoot, pPage), pNodePageKey);
+					mPageRtx.getPageReference(mNewRoot, pPage), pNodePageKey, pPage);
 			final NodePage page = (NodePage) reference.getPage();
 			if (page == null) {
 				if (reference.getKey() == IConstants.NULL_ID) {
@@ -551,8 +560,8 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	 *           if an I/O error occurs
 	 */
 	private RevisionRootPage preparePreviousRevisionRootPage(
-			final @Nonnegative long pBaseRevision,
-			final @Nonnegative long pRepresentRevision) throws SirixIOException {
+			final @Nonnegative int pBaseRevision,
+			final @Nonnegative int pRepresentRevision) throws SirixIOException {
 		if (getUberPage().isBootstrap()) {
 			return mPageRtx.loadRevRoot(pBaseRevision);
 		} else {
@@ -564,7 +573,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 			// nodePageReference.
 			final PageReference revisionRootPageReference = prepareLeafOfTree(
 					getUberPage().getIndirectPageReference(), getUberPage()
-							.getRevisionNumber());
+							.getRevisionNumber(), EPage.UBERPAGE);
 
 			// Link the prepared revision root nodePageReference with the
 			// prepared indirect tree.
@@ -588,19 +597,20 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	 *           if an I/O error occured
 	 */
 	private PageReference prepareLeafOfTree(
-			final @Nonnull PageReference pStartReference, final @Nonnegative long pKey)
+			final @Nonnull PageReference pStartReference, final @Nonnegative long pKey, final @Nonnull EPage pPage)
 			throws SirixIOException {
 		// Initial state pointing to the indirect nodePageReference of level 0.
 		PageReference reference = pStartReference;
 		int offset = 0;
 		long levelKey = pKey;
+		final int[] inpLevelPageCountExp = mPageRtx.getUberPage().getPageCountExp(pPage);
 
 		// Iterate through all levels.
-		for (int level = 0, height = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; level < height; level++) {
-			offset = (int) (levelKey >> IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT[level]);
-			levelKey -= offset << IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT[level];
+		for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
+			offset = (int) (levelKey >> inpLevelPageCountExp[level]);
+			levelKey -= offset << inpLevelPageCountExp[level];
 			final IndirectPage page = prepareIndirectPage(reference);
-			reference = page.getReferences()[offset];
+			reference = page.getReference(offset);
 		}
 
 		// Return reference to leaf of indirect tree.
@@ -714,7 +724,7 @@ public final class PageWriteTrx implements IPageWriteTrx {
 	}
 
 	@Override
-	public long getRevisionNumber() {
+	public int getRevisionNumber() {
 		return mPageRtx.getRevisionNumber();
 	}
 

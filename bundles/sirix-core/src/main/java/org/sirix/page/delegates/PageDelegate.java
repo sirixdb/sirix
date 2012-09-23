@@ -49,138 +49,138 @@ import org.sirix.page.interfaces.IPage;
  */
 public class PageDelegate implements IPage {
 
-  /** Page references. */
-  private PageReference[] mReferences;
+	/** Page references. */
+	private PageReference[] mReferences;
 
-  /** Revision of this page. */
-  private final long mRevision;
+	/** Revision of this page. */
+	private final int mRevision;
 
-  /**
-   * Constructor to initialize instance.
-   * 
-   * @param pReferenceCount
-   *          number of references of page
-   * @param pRevision
-   *          revision number
-   */
-  public PageDelegate(@Nonnegative final int pReferenceCount,
-    @Nonnegative final long pRevision) {
-    checkArgument(pReferenceCount >= 0);
-    checkArgument(pRevision >= 0);
-    mReferences = new PageReference[pReferenceCount];
-    mRevision = pRevision;
-    for (int i = 0; i < pReferenceCount; i++) {
-      mReferences[i] = new PageReference();
-    }
-  }
+	/**
+	 * Constructor to initialize instance.
+	 * 
+	 * @param pReferenceCount
+	 *          number of references of page
+	 * @param pRevision
+	 *          revision number
+	 */
+	public PageDelegate(@Nonnegative final int pReferenceCount,
+			@Nonnegative final int pRevision) {
+		checkArgument(pReferenceCount >= 0);
+		checkArgument(pRevision >= 0);
+		mReferences = new PageReference[pReferenceCount];
+		mRevision = pRevision;
+		for (int i = 0; i < pReferenceCount; i++) {
+			mReferences[i] = new PageReference();
+		}
+	}
 
-  /**
-   * Constructor to initialize instance.
-   * 
-   * @param pReferenceCount
-   *          number of references of page
-   * @param pIn
-   *          input stream to read from
-   */
-  public PageDelegate(final @Nonnegative int pReferenceCount,
-    final @Nonnull ByteArrayDataInput pIn) {
-    checkArgument(pReferenceCount >= 0);
-    mReferences = new PageReference[pReferenceCount];
-    mRevision = pIn.readLong();
-    for (int offset = 0; offset < mReferences.length; offset++) {
-      mReferences[offset] = new PageReference();
-      mReferences[offset].setKey(pIn.readLong());
-    }
-  }
+	/**
+	 * Constructor to initialize instance.
+	 * 
+	 * @param pReferenceCount
+	 *          number of references of page
+	 * @param pIn
+	 *          input stream to read from
+	 */
+	public PageDelegate(final @Nonnegative int pReferenceCount,
+			final @Nonnull ByteArrayDataInput pIn) {
+		checkArgument(pReferenceCount >= 0);
+		mReferences = new PageReference[pReferenceCount];
+		mRevision = pIn.readInt();
+		for (int offset = 0; offset < mReferences.length; offset++) {
+			mReferences[offset] = new PageReference();
+			mReferences[offset].setKey(pIn.readLong());
+		}
+	}
 
-  /**
-   * Constructor to initialize instance.
-   * 
-   * @param pCommitedPage
-   *          commited page
-   * @param pRevision
-   *          revision number
-   */
-  public PageDelegate(final @Nonnull IPage pCommitedPage,
-    final @Nonnegative long pRevision) {
-    checkArgument(pRevision >= 0);
-    mReferences = pCommitedPage.getReferences();
-    mRevision = pRevision;
-  }
+	/**
+	 * Constructor to initialize instance.
+	 * 
+	 * @param pCommitedPage
+	 *          commited page
+	 * @param pRevision
+	 *          revision number
+	 */
+	public PageDelegate(final @Nonnull IPage pCommitedPage,
+			final @Nonnegative int pRevision) {
+		checkArgument(pRevision >= 0);
+		mReferences = pCommitedPage.getReferences();
+		mRevision = pRevision;
+	}
 
-  /**
-   * Get page reference of given offset.
-   * 
-   * @param pOffset
-   *          offset of page reference
-   * @return {@link PageReference} at given offset
-   */
-  public final PageReference getChildren(@Nonnegative final int pOffset) {
-    if (mReferences[pOffset] == null) {
-      mReferences[pOffset] = new PageReference();
-    }
-    return mReferences[pOffset];
-  }
+	/**
+	 * Get page reference of given offset.
+	 * 
+	 * @param pOffset
+	 *          offset of page reference
+	 * @return {@link PageReference} at given offset
+	 */
+	public final PageReference getReference(@Nonnegative final int pOffset) {
+		if (mReferences[pOffset] == null) {
+			mReferences[pOffset] = new PageReference();
+		}
+		return mReferences[pOffset];
+	}
 
-  /**
-   * Recursively call commit on all referenced pages.
-   * 
-   * @param pState
-   *          IWriteTransaction state
-   * @throws SirixException
-   *           if a write-error occured
-   */
-  @Override
-  public final void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
-    throws SirixException {
-    for (final PageReference reference : mReferences) {
-      pPageWriteTrx.commit(reference);
-    }
-  }
+	/**
+	 * Recursively call commit on all referenced pages.
+	 * 
+	 * @param pState
+	 *          IWriteTransaction state
+	 * @throws SirixException
+	 *           if a write-error occured
+	 */
+	@Override
+	public final void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
+			throws SirixException {
+		for (final PageReference reference : mReferences) {
+			pPageWriteTrx.commit(reference);
+		}
+	}
 
-  /**
-   * Serialize page references into output.
-   * 
-   * @param pOut
-   *          output stream
-   */
-  @Override
-  public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
-    pOut.writeLong(mRevision);
-    for (final PageReference reference : mReferences) {
-      pOut.writeLong(reference.getKey());
-    }
-  }
+	/**
+	 * Serialize page references into output.
+	 * 
+	 * @param pOut
+	 *          output stream
+	 */
+	@Override
+	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
+		pOut.writeInt(mRevision);
+		for (final PageReference reference : mReferences) {
+			pOut.writeLong(reference.getKey());
+		}
+	}
 
-  /**
-   * Get all references.
-   * 
-   * @return copied references
-   */
-  @Override
-  public final PageReference[] getReferences() {
-    final PageReference[] copiedRefs = new PageReference[mReferences.length];
-    System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
-    return copiedRefs;
-  }
+	/**
+	 * Get all references.
+	 * 
+	 * @return copied references
+	 */
+	@Override
+	public final PageReference[] getReferences() {
+		final PageReference[] copiedRefs = new PageReference[mReferences.length];
+		System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
+		return copiedRefs;
+	}
 
-  /**
-   * Get the revision.
-   * 
-   * @return the revision
-   */
-  @Override
-  public final long getRevision() {
-    return mRevision;
-  }
+	/**
+	 * Get the revision.
+	 * 
+	 * @return the revision
+	 */
+	@Override
+	public final int getRevision() {
+		return mRevision;
+	}
 
-  @Override
-  public String toString() {
-    final Objects.ToStringHelper helper =  Objects.toStringHelper(this);
-    for (final PageReference ref : mReferences) {
-      helper.add("reference", ref);
-    }
-    return helper.toString();
-  }
+	@Override
+	public String toString() {
+		final Objects.ToStringHelper helper = Objects.toStringHelper(this);
+		for (final PageReference ref : mReferences) {
+			helper.add("reference", ref);
+		}
+		return helper.toString();
+	}
 
 }

@@ -35,7 +35,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
-import org.sirix.utils.IConstants;
+import org.sirix.settings.IConstants;
 
 /**
  * <h1>IndirectPage</h1>
@@ -55,7 +55,7 @@ public final class IndirectPage extends AbsForwardingPage {
    * @param pRevision
    *          revision number
    */
-  public IndirectPage(final @Nonnegative long pRevision) {
+  public IndirectPage(final @Nonnegative int pRevision) {
     checkArgument(pRevision >= 0, "pRevision must be >= 0!");
     mDelegate = new PageDelegate(IConstants.INP_REFERENCE_COUNT, pRevision);
   }
@@ -78,7 +78,7 @@ public final class IndirectPage extends AbsForwardingPage {
    * @param pRevisionToUse
    *          revision number to use
    */
-  public IndirectPage(final @Nonnull IndirectPage pPage, final @Nonnegative long pRevisionToUse) {
+  public IndirectPage(final @Nonnull IndirectPage pPage, final @Nonnegative int pRevisionToUse) {
     checkArgument(pRevisionToUse >= 0, "pRevisionToUse must be >= 0!");
     mDelegate = new PageDelegate(pPage, pRevisionToUse);
   }

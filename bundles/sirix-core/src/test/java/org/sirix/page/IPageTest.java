@@ -15,7 +15,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.IByteHandler;
 import org.sirix.node.EKind;
 import org.sirix.page.interfaces.IPage;
-import org.sirix.utils.IConstants;
+import org.sirix.settings.IConstants;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -70,7 +70,8 @@ public class IPageTest {
 		final IndirectPage indirectPage = new IndirectPage(0);
 		// RevisionRootPage setup.
 		// final RevisionRootPage revRootPage = new RevisionRootPage();
-		// // NodePage setup.
+		
+		// NodePage setup.
 		final NodePage nodePage = new NodePage(TestHelper.random.nextInt(Integer.MAX_VALUE),
 				TestHelper.random.nextInt(Integer.MAX_VALUE));
 		for (int i = 0; i < IConstants.NDP_NODE_COUNT - 1; i++) {

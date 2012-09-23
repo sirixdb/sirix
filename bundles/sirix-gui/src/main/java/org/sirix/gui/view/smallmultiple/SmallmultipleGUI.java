@@ -314,12 +314,12 @@ public class SmallmultipleGUI extends AbsSunburstGUI implements PropertyChangeLi
       }
       break;
     case "newrev":
-      assert pEvent.getNewValue() instanceof Long;
-      mSelectedRev = (Long)pEvent.getNewValue();
+      assert pEvent.getNewValue() instanceof Integer;
+      mSelectedRev = (Integer)pEvent.getNewValue();
       break;
     case "oldrev":
-      assert pEvent.getNewValue() instanceof Long;
-      mOldSelectedRev = (Long)pEvent.getNewValue();
+      assert pEvent.getNewValue() instanceof Integer;
+      mOldSelectedRev = (Integer)pEvent.getNewValue();
       break;
     case "dotbrightness":
       assert pEvent.getNewValue() instanceof Float;

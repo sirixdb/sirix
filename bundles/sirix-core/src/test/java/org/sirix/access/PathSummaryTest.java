@@ -53,7 +53,7 @@ import org.sirix.utils.DocumentCreater;
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
- *         TODO: Provide a method for all asserts with parameters.
+ *         TODO: Provide a method for all assertions with parameters.
  */
 public class PathSummaryTest {
 
@@ -87,6 +87,10 @@ public class PathSummaryTest {
   public void testInsert() throws SirixException {
     PathSummary pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
+//    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
+//    	axis.next();
+//    	System.out.println();
+//    }
     testInsertHelper(pathSummary);
     mWtx.commit();
     mWtx.close();

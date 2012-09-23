@@ -25,7 +25,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.utils;
+package org.sirix.settings;
 
 import java.nio.charset.Charset;
 
@@ -53,44 +53,84 @@ public final class IConstants {
 
   /** Default internal encoding. */
   public static final Charset DEFAULT_ENCODING = Charsets.UTF_8;
-
+  
   // --- Indirect Page
   // ----------------------------------------------------------
 
   /** Count of indirect references in indirect page. */
-  public static final int INP_REFERENCE_COUNT = 128;
+  public static final int INP_REFERENCE_COUNT = 512;
 
   /** 2^INP_REFERENCE_COUNT_EXPONENT = INP_REFERENCE_COUNT. */
-  public static final int INP_REFERENCE_COUNT_EXPONENT = 7;
+  public static final int INP_REFERENCE_COUNT_EXPONENT = 9;
 
   /**
    * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 * INP_REFERENCE_COUNT_EXPONENT) =
-   * 128 ^ 7, 2 ^ (6 * INP_REFERENCE_COUNT_EXPONENT) = 128 ^ 6....
+   * INP_REFERENCE_COUNT ^ 7, 2 ^ (6 * INP_REFERENCE_COUNT_EXPONENT) = INP_REFERENCE_COUNT ^ 6....
    */
   public static final int[] INP_LEVEL_PAGE_COUNT_EXPONENT = {
-    7 * INP_REFERENCE_COUNT_EXPONENT, 6 * INP_REFERENCE_COUNT_EXPONENT,
-    5 * INP_REFERENCE_COUNT_EXPONENT, 4 * INP_REFERENCE_COUNT_EXPONENT,
+//    7 * INP_REFERENCE_COUNT_EXPONENT, 6 * INP_REFERENCE_COUNT_EXPONENT,
+//    5 * INP_REFERENCE_COUNT_EXPONENT, 
+//    4 * INP_REFERENCE_COUNT_EXPONENT,
     3 * INP_REFERENCE_COUNT_EXPONENT, 2 * INP_REFERENCE_COUNT_EXPONENT,
     1 * INP_REFERENCE_COUNT_EXPONENT, 0 * INP_REFERENCE_COUNT_EXPONENT
+  };
+  
+  // --- Path summary
+  // -------------------------------------------------------------
+  
+  /** Count of indirect references in indirect page. */
+  public static final int PATHINP_REFERENCE_COUNT = 512;
+
+  /** 2^INP_REFERENCE_COUNT_EXPONENT = INP_REFERENCE_COUNT. */
+  public static final int PATHINP_REFERENCE_COUNT_EXPONENT = 9;
+
+  
+  /**
+   * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 * INP_REFERENCE_COUNT_EXPONENT) =
+   * INP_REFERENCE_COUNT ^ 7, 2 ^ (6 * INP_REFERENCE_COUNT_EXPONENT) = INP_REFERENCE_COUNT ^ 6....
+   */
+  public static final int[] PATHINP_LEVEL_PAGE_COUNT_EXPONENT = {
+//  	4 * UBPINP_REFERENCE_COUNT_EXPONENT,
+//    3 * UBPINP_REFERENCE_COUNT_EXPONENT, 
+//    2 * UBPINP_REFERENCE_COUNT_EXPONENT,
+    1 * PATHINP_REFERENCE_COUNT_EXPONENT, 
+    0 * PATHINP_REFERENCE_COUNT_EXPONENT
   };
 
   // --- Uber Page
   // -------------------------------------------------------------
 
-  /** Revision key of unitialized storage. */
-  public static final long UBP_ROOT_REVISION_COUNT = 1L;
+  /** Count of indirect references in indirect page. */
+  public static final int UBPINP_REFERENCE_COUNT = 512;
+
+  /** 2^INP_REFERENCE_COUNT_EXPONENT = INP_REFERENCE_COUNT. */
+  public static final int UBPINP_REFERENCE_COUNT_EXPONENT = 9;
+
+  /**
+   * Exponent of pages per level (root level = 0, leaf level = 7). 2 ^ (7 * INP_REFERENCE_COUNT_EXPONENT) =
+   * INP_REFERENCE_COUNT ^ 7, 2 ^ (6 * INP_REFERENCE_COUNT_EXPONENT) = INP_REFERENCE_COUNT ^ 6....
+   */
+  public static final int[] UBPINP_LEVEL_PAGE_COUNT_EXPONENT = {
+//  	4 * UBPINP_REFERENCE_COUNT_EXPONENT,
+//    3 * UBPINP_REFERENCE_COUNT_EXPONENT, 
+//    2 * UBPINP_REFERENCE_COUNT_EXPONENT,
+    1 * UBPINP_REFERENCE_COUNT_EXPONENT, 0 * UBPINP_REFERENCE_COUNT_EXPONENT
+  };
+  
+  /** Revision count of unitialized storage. */
+  public static final int UBP_ROOT_REVISION_COUNT = 1;
 
   /** Root revisionKey guaranteed to exist in empty storage. */
-  public static final long UBP_ROOT_REVISION_NUMBER = 0L;
+  public static final int UBP_ROOT_REVISION_NUMBER = 0;
 
   // --- Node Page
   // -------------------------------------------------------------
 
   /** Maximum node count per node page. */
-  public static final int NDP_NODE_COUNT = 128;
+  public static final int NDP_NODE_COUNT = 512;
 
   /** 2^NDP_NODE_COUNT_EXPONENT = NDP_NODE_COUNT. */
-  public static final int NDP_NODE_COUNT_EXPONENT = 7;
+  public static final int NDP_NODE_COUNT_EXPONENT = 9;
 
   // --- Reference Page
   // -------------------------------------------------------------

@@ -65,7 +65,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
   private final ISession mSession;
 
   /** The revision to open. */
-  private long mRevision;
+  private int mRevision;
 
   /**
    * Builder.
@@ -78,7 +78,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
     private final ISession mSession;
 
     /** The revision to open. */
-    private long mRevision;
+    private int mRevision;
 
     /**
      * Constructor.
@@ -101,7 +101,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
      *          the revision to open
      * @return this builder instance
      */
-    public Builder setRevision(@Nonnegative final long pRevision) {
+    public Builder setRevision(@Nonnegative final int pRevision) {
       checkArgument(pRevision >= 0, "pRevision must be >= 0!");
       mRevision = pRevision;
       return this;

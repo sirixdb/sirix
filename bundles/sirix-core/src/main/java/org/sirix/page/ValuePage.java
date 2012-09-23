@@ -27,16 +27,15 @@ package org.sirix.page;
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
+
+import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
 
 /**
  * Page to hold references to a value summary.
@@ -60,7 +59,7 @@ public class ValuePage extends AbsForwardingPage {
    * @throws IllegalArgumentException
    *           if {@code pRevision} < 0
    */
-  public ValuePage(@Nonnegative final long pRevision) {
+  public ValuePage(@Nonnegative final int pRevision) {
     checkArgument(pRevision >= 0, "pRevision must be >= 0!");
     mDelegate = new PageDelegate(1, pRevision);
   }
@@ -71,7 +70,7 @@ public class ValuePage extends AbsForwardingPage {
    * @return indirect page reference
    */
   public PageReference getIndirectPageReference() {
-    return getReferences()[INDIRECT_REFERENCE_OFFSET];
+    return getReference(INDIRECT_REFERENCE_OFFSET);
   }
 
   /**

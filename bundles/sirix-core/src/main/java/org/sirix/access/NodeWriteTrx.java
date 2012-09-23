@@ -90,7 +90,7 @@ import org.sirix.service.xml.shredder.EInsert;
 import org.sirix.service.xml.shredder.EShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.settings.EFixed;
-import org.sirix.utils.IConstants;
+import org.sirix.settings.IConstants;
 import org.sirix.utils.XMLToken;
 
 import com.google.common.base.Objects;
@@ -213,7 +213,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			final @Nonnull Session pSession,
 			final @Nonnull IPageWriteTrx pPageWriteTrx,
 			@Nonnegative final int pMaxNodeCount, final @Nonnull TimeUnit pTimeUnit,
-			@Nonnegative final int pMaxTime) throws SirixIOException, SirixUsageException {
+			@Nonnegative final int pMaxTime) throws SirixIOException,
+			SirixUsageException {
 
 		// Do not accept negative values.
 		if ((pMaxNodeCount < 0) || (pMaxTime < 0)) {
@@ -1717,13 +1718,13 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void revertTo(@Nonnegative final long pRevision) throws SirixException {
+	public void revertTo(@Nonnegative final int pRevision) throws SirixException {
 		mNodeRtx.assertNotClosed();
 		mNodeRtx.mSession.assertAccess(pRevision);
 
 		// Close current page transaction.
 		final long trxID = getTransactionID();
-		final long revNumber = getRevisionNumber();
+		final int revNumber = getRevisionNumber();
 		getPageTransaction().close();
 		mNodeRtx.setPageReadTransaction(null);
 
@@ -1779,7 +1780,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 		// Close current page transaction.
 		final long trxID = getTransactionID();
-		final long revNumber = getRevisionNumber();
+		final int revNumber = getRevisionNumber();
 		mPathSummary = null;
 		getPageTransaction().close();
 		mNodeRtx.setPageReadTransaction(null);
@@ -1791,11 +1792,15 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
 		// Get a new path summary instance.
-		mPathSummary = PathSummary.getInstance(mNodeRtx.getPageTransaction(),
-				mNodeRtx.getSession());
+		if (mIndexes.contains(EIndexes.PATH)) {
+			mPathSummary = PathSummary.getInstance(mNodeRtx.getPageTransaction(),
+					mNodeRtx.getSession());
+		}
 
 		// Get a new avl tree instance.
-		mAVLTree = AVLTree.getInstance(getPageTransaction());
+		if (mIndexes.contains(EIndexes.VALUE)) {
+			mAVLTree = AVLTree.getInstance(getPageTransaction());
+		}
 
 		// Execute post-commit hooks.
 		for (final IPostCommitHook hook : mPostCommitHooks) {
@@ -1902,7 +1907,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 		getPageTransaction().close();
 
-		long revisionToSet = getPageTransaction().getUberPage().isBootstrap() ? 0
+		final int revisionToSet = getPageTransaction().getUberPage().isBootstrap() ? 0
 				: getRevisionNumber() - 1;
 
 		// Reset page transaction to last committed uber page.
@@ -2175,7 +2180,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void adaptHashedWithUpdate(final long pOldHash) throws SirixIOException {
+	private void adaptHashedWithUpdate(final long pOldHash)
+			throws SirixIOException {
 		if (!mBulkInsert) {
 			switch (mHashKind) {
 			case Rolling:

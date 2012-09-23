@@ -45,8 +45,8 @@ import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
 import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
+import org.sirix.settings.IConstants;
 import org.sirix.utils.DocumentCreater;
-import org.sirix.utils.IConstants;
 
 public class SessionTest {
 

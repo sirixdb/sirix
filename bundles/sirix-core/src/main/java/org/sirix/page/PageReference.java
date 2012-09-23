@@ -33,7 +33,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.page.interfaces.IPage;
-import org.sirix.utils.IConstants;
+import org.sirix.settings.IConstants;
 
 /**
  * <h1>PageReference</h1>
@@ -62,6 +62,19 @@ public final class PageReference {
    * Default constructor setting up an uninitialized page reference.
    */
   public PageReference() {
+  }
+  
+  /**
+   * Copy constructor.
+   * 
+   * @param pReference
+   * 					{@link PageReference} to copy
+   */
+  public PageReference(final @Nonnull PageReference pReference) {
+  	mPageKind = pReference.mPageKind;
+  	mPage = pReference.mPage;
+  	mNodePageKey = pReference.mNodePageKey;
+  	mKey = pReference.mKey;
   }
 
   /**

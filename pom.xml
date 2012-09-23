@@ -23,14 +23,24 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
-	<groupId>sirix</groupId>
+	<parent>
+		<groupId>org.sonatype.oss</groupId>
+		<artifactId>oss-parent</artifactId>
+		<version>7</version>
+	</parent>
+	<groupId>com.github.johanneslichtenberger.sirix</groupId>
 	<artifactId>parent</artifactId>
 	<packaging>pom</packaging>
 	<name>sirix-complete</name>
-	<version>1.0.5-SNAPSHOT</version>
-	<description>Sirix is a fully java-implemented native XML-Database. 
-	It supports cursorlike access to all nodes stored in the tree plus XPath 2.0 as query engine. Furthermore, Treetank is completely versionable. That means that each update-operation results in a new version. 
-	These versions can be easily retrieved within the database itself.</description>
+	<version>0.0.9</version>
+	<description>Sirix is a versioned, treebased storage system. It provides
+	an ID-less diff-algorithm to import differences between two versions. Furthermore
+	an ID-based diff-algorithm facilitates the comparison of versions stored within
+	Sirix. A GUI with several visualizations for comparing these versions visually is
+	available to aid an analyst. Versions are stored using well known versioning strategies (full, incremental, differential). 
+	The architecture is especially well suited for flash-disks because of a COW-principle. In the future we aim to provide throughout security as
+	well as a replaced page-structure to speedup our architecture. A brackit(.org) binding will
+	enable XQuery and the XQuery Update Facility. Temporal XPath axis and possibly diff-functions will help analysts to gain quick knowledge from the stored data.</description>
 	<licenses>
 		<license>
 			<name>New BSD</name>
@@ -38,6 +48,11 @@
 			<comments>3-clause BSD License</comments>
 		</license>
 	</licenses>
+	<scm>
+		<connection>scm:git:git@github.com:JohannesLichtenberger/sirix.git</connection>
+		<developerConnection>scm:git:git@github.com:JohannesLichtenberger/sirix.git</developerConnection>
+		<url>git@github.com:JohannesLichtenberger/sirix.git</url>
+	</scm>
 	<repositories>
 		<repository>
 			<id>disyInternal</id>
@@ -184,8 +199,50 @@
 					</execution>
 				</executions>
 			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-gpg-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>sign-artifacts</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>sign</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
+	<profiles>
+		<profile>
+			<id>release-sign-artifacts</id>
+			<activation>
+				<property>
+					<name>performRelease</name>
+					<value>true</value>
+				</property>
+			</activation>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-gpg-plugin</artifactId>
+						<version>1.1</version>
+						<executions>
+							<execution>
+								<id>sign-artifacts</id>
+								<phase>verify</phase>
+								<goals>
+									<goal>sign</goal>
+								</goals>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 	<dependencies>
 		<dependency>
 			<groupId>org.testng</groupId>
@@ -249,11 +306,6 @@
 			<groupId>com.google.guava</groupId>
 			<artifactId>guava</artifactId>
 			<version>12.0.1</version>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.lucene</groupId>
-			<artifactId>lucene-core</artifactId>
-			<version>4.0.0-ALPHA</version>
 		</dependency>
 	</dependencies>
 	<properties>

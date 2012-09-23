@@ -282,10 +282,10 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 	public final ISunburstControl mControl;
 
 	/** Selected revision to compare. */
-	protected transient long mSelectedRev;
+	protected transient int mSelectedRev;
 
 	/** Selected revision to compare. */
-	protected transient long mOldSelectedRev;
+	protected transient int mOldSelectedRev;
 
 	/** Old maximum depth. */
 	protected transient int mOldDepthMax;

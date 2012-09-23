@@ -30,6 +30,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.collect.ForwardingObject;
 import com.google.common.io.ByteArrayDataOutput;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
@@ -37,40 +38,46 @@ import org.sirix.exception.SirixException;
 import org.sirix.page.interfaces.IPage;
 
 /**
- * Forwarding the implementation of all methods in the {@link IPage} interface to a delegate.
+ * Forwarding the implementation of all methods in the {@link IPage} interface
+ * to a delegate.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public abstract class AbsForwardingPage extends ForwardingObject implements
-  IPage {
+		IPage {
 
-  /** Constructor for use by subclasses. */
-  protected AbsForwardingPage() {
-  }
+	/** Constructor for use by subclasses. */
+	protected AbsForwardingPage() {
+	}
 
-  @Override
-  protected abstract IPage delegate();
+	@Override
+	protected abstract IPage delegate();
 
-  @Override
-  public void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
-    throws SirixException {
-    delegate().commit(checkNotNull(pPageWriteTrx));
-  }
+	@Override
+	public void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
+			throws SirixException {
+		delegate().commit(checkNotNull(pPageWriteTrx));
+	}
 
-  @Override
-  public PageReference[] getReferences() {
-    return delegate().getReferences();
-  }
+	@Override
+	public PageReference[] getReferences() {
+		return delegate().getReferences();
+	}
 
-  @Override
-  public long getRevision() {
-    return delegate().getRevision();
-  }
+	@Override
+	public int getRevision() {
+		return delegate().getRevision();
+	}
 
-  @Override
-  public void serialize(@Nonnull final ByteArrayDataOutput pOut) {
-    delegate().serialize(checkNotNull(pOut));
-  }
+	@Override
+	public PageReference getReference(final @Nonnegative int pOffset) {
+		return delegate().getReference(pOffset);
+	}
+
+	@Override
+	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
+		delegate().serialize(checkNotNull(pOut));
+	}
 
 }

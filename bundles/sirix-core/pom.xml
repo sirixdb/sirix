@@ -23,22 +23,23 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
-		<groupId>sirix</groupId>
+		<groupId>com.github.johanneslichtenberger.sirix</groupId>
 		<artifactId>parent</artifactId>
-		<version>1.0.5-SNAPSHOT</version>
+		<version>0.0.9</version>
 		<relativePath>../../pom.xml</relativePath>
 	</parent>
 	<artifactId>core</artifactId>
-	<version>5.4.0-SNAPSHOT</version>
+	<version>0.1.0</version>
 	<packaging>jar</packaging>
 	<name>sirix-core</name>
-	<description>Sirix is a fully java-implemented native XML-Database.
-		It supports cursorlike access to all nodes stored in the tree plus
-		XPath 2.0 as query engine. Furthermore, Treetank is completely
-		versionable. That means that each update-operation results in a new
-		version.
-		These versions can be easily retrieved within the database itself.
-	</description>
+	<description>Sirix is a versioned, treebased storage system. It provides
+	an ID-less diff-algorithm to import differences between two versions. Furthermore
+	an ID-based diff-algorithm facilitates the comparison of versions stored within
+	Sirix. A GUI with several visualizations for comparing these versions visually is
+	available to aid an analyst. Versions are stored using well known versioning strategies (full, incremental, differential). 
+	The architecture is especially well suited for flash-disks because of a COW-principle. In the future we aim to provide throughout security as
+	well as a replaced page-structure to speedup our architecture. A brackit(.org) binding will
+	enable XQuery and the XQuery Update Facility. Temporal XPath axis and possibly diff-functions will help analysts to gain quick knowledge from the stored data.</description>
 	<build>
 		<plugins>
 			<plugin>

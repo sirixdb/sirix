@@ -29,8 +29,6 @@ package org.sirix.gui.view.sunburst.model;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Optional;
-import com.google.common.util.concurrent.MoreExecutors;
 
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
@@ -41,16 +39,12 @@ import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nonnull;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
@@ -67,7 +61,11 @@ import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.SunburstView.Embedded;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import processing.core.PApplet;
+
+import com.google.common.base.Optional;
 
 /**
  * Model to compare revisions.
@@ -183,10 +181,10 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
     private final ISession mSession;
 
     /** New revision to open. */
-    private final long mNewRevision;
+    private final int mNewRevision;
 
     /** Old revision to open. */
-    private final long mOldRevision;
+    private final int mOldRevision;
 
     /** XPath query. */
     private final String mQuery;
@@ -206,8 +204,8 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
      *           if {@code pSession} is {@code null}, {@code pNewRevision} is {@code less than 0},
      *           {@code pOldRevision} is {@code less than 0} or {@code pQuery} is {@code null}
      */
-    private TemporalXPathEvaluation(final ISession pSession, final long pNewRevision,
-      final long pOldRevision, final String pQuery) {
+    private TemporalXPathEvaluation(final ISession pSession, final int pNewRevision,
+      final int pOldRevision, final String pQuery) {
       assert pSession != null;
       assert pOldRevision >= 0;
       assert pNewRevision >= 0;
@@ -306,7 +304,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
     private final ISession mSession;
 
     /** The revision to open. */
-    private final long mRevision;
+    private final int mRevision;
 
     /** XPath query. */
     private final String mQuery;
@@ -321,7 +319,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
      * @param pQuery
      *          XPath query
      */
-    private XPathEvaluation(final ISession pSession, final long pRevision, final String pQuery) {
+    private XPathEvaluation(final ISession pSession, final int pRevision, final String pQuery) {
       assert pSession != null;
       assert pRevision >= 0;
       assert pQuery != null;

@@ -2,7 +2,7 @@ package org.sirix.access;
 
 import java.io.File;
 
-import org.sirix.settings.EStoragePaths;
+import org.sirix.access.conf.DatabaseConfiguration;
 
 /**
  * Abstract class for holding common data for all key databases involved
@@ -32,7 +32,7 @@ public abstract class AbsKeyDatabase {
    */
   protected AbsKeyDatabase(final File paramFile) {
     place =
-      new File(paramFile, new StringBuilder(EStoragePaths.KEYSELECTOR.getFile().getName()).append(
+      new File(paramFile, new StringBuilder(DatabaseConfiguration.Paths.KEYSELECTOR.getFile().getName()).append(
         File.separator).append(counter).toString());
     place.mkdirs();
     counter++;

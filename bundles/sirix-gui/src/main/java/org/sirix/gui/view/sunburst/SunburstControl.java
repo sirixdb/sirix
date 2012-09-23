@@ -139,7 +139,7 @@ public final class SunburstControl extends AbsSunburstControl {
       if (pControlEvent.getGroup().getName().equals("Compare revision")) {
         mSunburstGUI.mParent.noLoop();
         mSunburstGUI.mSelectedRev = (int)pControlEvent.getGroup().getValue();
-        final long selectedRev = mSunburstGUI.mSelectedRev;
+        final int selectedRev = mSunburstGUI.mSelectedRev;
         mModel = new SunburstCompareModel(mSunburstGUI.mParent, mSunburstGUI.mDb);
         mModel.addPropertyChangeListener(mSunburstGUI);
         final SunburstContainer container = new SunburstContainer(mSunburstGUI, mModel);

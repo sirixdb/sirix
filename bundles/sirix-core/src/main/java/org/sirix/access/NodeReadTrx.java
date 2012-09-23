@@ -127,7 +127,7 @@ public final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public final long getRevisionNumber() throws SirixIOException {
+	public final int getRevisionNumber() throws SirixIOException {
 		assertNotClosed();
 		return mPageReadTrx.getActualRevisionRootPage().getRevision();
 	}

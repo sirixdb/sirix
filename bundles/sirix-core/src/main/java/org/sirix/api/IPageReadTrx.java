@@ -131,7 +131,7 @@ public interface IPageReadTrx extends AutoCloseable {
    * 
    * @return the revision number
    */
-  long getRevisionNumber();
+  int getRevisionNumber();
 
   /**
    * Get page from cache.

@@ -162,7 +162,7 @@ public final class Database implements IDatabase {
 	 * must be closed beforehand.
 	 * 
 	 * @param pConf
-	 *          the database at this path should be deleted.
+	 *          the database at this path should be deleted
 	 * @throws SirixException
 	 *           if Sirix fails to delete the database
 	 */
@@ -171,8 +171,8 @@ public final class Database implements IDatabase {
 		// check that database must be closed beforehand
 		if (!DATABASEMAP.containsKey(pConf.getFile())) {
 			// if file is existing and folder is a tt-dataplace, delete it
-			if (pConf.getFile().exists()
-					&& DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
+			if (pConf.getFile().exists()) {
+//					&& DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
 				// instantiate the database for deletion
 				Files.recursiveRemove(pConf.getFile().toPath());
 			}
@@ -222,7 +222,7 @@ public final class Database implements IDatabase {
 			// Serialization of the config.
 			ResourceConfiguration.serialize(pResConf.setID(mResourceID
 					.getAndIncrement()));
-			mResources.put(mResourceID.get(), pResConf.getResource()
+			mResources.forcePut(mResourceID.get(), pResConf.getResource()
 					.getName());
 
 			// If something was not correct, delete the partly created

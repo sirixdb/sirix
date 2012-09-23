@@ -36,6 +36,8 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.io.File;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
 import javax.swing.JFrame;
 import javax.swing.JMenuBar;
 import javax.swing.UIManager;
@@ -43,7 +45,6 @@ import javax.swing.UIManager.LookAndFeelInfo;
 import javax.swing.UnsupportedLookAndFeelException;
 import javax.swing.WindowConstants;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.view.IView;
 import org.sirix.gui.view.ViewContainer;
@@ -53,6 +54,7 @@ import org.sirix.gui.view.sunburst.SunburstView;
 import org.sirix.gui.view.text.TextView;
 import org.sirix.gui.view.tree.TreeView;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>sirix GUI</h1>
@@ -185,7 +187,8 @@ public final class GUI extends JFrame {
 	 * @param pRevision
 	 *          determines the revision to open
 	 */
-	public void execute(final File pFile, final long pRevision) {
+	public void execute(final @Nonnull File pFile,
+			final @Nonnegative int pRevision) {
 		if (mReadDB == null
 				|| !pFile.equals(mReadDB.getDatabase().getDatabaseConfig().getFile())
 				|| pRevision != mReadDB.getRevisionNumber()) {

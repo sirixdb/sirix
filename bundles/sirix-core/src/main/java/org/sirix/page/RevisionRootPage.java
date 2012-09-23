@@ -34,7 +34,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
-import org.sirix.utils.IConstants;
+import org.sirix.settings.IConstants;
 
 import com.google.common.base.Objects;
 import com.google.common.io.ByteArrayDataInput;
@@ -62,9 +62,6 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	/** Offset of indirect page reference. */
 	private static final int INDIRECT_REFERENCE_OFFSET = 3;
 
-	/** Number of nodes of this revision. */
-	private long mRevisionSize;
-
 	/** Last allocated node key. */
 	private long mMaxNodeKey;
 
@@ -85,13 +82,12 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	 */
 	public RevisionRootPage() {
 		mDelegate = new PageDelegate(4, IConstants.UBP_ROOT_REVISION_NUMBER);
-		mRevisionSize = 0L;
-		getReferences()[NAME_REFERENCE_OFFSET].setPage(new NamePage(
-				IConstants.UBP_ROOT_REVISION_NUMBER));
-		getReferences()[PATH_SUMMARY_REFERENCE_OFFSET].setPage(new PathSummaryPage(
-				IConstants.UBP_ROOT_REVISION_NUMBER));
-		getReferences()[VALUE_REFERENCE_OFFSET].setPage(new ValuePage(
-				IConstants.UBP_ROOT_REVISION_NUMBER));
+		getReference(NAME_REFERENCE_OFFSET).setPage(
+				new NamePage(IConstants.UBP_ROOT_REVISION_NUMBER));
+		getReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(
+				new PathSummaryPage(IConstants.UBP_ROOT_REVISION_NUMBER));
+		getReference(VALUE_REFERENCE_OFFSET).setPage(
+				new ValuePage(IConstants.UBP_ROOT_REVISION_NUMBER));
 		mMaxNodeKey = -1L;
 		mMaxPathNodeKey = -1L;
 		mMaxValueNodeKey = -1L;
@@ -105,7 +101,6 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	 */
 	protected RevisionRootPage(final @Nonnull ByteArrayDataInput pIn) {
 		mDelegate = new PageDelegate(4, pIn);
-		mRevisionSize = pIn.readLong();
 		mMaxNodeKey = pIn.readLong();
 		mMaxPathNodeKey = pIn.readLong();
 		mMaxValueNodeKey = pIn.readLong();
@@ -122,9 +117,8 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	 */
 	public RevisionRootPage(
 			@Nonnull final RevisionRootPage pCommittedRevisionRootPage,
-			final long pRevisionToUse) {
+			final int pRevisionToUse) {
 		mDelegate = new PageDelegate(pCommittedRevisionRootPage, pRevisionToUse);
-		mRevisionSize = pCommittedRevisionRootPage.mRevisionSize;
 		mMaxNodeKey = pCommittedRevisionRootPage.mMaxNodeKey;
 		mMaxPathNodeKey = pCommittedRevisionRootPage.mMaxPathNodeKey;
 		mMaxValueNodeKey = pCommittedRevisionRootPage.mMaxValueNodeKey;
@@ -137,7 +131,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	 * @return path summary page reference
 	 */
 	public PageReference getPathSummaryPageReference() {
-		return getReferences()[PATH_SUMMARY_REFERENCE_OFFSET];
+		return getReference(PATH_SUMMARY_REFERENCE_OFFSET);
 	}
 
 	/**
@@ -146,7 +140,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	 * @return value page reference
 	 */
 	public PageReference getValuePageReference() {
-		return getReferences()[VALUE_REFERENCE_OFFSET];
+		return getReference(VALUE_REFERENCE_OFFSET);
 	}
 
 	/**
@@ -155,7 +149,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	 * @return name page reference
 	 */
 	public PageReference getNamePageReference() {
-		return getReferences()[NAME_REFERENCE_OFFSET];
+		return getReference(NAME_REFERENCE_OFFSET);
 	}
 
 	/**
@@ -164,16 +158,7 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	 * @return Indirect page reference.
 	 */
 	public PageReference getIndirectPageReference() {
-		return getReferences()[INDIRECT_REFERENCE_OFFSET];
-	}
-
-	/**
-	 * Get size of revision, i.e., the node count visible in this revision.
-	 * 
-	 * @return Revision size.
-	 */
-	public long getRevisionSize() {
-		return mRevisionSize;
+		return getReference(INDIRECT_REFERENCE_OFFSET);
 	}
 
 	/**
@@ -267,7 +252,6 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
 		mRevisionTimestamp = System.currentTimeMillis();
 		mDelegate.serialize(checkNotNull(pOut));
-		pOut.writeLong(mRevisionSize);
 		pOut.writeLong(mMaxNodeKey);
 		pOut.writeLong(mMaxPathNodeKey);
 		pOut.writeLong(mMaxValueNodeKey);
@@ -276,14 +260,13 @@ public final class RevisionRootPage extends AbsForwardingPage {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("revisionSize", mRevisionSize)
+		return Objects.toStringHelper(this)
 				.add("revisionTimestamp", mRevisionTimestamp)
 				.add("maxNodeKey", mMaxNodeKey).add("delegate", mDelegate)
-				.add("namePage", getReferences()[NAME_REFERENCE_OFFSET])
-				.add("pathSummaryPage", getReferences()[PATH_SUMMARY_REFERENCE_OFFSET])
-				.add("valuePage", getReferences()[VALUE_REFERENCE_OFFSET])
-				.add("indirectPage", getReferences()[INDIRECT_REFERENCE_OFFSET])
-				.toString();
+				.add("namePage", getReference(NAME_REFERENCE_OFFSET))
+				.add("pathSummaryPage", getReference(PATH_SUMMARY_REFERENCE_OFFSET))
+				.add("valuePage", getReference(VALUE_REFERENCE_OFFSET))
+				.add("nodePage", getReference(INDIRECT_REFERENCE_OFFSET)).toString();
 	}
 
 	@Override

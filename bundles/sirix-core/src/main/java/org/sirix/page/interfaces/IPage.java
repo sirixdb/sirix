@@ -26,24 +26,25 @@
  */
 package org.sirix.page.interfaces;
 
-import com.google.common.io.ByteArrayDataOutput;
-
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.page.PageReference;
 
+import com.google.common.io.ByteArrayDataOutput;
+
 public interface IPage {
   
-  void serialize(@Nonnull final ByteArrayDataOutput pOut);
+  void serialize(final @Nonnull ByteArrayDataOutput pOut);
 
-  long getRevision();
+  int getRevision();
 
   PageReference[] getReferences();
 
-  void commit(@Nonnull final IPageWriteTrx pPageWriteTrx) throws SirixException;
-  
-  
+  void commit(final @Nonnull IPageWriteTrx pPageWriteTrx) throws SirixException;
+
+	PageReference getReference(final @Nonnegative int offset);
 
 }

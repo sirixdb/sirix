@@ -52,199 +52,199 @@ import org.sirix.node.EKind;
  */
 public abstract class AbsSerializer implements Callable<Void> {
 
-  /** Sirix session {@link ISession}. */
-  protected final ISession mSession;
+	/** Sirix session {@link ISession}. */
+	protected final ISession mSession;
 
-  /** Stack for reading end element. */
-  protected final Deque<Long> mStack;
+	/** Stack for reading end element. */
+	protected final Deque<Long> mStack;
 
-  /** Array with versions to print. */
-  protected final long[] mRevisions;
+	/** Array with versions to print. */
+	protected final int[] mRevisions;
 
-  /** Root node key of subtree to shredder. */
-  protected final long mNodeKey;
+	/** Root node key of subtree to shredder. */
+	protected final long mNodeKey;
 
-  /**
-   * Constructor.
-   * 
-   * @param pSession
-   *          Sirix {@link ISession}
-   * @param pRevision
-   *          first revision to serialize
-   * @param pRevisions
-   *          revisions to serialize
-   */
-  public AbsSerializer(@Nonnull final ISession pSession, final long pRevision,
-    final long... pRevisions) {
-    mStack = new ArrayDeque<>();
-    mRevisions =
-      pRevisions == null ? new long[1] : new long[pRevisions.length + 1];
-    initialize(pRevision, pRevisions);
-    mSession = checkNotNull(pSession);
-    mNodeKey = 0;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pSession
+	 *          Sirix {@link ISession}
+	 * @param pRevision
+	 *          first revision to serialize
+	 * @param pRevisions
+	 *          revisions to serialize
+	 */
+	public AbsSerializer(@Nonnull final ISession pSession, final int pRevision,
+			final int... pRevisions) {
+		mStack = new ArrayDeque<>();
+		mRevisions = pRevisions == null ? new int[1]
+				: new int[pRevisions.length + 1];
+		initialize(pRevision, pRevisions);
+		mSession = checkNotNull(pSession);
+		mNodeKey = 0;
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param pSession
-   *          Sirix {@link ISession}
-   * @param pKey
-   *          key of root node from which to shredder the subtree
-   * @param pRevision
-   *          first revision to serialize
-   * @param pRevisions
-   *          revisions to serialize
-   */
-  public AbsSerializer(@Nonnull final ISession pSession,
-    @Nonnegative final long pKey, final long pRevision,
-    final long... pRevisions) {
-    mStack = new ArrayDeque<>();
-    mRevisions =
-      pRevisions == null ? new long[1] : new long[pRevisions.length + 1];
-    initialize(pRevision, pRevisions);
-    mSession = checkNotNull(pSession);
-    mNodeKey = pKey;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pSession
+	 *          Sirix {@link ISession}
+	 * @param pKey
+	 *          key of root node from which to shredder the subtree
+	 * @param pRevision
+	 *          first revision to serialize
+	 * @param pRevisions
+	 *          revisions to serialize
+	 */
+	public AbsSerializer(final @Nonnull ISession pSession,
+			final @Nonnegative long pKey, final @Nonnegative int pRevision,
+			final int... pRevisions) {
+		mStack = new ArrayDeque<>();
+		mRevisions = pRevisions == null ? new int[1]
+				: new int[pRevisions.length + 1];
+		initialize(pRevision, pRevisions);
+		mSession = checkNotNull(pSession);
+		mNodeKey = pKey;
+	}
 
-  /**
-   * Initialize.
-   * 
-   * @param pRevision
-   *          first revision to serialize
-   * @param pRevisions
-   *          revisions to serialize
-   */
-  private void initialize(@Nonnegative final long pRevision,
-    final long... pRevisions) {
-    mRevisions[0] = pRevision;
-    if (pRevisions != null) {
-      for (int i = 0; i < pRevisions.length; i++) {
-        mRevisions[i + 1] = pRevisions[i];
-      }
-    }
-  }
+	/**
+	 * Initialize.
+	 * 
+	 * @param pRevision
+	 *          first revision to serialize
+	 * @param pRevisions
+	 *          revisions to serialize
+	 */
+	private void initialize(@Nonnegative final int pRevision,
+			final int... pRevisions) {
+		mRevisions[0] = pRevision;
+		if (pRevisions != null) {
+			for (int i = 0; i < pRevisions.length; i++) {
+				mRevisions[i + 1] = pRevisions[i];
+			}
+		}
+	}
 
-  /**
-   * Serialize the storage.
-   * 
-   * @return null.
-   * @throws SirixException
-   *           if can't call serailzer
-   */
-  @Override
-  public Void call() throws SirixException {
-    emitStartDocument();
+	/**
+	 * Serialize the storage.
+	 * 
+	 * @return null.
+	 * @throws SirixException
+	 *           if can't call serailzer
+	 */
+	@Override
+	public Void call() throws SirixException {
+		emitStartDocument();
 
-    final int length =
-      (mRevisions.length == 1 && mRevisions[0] < 0) ? (int)mSession
-        .getLastRevisionNumber() : mRevisions.length;
-    for (int i = 0; i < length; i++) {
-      try (final INodeReadTrx rtx =
-        mSession.beginNodeReadTrx((mRevisions.length == 1 && mRevisions[0] < 0)
-          ? i : mRevisions[i])) {
-        if (length > 1) {
-          emitStartManualElement(i);
-        }
+		final int length = (mRevisions.length == 1 && mRevisions[0] < 0) ? (int) mSession
+				.getLastRevisionNumber() : mRevisions.length;
+		for (int i = 0; i < length; i++) {
+			try (final INodeReadTrx rtx = mSession
+					.beginNodeReadTrx((mRevisions.length == 1 && mRevisions[0] < 0) ? i
+							: mRevisions[i])) {
+				if (length > 1) {
+					emitStartManualElement(i);
+				}
 
-        rtx.moveTo(mNodeKey);
+				rtx.moveTo(mNodeKey);
 
-        final IAxis descAxis = new DescendantAxis(rtx, EIncludeSelf.YES);
+				final IAxis descAxis = new DescendantAxis(rtx, EIncludeSelf.YES);
 
-        // Setup primitives.
-        boolean closeElements = false;
-        long key = rtx.getNode().getNodeKey();
+				// Setup primitives.
+				boolean closeElements = false;
+				long key = rtx.getNode().getNodeKey();
 
-        // Iterate over all nodes of the subtree including self.
-        while (descAxis.hasNext()) {
-          key = descAxis.next();
+				// Iterate over all nodes of the subtree including self.
+				while (descAxis.hasNext()) {
+					key = descAxis.next();
 
-          // Emit all pending end elements.
-          if (closeElements) {
-            while (!mStack.isEmpty()
-              && mStack.peek() != rtx.getStructuralNode().getLeftSiblingKey()) {
-              rtx.moveTo(mStack.pop());
-              emitEndElement(rtx);
-              rtx.moveTo(key);
-            }
-            if (!mStack.isEmpty()) {
-              rtx.moveTo(mStack.pop());
-              emitEndElement(rtx);
-            }
-            rtx.moveTo(key);
-            closeElements = false;
-          }
+					// Emit all pending end elements.
+					if (closeElements) {
+						while (!mStack.isEmpty()
+								&& mStack.peek() != rtx.getStructuralNode().getLeftSiblingKey()) {
+							rtx.moveTo(mStack.pop());
+							emitEndElement(rtx);
+							rtx.moveTo(key);
+						}
+						if (!mStack.isEmpty()) {
+							rtx.moveTo(mStack.pop());
+							emitEndElement(rtx);
+						}
+						rtx.moveTo(key);
+						closeElements = false;
+					}
 
-          // Emit node.
-          emitStartElement(rtx);
+					// Emit node.
+					emitStartElement(rtx);
 
-          // Push end element to stack if we are a start element with
-          // children.
-          if (rtx.getNode().getKind() == EKind.ELEMENT
-            && rtx.getStructuralNode().hasFirstChild()) {
-            mStack.push(rtx.getNode().getNodeKey());
-          }
+					// Push end element to stack if we are a start element with
+					// children.
+					if (rtx.getNode().getKind() == EKind.ELEMENT
+							&& rtx.getStructuralNode().hasFirstChild()) {
+						mStack.push(rtx.getNode().getNodeKey());
+					}
 
-          // Remember to emit all pending end elements from stack if
-          // required.
-          if (!rtx.getStructuralNode().hasFirstChild()
-            && !rtx.getStructuralNode().hasRightSibling()) {
-            closeElements = true;
-          }
+					// Remember to emit all pending end elements from stack if
+					// required.
+					if (!rtx.getStructuralNode().hasFirstChild()
+							&& !rtx.getStructuralNode().hasRightSibling()) {
+						closeElements = true;
+					}
 
-        }
+				}
 
-        // Finally emit all pending end elements.
-        while (!mStack.isEmpty()) {
-          rtx.moveTo(mStack.pop());
-          emitEndElement(rtx);
-        }
+				// Finally emit all pending end elements.
+				while (!mStack.isEmpty()) {
+					rtx.moveTo(mStack.pop());
+					emitEndElement(rtx);
+				}
 
-        if (length > 1) {
-          emitEndManualElement(i);
-        }
-      }
-    }
-    emitEndDocument();
+				if (length > 1) {
+					emitEndManualElement(i);
+				}
+			}
+		}
+		emitEndDocument();
 
-    return null;
-  }
+		return null;
+	}
 
-  /** Emit start document. */
-  protected abstract void emitStartDocument();
+	/** Emit start document. */
+	protected abstract void emitStartDocument();
 
-  /**
-   * Emit start tag.
-   * 
-   * @param pRtx
-   *          Sirix {@link INodeReadTrx}
-   */
-  protected abstract void emitStartElement(@Nonnull final INodeReadTrx pRtx);
+	/**
+	 * Emit start tag.
+	 * 
+	 * @param pRtx
+	 *          Sirix {@link INodeReadTrx}
+	 */
+	protected abstract void emitStartElement(@Nonnull final INodeReadTrx pRtx);
 
-  /**
-   * Emit end tag.
-   * 
-   * @param pRtx
-   *          Sirix {@link INodeReadTrx}
-   */
-  protected abstract void emitEndElement(@Nonnull final INodeReadTrx pRtx);
+	/**
+	 * Emit end tag.
+	 * 
+	 * @param pRtx
+	 *          Sirix {@link INodeReadTrx}
+	 */
+	protected abstract void emitEndElement(@Nonnull final INodeReadTrx pRtx);
 
-  /**
-   * Emit a start tag, which specifies a revision.
-   * 
-   * @param pRevision
-   *          the revision to serialize
-   */
-  protected abstract void emitStartManualElement(@Nonnegative final long pRevision);
+	/**
+	 * Emit a start tag, which specifies a revision.
+	 * 
+	 * @param pRevision
+	 *          the revision to serialize
+	 */
+	protected abstract void emitStartManualElement(
+			@Nonnegative final long pRevision);
 
-  /**
-   * Emit an end tag, which specifies a revision.
-   * 
-   * @param pRevision
-   *          the revision to serialize
-   */
-  protected abstract void emitEndManualElement(@Nonnegative final long pRevision);
+	/**
+	 * Emit an end tag, which specifies a revision.
+	 * 
+	 * @param pRevision
+	 *          the revision to serialize
+	 */
+	protected abstract void emitEndManualElement(@Nonnegative final long pRevision);
 
-  /** Emit end document. */
-  protected abstract void emitEndDocument();
+	/** Emit end document. */
+	protected abstract void emitEndDocument();
 }

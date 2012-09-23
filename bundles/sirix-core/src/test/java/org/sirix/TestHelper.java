@@ -192,7 +192,7 @@ public final class TestHelper {
 	}
 
 	@Ignore
-	public static NodePage getNodePage(final long revision, final int offset,
+	public static NodePage getNodePage(final int revision, final int offset,
 			final int length, final long nodePageKey) {
 		final NodePage page = new NodePage(nodePageKey, revision);
 		NodeDelegate nodeDel;

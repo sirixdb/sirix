@@ -148,7 +148,7 @@ public final class WorkerHelper {
    * @return new XMLSerializer reference
    */
   public static XMLSerializer serializeXML(final ISession session, final OutputStream out,
-    final boolean serializeXMLDec, final boolean serializeRest, final Long revision) {
+    final boolean serializeXMLDec, final boolean serializeRest, final Integer revision) {
     final XMLSerializerBuilder builder;
     if (revision == null)
       builder = new XMLSerializerBuilder(session, out);
@@ -177,7 +177,7 @@ public final class WorkerHelper {
    * @return new XMLSerializer reference
    */
   public static XMLSerializer serializeXML(final ISession session, final OutputStream out,
-    final boolean serializeXMLDec, final boolean serializeRest, final Long nodekey, final Long revision) {
+    final boolean serializeXMLDec, final boolean serializeRest, final Long nodekey, final Integer revision) {
     final XMLSerializerProperties props = new XMLSerializerProperties();
     final XMLSerializerBuilder builder;
     if (revision == null && nodekey == null) {

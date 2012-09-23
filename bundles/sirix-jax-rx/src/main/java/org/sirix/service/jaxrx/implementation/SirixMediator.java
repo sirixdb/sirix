@@ -106,7 +106,7 @@ public final class SirixMediator implements JaxRx {
             final String revision = path.getValue(QueryParameter.REVISION);
             if (revision != null) {
                 try {
-                    database.revertToRevision(path.getResourcePath(), Long.valueOf(revision));
+                    database.revertToRevision(path.getResourcePath(), Integer.valueOf(revision));
                     return null;
                 } catch (final NumberFormatException exce) {
                     throw new JaxRxException(400, "False value for REVISION paramter: " + exce.getMessage());

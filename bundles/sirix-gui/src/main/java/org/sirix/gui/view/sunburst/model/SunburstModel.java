@@ -574,7 +574,7 @@ public final class SunburstModel extends
        * @param pRtx
        *          {@link INodeReadTrx} over which to iterate
        */
-      PrunedDescendants(final ISession pSession, final long pRevision,
+      PrunedDescendants(final ISession pSession, final int pRevision,
         final long pNodeKey, final int pDepth) throws SirixException {
         assert pSession != null;
         assert !pSession.isClosed();
@@ -637,46 +637,6 @@ public final class SunburstModel extends
             retVal++;
           }
         }
-        return retVal;
-      }
-    }
-
-    /** Counts descendants. */
-    private final static class Descendants implements Callable<Integer> {
-      /** sirix {@link INodeReadTrx}. */
-      private transient INodeReadTrx mRtx;
-
-      /**
-       * Constructor.
-       * 
-       * @param pRtx
-       *          {@link INodeReadTrx} over which to iterate
-       */
-      Descendants(final ISession pSession, final long pRevision,
-        final long pNodeKey) {
-        assert pSession != null;
-        assert !pSession.isClosed();
-        assert pRevision >= 0;
-        try {
-          mRtx = pSession.beginNodeReadTrx(pRevision);
-        } catch (final SirixException e) {
-          LOGWRAPPER.error(e.getMessage(), e);
-        }
-        mRtx.moveTo(pNodeKey);
-      }
-
-      /** {@inheritDoc} */
-      @Override
-      public Integer call() throws Exception {
-        int retVal = 0;
-
-        for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
-          .hasNext();) {
-          axis.next();
-          retVal++;
-        }
-
-        mRtx.close();
         return retVal;
       }
     }

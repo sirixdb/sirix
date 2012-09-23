@@ -29,12 +29,11 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -53,6 +52,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.access.conf.ResourceConfiguration.EIndexes;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
@@ -72,6 +72,9 @@ import org.sirix.io.IWriter;
 import org.sirix.page.EPage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Optional;
 
 /**
  * <h1>Session</h1>
@@ -173,6 +176,14 @@ public final class Session implements ISession {
 		} else {
 			// Bootstrap uber page and make sure there already is a root node.
 			mLastCommittedUberPage = new UberPage();
+
+			final Set<EIndexes> indexes = mResourceConfig.mIndexes;
+			if (indexes.contains(EIndexes.PATH)) {
+				mLastCommittedUberPage.createPathSummaryTree();
+			}
+			if (indexes.contains(EIndexes.VALUE)) {
+				mLastCommittedUberPage.createValueTree();
+			}
 		}
 		mClosed = false;
 	}
@@ -184,7 +195,7 @@ public final class Session implements ISession {
 
 	@Override
 	public synchronized INodeReadTrx beginNodeReadTrx(
-			@Nonnegative final long pRevisionKey) throws SirixException {
+			@Nonnegative final int pRevisionKey) throws SirixException {
 		assertAccess(pRevisionKey);
 		// Make sure not to exceed available number of read transactions.
 		try {
@@ -240,7 +251,7 @@ public final class Session implements ISession {
 		// Create new page write transaction (shares the same ID with the node write
 		// trx).
 		final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
-		final long lastRev = mLastCommittedUberPage.getRevisionNumber();
+		final int lastRev = mLastCommittedUberPage.getRevisionNumber();
 		final IPageWriteTrx pageWtx = createPageWriteTransaction(currentTrxID,
 				lastRev, lastRev);
 
@@ -272,13 +283,13 @@ public final class Session implements ISession {
 	 *           if an error occurs
 	 */
 	IPageWriteTrx createPageWriteTransaction(@Nonnegative final long pId,
-			@Nonnegative final long pRepresentRevision,
-			@Nonnegative final long pStoreRevision) throws SirixException {
+			@Nonnegative final int pRepresentRevision,
+			@Nonnegative final int pStoreRevision) throws SirixException {
 		checkArgument(pId >= 0, "pId must be >= 0!");
 		checkArgument(pRepresentRevision >= 0, "pRepresentRevision must be >= 0!");
 		checkArgument(pStoreRevision >= 0, "pStoreRevision must be >= 0!");
 		final IWriter writer = mFac.getWriter();
-		final long lastCommitedRev = mLastCommittedUberPage
+		final int lastCommitedRev = mLastCommittedUberPage
 				.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage
 				.getLastCommitedRevisionNumber() : 0;
 		return new PageWriteTrx(this, new UberPage(mLastCommittedUberPage,
@@ -512,12 +523,12 @@ public final class Session implements ISession {
 	}
 
 	@Override
-	public long getLastRevisionNumber() {
+	public int getLastRevisionNumber() {
 		return mLastCommittedUberPage.getRevisionNumber();
 	}
 
 	@Override
-	public PathSummary openPathSummary(@Nonnegative long pRev)
+	public PathSummary openPathSummary(@Nonnegative int pRev)
 			throws SirixException {
 		assertAccess(pRev);
 
@@ -537,7 +548,7 @@ public final class Session implements ISession {
 	}
 
 	@Override
-	public synchronized IPageReadTrx beginPageReadTrx(@Nonnegative long pRev)
+	public synchronized IPageReadTrx beginPageReadTrx(@Nonnegative int pRev)
 			throws SirixException {
 		return new PageReadTrx(this, mLastCommittedUberPage, pRev,
 				mFac.getReader(), Optional.<BerkeleyPersistencePageCache> absent());
@@ -549,10 +560,10 @@ public final class Session implements ISession {
 	}
 
 	@Override
-	public synchronized IPageWriteTrx beginPageWriteTrx(@Nonnegative long pRev)
+	public synchronized IPageWriteTrx beginPageWriteTrx(@Nonnegative int pRev)
 			throws SirixException {
 		final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
-		final long lastRev = mLastCommittedUberPage.getRevisionNumber();
+		final int lastRev = mLastCommittedUberPage.getRevisionNumber();
 		final IPageWriteTrx pageWtx = createPageWriteTransaction(currentPageTrxID,
 				lastRev, lastRev);
 

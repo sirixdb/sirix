@@ -47,7 +47,7 @@ public class NodePageTest {
 
 	@Test
 	public void testSerializeDeserialize() {
-		final NodePage page1 = new NodePage(0L, 0L);
+		final NodePage page1 = new NodePage(0L, 0);
 		assertEquals(0L, page1.getNodePageKey());
 
 		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0);

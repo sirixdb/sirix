@@ -32,6 +32,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Set;
 
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.access.EHashKind;
 import org.sirix.api.IDatabase;
 import org.sirix.api.ISession;
@@ -133,10 +136,10 @@ public final class DiffFactory {
     transient long mOldStartKey;
 
     /** New revision. */
-    final long mNewRev;
+    final int mNewRev;
 
     /** Old revision. */
-    final long mOldRev;
+    final int mOldRev;
 
     /** Depth of "root" node in new revision. */
     transient int mNewDepth;
@@ -173,8 +176,8 @@ public final class DiffFactory {
      * @param pObservers
      *          {@link Set} of observers
      */
-    public Builder(final ISession pSession, final long pNewRev, final long pOldRev,
-      final EDiffOptimized pDiffKind, final Set<IDiffObserver> pObservers) {
+    public Builder(final @Nonnull ISession pSession, final @Nonnegative int pNewRev, final @Nonnegative int pOldRev,
+      final @Nonnull EDiffOptimized pDiffKind, final @Nonnull Set<IDiffObserver> pObservers) {
       mSession = checkNotNull(pSession);
       checkArgument(pNewRev >= 0, "paramNewRev must be >= 0!");
       mNewRev = pNewRev;

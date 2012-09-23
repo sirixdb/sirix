@@ -88,9 +88,9 @@ public final class CommandoLineExplorer {
     INodeReadTrx rtx = null;
     if (args.length > 0) {
 
-      long revision = 0;
+      int revision = 0;
       if (args.length > 1) {
-        revision = Long.parseLong(args[1]);
+        revision = Integer.parseInt(args[1]);
       }
 
       final File file = new File(args[0]);

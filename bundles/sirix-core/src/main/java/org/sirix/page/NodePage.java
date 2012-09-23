@@ -66,7 +66,7 @@ public class NodePage implements IPage {
 	private final Map<Long, INodeBase> mNodes;
 
 	/** {@link PageDelegate} reference. */
-	private final long mRevision;
+	private final int mRevision;
 
 	/**
 	 * Create node page.
@@ -77,7 +77,7 @@ public class NodePage implements IPage {
 	 *          revision the page belongs to
 	 */
 	public NodePage(@Nonnegative final long pNodePageKey,
-			@Nonnegative final long pRevision) {
+			@Nonnegative final int pRevision) {
 		checkArgument(pNodePageKey >= 0, "pNodePageKey must not be negative!");
 		checkArgument(pRevision >= 0, "pRevision must not be negative!");
 		mRevision = pRevision;
@@ -92,7 +92,7 @@ public class NodePage implements IPage {
 	 *          input bytes to read page from
 	 */
 	protected NodePage(final @Nonnull ByteArrayDataInput pIn) {
-		mRevision = pIn.readLong();
+		mRevision = pIn.readInt();
 		mNodePageKey = pIn.readLong();
 		final int size = pIn.readInt();
 		mNodes = new HashMap<>(size);
@@ -139,7 +139,7 @@ public class NodePage implements IPage {
 
 	@Override
 	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
-		pOut.writeLong(mRevision);
+		pOut.writeInt(mRevision);
 		pOut.writeLong(mNodePageKey);
 		pOut.writeInt(mNodes.size());
 		for (final INodeBase node : mNodes.values()) {
@@ -185,13 +185,13 @@ public class NodePage implements IPage {
 	}
 
 	@Override
-	public long getRevision() {
+	public int getRevision() {
 		return mRevision;
 	}
 
 	@Override
 	public PageReference[] getReferences() {
-		return null;
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
@@ -206,6 +206,11 @@ public class NodePage implements IPage {
 	 */
 	public Collection<INodeBase> values() {
 		return Collections.unmodifiableCollection(mNodes.values());
+	}
+
+	@Override
+	public PageReference getReference(final @Nonnegative int offset) {
+		throw new UnsupportedOperationException();
 	}
 
 }

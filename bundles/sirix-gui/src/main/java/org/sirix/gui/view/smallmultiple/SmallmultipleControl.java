@@ -109,8 +109,8 @@ public class SmallmultipleControl extends AbsSunburstControl {
     POOL.submit(new Callable<Void>() {
       @Override
       public Void call() {
-        final long lastRevision = getLastRevision();
-        for (long j = mDb.getRevisionNumber() + 1, i = mDb.getRevisionNumber() + 1; i <= lastRevision
+        final int lastRevision = getLastRevision();
+        for (int j = mDb.getRevisionNumber() + 1, i = mDb.getRevisionNumber() + 1; i <= lastRevision
           && i < j + REVS_TO_COMPARE; i++) {
           traverse(j - 1, i, ECompare.DIFFERENTIAL);
         }
@@ -126,8 +126,8 @@ public class SmallmultipleControl extends AbsSunburstControl {
     POOL.submit(new Callable<Void>() {
       @Override
       public Void call() {
-        final long lastRevision = getLastRevision();
-        for (long j = mDb.getRevisionNumber() + 1, i = mDb.getRevisionNumber() + 1; i <= lastRevision
+        final int lastRevision = getLastRevision();
+        for (int j = mDb.getRevisionNumber() + 1, i = mDb.getRevisionNumber() + 1; i <= lastRevision
           && i < j + REVS_TO_COMPARE; i++) {
           traverse(i - 1, i, ECompare.INCREMENTAL);
         }
@@ -147,7 +147,7 @@ public class SmallmultipleControl extends AbsSunburstControl {
    *          determines how to compare (but basically just discriminates between a hybrid diff and
    *          incremental/differential)
    */
-  private void traverse(final long pOldRevision, final long pNewRevision, final ECompare pCompare) {
+  private void traverse(final int pOldRevision, final int pNewRevision, final ECompare pCompare) {
     assert pOldRevision >= 0;
     assert pNewRevision > 0;
     assert pCompare != null;
@@ -168,7 +168,7 @@ public class SmallmultipleControl extends AbsSunburstControl {
     POOL.submit(new Callable<Void>() {
       @Override
       public Void call() {
-        final long lastRevision = getLastRevision();
+        final int lastRevision = getLastRevision();
         ECompare.HYBRID.setValue(true);
         mContainer = new SunburstContainer(mSmallMultiplesGUI, mModel);
         mContainer.setLatch(getLatch()).setLock(mLock).setNewStartKey(mDb.getNodeKey()).setModWeight(
@@ -178,7 +178,7 @@ public class SmallmultipleControl extends AbsSunburstControl {
 
         mModel.traverseTree(mContainer);
         resetLatch();
-        for (long j = mDb.getRevisionNumber() + 1, i = mDb.getRevisionNumber() + 1; i <= lastRevision
+        for (int j = mDb.getRevisionNumber() + 1, i = mDb.getRevisionNumber() + 1; i <= lastRevision
           && i < j + REVS_TO_COMPARE; i++) {
           mContainer = new SunburstContainer(mSmallMultiplesGUI, mModel);
           mModel.traverseTree(mContainer.setLatch(getLatch()).setLock(mLock).setNewStartKey(mDb.getNodeKey())
@@ -211,7 +211,7 @@ public class SmallmultipleControl extends AbsSunburstControl {
    * 
    * @return last revision
    */
-  private long getLastRevision() {
+  private int getLastRevision() {
     return mDb.getSession().getLastRevisionNumber();
   }
 

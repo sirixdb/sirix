@@ -87,8 +87,8 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
    *          further revisions to serialize
    */
   public SAXSerializer(@Nonnull final ISession pSession,
-    @Nonnull final ContentHandler pHandler, @Nonnegative final long pRevision,
-    final long... pRevisions) {
+    @Nonnull final ContentHandler pHandler, @Nonnegative final int pRevision,
+    final int... pRevisions) {
     super(pSession, pRevision, pRevisions);
     mContHandler = pHandler;
   }

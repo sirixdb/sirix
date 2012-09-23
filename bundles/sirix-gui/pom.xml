@@ -23,44 +23,22 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
-		<groupId>sirix</groupId>
+		<groupId>com.github.johanneslichtenberger.sirix</groupId>
 		<artifactId>parent</artifactId>
-		<version>1.0.5-SNAPSHOT</version>
+		<version>0.0.9</version>
 		<relativePath>../../pom.xml</relativePath>
 	</parent>
 
 	<artifactId>gui</artifactId>
 	<packaging>jar</packaging>
 	<name>sirix-gui</name>
-	<version>1.0.1-SNAPSHOT</version>
+	<version>0.1.0</version>
 	<description>Sirix GUI.</description>
 	<repositories>
 		<repository>
 			<id>javamaven2</id>
 			<name>Repository for Maven2</name>
 			<url>http://download.java.net/maven/2</url>
-		</repository>
-		<repository>
-			<id>disyInternal</id>
-			<name>Internal Repository for the Distributed System Group</name>
-			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternal/</url>
-			<releases>
-				<enabled>true</enabled>
-			</releases>
-			<snapshots>
-				<enabled>false</enabled>
-			</snapshots>
-		</repository>
-		<repository>
-			<id>disyInternalSnapshot</id>
-			<name>Internal Snapshot Repository for the Distributed System Group</name>
-			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternalSnapshot/</url>
-			<releases>
-				<enabled>true</enabled>
-			</releases>
-			<snapshots>
-				<enabled>true</enabled>
-			</snapshots>
 		</repository>
 	</repositories>
 
@@ -117,21 +95,21 @@
 
 	<dependencies>
 		<dependency>
-			<groupId>sirix</groupId>
+			<groupId>com.github.johanneslichtenberger.sirix</groupId>
 			<artifactId>core</artifactId>
-			<version>5.4.0-SNAPSHOT</version>
+			<version>0.1.0</version>
 		</dependency>
 		<dependency>
-			<groupId>sirix</groupId>
+			<groupId>com.github.johanneslichtenberger.sirix</groupId>
 			<artifactId>core</artifactId>
-			<version>5.4.0-SNAPSHOT</version>
+			<version>0.1.0</version>
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
-			<groupId>sirix</groupId>
+			<groupId>com.github.johanneslichtenberger.sirix</groupId>
 			<artifactId>saxon</artifactId>
-			<version>1.0.3-SNAPSHOT</version>
+			<version>0.1.0</version>
 	    </dependency>
 		<dependency>
 			<groupId>processing</groupId>
@@ -157,12 +135,6 @@
 			<groupId>gicentre</groupId>
 			<artifactId>utils</artifactId>
 			<version>3.0.0</version>
-		</dependency>
-		<dependency>
-			<groupId>org.easymock</groupId>
-			<artifactId>easymock</artifactId>
-			<version>3.0</version>
-			<scope>test</scope>
 		</dependency>
 	</dependencies>
 </project>

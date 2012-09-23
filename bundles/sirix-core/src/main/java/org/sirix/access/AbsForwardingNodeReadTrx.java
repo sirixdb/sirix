@@ -59,7 +59,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
   }
 
   @Override
-  public long getRevisionNumber() throws SirixIOException {
+  public int getRevisionNumber() throws SirixIOException {
     return delegate().getRevisionNumber();
   }
 

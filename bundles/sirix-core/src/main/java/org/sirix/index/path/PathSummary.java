@@ -1,9 +1,6 @@
 package org.sirix.index.path;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
-import com.google.common.base.Optional;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -24,9 +21,13 @@ import org.sirix.node.interfaces.IStructNode;
 import org.sirix.page.EPage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.EFixed;
-import org.sirix.utils.IConstants;
+import org.sirix.settings.IConstants;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.Util;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Objects.ToStringHelper;
+import com.google.common.base.Optional;
 
 /**
  * Path summary organizing the path classes of a resource.
@@ -215,7 +216,7 @@ public class PathSummary implements INodeReadTrx {
   }
 
   @Override
-  public long getRevisionNumber() throws SirixIOException {
+  public int getRevisionNumber() throws SirixIOException {
     throw new UnsupportedOperationException();
   }
 

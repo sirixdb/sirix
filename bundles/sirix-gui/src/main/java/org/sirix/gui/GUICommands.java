@@ -99,21 +99,21 @@ public enum GUICommands implements IGUICommand {
   SHREDDER("Shredder XML-document", EMenu.MENU) {
     /** {@inheritDoc} */
     @Override
-    public void execute(final GUI paramGUI) {
-      assert paramGUI != null;
-      shredder(paramGUI, EShredder.NORMAL);
+    public void execute(final GUI pGUI) {
+      assert pGUI != null;
+      shredder(pGUI, EShredder.NORMAL);
     }
   },
 
   /**
    * Update a shreddered file.
    */
-  SHREDDER_UPDATE("Update shreddered file", EMenu.MENU) {
+  SHREDDER_UPDATE("Update resource", EMenu.MENU) {
     /** {@inheritDoc} */
     @Override
-    public void execute(final GUI paramGUI) {
-      assert paramGUI != null;
-      shredder(paramGUI, EShredder.UPDATEONLY);
+    public void execute(final GUI pGUI) {
+      assert pGUI != null;
+      shredder(pGUI, EShredder.UPDATEONLY);
     }
   },
 
@@ -123,20 +123,20 @@ public enum GUICommands implements IGUICommand {
   SERIALIZE("Serialize", EMenu.MENU) {
     /** {@inheritDoc} */
     @Override
-    public void execute(final GUI paramGUI) {
-      assert paramGUI != null;
+    public void execute(final GUI pGUI) {
+      assert pGUI != null;
 
       // Create file chooser.
       final MyActionListener mActionListener = new MyActionListener();
       final JFileChooser fc = createFileChooser(mActionListener);
 
-      if (fc.showOpenDialog(paramGUI) == JFileChooser.APPROVE_OPTION) {
+      if (fc.showOpenDialog(pGUI) == JFileChooser.APPROVE_OPTION) {
         final File source = fc.getSelectedFile();
         fc.setFileSelectionMode(JFileChooser.FILES_ONLY);
         fc.setAcceptAllFileFilterUsed(true);
 
         final JFileChooser chooser = new JFileChooser();
-        if (chooser.showSaveDialog(paramGUI) == JFileChooser.APPROVE_OPTION) {
+        if (chooser.showSaveDialog(pGUI) == JFileChooser.APPROVE_OPTION) {
           final File target = chooser.getSelectedFile();
           try {
             final FileOutputStream outputStream = new FileOutputStream(target);
@@ -147,7 +147,7 @@ public enum GUICommands implements IGUICommand {
 
             final ExecutorService executor = Executors.newSingleThreadExecutor();
             final XMLSerializer serializer =
-              new XMLSerializerBuilder(session, outputStream).setIndend(true).setVersions(new long[] {
+              new XMLSerializerBuilder(session, outputStream).setIndend(true).setVersions(new int[] {
                 mActionListener.getRevision()
               }).build();
             executor.submit(serializer);
@@ -161,7 +161,7 @@ public enum GUICommands implements IGUICommand {
 
             session.close();
             outputStream.close();
-            JOptionPane.showMessageDialog(paramGUI, "Serializing done!");
+            JOptionPane.showMessageDialog(pGUI, "Serializing done!");
           } catch (final SirixException e) {
             LOGWRAPPER.error(e.getMessage(), e);
           } catch (final IOException e) {
@@ -176,10 +176,8 @@ public enum GUICommands implements IGUICommand {
    * Separator.
    */
   SEPARATOR("", EMenu.SEPARATOR) {
-    /** {@inheritDoc} */
     @Override
-    public void execute(final GUI paramGUI) {
-
+    public void execute(final GUI pGUI) {
     }
   },
 
@@ -187,11 +185,10 @@ public enum GUICommands implements IGUICommand {
    * Close sirix GUI.
    */
   QUIT("Quit", EMenu.MENU) {
-    /** {@inheritDoc} */
     @Override
-    public void execute(final GUI paramGUI) {
-      assert paramGUI != null;
-      paramGUI.dispose();
+    public void execute(final GUI pGUI) {
+      assert pGUI != null;
+      pGUI.dispose();
     }
   },
 
@@ -199,21 +196,19 @@ public enum GUICommands implements IGUICommand {
    * Show tree view.
    */
   TREE("Tree", EMenu.CHECKBOXITEM) {
-    /** {@inheritDoc} */
     @Override
     public boolean selected() {
       return GUIProp.EShowViews.SHOWTREE.getValue();
     }
 
-    /** {@inheritDoc} */
     @Override
-    public void execute(final GUI paramGUI) {
-      assert paramGUI != null;
+    public void execute(final GUI pGUI) {
+      assert pGUI != null;
       GUIProp.EShowViews.SHOWTREE.invert();
       if (!GUIProp.EShowViews.SHOWTREE.getValue()) {
-        TreeView.getInstance(paramGUI.getNotifier()).dispose();
+        TreeView.getInstance(pGUI.getNotifier()).dispose();
       }
-      paramGUI.getViewContainer().layoutViews();
+      pGUI.getViewContainer().layoutViews();
     }
   },
 
@@ -221,21 +216,19 @@ public enum GUICommands implements IGUICommand {
    * Show text view.
    */
   TEXT("Text", EMenu.CHECKBOXITEM) {
-    /** {@inheritDoc} */
     @Override
     public boolean selected() {
       return GUIProp.EShowViews.SHOWTEXT.getValue();
     }
 
-    /** {@inheritDoc} */
     @Override
-    public void execute(final GUI paramGUI) {
-      assert paramGUI != null;
+    public void execute(final GUI pGUI) {
+      assert pGUI != null;
       GUIProp.EShowViews.SHOWTEXT.invert();
       if (!GUIProp.EShowViews.SHOWTEXT.getValue()) {
-        TextView.getInstance(paramGUI.getNotifier()).dispose();
+        TextView.getInstance(pGUI.getNotifier()).dispose();
       }
-      paramGUI.getViewContainer().layoutViews();
+      pGUI.getViewContainer().layoutViews();
     }
   },
 
@@ -243,21 +236,19 @@ public enum GUICommands implements IGUICommand {
    * Show small multiples view.
    */
   SMALLMULTIPLES("Small multiples", EMenu.CHECKBOXITEM) {
-    /** {@inheritDoc} */
     @Override
     public boolean selected() {
       return GUIProp.EShowViews.SHOWSMALLMULTIPLES.getValue();
     }
 
-    /** {@inheritDoc} */
     @Override
-    public void execute(final GUI paramGUI) {
-      assert paramGUI != null;
+    public void execute(final GUI pGUI) {
+      assert pGUI != null;
       GUIProp.EShowViews.SHOWSMALLMULTIPLES.invert();
       if (!GUIProp.EShowViews.SHOWSMALLMULTIPLES.getValue()) {
-        SmallmultipleView.getInstance(paramGUI.getNotifier()).dispose();
+        SmallmultipleView.getInstance(pGUI.getNotifier()).dispose();
       }
-      paramGUI.getViewContainer().layoutViews();
+      pGUI.getViewContainer().layoutViews();
     }
   },
 
@@ -265,21 +256,19 @@ public enum GUICommands implements IGUICommand {
    * Show sunburst view.
    */
   SUNBURST("Sunburst", EMenu.CHECKBOXITEM) {
-    /** {@inheritDoc} */
     @Override
     public boolean selected() {
       return GUIProp.EShowViews.SHOWSUNBURST.getValue();
     }
 
-    /** {@inheritDoc} */
     @Override
-    public void execute(final GUI paramGUI) {
-      assert paramGUI != null;
+    public void execute(final GUI pGUI) {
+      assert pGUI != null;
       GUIProp.EShowViews.SHOWSUNBURST.invert();
       if (!GUIProp.EShowViews.SHOWSUNBURST.getValue()) {
-        SunburstView.getInstance(paramGUI.getNotifier()).dispose();
+        SunburstView.getInstance(pGUI.getNotifier()).dispose();
       }
-      paramGUI.getViewContainer().layoutViews();
+      pGUI.getViewContainer().layoutViews();
     }
   };
 
@@ -295,16 +284,16 @@ public enum GUICommands implements IGUICommand {
   /**
    * Constructor.
    * 
-   * @param paramDesc
+   * @param pDesc
    *          Description of command
-   * @param paramType
+   * @param pType
    *          Determines if menu item is checked or not
    */
-  GUICommands(final String paramDesc, final EMenu paramType) {
-    assert paramDesc != null;
-    assert paramType != null;
-    mDesc = paramDesc;
-    mType = paramType;
+  GUICommands(final String pDesc, final EMenu pType) {
+    assert pDesc != null;
+    assert pType != null;
+    mDesc = pDesc;
+    mType = pType;
   }
 
   /**
@@ -334,13 +323,13 @@ public enum GUICommands implements IGUICommand {
   /**
    * Create a directory file chooser with the possibility to select a specific revision.
    * 
-   * @param paramActionListener
+   * @param pActionListener
    *          {@link MyActionListener} instance
    * @return {@link JFileChooser} instance
    */
-  private static JFileChooser createFileChooser(final MyActionListener paramActionListener) {
+  private static JFileChooser createFileChooser(final MyActionListener pActionListener) {
     // Action listener.
-    final MyActionListener mActionListener = paramActionListener;
+    final MyActionListener mActionListener = pActionListener;
 
     // Create a file chooser.
     final JFileChooser fc = new JFileChooser();
@@ -358,12 +347,12 @@ public enum GUICommands implements IGUICommand {
 
     final PropertyChangeListener changeListener = new PropertyChangeListener() {
       @Override
-      public void propertyChange(final PropertyChangeEvent paramEvent) {
-        assert paramEvent != null;
-        assert paramEvent.getSource() instanceof JFileChooser;
+      public void propertyChange(final PropertyChangeEvent pEvent) {
+        assert pEvent != null;
+        assert pEvent.getSource() instanceof JFileChooser;
 
         // Get last revision number from TT-storage.
-        final JFileChooser fileChooser = (JFileChooser)paramEvent.getSource();
+        final JFileChooser fileChooser = (JFileChooser)pEvent.getSource();
         final File tmpDir = fileChooser.getSelectedFile();
         long revNumber = 0;
 
@@ -406,38 +395,38 @@ public enum GUICommands implements IGUICommand {
   /**
    * Shredder or shredder into.
    * 
-   * @param paramGUI
+   * @param pGUI
    *          Main GUI frame
-   * @param paramShredding
+   * @param pShredding
    *          Determines which shredder to use
    */
-  private static void shredder(final GUI paramGUI, final EShredder paramShredding) {
-    assert paramGUI != null;
-    assert paramShredding != null;
+  private static void shredder(final GUI pGUI, final EShredder pShredding) {
+    assert pGUI != null;
+    assert pShredding != null;
 
     // Create a file chooser.
     final JFileChooser fc = new JFileChooser();
     fc.setAcceptAllFileFilterUsed(false);
     fc.setFileFilter(new XMLFileFilter());
 
-    if (fc.showOpenDialog(paramGUI) == JFileChooser.APPROVE_OPTION) {
+    if (fc.showOpenDialog(pGUI) == JFileChooser.APPROVE_OPTION) {
       fc.setFileSelectionMode(JFileChooser.FILES_ONLY);
       final File source = fc.getSelectedFile();
 
-      if (fc.showSaveDialog(paramGUI) == JFileChooser.APPROVE_OPTION) {
+      if (fc.showSaveDialog(pGUI) == JFileChooser.APPROVE_OPTION) {
         fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         final File target = fc.getSelectedFile();
 
-        paramShredding.shred(source, target);
+        pShredding.shred(source, target);
 
         try {
           final IDatabase database = Database.openDatabase(target);
           final ISession session = database.getSession(new SessionConfiguration.Builder("shredded").build());
           final INodeReadTrx rtx = session.beginNodeReadTrx();
-          final long rev = rtx.getRevisionNumber();
+          final int rev = rtx.getRevisionNumber();
           rtx.close();
           session.close();
-          paramGUI.execute(target, rev);
+          pGUI.execute(target, rev);
         } catch (final SirixException e) {
           LOGWRAPPER.error(e.getMessage(), e);
         }
@@ -448,16 +437,15 @@ public enum GUICommands implements IGUICommand {
   /** Action listener to listen for the selection of a revision. */
   private static final class MyActionListener implements ActionListener {
     /** Selected revision. */
-    private transient long mRevision;
+    private transient int mRevision;
 
-    /** {@inheritDoc} */
     @Override
-    public void actionPerformed(final ActionEvent paramEvent) {
-      assert paramEvent != null;
-      assert paramEvent.getSource() instanceof JComboBox;
-      final JComboBox<?> cb = (JComboBox<?>)paramEvent.getSource();
+    public void actionPerformed(final ActionEvent pEvent) {
+      assert pEvent != null;
+      assert pEvent.getSource() instanceof JComboBox;
+      final JComboBox<?> cb = (JComboBox<?>)pEvent.getSource();
       if (cb.getSelectedItem() != null) {
-        mRevision = (Long)cb.getSelectedItem();
+        mRevision = (Integer)cb.getSelectedItem();
       }
     };
 
@@ -466,7 +454,7 @@ public enum GUICommands implements IGUICommand {
      * 
      * @return the Revision
      */
-    long getRevision() {
+    int getRevision() {
       return mRevision;
     }
   }

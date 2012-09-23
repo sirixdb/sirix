@@ -101,7 +101,7 @@ public class RestXPathProcessor {
    * @throws SirixException
    */
   public OutputStream getXpathResource(final String resourceName,
-    final String xpath, final boolean nodeid, final Long revision,
+    final String xpath, final boolean nodeid, final Integer revision,
     final OutputStream output, final boolean wrapResult) throws IOException,
     SirixException {
 
@@ -148,7 +148,7 @@ public class RestXPathProcessor {
    * @throws SirixException
    */
   public void getXpathResource(final File dbFile, final long rId,
-    final String query, final boolean doNodeId, final Long doRevision,
+    final String query, final boolean doNodeId, final Integer doRevision,
     final OutputStream output, final boolean doWrap) throws SirixException {
 
     // work around because of query root char '/'
@@ -218,7 +218,7 @@ public class RestXPathProcessor {
    *          The XPath expression.
    * @throws SirixException
    */
-  private void doXPathRes(final String resource, final Long revision,
+  private void doXPathRes(final String resource, final Integer revision,
     final OutputStream output, final boolean nodeid, final String xpath)
     throws SirixException {
     // Database connection to sirix

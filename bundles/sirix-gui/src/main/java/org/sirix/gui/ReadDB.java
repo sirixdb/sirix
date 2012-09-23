@@ -70,10 +70,10 @@ public final class ReadDB implements AutoCloseable {
   private final INodeReadTrx mRtx;
 
   /** Revision number. */
-  private final long mRevision;
+  private final int mRevision;
 
   /** Compare revision. */
-  private long mCompareRevision;
+  private int mCompareRevision;
 
   /**
    * Constructor.
@@ -97,7 +97,7 @@ public final class ReadDB implements AutoCloseable {
    * @throws SirixException
    *           if anything went wrong while opening a file
    */
-  public ReadDB(final File paramFile, final long paramRevision) throws SirixException {
+  public ReadDB(final File paramFile, final int paramRevision) throws SirixException {
     this(paramFile, paramRevision, 0);
   }
 
@@ -113,7 +113,7 @@ public final class ReadDB implements AutoCloseable {
    * @throws SirixException
    *           if anything went wrong while opening a file
    */
-  public ReadDB(final File pFile, final long pRevision, final long pNodekeyToStart) throws SirixException {
+  public ReadDB(final File pFile, final int pRevision, final long pNodekeyToStart) throws SirixException {
     checkNotNull(pFile);
     checkArgument(pRevision >= -1, "pRevision must be >= -1!");
     checkArgument(pNodekeyToStart >= 0, "pNodekeyToStart must be >= 0!");
@@ -155,7 +155,7 @@ public final class ReadDB implements AutoCloseable {
    * 
    * @return current revision number or 0 if a sirixIOException occured
    */
-  public long getRevisionNumber() {
+  public int getRevisionNumber() {
     return mRevision;
   }
 
@@ -165,7 +165,7 @@ public final class ReadDB implements AutoCloseable {
    * @param pRevision
    *          revision number to set
    */
-  public void setCompareRevisionNumber(final long pRevision) {
+  public void setCompareRevisionNumber(final int pRevision) {
     checkArgument(pRevision > 0, "paramRevision must be > 0!");
     mCompareRevision = pRevision;
   }
@@ -173,7 +173,7 @@ public final class ReadDB implements AutoCloseable {
   /**
    * Get compare number.
    */
-  public long getCompareRevisionNumber() {
+  public int getCompareRevisionNumber() {
     return mCompareRevision;
   }
 

@@ -160,7 +160,7 @@ public class DatabaseRepresentation {
             if (matcher.matches()) {
               getModificHistory(resourceName, revision, nodeid, output, wrapResult);
             } else {
-              serialize(resourceName, Long.valueOf(revision), nodeid, output, wrapResult);
+              serialize(resourceName, Integer.valueOf(revision), nodeid, output, wrapResult);
             }
           }
         } catch (final NumberFormatException exce) {
@@ -196,7 +196,7 @@ public class DatabaseRepresentation {
         final String nodeId = otherParams.get(QueryParameter.OUTPUT);
         final boolean wrapResult = (wrap == null) ? true : wrap.equalsIgnoreCase(YESSTRING);
         final boolean nodeid = (nodeId == null) ? false : nodeId.equalsIgnoreCase(YESSTRING);
-        final Long rev = revision == null ? null : Long.valueOf(revision);
+        final Integer rev = revision == null ? null : Integer.valueOf(revision);
         final RestXPathProcessor xpathProcessor = new RestXPathProcessor(mStoragePath);
         try {
           xpathProcessor.getXpathResource(resource, query, nodeid, rev, output, wrapResult);
@@ -333,7 +333,7 @@ public class DatabaseRepresentation {
    * @throws SirixException
    * @throws WebApplicationException
    */
-  private final OutputStream serialize(final String resource, final Long revision, final boolean nodeid,
+  private final OutputStream serialize(final String resource, final Integer revision, final boolean nodeid,
     final OutputStream output, final boolean wrapResult) throws IOException, JaxRxException, SirixException {
 
     if (WorkerHelper.checkExistingResource(mStoragePath, resource)) {
@@ -414,8 +414,8 @@ public class DatabaseRepresentation {
 
     // extract both revision from given String value
     final StringTokenizer tokenizer = new StringTokenizer(revisionRange, "-");
-    final long revision1 = Long.valueOf(tokenizer.nextToken());
-    final long revision2 = Long.valueOf(tokenizer.nextToken());
+    final int revision1 = Integer.valueOf(tokenizer.nextToken());
+    final int revision2 = Integer.valueOf(tokenizer.nextToken());
 
     if (revision1 < revision2 && revision2 <= getLastRevision(resourceName)) {
 
@@ -557,7 +557,7 @@ public class DatabaseRepresentation {
    *           The exception occurred.
    * @throws SirixException
    */
-  private void serializIt(final String resource, final Long revision, final OutputStream output,
+  private void serializIt(final String resource, final Integer revision, final OutputStream output,
     final boolean nodeid) throws JaxRxException, SirixException {
     // Connection to sirix, creating a session
     IDatabase database = null;
@@ -600,7 +600,7 @@ public class DatabaseRepresentation {
    * @throws WebApplicationException
    * @throws SirixException
    */
-  public void revertToRevision(final String resourceName, final long backToRevision) throws JaxRxException,
+  public void revertToRevision(final String resourceName, final int backToRevision) throws JaxRxException,
     SirixException {
     IDatabase database = null;
     ISession session = null;

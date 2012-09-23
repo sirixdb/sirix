@@ -76,7 +76,7 @@ public interface ISession extends AutoCloseable {
 	 * @throws SirixException
 	 *           if Sirix fails to create a new instance
 	 */
-	IPageReadTrx beginPageReadTrx(@Nonnegative long pRevision)
+	IPageReadTrx beginPageReadTrx(@Nonnegative int pRevision)
 			throws SirixException;
 
 	/**
@@ -99,7 +99,7 @@ public interface ISession extends AutoCloseable {
 	 * @throws SirixException
 	 *           if Sirix fails to create a new instance
 	 */
-	IPageWriteTrx beginPageWriteTrx(@Nonnegative long pRevision)
+	IPageWriteTrx beginPageWriteTrx(@Nonnegative int pRevision)
 			throws SirixException;
 
 	/**
@@ -120,7 +120,7 @@ public interface ISession extends AutoCloseable {
 	 *           if can't begin Read Transaction
 	 * @return {@link INodeReadTrx} instance
 	 */
-	INodeReadTrx beginNodeReadTrx(@Nonnegative long pRev) throws SirixException;
+	INodeReadTrx beginNodeReadTrx(@Nonnegative int pRev) throws SirixException;
 
 	/**
 	 * Begin exclusive read/write transaction without auto commit.
@@ -141,7 +141,7 @@ public interface ISession extends AutoCloseable {
 	 * @throws SirixException
 	 *           if can't open path summary
 	 */
-	PathSummary openPathSummary(@Nonnegative long pRev) throws SirixException;
+	PathSummary openPathSummary(@Nonnegative int pRev) throws SirixException;
 
 	/**
 	 * Open the path summary to allow iteration (basically implementation of
@@ -210,7 +210,7 @@ public interface ISession extends AutoCloseable {
 	 * 
 	 * @return latest commited revision number
 	 */
-	long getLastRevisionNumber();
+	int getLastRevisionNumber();
 
 	/**
 	 * Get available number of {@link INodeReadTrx}s.

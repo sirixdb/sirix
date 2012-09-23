@@ -60,7 +60,7 @@ public final class NamePage implements IPage {
   private final Names mNamespaces;
 
   /** Revision number. */
-  private final long mRevision;
+  private final int mRevision;
 
   /**
    * Create name page.
@@ -68,7 +68,7 @@ public final class NamePage implements IPage {
    * @param pRevision
    *          revision number
    */
-  public NamePage(final @Nonnegative long pRevision) {
+  public NamePage(final @Nonnegative int pRevision) {
     checkArgument(pRevision >= 0, "pRevision must be >= 0!");
     mRevision = pRevision;
     mAttributes = Names.getInstance();
@@ -83,7 +83,7 @@ public final class NamePage implements IPage {
    *          input bytes to read from
    */
   protected NamePage(final @Nonnull ByteArrayDataInput pIn) {
-    mRevision = pIn.readLong();
+    mRevision = pIn.readInt();
     mElements = Names.clone(pIn);
     mNamespaces = Names.clone(pIn);
     mAttributes = Names.clone(pIn);
@@ -193,7 +193,7 @@ public final class NamePage implements IPage {
 
   @Override
   public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
-    pOut.writeLong(mRevision);
+    pOut.writeInt(mRevision);
     mElements.serialize(pOut);
     mNamespaces.serialize(pOut);
     mAttributes.serialize(pOut);
@@ -229,17 +229,22 @@ public final class NamePage implements IPage {
   }
 
   @Override
-  public long getRevision() {
+  public int getRevision() {
     return mRevision;
   }
 
   @Override
   public PageReference[] getReferences() {
-    return null;
+    throw new UnsupportedOperationException();
   }
 
   @Override
   public void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
     throws SirixException {
   }
+
+	@Override
+	public PageReference getReference(final @Nonnegative int offset) {
+		throw new UnsupportedOperationException();
+	}
 }

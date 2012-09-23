@@ -23,28 +23,28 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
-		<groupId>sirix</groupId>
+		<groupId>com.github.johanneslichtenberger.sirix</groupId>
 		<artifactId>parent</artifactId>
-		<version>1.0.5-SNAPSHOT</version>
+		<version>0.0.9</version>
 		<relativePath>../../pom.xml</relativePath>
 	</parent>
 
 	<artifactId>jax-rx</artifactId>
 	<packaging>jar</packaging>
 	<name>sirix-jax-rx</name>
-	<version>1.0.2-SNAPSHOT</version>
+	<version>0.1.0</version>
 	<description>This project is the jax-rx interface to jax-rx.
 	</description>
 	<dependencies>
 		<dependency>
-			<groupId>sirix</groupId>
+			<groupId>com.github.johanneslichtenberger.sirix</groupId>
 			<artifactId>core</artifactId>
-			<version>5.4.0-SNAPSHOT</version>
+			<version>0.1.0</version>
 		</dependency>
 		<dependency>
-			<groupId>sirix</groupId>
+			<groupId>com.github.johanneslichtenberger.sirix</groupId>
 			<artifactId>core</artifactId>
-			<version>5.4.0-SNAPSHOT</version>
+			<version>0.1.0</version>
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>

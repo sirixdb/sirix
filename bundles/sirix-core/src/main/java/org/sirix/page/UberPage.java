@@ -41,7 +41,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.settings.EFixed;
-import org.sirix.utils.IConstants;
+import org.sirix.settings.IConstants;
 
 /**
  * <h1>UberPage</h1>
@@ -56,7 +56,7 @@ public final class UberPage extends AbsForwardingPage {
 	private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
 	/** Number of revisions. */
-	private final long mRevisionCount;
+	private final int mRevisionCount;
 
 	/**
 	 * {@code true} if this uber page is the uber page of a fresh sirix file,
@@ -69,6 +69,8 @@ public final class UberPage extends AbsForwardingPage {
 
 	/** Determines if the first revision has been bulk inserted. */
 	private boolean mBulkInserted;
+
+	private final RevisionRootPage mRootPage;
 
 	/**
 	 * Create uber page.
@@ -85,38 +87,46 @@ public final class UberPage extends AbsForwardingPage {
 		// Initialize revision tree to guarantee that there is a revision root
 		// page.
 		IPage page = null;
-		PageReference reference = getReferences()[INDIRECT_REFERENCE_OFFSET];
+		PageReference reference = getReference(INDIRECT_REFERENCE_OFFSET);
 
 		// Remaining levels.
-		for (int i = 0, l = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
+		for (int i = 0, l = IConstants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
 			page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
 			reference.setPage(page);
-			reference = page.getReferences()[0];
+			reference = page.getReference(0);
 		}
 
-		final RevisionRootPage rrp = new RevisionRootPage();
-		reference.setPage(rrp);
+		mRootPage = new RevisionRootPage();
+		reference.setPage(mRootPage);
 
 		// --- Create node tree
 		// ----------------------------------------------------
 
 		// Initialize revision tree to guarantee that there is a revision root
 		// page.
-		reference = rrp.getIndirectPageReference();
-		createTree(reference);
-		rrp.incrementMaxNodeKey();
+		reference = mRootPage.getIndirectPageReference();
+		createTree(reference, EPage.NODEPAGE);
+		mRootPage.incrementMaxNodeKey();
+	}
 
-		// Initialize path tree to guarantee that there is a revision root
-		// page.
-		reference = rrp.getPathSummaryPageReference().getPage().getReferences()[INDIRECT_REFERENCE_OFFSET];
-		createTree(reference);
-		rrp.incrementMaxPathNodeKey();
+	/**
+	 * Initialize value tree.
+	 */
+	public void createValueTree() {
+		final PageReference reference = mRootPage.getValuePageReference().getPage()
+				.getReference(INDIRECT_REFERENCE_OFFSET);
+		createTree(reference, EPage.VALUEPAGE);
+		mRootPage.incrementMaxPathNodeKey();
+	}
 
-		// Initialize value tree to guarantee that there is a revision root
-		// page.
-		reference = rrp.getValuePageReference().getPage().getReferences()[INDIRECT_REFERENCE_OFFSET];
-		createTree(reference);
-		rrp.incrementMaxValueNodeKey();
+	/**
+	 * Initialize path summary tree.
+	 */
+	public void createPathSummaryTree() {
+		final PageReference reference = mRootPage.getPathSummaryPageReference()
+				.getPage().getReference(INDIRECT_REFERENCE_OFFSET);
+		createTree(reference, EPage.PATHSUMMARYPAGE);
+		mRootPage.incrementMaxPathNodeKey();
 	}
 
 	/**
@@ -142,14 +152,17 @@ public final class UberPage extends AbsForwardingPage {
 	 * @param pReference
 	 *          reference from revision root
 	 */
-	private void createTree(@Nonnull PageReference pReference) {
+	private void createTree(@Nonnull PageReference pReference, final @Nonnull EPage pPage) {
 		IPage page = null;
 
+		// Level page count exponent from the configuration.
+		final int[] levelPageCountExp = getPageCountExp(pPage);
+		
 		// Remaining levels.
-		for (int i = 0, l = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
+		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
 			page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
 			pReference.setPage(page);
-			pReference = page.getReferences()[0];
+			pReference = page.getReference(0);
 		}
 
 		final NodePage ndp = new NodePage(
@@ -176,9 +189,10 @@ public final class UberPage extends AbsForwardingPage {
 	 */
 	protected UberPage(final @Nonnull ByteArrayDataInput pIn) {
 		mDelegate = new PageDelegate(1, pIn);
-		mRevisionCount = pIn.readLong();
+		mRevisionCount = pIn.readInt();
 		mBulkInserted = pIn.readBoolean();
 		mBootstrap = false;
+		mRootPage = null;
 	}
 
 	/**
@@ -190,58 +204,60 @@ public final class UberPage extends AbsForwardingPage {
 	 *          Revision number to use.
 	 */
 	public UberPage(final @Nonnull UberPage pCommittedUberPage,
-			@Nonnegative final long pRevisionToUse) {
+			final @Nonnegative int pRevisionToUse) {
 		mDelegate = new PageDelegate(pCommittedUberPage, pRevisionToUse);
 		if (pCommittedUberPage.isBootstrap()) {
 			mRevisionCount = pCommittedUberPage.mRevisionCount;
 			mBootstrap = pCommittedUberPage.mBootstrap;
+			mRootPage = pCommittedUberPage.mRootPage;
 		} else {
 			mRevisionCount = pCommittedUberPage.mRevisionCount + 1;
 			mBootstrap = false;
+			mRootPage = null;
 		}
 	}
 
 	/**
 	 * Get indirect page reference.
 	 * 
-	 * @return Indirect page reference.
+	 * @return indirect page reference
 	 */
 	public PageReference getIndirectPageReference() {
-		return getReferences()[INDIRECT_REFERENCE_OFFSET];
+		return getReference(INDIRECT_REFERENCE_OFFSET);
 	}
 
 	/**
 	 * Get number of revisions.
 	 * 
-	 * @return Number of revisions.
+	 * @return number of revisions
 	 */
-	public long getRevisionCount() {
+	public int getRevisionCount() {
 		return mRevisionCount;
 	}
 
 	/**
 	 * Get key of last committed revision.
 	 * 
-	 * @return Key of last committed revision.
+	 * @return key of last committed revision
 	 */
-	public long getLastCommitedRevisionNumber() {
+	public int getLastCommitedRevisionNumber() {
 		return mRevisionCount - 2;
 	}
 
 	/**
 	 * Get revision key of current in-memory state.
 	 * 
-	 * @return Revision key.
+	 * @return revision key
 	 */
-	public long getRevisionNumber() {
+	public int getRevisionNumber() {
 		return mRevisionCount - 1;
 	}
 
 	/**
 	 * Flag to indicate whether this uber page is the first ever.
 	 * 
-	 * @return {@code true} if this uber page is the first
-	 *         one of sirix, {@code false} otherwise
+	 * @return {@code true} if this uber page is the first one of sirix,
+	 *         {@code false} otherwise
 	 */
 	public boolean isBootstrap() {
 		return mBootstrap;
@@ -251,7 +267,7 @@ public final class UberPage extends AbsForwardingPage {
 	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
 		mBootstrap = false;
 		mDelegate.serialize(checkNotNull(pOut));
-		pOut.writeLong(mRevisionCount);
+		pOut.writeInt(mRevisionCount);
 		pOut.writeBoolean(mBulkInserted);
 	}
 
@@ -268,5 +284,31 @@ public final class UberPage extends AbsForwardingPage {
 	@Override
 	protected IPage delegate() {
 		return mDelegate;
+	}
+
+	/** 
+	 * Get the page count exponent for the given page.
+	 * 
+	 * @param pPage
+	 * 					page to lookup the exponent in the constant definition
+	 * @return page count exponent
+	 */
+	public int[] getPageCountExp(final @Nonnull EPage pPage) {
+		int[] inpLevelPageCountExp = new int[0];
+		switch (pPage) {
+		case PATHSUMMARYPAGE:
+			inpLevelPageCountExp = IConstants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
+			break;
+		case VALUEPAGE:
+		case NODEPAGE:
+			inpLevelPageCountExp = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT;
+			break;
+		case UBERPAGE:
+			inpLevelPageCountExp = IConstants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
+			break;
+		default:
+			throw new IllegalStateException("page kind not known!");
+		}
+		return inpLevelPageCountExp;
 	}
 }

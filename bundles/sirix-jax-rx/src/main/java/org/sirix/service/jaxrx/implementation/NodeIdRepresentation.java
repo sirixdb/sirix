@@ -161,7 +161,7 @@ public class NodeIdRepresentation {
                 final String doNodeId = queryParams.get(QueryParameter.OUTPUT);
                 final boolean wrapResult = (wrap == null) ? false : wrap.equalsIgnoreCase(YESSTRING);
                 final boolean nodeid = (doNodeId == null) ? false : doNodeId.equalsIgnoreCase(YESSTRING);
-                final Long rev = revision == null ? null : Long.valueOf(revision);
+                final Integer rev = revision == null ? null : Integer.valueOf(revision);
                 serializeAT(resourceName, nodeId, rev, nodeid, output, wrapResult, accessType);
             }
         };
@@ -196,7 +196,7 @@ public class NodeIdRepresentation {
                 final String doNodeId = queryParams.get(QueryParameter.OUTPUT);
                 final boolean wrapResult = (wrap == null) ? true : wrap.equalsIgnoreCase(YESSTRING);
                 final boolean nodeid = (doNodeId == null) ? false : doNodeId.equalsIgnoreCase(YESSTRING);
-                final Long rev = revision == null ? null : Long.valueOf(revision);
+                final Integer rev = revision == null ? null : Integer.valueOf(revision);
                 final RestXPathProcessor xpathProcessor = new RestXPathProcessor(mStoragePath);
                 try {
                     xpathProcessor.getXpathResource(dbFile, nodeId, query, nodeid, rev, output, wrapResult);
@@ -491,7 +491,7 @@ public class NodeIdRepresentation {
      *            The {@link EIdAccessType} which indicates the access to a
      *            special node.
      */
-    private void serializeAT(final String resource, final long nodeId, final Long revision,
+    private void serializeAT(final String resource, final long nodeId, final Integer revision,
         final boolean doNodeId, final OutputStream output, final boolean wrapResult,
         final EIdAccessType accessType) {
         if (WorkerHelper.checkExistingResource(mStoragePath, resource)) {

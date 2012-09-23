@@ -80,7 +80,7 @@ public final class DocumentWrapper implements DocumentInfo {
   final ISession mSession;
 
   /** The revision. */
-  final long mRevision;
+  final int mRevision;
 
   /** Base URI of the document. */
   String mBaseURI;
@@ -109,10 +109,10 @@ public final class DocumentWrapper implements DocumentInfo {
    *           if sirix encounters an error
    */
   public DocumentWrapper(@Nonnull final ISession pSession,
-    @Nonnegative final long pRevision, @Nonnull final Configuration pConfig)
+    @Nonnegative final int pRevision, @Nonnull final Configuration pConfig)
     throws SirixException {
     mSession = checkNotNull(pSession);
-    mRevision = checkNotNull(pRevision);
+    mRevision = pRevision;
     mBaseURI = pSession.getResourceConfig().getResource().getAbsolutePath();
     mConfig = checkNotNull(pConfig);
     mNodeWrapper = new NodeWrapper(this, 0);

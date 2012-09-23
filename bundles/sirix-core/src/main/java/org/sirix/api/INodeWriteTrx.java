@@ -494,7 +494,7 @@ public interface INodeWriteTrx extends INodeReadTrx {
    * @throws SirixException
    *           if anything went wrong
    */
-  void revertTo(@Nonnegative long pRev) throws SirixException;
+  void revertTo(@Nonnegative int pRev) throws SirixException;
 
   /**
    * Closing current WriteTransaction.

@@ -126,7 +126,7 @@ public final class NodeWrapper implements VirtualNode, SiblingCountingNode {
   private final QName mQName;
 
   /** The revision to open. */
-  private final long mRevision;
+  private final int mRevision;
 
   /**
    * A node in the XML parse tree. Wrap a sirix node.

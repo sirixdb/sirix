@@ -74,7 +74,6 @@ public class MinimumCommitTest {
 
     holder = Holder.generateRtx();
     assertEquals(2L, holder.getRtx().getRevisionNumber());
-
   }
 
   @Test

@@ -120,7 +120,7 @@ public class RestXPathProcessorTest {
         String xPath = "//book";
         boolean withNodeIds = true;
         OutputStream output = new ByteArrayOutputStream();
-        rxProcessor.getXpathResource(RESOURCENAME, xPath, withNodeIds, 0L, output, true);
+        rxProcessor.getXpathResource(RESOURCENAME, xPath, withNodeIds, 0, output, true);
         InputStream xmlInput = new ByteArrayInputStream(((ByteArrayOutputStream)output).toByteArray());
         Document resultDoc = xmlDocument(xmlInput);
         final NodeList bNodes = resultDoc.getElementsByTagName(PARAMBOOKS);
@@ -165,7 +165,7 @@ public class RestXPathProcessorTest {
         boolean withNodeIds = true;
         OutputStream output = new ByteArrayOutputStream();
         final File tnkFile = new File(TestHelper.PATHS.PATH1.getFile(), RESOURCENAME);
-        rxProcessor.getXpathResource(tnkFile, 10L, xPath, withNodeIds, 0L, output, true);
+        rxProcessor.getXpathResource(tnkFile, 10L, xPath, withNodeIds, 0, output, true);
         InputStream xmlInput = new ByteArrayInputStream(((ByteArrayOutputStream)output).toByteArray());
         Document resultDoc = xmlDocument(xmlInput);
         final NodeList bNodes = resultDoc.getElementsByTagName(PARAMBOOKS);

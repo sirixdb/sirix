@@ -47,18 +47,18 @@ public class PathSummaryPage extends AbsForwardingPage {
   /** {@link PageDelegate} instance. */
   private final PageDelegate mDelegate;
 
-  /** Offset of indirect page reference. */
+  /** Offset of node page reference. */
   private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
   /**
-   * Metadata for the revision.
+   * Path summary page.
    * 
    * @param pRevision
    *          revision number
    * @throws IllegalArgumentException
    *           if {@code pRevision} < 0
    */
-  public PathSummaryPage(final @Nonnegative long pRevision) {
+  public PathSummaryPage(final @Nonnegative int pRevision) {
     checkArgument(pRevision >= 0, "pRevision must be >= 0!");
     mDelegate = new PageDelegate(1, pRevision);
   }
@@ -69,7 +69,7 @@ public class PathSummaryPage extends AbsForwardingPage {
    * @return indirect page reference
    */
   public PageReference getIndirectPageReference() {
-    return getReferences()[INDIRECT_REFERENCE_OFFSET];
+    return getReference(INDIRECT_REFERENCE_OFFSET);
   }
 
   /**

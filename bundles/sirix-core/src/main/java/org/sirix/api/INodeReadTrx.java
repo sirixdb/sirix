@@ -142,7 +142,7 @@ public interface INodeReadTrx extends INodeCursor {
    * @throws SirixIOException
    *           if can't get revision number
    */
-  long getRevisionNumber() throws SirixIOException;
+  int getRevisionNumber() throws SirixIOException;
 
   /**
    * UNIX-style timestamp of the commit of the revision.

@@ -11,7 +11,7 @@ import java.util.Map.Entry;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.utils.IConstants;
+import org.sirix.settings.IConstants;
 
 /**
  * Names index structure.

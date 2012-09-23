@@ -29,13 +29,6 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.base.Optional;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
-import com.google.common.cache.RemovalListener;
-import com.google.common.cache.RemovalNotification;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -49,6 +42,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.conf.ResourceConfiguration.EIndexes;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.cache.BerkeleyPersistencePageCache;
@@ -70,568 +64,601 @@ import org.sirix.page.UberPage;
 import org.sirix.page.ValuePage;
 import org.sirix.page.interfaces.IPage;
 import org.sirix.settings.ERevisioning;
-import org.sirix.utils.IConstants;
+import org.sirix.settings.IConstants;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Optional;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.cache.RemovalListener;
+import com.google.common.cache.RemovalNotification;
 
 /**
  * <h1>PageReadTransaction</h1>
  * 
  * <p>
- * Page reading transaction. The only thing shared amongst transactions is the page cache. Everything else is
- * exclusive to this transaction. It is required that only a single thread has access to this transaction.
+ * Page reading transaction. The only thing shared amongst transactions is the
+ * page cache. Everything else is exclusive to this transaction. It is required
+ * that only a single thread has access to this transaction.
  * </p>
  */
 final class PageReadTrx implements IPageReadTrx {
 
-  /** Page reader exclusively assigned to this transaction. */
-  private final IReader mPageReader;
+	/** Page reader exclusively assigned to this transaction. */
+	private final IReader mPageReader;
 
-  /** Uber page this transaction is bound to. */
-  private final UberPage mUberPage;
+	/** Uber page this transaction is bound to. */
+	private final UberPage mUberPage;
 
-  /** Cached name page of this revision. */
-  private final RevisionRootPage mRootPage;
+	/** Cached name page of this revision. */
+	private final RevisionRootPage mRootPage;
 
-  /** Internal reference to node cache. */
-  private final LoadingCache<Long, PageContainer> mNodeCache;
+	/** Internal reference to node cache. */
+	private final LoadingCache<Long, PageContainer> mNodeCache;
 
-  /** Internal reference to path cache. */
-  private final LoadingCache<Long, PageContainer> mPathCache;
+	/** Internal reference to path cache. */
+	private final LoadingCache<Long, PageContainer> mPathCache;
 
-  /** Internal reference to value cache. */
-  private final LoadingCache<Long, PageContainer> mValueCache;
+	/** Internal reference to value cache. */
+	private final LoadingCache<Long, PageContainer> mValueCache;
 
-  /** Internal reference to page cache. */
-  private final LoadingCache<Long, IPage> mPageCache;
+	/** Internal reference to page cache. */
+	private final LoadingCache<Long, IPage> mPageCache;
 
-  /** {@link Session} reference. */
-  protected final Session mSession;
+	/** {@link Session} reference. */
+	protected final Session mSession;
 
-  /** {@link NamePage} reference. */
-  private final NamePage mNamePage;
+	/** {@link NamePage} reference. */
+	private final NamePage mNamePage;
 
-  /** Determines if page reading transaction is closed or not. */
-  private boolean mClosed;
+	/** Determines if page reading transaction is closed or not. */
+	private boolean mClosed;
 
-  /**
-   * Standard constructor.
-   * 
-   * @param pSession
-   *          current {@link Session} instance
-   * @param pUberPage
-   *          {@link UberPage} to start reading from
-   * @param pRevision
-   *          key of revision to read from uber page
-   * @param pReader
-   *          reader to read stored pages for this transaction
-   * @param pPersistentCache
-   *          optional persistent cache
-   * @throws SirixIOException
-   *           if reading of the persistent storage fails
-   */
-  PageReadTrx(@Nonnull final Session pSession,
-    @Nonnull final UberPage pUberPage, @Nonnegative final long pRevision,
-    @Nonnull final IReader pReader,
-    final @Nonnull Optional<BerkeleyPersistencePageCache> pPersistentCache)
-    throws SirixIOException {
-    checkArgument(pRevision >= 0, "Revision must be >= 0!");
-    mNodeCache =
-      CacheBuilder.newBuilder().maximumSize(1000).expireAfterWrite(40,
-        TimeUnit.SECONDS).expireAfterAccess(5, TimeUnit.SECONDS).build(
-        new CacheLoader<Long, PageContainer>() {
-          public PageContainer load(final Long pKey) throws SirixException {
-            return getNodeFromPage(pKey, EPage.NODEPAGE);
-          }
-        });
-    final CacheBuilder<Object, Object> builder =
-      CacheBuilder.newBuilder().concurrencyLevel(1).maximumSize(1000);
-    mPathCache = builder.build(new CacheLoader<Long, PageContainer>() {
-      public PageContainer load(final Long pKey) throws SirixException {
-        return getNodeFromPage(pKey, EPage.PATHSUMMARYPAGE);
-      }
-    });
-    mValueCache = builder.build(new CacheLoader<Long, PageContainer>() {
-      public PageContainer load(final Long pKey) throws SirixException {
-        return getNodeFromPage(pKey, EPage.VALUEPAGE);
-      }
-    });
+	/** Indexes to read. */
+	private final Set<EIndexes> mIndexes;
 
-    final CacheBuilder<Object, Object> pageCacheBuilder =
-      CacheBuilder.newBuilder();
-    if (pPersistentCache.isPresent()) {
-      pageCacheBuilder.removalListener(new RemovalListener<Long, IPage>() {
-        @Override
-        public void onRemoval(final RemovalNotification<Long, IPage> pRemoval) {
-          pPersistentCache.get().put(pRemoval.getKey(), pRemoval.getValue());
-        }
-      });
-    }
-    mPageCache = pageCacheBuilder.build(new CacheLoader<Long, IPage>() {
-      public IPage load(final Long pKey) throws SirixException {
-        return mPageReader.read(pKey);
-      }
-    });
-    mSession = checkNotNull(pSession);
-    mPageReader = checkNotNull(pReader);
-    mUberPage = checkNotNull(pUberPage);
-    mRootPage = loadRevRoot(pRevision);
-    assert mRootPage != null : "root page must not be null!";
-    mNamePage = getNamePage();
-    final PageReference ref = mRootPage.getPathSummaryPageReference();
-    if (ref.getPage() == null) {
-      try {
-        ref.setPage(mPageCache.get(ref.getKey()));
-      } catch (final ExecutionException e) {
-        throw new SirixIOException(e);
-      }
-    }
-    mClosed = false;
-  }
+	/**
+	 * Standard constructor.
+	 * 
+	 * @param pSession
+	 *          current {@link Session} instance
+	 * @param pUberPage
+	 *          {@link UberPage} to start reading from
+	 * @param pRevision
+	 *          key of revision to read from uber page
+	 * @param pReader
+	 *          reader to read stored pages for this transaction
+	 * @param pPersistentCache
+	 *          optional persistent cache
+	 * @throws SirixIOException
+	 *           if reading of the persistent storage fails
+	 */
+	PageReadTrx(final @Nonnull Session pSession,
+			final @Nonnull UberPage pUberPage, @Nonnegative final int pRevision,
+			final @Nonnull IReader pReader,
+			final @Nonnull Optional<BerkeleyPersistencePageCache> pPersistentCache)
+			throws SirixIOException {
+		checkArgument(pRevision >= 0, "Revision must be >= 0!");
+		mNodeCache = CacheBuilder.newBuilder().maximumSize(1000)
+				.expireAfterWrite(40, TimeUnit.SECONDS)
+				.expireAfterAccess(5, TimeUnit.SECONDS)
+				.build(new CacheLoader<Long, PageContainer>() {
+					public PageContainer load(final Long pKey) throws SirixException {
+						return getNodeFromPage(pKey, EPage.NODEPAGE);
+					}
+				});
+		final CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder()
+				.concurrencyLevel(1).maximumSize(1000);
+		mIndexes = pSession.mResourceConfig.mIndexes;
+		if (mIndexes.contains(EIndexes.PATH)) {
+			mPathCache = builder.build(new CacheLoader<Long, PageContainer>() {
+				public PageContainer load(final Long pKey) throws SirixException {
+					return getNodeFromPage(pKey, EPage.PATHSUMMARYPAGE);
+				}
+			});
+		} else {
+			mPathCache = null;
+		}
+		if (mIndexes.contains(EIndexes.VALUE)) {
+			mValueCache = builder.build(new CacheLoader<Long, PageContainer>() {
+				public PageContainer load(final Long pKey) throws SirixException {
+					return getNodeFromPage(pKey, EPage.VALUEPAGE);
+				}
+			});
+		} else {
+			mValueCache = null;
+		}
 
-  @Override
-  public ISession getSession() {
-    return mSession;
-  }
+		final CacheBuilder<Object, Object> pageCacheBuilder = CacheBuilder
+				.newBuilder();
+		if (pPersistentCache.isPresent()) {
+			pageCacheBuilder.removalListener(new RemovalListener<Long, IPage>() {
+				@Override
+				public void onRemoval(final RemovalNotification<Long, IPage> pRemoval) {
+					pPersistentCache.get().put(pRemoval.getKey(), pRemoval.getValue());
+				}
+			});
+		}
+		mPageCache = pageCacheBuilder.build(new CacheLoader<Long, IPage>() {
+			public IPage load(final Long pKey) throws SirixException {
+				return mPageReader.read(pKey);
+			}
+		});
+		mSession = checkNotNull(pSession);
+		mPageReader = checkNotNull(pReader);
+		mUberPage = checkNotNull(pUberPage);
+		mRootPage = loadRevRoot(pRevision);
+		assert mRootPage != null : "root page must not be null!";
+		mNamePage = getNamePage();
+		final PageReference ref = mRootPage.getPathSummaryPageReference();
+		if (ref.getPage() == null) {
+			try {
+				ref.setPage(mPageCache.get(ref.getKey()));
+			} catch (final ExecutionException e) {
+				throw new SirixIOException(e);
+			}
+		}
+		mClosed = false;
+	}
 
-  /**
-   * Make sure that the transaction is not yet closed when calling this method.
-   */
-  final void assertNotClosed() {
-    if (mClosed) {
-      throw new IllegalStateException("Transaction is already closed.");
-    }
-  }
+	@Override
+	public ISession getSession() {
+		return mSession;
+	}
 
-  @Override
-  public Optional<INodeBase> getNode(@Nonnegative final long pNodeKey,
-    @Nonnull final EPage pPage) throws SirixIOException {
-    checkArgument(pNodeKey >= 0);
-    checkNotNull(pPage);
-    assertNotClosed();
+	/**
+	 * Make sure that the transaction is not yet closed when calling this method.
+	 */
+	final void assertNotClosed() {
+		if (mClosed) {
+			throw new IllegalStateException("Transaction is already closed.");
+		}
+	}
 
-    final long nodePageKey = nodePageKey(pNodeKey);
-    // final int nodePageOffset = nodePageOffset(pNodeKey);
+	@Override
+	public Optional<INodeBase> getNode(@Nonnegative final long pNodeKey,
+			final @Nonnull EPage pPage) throws SirixIOException {
+		checkArgument(pNodeKey >= 0);
+		checkNotNull(pPage);
+		assertNotClosed();
 
-    PageContainer cont;
-    try {
-      switch (pPage) {
-      case NODEPAGE:
-        cont = mNodeCache.get(nodePageKey);
-        break;
-      case PATHSUMMARYPAGE:
-        cont = mPathCache.get(nodePageKey);
-        break;
-      case VALUEPAGE:
-        cont = mValueCache.get(nodePageKey);
-        break;
-      default:
-        throw new IllegalStateException();
-      }
-    } catch (final ExecutionException e) {
-      throw new SirixIOException(e);
-    }
+		final long nodePageKey = nodePageKey(pNodeKey);
+		// final int nodePageOffset = nodePageOffset(pNodeKey);
 
-    if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
-      return Optional.<INodeBase> absent();
-    }
+		PageContainer cont;
+		try {
+			switch (pPage) {
+			case NODEPAGE:
+				cont = mNodeCache.get(nodePageKey);
+				break;
+			case PATHSUMMARYPAGE:
+				cont = mPathCache.get(nodePageKey);
+				break;
+			case VALUEPAGE:
+				cont = mValueCache.get(nodePageKey);
+				break;
+			default:
+				throw new IllegalStateException();
+			}
+		} catch (final ExecutionException e) {
+			throw new SirixIOException(e);
+		}
 
-    final INodeBase retVal = cont.getComplete().getNode(pNodeKey);
-    return Optional.fromNullable(checkItemIfDeleted(retVal));
-  }
+		if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
+			return Optional.<INodeBase> absent();
+		}
 
-  /**
-   * Method to check if an {@link INodeBase} is deleted.
-   * 
-   * @param pToCheck
-   *          node to check
-   * @return the {@code node} if it is valid, {@code null} otherwise
-   */
-  final INodeBase checkItemIfDeleted(final @Nullable INodeBase pToCheck) {
-    if (pToCheck instanceof DeletedNode) {
-      return null;
-    } else {
-      return pToCheck;
-    }
-  }
+		final INodeBase retVal = cont.getComplete().getNode(pNodeKey);
+		return Optional.fromNullable(checkItemIfDeleted(retVal));
+	}
 
-  @Override
-  public String getName(final int pNameKey, @Nonnull final EKind pNodeKind) {
-    assertNotClosed();
-    return mNamePage.getName(pNameKey, pNodeKind);
-  }
+	/**
+	 * Method to check if an {@link INodeBase} is deleted.
+	 * 
+	 * @param pToCheck
+	 *          node to check
+	 * @return the {@code node} if it is valid, {@code null} otherwise
+	 */
+	final INodeBase checkItemIfDeleted(final @Nullable INodeBase pToCheck) {
+		if (pToCheck instanceof DeletedNode) {
+			return null;
+		} else {
+			return pToCheck;
+		}
+	}
 
-  @Override
-  public final byte[] getRawName(final int pNameKey,
-    @Nonnull final EKind pNodeKind) {
-    assertNotClosed();
-    return mNamePage.getRawName(pNameKey, pNodeKind);
-  }
+	@Override
+	public String getName(final int pNameKey, final @Nonnull EKind pNodeKind) {
+		assertNotClosed();
+		return mNamePage.getName(pNameKey, pNodeKind);
+	}
 
-  /**
-   * Clear the cache.
-   */
-  void clearCache() {
-    assertNotClosed();
-    mNodeCache.invalidateAll();
-    mPathCache.invalidateAll();
-    mValueCache.invalidateAll();
-    mPageCache.invalidateAll();
-  }
+	@Override
+	public final byte[] getRawName(final int pNameKey,
+			final @Nonnull EKind pNodeKind) {
+		assertNotClosed();
+		return mNamePage.getRawName(pNameKey, pNodeKind);
+	}
 
-  /**
-   * Get revision root page belonging to revision key.
-   * 
-   * @param pRevisionKey
-   *          key of revision to find revision root page for
-   * @return revision root page of this revision key
-   * 
-   * @throws SirixIOException
-   *           if something odd happens within the creation process
-   */
-  final RevisionRootPage loadRevRoot(@Nonnegative final long pRevisionKey)
-    throws SirixIOException {
-    checkArgument(pRevisionKey >= 0
-      && pRevisionKey <= mSession.getLastRevisionNumber(),
-      "pRevisionKey must be >= 0 and <= last stored revision!");
-    assertNotClosed();
+	/**
+	 * Clear the cache.
+	 */
+	void clearCache() {
+		assertNotClosed();
+		mNodeCache.invalidateAll();
 
-    // The indirect page reference either fails horribly or returns a non null instance.
-    @SuppressWarnings("null")
-    final PageReference ref =
-      dereferenceLeafOfTree(mUberPage.getIndirectPageReference(), pRevisionKey);
-    RevisionRootPage page = (RevisionRootPage)ref.getPage();
+		if (mIndexes.contains(EIndexes.PATH)) {
+			mPathCache.invalidateAll();
+		}
+		if (mIndexes.contains(EIndexes.VALUE)) {
+			mValueCache.invalidateAll();
+		}
+		mPageCache.invalidateAll();
+	}
 
-    // If there is no page, get it from the storage and cache it.
-    if (page == null) {
-      try {
-        page = (RevisionRootPage)mPageCache.get(ref.getKey());
-      } catch (final ExecutionException e) {
-        throw new SirixIOException(e.getCause());
-      }
-    }
+	/**
+	 * Get revision root page belonging to revision key.
+	 * 
+	 * @param pRevisionKey
+	 *          key of revision to find revision root page for
+	 * @return revision root page of this revision key
+	 * 
+	 * @throws SirixIOException
+	 *           if something odd happens within the creation process
+	 */
+	final RevisionRootPage loadRevRoot(final @Nonnegative int pRevisionKey)
+			throws SirixIOException {
+		checkArgument(
+				pRevisionKey >= 0 && pRevisionKey <= mSession.getLastRevisionNumber(),
+				"%s must be >= 0 and <= last stored revision (%s)!" ,pRevisionKey,
+				mSession.getLastRevisionNumber());
+		assertNotClosed();
 
-    // Get revision root page which is the leaf of the indirect tree.
-    return page;
-  }
+		// The indirect page reference either fails horribly or returns a non null
+		// instance.
+		final PageReference ref = dereferenceLeafOfTree(
+				mUberPage.getIndirectPageReference(), pRevisionKey, EPage.UBERPAGE);
+		RevisionRootPage page = (RevisionRootPage) ref.getPage();
 
-  /**
-   * Initialize NamePage.
-   * 
-   * @throws SirixIOException
-   *           if an I/O error occurs
-   */
-  private final NamePage getNamePage() throws SirixIOException {
-    assertNotClosed();
-    final PageReference ref = mRootPage.getNamePageReference();
-    if (ref.getPage() == null) {
-      try {
-        ref.setPage(mPageCache.get(ref.getKey()));
-      } catch (final ExecutionException e) {
-        throw new SirixIOException(e);
-      }
-    }
-    return (NamePage)ref.getPage();
-  }
+		// If there is no page, get it from the storage and cache it.
+		if (page == null) {
+			try {
+				page = (RevisionRootPage) mPageCache.get(ref.getKey());
+			} catch (final ExecutionException e) {
+				throw new SirixIOException(e.getCause());
+			}
+		}
 
-  /**
-   * Initialize PathSummaryPage.
-   * 
-   * @throws SirixIOException
-   *           if an I/O error occurs
-   */
-  private final PathSummaryPage getPathSummaryPage(
-    @Nonnull final RevisionRootPage pPage) throws SirixIOException {
-    assertNotClosed();
-    final PageReference ref = pPage.getPathSummaryPageReference();
-    if (ref.getPage() == null) {
-      try {
-        ref.setPage(mPageCache.get(ref.getKey()));
-      } catch (final ExecutionException e) {
-        throw new SirixIOException(e);
-      }
-    }
-    return (PathSummaryPage)ref.getPage();
-  }
+		// Get revision root page which is the leaf of the indirect tree.
+		return page;
+	}
 
-  /**
-   * Initialize ValuePage.
-   * 
-   * @throws SirixIOException
-   *           if an I/O error occurs
-   */
-  private final ValuePage getValuePage(@Nonnull final RevisionRootPage pPage)
-    throws SirixIOException {
-    assertNotClosed();
-    final PageReference ref = pPage.getValuePageReference();
-    if (ref.getPage() == null) {
-      try {
-        ref.setPage(mPageCache.get(ref.getKey()));
-      } catch (final ExecutionException e) {
-        throw new SirixIOException(e);
-      }
-    }
-    return (ValuePage)ref.getPage();
-  }
+	/**
+	 * Initialize NamePage.
+	 * 
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	private final NamePage getNamePage() throws SirixIOException {
+		assertNotClosed();
+		final PageReference ref = mRootPage.getNamePageReference();
+		if (ref.getPage() == null) {
+			try {
+				ref.setPage(mPageCache.get(ref.getKey()));
+			} catch (final ExecutionException e) {
+				throw new SirixIOException(e);
+			}
+		}
+		return (NamePage) ref.getPage();
+	}
 
-  @Override
-  public final UberPage getUberPage() {
-    return mUberPage;
-  }
+	/**
+	 * Initialize PathSummaryPage.
+	 * 
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	private final PathSummaryPage getPathSummaryPage(
+			final @Nonnull RevisionRootPage pPage) throws SirixIOException {
+		assertNotClosed();
+		final PageReference ref = pPage.getPathSummaryPageReference();
+		if (ref.getPage() == null) {
+			try {
+				ref.setPage(mPageCache.get(ref.getKey()));
+			} catch (final ExecutionException e) {
+				throw new SirixIOException(e);
+			}
+		}
+		return (PathSummaryPage) ref.getPage();
+	}
 
-  /**
-   * Dereference node page reference and get all leaves, the {@link NodePage}s from the revision-trees.
-   * 
-   * @param pNodePageKey
-   *          key of node page
-   * @return dereferenced pages
-   * 
-   * @throws SirixIOException
-   *           if an I/O-error occurs within the creation process
-   */
-  final NodePage[] getSnapshotPages(@Nonnegative final long pNodePageKey,
-    @Nonnull final EPage pPage) throws SirixIOException {
-    checkNotNull(pPage);
-    assertNotClosed();
-    final List<PageReference> refs = new ArrayList<>();
-    final Set<Long> keys = new HashSet<>();
-    final ResourceConfiguration config = mSession.getResourceConfig();
-    final int revsToRestore = config.mRevisionsToRestore;
-    for (long i = mRootPage.getRevision(); i >= 0; i--) {
-      final PageReference tmpRef = getPageReference(loadRevRoot(i), pPage);
-      final PageReference ref = dereferenceLeafOfTree(tmpRef, pNodePageKey);
-      if (ref != null
-        && (ref.getPage() != null || ref.getKey() != IConstants.NULL_ID)) {
-        if (ref.getKey() == IConstants.NULL_ID
-          || (!keys.contains(ref.getKey()))) {
-          refs.add(ref);
-          if (ref.getKey() != IConstants.NULL_ID) {
-            keys.add(ref.getKey());
-          }
-        }
-        if (refs.size() == revsToRestore
-          || config.mRevisionKind == ERevisioning.FULL
-          || (config.mRevisionKind == ERevisioning.DIFFERENTIAL && refs.size() == 2)) {
-          break;
-        }
-        if (config.mRevisionKind == ERevisioning.DIFFERENTIAL) {
-          if (i - revsToRestore >= 0) {
-            i = i - revsToRestore + 1;
-          } else if (i == 0) {
-            break;
-          } else {
-            i = 1;
-          }
-        }
-      } else {
-        break;
-      }
-    }
+	/**
+	 * Initialize ValuePage.
+	 * 
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	private final ValuePage getValuePage(final @Nonnull RevisionRootPage pPage)
+			throws SirixIOException {
+		assertNotClosed();
+		final PageReference ref = pPage.getValuePageReference();
+		if (ref.getPage() == null) {
+			try {
+				ref.setPage(mPageCache.get(ref.getKey()));
+			} catch (final ExecutionException e) {
+				throw new SirixIOException(e);
+			}
+		}
+		return (ValuePage) ref.getPage();
+	}
 
-    // Afterwards read the NodePages if they are not dereferences...
-    final NodePage[] pages = new NodePage[refs.size()];
-    for (int i = 0; i < pages.length; i++) {
-      final PageReference ref = refs.get(i);
-      pages[i] = (NodePage)ref.getPage();
-      if (pages[i] == null) {
-        pages[i] = (NodePage)mPageReader.read(ref.getKey());
-      }
-    }
-    return pages;
-  }
+	@Override
+	public final UberPage getUberPage() {
+		return mUberPage;
+	}
 
-  /**
-   * Get the page reference which points to the right subtree (usual nodes, path summary nodes, value index
-   * nodes).
-   * 
-   * @param pRef
-   *          {@link RevisionRootPage} instance
-   * @param pPage
-   *          the page type to determine the right subtree
-   */
-  PageReference getPageReference(@Nonnull final RevisionRootPage pRef,
-    @Nonnull final EPage pPage) throws SirixIOException {
-    assert pRef != null;
-    PageReference ref = null;
-    switch (pPage) {
-    case NODEPAGE:
-      ref = pRef.getIndirectPageReference();
-      break;
-    case VALUEPAGE:
-      ref = getValuePage(pRef).getIndirectPageReference();
-      break;
-    case PATHSUMMARYPAGE:
-      ref = getPathSummaryPage(pRef).getIndirectPageReference();
-      break;
-    default:
-      new IllegalStateException(
-        "Only defined for node pages and path summary pages!");
-    }
-    return ref;
-  }
+	/**
+	 * Dereference node page reference and get all leaves, the {@link NodePage}s
+	 * from the revision-trees.
+	 * 
+	 * @param pNodePageKey
+	 *          key of node page
+	 * @return dereferenced pages
+	 * 
+	 * @throws SirixIOException
+	 *           if an I/O-error occurs within the creation process
+	 */
+	final NodePage[] getSnapshotPages(final @Nonnegative long pNodePageKey,
+			final @Nonnull EPage pPage) throws SirixIOException {
+		checkNotNull(pPage);
+		assertNotClosed();
+		final List<PageReference> refs = new ArrayList<>();
+		final Set<Long> keys = new HashSet<>();
+		final ResourceConfiguration config = mSession.getResourceConfig();
+		final int revsToRestore = config.mRevisionsToRestore;
+		for (int i = mRootPage.getRevision(); i >= 0; i--) {
+			final PageReference tmpRef = getPageReference(loadRevRoot(i), pPage);
+			final PageReference ref = dereferenceLeafOfTree(tmpRef, pNodePageKey,
+					pPage);
+			if (ref != null
+					&& (ref.getPage() != null || ref.getKey() != IConstants.NULL_ID)) {
+				if (ref.getKey() == IConstants.NULL_ID
+						|| (!keys.contains(ref.getKey()))) {
+					refs.add(ref);
+					if (ref.getKey() != IConstants.NULL_ID) {
+						keys.add(ref.getKey());
+					}
+				}
+				if (refs.size() == revsToRestore
+						|| config.mRevisionKind == ERevisioning.FULL
+						|| (config.mRevisionKind == ERevisioning.DIFFERENTIAL && refs
+								.size() == 2)) {
+					break;
+				}
+				if (config.mRevisionKind == ERevisioning.DIFFERENTIAL) {
+					if (i - revsToRestore >= 0) {
+						i = i - revsToRestore + 1;
+					} else if (i == 0) {
+						break;
+					} else {
+						i = 1;
+					}
+				}
+			} else {
+				break;
+			}
+		}
 
-  /**
-   * Dereference indirect page reference.
-   * 
-   * @param pReference
-   *          reference to dereference
-   * @return dereferenced page
-   * 
-   * @throws SirixIOException
-   *           if something odd happens within the creation process.
-   */
-  final IndirectPage dereferenceIndirectPage(
-    @Nonnull final PageReference pReference) throws SirixIOException {
-    final IPage tmpPage = pReference.getPage();
-    if (tmpPage == null || tmpPage instanceof IndirectPage) {
-      IndirectPage page = (IndirectPage)tmpPage;
+		// Afterwards read the NodePages if they are not dereferences...
+		final NodePage[] pages = new NodePage[refs.size()];
+		for (int i = 0; i < pages.length; i++) {
+			final PageReference ref = refs.get(i);
+			pages[i] = (NodePage) ref.getPage();
+			if (pages[i] == null) {
+				pages[i] = (NodePage) mPageReader.read(ref.getKey());
+			}
+		}
+		return pages;
+	}
 
-      // If there is no page, get it from the storage and cache it.
-      if (page == null && pReference.getKey() != IConstants.NULL_ID) {
-        try {
-          page = (IndirectPage)mPageCache.get(pReference.getKey());
-        } catch (final ExecutionException e) {
-          throw new SirixIOException(e);
-        }
-        pReference.setPage(page);
-      }
+	/**
+	 * Get the page reference which points to the right subtree (usual nodes, path
+	 * summary nodes, value index nodes).
+	 * 
+	 * @param pRef
+	 *          {@link RevisionRootPage} instance
+	 * @param pPage
+	 *          the page type to determine the right subtree
+	 */
+	PageReference getPageReference(final @Nonnull RevisionRootPage pRef,
+			final @Nonnull EPage pPage) throws SirixIOException {
+		assert pRef != null;
+		PageReference ref = null;
+		switch (pPage) {
+		case NODEPAGE:
+			ref = pRef.getIndirectPageReference();
+			break;
+		case VALUEPAGE:
+			ref = getValuePage(pRef).getIndirectPageReference();
+			break;
+		case PATHSUMMARYPAGE:
+			ref = getPathSummaryPage(pRef).getIndirectPageReference();
+			break;
+		default:
+			new IllegalStateException(
+					"Only defined for node pages and path summary pages!");
+		}
+		return ref;
+	}
 
-      return page;
-    } else {
-      throw new IllegalArgumentException(
-        "Must be a reference to an indirect page!");
-    }
-  }
+	/**
+	 * Dereference indirect page reference.
+	 * 
+	 * @param pReference
+	 *          reference to dereference
+	 * @return dereferenced page
+	 * 
+	 * @throws SirixIOException
+	 *           if something odd happens within the creation process.
+	 */
+	final IndirectPage dereferenceIndirectPage(
+			final @Nonnull PageReference pReference) throws SirixIOException {
+		final IPage tmpPage = pReference.getPage();
+		if (tmpPage == null || tmpPage instanceof IndirectPage) {
+			IndirectPage page = (IndirectPage) tmpPage;
 
-  /**
-   * Find reference pointing to leaf page of an indirect tree.
-   * 
-   * @param pStartReference
-   *          start reference pointing to the indirect tree
-   * @param pKey
-   *          key to look up in the indirect tree
-   * @return reference denoted by key pointing to the leaf page
-   * 
-   * @throws SirixIOException
-   *           if an I/O error occurs
-   */
-  final PageReference dereferenceLeafOfTree(
-    final @Nonnull PageReference pStartReference, final @Nonnegative long pKey)
-    throws SirixIOException {
+			// If there is no page, get it from the storage and cache it.
+			if (page == null && pReference.getKey() != IConstants.NULL_ID) {
+				try {
+					page = (IndirectPage) mPageCache.get(pReference.getKey());
+				} catch (final ExecutionException e) {
+					throw new SirixIOException(e);
+				}
+				pReference.setPage(page);
+			}
 
-    // Initial state pointing to the indirect page of level 0.
-    PageReference reference = checkNotNull(pStartReference);
-    int offset = 0;
-    long levelKey = pKey;
+			return page;
+		} else {
+			throw new IllegalArgumentException(
+					"Must be a reference to an indirect page!");
+		}
+	}
 
-    // Iterate through all levels.
-    for (int level = 0, height =
-      IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT.length; level < height; level++) {
-      offset =
-        (int)(levelKey >> IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT[level]);
-      levelKey -= offset << IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT[level];
-      final IPage page = dereferenceIndirectPage(reference);
-      if (page == null) {
-        reference = null;
-        break;
-      } else {
-        reference = page.getReferences()[offset];
-      }
-    }
+	/**
+	 * Find reference pointing to leaf page of an indirect tree.
+	 * 
+	 * @param pStartReference
+	 *          start reference pointing to the indirect tree
+	 * @param pKey
+	 *          key to look up in the indirect tree
+	 * @return reference denoted by key pointing to the leaf page
+	 * 
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	final PageReference dereferenceLeafOfTree(
+			final @Nonnull PageReference pStartReference,
+			final @Nonnegative long pKey, final @Nonnull EPage pPage)
+			throws SirixIOException {
 
-    // Return reference to leaf of indirect tree.
-    return reference;
-  }
+		// Initial state pointing to the indirect page of level 0.
+		PageReference reference = checkNotNull(pStartReference);
+		int offset = 0;
+		long levelKey = pKey;
+		final int[] inpLevelPageCountExp = mUberPage.getPageCountExp(pPage);
 
-  /**
-   * Calculate node page key from a given node key.
-   * 
-   * @param pNodeKey
-   *          node key to find node page key for
-   * @return node page key
-   */
-  final long nodePageKey(@Nonnegative final long pNodeKey) {
-    checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
-    return pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT;
-  }
+		// Iterate through all levels.
+		for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
+			offset = (int) (levelKey >> inpLevelPageCountExp[level]);
+			levelKey -= offset << inpLevelPageCountExp[level];
+			final IPage page = dereferenceIndirectPage(reference);
+			if (page == null) {
+				reference = null;
+				break;
+			} else {
+				try {
+					reference = page.getReference(offset);
+				} catch (final IndexOutOfBoundsException e) {
+					throw new SirixIOException("Node key isn't supported, it's too big!");
+				}
+			}
+		}
 
-  // /**
-  // * Calculate node page offset for a given node key.
-  // *
-  // * @param pNodeKey
-  // * node key to find offset for
-  // * @return offset into node page
-  // */
-  // final int nodePageOffset(@Nonnegative final long pNodeKey) {
-  // checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
-  // final long shift =
-  // ((pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT) << IConstants.NDP_NODE_COUNT_EXPONENT);
-  // return (int)(pNodeKey - shift);
-  // }
+		// Return reference to leaf of indirect tree.
+		return reference;
+	}
 
-  @Override
-  public RevisionRootPage getActualRevisionRootPage() throws SirixIOException {
-    return mRootPage;
-  }
+	/**
+	 * Calculate node page key from a given node key.
+	 * 
+	 * @param pNodeKey
+	 *          node key to find node page key for
+	 * @return node page key
+	 */
+	final long nodePageKey(@Nonnegative final long pNodeKey) {
+		checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
+		return pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("Session: ", mSession).add(
-      "PageReader: ", mPageReader).add("UberPage: ", mUberPage).add(
-      "RevRootPage: ", mRootPage).toString();
-  }
+	// /**
+	// * Calculate node page offset for a given node key.
+	// *
+	// * @param pNodeKey
+	// * node key to find offset for
+	// * @return offset into node page
+	// */
+	// final int nodePageOffset(@Nonnegative final long pNodeKey) {
+	// checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
+	// final long shift =
+	// ((pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT) <<
+	// IConstants.NDP_NODE_COUNT_EXPONENT);
+	// return (int)(pNodeKey - shift);
+	// }
 
-  @Override
-  public PageContainer getNodeFromPage(final long pNodePageKey,
-    @Nonnull final EPage pPage) throws SirixIOException {
-    final NodePage[] revs = getSnapshotPages(pNodePageKey, pPage);
-    if (revs.length == 0) {
-      return PageContainer.EMPTY_INSTANCE;
-    }
+	@Override
+	public RevisionRootPage getActualRevisionRootPage() throws SirixIOException {
+		return mRootPage;
+	}
 
-    final int mileStoneRevision =
-      mSession.getResourceConfig().mRevisionsToRestore;
-    final ERevisioning revisioning = mSession.getResourceConfig().mRevisionKind;
-    final NodePage completePage =
-      revisioning.combineNodePages(revs, mileStoneRevision);
-    return new PageContainer(completePage);
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("Session: ", mSession)
+				.add("PageReader: ", mPageReader).add("UberPage: ", mUberPage)
+				.add("RevRootPage: ", mRootPage).toString();
+	}
 
-  @Override
-  public void close() throws SirixIOException {
-    clearCache();
-    mClosed = true;
-    mPageReader.close();
-  }
+	@Override
+	public PageContainer getNodeFromPage(final @Nonnegative long pNodePageKey,
+			final @Nonnull EPage pPage) throws SirixIOException {
+		final NodePage[] revs = getSnapshotPages(pNodePageKey, pPage);
+		if (revs.length == 0) {
+			return PageContainer.EMPTY_INSTANCE;
+		}
 
-  @Override
-  public int getNameCount(int pKey, @Nonnull EKind pKind) {
-    return mNamePage.getCount(pKey, pKind);
-  }
+		final int mileStoneRevision = mSession.getResourceConfig().mRevisionsToRestore;
+		final ERevisioning revisioning = mSession.getResourceConfig().mRevisionKind;
+		final NodePage completePage = revisioning.combineNodePages(revs,
+				mileStoneRevision);
+		return new PageContainer(completePage);
+	}
 
-  @Override
-  public boolean isClosed() {
-    return mClosed;
-  }
+	@Override
+	public void close() throws SirixIOException {
+		clearCache();
+		mClosed = true;
+		mPageReader.close();
+	}
 
-  @Override
-  public long getRevisionNumber() {
-    return mRootPage.getRevision();
-  }
+	@Override
+	public int getNameCount(int pKey, @Nonnull EKind pKind) {
+		return mNamePage.getCount(pKey, pKind);
+	}
 
-  @Override
-  public IPage getFromPageCache(final @Nonnegative long pKey)
-    throws SirixIOException {
-    IPage retVal = null;
-    try {
-      retVal = mPageCache.get(pKey);
-    } catch (ExecutionException e) {
-      throw new SirixIOException(e);
-    }
-    return retVal;
-  }
+	@Override
+	public boolean isClosed() {
+		return mClosed;
+	}
 
-  @Override
-  public void
-    putPageCache(final @Nonnull BerkeleyPersistencePageCache pPageLog) {
-    pPageLog.putAll(mPageCache.asMap());
-  }
+	@Override
+	public int getRevisionNumber() {
+		return mRootPage.getRevision();
+	}
+
+	@Override
+	public IPage getFromPageCache(final @Nonnegative long pKey)
+			throws SirixIOException {
+		IPage retVal = null;
+		try {
+			retVal = mPageCache.get(pKey);
+		} catch (ExecutionException e) {
+			throw new SirixIOException(e.getCause());
+		}
+		return retVal;
+	}
+
+	@Override
+	public void putPageCache(final @Nonnull BerkeleyPersistencePageCache pPageLog) {
+		pPageLog.putAll(mPageCache.asMap());
+	}
 }

@@ -27,6 +27,8 @@
 
 package org.sirix.utils;
 
+import org.sirix.settings.IConstants;
+
 /**
  * <h1>UTF</h1>
  * 

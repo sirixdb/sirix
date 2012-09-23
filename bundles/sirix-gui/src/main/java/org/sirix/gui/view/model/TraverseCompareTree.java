@@ -28,15 +28,6 @@ package org.sirix.gui.view.model;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Preconditions.checkState;
-import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.Callables;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.sleepycat.collections.StoredMap;
-import com.sleepycat.collections.TransactionRunner;
-import com.sleepycat.collections.TransactionWorker;
-import com.sleepycat.je.DatabaseException;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -61,10 +52,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.slf4j.LoggerFactory;
-import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
@@ -94,8 +82,19 @@ import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
+
+import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.Callables;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.sleepycat.collections.StoredMap;
+import com.sleepycat.collections.TransactionRunner;
+import com.sleepycat.collections.TransactionWorker;
+import com.sleepycat.je.DatabaseException;
 
 /**
  * Traverse and compare trees.
@@ -120,12 +119,6 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
   /** {@link Levenshtein} instance. */
   private final Levenshtein mLevenshtein = new Levenshtein();
 
-  /**
-   * Determines the amount of diffs which have to be saved in a {@link List} before the {@link List} is
-   * inserted in a {@link DiffDatabase}.
-   */
-  private static final int AFTER_COUNT_DIFFS = 1_000;
-
   /** Diff threshold, determining when a database has to be used. */
   private static final int DIFF_THRESHOLD = 100_000_000;
 
@@ -147,10 +140,10 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
   private final CountDownLatch mStart;
 
   /** New revision to compare. */
-  private final long mNewRevision;
+  private final int mNewRevision;
 
   /** Old revision to compare. */
-  private final long mOldRevision;
+  private final int mOldRevision;
 
   /** Key in new revision from which to start traversal. */
   private final long mNewStartKey;
@@ -166,12 +159,6 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 
   /** Maximum depth in the tree. */
   private int mDepthMax;
-
-  /** Minimum text length. */
-  private int mMinTextLength;
-
-  /** Maximum text length. */
-  private int mMaxTextLength;
 
   /** {@link ReadDb} instance. */
   private final ReadDB mDb;
