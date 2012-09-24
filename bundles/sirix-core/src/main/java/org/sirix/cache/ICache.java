@@ -78,7 +78,7 @@ public interface ICache<K, V> {
    * @param pMap
    *          map with entries to put into the cache
    */
-  void putAll(@Nonnull Map<? super K, ? super V> pMap);
+  void putAll(@Nonnull Map<K, V> pMap);
 
   /**
    * Save all entries of this cache in the secondary cache without removing them.
