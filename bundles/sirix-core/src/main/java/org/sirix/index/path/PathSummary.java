@@ -22,8 +22,10 @@ import org.sirix.page.EPage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.EFixed;
 import org.sirix.settings.IConstants;
+import org.sirix.utils.LogWrapper;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.Util;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
@@ -37,6 +39,9 @@ import com.google.common.base.Optional;
  */
 public class PathSummary implements INodeReadTrx {
 
+	/** Logger. */
+	private final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(PathSummary.class));
+	
   /** Strong reference to currently selected node. */
   private INode mCurrentNode;
 
@@ -73,8 +78,7 @@ public class PathSummary implements INodeReadTrx {
           "Node couldn't be fetched from persistent storage!");
       }
     } catch (final SirixIOException e) {
-      // TODO Auto-generated catch block
-      e.printStackTrace();
+    	LOGWRAPPER.error(e.getMessage(), e.getCause());
     }
   }
 

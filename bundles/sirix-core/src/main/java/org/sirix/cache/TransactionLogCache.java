@@ -129,6 +129,9 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
 		try {
 			mReadLock.lock();
 			container = mFirstCache.get(pKey);
+			if (container == null) {
+				container = PageContainer.EMPTY_INSTANCE;
+			}
 		} finally {
 			mReadLock.unlock();
 		}

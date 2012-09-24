@@ -115,7 +115,7 @@ import com.google.common.hash.Hashing;
  */
 final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		INodeWriteTrx {
-
+	
 	/**
 	 * Operation type to determine behavior of path summary updates during
 	 * {@code setQName(QName)} and the move-operations.
@@ -1771,7 +1771,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 		// Reset modification counter.
 		mModificationCount = 0L;
-
+		
 		getPageTransaction().close();
 
 		// Close current page transaction.
@@ -1785,7 +1785,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	@Override
 	public void commit() throws SirixException {
 		mNodeRtx.assertNotClosed();
-
+		
 		// Assert that the DocumentNode has no more than one child node (the root
 		// node).
 		final long nodeKey = mNodeRtx.getNode().getNodeKey();
@@ -1797,35 +1797,44 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					"DocumentRootNode may not have more than one child node!");
 		}
 		moveTo(nodeKey);
-
+		
 		// Execute pre-commit hooks.
 		for (final IPreCommitHook hook : mPreCommitHooks) {
 			hook.preCommit(this);
 		}
-
-		// Commit uber page.
-		final UberPage currUberPage = getPageTransaction().getUberPage();
-		if (currUberPage.isBootstrap()) {
-			currUberPage.setIsBulkInserted(mBulkInsert);
-		}
-		final UberPage uberPage = getPageTransaction().commit(EMultipleWriteTrx.NO);
-
-		// Remember succesfully committed uber page in session.
-		mNodeRtx.mSession.setLastCommittedUberPage(uberPage);
-
+		
 		// Reset modification counter.
 		mModificationCount = 0L;
+		
+		final INodeWriteTrx trx = this;	
+//		mPool.submit(new Callable<Void>() {
+//			@Override
+//			public Void call() throws SirixException {
+				// Commit uber page.
+				final UberPage currUberPage = getPageTransaction().getUberPage();
+				if (currUberPage.isBootstrap()) {
+					currUberPage.setIsBulkInserted(mBulkInsert);
+				}
+				final UberPage uberPage = getPageTransaction().commit(EMultipleWriteTrx.NO);
 
-		// Close current page transaction.
-		final long trxID = getTransactionID();
-		final int revNumber = getRevisionNumber();
+				// Remember succesfully committed uber page in session.
+				mNodeRtx.mSession.setLastCommittedUberPage(uberPage);
 
-		reInstantiate(trxID, revNumber);
+				// Close current page transaction.
+				final long trxID = getTransactionID();
+				final int revNumber = getRevisionNumber();
 
-		// Execute post-commit hooks.
-		for (final IPostCommitHook hook : mPostCommitHooks) {
-			hook.postCommit(this);
-		}
+				reInstantiate(trxID, revNumber);
+
+				// Execute post-commit hooks.
+				for (final IPostCommitHook hook : mPostCommitHooks) {
+					hook.postCommit(trx);
+				}
+				
+//				return null;
+//			}
+//			
+//		});
 	}
 
 	private void reInstantiate(final @Nonnegative long trxID,

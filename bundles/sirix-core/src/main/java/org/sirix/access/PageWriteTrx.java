@@ -142,8 +142,8 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 	PageWriteTrx(final @Nonnull Session pSession,
 			final @Nonnull UberPage pUberPage, final @Nonnull IWriter pWriter,
 			final @Nonnegative long pId, final @Nonnegative int pRepresentRev,
-			final @Nonnegative int pLastStoredRev, final @Nonnegative int pLastCommitedRev)
-			throws SirixException {
+			final @Nonnegative int pLastStoredRev,
+			final @Nonnegative int pLastCommitedRev) throws SirixException {
 		final int revision = pUberPage.isBootstrap() ? 0 : pRepresentRev + 1;
 		mPathLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
 				revision, "path");
@@ -227,8 +227,9 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 		final long nodePageKey = mPageRtx.nodePageKey(pNode.getNodeKey());
 		if (mNodePageCon == null
 				|| pNode == null
-				|| (mNodeLog.get(nodePageKey) == null
-						&& mPathLog.get(nodePageKey) == null && mValueLog.get(nodePageKey) == null)) {
+				|| (mNodeLog.get(nodePageKey).equals(PageContainer.EMPTY_INSTANCE)
+						&& mPathLog.get(nodePageKey).equals(PageContainer.EMPTY_INSTANCE) && mValueLog
+						.get(nodePageKey).equals(PageContainer.EMPTY_INSTANCE))) {
 			throw new IllegalStateException();
 		}
 
@@ -303,7 +304,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 
 		final PageContainer pageCont = getPageContainer(pPage, nodePageKey);
 
-		if (pageCont == null) {
+		if (pageCont.equals(PageContainer.EMPTY_INSTANCE)) {
 			return mPageRtx.getNode(pNodeKey, pPage);
 		} else {
 			INodeBase node = pageCont.getModified().getNode(pNodeKey);
@@ -339,7 +340,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 				throw new IllegalStateException();
 			}
 		}
-		return null;
+		return PageContainer.EMPTY_INSTANCE;
 	}
 
 	@Override
@@ -502,7 +503,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 			final @Nonnull EPage pPage) throws SirixIOException {
 		// Last level points to node nodePageReference.
 		PageContainer cont = getPageContainer(pPage, pNodePageKey);
-		if (cont == null) {
+		if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
 			// Indirect reference.
 			final PageReference reference = prepareLeafOfTree(
 					mPageRtx.getPageReference(mNewRoot, pPage), pNodePageKey, pPage);

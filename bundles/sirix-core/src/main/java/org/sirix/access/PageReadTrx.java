@@ -30,7 +30,6 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -65,7 +64,6 @@ import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.ValuePage;
 import org.sirix.page.interfaces.IPage;
-import org.sirix.service.xml.xpath.expr.AbsExpression;
 import org.sirix.settings.ERevisioning;
 import org.sirix.settings.IConstants;
 
@@ -177,14 +175,14 @@ final class PageReadTrx implements IPageReadTrx {
 			mValueLog = Optional.<TransactionLogCache> absent();
 		}
 
-		mNodeCache = CacheBuilder.newBuilder().maximumSize(1000)
+		mNodeCache = CacheBuilder.newBuilder().maximumSize(2000)
 				.expireAfterWrite(40, TimeUnit.SECONDS)
 				.expireAfterAccess(15, TimeUnit.SECONDS).concurrencyLevel(1)
 				.build(new CacheLoader<Long, PageContainer>() {
 					public PageContainer load(final Long pKey) throws SirixException {
 						final PageContainer container = mNodeLog.isPresent() ? mNodeLog
-								.get().get(pKey) : null;
-						if (container == null) {
+								.get().get(pKey) : PageContainer.EMPTY_INSTANCE;
+						if (container.equals(PageContainer.EMPTY_INSTANCE)) {
 							return getNodeFromPage(pKey, EPage.NODEPAGE);
 						} else {
 							return container;
@@ -197,8 +195,8 @@ final class PageReadTrx implements IPageReadTrx {
 			mPathCache = builder.build(new CacheLoader<Long, PageContainer>() {
 				public PageContainer load(final Long pKey) throws SirixException {
 					final PageContainer container = mPathLog.isPresent() ? mPathLog.get()
-							.get(pKey) : null;
-					if (container == null) {
+							.get(pKey) : PageContainer.EMPTY_INSTANCE;
+					if (container.equals(PageContainer.EMPTY_INSTANCE)) {
 						return getNodeFromPage(pKey, EPage.PATHSUMMARYPAGE);
 					} else {
 						return container;
@@ -213,7 +211,7 @@ final class PageReadTrx implements IPageReadTrx {
 				public PageContainer load(final Long pKey) throws SirixException {
 					final PageContainer container = mValueLog.isPresent() ? mValueLog
 							.get().get(pKey) : null;
-					if (container == null) {
+					if (container.equals(PageContainer.EMPTY_INSTANCE)) {
 						return getNodeFromPage(pKey, EPage.VALUEPAGE);
 					} else {
 						return container;

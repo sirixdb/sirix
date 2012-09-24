@@ -79,7 +79,6 @@ public class ExpressionSingleTest {
     builder.add(axis1);
     builder.add(axis2);
     assertTrue(builder.getExpr() instanceof NestedAxis);
-
   }
 
   @Test
