@@ -254,14 +254,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 		mHashKind = pSession.mResourceConfig.mHashKind;
 
-		// Redo last transaction if the system crashed.
-		if (!pPageWriteTrx.isCreated()) {
-			try {
-				commit();
-			} catch (final SirixException e) {
-				throw new IllegalStateException(e);
-			}
-		}
+		// // Redo last transaction if the system crashed.
+		// if (!pPageWriteTrx.isCreated()) {
+		// try {
+		// commit();
+		// } catch (final SirixException e) {
+		// throw new IllegalStateException(e);
+		// }
+		// }
 	}
 
 	@Override
@@ -606,8 +606,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		final IAxis axis = new FilterAxis(new ChildAxis(mPathSummary),
 				new NameFilter(mPathSummary,
 						pKind == EKind.NAMESPACE ? pQName.getPrefix()
-								: Utils.buildName(pQName)), new PathKindFilter(
-						mPathSummary, pKind));
+								: Utils.buildName(pQName)), new PathKindFilter(mPathSummary,
+						pKind));
 		long retVal = nodeKey;
 		if (axis.hasNext()) {
 			axis.next();
@@ -1543,10 +1543,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					new LevelOrderAxis.Builder(mPathSummary)
 							.filterLevel(node.getLevel() - oldLevel)
 							.includeSelf(EIncludeSelf.YES).build(), new NameFilter(
-							mPathSummary, Utils.buildName(cloned
-									.getQNameOfCurrentNode())), new PathKindFilter(mPathSummary,
-							node.getPathKind()), new PathLevelFilter(mPathSummary,
-							node.getLevel()));
+							mPathSummary, Utils.buildName(cloned.getQNameOfCurrentNode())),
+					new PathKindFilter(mPathSummary, node.getPathKind()),
+					new PathLevelFilter(mPathSummary, node.getLevel()));
 			if (axis.hasNext()) {
 				axis.next();
 
@@ -1634,11 +1633,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		// Search for new path entry.
 		mPathSummary.moveTo(pNewPathNodeKey);
 		final IAxis filterAxis = new FilterAxis(new LevelOrderAxis.Builder(
-				mPathSummary).includeSelf(EIncludeSelf.YES).build(),
-				new NameFilter(mPathSummary, Utils.buildName(mNodeRtx
-						.getQNameOfCurrentNode())), new PathKindFilter(mPathSummary,
-						mNodeRtx.getNode().getKind()), new PathLevelFilter(mPathSummary,
-						pOldPathNode.getLevel()));
+				mPathSummary).includeSelf(EIncludeSelf.YES).build(), new NameFilter(
+				mPathSummary, Utils.buildName(mNodeRtx.getQNameOfCurrentNode())),
+				new PathKindFilter(mPathSummary, mNodeRtx.getNode().getKind()),
+				new PathLevelFilter(mPathSummary, pOldPathNode.getLevel()));
 		if (filterAxis.hasNext()) {
 			filterAxis.next();
 
@@ -1735,13 +1733,53 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
 		// New path summary.
-		mPathSummary = null;
-		mPathSummary = PathSummary.getInstance(getPageTransaction(),
-				mNodeRtx.getSession());
+		reInstantiateIndexes();
 
 		// Reset modification counter.
 		mModificationCount = 0L;
+		
+		// Move to document root.
 		moveToDocumentRoot();
+	}
+
+	@Override
+	public void close() throws SirixException {
+		if (!isClosed()) {
+			// Make sure to commit all dirty data.
+			if (mModificationCount > 0) {
+				throw new SirixUsageException("Must commit/abort transaction first");
+			}
+			// Release all state immediately.
+			mNodeRtx.mSession.closeWriteTransaction(getTransactionID());
+			mNodeRtx.close();
+			// mPathSummary.close();
+			mPathSummary = null;
+
+			// Shutdown pool.
+			mPool.shutdown();
+			try {
+				mPool.awaitTermination(5, TimeUnit.SECONDS);
+			} catch (final InterruptedException e) {
+				throw new SirixThreadedException(e);
+			}
+		}
+	}
+
+	@Override
+	public void abort() throws SirixException {
+		mNodeRtx.assertNotClosed();
+
+		// Reset modification counter.
+		mModificationCount = 0L;
+
+		getPageTransaction().close();
+
+		// Close current page transaction.
+		final long trxID = getTransactionID();
+		final int revNumber = getPageTransaction().getUberPage().isBootstrap() ? 0
+				: getRevisionNumber() - 1;
+
+		reInstantiate(trxID, revNumber);
 	}
 
 	@Override
@@ -1781,9 +1819,18 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		// Close current page transaction.
 		final long trxID = getTransactionID();
 		final int revNumber = getRevisionNumber();
-		mPathSummary = null;
+
+		reInstantiate(trxID, revNumber);
+
+		// Execute post-commit hooks.
+		for (final IPostCommitHook hook : mPostCommitHooks) {
+			hook.postCommit(this);
+		}
+	}
+
+	private void reInstantiate(final @Nonnegative long trxID,
+			final @Nonnegative int revNumber) throws SirixException {
 		getPageTransaction().close();
-		mNodeRtx.setPageReadTransaction(null);
 
 		// Reset page transaction to new uber page.
 		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
@@ -1791,6 +1838,13 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		mNodeFactory = new NodeFactory(
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
+		mPathSummary = null;
+		mAVLTree = null;
+
+		reInstantiateIndexes();
+	}
+
+	private void reInstantiateIndexes() {
 		// Get a new path summary instance.
 		if (mIndexes.contains(EIndexes.PATH)) {
 			mPathSummary = PathSummary.getInstance(mNodeRtx.getPageTransaction(),
@@ -1800,11 +1854,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		// Get a new avl tree instance.
 		if (mIndexes.contains(EIndexes.VALUE)) {
 			mAVLTree = AVLTree.getInstance(getPageTransaction());
-		}
-
-		// Execute post-commit hooks.
-		for (final IPostCommitHook hook : mPostCommitHooks) {
-			hook.postCommit(this);
 		}
 	}
 
@@ -1895,47 +1944,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			postorderAdd();
 			break;
 		default:
-		}
-	}
-
-	@Override
-	public void abort() throws SirixException {
-		mNodeRtx.assertNotClosed();
-
-		// Reset modification counter.
-		mModificationCount = 0L;
-
-		getPageTransaction().close();
-
-		final int revisionToSet = getPageTransaction().getUberPage().isBootstrap() ? 0
-				: getRevisionNumber() - 1;
-
-		// Reset page transaction to last committed uber page.
-		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
-				.createPageWriteTransaction(getTransactionID(), revisionToSet,
-						revisionToSet));
-	}
-
-	@Override
-	public void close() throws SirixException {
-		if (!isClosed()) {
-			// Make sure to commit all dirty data.
-			if (mModificationCount > 0) {
-				throw new SirixUsageException("Must commit/abort transaction first");
-			}
-			// Release all state immediately.
-			mNodeRtx.mSession.closeWriteTransaction(getTransactionID());
-			mNodeRtx.close();
-			// mPathSummary.close();
-			mPathSummary = null;
-
-			// Shutdown pool.
-			mPool.shutdown();
-			try {
-				mPool.awaitTermination(5, TimeUnit.SECONDS);
-			} catch (final InterruptedException e) {
-				throw new SirixThreadedException(e);
-			}
 		}
 	}
 

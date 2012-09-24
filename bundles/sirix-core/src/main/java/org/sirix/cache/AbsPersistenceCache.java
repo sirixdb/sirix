@@ -68,7 +68,7 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
    *          type of log to append to the path of the log
    */
   protected AbsPersistenceCache(final @Nonnull File pFile,
-    final @Nonnegative int pRevision, final @Nonnull String pLogType) throws SirixException {
+    final @Nonnegative int pRevision, final @Nonnull String pLogType) {
     mPlace =
       new File(new File(new File(pFile, ResourceConfiguration.Paths.TransactionLog
         .getFile().getName()), Integer.toString(pRevision)), pLogType);
@@ -97,14 +97,15 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
   public final void clear() {
     try {
       clearPersistent();
-      for (final File file : mPlace.listFiles()) {
-        if (!file.delete()) {
-          throw new SirixIOException("Couldn't delete!");
-        }
-      }
-      if (!mPlace.delete()) {
-        throw new SirixIOException("Couldn't delete!");
-      }
+      
+//      for (final File file : mPlace.listFiles()) {
+//        if (!file.delete()) {
+//          throw new SirixIOException("Couldn't delete!");
+//        }
+//      }
+//      if (!mPlace.delete()) {
+//        throw new SirixIOException("Couldn't delete!");
+//      }
     } catch (final SirixIOException e) {
       throw new IllegalStateException(e.getCause());
     }

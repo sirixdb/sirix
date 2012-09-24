@@ -37,7 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
@@ -56,7 +56,7 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
 	private final LRUCache<Long, PageContainer> mFirstCache;
 
 	/** Persistend second cache. */
-	private final ICache<Long, PageContainer> mSecondCache;
+	private final BerkeleyPersistenceCache mSecondCache;
 
 	/** {@link ReadWriteLock} instance. */
 	private final ReadWriteLock mLock = new ReentrantReadWriteLock();
@@ -77,13 +77,18 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
 	 *          the config for having a storage-place
 	 * @param pRevision
 	 *          revision number
-	 * @throws SirixException
+	 * @throws SirixIOException
+	 * 					if a database error occurs
 	 */
 	public TransactionLogCache(final @Nonnull File pFile,
 			final @Nonnegative int pRevision, final @Nonnull String pLogType)
-			throws SirixException {
+			throws SirixIOException {
 		mSecondCache = new BerkeleyPersistenceCache(pFile, pRevision, pLogType);
 		mFirstCache = new LRUCache<>(mSecondCache);
+	}
+	
+	public void close() {
+		mSecondCache.close();
 	}
 
 	@Override

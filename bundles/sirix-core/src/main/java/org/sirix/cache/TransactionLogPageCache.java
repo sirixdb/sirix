@@ -37,7 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.IPage;
 
 import com.google.common.base.Objects;
@@ -76,13 +76,18 @@ public final class TransactionLogPageCache implements ICache<Long, IPage> {
 	 *          the config for having a storage-place
 	 * @param pRevision
 	 *          revision number
-	 * @throws SirixException
+	 * @throws SirixIOException
+	 *           if a database error occurs
 	 */
 	public TransactionLogPageCache(final @Nonnull File pFile,
 			final @Nonnegative int pRevision, final @Nonnull String pLogType)
-			throws SirixException {
+			throws SirixIOException {
 		mSecondCache = new BerkeleyPersistencePageCache(pFile, pRevision, pLogType);
 		mFirstCache = new LRUCache<>(mSecondCache);
+	}
+	
+	public void close() {
+		mSecondCache.close();
 	}
 
 	@Override

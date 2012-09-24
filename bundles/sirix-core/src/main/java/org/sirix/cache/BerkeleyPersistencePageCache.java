@@ -105,11 +105,11 @@ public final class BerkeleyPersistencePageCache extends
    *          the correct way
    * @param pLogType
    *          type of log to append to the path of the log
-   * @throws SirixException
-   *           if a Sirix operation fails
+   * @throws SirixIOException 
+   *           if an database open exception occurs
    */
   public BerkeleyPersistencePageCache(final @Nonnull File pFile,
-    final @Nonnegative int pRevision, final @Nonnull String pLogType) throws SirixException {
+    final @Nonnegative int pRevision, final @Nonnull String pLogType) throws SirixIOException {
     super(checkNotNull(pFile), pRevision, pLogType);
     try {
       // Create a new, transactional database environment.
@@ -119,7 +119,7 @@ public final class BerkeleyPersistencePageCache extends
 
       // Make a database within that environment.
       final DatabaseConfig dbConfig = new DatabaseConfig();
-      dbConfig.setAllowCreate(true).setExclusiveCreate(true).setDeferredWrite(
+      dbConfig.setAllowCreate(true).setExclusiveCreate(false).setDeferredWrite(
         true);
 
       mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
@@ -130,6 +130,10 @@ public final class BerkeleyPersistencePageCache extends
     } catch (final DatabaseException e) {
       throw new SirixIOException(e);
     }
+  }
+  
+  public void close() {
+  	mDatabase.close();
   }
 
   @Override
@@ -155,8 +159,8 @@ public final class BerkeleyPersistencePageCache extends
   public void clearPersistent() throws SirixIOException {
     try {
       mDatabase.close();
-      mEnv.removeDatabase(null, NAME);
-      mEnv.close();
+//      mEnv.removeDatabase(null, NAME);
+//      mEnv.close();
     } catch (final DatabaseException e) {
       throw new SirixIOException(e);
     }

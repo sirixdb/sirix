@@ -134,24 +134,25 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 	 *          ID
 	 * @param pRepresentRev
 	 *          revision represent
-	 * @param pStoreRev
-	 *          revision store
+	 * @param pLastStoredRev
+	 *          last store revision
 	 * @throws AbsTTException
 	 *           if an error occurs
 	 */
 	PageWriteTrx(final @Nonnull Session pSession,
 			final @Nonnull UberPage pUberPage, final @Nonnull IWriter pWriter,
 			final @Nonnegative long pId, final @Nonnegative int pRepresentRev,
-			final @Nonnegative int pStoreRev, final @Nonnegative int pLastCommitedRev)
+			final @Nonnegative int pLastStoredRev, final @Nonnegative int pLastCommitedRev)
 			throws SirixException {
+		final int revision = pUberPage.isBootstrap() ? 0 : pRepresentRev + 1;
 		mPathLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
-				pStoreRev, "path");
+				revision, "path");
 		mNodeLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
-				pStoreRev, "node");
+				revision, "node");
 		mValueLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
-				pStoreRev, "value");
+				revision, "value");
 		mPageLog = new TransactionLogPageCache(pSession.mResourceConfig.mPath,
-				pStoreRev, "page");
+				revision, "page");
 		mPageWriter = pWriter;
 		mTransactionID = pId;
 		mPageRtx = new PageReadTrx(pSession, pUberPage, pRepresentRev, pWriter,
@@ -165,7 +166,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 
 		final RevisionRootPage lastCommitedRoot = preparePreviousRevisionRootPage(
 				pRepresentRev, pLastCommitedRev);
-		mNewRoot = preparePreviousRevisionRootPage(pRepresentRev, pStoreRev);
+		mNewRoot = preparePreviousRevisionRootPage(pRepresentRev, pLastStoredRev);
 		mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
 
 		final Set<EIndexes> indexes = pSession.getResourceConfig().mIndexes;

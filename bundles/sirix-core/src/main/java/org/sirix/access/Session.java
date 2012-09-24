@@ -204,8 +204,8 @@ public final class Session implements ISession {
 				throw new SirixUsageException(
 						"No read transactions available, please close at least one read transaction at first!");
 			}
-		} catch (final InterruptedException exc) {
-			throw new SirixThreadedException(exc);
+		} catch (final InterruptedException e) {
+			throw new SirixThreadedException(e);
 		}
 
 		final Optional<TransactionLogPageCache> log = getLog(pRevisionKey);

@@ -47,6 +47,7 @@ import org.sirix.access.conf.ResourceConfiguration.EIndexes;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionLogCache;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -64,6 +65,7 @@ import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.ValuePage;
 import org.sirix.page.interfaces.IPage;
+import org.sirix.service.xml.xpath.expr.AbsExpression;
 import org.sirix.settings.ERevisioning;
 import org.sirix.settings.IConstants;
 
@@ -119,6 +121,14 @@ final class PageReadTrx implements IPageReadTrx {
 	/** Indexes to read. */
 	private final Set<EIndexes> mIndexes;
 
+	private final Optional<TransactionLogPageCache> mPageLog;
+
+	private final Optional<TransactionLogCache> mPathLog;
+
+	private final Optional<TransactionLogCache> mValueLog;
+
+	private final Optional<TransactionLogCache> mNodeLog;
+
 	/**
 	 * Standard constructor.
 	 * 
@@ -141,21 +151,58 @@ final class PageReadTrx implements IPageReadTrx {
 			final @Nonnull Optional<TransactionLogPageCache> pPersistentCache)
 			throws SirixIOException {
 		checkArgument(pRevision >= 0, "Revision must be >= 0!");
+		mIndexes = pSession.mResourceConfig.mIndexes;
+
+		// Transaction logs which might have to be read because the data hasn't been
+		// commited to the data-file.
+		final boolean isCreated = pPersistentCache.isPresent()
+				&& !pPersistentCache.get().isCreated();
+		mPageLog = !isCreated ? pPersistentCache : Optional
+				.<TransactionLogPageCache> absent();
+		mNodeLog = !isCreated ? Optional.of(new TransactionLogCache(
+				pSession.mResourceConfig.mPath, pRevision, "node")) : Optional
+				.<TransactionLogCache> absent();
+		if (mIndexes.contains(EIndexes.PATH)) {
+			mPathLog = !isCreated ? Optional.of(new TransactionLogCache(
+					pSession.mResourceConfig.mPath, pRevision, "path")) : Optional
+					.<TransactionLogCache> absent();
+		} else {
+			mPathLog = Optional.<TransactionLogCache> absent();
+		}
+		if (mIndexes.contains(EIndexes.VALUE)) {
+			mValueLog = !isCreated ? Optional.of(new TransactionLogCache(
+					pSession.mResourceConfig.mPath, pRevision, "value")) : Optional
+					.<TransactionLogCache> absent();
+		} else {
+			mValueLog = Optional.<TransactionLogCache> absent();
+		}
+
 		mNodeCache = CacheBuilder.newBuilder().maximumSize(1000)
 				.expireAfterWrite(40, TimeUnit.SECONDS)
-				.expireAfterAccess(15, TimeUnit.SECONDS)
+				.expireAfterAccess(15, TimeUnit.SECONDS).concurrencyLevel(1)
 				.build(new CacheLoader<Long, PageContainer>() {
 					public PageContainer load(final Long pKey) throws SirixException {
-						return getNodeFromPage(pKey, EPage.NODEPAGE);
+						final PageContainer container = mNodeLog.isPresent() ? mNodeLog
+								.get().get(pKey) : null;
+						if (container == null) {
+							return getNodeFromPage(pKey, EPage.NODEPAGE);
+						} else {
+							return container;
+						}
 					}
 				});
 		final CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder()
 				.concurrencyLevel(1).maximumSize(1000);
-		mIndexes = pSession.mResourceConfig.mIndexes;
 		if (mIndexes.contains(EIndexes.PATH)) {
 			mPathCache = builder.build(new CacheLoader<Long, PageContainer>() {
 				public PageContainer load(final Long pKey) throws SirixException {
-					return getNodeFromPage(pKey, EPage.PATHSUMMARYPAGE);
+					final PageContainer container = mPathLog.isPresent() ? mPathLog.get()
+							.get(pKey) : null;
+					if (container == null) {
+						return getNodeFromPage(pKey, EPage.PATHSUMMARYPAGE);
+					} else {
+						return container;
+					}
 				}
 			});
 		} else {
@@ -164,7 +211,13 @@ final class PageReadTrx implements IPageReadTrx {
 		if (mIndexes.contains(EIndexes.VALUE)) {
 			mValueCache = builder.build(new CacheLoader<Long, PageContainer>() {
 				public PageContainer load(final Long pKey) throws SirixException {
-					return getNodeFromPage(pKey, EPage.VALUEPAGE);
+					final PageContainer container = mValueLog.isPresent() ? mValueLog
+							.get().get(pKey) : null;
+					if (container == null) {
+						return getNodeFromPage(pKey, EPage.VALUEPAGE);
+					} else {
+						return container;
+					}
 				}
 			});
 		} else {
@@ -184,21 +237,16 @@ final class PageReadTrx implements IPageReadTrx {
 				}
 			});
 		}
-		
-		final File pageLog = new File(pSession.mResourceConfig.mPath,
-				new File(ResourceConfiguration.Paths.TransactionLog.getFile(),
-						new File(new File("page"), String.valueOf(pRevision))
-								.getPath()).getPath());
-		if (pageLog.exists()) {
-			
-		}
-				
-//		if (new TransactionLogPageCache(this, pSession.mResourceConfig.mPath, pRevision, "page").exists()) {
+
 		mPageCache = pageCacheBuilder.build(new CacheLoader<Long, IPage>() {
 			public IPage load(final Long pKey) throws SirixException {
-				
-//				final IPage page = 
-				return mPageReader.read(pKey).setDirty(true);
+				final IPage container = mPageLog.isPresent() ? mPageLog.get().get(pKey)
+						: null;
+				if (container == null) {
+					return mPageReader.read(pKey).setDirty(true);
+				} else {
+					return container;
+				}
 			}
 		});
 		mSession = checkNotNull(pSession);
@@ -302,7 +350,18 @@ final class PageReadTrx implements IPageReadTrx {
 	 */
 	void clearCache() {
 		assertNotClosed();
-		mNodeCache.invalidateAll();
+		if (mPathLog.isPresent()) {
+			mPathLog.get().close();
+		}
+		if (mValueLog.isPresent()) {
+			mValueLog.get().close();
+		}
+		if (mNodeLog.isPresent()) {
+			mNodeLog.get().close();
+		}
+		if (mPageLog.isPresent()) {
+			mPageLog.get().close();
+		}
 
 		if (mIndexes.contains(EIndexes.PATH)) {
 			mPathCache.invalidateAll();
@@ -310,6 +369,7 @@ final class PageReadTrx implements IPageReadTrx {
 		if (mIndexes.contains(EIndexes.VALUE)) {
 			mValueCache.invalidateAll();
 		}
+		mNodeCache.invalidateAll();
 		mPageCache.invalidateAll();
 	}
 
