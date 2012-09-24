@@ -1,12 +1,10 @@
 package org.sirix.api;
 
-import com.google.common.base.Optional;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INodeBase;
@@ -14,6 +12,8 @@ import org.sirix.page.EPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.IPage;
+
+import com.google.common.base.Optional;
 
 /**
  * Interface for reading pages.
@@ -150,5 +150,5 @@ public interface IPageReadTrx extends AutoCloseable {
    * @param pPageLog
    *            persistent page log
    */
-  void putPageCache(@Nonnull BerkeleyPersistencePageCache pPageLog);
+  void putPageCache(@Nonnull TransactionLogPageCache pPageLog);
 }

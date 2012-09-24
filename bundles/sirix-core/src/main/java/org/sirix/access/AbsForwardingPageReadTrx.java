@@ -5,8 +5,8 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INodeBase;
@@ -94,7 +94,7 @@ public abstract class AbsForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public void putPageCache(@Nonnull BerkeleyPersistencePageCache pPageLog) {
+	public void putPageCache(@Nonnull TransactionLogPageCache pPageLog) {
 		delegate().putPageCache(pPageLog);
 	}
 

@@ -285,6 +285,12 @@ public final class UberPage extends AbsForwardingPage {
 	protected IPage delegate() {
 		return mDelegate;
 	}
+	
+	@Override
+	public IPage setDirty(final boolean pDirty) {
+		mDelegate.setDirty(pDirty);
+		return this;
+	}
 
 	/** 
 	 * Get the page count exponent for the given page.

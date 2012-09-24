@@ -273,4 +273,10 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	protected IPage delegate() {
 		return mDelegate;
 	}
+	
+	@Override
+	public IPage setDirty(final boolean pDirty) {
+		mDelegate.setDirty(pDirty);
+		return this;
+	}
 }

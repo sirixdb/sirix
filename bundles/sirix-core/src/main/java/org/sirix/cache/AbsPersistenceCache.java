@@ -34,7 +34,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 
@@ -53,11 +52,6 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
   protected final File mPlace;
 
   /**
-   * Type of log (path, value, node or general page-log).
-   */
-  private final String mLogType;
-
-  /**
    * Determines if directory has been created.
    */
   private final boolean mCreated;
@@ -68,21 +62,17 @@ public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
    * @param pFile
    *          {@link File} which holds the place to store
    *          the data
-   * @param pPageWriteTrx
-   *          page write transaction
    * @param pRevision
    *          revision number        
    * @param pLogType
    *          type of log to append to the path of the log
    */
   protected AbsPersistenceCache(final @Nonnull File pFile,
-    final @Nonnull IPageWriteTrx pPageWriteTrx,
-    final @Nonnegative long pRevision, final @Nonnull String pLogType) throws SirixException {
+    final @Nonnegative int pRevision, final @Nonnull String pLogType) throws SirixException {
     mPlace =
       new File(new File(new File(pFile, ResourceConfiguration.Paths.TransactionLog
-        .getFile().getName()), Long.toString(pRevision)), pLogType);
+        .getFile().getName()), Integer.toString(pRevision)), pLogType);
     mCreated = mPlace.mkdirs();
-    mLogType = pLogType;
   }
   
   /**

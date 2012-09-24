@@ -58,6 +58,7 @@ public final class IndirectPage extends AbsForwardingPage {
   public IndirectPage(final @Nonnegative int pRevision) {
     checkArgument(pRevision >= 0, "pRevision must be >= 0!");
     mDelegate = new PageDelegate(IConstants.INP_REFERENCE_COUNT, pRevision);
+    
   }
 
   /**
@@ -87,4 +88,10 @@ public final class IndirectPage extends AbsForwardingPage {
   protected IPage delegate() {
     return mDelegate;
   }
+  
+	@Override
+	public IPage setDirty(final boolean pDirty) {
+		mDelegate.setDirty(pDirty);
+		return this;
+	}
 }

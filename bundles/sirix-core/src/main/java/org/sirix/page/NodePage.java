@@ -67,6 +67,9 @@ public class NodePage implements IPage {
 
 	/** {@link PageDelegate} reference. */
 	private final int mRevision;
+	
+	/** Determine if node page has been modified. */
+	private boolean mIsDirty;
 
 	/**
 	 * Create node page.
@@ -83,6 +86,7 @@ public class NodePage implements IPage {
 		mRevision = pRevision;
 		mNodePageKey = pNodePageKey;
 		mNodes = new HashMap<>();
+		mIsDirty = true;
 	}
 
 	/**
@@ -211,6 +215,17 @@ public class NodePage implements IPage {
 	@Override
 	public PageReference getReference(final @Nonnegative int offset) {
 		throw new UnsupportedOperationException();
+	}
+	
+	@Override
+	public boolean isDirty() {
+		return mIsDirty;
+	}
+
+	@Override
+	public IPage setDirty(final boolean pDirty) {
+		mIsDirty = pDirty;
+		return this;
 	}
 
 }

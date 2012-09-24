@@ -30,6 +30,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -45,8 +46,8 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceConfiguration.EIndexes;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.IReader;
@@ -137,7 +138,7 @@ final class PageReadTrx implements IPageReadTrx {
 	PageReadTrx(final @Nonnull Session pSession,
 			final @Nonnull UberPage pUberPage, @Nonnegative final int pRevision,
 			final @Nonnull IReader pReader,
-			final @Nonnull Optional<BerkeleyPersistencePageCache> pPersistentCache)
+			final @Nonnull Optional<TransactionLogPageCache> pPersistentCache)
 			throws SirixIOException {
 		checkArgument(pRevision >= 0, "Revision must be >= 0!");
 		mNodeCache = CacheBuilder.newBuilder().maximumSize(1000)
@@ -176,13 +177,28 @@ final class PageReadTrx implements IPageReadTrx {
 			pageCacheBuilder.removalListener(new RemovalListener<Long, IPage>() {
 				@Override
 				public void onRemoval(final RemovalNotification<Long, IPage> pRemoval) {
-					pPersistentCache.get().put(pRemoval.getKey(), pRemoval.getValue());
+					final IPage page = pRemoval.getValue();
+					if (page.isDirty()) {
+						pPersistentCache.get().put(pRemoval.getKey(), page);
+					}
 				}
 			});
 		}
+		
+		final File pageLog = new File(pSession.mResourceConfig.mPath,
+				new File(ResourceConfiguration.Paths.TransactionLog.getFile(),
+						new File(new File("page"), String.valueOf(pRevision))
+								.getPath()).getPath());
+		if (pageLog.exists()) {
+			
+		}
+				
+//		if (new TransactionLogPageCache(this, pSession.mResourceConfig.mPath, pRevision, "page").exists()) {
 		mPageCache = pageCacheBuilder.build(new CacheLoader<Long, IPage>() {
 			public IPage load(final Long pKey) throws SirixException {
-				return mPageReader.read(pKey);
+				
+//				final IPage page = 
+				return mPageReader.read(pKey).setDirty(true);
 			}
 		});
 		mSession = checkNotNull(pSession);
@@ -311,7 +327,7 @@ final class PageReadTrx implements IPageReadTrx {
 			throws SirixIOException {
 		checkArgument(
 				pRevisionKey >= 0 && pRevisionKey <= mSession.getLastRevisionNumber(),
-				"%s must be >= 0 and <= last stored revision (%s)!" ,pRevisionKey,
+				"%s must be >= 0 and <= last stored revision (%s)!", pRevisionKey,
 				mSession.getLastRevisionNumber());
 		assertNotClosed();
 
@@ -512,6 +528,7 @@ final class PageReadTrx implements IPageReadTrx {
 			if (page == null && pReference.getKey() != IConstants.NULL_ID) {
 				try {
 					page = (IndirectPage) mPageCache.get(pReference.getKey());
+					mPageCache.put(pReference.getKey(), page.setDirty(true));
 				} catch (final ExecutionException e) {
 					throw new SirixIOException(e);
 				}
@@ -658,7 +675,7 @@ final class PageReadTrx implements IPageReadTrx {
 	}
 
 	@Override
-	public void putPageCache(final @Nonnull BerkeleyPersistencePageCache pPageLog) {
+	public void putPageCache(final @Nonnull TransactionLogPageCache pPageLog) {
 		pPageLog.putAll(mPageCache.asMap());
 	}
 }

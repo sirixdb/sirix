@@ -79,5 +79,10 @@ public abstract class AbsForwardingPage extends ForwardingObject implements
 	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
 		delegate().serialize(checkNotNull(pOut));
 	}
+	
+	@Override
+	public boolean isDirty() {
+		return delegate().isDirty();
+	}
 
 }

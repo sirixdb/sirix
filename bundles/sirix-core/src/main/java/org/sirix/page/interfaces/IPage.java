@@ -46,5 +46,9 @@ public interface IPage {
   void commit(final @Nonnull IPageWriteTrx pPageWriteTrx) throws SirixException;
 
 	PageReference getReference(final @Nonnegative int offset);
+	
+	boolean isDirty();
+	
+	IPage setDirty(final boolean pDirty);
 
 }

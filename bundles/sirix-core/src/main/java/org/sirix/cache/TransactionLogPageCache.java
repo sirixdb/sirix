@@ -38,6 +38,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.exception.SirixException;
+import org.sirix.page.interfaces.IPage;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
@@ -50,13 +51,13 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TransactionLogCache implements ICache<Long, PageContainer> {
+public final class TransactionLogPageCache implements ICache<Long, IPage> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<Long, PageContainer> mFirstCache;
+	private final LRUCache<Long, IPage> mFirstCache;
 
 	/** Persistend second cache. */
-	private final ICache<Long, PageContainer> mSecondCache;
+	private final BerkeleyPersistencePageCache mSecondCache;
 
 	/** {@link ReadWriteLock} instance. */
 	private final ReadWriteLock mLock = new ReentrantReadWriteLock();
@@ -71,18 +72,16 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
 	 * Constructor including the {@link DatabaseConfiguration} for persistent
 	 * storage.
 	 * 
-	 * @param pPageWriteTransaction
-	 *          page write transaction
 	 * @param pFile
 	 *          the config for having a storage-place
 	 * @param pRevision
 	 *          revision number
 	 * @throws SirixException
 	 */
-	public TransactionLogCache(final @Nonnull File pFile,
+	public TransactionLogPageCache(final @Nonnull File pFile,
 			final @Nonnegative int pRevision, final @Nonnull String pLogType)
 			throws SirixException {
-		mSecondCache = new BerkeleyPersistenceCache(pFile, pRevision, pLogType);
+		mSecondCache = new BerkeleyPersistencePageCache(pFile, pRevision, pLogType);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 
@@ -92,9 +91,9 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
 	}
 
 	@Override
-	public ImmutableMap<Long, PageContainer> getAll(
+	public ImmutableMap<Long, IPage> getAll(
 			final @Nonnull Iterable<? extends Long> pKeys) {
-		final ImmutableMap.Builder<Long, PageContainer> builder = new ImmutableMap.Builder<>();
+		final ImmutableMap.Builder<Long, IPage> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
 			for (final Long key : pKeys) {
@@ -119,8 +118,8 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
 	}
 
 	@Override
-	public PageContainer get(final @Nonnull Long pKey) {
-		PageContainer container = PageContainer.EMPTY_INSTANCE;
+	public IPage get(final @Nonnull Long pKey) {
+		IPage container = null;
 		try {
 			mReadLock.lock();
 			container = mFirstCache.get(pKey);
@@ -131,7 +130,7 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
 	}
 
 	@Override
-	public void put(final @Nonnull Long pKey, final @Nonnull PageContainer pValue) {
+	public void put(final @Nonnull Long pKey, final @Nonnull IPage pValue) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(pKey, pValue);
@@ -141,7 +140,7 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, PageContainer> pMap) {
+	public void putAll(final @Nonnull Map<Long, IPage> pMap) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.putAll(pMap);
@@ -171,5 +170,14 @@ public final class TransactionLogCache implements ICache<Long, PageContainer> {
 		} finally {
 			mWriteLock.unlock();
 		}
+	}
+
+	/**
+	 * Determines if directory has been created beforehand.
+	 * 
+	 * @return {@code true} if the persistent log exists, {@code false} otherwise
+	 */
+	public boolean isCreated() {
+		return mSecondCache.isCreated();
 	}
 }

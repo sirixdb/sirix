@@ -30,6 +30,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
@@ -51,16 +52,16 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.access.conf.ResourceConfiguration.EIndexes;
+import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.PageContainer;
+import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
@@ -207,11 +208,12 @@ public final class Session implements ISession {
 			throw new SirixThreadedException(exc);
 		}
 
+		final Optional<TransactionLogPageCache> log = getLog(pRevisionKey);
+
 		// Create new read transaction.
 		final INodeReadTrx rtx = new NodeReadTrx(this,
 				mNodeTrxIDCounter.incrementAndGet(), new PageReadTrx(this,
-						mLastCommittedUberPage, pRevisionKey, mFac.getReader(),
-						Optional.<BerkeleyPersistencePageCache> absent()));
+						mLastCommittedUberPage, pRevisionKey, mFac.getReader(), log));
 
 		// Remember transaction for debugging and safe close.
 		if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
@@ -219,6 +221,25 @@ public final class Session implements ISession {
 					"ID generation is bogus because of duplicate ID.");
 		}
 		return rtx;
+	}
+
+	/**
+	 * Get an optional page log cache.
+	 * 
+	 * @param pRevisionKey
+	 * @return
+	 * @throws SirixException
+	 */
+	private Optional<TransactionLogPageCache> getLog(
+			final @Nonnegative int pRevisionKey) throws SirixException {
+		final File logFile = new File(mResourceConfig.mPath,
+				new File(ResourceConfiguration.Paths.TransactionLog.getFile(),
+						new File(new File("page"), String.valueOf(pRevisionKey)).getPath())
+						.getPath());
+		final Optional<TransactionLogPageCache> log = logFile.exists() ? Optional
+				.of(new TransactionLogPageCache(mResourceConfig.mPath, pRevisionKey,
+						"page")) : Optional.<TransactionLogPageCache> absent();
+		return log;
 	}
 
 	@Override
@@ -507,7 +528,7 @@ public final class Session implements ISession {
 	}
 
 	/**
-	 * Set last commited UberPage.
+	 * Set last commited {@link UberPage}.
 	 * 
 	 * @param pPage
 	 *          the new {@link UberPage}
@@ -534,7 +555,7 @@ public final class Session implements ISession {
 
 		return PathSummary.getInstance(
 				new PageReadTrx(this, mLastCommittedUberPage, pRev, mFac.getReader(),
-						Optional.<BerkeleyPersistencePageCache> absent()), this);
+						Optional.<TransactionLogPageCache> absent()), this);
 	}
 
 	@Override
@@ -551,7 +572,7 @@ public final class Session implements ISession {
 	public synchronized IPageReadTrx beginPageReadTrx(@Nonnegative int pRev)
 			throws SirixException {
 		return new PageReadTrx(this, mLastCommittedUberPage, pRev,
-				mFac.getReader(), Optional.<BerkeleyPersistencePageCache> absent());
+				mFac.getReader(), Optional.<TransactionLogPageCache> absent());
 	}
 
 	@Override

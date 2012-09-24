@@ -54,7 +54,7 @@ public interface ICache<K, V> {
   void clear();
 
   /**
-   * Getting a page related to a given nodepagekey.
+   * Getting a value related to a given key.
    * 
    * @param pKey
    *          the key for the requested {@link PageContainer}
@@ -78,7 +78,7 @@ public interface ICache<K, V> {
    * @param pMap
    *          map with entries to put into the cache
    */
-  void putAll(@Nonnull Map<K, V> pMap);
+  void putAll(@Nonnull Map<? super K, ? super V> pMap);
 
   /**
    * Save all entries of this cache in the secondary cache without removing them.

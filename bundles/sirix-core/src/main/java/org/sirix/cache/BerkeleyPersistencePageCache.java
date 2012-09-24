@@ -28,6 +28,18 @@
 package org.sirix.cache;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.io.File;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
+import org.sirix.page.interfaces.IPage;
+
 import com.google.common.collect.ImmutableMap;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
@@ -38,18 +50,6 @@ import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
-
-import java.io.File;
-import java.util.Map;
-import java.util.Map.Entry;
-
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-
-import org.sirix.api.IPageWriteTrx;
-import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
-import org.sirix.page.interfaces.IPage;
 
 /**
  * Berkeley implementation of a persistent cache. That means that all data is
@@ -98,8 +98,6 @@ public final class BerkeleyPersistencePageCache extends
   /**
    * Constructor. Building up the berkeley db and setting necessary settings.
    * 
-   * @param pPageWriteTrx
-   *          page write transaction
    * @param pFile
    *          the place where the berkeley db is stored.
    * @param pRevision
@@ -110,9 +108,9 @@ public final class BerkeleyPersistencePageCache extends
    * @throws SirixException
    *           if a Sirix operation fails
    */
-  public BerkeleyPersistencePageCache(final @Nonnull IPageWriteTrx pPageWriteTrx, final @Nonnull File pFile,
-    final @Nonnegative long pRevision, final @Nonnull String pLogType) throws SirixException {
-    super(checkNotNull(pFile), pPageWriteTrx, pRevision, pLogType);
+  public BerkeleyPersistencePageCache(final @Nonnull File pFile,
+    final @Nonnegative int pRevision, final @Nonnull String pLogType) throws SirixException {
+    super(checkNotNull(pFile), pRevision, pLogType);
     try {
       // Create a new, transactional database environment.
       final EnvironmentConfig config = new EnvironmentConfig();
@@ -173,13 +171,9 @@ public final class BerkeleyPersistencePageCache extends
     try {
       final OperationStatus status =
         mDatabase.get(null, keyEntry, valueEntry, LockMode.DEFAULT);
-      IPage val = null;
-      if (status == OperationStatus.SUCCESS) {
-        val = mValueBinding.entryToObject(valueEntry);
-      }
-      return val;
-    } catch (final DatabaseException exc) {
-      throw new SirixIOException(exc);
+      return status == OperationStatus.SUCCESS ? mValueBinding.entryToObject(valueEntry) : null;
+    } catch (final DatabaseException e) {
+      throw new SirixIOException(e);
     }
   }
 

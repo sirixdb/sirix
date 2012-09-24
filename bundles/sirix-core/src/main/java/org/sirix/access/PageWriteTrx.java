@@ -39,15 +39,14 @@ import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import javax.xml.namespace.QName;
 
 import org.sirix.access.conf.ResourceConfiguration.EIndexes;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.IPageWriteTrx;
-import org.sirix.cache.BerkeleyPersistencePageCache;
 import org.sirix.cache.ICache;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionLogCache;
+import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.IWriter;
@@ -79,18 +78,19 @@ import com.google.common.base.Optional;
  * to the persistent storage layer.
  * </p>
  */
-final class PageWriteTrx extends AbsForwardingPageReadTrx implements IPageWriteTrx {
+final class PageWriteTrx extends AbsForwardingPageReadTrx implements
+		IPageWriteTrx {
 
 	/** Page writer to serialize. */
 	private final IWriter mPageWriter;
 
-	/** Cache to store the changes in this writetransaction. */
+	/** Cache to store the changes in this transaction log. */
 	private final ICache<Long, PageContainer> mNodeLog;
 
-	/** Cache to store path changes in this writetransaction. */
+	/** Cache to store path changes in this transaction log. */
 	private final ICache<Long, PageContainer> mPathLog;
 
-	/** Cache to store path changes in this writetransaction. */
+	/** Cache to store value changes in this transaction log. */
 	private final ICache<Long, PageContainer> mValueLog;
 
 	/** Last references to the Nodepage, needed for pre/postcondition check. */
@@ -115,7 +115,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements IPageWriteT
 	private ERestore mRestore = ERestore.NO;
 
 	/** Persistent BerkeleyDB page log for all page types != NodePage. */
-	private final BerkeleyPersistencePageCache mPageLog;
+	private final TransactionLogPageCache mPageLog;
 
 	/** Pool to flush pages to persistent page log. */
 	private final ScheduledExecutorService mPool = Executors
@@ -144,14 +144,14 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements IPageWriteT
 			final @Nonnegative long pId, final @Nonnegative int pRepresentRev,
 			final @Nonnegative int pStoreRev, final @Nonnegative int pLastCommitedRev)
 			throws SirixException {
-		mPathLog = new TransactionLogCache(this, pSession.mResourceConfig.mPath,
+		mPathLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
 				pStoreRev, "path");
-		mNodeLog = new TransactionLogCache(this, pSession.mResourceConfig.mPath,
+		mNodeLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
 				pStoreRev, "node");
-		mValueLog = new TransactionLogCache(this, pSession.mResourceConfig.mPath,
+		mValueLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
 				pStoreRev, "value");
-		mPageLog = new BerkeleyPersistencePageCache(this,
-				pSession.mResourceConfig.mPath, pStoreRev, "page");
+		mPageLog = new TransactionLogPageCache(pSession.mResourceConfig.mPath,
+				pStoreRev, "page");
 		mPageWriter = pWriter;
 		mTransactionID = pId;
 		mPageRtx = new PageReadTrx(pSession, pUberPage, pRepresentRev, pWriter,
@@ -588,13 +588,15 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements IPageWriteT
 	 *           if an I/O error occured
 	 */
 	private PageReference prepareLeafOfTree(
-			final @Nonnull PageReference pStartReference, final @Nonnegative long pKey, final @Nonnull EPage pPage)
+			final @Nonnull PageReference pStartReference,
+			final @Nonnegative long pKey, final @Nonnull EPage pPage)
 			throws SirixIOException {
 		// Initial state pointing to the indirect nodePageReference of level 0.
 		PageReference reference = pStartReference;
 		int offset = 0;
 		long levelKey = pKey;
-		final int[] inpLevelPageCountExp = mPageRtx.getUberPage().getPageCountExp(pPage);
+		final int[] inpLevelPageCountExp = mPageRtx.getUberPage().getPageCountExp(
+				pPage);
 
 		// Iterate through all levels.
 		for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {

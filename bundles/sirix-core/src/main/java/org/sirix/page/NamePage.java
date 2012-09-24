@@ -61,6 +61,9 @@ public final class NamePage implements IPage {
 
   /** Revision number. */
   private final int mRevision;
+  
+	/** Determine if name page has been modified. */
+	private boolean mIsDirty;
 
   /**
    * Create name page.
@@ -74,6 +77,7 @@ public final class NamePage implements IPage {
     mAttributes = Names.getInstance();
     mElements = Names.getInstance();
     mNamespaces = Names.getInstance();
+    mIsDirty = true;
   }
 
   /**
@@ -246,5 +250,16 @@ public final class NamePage implements IPage {
 	@Override
 	public PageReference getReference(final @Nonnegative int offset) {
 		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean isDirty() {
+		return mIsDirty;
+	}
+
+	@Override
+	public IPage setDirty(final boolean pDirty) {
+		mIsDirty = pDirty;
+		return this;
 	}
 }

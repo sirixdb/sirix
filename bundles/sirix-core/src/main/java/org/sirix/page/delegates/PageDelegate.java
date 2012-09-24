@@ -28,9 +28,6 @@
 package org.sirix.page.delegates;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -39,6 +36,10 @@ import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.IPage;
+
+import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * <h1>PageDelegate</h1>
@@ -54,6 +55,9 @@ public class PageDelegate implements IPage {
 
 	/** Revision of this page. */
 	private final int mRevision;
+	
+	/** Determines if page is new or changed. */
+	private boolean mIsDirty;
 
 	/**
 	 * Constructor to initialize instance.
@@ -69,6 +73,7 @@ public class PageDelegate implements IPage {
 		checkArgument(pRevision >= 0);
 		mReferences = new PageReference[pReferenceCount];
 		mRevision = pRevision;
+		mIsDirty = true;
 		for (int i = 0; i < pReferenceCount; i++) {
 			mReferences[i] = new PageReference();
 		}
@@ -87,6 +92,7 @@ public class PageDelegate implements IPage {
 		checkArgument(pReferenceCount >= 0);
 		mReferences = new PageReference[pReferenceCount];
 		mRevision = pIn.readInt();
+		mIsDirty = false;
 		for (int offset = 0; offset < mReferences.length; offset++) {
 			mReferences[offset] = new PageReference();
 			mReferences[offset].setKey(pIn.readLong());
@@ -105,6 +111,7 @@ public class PageDelegate implements IPage {
 			final @Nonnegative int pRevision) {
 		checkArgument(pRevision >= 0);
 		mReferences = pCommitedPage.getReferences();
+		mIsDirty = true;
 		mRevision = pRevision;
 	}
 
@@ -181,6 +188,17 @@ public class PageDelegate implements IPage {
 			helper.add("reference", ref);
 		}
 		return helper.toString();
+	}
+
+	@Override
+	public boolean isDirty() {
+		return mIsDirty;
+	}
+	
+	@Override
+	public IPage setDirty(final boolean pDirty) {
+		mIsDirty = pDirty;
+		return this;
 	}
 
 }
