@@ -195,8 +195,8 @@ final class PageReadTrx implements IPageReadTrx {
 		// In memory caches from data directory.
 		// =========================================================
 		mNodeCache = CacheBuilder.newBuilder().maximumSize(1000)
-				.expireAfterWrite(40, TimeUnit.SECONDS)
-				.expireAfterAccess(40, TimeUnit.SECONDS).concurrencyLevel(1)
+				.expireAfterWrite(5, TimeUnit.SECONDS)
+				.expireAfterAccess(5, TimeUnit.SECONDS).concurrencyLevel(1)
 				.build(new CacheLoader<Long, PageContainer>() {
 					public PageContainer load(final Long pKey) throws SirixException {
 						final PageContainer container = mNodeLog.isPresent() ? mNodeLog
@@ -247,10 +247,10 @@ final class PageReadTrx implements IPageReadTrx {
 			pageCacheBuilder.removalListener(new RemovalListener<Long, IPage>() {
 				@Override
 				public void onRemoval(final RemovalNotification<Long, IPage> pRemoval) {
-					final IPage page = pRemoval.getValue();
-					if (page.isDirty()) {
-						pPersistentCache.get().put(pRemoval.getKey(), page);
-					}
+//					final IPage page = pRemoval.getValue();
+//					if (page.isDirty()) {
+//						pPersistentCache.get().put(pRemoval.getKey(), page);
+//					}
 				}
 			});
 		}

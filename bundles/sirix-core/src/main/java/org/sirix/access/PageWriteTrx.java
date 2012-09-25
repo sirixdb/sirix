@@ -462,6 +462,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 	public void close() throws SirixIOException {
 		mPageRtx.assertNotClosed();
 		mPageRtx.closeCaches();
+		mPageRtx.close();
 		mNodeLog.close();
 		mPageLog.close();
 		mPathLog.close();

@@ -1776,6 +1776,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		mModificationCount = 0L;
 
 		getPageTransaction().close();
+		IPageReadTrx trx = getPageTransaction();
+		trx = null;
 
 		// Close current page transaction.
 		final long trxID = getTransactionID();
@@ -1852,7 +1854,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	private void reInstantiate(final @Nonnegative long trxID,
 			final @Nonnegative int revNumber) throws SirixException {
-//		getPageTransaction().close();
+		getPageTransaction().close();
 		IPageReadTrx pageTrx = getPageTransaction();
 		pageTrx = null;
 
