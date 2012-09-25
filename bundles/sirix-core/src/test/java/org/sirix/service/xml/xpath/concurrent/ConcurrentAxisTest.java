@@ -63,7 +63,7 @@ public class ConcurrentAxisTest {
 	private static final String XML = "src" + File.separator + "test"
 			+ File.separator + "resources" + File.separator + XMLFILE;
 
-	private static Holder holder;
+	private Holder holder;
 
 	/**
 	 * Method is called once before each test. It deletes all states, shreds XML
