@@ -1803,12 +1803,12 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		}
 		moveTo(nodeKey);
 
-		final File commitFile = mNodeRtx.mSession.mCommitFile;
-		try {
-			commitFile.createNewFile();
-		} catch (final IOException e) {
-			throw new SirixIOException(e.getCause());
-		}
+//		final File commitFile = mNodeRtx.mSession.mCommitFile;
+//		try {
+//			commitFile.createNewFile();
+//		} catch (final IOException e) {
+//			throw new SirixIOException(e.getCause());
+//		}
 
 		// Execute pre-commit hooks.
 		for (final IPreCommitHook hook : mPreCommitHooks) {
@@ -1848,7 +1848,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 				// Delete commit file which denotes that a commit must write the log in
 				// the data file.
-				commitFile.delete();
+//				commitFile.delete();
 //				return null;
 //			}
 //		});
