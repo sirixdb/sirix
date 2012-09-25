@@ -170,27 +170,27 @@ final class PageReadTrx implements IPageReadTrx {
 		// Transaction logs which might have to be read because the data hasn't been
 		// commited to the data-file.
 		// =======================================================
-//		final boolean isCreated = pPersistentCache.isPresent()
-//				&& !pPersistentCache.get().isCreated();
-//		mPageLog = !isCreated ? pPersistentCache : Optional
-//				.<TransactionLogPageCache> absent();
-//		mNodeLog = !isCreated ? Optional.of(new TransactionLogCache(
-//				pSession.mResourceConfig.mPath, pRevision, "node")) : Optional
-//				.<TransactionLogCache> absent();
-//		if (mIndexes.contains(EIndexes.PATH)) {
-//			mPathLog = !isCreated ? Optional.of(new TransactionLogCache(
-//					pSession.mResourceConfig.mPath, pRevision, "path")) : Optional
-//					.<TransactionLogCache> absent();
-//		} else {
-//			mPathLog = Optional.<TransactionLogCache> absent();
-//		}
-//		if (mIndexes.contains(EIndexes.VALUE)) {
-//			mValueLog = !isCreated ? Optional.of(new TransactionLogCache(
-//					pSession.mResourceConfig.mPath, pRevision, "value")) : Optional
-//					.<TransactionLogCache> absent();
-//		} else {
-//			mValueLog = Optional.<TransactionLogCache> absent();
-//		}
+		// final boolean isCreated = pPersistentCache.isPresent()
+		// && !pPersistentCache.get().isCreated();
+		// mPageLog = !isCreated ? pPersistentCache : Optional
+		// .<TransactionLogPageCache> absent();
+		// mNodeLog = !isCreated ? Optional.of(new TransactionLogCache(
+		// pSession.mResourceConfig.mPath, pRevision, "node")) : Optional
+		// .<TransactionLogCache> absent();
+		// if (mIndexes.contains(EIndexes.PATH)) {
+		// mPathLog = !isCreated ? Optional.of(new TransactionLogCache(
+		// pSession.mResourceConfig.mPath, pRevision, "path")) : Optional
+		// .<TransactionLogCache> absent();
+		// } else {
+		// mPathLog = Optional.<TransactionLogCache> absent();
+		// }
+		// if (mIndexes.contains(EIndexes.VALUE)) {
+		// mValueLog = !isCreated ? Optional.of(new TransactionLogCache(
+		// pSession.mResourceConfig.mPath, pRevision, "value")) : Optional
+		// .<TransactionLogCache> absent();
+		// } else {
+		// mValueLog = Optional.<TransactionLogCache> absent();
+		// }
 		mPageLog = Optional.<TransactionLogPageCache> absent();
 		mNodeLog = Optional.<TransactionLogCache> absent();
 		mPathLog = Optional.<TransactionLogCache> absent();
@@ -251,10 +251,10 @@ final class PageReadTrx implements IPageReadTrx {
 			pageCacheBuilder.removalListener(new RemovalListener<Long, IPage>() {
 				@Override
 				public void onRemoval(final RemovalNotification<Long, IPage> pRemoval) {
-//					final IPage page = pRemoval.getValue();
-//					if (page.isDirty()) {
-//						pPersistentCache.get().put(pRemoval.getKey(), page);
-//					}
+					// final IPage page = pRemoval.getValue();
+					// if (page.isDirty()) {
+					// pPersistentCache.get().put(pRemoval.getKey(), page);
+					// }
 				}
 			});
 		}
@@ -736,9 +736,11 @@ final class PageReadTrx implements IPageReadTrx {
 
 	@Override
 	public void close() throws SirixIOException {
-		closeCaches();
-		mClosed = true;
-		mPageReader.close();
+		if (!mClosed) {
+			closeCaches();
+			mClosed = true;
+			mPageReader.close();
+		}
 	}
 
 	@Override

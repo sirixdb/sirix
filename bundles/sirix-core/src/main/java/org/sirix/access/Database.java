@@ -357,7 +357,9 @@ public final class Database implements IDatabase {
 	public synchronized void close() throws SirixException {
 		// Close all sessions.
 		for (final ISession session : mSessions.values()) {
-			session.close();
+			if (!session.isClosed()) {
+				session.close();
+			}
 		}
 
 		// Remove from database mapping.

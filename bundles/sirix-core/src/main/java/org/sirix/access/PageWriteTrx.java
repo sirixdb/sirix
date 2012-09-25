@@ -114,6 +114,9 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 	/** Persistent BerkeleyDB page log for all page types != NodePage. */
 	private final TransactionLogPageCache mPageLog;
 
+	/** Determines if transaction is closed. */
+	private boolean mIsClosed;
+
 	/**
 	 * Standard constructor.
 	 * 
@@ -381,10 +384,10 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 
 			// If none is in the log.
 			if (page == null) {
-//				// Then try to get one from the page cache.
-//				if (nodePageKey == -1 && pReference.getKey() != IConstants.NULL_ID) {
-//					page = mPageLog.get(pReference.getKey());
-//				}
+				// // Then try to get one from the page cache.
+				// if (nodePageKey == -1 && pReference.getKey() != IConstants.NULL_ID) {
+				// page = mPageLog.get(pReference.getKey());
+				// }
 				if (page == null) {
 					// Test if one is instantiated, if so, get
 					// the one from the reference.
@@ -412,9 +415,9 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 			mPageWriter.write(pReference);
 
 			// Remove from transaction log.
-//			if (pReference.getPageKind() != null) {
-//				removePageContainer(pReference.getPageKind(), nodePageKey);
-//			}
+			// if (pReference.getPageKind() != null) {
+			// removePageContainer(pReference.getPageKind(), nodePageKey);
+			// }
 
 			// Remove page reference.
 			pReference.setPage(null);
@@ -436,10 +439,10 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 
 		// Forcefully flush write-ahead transaction logs to persistent storage. Make
 		// this optional!
-//		mNodeLog.toSecondCache();
-//		mPathLog.toSecondCache();
-//		mValueLog.toSecondCache();
-//		mPageLog.toSecondCache();
+		// mNodeLog.toSecondCache();
+		// mPathLog.toSecondCache();
+		// mValueLog.toSecondCache();
+		// mPageLog.toSecondCache();
 
 		final PageReference uberPageReference = new PageReference();
 		final UberPage uberPage = getUberPage();
@@ -460,14 +463,17 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 
 	@Override
 	public void close() throws SirixIOException {
-		mPageRtx.assertNotClosed();
-		mPageRtx.clearCaches();
-		mPageRtx.closeCaches();
-		mNodeLog.close();
-		mPageLog.close();
-		mPathLog.close();
-		mValueLog.close();
-		mPageWriter.close();
+		if (!mIsClosed) {
+			mPageRtx.assertNotClosed();
+			mPageRtx.clearCaches();
+			mPageRtx.closeCaches();
+			mNodeLog.close();
+			mPageLog.close();
+			mPathLog.close();
+			mValueLog.close();
+			mPageWriter.close();
+			mIsClosed = true;
+		}
 	}
 
 	/**

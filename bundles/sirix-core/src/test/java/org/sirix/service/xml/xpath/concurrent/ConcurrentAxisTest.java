@@ -209,7 +209,7 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final SirixException e) {
-			System.out.println(e.getStackTrace());
+			e.printStackTrace();
 			fail();
 		}
 	}
@@ -241,7 +241,7 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(axis.hasNext(), false);
 		} catch (final SirixException e) {
-			System.out.println(e.getStackTrace());
+			e.printStackTrace();
 			fail();
 		}
 

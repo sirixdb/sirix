@@ -35,7 +35,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -53,7 +52,6 @@ import org.sirix.access.conf.ResourceConfiguration.EIndexes;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.IPageReadTrx;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.api.IPostCommitHook;
 import org.sirix.api.IPreCommitHook;
@@ -1804,12 +1802,12 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		}
 		moveTo(nodeKey);
 
-//		final File commitFile = mNodeRtx.mSession.mCommitFile;
-//		try {
-//			commitFile.createNewFile();
-//		} catch (final IOException e) {
-//			throw new SirixIOException(e.getCause());
-//		}
+		final File commitFile = mNodeRtx.mSession.mCommitFile;
+		try {
+			commitFile.createNewFile();
+		} catch (final IOException e) {
+			throw new SirixIOException(e.getCause());
+		}
 
 		// Execute pre-commit hooks.
 		for (final IPreCommitHook hook : mPreCommitHooks) {
@@ -1846,11 +1844,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				for (final IPostCommitHook hook : mPostCommitHooks) {
 					hook.postCommit(trx);
 				}
-				System.out.println(Runtime.getRuntime().freeMemory());
 
 				// Delete commit file which denotes that a commit must write the log in
 				// the data file.
-//				commitFile.delete();
+				commitFile.delete();
 //				return null;
 //			}
 //		});

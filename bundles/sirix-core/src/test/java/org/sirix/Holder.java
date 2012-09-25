@@ -118,8 +118,12 @@ public class Holder {
 			mWtx.abort();
 			mWtx.close();
 		}
-		mSession.close();
-		mDatabase.close();
+		if (mSession != null && !mSession.isClosed()) {
+			mSession.close();
+		}
+		if (mDatabase != null) {
+			mDatabase.close();
+		}
 	}
 
 	/**
