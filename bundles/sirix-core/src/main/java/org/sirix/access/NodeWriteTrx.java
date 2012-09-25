@@ -1846,6 +1846,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				for (final IPostCommitHook hook : mPostCommitHooks) {
 					hook.postCommit(trx);
 				}
+				System.out.println(Runtime.getRuntime().freeMemory());
 
 				// Delete commit file which denotes that a commit must write the log in
 				// the data file.
