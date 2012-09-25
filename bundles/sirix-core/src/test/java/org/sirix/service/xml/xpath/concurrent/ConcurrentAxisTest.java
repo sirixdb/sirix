@@ -81,7 +81,7 @@ public class ConcurrentAxisTest {
 			XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
 			holder = Holder.generateRtx();
 		} catch (final Exception e) {
-			System.out.println(e.getStackTrace());
+			e.printStackTrace();
 			throw e;
 		}
 	}
@@ -108,7 +108,7 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final SirixXPathException e) {
-			System.out.println(e.getStackTrace());
+			e.printStackTrace();
 			fail();
 		}
 	}
@@ -135,7 +135,7 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final Exception e) {
-			System.out.println(e.getStackTrace());
+			e.printStackTrace();
 			fail();
 		}
 	}
@@ -177,7 +177,7 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final SirixException e) {
-			System.out.println(e.getStackTrace());
+			e.printStackTrace();
 			fail();
 		}
 	}
@@ -1176,7 +1176,7 @@ public class ConcurrentAxisTest {
 			holder.close();
 			TestHelper.closeEverything();
 		} catch (final Exception e) {
-			System.out.println(e.getStackTrace());
+			e.printStackTrace();
 			fail();
 		}
 	}
