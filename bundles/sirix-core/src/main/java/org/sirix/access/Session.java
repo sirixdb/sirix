@@ -338,6 +338,11 @@ public final class Session implements ISession {
 				rtx.close();
 				rtx = null;
 			}
+			// Forcibly close all open node page transactions.
+			for (IPageReadTrx rtx : mNodePageTrxMap.values()) {
+				rtx.close();
+				rtx = null;
+			}
 			// Forcibly close all open page transactions.
 			for (IPageReadTrx rtx : mPageTrxMap.values()) {
 				rtx.close();
