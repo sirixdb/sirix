@@ -53,6 +53,7 @@ import org.sirix.access.conf.ResourceConfiguration.EIndexes;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.IPageReadTrx;
 import org.sirix.api.IPageWriteTrx;
 import org.sirix.api.IPostCommitHook;
 import org.sirix.api.IPreCommitHook;
@@ -1851,7 +1852,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	private void reInstantiate(final @Nonnegative long trxID,
 			final @Nonnegative int revNumber) throws SirixException {
-		getPageTransaction().close();
+//		getPageTransaction().close();
+		IPageReadTrx pageTrx = getPageTransaction();
+		pageTrx = null;
 
 		// Reset page transaction to new uber page.
 		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
