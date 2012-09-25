@@ -81,7 +81,7 @@ public class ConcurrentAxisTest {
       XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
       holder = Holder.generateRtx();
     } catch (final Exception e) {
-    	System.out.println();
+    	System.out.println(e);
     }
   }
 
@@ -1163,6 +1163,7 @@ public class ConcurrentAxisTest {
       holder.close();
       TestHelper.closeEverything();
     } catch (final SirixException e) {
+    	System.out.println(e);
     }
   }
 
