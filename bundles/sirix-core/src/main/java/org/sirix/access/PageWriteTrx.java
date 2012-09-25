@@ -463,6 +463,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 		mPageRtx.assertNotClosed();
 		mPageRtx.closeCaches();
 		mNodeLog.close();
+		mPageLog.close();
 		mPathLog.close();
 		mValueLog.close();
 		mPageWriter.close();
