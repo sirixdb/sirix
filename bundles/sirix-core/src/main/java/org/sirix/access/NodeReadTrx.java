@@ -317,6 +317,10 @@ final class NodeReadTrx implements INodeReadTrx {
 			}
 			mPageReadTrx.close();
 //			setPageReadTransaction(null);
+			
+			if (mSession == null) {
+				throw new IllegalStateException("session");
+			}
 
 			// Callback on session to make sure everything is cleaned up.
 			mSession.closeReadTransaction(mId);
