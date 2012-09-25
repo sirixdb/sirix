@@ -330,21 +330,42 @@ public final class Session implements ISession {
 	@Override
 	public synchronized void close() throws SirixException {
 		if (!mClosed) {
+			if (mNodeTrxMap == null) {
+				throw new IllegalArgumentException("node trx map");
+			}
+			if (mNodePageTrxMap == null) {
+				throw new IllegalArgumentException("node trx map");
+			}
+			if (mPageTrxMap == null) {
+				throw new IllegalArgumentException("node trx map");
+			}
 			// Forcibly close all open node transactions.
 			for (INodeReadTrx rtx : mNodeTrxMap.values()) {
 				if (rtx instanceof INodeWriteTrx) {
+					if (rtx == null) {
+						throw new IllegalStateException("(abort) rtx is null!");
+					}
 					((INodeWriteTrx) rtx).abort();
+				}
+				if (rtx == null) {
+					throw new IllegalStateException("rtx is null!");
 				}
 				rtx.close();
 				rtx = null;
 			}
 			// Forcibly close all open node page transactions.
 			for (IPageReadTrx rtx : mNodePageTrxMap.values()) {
+				if (rtx == null) {
+					throw new IllegalStateException("node page rtx is null!");
+				}
 				rtx.close();
 				rtx = null;
 			}
 			// Forcibly close all open page transactions.
 			for (IPageReadTrx rtx : mPageTrxMap.values()) {
+				if (rtx == null) {
+					throw new IllegalStateException("page rtx is null!");
+				}
 				rtx.close();
 				rtx = null;
 			}
@@ -354,8 +375,16 @@ public final class Session implements ISession {
 			mNodeTrxMap.clear();
 			mPageTrxMap.clear();
 			mNodePageTrxMap.clear();
+			
+			if (mFac == null) {
+				throw new IllegalStateException("fac is null!");
+			}
 
 			mFac.close();
+			
+			if (mDatabase == null) {
+				throw new IllegalStateException("database is null!!!");
+			}
 			final boolean removedSession = mDatabase.removeSession(mResourceConfig.mPath);
 			if (!removedSession) {
 				throw new IllegalStateException("removedSession must be true!");
