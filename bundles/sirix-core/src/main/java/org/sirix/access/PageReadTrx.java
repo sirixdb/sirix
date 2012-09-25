@@ -363,9 +363,9 @@ final class PageReadTrx implements IPageReadTrx {
 	}
 
 	/**
-	 * Clear the cache.
+	 * Clear the caches.
 	 */
-	void clearCache() {
+	void clearCaches() {
 		assertNotClosed();
 
 		if (mIndexes.contains(EIndexes.PATH)) {
@@ -394,6 +394,7 @@ final class PageReadTrx implements IPageReadTrx {
 		if (mPageLog.isPresent()) {
 			mPageLog.get().close();
 		}
+		clearCaches();
 	}
 
 	/**
