@@ -1727,11 +1727,13 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		final long trxID = getTransactionID();
 		final int revNumber = getRevisionNumber();
 		getPageTransaction().close();
-		mNodeRtx.setPageReadTransaction(null);
 
 		// Reset internal transaction state to new uber page.
+		mNodeRtx.setPageReadTransaction(null);
 		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
 				.createPageWriteTransaction(trxID, pRevision, revNumber - 1));
+		
+		// Reset node factory.
 		mNodeFactory = null;
 		mNodeFactory = new NodeFactory(
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
@@ -1776,8 +1778,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 		// Reset modification counter.
 		mModificationCount = 0L;
-
-		getPageTransaction().close();
 
 		// Close current page transaction.
 		final long trxID = getTransactionID();
@@ -1864,21 +1864,20 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		mNodeFactory = new NodeFactory(
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
-		mPathSummary = null;
-		mAVLTree = null;
-
 		reInstantiateIndexes();
 	}
 
 	private void reInstantiateIndexes() {
 		// Get a new path summary instance.
 		if (mIndexes.contains(EIndexes.PATH)) {
+			mPathSummary = null;
 			mPathSummary = PathSummary.getInstance(mNodeRtx.getPageTransaction(),
 					mNodeRtx.getSession());
 		}
 
 		// Get a new avl tree instance.
 		if (mIndexes.contains(EIndexes.VALUE)) {
+			mAVLTree = null;
 			mAVLTree = AVLTree.getInstance(getPageTransaction());
 		}
 	}
@@ -2160,7 +2159,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	/**
 	 * Get the page transaction.
 	 * 
-	 * @return the page transaction.
+	 * @return the page transaction
 	 */
 	public IPageWriteTrx getPageTransaction() {
 		return (IPageWriteTrx) mNodeRtx.getPageTransaction();
