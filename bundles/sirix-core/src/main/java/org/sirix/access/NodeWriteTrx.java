@@ -110,7 +110,7 @@ import com.google.common.hash.Hashing;
  * 
  * <p>
  * All methods throw {@link NullPointerException}s in case of null values for
- * reference peters.
+ * reference parameters.
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz
