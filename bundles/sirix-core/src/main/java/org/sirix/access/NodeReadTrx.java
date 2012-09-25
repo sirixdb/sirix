@@ -309,6 +309,9 @@ final class NodeReadTrx implements INodeReadTrx {
 	public void close() throws SirixException {
 		if (!mClosed) {
 			// Close own state.
+			if (mPageReadTrx == null) {
+				throw new IllegalStateException("null");
+			}
 			if (mPageReadTrx.isClosed()) {
 				throw new IllegalStateException("bla");
 			}
