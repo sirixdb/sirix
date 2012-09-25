@@ -107,7 +107,7 @@ public class ConcurrentAxisTest {
 				axis.next();
 			}
 			assertEquals(false, axis.hasNext());
-		} catch (final SirixXPathException e) {
+		} catch (final Exception e) {
 			e.printStackTrace();
 			fail();
 		}
@@ -176,7 +176,7 @@ public class ConcurrentAxisTest {
 				axis.next();
 			}
 			assertEquals(false, axis.hasNext());
-		} catch (final SirixException e) {
+		} catch (final Exception e) {
 			e.printStackTrace();
 			fail();
 		}
@@ -208,7 +208,7 @@ public class ConcurrentAxisTest {
 				axis.next();
 			}
 			assertEquals(false, axis.hasNext());
-		} catch (final SirixException e) {
+		} catch (final Exception e) {
 			e.printStackTrace();
 			fail();
 		}
@@ -240,11 +240,31 @@ public class ConcurrentAxisTest {
 				axis.next();
 			}
 			assertEquals(axis.hasNext(), false);
-		} catch (final SirixException e) {
+		} catch (final Exception e) {
 			e.printStackTrace();
 			fail();
 		}
-
+	}
+	
+	/**
+	 * Close all connections.
+	 * 
+	 * @throws SirixException
+	 */
+	@AfterEachRun
+	@After
+	public void tearDown() throws Exception {
+		try {
+			if (holder == null) {
+				throw new IllegalStateException("Holder is null");
+			}
+			holder.close();
+			TestHelper.closeEverything();
+		} catch (final Exception e) {
+			e.printStackTrace();
+			e.getCause().printStackTrace();
+			fail();
+		}
 	}
 
 	/*
@@ -1163,26 +1183,5 @@ public class ConcurrentAxisTest {
 	 * ##########################################################################
 	 * ###############
 	 */
-
-	/**
-	 * Close all connections.
-	 * 
-	 * @throws SirixException
-	 */
-	@AfterEachRun
-	@After
-	public void tearDown() throws Exception {
-		try {
-			if (holder == null) {
-				throw new IllegalStateException("Holder is null");
-			}
-			holder.close();
-			TestHelper.closeEverything();
-		} catch (final Exception e) {
-			e.printStackTrace();
-			e.getCause().printStackTrace();
-			fail();
-		}
-	}
 
 }

@@ -109,7 +109,7 @@ public final class OverallTest extends TestCase {
         }
 
         if (ran.nextInt(100) < COMMITPERCENTAGE) {
-//          holder.getWtx().commit();
+          holder.getWtx().commit();
         }
         do {
           final int newKey = ran.nextInt(i + 1) + 1;
