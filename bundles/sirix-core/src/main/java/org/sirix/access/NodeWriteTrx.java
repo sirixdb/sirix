@@ -1776,8 +1776,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		mModificationCount = 0L;
 
 		getPageTransaction().close();
-		IPageReadTrx trx = getPageTransaction();
-		trx = null;
 
 		// Close current page transaction.
 		final long trxID = getTransactionID();
@@ -1834,6 +1832,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				mNodeRtx.mSession.setLastCommittedUberPage(uberPage);
 
 				// Close current page transaction.
+				getPageTransaction().close();
+				
 				final long trxID = getTransactionID();
 				final int revNumber = getRevisionNumber();
 
@@ -1854,10 +1854,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 	private void reInstantiate(final @Nonnegative long trxID,
 			final @Nonnegative int revNumber) throws SirixException {
-		getPageTransaction().close();
-		IPageReadTrx pageTrx = getPageTransaction();
-		pageTrx = null;
-
 		// Reset page transaction to new uber page.
 		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
 				.createPageWriteTransaction(trxID, revNumber, revNumber));
