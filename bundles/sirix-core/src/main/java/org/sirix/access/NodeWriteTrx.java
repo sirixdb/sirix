@@ -1859,10 +1859,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	private void reInstantiate(final @Nonnegative long trxID,
 			final @Nonnegative int revNumber) throws SirixException {
 		// Reset page transaction to new uber page.
-		mNodeRtx.setPageReadTransaction(null);
+//		mNodeRtx.setPageReadTransaction(null);
 		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
 				.createPageWriteTransaction(trxID, revNumber, revNumber));
-		mNodeFactory = null;
+//		mNodeFactory = null;
 		mNodeFactory = new NodeFactory(
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
