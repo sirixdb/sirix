@@ -169,7 +169,7 @@ public class Holder {
 	 *          {@link INodeWriteTrx} instance
 	 */
 	private void setWtx(final INodeWriteTrx pWtx) {
-		this.mWtx = pWtx;
+		mWtx = pWtx;
 	}
 
 	/**
@@ -179,7 +179,7 @@ public class Holder {
 	 *          {@link INodeReadTrx} instance
 	 */
 	private void setRtx(final INodeReadTrx pRtx) {
-		this.mRtx = pRtx;
+		mRtx = pRtx;
 	}
 
 	/**
@@ -189,7 +189,7 @@ public class Holder {
 	 *          {@link INodeReadTrx} instance
 	 */
 	private void setSession(final ISession pSession) {
-		this.mSession = pSession;
+		mSession = pSession;
 	}
 
 	/**
@@ -199,7 +199,7 @@ public class Holder {
 	 *          {@link IDatabase} instance
 	 */
 	private void setDatabase(final IDatabase pDatabase) {
-		this.mDatabase = pDatabase;
+		mDatabase = pDatabase;
 	}
 
 }

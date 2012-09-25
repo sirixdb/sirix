@@ -1173,6 +1173,9 @@ public class ConcurrentAxisTest {
 	@After
 	public void tearDown() throws Exception {
 		try {
+			if (holder == null) {
+				throw new IllegalStateException("Holder is null");
+			}
 			holder.close();
 			TestHelper.closeEverything();
 		} catch (final Exception e) {

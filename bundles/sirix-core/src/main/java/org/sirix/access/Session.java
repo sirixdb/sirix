@@ -341,14 +341,11 @@ public final class Session implements ISession {
 			}
 			// Forcibly close all open node transactions.
 			for (INodeReadTrx rtx : mNodeTrxMap.values()) {
-				if (rtx instanceof INodeWriteTrx) {
-					if (rtx == null) {
-						throw new IllegalStateException("(abort) rtx is null!");
-					}
-					((INodeWriteTrx) rtx).abort();
-				}
 				if (rtx == null) {
-					throw new IllegalStateException("rtx is null!");
+					throw new IllegalStateException("(abort) rtx is null!");
+				}
+				if (rtx instanceof INodeWriteTrx) {
+					((INodeWriteTrx) rtx).abort();
 				}
 				rtx.close();
 				rtx = null;
