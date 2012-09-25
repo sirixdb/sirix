@@ -356,7 +356,10 @@ public final class Session implements ISession {
 			mNodePageTrxMap.clear();
 
 			mFac.close();
-			mDatabase.removeSession(mResourceConfig.mPath);
+			final boolean removedSession = mDatabase.removeSession(mResourceConfig.mPath);
+			if (!removedSession) {
+				throw new IllegalStateException("removedSession must be true!");
+			}
 			mClosed = true;
 		}
 	}
