@@ -206,6 +206,7 @@ public final class LRUCache<K, V> implements ICache<K, V> {
 
 	@Override
 	public void close() {
+		mMap.clear();
 		mSecondCache.close();
 	}
 }

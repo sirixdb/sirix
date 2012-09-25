@@ -138,14 +138,14 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 			final @Nonnegative int pLastStoredRev,
 			final @Nonnegative int pLastCommitedRev) throws SirixException {
 		final int revision = pUberPage.isBootstrap() ? 0 : pRepresentRev + 1;
-		mPathLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
-				revision, "path");
-		mNodeLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
-				revision, "node");
-		mValueLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
-				revision, "value");
 		mPageLog = new TransactionLogPageCache(pSession.mResourceConfig.mPath,
 				revision, "page");
+		mNodeLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
+				revision, "node");
+		mPathLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
+				revision, "path");
+		mValueLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
+				revision, "value");
 		mPageWriter = pWriter;
 		mTransactionID = pId;
 		mPageRtx = new PageReadTrx(pSession, pUberPage, pRepresentRev, pWriter,
@@ -412,9 +412,9 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 			mPageWriter.write(pReference);
 
 			// Remove from transaction log.
-			if (pReference.getPageKind() != null) {
-				removePageContainer(pReference.getPageKind(), nodePageKey);
-			}
+//			if (pReference.getPageKind() != null) {
+//				removePageContainer(pReference.getPageKind(), nodePageKey);
+//			}
 
 			// Remove page reference.
 			pReference.setPage(null);
