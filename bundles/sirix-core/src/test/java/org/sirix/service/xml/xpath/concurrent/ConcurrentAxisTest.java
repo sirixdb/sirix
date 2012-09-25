@@ -76,9 +76,14 @@ public class ConcurrentAxisTest {
 	@BeforeEachRun
 	@Before
 	public void setUp() throws Exception {
-		TestHelper.deleteEverything();
-		XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
-		holder = Holder.generateRtx();
+		try {
+			TestHelper.deleteEverything();
+			XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
+			holder = Holder.generateRtx();
+		} catch (final Exception e) {
+			System.out.println(e.getStackTrace());
+			throw e;
+		}
 	}
 
 	/**
@@ -102,7 +107,8 @@ public class ConcurrentAxisTest {
 				axis.next();
 			}
 			assertEquals(false, axis.hasNext());
-		} catch (final SirixXPathException ttExp) {
+		} catch (final SirixXPathException e) {
+			System.out.println(e.getStackTrace());
 			fail();
 		}
 	}
@@ -122,11 +128,16 @@ public class ConcurrentAxisTest {
 				new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
 						new NameFilter(holder.getRtx(), "location")));
 
-		for (int i = 0; i < resultNumber; i++) {
-			assertEquals(true, axis.hasNext());
-			axis.next();
+		try {
+			for (int i = 0; i < resultNumber; i++) {
+				assertEquals(true, axis.hasNext());
+				axis.next();
+			}
+			assertEquals(false, axis.hasNext());
+		} catch (final Exception e) {
+			System.out.println(e.getStackTrace());
+			fail();
 		}
-		assertEquals(false, axis.hasNext());
 	}
 
 	/**
@@ -166,6 +177,7 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final SirixException e) {
+			System.out.println(e.getStackTrace());
 			fail();
 		}
 	}
@@ -197,6 +209,7 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final SirixException e) {
+			System.out.println(e.getStackTrace());
 			fail();
 		}
 	}
@@ -228,6 +241,7 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(axis.hasNext(), false);
 		} catch (final SirixException e) {
+			System.out.println(e.getStackTrace());
 			fail();
 		}
 
@@ -1158,8 +1172,13 @@ public class ConcurrentAxisTest {
 	@AfterEachRun
 	@After
 	public void tearDown() throws Exception {
-		holder.close();
-		TestHelper.closeEverything();
+		try {
+			holder.close();
+			TestHelper.closeEverything();
+		} catch (final Exception e) {
+			System.out.println(e.getStackTrace());
+			fail();
+		}
 	}
 
 }
