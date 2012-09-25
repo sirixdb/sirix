@@ -103,7 +103,7 @@ public interface ISession extends AutoCloseable {
 			throws SirixException;
 
 	/**
-	 * Begin a read-only transaction on the latest committed revision key.
+	 * Begin a read-only transaction on the latest committed revision.
 	 * 
 	 * @throws SirixException
 	 *           if can't begin Read Transaction
@@ -112,10 +112,10 @@ public interface ISession extends AutoCloseable {
 	INodeReadTrx beginNodeReadTrx() throws SirixException;
 
 	/**
-	 * Begin a read-only transaction on the given revision key.
+	 * Begin a read-only transaction on the given revision number.
 	 * 
 	 * @param pRev
-	 *          revision key to read from
+	 *          revision to read from denoted by the revision number.
 	 * @throws SirixException
 	 *           if can't begin Read Transaction
 	 * @return {@link INodeReadTrx} instance

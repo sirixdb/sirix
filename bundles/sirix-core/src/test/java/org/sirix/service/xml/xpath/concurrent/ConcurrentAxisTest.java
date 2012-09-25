@@ -80,6 +80,9 @@ public class ConcurrentAxisTest {
 			TestHelper.deleteEverything();
 			XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
 			holder = Holder.generateRtx();
+			if (holder == null) {
+				throw new IllegalStateException("hooooooooolder!");
+			}
 		} catch (final Exception e) {
 			e.printStackTrace();
 			throw e;
