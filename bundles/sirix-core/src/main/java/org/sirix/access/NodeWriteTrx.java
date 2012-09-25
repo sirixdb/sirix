@@ -1738,7 +1738,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		mNodeFactory = new NodeFactory(
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
-		// New path summary.
+		// New index instances.
 		reInstantiateIndexes();
 
 		// Reset modification counter.

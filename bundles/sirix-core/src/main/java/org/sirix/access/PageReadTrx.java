@@ -170,27 +170,31 @@ final class PageReadTrx implements IPageReadTrx {
 		// Transaction logs which might have to be read because the data hasn't been
 		// commited to the data-file.
 		// =======================================================
-		final boolean isCreated = pPersistentCache.isPresent()
-				&& !pPersistentCache.get().isCreated();
-		mPageLog = !isCreated ? pPersistentCache : Optional
-				.<TransactionLogPageCache> absent();
-		mNodeLog = !isCreated ? Optional.of(new TransactionLogCache(
-				pSession.mResourceConfig.mPath, pRevision, "node")) : Optional
-				.<TransactionLogCache> absent();
-		if (mIndexes.contains(EIndexes.PATH)) {
-			mPathLog = !isCreated ? Optional.of(new TransactionLogCache(
-					pSession.mResourceConfig.mPath, pRevision, "path")) : Optional
-					.<TransactionLogCache> absent();
-		} else {
-			mPathLog = Optional.<TransactionLogCache> absent();
-		}
-		if (mIndexes.contains(EIndexes.VALUE)) {
-			mValueLog = !isCreated ? Optional.of(new TransactionLogCache(
-					pSession.mResourceConfig.mPath, pRevision, "value")) : Optional
-					.<TransactionLogCache> absent();
-		} else {
-			mValueLog = Optional.<TransactionLogCache> absent();
-		}
+//		final boolean isCreated = pPersistentCache.isPresent()
+//				&& !pPersistentCache.get().isCreated();
+//		mPageLog = !isCreated ? pPersistentCache : Optional
+//				.<TransactionLogPageCache> absent();
+//		mNodeLog = !isCreated ? Optional.of(new TransactionLogCache(
+//				pSession.mResourceConfig.mPath, pRevision, "node")) : Optional
+//				.<TransactionLogCache> absent();
+//		if (mIndexes.contains(EIndexes.PATH)) {
+//			mPathLog = !isCreated ? Optional.of(new TransactionLogCache(
+//					pSession.mResourceConfig.mPath, pRevision, "path")) : Optional
+//					.<TransactionLogCache> absent();
+//		} else {
+//			mPathLog = Optional.<TransactionLogCache> absent();
+//		}
+//		if (mIndexes.contains(EIndexes.VALUE)) {
+//			mValueLog = !isCreated ? Optional.of(new TransactionLogCache(
+//					pSession.mResourceConfig.mPath, pRevision, "value")) : Optional
+//					.<TransactionLogCache> absent();
+//		} else {
+//			mValueLog = Optional.<TransactionLogCache> absent();
+//		}
+		mPageLog = Optional.<TransactionLogPageCache> absent();
+		mNodeLog = Optional.<TransactionLogCache> absent();
+		mPathLog = Optional.<TransactionLogCache> absent();
+		mValueLog = Optional.<TransactionLogCache> absent();
 
 		// In memory caches from data directory.
 		// =========================================================
@@ -394,7 +398,6 @@ final class PageReadTrx implements IPageReadTrx {
 		if (mPageLog.isPresent()) {
 			mPageLog.get().close();
 		}
-		clearCaches();
 	}
 
 	/**
