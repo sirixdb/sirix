@@ -93,11 +93,13 @@ public final class UberPage extends AbsForwardingPage {
 		for (int i = 0, l = IConstants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
 			page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
 			reference.setPage(page);
+			reference.setPageKind(EPage.INDIRECTPAGE);
 			reference = page.getReference(0);
 		}
 
 		mRootPage = new RevisionRootPage();
 		reference.setPage(mRootPage);
+		reference.setPageKind(EPage.REVISIONROOTPAGE);
 
 		// --- Create node tree
 		// ----------------------------------------------------
@@ -116,7 +118,7 @@ public final class UberPage extends AbsForwardingPage {
 		final PageReference reference = mRootPage.getValuePageReference().getPage()
 				.getReference(INDIRECT_REFERENCE_OFFSET);
 		createTree(reference, EPage.VALUEPAGE);
-		mRootPage.incrementMaxPathNodeKey();
+		mRootPage.incrementMaxValueNodeKey();
 	}
 
 	/**
@@ -152,16 +154,21 @@ public final class UberPage extends AbsForwardingPage {
 	 * @param pReference
 	 *          reference from revision root
 	 */
-	private void createTree(@Nonnull PageReference pReference, final @Nonnull EPage pPage) {
+	private void createTree(@Nonnull PageReference pReference,
+			final @Nonnull EPage pPage) {
 		IPage page = null;
+//		assert pReference.getPage() instanceof IndirectPage : "page is of type: "
+//				+ pReference.getPage();
+//		pReference.setPageKind(EPage.INDIRECTPAGE);
 
 		// Level page count exponent from the configuration.
 		final int[] levelPageCountExp = getPageCountExp(pPage);
-		
+
 		// Remaining levels.
 		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
 			page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
 			pReference.setPage(page);
+			pReference.setPageKind(EPage.INDIRECTPAGE);
 			pReference = page.getReference(0);
 		}
 
@@ -169,6 +176,7 @@ public final class UberPage extends AbsForwardingPage {
 				EFixed.ROOT_PAGE_KEY.getStandardProperty(),
 				IConstants.UBP_ROOT_REVISION_NUMBER);
 		pReference.setPage(ndp);
+		pReference.setPageKind(pPage);
 
 		final NodeDelegate nodeDel = new NodeDelegate(
 				EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
@@ -285,18 +293,18 @@ public final class UberPage extends AbsForwardingPage {
 	protected IPage delegate() {
 		return mDelegate;
 	}
-	
+
 	@Override
 	public IPage setDirty(final boolean pDirty) {
 		mDelegate.setDirty(pDirty);
 		return this;
 	}
 
-	/** 
+	/**
 	 * Get the page count exponent for the given page.
 	 * 
 	 * @param pPage
-	 * 					page to lookup the exponent in the constant definition
+	 *          page to lookup the exponent in the constant definition
 	 * @return page count exponent
 	 */
 	public int[] getPageCountExp(final @Nonnull EPage pPage) {

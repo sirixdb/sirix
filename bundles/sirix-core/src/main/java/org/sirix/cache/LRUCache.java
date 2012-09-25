@@ -203,4 +203,9 @@ public final class LRUCache<K, V> implements ICache<K, V> {
       mSecondCache.remove(pKey);
     }
   }
+
+	@Override
+	public void close() {
+		mSecondCache.close();
+	}
 }

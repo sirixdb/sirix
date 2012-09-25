@@ -32,9 +32,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -117,10 +114,6 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 	/** Persistent BerkeleyDB page log for all page types != NodePage. */
 	private final TransactionLogPageCache mPageLog;
 
-	/** Pool to flush pages to persistent page log. */
-	private final ScheduledExecutorService mPool = Executors
-			.newScheduledThreadPool(1);
-
 	/**
 	 * Standard constructor.
 	 * 
@@ -157,12 +150,6 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 		mTransactionID = pId;
 		mPageRtx = new PageReadTrx(pSession, pUberPage, pRepresentRev, pWriter,
 				Optional.of(mPageLog));
-		mPool.scheduleAtFixedRate(new Runnable() {
-			@Override
-			public void run() {
-				mPageRtx.putPageCache(mPageLog);
-			}
-		}, 20, 20, TimeUnit.SECONDS);
 
 		final RevisionRootPage lastCommitedRoot = preparePreviousRevisionRootPage(
 				pRepresentRev, pLastCommitedRev);
@@ -176,16 +163,6 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 		if (indexes.contains(EIndexes.VALUE)) {
 			mNewRoot.setMaxValueNodeKey(lastCommitedRoot.getMaxValueNodeKey());
 		}
-	}
-
-	@Override
-	public boolean isCreated() {
-		return mPageLog.isCreated();
-	}
-
-	@Override
-	public void flushToPersistentCache() {
-		mPageRtx.putPageCache(mPageLog);
 	}
 
 	@Override
@@ -303,17 +280,14 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 		// final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
 
 		final PageContainer pageCont = getPageContainer(pPage, nodePageKey);
-
 		if (pageCont.equals(PageContainer.EMPTY_INSTANCE)) {
 			return mPageRtx.getNode(pNodeKey, pPage);
 		} else {
 			INodeBase node = pageCont.getModified().getNode(pNodeKey);
 			if (node == null) {
 				node = pageCont.getComplete().getNode(pNodeKey);
-				return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));
-			} else {
-				return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));
 			}
+			return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));
 		}
 	}
 
@@ -341,6 +315,30 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 			}
 		}
 		return PageContainer.EMPTY_INSTANCE;
+	}
+
+	/**
+	 * Remove the page container.
+	 * 
+	 * @param pPage
+	 *          the kind of page
+	 * @param pNodePageKey
+	 *          the node page key
+	 */
+	private void removePageContainer(final @Nonnull EPage pPage,
+			final @Nonnegative long pNodePageKey) {
+		switch (pPage) {
+		case NODEPAGE:
+			mNodeLog.remove(pNodePageKey);
+			break;
+		case PATHSUMMARYPAGE:
+			mPathLog.remove(pNodePageKey);
+			break;
+		case VALUEPAGE:
+			mValueLog.remove(pNodePageKey);
+		default:
+			mPageLog.remove(pNodePageKey);
+		}
 	}
 
 	@Override
@@ -373,7 +371,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 
 		// If reference is not null, get one from the persistent storage.
 		if (pReference != null) {
-			// First, try to get one from the log.
+			// First, try to get one from the transaction log.
 			final long nodePageKey = pReference.getNodePageKey();
 			final PageContainer cont = nodePageKey == -1 ? null : getPageContainer(
 					pReference.getPageKind(), nodePageKey);
@@ -383,34 +381,42 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 
 			// If none is in the log.
 			if (page == null) {
-				// // // Then try to get one from the page cache.
-				// if (nodePageKey == -1 && pReference.getKey() != IConstants.NULL_ID) {
-				// page = mPageRtx.getFromPageCache(pReference.getKey());
-				// }
-				// if (page instanceof NodePage) {
-				// page = null;
-				// }
-				// if (page == null) {
-				// Test if one is instantiated, if so, get
-				// the one from the reference.
-				page = pReference.getPage();
+//				// Then try to get one from the page cache.
+//				if (nodePageKey == -1 && pReference.getKey() != IConstants.NULL_ID) {
+//					page = mPageLog.get(pReference.getKey());
+//				}
 				if (page == null) {
-					return;
+					// Test if one is instantiated, if so, get
+					// the one from the reference.
+					page = pReference.getPage();
+					if (page == null) {
+						return;
+					}
 				}
-				// } else {
-				// assert !(page instanceof NodePage);
-				// }
 			}
 
 			pReference.setPage(page);
+			if (pReference.getPageKind() == null) {
+				// Page kind isn't interesting, just that it's not
+				// a node page.
+				if (page instanceof NodePage) {
+					throw new IllegalStateException();
+				} else {
+					pReference.setPageKind(EPage.INDIRECTPAGE);
+				}
+			}
+
 			// Recursively commit indirectely referenced pages and then
 			// write self.
 			page.commit(this);
 			mPageWriter.write(pReference);
 
-			// // Remove from transaction log.
-			// removePageContainer(pReference.getPageKind(), nodePageKey);
+			// Remove from transaction log.
+			if (pReference.getPageKind() != null) {
+				removePageContainer(pReference.getPageKind(), nodePageKey);
+			}
 
+			// Remove page reference.
 			pReference.setPage(null);
 
 			// Afterwards synchronize all logs since the changes must be
@@ -428,15 +434,17 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 		mPageRtx.mSession.mCommitLock.lock();
 		mMultipleWriteTrx = checkNotNull(pMultipleWriteTrx);
 
-		// Forcefully flush write-ahead transaction logs to persistent storage.
-		// mNodeLog.toSecondCache();
-		// mPathLog.toSecondCache();
-		// mValueLog.toSecondCache();
-		// mPageRtx.putPageCache(mPageLog);
+		// Forcefully flush write-ahead transaction logs to persistent storage. Make
+		// this optional!
+//		mNodeLog.toSecondCache();
+//		mPathLog.toSecondCache();
+//		mValueLog.toSecondCache();
+//		mPageLog.toSecondCache();
 
 		final PageReference uberPageReference = new PageReference();
 		final UberPage uberPage = getUberPage();
 		uberPageReference.setPage(uberPage);
+		uberPageReference.setPageKind(EPage.UBERPAGE);
 
 		// Recursively write indirectely referenced pages.
 		uberPage.commit(this);
@@ -453,13 +461,11 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 	@Override
 	public void close() throws SirixIOException {
 		mPageRtx.assertNotClosed();
-		mPageRtx.clearCache();
-		mNodeLog.clear();
-		mPathLog.clear();
-		mValueLog.clear();
-		mPageLog.clear();
+		mPageRtx.closeCaches();
+		mNodeLog.close();
+		mPathLog.close();
+		mValueLog.close();
 		mPageWriter.close();
-		mPool.shutdownNow();
 	}
 
 	/**
@@ -488,6 +494,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 			}
 			pReference.setPage(page);
 		}
+		pReference.setPageKind(EPage.INDIRECTPAGE);
 		return page;
 	}
 
@@ -571,6 +578,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 			// Link the prepared revision root nodePageReference with the
 			// prepared indirect tree.
 			revisionRootPageReference.setPage(revisionRootPage);
+			revisionRootPageReference.setPageKind(EPage.REVISIONROOTPAGE);
 
 			// Return prepared revision root nodePageReference.
 			return revisionRootPage;

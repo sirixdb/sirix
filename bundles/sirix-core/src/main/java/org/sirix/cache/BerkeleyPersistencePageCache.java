@@ -132,8 +132,20 @@ public final class BerkeleyPersistencePageCache extends
     }
   }
   
+  @Override
   public void close() {
   	mDatabase.close();
+  }
+  
+  @Override
+  public void clearPersistent() throws SirixIOException {
+    try {
+      mDatabase.close();
+      mEnv.removeDatabase(null, NAME);
+      mEnv.close();
+    } catch (final DatabaseException e) {
+      throw new SirixIOException(e);
+    }
   }
 
   @Override
@@ -152,17 +164,6 @@ public final class BerkeleyPersistencePageCache extends
 
     if (mEntries % FLUSH_AFTER == 0) {
       mDatabase.sync();
-    }
-  }
-
-  @Override
-  public void clearPersistent() throws SirixIOException {
-    try {
-      mDatabase.close();
-//      mEnv.removeDatabase(null, NAME);
-//      mEnv.close();
-    } catch (final DatabaseException e) {
-      throw new SirixIOException(e);
     }
   }
 

@@ -103,4 +103,8 @@ public final class RAMCache<K, V> implements ICache<K, V> {
     mMap.remove(pKey);
   }
 
+	@Override
+	public void close() {
+	}
+
 }

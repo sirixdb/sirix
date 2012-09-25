@@ -29,11 +29,13 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -115,7 +117,7 @@ import com.google.common.hash.Hashing;
  */
 final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		INodeWriteTrx {
-	
+
 	/**
 	 * Operation type to determine behavior of path summary updates during
 	 * {@code setQName(QName)} and the move-operations.
@@ -1737,7 +1739,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 		// Reset modification counter.
 		mModificationCount = 0L;
-		
+
 		// Move to document root.
 		moveToDocumentRoot();
 	}
@@ -1771,7 +1773,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 		// Reset modification counter.
 		mModificationCount = 0L;
-		
+
 		getPageTransaction().close();
 
 		// Close current page transaction.
@@ -1785,7 +1787,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	@Override
 	public void commit() throws SirixException {
 		mNodeRtx.assertNotClosed();
-		
+
 		// Assert that the DocumentNode has no more than one child node (the root
 		// node).
 		final long nodeKey = mNodeRtx.getNode().getNodeKey();
@@ -1797,16 +1799,23 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					"DocumentRootNode may not have more than one child node!");
 		}
 		moveTo(nodeKey);
-		
+
+		final File commitFile = mNodeRtx.mSession.mCommitFile;
+		try {
+			commitFile.createNewFile();
+		} catch (final IOException e) {
+			throw new SirixIOException(e.getCause());
+		}
+
 		// Execute pre-commit hooks.
 		for (final IPreCommitHook hook : mPreCommitHooks) {
 			hook.preCommit(this);
 		}
-		
+
 		// Reset modification counter.
 		mModificationCount = 0L;
-		
-		final INodeWriteTrx trx = this;	
+
+		final INodeWriteTrx trx = this;
 //		mPool.submit(new Callable<Void>() {
 //			@Override
 //			public Void call() throws SirixException {
@@ -1815,7 +1824,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				if (currUberPage.isBootstrap()) {
 					currUberPage.setIsBulkInserted(mBulkInsert);
 				}
-				final UberPage uberPage = getPageTransaction().commit(EMultipleWriteTrx.NO);
+				final UberPage uberPage = getPageTransaction().commit(
+						EMultipleWriteTrx.NO);
 
 				// Remember succesfully committed uber page in session.
 				mNodeRtx.mSession.setLastCommittedUberPage(uberPage);
@@ -1830,10 +1840,12 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				for (final IPostCommitHook hook : mPostCommitHooks) {
 					hook.postCommit(trx);
 				}
-				
+
+				// Delete commit file which denotes that a commit must write the log in
+				// the data file.
+				commitFile.delete();
 //				return null;
 //			}
-//			
 //		});
 	}
 

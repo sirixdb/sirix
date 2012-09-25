@@ -86,6 +86,7 @@ public final class TransactionLogPageCache implements ICache<Long, IPage> {
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 	
+	@Override
 	public void close() {
 		mSecondCache.close();
 	}

@@ -60,7 +60,6 @@ public class SomeExprTest {
 
   @Test
   public void testEveryExpr() throws SirixException {
-
     final AbsAxis axis1 = new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/@i");
     assertEquals(true, axis1.hasNext());
     axis1.next();

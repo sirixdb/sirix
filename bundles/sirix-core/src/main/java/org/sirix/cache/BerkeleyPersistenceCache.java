@@ -153,6 +153,7 @@ public final class BerkeleyPersistenceCache extends
 		}
 	}
 	
+  @Override
 	public void close() {
 		mDatabase.close();
 	}
@@ -161,8 +162,8 @@ public final class BerkeleyPersistenceCache extends
 	public void clearPersistent() throws SirixIOException {
 		try {
 			mDatabase.close();
-//			mEnv.removeDatabase(null, NAME);
-//			mEnv.close();
+			mEnv.removeDatabase(null, NAME);
+			mEnv.close();
 		} catch (final DatabaseException e) {
 			throw new SirixIOException(e);
 		}

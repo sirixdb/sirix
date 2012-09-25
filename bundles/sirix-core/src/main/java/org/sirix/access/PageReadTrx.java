@@ -119,12 +119,28 @@ final class PageReadTrx implements IPageReadTrx {
 	/** Indexes to read. */
 	private final Set<EIndexes> mIndexes;
 
+	/**
+	 * Optional page transaction log, dependent on the fact, if the log hasn't
+	 * been completely transferred into the data file.
+	 */
 	private final Optional<TransactionLogPageCache> mPageLog;
 
+	/**
+	 * Optional path transaction log, dependent on the fact, if the log hasn't
+	 * been completely transferred into the data file.
+	 */
 	private final Optional<TransactionLogCache> mPathLog;
 
+	/**
+	 * Optional value transaction log, dependent on the fact, if the log hasn't
+	 * been completely transferred into the data file.
+	 */
 	private final Optional<TransactionLogCache> mValueLog;
 
+	/**
+	 * Optional node transaction log, dependent on the fact, if the log hasn't
+	 * been completely transferred into the data file.
+	 */
 	private final Optional<TransactionLogCache> mNodeLog;
 
 	/**
@@ -153,6 +169,7 @@ final class PageReadTrx implements IPageReadTrx {
 
 		// Transaction logs which might have to be read because the data hasn't been
 		// commited to the data-file.
+		// =======================================================
 		final boolean isCreated = pPersistentCache.isPresent()
 				&& !pPersistentCache.get().isCreated();
 		mPageLog = !isCreated ? pPersistentCache : Optional
@@ -175,9 +192,11 @@ final class PageReadTrx implements IPageReadTrx {
 			mValueLog = Optional.<TransactionLogCache> absent();
 		}
 
-		mNodeCache = CacheBuilder.newBuilder().maximumSize(2000)
+		// In memory caches from data directory.
+		// =========================================================
+		mNodeCache = CacheBuilder.newBuilder().maximumSize(1000)
 				.expireAfterWrite(40, TimeUnit.SECONDS)
-				.expireAfterAccess(15, TimeUnit.SECONDS).concurrencyLevel(1)
+				.expireAfterAccess(40, TimeUnit.SECONDS).concurrencyLevel(1)
 				.build(new CacheLoader<Long, PageContainer>() {
 					public PageContainer load(final Long pKey) throws SirixException {
 						final PageContainer container = mNodeLog.isPresent() ? mNodeLog
@@ -190,7 +209,7 @@ final class PageReadTrx implements IPageReadTrx {
 					}
 				});
 		final CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder()
-				.concurrencyLevel(1).maximumSize(1000);
+				.concurrencyLevel(1).maximumSize(20);
 		if (mIndexes.contains(EIndexes.PATH)) {
 			mPathCache = builder.build(new CacheLoader<Long, PageContainer>() {
 				public PageContainer load(final Long pKey) throws SirixException {
@@ -238,12 +257,12 @@ final class PageReadTrx implements IPageReadTrx {
 
 		mPageCache = pageCacheBuilder.build(new CacheLoader<Long, IPage>() {
 			public IPage load(final Long pKey) throws SirixException {
-				final IPage container = mPageLog.isPresent() ? mPageLog.get().get(pKey)
+				final IPage page = mPageLog.isPresent() ? mPageLog.get().get(pKey)
 						: null;
-				if (container == null) {
+				if (page == null) {
 					return mPageReader.read(pKey).setDirty(true);
 				} else {
-					return container;
+					return page;
 				}
 			}
 		});
@@ -348,6 +367,21 @@ final class PageReadTrx implements IPageReadTrx {
 	 */
 	void clearCache() {
 		assertNotClosed();
+
+		if (mIndexes.contains(EIndexes.PATH)) {
+			mPathCache.invalidateAll();
+		}
+		if (mIndexes.contains(EIndexes.VALUE)) {
+			mValueCache.invalidateAll();
+		}
+		mNodeCache.invalidateAll();
+		mPageCache.invalidateAll();
+	}
+
+	/**
+	 * Close caches.
+	 */
+	void closeCaches() {
 		if (mPathLog.isPresent()) {
 			mPathLog.get().close();
 		}
@@ -360,15 +394,6 @@ final class PageReadTrx implements IPageReadTrx {
 		if (mPageLog.isPresent()) {
 			mPageLog.get().close();
 		}
-
-		if (mIndexes.contains(EIndexes.PATH)) {
-			mPathCache.invalidateAll();
-		}
-		if (mIndexes.contains(EIndexes.VALUE)) {
-			mValueCache.invalidateAll();
-		}
-		mNodeCache.invalidateAll();
-		mPageCache.invalidateAll();
 	}
 
 	/**
@@ -424,6 +449,7 @@ final class PageReadTrx implements IPageReadTrx {
 				throw new SirixIOException(e);
 			}
 		}
+		ref.setPageKind(EPage.NAMEPAGE);
 		return (NamePage) ref.getPage();
 	}
 
@@ -444,6 +470,7 @@ final class PageReadTrx implements IPageReadTrx {
 				throw new SirixIOException(e);
 			}
 		}
+		ref.setPageKind(EPage.PATHSUMMARYPAGE);
 		return (PathSummaryPage) ref.getPage();
 	}
 
@@ -464,6 +491,7 @@ final class PageReadTrx implements IPageReadTrx {
 				throw new SirixIOException(e);
 			}
 		}
+		ref.setPageKind(EPage.VALUEPAGE);
 		return (ValuePage) ref.getPage();
 	}
 
@@ -532,6 +560,7 @@ final class PageReadTrx implements IPageReadTrx {
 			if (pages[i] == null) {
 				pages[i] = (NodePage) mPageReader.read(ref.getKey());
 			}
+			ref.setPageKind(pPage);
 		}
 		return pages;
 	}
@@ -586,13 +615,12 @@ final class PageReadTrx implements IPageReadTrx {
 			if (page == null && pReference.getKey() != IConstants.NULL_ID) {
 				try {
 					page = (IndirectPage) mPageCache.get(pReference.getKey());
-					mPageCache.put(pReference.getKey(), page.setDirty(true));
 				} catch (final ExecutionException e) {
 					throw new SirixIOException(e);
 				}
-				pReference.setPage(page);
 			}
 
+			pReference.setPage(page);
 			return page;
 		} else {
 			throw new IllegalArgumentException(
@@ -612,6 +640,7 @@ final class PageReadTrx implements IPageReadTrx {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
+	@Nullable
 	final PageReference dereferenceLeafOfTree(
 			final @Nonnull PageReference pStartReference,
 			final @Nonnegative long pKey, final @Nonnull EPage pPage)
@@ -641,6 +670,9 @@ final class PageReadTrx implements IPageReadTrx {
 		}
 
 		// Return reference to leaf of indirect tree.
+		if (reference != null) {
+			reference.setPageKind(pPage);
+		}
 		return reference;
 	}
 
@@ -700,7 +732,7 @@ final class PageReadTrx implements IPageReadTrx {
 
 	@Override
 	public void close() throws SirixIOException {
-		clearCache();
+		closeCaches();
 		mClosed = true;
 		mPageReader.close();
 	}

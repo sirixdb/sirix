@@ -163,4 +163,10 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
   public void remove(final @Nonnull Tuple pKey) {
     mCache.invalidate(pKey);
   }
+
+	@Override
+	public void close() {
+		mCache.cleanUp();
+		mSecondCache.close();
+	}
 }

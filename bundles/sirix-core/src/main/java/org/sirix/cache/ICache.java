@@ -101,4 +101,7 @@ public interface ICache<K, V> {
    *          key to remove
    */
   void remove(@Nonnull K pKey);
+
+  /** Close a cache, might be a file handle for persistent caches. */
+	void close();
 }

@@ -2,12 +2,12 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
-		<groupId>com.github.johanneslichtenberger</groupId>
-		<artifactId>parent</artifactId>
+		<groupId>com.github.johanneslichtenberger.sirix</groupId>
+		<artifactId>sirix-parent</artifactId>
 		<version>0.0.9</version>
 	</parent>
 
-	<artifactId>distributed</artifactId>
+	<artifactId>sirix-distributed</artifactId>
 	<packaging>jar</packaging>
 	<name>sirix-distributed</name>
 	<version>0.1.0</version>
@@ -23,12 +23,12 @@
 	<dependencies>
 		<dependency>
 			<groupId>com.github.johanneslichtenberger.sirix</groupId>
-			<artifactId>core</artifactId>
+			<artifactId>sirix-core</artifactId>
 			<version>0.1.0</version>
 		</dependency>
 		<dependency>
 			<groupId>com.github.johanneslichtenberger.sirix</groupId>
-			<artifactId>core</artifactId>
+			<artifactId>sirix-core</artifactId>
 			<version>0.1.0</version>
 			<type>test-jar</type>
 			<scope>test</scope>

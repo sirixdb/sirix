@@ -80,16 +80,6 @@ public abstract class AbsForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public boolean isCreated() {
-		return delegate().isCreated();
-	}
-
-	@Override
-	public void flushToPersistentCache() {
-		delegate().flushToPersistentCache();
-	}
-
-	@Override
 	protected abstract IPageWriteTrx delegate();
 
 }

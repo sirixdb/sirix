@@ -41,4 +41,8 @@ public class EmptyCache<K, V> implements ICache<K, V> {
   public void remove(@Nonnull K pKey) {
   }
 
+	@Override
+	public void close() {
+	}
+
 }

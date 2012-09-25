@@ -132,6 +132,9 @@ public final class Session implements ISession {
 	/** Determines if session was closed. */
 	private volatile boolean mClosed;
 
+	/** File denoting that currently a version is commited. */
+	File mCommitFile;
+
 	/**
 	 * Package private constructor.
 	 * 
@@ -232,14 +235,19 @@ public final class Session implements ISession {
 	 */
 	private Optional<TransactionLogPageCache> getLog(
 			final @Nonnegative int pRevisionKey) throws SirixException {
-		final File logFile = new File(mResourceConfig.mPath,
-				new File(ResourceConfiguration.Paths.TransactionLog.getFile(),
-						new File(new File("page"), String.valueOf(pRevisionKey)).getPath())
-						.getPath());
-		final Optional<TransactionLogPageCache> log = logFile.exists() ? Optional
+		commitFile(pRevisionKey);
+		final Optional<TransactionLogPageCache> log = mCommitFile.exists() ? Optional
 				.of(new TransactionLogPageCache(mResourceConfig.mPath, pRevisionKey,
 						"page")) : Optional.<TransactionLogPageCache> absent();
 		return log;
+	}
+
+	private void commitFile(final int pRevisionKey) {
+		final int revision = mLastCommittedUberPage.isBootstrap() ? 0
+				: pRevisionKey + 1;
+		mCommitFile = new File(mResourceConfig.mPath, new File(
+				ResourceConfiguration.Paths.TransactionLog.getFile(), new File(
+						new File(String.valueOf(revision)), ".commit").getPath()).getPath());
 	}
 
 	@Override
@@ -273,6 +281,7 @@ public final class Session implements ISession {
 		// trx).
 		final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
 		final int lastRev = mLastCommittedUberPage.getRevisionNumber();
+		commitFile(lastRev);
 		final IPageWriteTrx pageWtx = createPageWriteTransaction(currentTrxID,
 				lastRev, lastRev);
 

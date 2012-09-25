@@ -81,7 +81,7 @@ public class ConcurrentAxisTest {
       XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
       holder = Holder.generateRtx();
     } catch (final Exception e) {
-
+    	System.out.println();
     }
   }
 

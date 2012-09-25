@@ -166,9 +166,10 @@ public class PageDelegate implements IPage {
 	 */
 	@Override
 	public final PageReference[] getReferences() {
-		final PageReference[] copiedRefs = new PageReference[mReferences.length];
-		System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
-		return copiedRefs;
+//		final PageReference[] copiedRefs = new PageReference[mReferences.length];
+//		System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
+//		return copiedRefs;
+		return mReferences;
 	}
 
 	/**

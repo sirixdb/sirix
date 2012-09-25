@@ -130,15 +130,4 @@ public interface IPageWriteTrx extends IPageReadTrx {
 	 *          trx
 	 */
 	void restore(@Nonnull ERestore pRestore);
-
-	/**
-	 * Determines if a new log directory has been created.
-	 * 
-	 * @return {@code true} if yes, otherwise {@code false} which means that a
-	 *         crash occured and the log must be re-applied
-	 */
-	boolean isCreated();
-
-	/** Flush content of page cache to persistent storage for write-ahead log. */
-	void flushToPersistentCache();
 }
