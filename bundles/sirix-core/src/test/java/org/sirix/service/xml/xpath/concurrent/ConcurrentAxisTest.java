@@ -124,6 +124,7 @@ public class ConcurrentAxisTest {
 	public void testSeriellNew() throws Exception {
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
+		try {
 		final IAxis axis = new NestedAxis(new NestedAxis(new FilterAxis(
 				new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
 						holder.getRtx(), "regions")), new FilterAxis(new ChildAxis(
@@ -131,7 +132,6 @@ public class ConcurrentAxisTest {
 				new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
 						new NameFilter(holder.getRtx(), "location")));
 
-		try {
 			for (int i = 0; i < resultNumber; i++) {
 				assertEquals(true, axis.hasNext());
 				axis.next();
