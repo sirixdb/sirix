@@ -1759,8 +1759,9 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			mNodeRtx.mSession.closeWriteTransaction(getTransactionID());
 			mNodeRtx.close();
 			
-			// mPathSummary.close();
 			mPathSummary = null;
+			mAVLTree = null;
+			mNodeFactory = null;
 
 			// Shutdown pool.
 			mPool.shutdown();
