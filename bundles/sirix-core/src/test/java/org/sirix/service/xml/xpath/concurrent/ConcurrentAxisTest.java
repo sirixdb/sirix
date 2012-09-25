@@ -1177,6 +1177,7 @@ public class ConcurrentAxisTest {
 			TestHelper.closeEverything();
 		} catch (final Exception e) {
 			e.printStackTrace();
+			e.getCause().printStackTrace();
 			fail();
 		}
 	}
