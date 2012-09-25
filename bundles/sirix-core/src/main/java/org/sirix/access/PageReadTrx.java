@@ -738,8 +738,9 @@ final class PageReadTrx implements IPageReadTrx {
 	public void close() throws SirixIOException {
 		if (!mClosed) {
 			closeCaches();
-			mClosed = true;
 			mPageReader.close();
+			
+			mClosed = true;
 		}
 	}
 

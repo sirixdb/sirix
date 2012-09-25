@@ -363,7 +363,17 @@ public final class Database implements IDatabase {
 		}
 
 		// Remove from database mapping.
+		if (mDBConfig == null) {
+			throw new IllegalStateException("config");
+		}
+		if (mDBConfig.getFile() == null) {
+			throw new IllegalStateException("file");
+		}
 		DATABASEMAP.remove(mDBConfig.getFile());
+		
+		if (DatabaseConfiguration.Paths.LOCK.getFile() == null) {
+			throw new IllegalStateException("lock");
+		}
 
 		// Remove lock file.
 		Files.recursiveRemove(new File(mDBConfig.getFile().getAbsoluteFile(),
