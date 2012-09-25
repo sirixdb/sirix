@@ -1755,6 +1755,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			// Release all state immediately.
 			mNodeRtx.mSession.closeWriteTransaction(getTransactionID());
 			mNodeRtx.close();
+			
 			// mPathSummary.close();
 			mPathSummary = null;
 
@@ -1855,8 +1856,18 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	private void reInstantiate(final @Nonnegative long trxID,
 			final @Nonnegative int revNumber) throws SirixException {
 		// Reset page transaction to new uber page.
+		mNodeRtx.setPageReadTransaction(null);
 		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
 				.createPageWriteTransaction(trxID, revNumber, revNumber));
+		mNodeFactory = null;
+		mNodeFactory = new NodeFactory(
+				(IPageWriteTrx) mNodeRtx.getPageTransaction());
+
+		mPathSummary = null;
+		mAVLTree = null;		mNodeRtx.setPageReadTransaction(null);
+		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
+				.createPageWriteTransaction(trxID, revNumber, revNumber));
+		mNodeFactory = null;
 		mNodeFactory = new NodeFactory(
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
