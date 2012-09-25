@@ -1865,14 +1865,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
 		mPathSummary = null;
-		mAVLTree = null;		mNodeRtx.setPageReadTransaction(null);
-		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
-				.createPageWriteTransaction(trxID, revNumber, revNumber));
-		mNodeFactory = null;
-		mNodeFactory = new NodeFactory(
-				(IPageWriteTrx) mNodeRtx.getPageTransaction());
-
-		mPathSummary = null;
 		mAVLTree = null;
 
 		reInstantiateIndexes();
