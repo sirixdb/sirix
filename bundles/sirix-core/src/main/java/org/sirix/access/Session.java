@@ -396,12 +396,20 @@ public final class Session implements ISession {
 	 * @param pTransactionID
 	 *          write transaction ID
 	 */
-	void closeWriteTransaction(final long pTransactionID) {
+	void closeWriteTransaction(final @Nonnegative long pTransactionID) {
 		// Purge transaction from internal state.
-		mNodeTrxMap.remove(pTransactionID);
+		final INodeReadTrx rtx = mNodeTrxMap.remove(pTransactionID);
+		assert rtx != null : "Must be in the node trx map!";
+		if (rtx == null) {
+			throw new IllegalStateException("rtx is null!");
+		}
 
 		// Removing the write from the own internal mapping
-		mNodePageTrxMap.remove(pTransactionID);
+		final IPageReadTrx pageRtx = mNodePageTrxMap.remove(pTransactionID);
+		assert pageRtx != null: "Must be in the page trx map!";
+		if (pageRtx == null) {
+			throw new IllegalStateException("pageRtx is null!");
+		}
 
 		// Make new transactions available.
 		mWriteSemaphore.release();
