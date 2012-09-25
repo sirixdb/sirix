@@ -63,6 +63,7 @@ import org.sirix.api.ISession;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.PathSummary;
@@ -87,12 +88,6 @@ import com.google.common.base.Optional;
  */
 public final class Session implements ISession {
 
-	/** Session configuration. */
-	protected final ResourceConfiguration mResourceConfig;
-
-	/** Session configuration. */
-	protected final SessionConfiguration mSessionConfig;
-
 	/** Database for centralized closure of related Sessions. */
 	private final Database mDatabase;
 
@@ -112,7 +107,13 @@ public final class Session implements ISession {
 	private final Map<Long, IPageReadTrx> mPageTrxMap;
 
 	/** Lock for blocking the commit. */
-	protected final Lock mCommitLock;
+	final Lock mCommitLock;
+
+	/** Session configuration. */
+	final ResourceConfiguration mResourceConfig;
+
+	/** Session configuration. */
+	final SessionConfiguration mSessionConfig;
 
 	/** Remember the write seperately because of the concurrent writes. */
 	private final Map<Long, IPageWriteTrx> mNodePageTrxMap;
@@ -372,17 +373,18 @@ public final class Session implements ISession {
 			mNodeTrxMap.clear();
 			mPageTrxMap.clear();
 			mNodePageTrxMap.clear();
-			
+
 			if (mFac == null) {
 				throw new IllegalStateException("fac is null!");
 			}
 
 			mFac.close();
-			
+
 			if (mDatabase == null) {
 				throw new IllegalStateException("database is null!!!");
 			}
-			final boolean removedSession = mDatabase.removeSession(mResourceConfig.mPath);
+			final boolean removedSession = mDatabase
+					.removeSession(mResourceConfig.mPath);
 			if (!removedSession) {
 				throw new IllegalStateException("removedSession must be true!");
 			}
@@ -425,6 +427,35 @@ public final class Session implements ISession {
 	}
 
 	/**
+	 * Set a new node page write trx.
+	 * 
+	 * @param pTransactionID
+	 *          page write transaction ID
+	 * @param pPageWriteTrx
+	 *          page write trx
+	 */
+	public void setNodePageWriteTransaction(
+			final @Nonnegative long pTransactionID,
+			@Nonnull final IPageWriteTrx pPageWriteTrx) {
+		mNodePageTrxMap.put(pTransactionID, pPageWriteTrx);
+	}
+
+	/**
+	 * Close a node page transaction.
+	 * 
+	 * @param pTransactionID
+	 *          page write transaction ID
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	void closeNodePageWriteTransaction(final @Nonnegative long pTransactionID)
+			throws SirixIOException {
+		final IPageReadTrx pageRtx = mNodePageTrxMap.remove(pTransactionID);
+		assert pageRtx != null : "Must be in the page trx map!";
+		pageRtx.close();
+	}
+
+	/**
 	 * Close a write transaction.
 	 * 
 	 * @param pTransactionID
@@ -440,7 +471,7 @@ public final class Session implements ISession {
 
 		// Removing the write from the own internal mapping
 		final IPageReadTrx pageRtx = mNodePageTrxMap.remove(pTransactionID);
-		assert pageRtx != null: "Must be in the page trx map!";
+		assert pageRtx != null : "Must be in the page trx map!";
 		if (pageRtx == null) {
 			throw new IllegalStateException("pageRtx is null!");
 		}

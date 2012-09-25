@@ -1727,12 +1727,13 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		getPageTransaction().close();
 
 		// Reset internal transaction state to new uber page.
-//		mNodeRtx.setPageReadTransaction(null);
-		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
-				.createPageWriteTransaction(trxID, pRevision, revNumber - 1));
-		
+		mNodeRtx.mSession.closeNodePageWriteTransaction(getTransactionID());
+		final IPageWriteTrx trx = mNodeRtx.mSession.createPageWriteTransaction(
+				trxID, pRevision, revNumber - 1);
+		mNodeRtx.setPageReadTransaction(trx);
+		mNodeRtx.mSession.setNodePageWriteTransaction(getTransactionID(), trx);
+
 		// Reset node factory.
-//		mNodeFactory = null;
 		mNodeFactory = new NodeFactory(
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
@@ -1756,7 +1757,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			// Release all state immediately.
 			mNodeRtx.mSession.closeWriteTransaction(getTransactionID());
 			mNodeRtx.close();
-			
+
 			mPathSummary = null;
 			mAVLTree = null;
 			mNodeFactory = null;
@@ -1818,48 +1819,48 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		mModificationCount = 0L;
 
 		final INodeWriteTrx trx = this;
-//		mPool.submit(new Callable<Void>() {
-//			@Override
-//			public Void call() throws SirixException {
-				// Commit uber page.
-				final UberPage currUberPage = getPageTransaction().getUberPage();
-				if (currUberPage.isBootstrap()) {
-					currUberPage.setIsBulkInserted(mBulkInsert);
-				}
-				final UberPage uberPage = getPageTransaction().commit(
-						EMultipleWriteTrx.NO);
+		// mPool.submit(new Callable<Void>() {
+		// @Override
+		// public Void call() throws SirixException {
+		// Commit uber page.
+		final UberPage currUberPage = getPageTransaction().getUberPage();
+		if (currUberPage.isBootstrap()) {
+			currUberPage.setIsBulkInserted(mBulkInsert);
+		}
+		final UberPage uberPage = getPageTransaction().commit(EMultipleWriteTrx.NO);
 
-				// Remember succesfully committed uber page in session.
-				mNodeRtx.mSession.setLastCommittedUberPage(uberPage);
+		// Remember succesfully committed uber page in session.
+		mNodeRtx.mSession.setLastCommittedUberPage(uberPage);
 
-				// Close current page transaction.
-				getPageTransaction().close();
-				
-				final long trxID = getTransactionID();
-				final int revNumber = getRevisionNumber();
+		final long trxID = getTransactionID();
+		final int revNumber = getRevisionNumber();
 
-				reInstantiate(trxID, revNumber);
+		reInstantiate(trxID, revNumber);
 
-				// Execute post-commit hooks.
-				for (final IPostCommitHook hook : mPostCommitHooks) {
-					hook.postCommit(trx);
-				}
+		// Execute post-commit hooks.
+		for (final IPostCommitHook hook : mPostCommitHooks) {
+			hook.postCommit(trx);
+		}
 
-				// Delete commit file which denotes that a commit must write the log in
-				// the data file.
-				commitFile.delete();
-//				return null;
-//			}
-//		});
+		// Delete commit file which denotes that a commit must write the log in
+		// the data file.
+		commitFile.delete();
+		// return null;
+		// }
+		// });
 	}
 
 	private void reInstantiate(final @Nonnegative long trxID,
 			final @Nonnegative int revNumber) throws SirixException {
 		// Reset page transaction to new uber page.
-//		mNodeRtx.setPageReadTransaction(null);
-		mNodeRtx.setPageReadTransaction(mNodeRtx.mSession
-				.createPageWriteTransaction(trxID, revNumber, revNumber));
-//		mNodeFactory = null;
+		// mNodeRtx.setPageReadTransaction(null);
+		mNodeRtx.mSession.closeNodePageWriteTransaction(getTransactionID());
+		final IPageWriteTrx trx = mNodeRtx.mSession
+				.createPageWriteTransaction(trxID, revNumber, revNumber);
+		mNodeRtx.setPageReadTransaction(trx);
+		mNodeRtx.mSession.setNodePageWriteTransaction(getTransactionID(), trx);
+		
+		// mNodeFactory = null;
 		mNodeFactory = new NodeFactory(
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
