@@ -52,7 +52,7 @@ public final class LRUCache<K, V> implements ICache<K, V> {
   /**
    * Capacity of the cache. Number of stored pages.
    */
-  static final int CACHE_CAPACITY = 10_000;
+  static final int CACHE_CAPACITY = 500;
 
   /**
    * The collection to hold the maps.
