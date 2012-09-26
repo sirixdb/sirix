@@ -216,7 +216,9 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 			e.printStackTrace();
 		} catch (final Error e) {
 			System.out.println("ERROOOOR");
-//			e.printStackTrace();
+			e.printStackTrace();
+			System.out.println(e.getCause());
+			System.out.println(e);
 			throw new IllegalStateException(e);
 		}
 
