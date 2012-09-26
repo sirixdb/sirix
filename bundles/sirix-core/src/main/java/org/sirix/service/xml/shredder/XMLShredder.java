@@ -169,6 +169,8 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
       // Iterate over all nodes.
       while (mReader.hasNext() && !endElemReached) {
         final XMLEvent event = mReader.nextEvent();
+        
+        System.out.println(event.toString());
 
         switch (event.getEventType()) {
         case XMLStreamConstants.START_ELEMENT:
@@ -200,6 +202,8 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
           // Node kind not known.
         }
       }
+      
+      System.out.println("DOOOONE!");
 
       mWtx.moveTo(insertedRootNodeKey);
     } catch (final XMLStreamException e) {
