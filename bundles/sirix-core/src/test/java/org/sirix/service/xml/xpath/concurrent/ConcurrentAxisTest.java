@@ -122,6 +122,7 @@ public class ConcurrentAxisTest {
 	@Bench
 	@Test
 	public void testSeriellOld() throws Exception {
+		System.out.println("seriell");
 		if (holder == null) {
 			throw new IllegalStateException("seriell!");
 		}
@@ -157,6 +158,7 @@ public class ConcurrentAxisTest {
 	@Bench
 	@Test
 	public void testSeriellNew() throws Exception {
+		System.out.println("seriell new");
 		if (holder == null) {
 			throw new IllegalStateException("seriell new!");
 		}
@@ -198,6 +200,7 @@ public class ConcurrentAxisTest {
 	@Bench
 	@Test
 	public final void testConcurrent() throws Exception {
+		System.out.println("concurrent");
 		if (holder == null) {
 			throw new IllegalStateException("concurrent!");
 		}
@@ -237,7 +240,7 @@ public class ConcurrentAxisTest {
 		if (holder == null) {
 			throw new IllegalStateException("AFTER: concurrent!");
 		}
-		System.out.println("concurrent");
+		System.out.println("AFTER: concurrent");
 	}
 
 	/**
@@ -248,6 +251,7 @@ public class ConcurrentAxisTest {
 	@Bench
 	@Test
 	public final void testPartConcurrentDescAxis1() throws Exception {
+		System.out.println("concurrent part 1");
 		if (holder == null) {
 			throw new IllegalStateException("concurrent part 1!");
 		}
@@ -279,7 +283,7 @@ public class ConcurrentAxisTest {
 		if (holder == null) {
 			throw new IllegalStateException("AFTER: concurrent part 1!");
 		}
-		System.out.println("concurrent part 1");
+		System.out.println("AFTER: concurrent part 1");
 	}
 
 	/**
@@ -290,6 +294,7 @@ public class ConcurrentAxisTest {
 	@Bench
 	@Test
 	public final void testPartConcurrentDescAxis2() throws Exception {
+		System.out.println("concurrent part 2");
 		if (holder == null) {
 			throw new IllegalStateException("concurrent part 2!");
 		}
@@ -321,7 +326,7 @@ public class ConcurrentAxisTest {
 		if (holder == null) {
 			throw new IllegalStateException("AFTER: concurrent part 2!");
 		}
-		System.out.println("concurrent part 2");
+		System.out.println("AFTER: concurrent part 2");
 	}
 
 	/*
