@@ -75,8 +75,11 @@ public class ConcurrentAxisTest {
 	@Before
 	public void setUp() throws Exception {
 		try {
+			System.out.println("deleteeeeeee setUp...");
 			TestHelper.deleteEverything();
+			System.out.println("lalalalalallala setUp...");
 			XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
+			System.out.println("lalala setup...");
 			holder = Holder.generateRtx();
 			if (holder == null) {
 				throw new IllegalStateException("hooooooooolder!");
