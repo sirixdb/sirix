@@ -158,7 +158,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
    *           if something went wrong while inserting
    */
   protected final void insertNewContent() throws SirixException {
-    try {
+//    try {
       boolean firstElement = true;
       int level = 0;
       QName rootElement = null;
@@ -167,6 +167,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
       long insertedRootNodeKey = -1;
 
       // Iterate over all nodes.
+      try {
       while (mReader.hasNext() && !endElemReached) {
         final XMLEvent event = mReader.nextEvent();
         
@@ -202,13 +203,16 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
           // Node kind not known.
         }
       }
+      } catch (final Exception e) {
+      	e.printStackTrace();
+      }
       
       System.out.println("DOOOONE!");
 
       mWtx.moveTo(insertedRootNodeKey);
-    } catch (final XMLStreamException e) {
-      throw new SirixIOException(e);
-    }
+//    } catch (final XMLStreamException e) {
+//      throw new SirixIOException(e);
+//    }
   }
 
   /**
