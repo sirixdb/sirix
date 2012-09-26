@@ -166,6 +166,8 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
       final StringBuilder sBuilder = new StringBuilder();
       long insertedRootNodeKey = -1;
 
+      System.out.println("STARTEEED!");
+      
       // Iterate over all nodes.
       try {
       while (mReader.hasNext() && !endElemReached) {
@@ -202,6 +204,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
         }
       }
       } catch (final Exception e) {
+      	System.out.println("BLABLABLABLA");
       	e.printStackTrace();
       }
       
@@ -254,7 +257,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
    * @throws Exception
    *           if any exception occurs
    */
-  public static void main(final String... pArgs) throws Exception {
+  public static void main(final String... pArgs) {
     if (pArgs.length != 2) {
       throw new IllegalArgumentException("Usage: XMLShredder XMLFile Database");
     }
@@ -287,6 +290,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
     
     LOGWRAPPER.info(" done [" + (System.nanoTime() - time) / 1000000 + " ms].");
     } catch (final Exception e) {
+    	System.out.println("BLABLA");
     	e.printStackTrace();
     }
 
