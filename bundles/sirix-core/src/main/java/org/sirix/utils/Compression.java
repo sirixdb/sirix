@@ -76,11 +76,13 @@ public class Compression {
     // Compressed result.
     byte[] compressed = new byte[] {};
 
+    // Reset the compressor.
+    mCompressor.reset();
+    
     // Set compression level.
     mCompressor.setLevel(pLevel);
 
     // Give the compressor the data to compress.
-    mCompressor.reset();
     mCompressor.setInput(pToCompress);
     mCompressor.finish();
 
@@ -102,6 +104,8 @@ public class Compression {
       compressed = bos.toByteArray();
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
+    } catch (final Error e) {
+    	e.printStackTrace();
     }
 
     return compressed;
