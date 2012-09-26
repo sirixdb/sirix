@@ -310,10 +310,10 @@ final class NodeReadTrx implements INodeReadTrx {
 		if (!mClosed) {
 			// Callback on session to make sure everything is cleaned up.
 			mSession.closeReadTransaction(mId);
-			setPageReadTransaction(null);
 			
 			// Close own state.
 			mPageReadTrx.close();
+			setPageReadTransaction(null);
 
 			// Immediately release all references.
 			mPageReadTrx = null;
