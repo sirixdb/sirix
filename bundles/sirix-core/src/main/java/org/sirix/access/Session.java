@@ -205,6 +205,7 @@ public final class Session implements ISession {
 		// Make sure not to exceed available number of read transactions.
 		try {
 			if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
+				System.out.println("blaaaaaaaaaaaaaaaaaaaaaa");
 				throw new SirixUsageException(
 						"No read transactions available, please close at least one read transaction at first!");
 			}
