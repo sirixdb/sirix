@@ -94,7 +94,7 @@ public class Compression {
      */
     try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(pToCompress.length)) {
       // Compress the data.
-      final byte[] buf = new byte[FileStorage.BUFFER_SIZE];
+      byte[] buf = new byte[FileStorage.BUFFER_SIZE];
       while (!mCompressor.finished()) {
         final int count = mCompressor.deflate(buf);
         bos.write(buf, 0, count);
@@ -102,6 +102,7 @@ public class Compression {
 
       // Get the compressed data.
       compressed = bos.toByteArray();
+      buf = null;
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     } catch (final Error e) {
