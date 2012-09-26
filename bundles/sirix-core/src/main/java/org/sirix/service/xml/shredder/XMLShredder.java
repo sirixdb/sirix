@@ -257,14 +257,18 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
     LOGWRAPPER.info("Shredding '" + pArgs[0] + "' to '" + pArgs[1] + "' ... ");
     final long time = System.nanoTime();
     final File target = new File(pArgs[1]);
+  	System.out.println("shredding");
     final DatabaseConfiguration config = new DatabaseConfiguration(target);
     Database.truncateDatabase(config);
+  	System.out.println("shredding");
     Database.createDatabase(config);
+  	System.out.println("shredding");
     final IDatabase db = Database.openDatabase(target);
     db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
     final ISession session = db.getSession(new SessionConfiguration.Builder("shredded").build());
     final INodeWriteTrx wtx = session.beginNodeWriteTrx();
     final XMLEventReader reader = createFileReader(new File(pArgs[0]));
+  	System.out.println("shredding!!!!!!!!!!");
     final XMLShredder shredder = new XMLShredder(wtx, reader, EInsert.ASFIRSTCHILD);
     shredder.call();
 

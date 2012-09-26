@@ -1724,12 +1724,12 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		// Close current page transaction.
 		final long trxID = getTransactionID();
 		final int revNumber = getRevisionNumber();
-		getPageTransaction().close();
 
 		// Reset internal transaction state to new uber page.
 		mNodeRtx.mSession.closeNodePageWriteTransaction(getTransactionID());
 		final IPageWriteTrx trx = mNodeRtx.mSession.createPageWriteTransaction(
 				trxID, pRevision, revNumber - 1);
+		mNodeRtx.setPageReadTransaction(null);
 		mNodeRtx.setPageReadTransaction(trx);
 		mNodeRtx.mSession.setNodePageWriteTransaction(getTransactionID(), trx);
 
@@ -1756,6 +1756,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			}
 			// Release all state immediately.
 			mNodeRtx.mSession.closeWriteTransaction(getTransactionID());
+			
 			mNodeRtx.close();
 
 			mPathSummary = null;
@@ -1853,10 +1854,10 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	private void reInstantiate(final @Nonnegative long trxID,
 			final @Nonnegative int revNumber) throws SirixException {
 		// Reset page transaction to new uber page.
-		// mNodeRtx.setPageReadTransaction(null);
 		mNodeRtx.mSession.closeNodePageWriteTransaction(getTransactionID());
 		final IPageWriteTrx trx = mNodeRtx.mSession
 				.createPageWriteTransaction(trxID, revNumber, revNumber);
+		mNodeRtx.setPageReadTransaction(null);
 		mNodeRtx.setPageReadTransaction(trx);
 		mNodeRtx.mSession.setNodePageWriteTransaction(getTransactionID(), trx);
 		
