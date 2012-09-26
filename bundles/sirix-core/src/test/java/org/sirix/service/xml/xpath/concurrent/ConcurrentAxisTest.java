@@ -69,11 +69,9 @@ public class ConcurrentAxisTest {
 	 * Method is called once before each test. It deletes all states, shreds XML
 	 * file to database and initializes the required variables.
 	 * 
-	 * @throws SirixException
-	 * 
 	 * @throws Exception
 	 */
-	@BeforeEachRun
+//	@BeforeEachRun
 	@Before
 	public void setUp() throws Exception {
 		try {
@@ -84,8 +82,35 @@ public class ConcurrentAxisTest {
 				throw new IllegalStateException("hooooooooolder!");
 			}
 		} catch (final Exception e) {
+			if (holder == null) {
+				throw new IllegalStateException("lalala!");
+			}
 			e.printStackTrace();
 			throw e;
+		}
+		if (holder == null) {
+			throw new IllegalStateException("blablabla!");
+		}
+	}
+	
+	/**
+	 * Close all connections.
+	 * 
+	 * @throws SirixException
+	 */
+//	@AfterEachRun
+	@After
+	public void tearDown() throws Exception {
+		try {
+			if (holder == null) {
+				throw new IllegalStateException("Holder is null null null!");
+			}
+			holder.close();
+			TestHelper.closeEverything();
+		} catch (final Exception e) {
+			e.printStackTrace();
+			e.getCause().printStackTrace();
+			fail();
 		}
 	}
 
@@ -123,6 +148,7 @@ public class ConcurrentAxisTest {
 		if (holder == null) {
 			throw new IllegalStateException("AFTER: seriell!");
 		}
+		System.out.println("seriell");
 	}
 
 	/**
@@ -159,6 +185,7 @@ public class ConcurrentAxisTest {
 		if (holder == null) {
 			throw new IllegalStateException("AFTER: seriell new!");
 		}
+		System.out.println("seriell new");
 	}
 
 	/**
@@ -210,6 +237,7 @@ public class ConcurrentAxisTest {
 		if (holder == null) {
 			throw new IllegalStateException("AFTER: concurrent!");
 		}
+		System.out.println("concurrent");
 	}
 
 	/**
@@ -251,6 +279,7 @@ public class ConcurrentAxisTest {
 		if (holder == null) {
 			throw new IllegalStateException("AFTER: concurrent part 1!");
 		}
+		System.out.println("concurrent part 1");
 	}
 
 	/**
@@ -290,29 +319,9 @@ public class ConcurrentAxisTest {
 			fail();
 		}
 		if (holder == null) {
-			throw new IllegalStateException("AFTER: concurrent part 1!");
+			throw new IllegalStateException("AFTER: concurrent part 2!");
 		}
-	}
-	
-	/**
-	 * Close all connections.
-	 * 
-	 * @throws SirixException
-	 */
-	@AfterEachRun
-	@After
-	public void tearDown() throws Exception {
-		try {
-			if (holder == null) {
-				throw new IllegalStateException("Holder is null");
-			}
-			holder.close();
-			TestHelper.closeEverything();
-		} catch (final Exception e) {
-			e.printStackTrace();
-			e.getCause().printStackTrace();
-			fail();
-		}
+		System.out.println("concurrent part 2");
 	}
 
 	/*

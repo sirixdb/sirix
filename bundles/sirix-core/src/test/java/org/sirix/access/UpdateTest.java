@@ -53,8 +53,10 @@ import org.sirix.settings.EFixed;
 import org.sirix.utils.DocumentCreater;
 import org.sirix.utils.NamePageHash;
 
+/** Test update operations. */
 public class UpdateTest {
 
+	/** {@link Holder} reference. */
   private Holder holder;
 
   @Before
@@ -78,8 +80,6 @@ public class UpdateTest {
     wtx.moveTo(5);
     wtx.remove();
     assertEquals(8, wtx.getNode().getNodeKey());
-    wtx.moveTo(9);
-//    wtx.setQName(new QName("foobarbaz"));
     wtx.moveTo(4);
     testDelete(wtx);
     wtx.commit();
