@@ -82,6 +82,7 @@ public class ConcurrentAxisTest {
 				throw new IllegalStateException("hooooooooolder!");
 			}
 		} catch (final Exception e) {
+			System.out.println("EXCEPTION: setUp");
 			if (holder == null) {
 				throw new IllegalStateException("lalala!");
 			}
@@ -91,6 +92,7 @@ public class ConcurrentAxisTest {
 		if (holder == null) {
 			throw new IllegalStateException("blablabla!");
 		}
+		System.out.println("setUp");
 	}
 	
 	/**
