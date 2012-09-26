@@ -434,13 +434,8 @@ public final class Session implements ISession {
 	 *          write transaction ID
 	 */
 	void closeWriteTransaction(final @Nonnegative long pTransactionID) {
-		// Purge transaction from internal state.
-		final INodeReadTrx rtx = mNodeTrxMap.remove(pTransactionID);
-		assert rtx != null : "Must be in the node trx map!";
-
-		// Removing the write from the own internal mapping
-		final IPageReadTrx pageRtx = mNodePageTrxMap.remove(pTransactionID);
-
+		removeFromPageMapping(pTransactionID);
+		
 		// Make new transactions available.
 		mWriteSemaphore.release();
 	}
@@ -451,11 +446,27 @@ public final class Session implements ISession {
 	 * @param pTransactionID
 	 *          read transaction ID
 	 */
-	void closeReadTransaction(@Nonnegative final long pTransactionID) {
-		// Purge transaction from internal state.
-		mNodeTrxMap.remove(pTransactionID);
+	void closeReadTransaction(final @Nonnegative long pTransactionID) {
+		removeFromPageMapping(pTransactionID);
+		
 		// Make new transactions available.
 		mReadSemaphore.release();
+	}
+	
+	/**
+	 * Remove from internal maps.
+	 * 
+	 * @param pTransactionID
+	 * 					transaction ID to remove
+	 */
+	private void removeFromPageMapping(final @Nonnegative long pTransactionID) {
+		// Purge transaction from internal state.
+		final INodeReadTrx rtx = mNodeTrxMap.remove(pTransactionID);
+		assert rtx != null : "Must be in the node trx map!";
+
+		// Removing the write from the own internal mapping
+		final IPageReadTrx pageRtx = mNodePageTrxMap.remove(pTransactionID);
+		assert pageRtx != null : "Must be in the node page trx map!";
 	}
 
 	@Override

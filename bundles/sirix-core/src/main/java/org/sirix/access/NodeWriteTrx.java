@@ -1756,7 +1756,6 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			}
 			// Release all state immediately.
 			mNodeRtx.mSession.closeWriteTransaction(getTransactionID());
-			
 			mNodeRtx.close();
 
 			mPathSummary = null;

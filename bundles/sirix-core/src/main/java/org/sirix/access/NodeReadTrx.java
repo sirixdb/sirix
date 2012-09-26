@@ -308,22 +308,12 @@ final class NodeReadTrx implements INodeReadTrx {
 	@Override
 	public void close() throws SirixException {
 		if (!mClosed) {
-			// Close own state.
-			if (mPageReadTrx == null) {
-				throw new IllegalStateException("null");
-			}
-			if (mPageReadTrx.isClosed()) {
-				throw new IllegalStateException("bla");
-			}
-			mPageReadTrx.close();
-//			setPageReadTransaction(null);
-			
-			if (mSession == null) {
-				throw new IllegalStateException("session");
-			}
-
 			// Callback on session to make sure everything is cleaned up.
 			mSession.closeReadTransaction(mId);
+			setPageReadTransaction(null);
+			
+			// Close own state.
+			mPageReadTrx.close();
 
 			// Immediately release all references.
 			mPageReadTrx = null;
