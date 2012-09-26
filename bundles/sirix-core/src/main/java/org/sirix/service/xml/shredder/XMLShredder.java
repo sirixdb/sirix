@@ -171,8 +171,6 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
       while (mReader.hasNext() && !endElemReached) {
         final XMLEvent event = mReader.nextEvent();
         
-        System.out.println(event.toString());
-
         switch (event.getEventType()) {
         case XMLStreamConstants.START_ELEMENT:
           level++;
