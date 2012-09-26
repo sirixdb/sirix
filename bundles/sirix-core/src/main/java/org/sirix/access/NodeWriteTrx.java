@@ -1734,6 +1734,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		mNodeRtx.mSession.setNodePageWriteTransaction(getTransactionID(), trx);
 
 		// Reset node factory.
+		mNodeFactory = null;
 		mNodeFactory = new NodeFactory(
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
@@ -1860,7 +1861,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		mNodeRtx.setPageReadTransaction(trx);
 		mNodeRtx.mSession.setNodePageWriteTransaction(getTransactionID(), trx);
 		
-		// mNodeFactory = null;
+		mNodeFactory = null;
 		mNodeFactory = new NodeFactory(
 				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
