@@ -37,119 +37,138 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 
+import com.sleepycat.je.Environment;
+
 /**
  * Abstract class for holding all persistence caches. Each instance of this
- * class stores the data in a place related to the {@link DatabaseConfiguration} at a different subfolder.
+ * class stores the data in a place related to the {@link DatabaseConfiguration}
+ * at a different subfolder.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
 public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
 
-  /**
-   * Place to store the data.
-   */
-  protected final File mPlace;
+	/**
+	 * Place to store the data.
+	 */
+	protected final File mPlace;
 
-  /**
-   * Determines if directory has been created.
-   */
-  private final boolean mCreated;
+	/**
+	 * Determines if directory has been created.
+	 */
+	private final boolean mCreated;
 
-  /**
-   * Constructor with the place to store the data.
-   * 
-   * @param pFile
-   *          {@link File} which holds the place to store
-   *          the data
-   * @param pRevision
-   *          revision number        
-   * @param pLogType
-   *          type of log to append to the path of the log
-   */
-  protected AbsPersistenceCache(final @Nonnull File pFile,
-    final @Nonnegative int pRevision, final @Nonnull String pLogType) {
-    mPlace =
-      new File(new File(new File(pFile, ResourceConfiguration.Paths.TransactionLog
-        .getFile().getName()), Integer.toString(pRevision)), pLogType);
-    mCreated = mPlace.mkdirs();
-  }
-  
-  /**
-   * Determines if the directory is newly created or not.
-   * 
-   * @return {@code true} if it is newly created, {@code false} otherwise
-   */
-  public boolean isCreated() {
-    return mCreated;
-  }
+	/**
+	 * Constructor with the place to store the data.
+	 * 
+	 * @param pFile
+	 *          {@link File} which holds the place to store the data
+	 * @param pRevision
+	 *          revision number
+	 * @param pLogType
+	 *          type of log to append to the path of the log
+	 */
+	protected AbsPersistenceCache(final @Nonnull File pFile,
+			final @Nonnegative int pRevision, final @Nonnull String pLogType) {
+		mPlace = new File(new File(new File(pFile,
+				ResourceConfiguration.Paths.TransactionLog.getFile().getName()),
+				Integer.toString(pRevision)), pLogType);
+		mCreated = mPlace.mkdirs();
+	}
 
-  @Override
-  public final void put(@Nonnull final K pKey, @Nonnull final V pPage) {
-    try {
-      putPersistent(pKey, pPage);
-    } catch (final SirixIOException exc) {
-      throw new IllegalStateException(exc);
-    }
-  }
+	protected boolean removeExistingDatabase(final @Nonnull String pName,
+			final @Nonnull Environment pEnvironment) {
+		// Make a database within that environment.
+		boolean removed = false;
+		if (mPlace.list().length == 0) {
+			for (final String name : pEnvironment.getDatabaseNames()) {
+				if (pName.equals(name)) {
+					pEnvironment.removeDatabase(null, pName);
+					pEnvironment.close();
+					removed = true;
+				}
+			}
+		}
+		return removed;
+	}
 
-  @Override
-  public final void clear() {
-    try {
-      clearPersistent();
-      
-//      for (final File file : mPlace.listFiles()) {
-//        if (!file.delete()) {
-//          throw new SirixIOException("Couldn't delete!");
-//        }
-//      }
-//      if (!mPlace.delete()) {
-//        throw new SirixIOException("Couldn't delete!");
-//      }
-    } catch (final SirixIOException e) {
-      throw new IllegalStateException(e.getCause());
-    }
-  }
+	/**
+	 * Determines if the directory is newly created or not.
+	 * 
+	 * @return {@code true} if it is newly created, {@code false} otherwise
+	 */
+	public boolean isCreated() {
+		return mCreated;
+	}
 
-  @Override
-  public final V get(@Nonnull final K pKey) {
-    try {
-      return getPersistent(pKey);
-    } catch (final SirixIOException e) {
-      throw new IllegalStateException(e.getCause());
-    }
-  }
+	@Override
+	public final void put(@Nonnull final K pKey, @Nonnull final V pPage) {
+		try {
+			putPersistent(pKey, pPage);
+		} catch (final SirixIOException exc) {
+			throw new IllegalStateException(exc);
+		}
+	}
 
-  /**
-   * Clearing a persistent cache.
-   * 
-   * @throws SirixIOException
-   *           if something odd happens
-   */
-  public abstract void clearPersistent() throws SirixIOException;
+	@Override
+	public final void clear() {
+		try {
+			clearPersistent();
 
-  /**
-   * Putting a page into a persistent log.
-   * 
-   * @param pKey
-   *          to be put
-   * @param pPage
-   *          to be put
-   * @throws SirixIOException
-   *           if something odd happens
-   */
-  public abstract void putPersistent(@Nonnull final K pKey,
-    @Nonnull final V pPage) throws SirixIOException;
+			for (final File file : mPlace.listFiles()) {
+				if (!file.delete()) {
+					throw new SirixIOException("Couldn't delete!");
+				}
+			}
+			if (!mPlace.delete()) {
+				throw new SirixIOException("Couldn't delete!");
+			}
+		} catch (final SirixIOException e) {
+			throw new IllegalStateException(e.getCause());
+		}
+	}
 
-  /**
-   * Getting a NodePage from the persistent cache.
-   * 
-   * @param pKey
-   *          to get the page
-   * @return the Nodepage to be fetched
-   * @throws SirixIOException
-   *           if something odd happens.
-   */
-  public abstract V getPersistent(@Nonnull final K pKey) throws SirixIOException;
+	@Override
+	public final V get(@Nonnull final K pKey) {
+		try {
+			return getPersistent(pKey);
+		} catch (final SirixIOException e) {
+			throw new IllegalStateException(e.getCause());
+		}
+	}
+
+	/**
+	 * Clearing a persistent cache.
+	 * 
+	 * @throws SirixIOException
+	 *           if something odd happens
+	 */
+	public abstract void clearPersistent() throws SirixIOException;
+
+	/**
+	 * Putting a page into a persistent log.
+	 * 
+	 * @param pKey
+	 *          to be put
+	 * @param pPage
+	 *          to be put
+	 * @throws SirixIOException
+	 *           if something odd happens
+	 */
+	public abstract void putPersistent(@Nonnull final K pKey,
+			@Nonnull final V pPage) throws SirixIOException;
+
+	/**
+	 * Getting a NodePage from the persistent cache.
+	 * 
+	 * @param pKey
+	 *          to get the page
+	 * @return the Nodepage to be fetched
+	 * @throws SirixIOException
+	 *           if something odd happens.
+	 */
+	public abstract V getPersistent(@Nonnull final K pKey)
+			throws SirixIOException;
 
 }

@@ -1784,8 +1784,20 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		final long trxID = getTransactionID();
 		final int revNumber = getPageTransaction().getUberPage().isBootstrap() ? 0
 				: getRevisionNumber() - 1;
+		
+		mNodeRtx.getPageTransaction().clearCaches();
+		mNodeRtx.mSession.closeNodePageWriteTransaction(getTransactionID());
+		final IPageWriteTrx trx = mNodeRtx.mSession
+				.createPageWriteTransaction(trxID, revNumber, revNumber);
+		mNodeRtx.setPageReadTransaction(null);
+		mNodeRtx.setPageReadTransaction(trx);
+		mNodeRtx.mSession.setNodePageWriteTransaction(getTransactionID(), trx);
+		
+		mNodeFactory = null;
+		mNodeFactory = new NodeFactory(
+				(IPageWriteTrx) mNodeRtx.getPageTransaction());
 
-		reInstantiate(trxID, revNumber);
+		reInstantiateIndexes();
 	}
 
 	@Override
@@ -1794,15 +1806,15 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 		// Assert that the DocumentNode has no more than one child node (the root
 		// node).
-		final long nodeKey = mNodeRtx.getNode().getNodeKey();
-		moveToDocumentRoot();
-		final DocumentRootNode document = (DocumentRootNode) mNodeRtx.getNode();
-		if (document.getChildCount() > 1) {
-			moveTo(nodeKey);
-			throw new IllegalStateException(
-					"DocumentRootNode may not have more than one child node!");
-		}
-		moveTo(nodeKey);
+//		final long nodeKey = mNodeRtx.getNode().getNodeKey();
+//		moveToDocumentRoot();
+//		final DocumentRootNode document = (DocumentRootNode) mNodeRtx.getNode();
+//		if (document.getChildCount() > 1) {
+//			moveTo(nodeKey);
+//			throw new IllegalStateException(
+//					"DocumentRootNode may not have more than one child node!");
+//		}
+//		moveTo(nodeKey);
 
 		final File commitFile = mNodeRtx.mSession.mCommitFile;
 		try {

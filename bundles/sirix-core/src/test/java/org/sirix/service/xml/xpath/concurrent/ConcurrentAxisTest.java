@@ -71,52 +71,31 @@ public class ConcurrentAxisTest {
 	 * 
 	 * @throws Exception
 	 */
-//	@BeforeEachRun
+	// @BeforeEachRun
 	@Before
 	public void setUp() throws Exception {
 		try {
-			System.out.println("deleteeeeeee setUp...");
 			TestHelper.deleteEverything();
-			System.out.println("lalalalalallala setUp...");
 			XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
-			System.out.println("lalala setup...");
 			holder = Holder.generateRtx();
-			if (holder == null) {
-				throw new IllegalStateException("hooooooooolder!");
-			}
-			System.out.println("setUp...");
 		} catch (final Exception e) {
-			System.out.println("EXCEPTION: setUp");
-			if (holder == null) {
-				throw new IllegalStateException("lalala!");
-			}
 			e.printStackTrace();
-			throw e;
 		}
-		if (holder == null) {
-			throw new IllegalStateException("blablabla!");
-		}
-		System.out.println("setUp");
 	}
-	
+
 	/**
 	 * Close all connections.
 	 * 
 	 * @throws SirixException
 	 */
-//	@AfterEachRun
+	// @AfterEachRun
 	@After
 	public void tearDown() throws Exception {
 		try {
-			if (holder == null) {
-				throw new IllegalStateException("Holder is null null null!");
-			}
 			holder.close();
 			TestHelper.closeEverything();
 		} catch (final Exception e) {
 			e.printStackTrace();
-			e.getCause().printStackTrace();
-			fail();
 		}
 	}
 
@@ -125,58 +104,38 @@ public class ConcurrentAxisTest {
 	 */
 	// @Ignore
 	// @SkipBench
-//	@Bench
+	// @Bench
 	@Test
 	public void testSeriellOld() throws Exception {
-		System.out.println("seriell");
-		if (holder == null) {
-			throw new IllegalStateException("seriell!");
-		}
 		// final String query = "//people/person[@id=\"person3\"]/name";
 		// final String query = "count(//location[text() = \"United States\"])";
 		final String query = "//regions/africa//location";
 		// final String result = "<name>Limor Simone</name>";
 		final int resultNumber = 55;
 		IAxis axis = null;
-		try {
-			axis = new XPathAxis(holder.getRtx(), query);
-			for (int i = 0; i < resultNumber; i++) {
-				assertEquals(true, axis.hasNext());
-				axis.next();
-			}
-			assertEquals(false, axis.hasNext());
-		} catch (final Exception e) {
-			if (holder == null) {
-				throw new IllegalStateException("EXCEPTION: seriell!");
-			}
-			e.printStackTrace();
-			fail();
+		axis = new XPathAxis(holder.getRtx(), query);
+		for (int i = 0; i < resultNumber; i++) {
+			assertEquals(true, axis.hasNext());
+			axis.next();
 		}
-		if (holder == null) {
-			throw new IllegalStateException("AFTER: seriell!");
-		}
-		System.out.println("seriell");
+		assertEquals(false, axis.hasNext());
 	}
 
 	/**
 	 * Test seriell.
 	 */
-//	@Bench
+	// @Bench
 	@Test
 	public void testSeriellNew() throws Exception {
-		System.out.println("seriell new");
-		if (holder == null) {
-			throw new IllegalStateException("seriell new!");
-		}
 		/* query: //regions/africa//location */
-		final int resultNumber = 55;
 		try {
-		final IAxis axis = new NestedAxis(new NestedAxis(new FilterAxis(
-				new DescendantAxis(holder.getRtx(), EIncludeSelf.YES), new NameFilter(
-						holder.getRtx(), "regions")), new FilterAxis(new ChildAxis(
-				holder.getRtx()), new NameFilter(holder.getRtx(), "africa"))),
-				new FilterAxis(new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
-						new NameFilter(holder.getRtx(), "location")));
+			final int resultNumber = 55;
+			final IAxis axis = new NestedAxis(new NestedAxis(new FilterAxis(
+					new DescendantAxis(holder.getRtx(), EIncludeSelf.YES),
+					new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
+					new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
+							"africa"))), new FilterAxis(new DescendantAxis(holder.getRtx(),
+					EIncludeSelf.YES), new NameFilter(holder.getRtx(), "location")));
 
 			for (int i = 0; i < resultNumber; i++) {
 				assertEquals(true, axis.hasNext());
@@ -184,16 +143,8 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final Exception e) {
-			if (holder == null) {
-				throw new IllegalStateException("EXCEPTION: seriell new!");
-			}
 			e.printStackTrace();
-			fail();
 		}
-		if (holder == null) {
-			throw new IllegalStateException("AFTER: seriell new!");
-		}
-		System.out.println("seriell new");
 	}
 
 	/**
@@ -203,16 +154,12 @@ public class ConcurrentAxisTest {
 	 * 
 	 * @throws SirixXPathException
 	 */
-//	@Bench
+	// @Bench
 	@Test
 	public final void testConcurrent() throws Exception {
-		System.out.println("concurrent");
-		if (holder == null) {
-			throw new IllegalStateException("concurrent!");
-		}
-		/* query: //regions/africa//location */
-		final int resultNumber = 55;
 		try {
+			/* query: //regions/africa//location */
+			final int resultNumber = 55;
 			final INodeReadTrx firstConcurrRtx = holder.getSession()
 					.beginNodeReadTrx();
 			final INodeReadTrx secondConcurrRtx = holder.getSession()
@@ -237,16 +184,8 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final Exception e) {
-			if (holder == null) {
-				throw new IllegalStateException("EXCEPTION: concurrent!");
-			}
 			e.printStackTrace();
-			fail();
 		}
-		if (holder == null) {
-			throw new IllegalStateException("AFTER: concurrent!");
-		}
-		System.out.println("AFTER: concurrent");
 	}
 
 	/**
@@ -254,16 +193,12 @@ public class ConcurrentAxisTest {
 	 * 
 	 * @throws SirixXPathException
 	 */
-//	@Bench
+	// @Bench
 	@Test
 	public final void testPartConcurrentDescAxis1() throws Exception {
-		System.out.println("concurrent part 1");
-		if (holder == null) {
-			throw new IllegalStateException("concurrent part 1!");
-		}
-		/* query: //regions/africa//location */
-		final int resultNumber = 55;
 		try {
+			/* query: //regions/africa//location */
+			final int resultNumber = 55;
 			final INodeReadTrx firstConcurrRtx = holder.getSession()
 					.beginNodeReadTrx();
 			final IAxis axis = new NestedAxis(new NestedAxis(new ConcurrentAxis(
@@ -280,16 +215,8 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final Exception e) {
-			if (holder == null) {
-				throw new IllegalStateException("EXCEPTION: concurrent part 1!");
-			}
 			e.printStackTrace();
-			fail();
 		}
-		if (holder == null) {
-			throw new IllegalStateException("AFTER: concurrent part 1!");
-		}
-		System.out.println("AFTER: concurrent part 1");
 	}
 
 	/**
@@ -297,16 +224,12 @@ public class ConcurrentAxisTest {
 	 * 
 	 * @throws SirixXPathException
 	 */
-//	@Bench
+	// @Bench
 	@Test
 	public final void testPartConcurrentDescAxis2() throws Exception {
-		System.out.println("concurrent part 2");
-		if (holder == null) {
-			throw new IllegalStateException("concurrent part 2!");
-		}
-		/* query: //regions/africa//location */
-		final int resultNumber = 55;
 		try {
+			/* query: //regions/africa//location */
+			final int resultNumber = 55;
 			final INodeReadTrx firstConcurrRtx = holder.getSession()
 					.beginNodeReadTrx();
 			final IAxis axis = new NestedAxis(new NestedAxis(new FilterAxis(
@@ -323,16 +246,8 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(axis.hasNext(), false);
 		} catch (final Exception e) {
-			if (holder == null) {
-				throw new IllegalStateException("EXCEPTION: concurrent part 2!");
-			}
 			e.printStackTrace();
-			fail();
 		}
-		if (holder == null) {
-			throw new IllegalStateException("AFTER: concurrent part 2!");
-		}
-		System.out.println("AFTER: concurrent part 2");
 	}
 
 	/*

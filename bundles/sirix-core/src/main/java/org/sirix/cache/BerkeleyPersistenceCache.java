@@ -79,7 +79,7 @@ public final class BerkeleyPersistenceCache extends
 	/**
 	 * Berkeley Environment for the database.
 	 */
-	private final Environment mEnv;
+	private Environment mEnv;
 
 	/**
 	 * Binding for the key, which is the nodepage.
@@ -124,6 +124,9 @@ public final class BerkeleyPersistenceCache extends
 			dbConfig.setAllowCreate(true).setExclusiveCreate(false)
 					.setDeferredWrite(true);
 
+			if (removeExistingDatabase(NAME, mEnv)) {		
+			mEnv = new Environment(mPlace, config);
+			}
 			mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
 			mKeyBinding = TupleBinding.getPrimitiveBinding(Long.class);
@@ -156,6 +159,7 @@ public final class BerkeleyPersistenceCache extends
   @Override
 	public void close() {
 		mDatabase.close();
+		mEnv.close();
 	}
 
 	@Override

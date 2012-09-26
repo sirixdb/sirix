@@ -332,7 +332,7 @@ public final class Session implements ISession {
 	@Override
 	public synchronized void close() throws SirixException {
 		if (!mClosed) {
-			// Forcibly close all open node transactions.
+			// Close all open node transactions.
 			for (INodeReadTrx rtx : mNodeTrxMap.values()) {
 				if (rtx instanceof INodeWriteTrx) {
 					((INodeWriteTrx) rtx).abort();
@@ -340,12 +340,12 @@ public final class Session implements ISession {
 				rtx.close();
 				rtx = null;
 			}
-			// Forcibly close all open node page transactions.
+			// Close all open node page transactions.
 			for (IPageReadTrx rtx : mNodePageTrxMap.values()) {
 				rtx.close();
 				rtx = null;
 			}
-			// Forcibly close all open page transactions.
+			// Close all open page transactions.
 			for (IPageReadTrx rtx : mPageTrxMap.values()) {
 				rtx.close();
 				rtx = null;

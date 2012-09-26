@@ -366,10 +366,8 @@ final class PageReadTrx implements IPageReadTrx {
 		return mNamePage.getRawName(pNameKey, pNodeKind);
 	}
 
-	/**
-	 * Clear the caches.
-	 */
-	void clearCaches() {
+	@Override
+	public void clearCaches() {
 		assertNotClosed();
 
 		if (mIndexes.contains(EIndexes.PATH)) {
@@ -380,6 +378,19 @@ final class PageReadTrx implements IPageReadTrx {
 		}
 		mNodeCache.invalidateAll();
 		mPageCache.invalidateAll();
+		
+		if (mPathLog.isPresent()) {
+			mPathLog.get().clear();
+		}
+		if (mValueLog.isPresent()) {
+			mValueLog.get().clear();
+		}
+		if (mNodeLog.isPresent()) {
+			mNodeLog.get().clear();
+		}
+		if (mPageLog.isPresent()) {
+			mPageLog.get().clear();
+		}
 	}
 
 	/**

@@ -143,6 +143,11 @@ public interface IPageReadTrx extends AutoCloseable {
    *           if an I/O error occurs
    */
   IPage getFromPageCache(@Nonnegative long pKey) throws SirixIOException;
+  
+  /**
+   * Clear the caches.
+   */
+  void clearCaches();
 
   /**
    * Put content from page cache into persistent storage.

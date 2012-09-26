@@ -29,8 +29,8 @@ package org.sirix.service.xml.xpath.xmark;
 
 import java.io.File;
 
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
@@ -56,7 +56,7 @@ public class FunctionsXMarkTest {
   private static final String XML = "src" + File.separator + "test" + File.separator + "resources"
     + File.separator + XMLFILE;
 
-  private static Holder holder;
+  private Holder holder;
 
   /**
    * Method is called once before each test. It deletes all states, shreds XML
@@ -64,9 +64,9 @@ public class FunctionsXMarkTest {
    * 
    * @throws Exception
    */
-  @BeforeClass
+  @Before
   @Ignore
-  public static final void setUp() throws Exception {
+  public void setUp() throws Exception {
     TestHelper.deleteEverything();
     XMLShredder.main(XML, PATHS.PATH1.getFile().getAbsolutePath());
     holder = Holder.generateRtx();
@@ -490,9 +490,9 @@ public class FunctionsXMarkTest {
    * 
    * @throws SirixException
    */
-  @AfterClass
+  @After
   @Ignore
-  public static final void tearDown() throws SirixException {
+  public void tearDown() throws SirixException {
     holder.close();
     TestHelper.closeEverything();
 

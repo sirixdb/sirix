@@ -434,31 +434,33 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 	@Override
 	public UberPage commit(final @Nonnull EMultipleWriteTrx pMultipleWriteTrx)
 			throws SirixException {
-		mPageRtx.mSession.mCommitLock.lock();
-		mMultipleWriteTrx = checkNotNull(pMultipleWriteTrx);
+		mPageRtx.assertNotClosed();
+			mPageRtx.mSession.mCommitLock.lock();
+			mMultipleWriteTrx = checkNotNull(pMultipleWriteTrx);
 
-		// Forcefully flush write-ahead transaction logs to persistent storage. Make
-		// this optional!
-		// mNodeLog.toSecondCache();
-		// mPathLog.toSecondCache();
-		// mValueLog.toSecondCache();
-		// mPageLog.toSecondCache();
+			// Forcefully flush write-ahead transaction logs to persistent storage.
+			// Make
+			// this optional!
+			// mNodeLog.toSecondCache();
+			// mPathLog.toSecondCache();
+			// mValueLog.toSecondCache();
+			// mPageLog.toSecondCache();
 
-		final PageReference uberPageReference = new PageReference();
-		final UberPage uberPage = getUberPage();
-		uberPageReference.setPage(uberPage);
-		uberPageReference.setPageKind(EPage.UBERPAGE);
+			final PageReference uberPageReference = new PageReference();
+			final UberPage uberPage = getUberPage();
+			uberPageReference.setPage(uberPage);
+			uberPageReference.setPageKind(EPage.UBERPAGE);
 
-		// Recursively write indirectely referenced pages.
-		uberPage.commit(this);
+			// Recursively write indirectely referenced pages.
+			uberPage.commit(this);
 
-		uberPageReference.setPage(uberPage);
-		mPageWriter.writeFirstReference(uberPageReference);
-		uberPageReference.setPage(null);
+			uberPageReference.setPage(uberPage);
+			mPageWriter.writeFirstReference(uberPageReference);
+			uberPageReference.setPage(null);
 
-		mPageRtx.mSession.waitForFinishedSync(mTransactionID);
-		mPageRtx.mSession.mCommitLock.unlock();
-		return uberPage;
+			mPageRtx.mSession.waitForFinishedSync(mTransactionID);
+			mPageRtx.mSession.mCommitLock.unlock();
+			return uberPage;
 	}
 
 	@Override
@@ -692,5 +694,14 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 	@Override
 	protected IPageReadTrx delegate() {
 		return mPageRtx;
+	}
+
+	@Override
+	public void clearCaches() {
+		mPageRtx.assertNotClosed();
+		mPageLog.clear();
+		mNodeLog.clear();
+		mPathLog.clear();
+		mValueLog.clear();
 	}
 }

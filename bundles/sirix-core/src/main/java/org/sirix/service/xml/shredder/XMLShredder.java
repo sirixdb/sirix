@@ -165,18 +165,15 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 	 *           if something went wrong while inserting
 	 */
 	protected final void insertNewContent() throws SirixException {
-		// try {
-		boolean firstElement = true;
-		int level = 0;
-		QName rootElement = null;
-		boolean endElemReached = false;
-		final StringBuilder sBuilder = new StringBuilder();
-		long insertedRootNodeKey = -1;
-
-		System.out.println("STARTEEED!");
-
-		// Iterate over all nodes.
 		try {
+			boolean firstElement = true;
+			int level = 0;
+			QName rootElement = null;
+			boolean endElemReached = false;
+			final StringBuilder sBuilder = new StringBuilder();
+			long insertedRootNodeKey = -1;
+
+			// Iterate over all nodes.
 			while (mReader.hasNext() && !endElemReached) {
 				final XMLEvent event = mReader.nextEvent();
 
@@ -211,23 +208,11 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 					// Node kind not known.
 				}
 			}
-		} catch (final Exception e) {
-			System.out.println("BLABLABLABLA");
-			e.printStackTrace();
-		} catch (final OutOfMemoryError e) {
-			System.out.println("ERROOOOR");
-			e.printStackTrace();
-			System.out.println(e.getCause());
-			System.out.println(e);
-			throw new IllegalStateException(e);
+
+			mWtx.moveTo(insertedRootNodeKey);
+		} catch (final XMLStreamException e) {
+			throw new SirixIOException(e);
 		}
-
-		System.out.println("DOOOONE!");
-
-		mWtx.moveTo(insertedRootNodeKey);
-		// } catch (final XMLStreamException e) {
-		// throw new SirixIOException(e);
-		// }
 	}
 
 	/**
@@ -270,51 +255,37 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 	 * 
 	 * @param pArgs
 	 *          input and output files
-	 * @throws Exception
-	 *           if any exception occurs
+	 * @throws XMLStreamException
+	 * 					 if the XML stream isn't valid
+	 * @throws IOException
+	 * 					 if an I/O error occurs
+	 * @throws SirixException
+	 *           if a Sirix error occurs
 	 */
-	public static void main(final String... pArgs) {
+	public static void main(final String... pArgs) throws SirixException, IOException, XMLStreamException {
 		if (pArgs.length != 2) {
 			throw new IllegalArgumentException("Usage: XMLShredder XMLFile Database");
 		}
-		try {
-			System.out.println("shredding");
-			LOGWRAPPER
-					.info("Shredding '" + pArgs[0] + "' to '" + pArgs[1] + "' ... ");
-			final long time = System.nanoTime();
-			final File target = new File(pArgs[1]);
-			System.out.println("shredding");
-			final DatabaseConfiguration config = new DatabaseConfiguration(target);
-			Database.truncateDatabase(config);
-			System.out.println("shredding");
-			Database.createDatabase(config);
-			System.out.println("shredding");
-			final IDatabase db = Database.openDatabase(target);
-			db.createResource(new ResourceConfiguration.Builder("shredded", config)
-					.build());
-			final ISession session = db.getSession(new SessionConfiguration.Builder(
-					"shredded").build());
-			final INodeWriteTrx wtx = session.beginNodeWriteTrx();
-			final XMLEventReader reader = createFileReader(new File(pArgs[0]));
-			System.out.println("shredding!!!!!!!!!!");
-			final XMLShredder shredder = new XMLShredder(wtx, reader,
-					EInsert.ASFIRSTCHILD);
-			shredder.call();
-			System.out.println("DONE DONE shredding!!!!!!!!!!");
-			wtx.close();
-			System.out.println("CLOSE wtx DONE shredding!!!!!!!!!!");
-			session.close();
-			System.out.println("CLOSE session DONE shredding!!!!!!!!!!");
-			db.close();
-			System.out.println("CLOSE database DONE shredding!!!!!!!!!!");
-
-			LOGWRAPPER.info(" done [" + (System.nanoTime() - time) / 1000000
-					+ " ms].");
-		} catch (final Exception e) {
-			System.out.println("BLABLA");
-			e.printStackTrace();
-		}
-
+		LOGWRAPPER.info("Shredding '" + pArgs[0] + "' to '" + pArgs[1] + "' ... ");
+		final long time = System.nanoTime();
+		final File target = new File(pArgs[1]);
+		final DatabaseConfiguration config = new DatabaseConfiguration(target);
+		Database.truncateDatabase(config);
+		Database.createDatabase(config);
+		final IDatabase db = Database.openDatabase(target);
+		db.createResource(new ResourceConfiguration.Builder("shredded", config)
+				.build());
+		final ISession session = db.getSession(new SessionConfiguration.Builder(
+				"shredded").build());
+		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final XMLEventReader reader = createFileReader(new File(pArgs[0]));
+		final XMLShredder shredder = new XMLShredder(wtx, reader,
+				EInsert.ASFIRSTCHILD);
+		shredder.call();
+		wtx.close();
+		session.close();
+		db.close();
+		LOGWRAPPER.info(" done [" + (System.nanoTime() - time) / 1000000 + " ms].");
 	}
 
 	/**
