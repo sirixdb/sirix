@@ -331,20 +331,8 @@ public final class Session implements ISession {
 	@Override
 	public synchronized void close() throws SirixException {
 		if (!mClosed) {
-			if (mNodeTrxMap == null) {
-				throw new IllegalArgumentException("node trx map");
-			}
-			if (mNodePageTrxMap == null) {
-				throw new IllegalArgumentException("node trx map");
-			}
-			if (mPageTrxMap == null) {
-				throw new IllegalArgumentException("node trx map");
-			}
 			// Forcibly close all open node transactions.
 			for (INodeReadTrx rtx : mNodeTrxMap.values()) {
-				if (rtx == null) {
-					throw new IllegalStateException("(abort) rtx is null!");
-				}
 				if (rtx instanceof INodeWriteTrx) {
 					((INodeWriteTrx) rtx).abort();
 				}
@@ -353,17 +341,11 @@ public final class Session implements ISession {
 			}
 			// Forcibly close all open node page transactions.
 			for (IPageReadTrx rtx : mNodePageTrxMap.values()) {
-				if (rtx == null) {
-					throw new IllegalStateException("node page rtx is null!");
-				}
 				rtx.close();
 				rtx = null;
 			}
 			// Forcibly close all open page transactions.
 			for (IPageReadTrx rtx : mPageTrxMap.values()) {
-				if (rtx == null) {
-					throw new IllegalStateException("page rtx is null!");
-				}
 				rtx.close();
 				rtx = null;
 			}
@@ -374,20 +356,12 @@ public final class Session implements ISession {
 			mPageTrxMap.clear();
 			mNodePageTrxMap.clear();
 
-			if (mFac == null) {
-				throw new IllegalStateException("fac is null!");
-			}
-
 			mFac.close();
 
-			if (mDatabase == null) {
-				throw new IllegalStateException("database is null!!!");
-			}
 			final boolean removedSession = mDatabase
 					.removeSession(mResourceConfig.mPath);
-			if (!removedSession) {
-				throw new IllegalStateException("removedSession must be true!");
-			}
+			assert !removedSession : "session has been removed before";
+			
 			mClosed = true;
 		}
 	}
@@ -465,16 +439,9 @@ public final class Session implements ISession {
 		// Purge transaction from internal state.
 		final INodeReadTrx rtx = mNodeTrxMap.remove(pTransactionID);
 		assert rtx != null : "Must be in the node trx map!";
-		if (rtx == null) {
-			throw new IllegalStateException("rtx is null!");
-		}
 
 		// Removing the write from the own internal mapping
 		final IPageReadTrx pageRtx = mNodePageTrxMap.remove(pTransactionID);
-		assert pageRtx != null : "Must be in the page trx map!";
-		if (pageRtx == null) {
-			throw new IllegalStateException("pageRtx is null!");
-		}
 
 		// Make new transactions available.
 		mWriteSemaphore.release();

@@ -94,8 +94,8 @@ public class ConcurrentAxis extends AbsAxis {
    * @param pChildAxis
    *          producer axis
    */
-  public ConcurrentAxis(@Nonnull final INodeReadTrx pRtx,
-    @Nonnull final IAxis pChildAxis) {
+  public ConcurrentAxis(final @Nonnull INodeReadTrx pRtx,
+    final @Nonnull IAxis pChildAxis) {
     super(pRtx);
     mResults = new ArrayBlockingQueue<>(M_CAPACITY);
     mFirst = true;
@@ -105,7 +105,7 @@ public class ConcurrentAxis extends AbsAxis {
   }
 
   @Override
-  public synchronized void reset(@Nonnegative final long nodeKey) {
+  public synchronized void reset(final @Nonnegative long nodeKey) {
     super.reset(nodeKey);
     mFirst = true;
     mFinished = false;

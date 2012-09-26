@@ -356,30 +356,14 @@ public final class Database implements IDatabase {
 	@Override
 	public synchronized void close() throws SirixException {
 		// Close all sessions.
-		if (mSessions == null) {
-			throw new IllegalStateException("sessionssss is null!!!!!!!!");
-		}
 		for (final ISession session : mSessions.values()) {
-			if (session == null) {
-				throw new IllegalStateException("sessioooon is null!!!!!!!!");
-			}
 			if (!session.isClosed()) {
 				session.close();
 			}
 		}
 
 		// Remove from database mapping.
-		if (mDBConfig == null) {
-			throw new IllegalStateException("config");
-		}
-		if (mDBConfig.getFile() == null) {
-			throw new IllegalStateException("file");
-		}
 		DATABASEMAP.remove(mDBConfig.getFile());
-		
-		if (DatabaseConfiguration.Paths.LOCK.getFile() == null) {
-			throw new IllegalStateException("lock");
-		}
 
 		// Remove lock file.
 		Files.recursiveRemove(new File(mDBConfig.getFile().getAbsoluteFile(),

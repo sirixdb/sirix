@@ -97,6 +97,9 @@ public class ConcurrentAxisTest {
 	@Bench
 	@Test
 	public void testSeriellOld() throws Exception {
+		if (holder == null) {
+			throw new IllegalStateException("seriell!");
+		}
 		// final String query = "//people/person[@id=\"person3\"]/name";
 		// final String query = "count(//location[text() = \"United States\"])";
 		final String query = "//regions/africa//location";
@@ -122,6 +125,9 @@ public class ConcurrentAxisTest {
 	@Bench
 	@Test
 	public void testSeriellNew() throws Exception {
+		if (holder == null) {
+			throw new IllegalStateException("seriell new!");
+		}
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
 		try {
@@ -153,6 +159,9 @@ public class ConcurrentAxisTest {
 	@Bench
 	@Test
 	public final void testConcurrent() throws Exception {
+		if (holder == null) {
+			throw new IllegalStateException("concurrent!");
+		}
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
 		try {
@@ -193,6 +202,9 @@ public class ConcurrentAxisTest {
 	@Bench
 	@Test
 	public final void testPartConcurrentDescAxis1() throws Exception {
+		if (holder == null) {
+			throw new IllegalStateException("concurrent part 1!");
+		}
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
 		try {
@@ -225,6 +237,9 @@ public class ConcurrentAxisTest {
 	@Bench
 	@Test
 	public final void testPartConcurrentDescAxis2() throws Exception {
+		if (holder == null) {
+			throw new IllegalStateException("concurrent part 2!");
+		}
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
 		try {
