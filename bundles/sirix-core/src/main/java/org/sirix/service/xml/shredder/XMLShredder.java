@@ -252,6 +252,8 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
     if (pArgs.length != 2) {
       throw new IllegalArgumentException("Usage: XMLShredder XMLFile Database");
     }
+    try {
+    	System.out.println("shredding");
     LOGWRAPPER.info("Shredding '" + pArgs[0] + "' to '" + pArgs[1] + "' ... ");
     final long time = System.nanoTime();
     final File target = new File(pArgs[1]);
@@ -269,8 +271,13 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
     wtx.close();
     session.close();
     db.close();
-
+    
     LOGWRAPPER.info(" done [" + (System.nanoTime() - time) / 1000000 + " ms].");
+    } catch (final Exception e) {
+    	e.printStackTrace();
+    }
+
+   
   }
 
   /**
