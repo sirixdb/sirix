@@ -50,7 +50,7 @@ import org.sirix.io.bytepipe.IByteHandler;
 public final class FileStorage implements IStorage {
 
   /** Buffer size. */
-  public static final int BUFFER_SIZE = 32767;
+  public static final int BUFFER_SIZE = 1024;
 
   /** File name. */
   private static final String FILENAME = "tt.tnk";

@@ -102,7 +102,6 @@ public class Compression {
 
       // Get the compressed data.
       compressed = bos.toByteArray();
-      buf = null;
     } catch (final IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
     } catch (final Error e) {
