@@ -37,12 +37,11 @@ import java.util.zip.Inflater;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.io.file.FileStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Compression/Decompression for text values.
+ * Compression/Decompression for text values or any other data.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -51,6 +50,9 @@ public class Compression {
 
   /** Logger. */
   private static final Logger LOGWRAPPER = LoggerFactory.getLogger(Compression.class);
+  
+  /** Buffer size. */
+  public static final int BUFFER_SIZE = 1024;
 
   /** Compressor. */
   private static final Deflater mCompressor = new Deflater();
@@ -92,7 +94,7 @@ public class Compression {
      */
     try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(pToCompress.length)) {
       // Compress the data.
-      final byte[] buf = new byte[FileStorage.BUFFER_SIZE];
+      final byte[] buf = new byte[BUFFER_SIZE];
       while (!mCompressor.finished()) {
         final int count = mCompressor.deflate(buf);
         bos.write(buf, 0, count);
@@ -128,7 +130,7 @@ public class Compression {
     // Create an expandable byte array to hold the decompressed data.
     try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(pCompressed.length)) {
       // Decompress the data.
-      final byte[] buf = new byte[FileStorage.BUFFER_SIZE];
+      final byte[] buf = new byte[BUFFER_SIZE];
       while (!mDecompressor.finished()) {
         try {
           final int count = mDecompressor.inflate(buf);
