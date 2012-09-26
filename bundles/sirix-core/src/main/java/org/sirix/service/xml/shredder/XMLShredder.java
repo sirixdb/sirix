@@ -271,10 +271,13 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
   	System.out.println("shredding!!!!!!!!!!");
     final XMLShredder shredder = new XMLShredder(wtx, reader, EInsert.ASFIRSTCHILD);
     shredder.call();
-
+    System.out.println("DONE DONE shredding!!!!!!!!!!");
     wtx.close();
+    System.out.println("CLOSE wtx DONE shredding!!!!!!!!!!");
     session.close();
+    System.out.println("CLOSE session DONE shredding!!!!!!!!!!");
     db.close();
+    System.out.println("CLOSE database DONE shredding!!!!!!!!!!");
     
     LOGWRAPPER.info(" done [" + (System.nanoTime() - time) / 1000000 + " ms].");
     } catch (final Exception e) {
