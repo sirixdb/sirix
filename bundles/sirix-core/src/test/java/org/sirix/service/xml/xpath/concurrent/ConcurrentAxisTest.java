@@ -114,8 +114,14 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final Exception e) {
+			if (holder == null) {
+				throw new IllegalStateException("EXCEPTION: seriell!");
+			}
 			e.printStackTrace();
 			fail();
+		}
+		if (holder == null) {
+			throw new IllegalStateException("AFTER: seriell!");
 		}
 	}
 
@@ -144,8 +150,14 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final Exception e) {
+			if (holder == null) {
+				throw new IllegalStateException("EXCEPTION: seriell new!");
+			}
 			e.printStackTrace();
 			fail();
+		}
+		if (holder == null) {
+			throw new IllegalStateException("AFTER: seriell new!");
 		}
 	}
 
@@ -189,8 +201,14 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final Exception e) {
+			if (holder == null) {
+				throw new IllegalStateException("EXCEPTION: concurrent!");
+			}
 			e.printStackTrace();
 			fail();
+		}
+		if (holder == null) {
+			throw new IllegalStateException("AFTER: concurrent!");
 		}
 	}
 
@@ -224,8 +242,14 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(false, axis.hasNext());
 		} catch (final Exception e) {
+			if (holder == null) {
+				throw new IllegalStateException("EXCEPTION: concurrent part 1!");
+			}
 			e.printStackTrace();
 			fail();
+		}
+		if (holder == null) {
+			throw new IllegalStateException("AFTER: concurrent part 1!");
 		}
 	}
 
@@ -259,8 +283,14 @@ public class ConcurrentAxisTest {
 			}
 			assertEquals(axis.hasNext(), false);
 		} catch (final Exception e) {
+			if (holder == null) {
+				throw new IllegalStateException("EXCEPTION: concurrent part 2!");
+			}
 			e.printStackTrace();
 			fail();
+		}
+		if (holder == null) {
+			throw new IllegalStateException("AFTER: concurrent part 1!");
 		}
 	}
 	
