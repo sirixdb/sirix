@@ -214,7 +214,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 		} catch (final Exception e) {
 			System.out.println("BLABLABLABLA");
 			e.printStackTrace();
-		} catch (final Error e) {
+		} catch (final OutOfMemoryError e) {
 			System.out.println("ERROOOOR");
 			e.printStackTrace();
 			System.out.println(e.getCause());
