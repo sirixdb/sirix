@@ -478,7 +478,7 @@ public final class ResourceConfiguration {
 		private final DatabaseConfiguration mDBConfig;
 
 		/** Determines if text-compression should be used or not (default is true). */
-		private boolean mCompression = true;
+		private boolean mCompression;
 
 		/** Indexes to use. */
 		private Set<EIndexes> mIndexes = INDEXES;
