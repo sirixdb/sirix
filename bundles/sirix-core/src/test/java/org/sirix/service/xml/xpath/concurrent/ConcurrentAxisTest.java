@@ -119,7 +119,7 @@ public class ConcurrentAxisTest {
 	 */
 	// @Ignore
 	// @SkipBench
-	@Bench
+//	@Bench
 	@Test
 	public void testSeriellOld() throws Exception {
 		System.out.println("seriell");
@@ -155,7 +155,7 @@ public class ConcurrentAxisTest {
 	/**
 	 * Test seriell.
 	 */
-	@Bench
+//	@Bench
 	@Test
 	public void testSeriellNew() throws Exception {
 		System.out.println("seriell new");
@@ -197,7 +197,7 @@ public class ConcurrentAxisTest {
 	 * 
 	 * @throws SirixXPathException
 	 */
-	@Bench
+//	@Bench
 	@Test
 	public final void testConcurrent() throws Exception {
 		System.out.println("concurrent");
@@ -248,7 +248,7 @@ public class ConcurrentAxisTest {
 	 * 
 	 * @throws SirixXPathException
 	 */
-	@Bench
+//	@Bench
 	@Test
 	public final void testPartConcurrentDescAxis1() throws Exception {
 		System.out.println("concurrent part 1");
@@ -291,7 +291,7 @@ public class ConcurrentAxisTest {
 	 * 
 	 * @throws SirixXPathException
 	 */
-	@Bench
+//	@Bench
 	@Test
 	public final void testPartConcurrentDescAxis2() throws Exception {
 		System.out.println("concurrent part 2");
