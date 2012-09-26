@@ -53,6 +53,7 @@ public class Compression {
   
   /** Buffer size. */
   public static final int BUFFER_SIZE = 1024;
+  
 
   /** Compressor. */
   private static final Deflater mCompressor = new Deflater();
