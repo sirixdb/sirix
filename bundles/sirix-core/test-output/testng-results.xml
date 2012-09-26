@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testng-results skipped="0" failed="0" total="4" passed="4">
+  <reporter-output>
+  </reporter-output>
+  <suite name="Default suite" duration-ms="4533" started-at="2012-09-25T05:33:47Z" finished-at="2012-09-25T05:33:52Z">
+    <groups>
+    </groups>
+    <test name="Default test" duration-ms="4533" started-at="2012-09-25T05:33:47Z" finished-at="2012-09-25T05:33:52Z">
+      <class name="org.sirix.io.bytepipe.IByteHandlerTest">
+        <test-method status="PASS" signature="testSerializeAndDeserialize(java.lang.Class, [Lorg.sirix.io.bytepipe.IByteHandler;)[pri:0, instance:org.sirix.io.bytepipe.IByteHandlerTest@68e881a4]" name="testSerializeAndDeserialize" duration-ms="83" started-at="2012-09-25T07:33:52Z" data-provider="instantiateByteHandler" finished-at="2012-09-25T07:33:52Z">
+          <params>
+            <param index="0">
+              <value>
+                <![CDATA[interface org.sirix.io.bytepipe.IByteHandler]]>
+              </value>
+            </param>
+            <param index="1">
+              <value>
+                <![CDATA[[Lorg.sirix.io.bytepipe.IByteHandler;@199fdee7]]>
+              </value>
+            </param>
+          </params>
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- testSerializeAndDeserialize -->
+      </class> <!-- org.sirix.io.bytepipe.IByteHandlerTest -->
+      <class name="org.sirix.page.IPageTest">
+        <test-method status="PASS" signature="testByteRepresentation(java.lang.Class, [Lorg.sirix.page.interfaces.IPage;)[pri:0, instance:org.sirix.page.IPageTest@1d25d8a0]" name="testByteRepresentation" duration-ms="88" started-at="2012-09-25T07:33:52Z" data-provider="instantiatePages" finished-at="2012-09-25T07:33:52Z">
+          <params>
+            <param index="0">
+              <value>
+                <![CDATA[interface org.sirix.page.interfaces.IPage]]>
+              </value>
+            </param>
+            <param index="1">
+              <value>
+                <![CDATA[[Lorg.sirix.page.interfaces.IPage;@5712691e]]>
+              </value>
+            </param>
+          </params>
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- testByteRepresentation -->
+      </class> <!-- org.sirix.page.IPageTest -->
+      <class name="org.sirix.access.conf.DatabaseConfigurationTest">
+        <test-method status="PASS" signature="setUp()[pri:0, instance:org.sirix.access.conf.DatabaseConfigurationTest@76dff374]" name="setUp" is-config="true" duration-ms="911" started-at="2012-09-25T07:33:47Z" finished-at="2012-09-25T07:33:48Z">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- setUp -->
+        <test-method status="PASS" signature="testDeSerialize()[pri:0, instance:org.sirix.access.conf.DatabaseConfigurationTest@76dff374]" name="testDeSerialize" duration-ms="392" started-at="2012-09-25T07:33:48Z" finished-at="2012-09-25T07:33:49Z">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- testDeSerialize -->
+        <test-method status="PASS" signature="tearDown()[pri:0, instance:org.sirix.access.conf.DatabaseConfigurationTest@76dff374]" name="tearDown" is-config="true" duration-ms="1" started-at="2012-09-25T07:33:49Z" finished-at="2012-09-25T07:33:49Z">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- tearDown -->
+      </class> <!-- org.sirix.access.conf.DatabaseConfigurationTest -->
+      <class name="org.sirix.io.IStorageTest">
+        <test-method status="PASS" signature="setUp()[pri:0, instance:org.sirix.io.IStorageTest@11a9cf86]" name="setUp" is-config="true" duration-ms="3" started-at="2012-09-25T07:33:50Z" finished-at="2012-09-25T07:33:50Z">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- setUp -->
+        <test-method status="PASS" signature="testFirstRef(java.lang.Class, [Lorg.sirix.io.IStorage;)[pri:0, instance:org.sirix.io.IStorageTest@11a9cf86]" name="testFirstRef" duration-ms="1603" started-at="2012-09-25T07:33:50Z" data-provider="instantiateStorages" finished-at="2012-09-25T07:33:52Z">
+          <params>
+            <param index="0">
+              <value>
+                <![CDATA[interface org.sirix.io.IStorage]]>
+              </value>
+            </param>
+            <param index="1">
+              <value>
+                <![CDATA[[Lorg.sirix.io.IStorage;@4daea558]]>
+              </value>
+            </param>
+          </params>
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- testFirstRef -->
+        <test-method status="PASS" signature="tearDown()[pri:0, instance:org.sirix.io.IStorageTest@11a9cf86]" name="tearDown" is-config="true" duration-ms="1" started-at="2012-09-25T07:33:52Z" finished-at="2012-09-25T07:33:52Z">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- tearDown -->
+      </class> <!-- org.sirix.io.IStorageTest -->
+    </test> <!-- Default test -->
+  </suite> <!-- Default suite -->
+</testng-results>

@@ -205,7 +205,6 @@ public final class Session implements ISession {
 		// Make sure not to exceed available number of read transactions.
 		try {
 			if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
-				System.out.println("blaaaaaaaaaaaaaaaaaaaaaa");
 				throw new SirixUsageException(
 						"No read transactions available, please close at least one read transaction at first!");
 			}
@@ -231,22 +230,31 @@ public final class Session implements ISession {
 	/**
 	 * Get an optional page log cache.
 	 * 
-	 * @param pRevisionKey
-	 * @return
-	 * @throws SirixException
+	 * @param pRevision
+	 *          the revision number
+	 * @return an optional {@link TransactionLogPageCache} instance
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
 	 */
 	private Optional<TransactionLogPageCache> getLog(
-			final @Nonnegative int pRevisionKey) throws SirixException {
-		commitFile(pRevisionKey);
+			final @Nonnegative int pRevision) throws SirixIOException {
+		commitFile(pRevision);
 		final Optional<TransactionLogPageCache> log = mCommitFile.exists() ? Optional
-				.of(new TransactionLogPageCache(mResourceConfig.mPath, pRevisionKey,
+				.of(new TransactionLogPageCache(mResourceConfig.mPath, pRevision,
 						"page")) : Optional.<TransactionLogPageCache> absent();
 		return log;
 	}
 
-	private void commitFile(final int pRevisionKey) {
+	/**
+	 * A commit file which is used by a {@link INodeWriteTrx} to denote if it's
+	 * currently commiting or not.
+	 * 
+	 * @param pRevision
+	 *          revision number
+	 */
+	private void commitFile(final int pRevision) {
 		final int revision = mLastCommittedUberPage.isBootstrap() ? 0
-				: pRevisionKey + 1;
+				: pRevision + 1;
 		mCommitFile = new File(mResourceConfig.mPath, new File(
 				ResourceConfiguration.Paths.TransactionLog.getFile(), new File(
 						new File(String.valueOf(revision)), ".commit").getPath()).getPath());
@@ -434,8 +442,9 @@ public final class Session implements ISession {
 	 *          write transaction ID
 	 */
 	void closeWriteTransaction(final @Nonnegative long pTransactionID) {
+		// Remove from internal map.
 		removeFromPageMapping(pTransactionID);
-		
+
 		// Make new transactions available.
 		mWriteSemaphore.release();
 	}
@@ -447,17 +456,18 @@ public final class Session implements ISession {
 	 *          read transaction ID
 	 */
 	void closeReadTransaction(final @Nonnegative long pTransactionID) {
+		// Remove from internal map.
 		removeFromPageMapping(pTransactionID);
-		
+
 		// Make new transactions available.
 		mReadSemaphore.release();
 	}
-	
+
 	/**
 	 * Remove from internal maps.
 	 * 
 	 * @param pTransactionID
-	 * 					transaction ID to remove
+	 *          transaction ID to remove
 	 */
 	private void removeFromPageMapping(final @Nonnegative long pTransactionID) {
 		// Purge transaction from internal state.

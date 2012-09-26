@@ -43,7 +43,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	private AVLNode<K, V> mRoot;
 
 	/** Number of indexed tokens. */
-	private int size;
+	private int mSize;
 
 	/** Determines if tree is closed or not. */
 	private boolean mClosed;
@@ -116,7 +116,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 							EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
 			document.setFirstChildKey(mRoot.getNodeKey());
 			mPageWriteTrx.finishNodeModification(document, EPage.VALUEPAGE);
-			size++;
+			mSize++;
 			return pValue;
 		}
 
@@ -148,7 +148,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 				adjust(child);
 			}
 			mPageWriteTrx.finishNodeModification(node, EPage.VALUEPAGE);
-			size++;
+			mSize++;
 			return pValue;
 		}
 	}
@@ -200,7 +200,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	 * @return number of index entries
 	 */
 	public int size() {
-		return size;
+		return mSize;
 	}
 
 	/**
@@ -377,7 +377,8 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	 *           if an I/O error occurs
 	 */
 	@SuppressWarnings({ "unchecked" })
-	private void rotateRight(@Nonnull AVLNode<K, V> pNode) throws SirixIOException {
+	private void rotateRight(@Nonnull AVLNode<K, V> pNode)
+			throws SirixIOException {
 		moveTo(pNode.getNodeKey());
 
 		AVLNode<K, V> leftChild = (AVLNode<K, V>) getFirstChild().get();
