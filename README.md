@@ -4,13 +4,39 @@ The architecture supports the well known ACID-properties (durability currently i
 
 The GUI provides interactive visualizations of the differences between either 2 or more versions of a resource in Sirix. Please have a look into my master-thesis for screenshots.
 
-Some examples of the Java-API are explained in the wiki.
+Some examples of the Java-API are explained in the wiki. Stay tuned for a maven bundle with examples and more elaborate examples.
 
-Any questions or even consider to contribute or use Sirix? Just contact lichtenberger.johannes AT gmail.com.
+Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-users to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases... Besides, suggestions for improvements are highly welcome. 
+
+Sirix will be nothing without interested developers (contributors). Any kind of contribution is highly welcome. Once a few (regular) contributors are found, we will create an organization for Sirix on github.
 
 Note that it is based on Treetank (http://treetank.org / http://github.com/disy/treetank).
 
 [![Build Status](https://secure.travis-ci.org/JohannesLichtenberger/sirix.png)](http://travis-ci.org/JohannesLichtenberger/sirix)
+
+##Maven artifacts
+Maven artifacts are deployed to the OSS nexus repository. Currently the following artifacts are available:
+
+Core project:
+<dependency>
+  <groupId>com.github.johanneslichtenberger.sirix</groupId>
+  <artifactId>sirix-core</artifactId>
+  <version>0.1.0</version>
+</dependency>
+
+JAX-RX interface (RESTful API):
+<dependency>
+  <groupId>com.github.johanneslichtenberger.sirix</groupId>
+  <artifactId>sirix-jax-rx</artifactId>
+  <version>0.1.0</version>
+</dependency>
+
+Saxon interface (use Saxon to query data):
+<dependency>
+  <groupId>com.github.johanneslichtenberger.sirix</groupId>
+  <artifactId>sirix-saxon</artifactId>
+  <version>0.1.0</version>
+</dependency>
 
 ##Content
 
