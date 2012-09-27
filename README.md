@@ -18,25 +18,27 @@ Note that it is based on Treetank (http://treetank.org / http://github.com/disy/
 Maven artifacts are deployed to the OSS nexus repository. Currently the following artifacts are available:
 
 Core project:
-<dependency>
-  <groupId>com.github.johanneslichtenberger.sirix</groupId>
-  <artifactId>sirix-core</artifactId>
-  <version>0.1.0</version>
-</dependency>
+	<dependency>
+	  <groupId>com.github.johanneslichtenberger.sirix</groupId>
+	  <artifactId>sirix-core</artifactId>
+	  <version>0.1.0</version>
+	</dependency>
 
 JAX-RX interface (RESTful API):
-<dependency>
-  <groupId>com.github.johanneslichtenberger.sirix</groupId>
-  <artifactId>sirix-jax-rx</artifactId>
-  <version>0.1.0</version>
-</dependency>
+	<dependency>
+	  <groupId>com.github.johanneslichtenberger.sirix</groupId>
+	  <artifactId>sirix-jax-rx</artifactId>
+	  <version>0.1.0</version>
+	</dependency>
 
 Saxon interface (use Saxon to query data):
-<dependency>
-  <groupId>com.github.johanneslichtenberger.sirix</groupId>
-  <artifactId>sirix-saxon</artifactId>
-  <version>0.1.0</version>
-</dependency>
+	<dependency>
+	  <groupId>com.github.johanneslichtenberger.sirix</groupId>
+	  <artifactId>sirix-saxon</artifactId>
+	  <version>0.1.0</version>
+	</dependency>
+
+Other modules are currently not available (namely the GUI, the distributed package) due to dependencies to processing.org which isn't available from a maven repository and other dependencies.
 
 ##Content
 
