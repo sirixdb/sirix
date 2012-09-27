@@ -6,8 +6,6 @@ The GUI provides interactive visualizations of the differences between either 2 
 
 Some examples of the Java-API are explained in the wiki. Stay tuned for a maven bundle with examples and more elaborate examples.
 
-Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-users to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases... Besides, suggestions for improvements are highly welcome. 
-
 Sirix will be nothing without interested developers (contributors). Any kind of contribution is highly welcome. Once a few (regular) contributors are found, we will create an organization for Sirix on github.
 
 Note that it is based on Treetank (http://treetank.org / http://github.com/disy/treetank).
@@ -42,6 +40,9 @@ Saxon interface (use Saxon to query data):
 </pre></code>
 
 Other modules are currently not available (namely the GUI, the distributed package) due to dependencies to processing.org which isn't available from a maven repository and other dependencies.
+
+##Mailinglist
+Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-users to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
 ##Content
 
