@@ -32,7 +32,7 @@
 	<artifactId>sirix-parent</artifactId>
 	<packaging>pom</packaging>
 	<name>sirix-complete</name>
-	<version>0.0.9-SNAPSHOT</version>
+	<version>0.0.9</version>
 	<description>Sirix is a versioned, treebased storage system. It provides
 	an ID-less diff-algorithm to import differences between two versions. Furthermore
 	an ID-based diff-algorithm facilitates the comparison of versions stored within
@@ -199,9 +199,19 @@
 					</execution>
 				</executions>
 			</plugin>
-			<!-- <plugin> <groupId>org.apache.maven.plugins</groupId> <artifactId>maven-gpg-plugin</artifactId> 
-				<executions> <execution> <id>sign-artifacts</id> <phase>verify</phase> <goals> 
-				<goal>sign</goal> </goals> </execution> </executions> </plugin> -->
+			<!-- <plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-gpg-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>sign-artifacts</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>sign</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin> -->
 		</plugins>
 	</build>
 	<!-- <profiles> <profile> <id>release-sign-artifacts</id> <activation> <property> 
@@ -239,9 +249,9 @@
 			<version>${slf4j.version}</version>
 		</dependency>
 		<dependency>
-			<groupId>perfidix</groupId>
+			<groupId>org.perfidix</groupId>
 			<artifactId>perfidix</artifactId>
-			<version>3.6.4-SNAPSHOT</version>
+			<version>3.6.6</version>
 		</dependency>
 		<dependency>
 			<groupId>org.mockito</groupId>
