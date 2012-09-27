@@ -18,11 +18,13 @@ Note that it is based on Treetank (http://treetank.org / http://github.com/disy/
 Maven artifacts are deployed to the OSS nexus repository. Currently the following artifacts are available:
 
 Core project:
+<pre><code>
     <dependency>
       <groupId>com.github.johanneslichtenberger.sirix</groupId>
       <artifactId>sirix-core</artifactId>
       <version>0.1.0</version>
     </dependency>
+</code></pre>
 
 JAX-RX interface (RESTful API):
     <dependency>
