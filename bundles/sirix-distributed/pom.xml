@@ -4,7 +4,7 @@
 	<parent>
 		<groupId>com.github.johanneslichtenberger.sirix</groupId>
 		<artifactId>sirix-parent</artifactId>
-		<version>0.0.9-SNAPSHOT</version>
+		<version>0.0.9</version>
 	</parent>
 
 	<artifactId>sirix-distributed</artifactId>
