@@ -31,7 +31,7 @@
 	<artifactId>sirix-jax-rx</artifactId>
 	<packaging>jar</packaging>
 	<name>sirix-jax-rx</name>
-	<version>0.1.1-SNAPSHOT</version>
+	<version>0.1.1</version>
 	<description>This project is the jax-rx interface to jax-rx.
 	</description>
 	<dependencies>
