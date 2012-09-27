@@ -24,14 +24,14 @@
 	<parent>
 		<groupId>com.github.johanneslichtenberger.sirix</groupId>
 		<artifactId>sirix-parent</artifactId>
-		<version>0.0.9</version>
+		<version>0.0.9-SNAPSHOT</version>
 		<relativePath>../../pom.xml</relativePath>
 	</parent>
 
 	<artifactId>sirix-saxon</artifactId>
 	<packaging>jar</packaging>
 	<name>sirix-saxon</name>
-	<version>0.1.1-SNAPSHOT</version>
+	<version>0.1.0</version>
 	<description>Saxon binding.</description>
 
 	<dependencies>
