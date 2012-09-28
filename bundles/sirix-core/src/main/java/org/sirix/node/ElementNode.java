@@ -72,9 +72,6 @@ public final class ElementNode extends AbsStructForwardingNode implements
   /** Keys of namespace declarations. */
   private final List<Long> mNamespaceKeys;
 
-  /** {@link NodeDelegate} reference. */
-  private final NodeDelegate mNodeDel;
-
   /** {@link StructNodeDelegate} reference. */
   private final StructNodeDelegate mStructNodeDel;
 
@@ -92,13 +89,11 @@ public final class ElementNode extends AbsStructForwardingNode implements
    * @param pNamespaceKeys
    *          keys of namespaces to be set
    */
-  public ElementNode(@Nonnull final NodeDelegate pNodeDel,
-    @Nonnull final StructNodeDelegate pStructDel,
+  public ElementNode(@Nonnull final StructNodeDelegate pStructDel,
     @Nonnull final NameNodeDelegate pNameDel,
     @Nonnull final List<Long> pAttributeKeys,
     @Nonnull final BiMap<Integer, Long> pAttributes,
     @Nonnull final List<Long> pNamespaceKeys) {
-    mNodeDel = checkNotNull(pNodeDel);
     mStructNodeDel = checkNotNull(pStructDel);
     mNameDel = checkNotNull(pNameDel);
     mAttributeKeys = checkNotNull(pAttributeKeys);
@@ -289,7 +284,7 @@ public final class ElementNode extends AbsStructForwardingNode implements
 
   @Override
   protected NodeDelegate delegate() {
-    return mNodeDel;
+    return mStructNodeDel.getNodeDelegate();
   }
 
   @Override

@@ -51,7 +51,7 @@ public class ElementNodeTest {
     final NameNodeDelegate nameDel = new NameNodeDelegate(del, 18, 19, 1);
 
     final ElementNode node1 =
-      new ElementNode(del, strucDel, nameDel, new ArrayList<Long>(), HashBiMap
+      new ElementNode(strucDel, nameDel, new ArrayList<Long>(), HashBiMap
         .<Integer, Long> create(), new ArrayList<Long>());
 
     // Create empty node.

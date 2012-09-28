@@ -92,7 +92,7 @@ public enum EKind implements IKind {
 				namespKeys.add(pSource.readLong());
 			}
 
-			return new ElementNode(nodeDel, structDel, nameDel, attrKeys, attrs,
+			return new ElementNode(structDel, nameDel, attrKeys, attrs,
 					namespKeys);
 		}
 
@@ -191,7 +191,7 @@ public enum EKind implements IKind {
 							- getLong(pSource), nodeKey - getLong(pSource), 0L, 0L);
 
 			// Returning an instance.
-			return new TextNode(nodeDel, valDel, structDel);
+			return new TextNode(valDel, structDel);
 		}
 
 		@Override

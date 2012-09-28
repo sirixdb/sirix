@@ -30,9 +30,11 @@ package org.sirix.api.visitor;
 import javax.annotation.Nonnull;
 
 import org.sirix.node.AttributeNode;
+import org.sirix.node.CommentNode;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
+import org.sirix.node.PINode;
 import org.sirix.node.TextNode;
 
 /**
@@ -43,6 +45,22 @@ import org.sirix.node.TextNode;
  * 
  */
 public interface IVisitor {
+  /**
+   * Do something when visiting a {@link PINode}.
+   * 
+   * @param pNode
+   *          the {@link PINode}
+   */
+  EVisitResult visit(@Nonnull final PINode pNode);
+  
+  /**
+   * Do something when visiting a {@link CommentNode}.
+   * 
+   * @param pNode
+   *          the {@link CommentNode}
+   */
+  EVisitResult visit(@Nonnull final CommentNode pNode);
+	
   /**
    * Do something when visiting an {@link ElementNode}.
    * 

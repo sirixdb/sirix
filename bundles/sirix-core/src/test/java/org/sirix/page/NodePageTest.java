@@ -55,7 +55,7 @@ public class NodePageTest {
 				3l, 1l, 0l);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 6, 7, 1);
 
-		final ElementNode node1 = new ElementNode(del, strucDel, nameDel,
+		final ElementNode node1 = new ElementNode(strucDel, nameDel,
 				new ArrayList<Long>(), HashBiMap.<Integer, Long> create(),
 				new ArrayList<Long>());
 		node1.insertAttribute(88L, 100);

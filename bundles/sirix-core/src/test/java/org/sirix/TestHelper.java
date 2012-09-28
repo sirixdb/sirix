@@ -223,7 +223,7 @@ public final class TestHelper {
 				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
 						random.nextInt(10000), random.nextInt(10000),
 						random.nextInt(10000), random.nextInt(10000));
-				page.setNode(new ElementNode(nodeDel, strucDel, nameDel,
+				page.setNode(new ElementNode(strucDel, nameDel,
 						new ArrayList<Long>(), HashBiMap.<Integer, Long> create(),
 						new ArrayList<Long>()));
 				break;
@@ -249,7 +249,7 @@ public final class TestHelper {
 				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
 						random.nextInt(10000), random.nextInt(10000),
 						random.nextInt(10000), random.nextInt(10000));
-				page.setNode(new TextNode(nodeDel, valDel, strucDel));
+				page.setNode(new TextNode(valDel, strucDel));
 				break;
 			}
 

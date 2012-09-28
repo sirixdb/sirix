@@ -30,6 +30,7 @@ package org.sirix.node;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
@@ -41,6 +42,8 @@ import org.sirix.node.interfaces.IStructNode;
 import org.sirix.node.interfaces.IValNode;
 import org.sirix.settings.EFixed;
 
+import com.google.common.base.Objects;
+
 /**
  * <h1>TextNode</h1>
  * 
@@ -50,152 +53,124 @@ import org.sirix.settings.EFixed;
  */
 public final class TextNode extends AbsStructForwardingNode implements IValNode {
 
-  /** Delegate for common value node information. */
-  private final ValNodeDelegate mValDel;
-  
-  /** {@link NodeDelegate} reference. */
-  private final NodeDelegate mNodeDel;
+	/** Delegate for common value node information. */
+	private final ValNodeDelegate mValDel;
 
-  /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
-  
-  /** Value of the node. */
-  private byte[] mValue;
+	/** {@link StructNodeDelegate} reference. */
+	private final StructNodeDelegate mStructNodeDel;
 
-  /**
-   * Constructor for TextNode.
-   * 
-   * @param pDel
-   *          delegate for {@link INode} implementation
-   * @param pValDel
-   *          delegate for {@link IValNode} implementation
-   * @param pStructDel
-   *          delegate for {@link IStructNode} implementation
-   */
-  public TextNode(@Nonnull final NodeDelegate pDel, @Nonnull final ValNodeDelegate pValDel,
-    @Nonnull final StructNodeDelegate pStructDel) {
-    mNodeDel = checkNotNull(pDel);
-    mStructNodeDel = checkNotNull(pStructDel);
-    mValDel = checkNotNull(pValDel);
-  }
+	/** Value of the node. */
+	private byte[] mValue;
 
-  @Override
-  public EKind getKind() {
-    return EKind.TEXT;
-  }
+	/**
+	 * Constructor for TextNode.
+	 * 
+	 * @param pDel
+	 *          delegate for {@link INode} implementation
+	 * @param pValDel
+	 *          delegate for {@link IValNode} implementation
+	 * @param pStructDel
+	 *          delegate for {@link IStructNode} implementation
+	 */
+	public TextNode(final @Nonnull ValNodeDelegate pValDel,
+			final @Nonnull StructNodeDelegate pStructDel) {
+		mStructNodeDel = checkNotNull(pStructDel);
+		mValDel = checkNotNull(pValDel);
+	}
 
-  @Override
-  public byte[] getRawValue() {
-    if (mValue == null) {
-      mValue = mValDel.getRawValue();
-    }
-    return mValue;
-  }
+	@Override
+	public EKind getKind() {
+		return EKind.TEXT;
+	}
 
-  @Override
-  public void setValue(@Nonnull final byte[] pVal) {
-    mValue = null;
-    mValDel.setValue(pVal);
-  }
+	@Override
+	public byte[] getRawValue() {
+		if (mValue == null) {
+			mValue = mValDel.getRawValue();
+		}
+		return mValue;
+	}
 
-  @Override
-  public long getFirstChildKey() {
-    return EFixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public void setValue(final @Nonnull byte[] pVal) {
+		mValue = null;
+		mValDel.setValue(pVal);
+	}
 
-  @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-    return pVisitor.visit(this);
-  }
+	@Override
+	public long getFirstChildKey() {
+		return EFixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public void decrementChildCount() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
+		return pVisitor.visit(this);
+	}
 
-  @Override
-  public void incrementChildCount() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void decrementChildCount() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public long getDescendantCount() {
-    return 0;
-  }
+	@Override
+	public void incrementChildCount() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void decrementDescendantCount() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public long getDescendantCount() {
+		return 0;
+	}
 
-  @Override
-  public void incrementDescendantCount() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void decrementDescendantCount() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void setDescendantCount(final long pDescendantCount) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public void incrementDescendantCount() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result = prime * result + ((getNodeDelegate() == null) ? 0 : getNodeDelegate().hashCode());
-    result = prime * result + ((mValDel == null) ? 0 : mValDel.hashCode());
-    return result;
-  }
+	@Override
+	public void setDescendantCount(final long pDescendantCount) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public boolean equals(final Object pObj) {
-    if (this == pObj)
-      return true;
-    if (pObj == null)
-      return false;
-    if (getClass() != pObj.getClass())
-      return false;
-    TextNode other = (TextNode)pObj;
-    final NodeDelegate del = getNodeDelegate();
-    final NodeDelegate otherDel = other.getNodeDelegate();
-    if (del == null) {
-      if (otherDel != null)
-        return false;
-    } else if (!del.equals(otherDel))
-      return false;
-    if (mValDel == null) {
-      if (other.mValDel != null)
-        return false;
-    } else if (!mValDel.equals(other.mValDel))
-      return false;
-    return true;
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mStructNodeDel.getNodeDelegate(), mValDel);
+	}
 
-  @Override
-  public String toString() {
-    final StringBuilder builder = new StringBuilder(super.toString());
-    builder.append("\n");
-    builder.append(mValDel.toString());
-    builder.append("\n");
-    return builder.toString();
-  }
+	@Override
+	public boolean equals(final @Nullable Object pObj) {
+		if (pObj instanceof TextNode) {
+			final TextNode other = (TextNode) pObj;
+			return Objects.equal(mStructNodeDel.getNodeDelegate(),
+					other.getNodeDelegate())
+					&& mValDel.equals(other.mValDel);
+		}
+		return false;
+	}
 
-  /**
-   * Getting the inlying {@link ValNodeDelegate}.
-   * 
-   * @return
-   */
-  ValNodeDelegate getValNodeDelegate() {
-    return mValDel;
-  }
-  
-  @Override
-  protected NodeDelegate delegate() {
-    return mNodeDel;
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this)
+				.add("node delegate", mStructNodeDel.getNodeDelegate())
+				.add("value delegate", mValDel).toString();
+	}
+	
+	public ValNodeDelegate getValNodeDelegate() {
+		return mValDel;
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
-  }
+	@Override
+	protected NodeDelegate delegate() {
+		return mStructNodeDel.getNodeDelegate();
+	}
+
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return mStructNodeDel;
+	}
 }

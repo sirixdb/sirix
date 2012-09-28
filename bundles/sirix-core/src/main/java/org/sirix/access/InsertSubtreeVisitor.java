@@ -34,6 +34,7 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.exception.SirixException;
+import org.sirix.node.CommentNode;
 import org.sirix.node.ElementNode;
 import org.sirix.node.TextNode;
 
@@ -163,4 +164,12 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 		}
 		return retVal;
 	}
+
+	@Override
+	public EVisitResult visit(@Nonnull CommentNode pNode) {
+		// FIXME.
+		return null;
+	}
+	
+	
 }

@@ -52,7 +52,7 @@ public class TextNodeTest {
     final StructNodeDelegate strucDel =
       new StructNodeDelegate(del, EFixed.NULL_NODE_KEY.getStandardProperty(),
         16l, 15l, 0l, 0l);
-    final TextNode node1 = new TextNode(del, valDel, strucDel);
+    final TextNode node1 = new TextNode(valDel, strucDel);
     check(node1);
 
     // Serialize and deserialize node.

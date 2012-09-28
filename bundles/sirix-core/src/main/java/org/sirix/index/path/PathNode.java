@@ -98,7 +98,7 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
     throw new UnsupportedOperationException();
   }
 
@@ -145,13 +145,13 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
   }
 
   @Override
-  public void setPathNodeKey(long nodeKey) {
-    // No path node key.
+  public void setPathNodeKey(final long pNodeKey) {
+  	throw new UnsupportedOperationException();
   }
 
   @Override
   public long getPathNodeKey() {
-    return 0;
+    throw new UnsupportedOperationException();
   }
 
 }

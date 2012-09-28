@@ -14,10 +14,12 @@ import org.sirix.api.IPageWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.PathNode;
 import org.sirix.node.AttributeNode;
+import org.sirix.node.CommentNode;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
+import org.sirix.node.PINode;
 import org.sirix.node.TextNode;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -25,6 +27,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.page.EPage;
 import org.sirix.settings.EFixed;
+import org.sirix.settings.IConstants;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
 
@@ -82,8 +85,8 @@ public class NodeFactory implements INodeFactory {
 			final @Nonnegative long pRightSibKey, final long pHash,
 			@Nonnull final QName pName, final @Nonnegative long pPathNodeKey)
 			throws SirixIOException {
-		final int nameKey = mPageWriteTrx.createNameKey(
-				Utils.buildName(pName), EKind.ELEMENT);
+		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(pName),
+				EKind.ELEMENT);
 		final int uriKey = mPageWriteTrx.createNameKey(pName.getNamespaceURI(),
 				EKind.NAMESPACE);
 
@@ -97,10 +100,9 @@ public class NodeFactory implements INodeFactory {
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
 				uriKey, pPathNodeKey);
 
-		return (ElementNode) mPageWriteTrx.createNode(
-				new ElementNode(nodeDel, structDel, nameDel, new ArrayList<Long>(),
-						HashBiMap.<Integer, Long> create(), new ArrayList<Long>()),
-				EPage.NODEPAGE);
+		return (ElementNode) mPageWriteTrx.createNode(new ElementNode(structDel,
+				nameDel, new ArrayList<Long>(), HashBiMap.<Integer, Long> create(),
+				new ArrayList<Long>()), EPage.NODEPAGE);
 	}
 
 	@Override
@@ -120,7 +122,7 @@ public class NodeFactory implements INodeFactory {
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
 				EFixed.NULL_NODE_KEY.getStandardProperty(), pRightSibKey, pLeftSibKey,
 				0, 0);
-		return (TextNode) mPageWriteTrx.createNode(new TextNode(nodeDel, valDel,
+		return (TextNode) mPageWriteTrx.createNode(new TextNode(valDel,
 				structDel), EPage.NODEPAGE);
 	}
 
@@ -129,8 +131,8 @@ public class NodeFactory implements INodeFactory {
 			@Nonnull final QName pName, @Nonnull final byte[] pValue,
 			final @Nonnegative long pPathNodeKey) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
-		final int nameKey = mPageWriteTrx.createNameKey(
-				Utils.buildName(pName), EKind.ATTRIBUTE);
+		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(pName),
+				EKind.ATTRIBUTE);
 		final int uriKey = mPageWriteTrx.createNameKey(pName.getNamespaceURI(),
 				EKind.NAMESPACE);
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
@@ -166,12 +168,12 @@ public class NodeFactory implements INodeFactory {
 
 	@Override
 	public TextNode createTextNode() throws SirixIOException {
-		return createTextNode(0, 0, 0, "".getBytes(), false);
+		return createTextNode(0, 0, 0, "".getBytes(IConstants.DEFAULT_ENCODING),
+				false);
 	}
 
 	@Override
 	public AttributeNode createAttributeNode() throws SirixIOException {
-		// TODO Auto-generated method stub
 		return null;
 	}
 
@@ -185,5 +187,60 @@ public class NodeFactory implements INodeFactory {
 	public DocumentRootNode createDocumentNode() throws SirixIOException {
 		// TODO Auto-generated method stub
 		return null;
+	}
+
+	@Override
+	public PINode createPINode() throws SirixIOException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public PINode createPINode(@Nonnegative long pParentKey,
+			@Nonnegative long pLeftSibKey, @Nonnegative long pRightSibKey,
+			@Nonnull QName pName, @Nonnull byte[] pValue, boolean pIsCompressed,
+			@Nonnegative long pPathNodeKey) throws SirixIOException {
+		final long revision = mPageWriteTrx.getRevisionNumber();
+		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(pName),
+				EKind.ATTRIBUTE);
+		final int uriKey = mPageWriteTrx.createNameKey(pName.getNamespaceURI(),
+				EKind.NAMESPACE);
+		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
+				.getActualRevisionRootPage().getMaxNodeKey() + 1, pParentKey, 0,
+				revision);
+		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
+				EFixed.NULL_NODE_KEY.getStandardProperty(), pRightSibKey, pLeftSibKey,
+				0, 0);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
+				uriKey, pPathNodeKey);
+		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, pValue, false);
+
+		return (PINode) mPageWriteTrx.createNode(new PINode(structDel, nameDel,
+				valDel), EPage.NODEPAGE);
+	}
+
+	@Override
+	public CommentNode createCommentNode() throws SirixIOException {
+		return createCommentNode(0l, 0l, 0l, "".getBytes(IConstants.DEFAULT_ENCODING), false);
+	}
+
+	@Override
+	public CommentNode createCommentNode(@Nonnegative long pParentKey,
+			@Nonnegative long pLeftSibKey, @Nonnegative long pRightSibKey,
+			@Nonnull byte[] pValue, boolean pIsCompressed) throws SirixIOException {
+		final long revision = mPageWriteTrx.getRevisionNumber();
+		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
+				.getActualRevisionRootPage().getMaxNodeKey() + 1, pParentKey, 0,
+				revision);
+		final boolean compression = pIsCompressed && pValue.length > 10;
+		final byte[] value = compression ? Compression.compress(pValue,
+				Deflater.HUFFMAN_ONLY) : pValue;
+		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, value,
+				compression);
+		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
+				EFixed.NULL_NODE_KEY.getStandardProperty(), pRightSibKey, pLeftSibKey,
+				0, 0);
+		return (CommentNode) mPageWriteTrx.createNode(new CommentNode(valDel,
+				structDel), EPage.NODEPAGE);
 	}
 }

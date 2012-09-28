@@ -32,9 +32,11 @@ import javax.annotation.Nonnull;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AttributeNode;
+import org.sirix.node.CommentNode;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
+import org.sirix.node.PINode;
 import org.sirix.node.TextNode;
 
 /**
@@ -76,6 +78,16 @@ import org.sirix.node.TextNode;
  * 
  */
 public abstract class AbsVisitorSupport implements IVisitor {
+  @Override
+  public EVisitResult visit(@Nonnull final PINode pNode) {
+    return EVisitResult.CONTINUE;
+  }
+  
+  @Override
+  public EVisitResult visit(@Nonnull final CommentNode pNode) {
+    return EVisitResult.CONTINUE;
+  }
+  
   @Override
   public EVisitResult visit(@Nonnull final ElementNode pNode) {
     return EVisitResult.CONTINUE;

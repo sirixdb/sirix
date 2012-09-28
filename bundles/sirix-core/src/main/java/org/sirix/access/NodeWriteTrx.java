@@ -74,6 +74,7 @@ import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
 import org.sirix.index.value.AVLTree;
 import org.sirix.node.AttributeNode;
+import org.sirix.node.CommentNode;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
@@ -772,37 +773,175 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			final @Nonnull EInsert pInsert) throws SirixException {
 		acquireLock();
 		try {
-			mBulkInsert = true;
-			long nodeKey = getNode().getNodeKey();
-			final XMLShredder shredder = new XMLShredder(this, pReader, pInsert,
-					EShredderCommit.NOCOMMIT);
-			shredder.call();
-			moveTo(nodeKey);
-			switch (pInsert) {
-			case ASFIRSTCHILD:
-				moveToFirstChild();
-				break;
-			case ASRIGHTSIBLING:
-				moveToRightSibling();
-				break;
-			case ASLEFTSIBLING:
-				moveToLeftSibling();
-				break;
-			}
-			nodeKey = getNode().getNodeKey();
-			postOrderTraversalHashes();
-			final INode startNode = getNode();
-			moveToParent();
-			while (getNode().hasParent()) {
+			if (getNode() instanceof IStructNode) {
+				checkAccessAndCommit();
+				mBulkInsert = true;
+				long nodeKey = getNode().getNodeKey();
+				final XMLShredder shredder = new XMLShredder(this, pReader, pInsert,
+						EShredderCommit.NOCOMMIT);
+				shredder.call();
+				moveTo(nodeKey);
+				switch (pInsert) {
+				case ASFIRSTCHILD:
+					moveToFirstChild();
+					break;
+				case ASRIGHTSIBLING:
+					moveToRightSibling();
+					break;
+				case ASLEFTSIBLING:
+					moveToLeftSibling();
+					break;
+				}
+				nodeKey = getNode().getNodeKey();
+				postOrderTraversalHashes();
+				final INode startNode = getNode();
 				moveToParent();
-				addParentHash(startNode);
+				while (getNode().hasParent()) {
+					moveToParent();
+					addParentHash(startNode);
+				}
+				moveTo(nodeKey);
+				mBulkInsert = false;
 			}
-			moveTo(nodeKey);
-			mBulkInsert = false;
 		} finally {
 			unLock();
 		}
 		return this;
+	}
+	
+	@Override
+	public INodeWriteTrx insertPIAsLeftSibling(@Nonnull QName pQName,
+			@Nonnull String pValue) throws SirixException {
+		return pi(pQName, pValue, EInsert.ASLEFTSIBLING);
+	}
+
+	@Override
+	public INodeWriteTrx insertPIAsRightSibling(@Nonnull QName pQName,
+			@Nonnull String pValue) throws SirixException {
+		return pi(pQName, pValue, EInsert.ASRIGHTSIBLING);
+	}
+
+	@Override
+	public INodeWriteTrx insertPIAsFirstChild(@Nonnull QName pQName,
+			@Nonnull String pValue) throws SirixException {
+		return pi(pQName, pValue, EInsert.ASFIRSTCHILD);
+	}
+
+	/**
+	 * Processing instruction.
+	 * 
+	 * @param pQName
+	 *          {@link QName} of PI
+	 * @param pValue
+	 *          value of PI
+	 * @param pInsert
+	 *          insertion location
+	 * @throws SirixException
+	 *           if any unexpected error occurs
+	 */
+	private INodeWriteTrx pi(QName pQName, String pValue, EInsert pInsert)
+			throws SirixException {
+		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
+			throw new IllegalArgumentException("The QName is not valid!");
+		}
+		if (pValue.contains("?>-")) {
+			throw new SirixUsageException("pValue must not contain '?>-'");
+		}
+		acquireLock();
+		try {
+			if (getNode() instanceof IStructNode) {
+				checkAccessAndCommit();
+
+				
+				
+				return this;
+			} else {
+				throw new SirixUsageException("Current node must be a structural node!");
+			}
+		} finally {
+			unLock();
+		}
+	}
+
+	@Override
+	public INodeWriteTrx insertCommentAsLeftSibling(@Nonnull String pValue)
+			throws SirixException {
+		return comment(pValue, EInsert.ASLEFTSIBLING);
+	}
+
+	@Override
+	public INodeWriteTrx insertCommentAsRightSibling(@Nonnull String pValue)
+			throws SirixException {
+		return comment(pValue, EInsert.ASRIGHTSIBLING);
+	}
+
+	@Override
+	public INodeWriteTrx insertCommentAsFirstChild(@Nonnull String pValue)
+			throws SirixException {
+		return comment(pValue, EInsert.ASRIGHTSIBLING);
+	}
+
+	/**
+	 * Comment node.
+	 * 
+	 * @param pValue
+	 *          value of comment
+	 * @param pInsert
+	 *          insertion location
+	 * @throws SirixException
+	 *           if any unexpected error occurs
+	 */
+	private INodeWriteTrx comment(final @Nonnull String pValue,
+			final @Nonnull EInsert pInsert) throws SirixException {
+		// Produces a NPE if pValue is null (what we want).
+		if (pValue.contains("--")) {
+			throw new SirixUsageException(
+					"Character sequence \"--\" is not allowed in comment content!");
+		}
+		if (pValue.endsWith("-")) {
+			throw new SirixUsageException("Comment content must not end with \"-\"!");
+		}
+		acquireLock();
+		try {
+			if (getNode() instanceof IStructNode) {
+				checkAccessAndCommit();
+				
+				// Insert new comment node.
+				final byte[] value = getBytes(pValue);
+				long parentKey = 0;
+				long leftSibKey = 0;
+				long rightSibKey = 0;
+				switch (pInsert) {
+				case ASFIRSTCHILD:
+					parentKey = getNode().getNodeKey();
+					leftSibKey = EFixed.NULL_NODE_KEY.getStandardProperty();
+					rightSibKey = ((IStructNode) getNode()).getFirstChildKey();
+					break;
+				case ASRIGHTSIBLING:
+					break;
+				case ASLEFTSIBLING:
+					break;
+				default:
+					throw new IllegalStateException("Insert location not known!");
+				}
+
+				final CommentNode node = mNodeFactory.createCommentNode(parentKey,
+						leftSibKey, rightSibKey, value, 
+						mNodeRtx.mSession.mResourceConfig.mCompression);
+
+				// Adapt local nodes and hashes.
+				mNodeRtx.setCurrentNode(node);
+				adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.NODEPAGE);
+				mNodeRtx.setCurrentNode(node);
+				adaptHashesWithAdd();
+				
+				return this;
+			} else {
+				throw new SirixUsageException("Current node must be a structural node!");
+			}
+		} finally {
+			unLock();
+		}
 	}
 
 	@Override
@@ -2789,11 +2928,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				} else {
 					insertedRootNode = replaceWithTextNode(pXML);
 				}
+
+				if (insertedRootNode != null) {
+					moveTo(insertedRootNode.getNodeKey());
+				}
+			} else {
+
 			}
 
-			if (insertedRootNode != null) {
-				moveTo(insertedRootNode.getNodeKey());
-			}
 		} finally {
 			unLock();
 		}
