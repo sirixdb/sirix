@@ -24,26 +24,26 @@
 	<parent>
 		<groupId>com.github.johanneslichtenberger.sirix</groupId>
 		<artifactId>sirix-parent</artifactId>
-		<version>0.1.2-SNAPSHOT</version>
+		<version>0.1.2</version>
 		<relativePath>../../pom.xml</relativePath>
 	</parent>
 
 	<artifactId>sirix-saxon</artifactId>
 	<packaging>jar</packaging>
 	<name>sirix-saxon</name>
-	<version>0.1.1-SNAPSHOT</version>
+	<version>0.1.1</version>
 	<description>Saxon binding.</description>
 
 	<dependencies>
 		<dependency>
 			<groupId>com.github.johanneslichtenberger.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>0.1.1-SNAPSHOT</version>
+			<version>0.1.1</version>
 		</dependency>
 		<dependency>
 			<groupId>com.github.johanneslichtenberger.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
-			<version>0.1.1-SNAPSHOT</version>
+			<version>0.1.1</version>
 			<type>test-jar</type>
 			<scope>test</scope>
 		</dependency>
