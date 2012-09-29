@@ -56,14 +56,14 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * 
  * <p>
  * <ol>
- * <li>Only a single thread accesses each IReadTransaction instance.</li>
+ * <li>Only a single thread accesses each INodeReadTransaction instance.</li>
  * <li><strong>Precondition</strong> before moving cursor:
- * <code>IReadTransaction.getItem().getKey() == n</code>.</li>
+ * <code>INodeReadTransaction.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after moving cursor:
- * <code>(IReadTransaction.moveX() == true &&
- *       IReadTransaction.getItem().getKey() == m) ||
- *       (IReadTransaction.moveX() == false &&
- *       IReadTransaction.getItem().getKey() == n)</code>.</li>
+ * <code>(INodeReadTransaction.moveToX().hasMoved() &&
+ *       INodeReadTransaction.getNodeKey() == m) ||
+ *       (!INodeReadTransaction.moveToX().hasMoved() &&
+ *       INodeReadTransaction.getNodeKey() == n)</code>.</li>
  * </ol>
  * </p>
  * 
@@ -72,32 +72,29 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <p>
  * 
  * <pre>
- *   final IReadTransaction rtx = session.beginReadTransaction();
+ *   try(final IReadTransaction rtx = session.beginNodeReadTrx()) {
+ *     // Either test before moving...
+ *     if (rtx.hasFirstChild()) {
+ *       rtx.moveToFirstChild();
+ *       ...
+ *     }
  *   
- *   // Either test before moving...
- *   if (rtx.getRelatedNode().hasFirstChild()) {
- *     rtx.moveToFirstChild();
- *     ...
+ *     // Or test after moving. Whatever, do the test!
+ *     if (rtx.moveToFirstChild().hasMoved()) {
+ *       ...
+ *     }
+ *   
+ *     // Access local part of element.
+ *     if (rtx.isElement() &amp;&amp; &quot;foo&quot;.equalsIgnoreCase(rtx.getQName().getLocalName()) {
+ *       ...
+ *     }
+ *   
+ *     // Access value of first attribute of element.
+ *     if (rtx.isElement() &amp;&amp; (rtx.getAttributeCount() &gt; 0)) {
+ *       rtx.moveToAttribute(0);
+ *       LOGGER.info(rtx.getValue());
+ *     }
  *   }
- *   
- *   // or test after moving. Whatever, do the test!
- *   if (rtx.moveToFirstChild()) {
- *     ...
- *   }
- *   
- *   // Access local part of element.
- *   if (rtx.getRelatedNode().isElement() &amp;&amp; 
- *   rtx.getRelatedNode().getName().equalsIgnoreCase(&quot;foo&quot;) {
- *     ...
- *   }
- *   
- *   // Access value of first attribute of element.
- *   if (rtx.getRelatedNode().isElement() &amp;&amp; (rtx.getRelatedNode().getAttributeCount() &gt; 0)) {
- *     rtx.moveToAttribute(0);
- *     System.out.println(UTF.parseString(rtx.getValue()));
- *   }
- *   
- *   rtx.close();
  * </pre>
  * 
  * </p>
@@ -107,7 +104,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <p>
  * 
  * <pre>
- *   public final void someIReadTransactionMethod() {
+ *   public void someIReadTransactionMethod() {
  *     // This must be called to make sure the transaction is not closed.
  *     assertNotClosed();
  *     ...

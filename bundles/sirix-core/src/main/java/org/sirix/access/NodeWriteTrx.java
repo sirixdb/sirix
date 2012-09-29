@@ -79,6 +79,7 @@ import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
+import org.sirix.node.PINode;
 import org.sirix.node.TextNode;
 import org.sirix.node.TextReferences;
 import org.sirix.node.TextValue;
@@ -845,7 +846,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @throws SirixException
 	 *           if any unexpected error occurs
 	 */
-	private INodeWriteTrx pi(QName pQName, String pValue, EInsert pInsert)
+	private INodeWriteTrx pi(final @Nonnull QName pQName,
+			final @Nonnull String pValue, final @Nonnull EInsert pInsert)
 			throws SirixException {
 		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
 			throw new IllegalArgumentException("The QName is not valid!");
@@ -857,6 +859,43 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		try {
 			if (getNode() instanceof IStructNode) {
 				checkAccessAndCommit();
+
+				// Insert new comment node.
+				final byte[] value = getBytes(pValue);
+				long parentKey = 0;
+				long leftSibKey = 0;
+				long rightSibKey = 0;
+				switch (pInsert) {
+				case ASFIRSTCHILD:
+					parentKey = getNode().getNodeKey();
+					leftSibKey = EFixed.NULL_NODE_KEY.getStandardProperty();
+					rightSibKey = ((IStructNode) getNode()).getFirstChildKey();
+					break;
+				case ASRIGHTSIBLING:
+					parentKey = getNode().getParentKey();
+					leftSibKey = getNode().getNodeKey();
+					rightSibKey = ((IStructNode) getNode()).getRightSiblingKey();
+					break;
+				case ASLEFTSIBLING:
+					parentKey = getNode().getParentKey();
+					leftSibKey = ((IStructNode) getNode()).getLeftSiblingKey();
+					rightSibKey = getNode().getNodeKey();
+					break;
+				default:
+					throw new IllegalStateException("Insert location not known!");
+				}
+
+				final long pathNodeKey = mIndexes.contains(EIndexes.PATH) ? getPathNodeKey(
+						pQName, EKind.ATTRIBUTE) : 0;
+				final PINode node = mNodeFactory.createPINode(parentKey, leftSibKey,
+						rightSibKey, pQName, value,
+						mNodeRtx.mSession.mResourceConfig.mCompression, pathNodeKey);
+
+				// Adapt local nodes and hashes.
+				mNodeRtx.setCurrentNode(node);
+				adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.NODEPAGE);
+				mNodeRtx.setCurrentNode(node);
+				adaptHashesWithAdd();
 
 				return this;
 			} else {
@@ -922,8 +961,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					rightSibKey = ((IStructNode) getNode()).getFirstChildKey();
 					break;
 				case ASRIGHTSIBLING:
+					parentKey = getNode().getParentKey();
+					leftSibKey = getNode().getNodeKey();
+					rightSibKey = ((IStructNode) getNode()).getRightSiblingKey();
 					break;
 				case ASLEFTSIBLING:
+					parentKey = getNode().getParentKey();
+					leftSibKey = ((IStructNode) getNode()).getLeftSiblingKey();
+					rightSibKey = getNode().getNodeKey();
 					break;
 				default:
 					throw new IllegalStateException("Insert location not known!");

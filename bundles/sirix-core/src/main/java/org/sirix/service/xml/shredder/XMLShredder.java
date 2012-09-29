@@ -204,6 +204,8 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 						sBuilder.setLength(0);
 					}
 					break;
+				case XMLStreamConstants.COMMENT:
+					
 				default:
 					// Node kind not known.
 				}
