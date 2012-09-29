@@ -31,7 +31,7 @@
 	<artifactId>sirix-parent</artifactId>
 	<packaging>pom</packaging>
 	<name>sirix-complete</name>
-	<version>0.1.2</version>
+	<version>0.1.3-SNAPSHOT</version>
 	<description>Sirix is a versioned, treebased storage system. It provides
 	an ID-less diff-algorithm to import differences between two versions (currently XML-documents). Furthermore
 	an ID-based diff-algorithm facilitates the comparison of versions stored within
