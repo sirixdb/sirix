@@ -33,13 +33,13 @@ public abstract class AbsTraverseModel extends AbsObservableComponent implements
     assert pRtx != null;
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     // Casting to ElementNode is always safe because we don't iterate over attributes in the axis.
-    assert pRtx.getNode().getKind() == EKind.ELEMENT;
-    final int attNumber = ((ElementNode)pRtx.getNode()).getAttributeCount();
+    assert pRtx.getKind() == EKind.ELEMENT;
+    final int attNumber = pRtx.getAttributeCount();
     final List<Attribute> attributes = new ArrayList<>(attNumber);
     for (int i = 0; i < attNumber; i++) {
       pRtx.moveToAttribute(i);
       attributes
-        .add(eventFactory.createAttribute(pRtx.getQNameOfCurrentNode(), pRtx.getValueOfCurrentNode()));
+        .add(eventFactory.createAttribute(pRtx.getQName(), pRtx.getValue()));
       pRtx.moveToParent();
     }
     return attributes;
@@ -56,12 +56,12 @@ public abstract class AbsTraverseModel extends AbsObservableComponent implements
     assert pRtx != null;
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     // Casting to ElementNode is always safe because we don't iterate over attributes in the axis.
-    assert pRtx.getNode().getKind() == EKind.ELEMENT;
-    final int nspNumber = ((ElementNode)pRtx.getNode()).getNamespaceCount();
+    assert pRtx.getKind() == EKind.ELEMENT;
+    final int nspNumber = pRtx.getNamespaceCount();
     final List<Namespace> namespaces = new ArrayList<>(nspNumber);
     for (int i = 0; i < nspNumber; i++) {
       pRtx.moveToNamespace(i);
-      final QName qName = pRtx.getQNameOfCurrentNode();
+      final QName qName = pRtx.getQName();
       namespaces.add(eventFactory.createNamespace(qName.getPrefix(), qName.getNamespaceURI()));
       pRtx.moveToParent();
     }

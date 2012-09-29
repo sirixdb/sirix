@@ -30,7 +30,7 @@ public abstract class AbsStructForwardingNode extends AbsForwardingNode implemen
    * @return the inlying {@link NodeDelegate} instance
    */
   public StructNodeDelegate getStructNodeDelegate() {
-    return new StructNodeDelegate(structDelegate());
+    return structDelegate();
   }
 
   @Override

@@ -109,7 +109,7 @@ public class NodeCompTest {
     axis.next();
     AtomicValue[] value = comparator.atomize(axis);
     assertEquals(value.length, 1);
-    assertEquals(holder.getRtx().getNode().getNodeKey(), value[0].getNodeKey());
+    assertEquals(holder.getRtx().getNodeKey(), value[0].getNodeKey());
     assertEquals("xs:integer", value[0].getType());
 
     try {

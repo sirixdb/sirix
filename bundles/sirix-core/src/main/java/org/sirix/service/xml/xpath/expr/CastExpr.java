@@ -105,8 +105,8 @@ public class CastExpr extends AbsExpression {
     if (mSourceExpr.hasNext()) {
       mSourceExpr.next();
 
-      final Type sourceType = Type.getType(getTransaction().getNode().getTypeKey());
-      final String sourceValue = getTransaction().getValueOfCurrentNode();
+      final Type sourceType = Type.getType(getTransaction().getTypeKey());
+      final String sourceValue = getTransaction().getValue();
 
       // cast source to target type, if possible
       if (sourceType.isCastableTo(mTargetType, sourceValue)) {

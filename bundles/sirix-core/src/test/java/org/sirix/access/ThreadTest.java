@@ -73,7 +73,7 @@ public class ThreadTest {
       final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
       wtx.moveTo(newKey);
       wtx.setValue("value" + i);
-      newKey = wtx.getNode().getNodeKey();
+      newKey = wtx.getNodeKey();
       wtx.commit();
       wtx.close();
     }
@@ -97,7 +97,7 @@ public class ThreadTest {
       }
 
       mRTX.moveTo(12L);
-      assertEquals("bar", mRTX.getValueOfCurrentNode());
+      assertEquals("bar", mRTX.getValue());
       mRTX.close();
       return null;
     }

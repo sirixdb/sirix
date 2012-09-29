@@ -183,7 +183,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 					addNewElement(event.asStartElement());
 					if (firstElement) {
 						firstElement = false;
-						insertedRootNodeKey = mWtx.getNode().getNodeKey();
+						insertedRootNodeKey = mWtx.getNodeKey();
 						rootElement = event.asStartElement().getName();
 					}
 					break;

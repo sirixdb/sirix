@@ -109,7 +109,7 @@ public class GeneralComp extends AbsComparator {
       if (convert) { // cast to double
         Function.fnnumber(rtx);
       }
-      atomized = new AtomicValue(rtx.getValueOfCurrentNode().getBytes(), rtx.getNode().getTypeKey());
+      atomized = new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey());
       op.add(atomized);
     } while (mOperand.hasNext());
 

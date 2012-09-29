@@ -62,7 +62,7 @@ public class AbsAxisTest {
 
   public static void testIAxisConventions(final IAxis axis, final long[] expectedKeys) {
     // IAxis Convention 1.
-    final long startKey = axis.getTransaction().getNode().getNodeKey();
+    final long startKey = axis.getTransaction().getNodeKey();
 
     final long[] keys = new long[expectedKeys.length];
     int offset = 0;
@@ -70,14 +70,14 @@ public class AbsAxisTest {
       axis.next();
       // IAxis results.
       assertTrue(offset < expectedKeys.length);
-      keys[offset++] = axis.getTransaction().getNode().getNodeKey();
+      keys[offset++] = axis.getTransaction().getNodeKey();
 
       // IAxis Convention 3.
       axis.getTransaction().moveToDocumentRoot();
     }
 
     // IAxis Convention 5.
-    assertEquals(startKey, axis.getTransaction().getNode().getNodeKey());
+    assertEquals(startKey, axis.getTransaction().getNodeKey());
 
     // IAxis results.
     assertArrayEquals(expectedKeys, keys);
@@ -85,7 +85,7 @@ public class AbsAxisTest {
 
   public static void testIAxisConventionsNext(final IAxis axis, final long[] expectedKeys) {
     // IAxis Convention 1.
-    final long startKey = axis.getTransaction().getNode().getNodeKey();
+    final long startKey = axis.getTransaction().getNodeKey();
 
     final long[] keys = new long[expectedKeys.length];
     int offset = 0;
@@ -94,13 +94,13 @@ public class AbsAxisTest {
       while (axis.next() != EFixed.NULL_NODE_KEY.getStandardProperty()) {
         // IAxis results.
         assertTrue(offset < expectedKeys.length);
-        keys[offset++] = axis.getTransaction().getNode().getNodeKey();
+        keys[offset++] = axis.getTransaction().getNodeKey();
       }
     } catch (final NoSuchElementException e) {
     }
 
     // IAxis Convention 5.
-    assertEquals(startKey, axis.getTransaction().getNode().getNodeKey());
+    assertEquals(startKey, axis.getTransaction().getNodeKey());
 
     // IAxis results.
     assertArrayEquals(expectedKeys, keys);

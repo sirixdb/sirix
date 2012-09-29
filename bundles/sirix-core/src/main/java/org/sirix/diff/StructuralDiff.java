@@ -57,19 +57,17 @@ final class StructuralDiff extends AbsDiff {
   boolean checkNodes(@Nonnull final INodeReadTrx pNewRtx,
     @Nonnull final INodeReadTrx pOldRtx) {
     boolean found = false;
-    if (pNewRtx.getNode().getNodeKey() == pOldRtx.getNode().getNodeKey()
-      && pNewRtx.getNode().getKind() == pOldRtx.getNode().getKind()) {
-      switch (pNewRtx.getNode().getKind()) {
+    if (pNewRtx.getNodeKey() == pOldRtx.getNodeKey()
+      && pNewRtx.getKind() == pOldRtx.getKind()) {
+      switch (pNewRtx.getKind()) {
       case ELEMENT:
-        final ElementNode newNode = (ElementNode)pNewRtx.getNode();
-        final ElementNode oldNode = (ElementNode)pOldRtx.getNode();
-        if (newNode.getNameKey() == oldNode.getNameKey()) {
+        if (pNewRtx.getNameKey() == pOldRtx.getNameKey()) {
           found = true;
         }
         break;
       case TEXT:
-        if (pNewRtx.getValueOfCurrentNode().equals(
-          pOldRtx.getValueOfCurrentNode())) {
+        if (pNewRtx.getValue().equals(
+          pOldRtx.getValue())) {
           found = true;
         }
         break;

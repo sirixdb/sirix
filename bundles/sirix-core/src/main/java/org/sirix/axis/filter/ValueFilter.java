@@ -27,6 +27,8 @@
 
 package org.sirix.axis.filter;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.EKind;
 import org.sirix.utils.TypedValue;
@@ -40,62 +42,63 @@ import org.sirix.utils.TypedValue;
  */
 public class ValueFilter extends AbsFilter {
 
-  /** Value test to do. */
-  private final byte[] mValue;
+	/** Value test to do. */
+	private final byte[] mValue;
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param rtx
-   *          Transaction to bind filter to.
-   * @param mValue
-   *          Value to find.
-   */
-  public ValueFilter(final INodeReadTrx rtx, final byte[] mValue) {
-    super(rtx);
-    this.mValue = mValue;
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param pRtx
+	 *          transaction this filter is bound to
+	 * @param pValue
+	 *          value to find
+	 */
+	public ValueFilter(final INodeReadTrx pRtx, final byte[] pValue) {
+		super(pRtx);
+		mValue = checkNotNull(pValue);
+	}
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param rtx
-   *          Transaction to bind filter to.
-   * @param mValue
-   *          Value to find.
-   */
-  public ValueFilter(final INodeReadTrx rtx, final String mValue) {
-    this(rtx, TypedValue.getBytes(mValue));
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param rtx
+	 *          Transaction to bind filter to.
+	 * @param mValue
+	 *          Value to find.
+	 */
+	public ValueFilter(final INodeReadTrx rtx, final String mValue) {
+		this(rtx, TypedValue.getBytes(mValue));
+	}
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param rtx
-   *          Transaction to bind filter to.
-   * @param mValue
-   *          Value to find.
-   */
-  public ValueFilter(final INodeReadTrx rtx, final int mValue) {
-    this(rtx, TypedValue.getBytes(mValue));
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param rtx
+	 *          Transaction to bind filter to.
+	 * @param mValue
+	 *          Value to find.
+	 */
+	public ValueFilter(final INodeReadTrx rtx, final int mValue) {
+		this(rtx, TypedValue.getBytes(mValue));
+	}
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param rtx
-   *          Transaction to bind filter to.
-   * @param mValue
-   *          Value to find.
-   */
-  public ValueFilter(final INodeReadTrx rtx, final long mValue) {
-    this(rtx, TypedValue.getBytes(mValue));
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param rtx
+	 *          Transaction to bind filter to.
+	 * @param mValue
+	 *          Value to find.
+	 */
+	public ValueFilter(final INodeReadTrx rtx, final long mValue) {
+		this(rtx, TypedValue.getBytes(mValue));
+	}
 
-  @Override
-  public final boolean filter() {
-    return (getTransaction().getNode().getKind() == EKind.TEXT || getTransaction().getNode().getKind() == EKind.ATTRIBUTE)
-      && (TypedValue.equals(getTransaction().getValueOfCurrentNode(), mValue));
-  }
+	@Override
+	public final boolean filter() {
+		return (getTransaction().getKind() == EKind.TEXT || getTransaction()
+				.getKind() == EKind.ATTRIBUTE)
+				&& (TypedValue.equals(getTransaction().getValue(), mValue));
+	}
 
 }

@@ -172,7 +172,7 @@ public class RestXPathProcessor {
         rtx = session.beginNodeReadTrx(doRevision);
       }
 
-      final boolean exist = rtx.moveTo(rId);
+      final boolean exist = rtx.moveTo(rId).hasMoved();
       if (exist) {
         final AbsAxis axis = new XPathAxis(rtx, qQuery);
         if (doWrap) {

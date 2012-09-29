@@ -468,7 +468,9 @@ public enum EKind implements IKind {
 			}
 		}
 	},
-	UNKOWN((byte) 21, null) {
+	
+	/** Node type not known. */
+	UNKNOWN((byte) 21, null) {
 		@Override
 		public INodeBase deserialize(final @Nonnull ByteArrayDataInput pSource) {
 			throw new UnsupportedOperationException();

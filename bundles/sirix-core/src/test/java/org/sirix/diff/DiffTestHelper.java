@@ -155,149 +155,149 @@ public final class DiffTestHelper {
 
   static void verifyDiffFirst(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(9)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.INSERTED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(9)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyOptimizedFirst(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(5)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.INSERTED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(5)).diffListener(eq(EDiff.SAMEHASH), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyDiffSecond(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.REPLACEDNEW), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(4)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.REPLACEDNEW), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(4)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyOptimizedSecond(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.REPLACEDNEW), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.REPLACEDNEW), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAMEHASH), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyDiffThird(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.DELETED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyOptimizedThird(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAMEHASH), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.DELETED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAMEHASH), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyDiffFourth(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.INSERTED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyOptimizedFourth(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.INSERTED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAMEHASH), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.INSERTED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAMEHASH), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyDiffFifth(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.UPDATED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.UPDATED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyDiffSixth(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.DELETED), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyDiffSeventh(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(10)).diffListener(eq(EDiff.REPLACEDNEW), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(5)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(10)).diffListener(eq(EDiff.REPLACEDNEW), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(5)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
   static void verifyDiffEighth(final IDiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
-    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.REPLACEDOLD), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
-    inOrder.verify(pListener, times(5)).diffListener(eq(EDiff.SAME), isA(IStructNode.class),
-      isA(IStructNode.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.REPLACEDOLD), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
+    inOrder.verify(pListener, times(5)).diffListener(eq(EDiff.SAME), isA(Long.class),
+      isA(Long.class), isA(DiffDepth.class));
     inOrder.verify(pListener, times(1)).diffDone();
   }
 

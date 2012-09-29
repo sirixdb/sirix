@@ -245,10 +245,10 @@ public final class WikipediaImport implements IImport<StartElement> {
             } else {
               // Move wtx to end of file and append page.
               mWtx.moveToDocumentRoot();
-              final boolean hasFirstChild = mWtx.getStructuralNode().hasFirstChild();
+              final boolean hasFirstChild = mWtx.hasFirstChild();
               if (hasFirstChild) {
                 moveToLastPage(page);
-                assert mWtx.getQNameOfCurrentNode().equals(page.getName());
+                assert mWtx.getQName().equals(page.getName());
               }
 
               XMLShredder shredder = null;
@@ -304,7 +304,7 @@ public final class WikipediaImport implements IImport<StartElement> {
     final INodeReadTrx rtx = session.beginNodeReadTrx();
     rtx.moveToFirstChild();
     rtx.moveToFirstChild();
-    final long nodeKey = mWtx.getNode().getNodeKey();
+    final long nodeKey = mWtx.getNodeKey();
     final FMSE fmse = new FMSE();
     fmse.diff(mWtx, rtx);
     mWtx.moveTo(nodeKey);
@@ -384,7 +384,7 @@ public final class WikipediaImport implements IImport<StartElement> {
 
       mFound = false; // Determines if page is found in shreddered file.
       int resCounter = 0; // Counts found page.
-      long key = mWtx.getNode().getNodeKey();
+      long key = mWtx.getNodeKey();
       while (axis.hasNext()) {
         axis.next();
 
@@ -396,8 +396,8 @@ public final class WikipediaImport implements IImport<StartElement> {
         assert resCounter == 1;
 
         // Make sure the transaction is on the page element found.
-        assert mWtx.getQNameOfCurrentNode().equals(pPage.getName());
-        key = mWtx.getNode().getNodeKey();
+        assert mWtx.getQName().equals(pPage.getName());
+        key = mWtx.getNodeKey();
       }
       mWtx.moveTo(key);
     }
@@ -485,13 +485,13 @@ public final class WikipediaImport implements IImport<StartElement> {
     mWtx.moveToFirstChild();
     mWtx.moveToFirstChild();
 
-    assert mWtx.getNode().getKind() == EKind.ELEMENT;
-    assert mWtx.getQNameOfCurrentNode().equals(pPage.getName());
-    while (((ElementNode)mWtx.getNode()).hasRightSibling()) {
+    assert mWtx.getKind() == EKind.ELEMENT;
+    assert mWtx.getQName().equals(pPage.getName());
+    while (mWtx.hasRightSibling()) {
       mWtx.moveToRightSibling();
     }
-    assert mWtx.getNode().getKind() == EKind.ELEMENT;
-    assert mWtx.getQNameOfCurrentNode().equals(pPage.getName());
+    assert mWtx.getKind() == EKind.ELEMENT;
+    assert mWtx.getQName().equals(pPage.getName());
   }
 
   /**

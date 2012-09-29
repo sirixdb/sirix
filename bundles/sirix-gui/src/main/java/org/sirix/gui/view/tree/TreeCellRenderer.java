@@ -42,8 +42,6 @@ import javax.xml.namespace.QName;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
-import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.INode;
 
 /**
@@ -106,13 +104,13 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
     switch (node.getKind()) {
     case ELEMENT:
       mRTX.moveTo(node.getNodeKey());
-      final String prefix = mRTX.getQNameOfCurrentNode().getPrefix();
-      final QName qName = mRTX.getQNameOfCurrentNode();
+      final String prefix = mRTX.getQName().getPrefix();
+      final QName qName = mRTX.getQName();
 
       if (prefix == null || prefix.equals(XMLConstants.DEFAULT_NS_PREFIX)) {
         final String localPart = qName.getLocalPart();
 
-        if (((ElementNode)mRTX.getNode()).hasFirstChild()) {
+        if (mRTX.hasFirstChild()) {
           pValue = new StringBuilder("<").append(localPart).append(">").toString();
         } else {
           pValue = new StringBuilder("<").append(localPart).append("/>").toString();
@@ -128,26 +126,26 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
       // Move transaction to parent of the attribute node.
       mRTX.moveTo(node.getParentKey());
       final long aNodeKey = node.getNodeKey();
-      for (int i = 0, attsCount = ((ElementNode)mRTX.getNode()).getAttributeCount(); i < attsCount; i++) {
+      for (int i = 0, attsCount = mRTX.getAttributeCount(); i < attsCount; i++) {
         mRTX.moveToAttribute(i);
-        if (mRTX.getNode().equals(node)) {
+        if (mRTX.getNodeKey() == key) {
           break;
         }
         mRTX.moveTo(aNodeKey);
       }
 
       // Display value.
-      final String attPrefix = mRTX.getQNameOfCurrentNode().getPrefix();
-      final QName attQName = mRTX.getQNameOfCurrentNode();
+      final String attPrefix = mRTX.getQName().getPrefix();
+      final QName attQName = mRTX.getQName();
 
       if (attPrefix == null || attPrefix.equals("")) {
         pValue =
           new StringBuilder("@").append(attQName.getLocalPart()).append("='").append(
-            mRTX.getValueOfCurrentNode()).append("'").toString();
+            mRTX.getValue()).append("'").toString();
       } else {
         pValue =
           new StringBuilder("@").append(attPrefix).append(":").append(attQName.getLocalPart()).append("='")
-            .append(mRTX.getValueOfCurrentNode()).append("'").toString();
+            .append(mRTX.getValue()).append("'").toString();
       }
 
       break;
@@ -155,36 +153,36 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
       // Move transaction to parent the namespace node.
       mRTX.moveTo(node.getParentKey());
       final long nNodeKey = node.getNodeKey();
-      for (int i = 0, namespCount = ((ElementNode)mRTX.getNode()).getNamespaceCount(); i < namespCount; i++) {
+      for (int i = 0, namespCount = mRTX.getNamespaceCount(); i < namespCount; i++) {
         mRTX.moveToNamespace(i);
-        if (mRTX.getNode().equals(node)) {
+        if (mRTX.getNodeKey() == key) {
           break;
         }
         mRTX.moveTo(nNodeKey);
       }
 
-      if (mRTX.nameForKey(((INameNode)mRTX.getNode()).getNameKey()).length() == 0) {
+      if (mRTX.nameForKey(mRTX.getNameKey()).length() == 0) {
         pValue =
-          new StringBuilder("xmlns='").append(mRTX.nameForKey(((INameNode)mRTX.getNode()).getURIKey()))
+          new StringBuilder("xmlns='").append(mRTX.nameForKey(mRTX.getURIKey()))
             .append("'").toString();
       } else {
         pValue =
-          new StringBuilder("xmlns:").append(mRTX.nameForKey(((INameNode)mRTX.getNode()).getNameKey()))
-            .append("='").append(mRTX.nameForKey(((INameNode)mRTX.getNode()).getURIKey())).append("'")
+          new StringBuilder("xmlns:").append(mRTX.nameForKey(mRTX.getNameKey()))
+            .append("='").append(mRTX.nameForKey(mRTX.getURIKey())).append("'")
             .toString();
       }
       break;
     case TEXT:
       mRTX.moveTo(node.getNodeKey());
-      pValue = mRTX.getValueOfCurrentNode();
+      pValue = mRTX.getValue();
       break;
     case COMMENT:
       mRTX.moveTo(node.getNodeKey());
-      pValue = new StringBuilder("<!-- ").append(mRTX.getValueOfCurrentNode()).append(" -->").toString();
+      pValue = new StringBuilder("<!-- ").append(mRTX.getValue()).append(" -->").toString();
       break;
     case PROCESSING:
       mRTX.moveTo(node.getNodeKey());
-      pValue = new StringBuilder("<? ").append(mRTX.getValueOfCurrentNode()).append(" ?>").toString();
+      pValue = new StringBuilder("<? ").append(mRTX.getValue()).append(" ?>").toString();
       break;
     case DOCUMENT_ROOT:
       pValue = "Doc: " + mPATH;

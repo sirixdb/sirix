@@ -198,25 +198,21 @@ public final class LevelOrderAxis extends AbsAxis {
     }
     resetToLastKey();
 
-    // First move to next key.
-    final INodeReadTrx rtx = (INodeReadTrx)getTransaction();
-    final IStructNode node = rtx.getStructuralNode();
-
+    final INodeReadTrx rtx = getTransaction();
     // Determines if it's the first call to hasNext().
     if (mFirst) {
       mFirst = false;
 
-      final EKind kind = node.getKind();
-      if (kind == EKind.ATTRIBUTE || kind == EKind.NAMESPACE) {
+      if (rtx.getKind() == EKind.ATTRIBUTE || rtx.getKind() == EKind.NAMESPACE) {
         return false;
       }
       if (isSelfIncluded() == EIncludeSelf.YES) {
-        mKey = node.getNodeKey();
+        mKey = rtx.getNodeKey();
       } else {
-        if (node.hasRightSibling()) {
-          mKey = node.getRightSiblingKey();
-        } else if (node.hasFirstChild()) {
-          mKey = node.getFirstChildKey();
+        if (rtx.hasRightSibling()) {
+          mKey = rtx.getRightSiblingKey();
+        } else if (rtx.hasFirstChild()) {
+          mKey = rtx.getFirstChildKey();
         } else {
           resetToStartKey();
           return false;
@@ -226,20 +222,20 @@ public final class LevelOrderAxis extends AbsAxis {
       return true;
     } else {
       // Follow right sibling if there is one.
-      if (node.hasRightSibling()) {
+      if (rtx.hasRightSibling()) {
         processElement();
         // Add first child to queue.
-        if (node.hasFirstChild()) {
-          mFirstChilds.add(node.getFirstChildKey());
+        if (rtx.hasFirstChild()) {
+          mFirstChilds.add(rtx.getFirstChildKey());
         }
-        mKey = node.getRightSiblingKey();
+        mKey = rtx.getRightSiblingKey();
         return true;
       }
 
       // Add first child to queue.
       processElement();
-      if (node.hasFirstChild()) {
-        mFirstChilds.add(node.getFirstChildKey());
+      if (rtx.hasFirstChild()) {
+        mFirstChilds.add(rtx.getFirstChildKey());
       }
 
       // Then follow first child on stack.
@@ -257,7 +253,7 @@ public final class LevelOrderAxis extends AbsAxis {
       }
 
       // Then follow first child if there is one.
-      if (node.hasFirstChild()) {
+      if (getTransaction().hasFirstChild()) {
         mLevel++;
         
         // End traversal if level is reached.
@@ -266,7 +262,7 @@ public final class LevelOrderAxis extends AbsAxis {
           return false;
         }
         
-        mKey = node.getFirstChildKey();
+        mKey = getTransaction().getFirstChildKey();
         return true;
       }
 
@@ -279,17 +275,16 @@ public final class LevelOrderAxis extends AbsAxis {
   /** Process an element node. */
   private void processElement() {
     final INodeReadTrx rtx = (INodeReadTrx)getTransaction();
-    if (rtx.getStructuralNode().getKind() == EKind.ELEMENT
+    if (rtx.getKind() == EKind.ELEMENT
       && mIncludeNodes == EIncludeNodes.NONSTRUCTURAL) {
-      final ElementNode element = (ElementNode)rtx.getNode();
-      for (int i = 0, nspCount = element.getNamespaceCount(); i < nspCount; i++) {
+      for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
         rtx.moveToNamespace(i);
-        mFirstChilds.add(rtx.getNode().getNodeKey());
+        mFirstChilds.add(rtx.getNodeKey());
         rtx.moveToParent();
       }
-      for (int i = 0, attCount = element.getAttributeCount(); i < attCount; i++) {
+      for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
         rtx.moveToAttribute(i);
-        mFirstChilds.add(rtx.getNode().getNodeKey());
+        mFirstChilds.add(rtx.getNodeKey());
         rtx.moveToParent();
       }
     }

@@ -98,9 +98,9 @@ public final class DescendantAxis extends AbsAxis {
       mFirst = false;
 
       if (isSelfIncluded() == EIncludeSelf.YES) {
-        mKey = getTransaction().getNode().getNodeKey();
+        mKey = getTransaction().getNodeKey();
       } else {
-        mKey = getTransaction().getStructuralNode().getFirstChildKey();
+        mKey = getTransaction().getFirstChildKey();
       }
 
       if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
@@ -110,27 +110,25 @@ public final class DescendantAxis extends AbsAxis {
       return true;
     }
 
-    final IStructNode node = getTransaction().getStructuralNode();
-
     // Always follow first child if there is one.
-    if (node.hasFirstChild()) {
-      mKey = node.getFirstChildKey();
-      if (node.hasRightSibling()) {
-        mRightSiblingKeyStack.push(node.getRightSiblingKey());
+    if (getTransaction().hasFirstChild()) {
+      mKey = getTransaction().getFirstChildKey();
+      if (getTransaction().hasRightSibling()) {
+        mRightSiblingKeyStack.push(getTransaction().getRightSiblingKey());
       }
       return true;
     }
 
     // Then follow right sibling if there is one.
-    if (node.hasRightSibling()) {
-      final long currKey = getTransaction().getNode().getNodeKey();
-      mKey = node.getRightSiblingKey();
+    if (getTransaction().hasRightSibling()) {
+      final long currKey = getTransaction().getNodeKey();
+      mKey = getTransaction().getRightSiblingKey();
       return hasNextNode(currKey);
     }
 
     // Then follow right sibling on stack.
     if (mRightSiblingKeyStack.size() > 0) {
-      final long currKey = getTransaction().getNode().getNodeKey();
+      final long currKey = getTransaction().getNodeKey();
       mKey = mRightSiblingKeyStack.pop();
       return hasNextNode(currKey);
     }
@@ -149,7 +147,7 @@ public final class DescendantAxis extends AbsAxis {
    */
   private boolean hasNextNode(@Nonnegative final long pCurrKey) {
     getTransaction().moveTo(mKey);
-    if (getTransaction().getStructuralNode().getLeftSiblingKey() == getStartKey()) {
+    if (getTransaction().getLeftSiblingKey() == getStartKey()) {
       resetToStartKey();
       return false;
     } else {

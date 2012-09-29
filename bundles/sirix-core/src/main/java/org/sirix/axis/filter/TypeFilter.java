@@ -47,7 +47,7 @@ public class TypeFilter extends AbsFilter {
    * Constructor. Initializes the internal state.
    * 
    * @param pRtx
-   *          transaction this filter is bound to.
+   *          transaction this filter is bound to
    * @param pType
    *          type to match
    */
@@ -70,7 +70,7 @@ public class TypeFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getNode().getTypeKey() == mType;
+    return getTransaction().getTypeKey() == mType;
   }
 
 }

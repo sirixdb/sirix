@@ -36,6 +36,6 @@ public class PathKindFilter extends AbsFilter {
 
   @Override
   public boolean filter() {
-    return mType == ((PathNode) getTransaction().getNode()).getPathKind();
+    return mType == getTransaction().getPathKind();
   }
 }

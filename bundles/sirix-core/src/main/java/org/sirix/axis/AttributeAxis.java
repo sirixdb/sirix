@@ -51,7 +51,7 @@ public final class AttributeAxis extends AbsAxis {
    * @param paramRtx
    *          exclusive (immutable) mTrx to iterate with
    */
-  public AttributeAxis(@Nonnull final INodeReadTrx pRtx) {
+  public AttributeAxis(final @Nonnull INodeReadTrx pRtx) {
     super(pRtx);
   }
 
@@ -74,15 +74,13 @@ public final class AttributeAxis extends AbsAxis {
     // this
     // case the current node was set to an attribute by resetToLastKey()
     if (mNextIndex > 0) {
-      assert getTransaction().getNode().getKind() == EKind.ATTRIBUTE;
+      assert getTransaction().getKind() == EKind.ATTRIBUTE;
       getTransaction().moveToParent();
     }
 
-    if (getTransaction().getNode().getKind() == EKind.ELEMENT) {
-      final ElementNode element = (ElementNode)getTransaction().getNode();
-      if (mNextIndex < ((ElementNode)getTransaction().getNode())
-        .getAttributeCount()) {
-        mKey = element.getAttributeKey(mNextIndex);
+    if (getTransaction().getKind() == EKind.ELEMENT) {
+      if (mNextIndex < getTransaction().getAttributeCount()) {
+        mKey = getTransaction().getAttributeKey(mNextIndex);
         mNextIndex += 1;
         return true;
       }

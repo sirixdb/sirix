@@ -5,8 +5,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
 
 /**
@@ -19,6 +17,9 @@ public class PathLevelFilter extends AbsFilter {
 
   /** Node level to filter. */
   private int mLevel;
+  
+  /** {@link PathSummary} instance. */
+	private final PathSummary mPathSummary;
 
   /**
    * Constructor. Initializes the internal state.
@@ -28,17 +29,17 @@ public class PathLevelFilter extends AbsFilter {
    * @param pLevel
    *          level of node
    */
-  public PathLevelFilter(final @Nonnull INodeReadTrx pRtx,
+  public PathLevelFilter(final @Nonnull PathSummary pRtx,
     final @Nonnegative int pLevel) {
     super(pRtx);
-    checkArgument(pRtx instanceof PathSummary);
     checkArgument(pLevel >= 0);
+    mPathSummary = pRtx;
     mLevel = pLevel;
   }
 
   @Override
   public boolean filter() {
-    return mLevel == ((PathNode)getTransaction().getNode()).getLevel();
+    return mLevel == mPathSummary.getLevel();
   }
   
   /**

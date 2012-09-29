@@ -43,7 +43,6 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
 import org.sirix.node.EKind;
 import org.sirix.utils.DocumentCreater;
@@ -60,7 +59,7 @@ public class PathSummaryTest {
   /** {@link Holder} reference. */
   private Holder holder;
 
-  /** {@link INodeWriteTrx} implementation. */
+  /** {@link IsummaryWriteTrx} implementation. */
   private INodeWriteTrx mWtx;
 
   @Before
@@ -87,10 +86,6 @@ public class PathSummaryTest {
   public void testInsert() throws SirixException {
     PathSummary pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
-//    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
-//    	axis.next();
-//    	System.out.println();
-//    }
     testInsertHelper(pathSummary);
     mWtx.commit();
     mWtx.close();
@@ -102,71 +97,71 @@ public class PathSummaryTest {
   private void testInsertHelper(final @Nonnull PathSummary pSummary)
     throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
-    PathNode node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(1L, node.getNodeKey());
-    assertEquals(4L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals("{ns}a", axis.getTransaction().getQNameOfCurrentNode()
+    PathSummary summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(1L, summary.getNodeKey());
+    assertEquals(4L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals("{ns}a", axis.getTransaction().getQName()
       .toString());
-    assertEquals(1, node.getLevel());
-    assertEquals(3, node.getChildCount());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(4L, node.getNodeKey());
-    assertEquals(6L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(3L, node.getRightSiblingKey());
-    assertEquals("b", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(2, node.getChildCount());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(6L, node.getNodeKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(5L, node.getRightSiblingKey());
-    assertEquals("{ns}x", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(1, summary.getLevel());
+    assertEquals(3, summary.getChildCount());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(4L, summary.getNodeKey());
+    assertEquals(6L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(3L, summary.getRightSiblingKey());
+    assertEquals("b", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(2, summary.getChildCount());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(6L, summary.getNodeKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(5L, summary.getRightSiblingKey());
+    assertEquals("{ns}x", axis.getTransaction().getQName()
       .toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(5L, node.getNodeKey());
-    assertEquals(6L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(3L, node.getNodeKey());
-    assertEquals(4L, node.getLeftSiblingKey());
-    assertEquals(2L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("i", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.NAMESPACE, node.getPathKind());
-    assertEquals(2L, node.getNodeKey());
-    assertEquals(3L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("{ns}p", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(5L, summary.getNodeKey());
+    assertEquals(6L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("c", axis.getTransaction().getQName().toString());
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(3L, summary.getNodeKey());
+    assertEquals(4L, summary.getLeftSiblingKey());
+    assertEquals(2L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("i", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.NAMESPACE, summary.getPathKind());
+    assertEquals(2L, summary.getNodeKey());
+    assertEquals(3L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("{ns}p", axis.getTransaction().getQName()
       .toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    node = next(axis);
-    assertTrue(node == null);
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    summary = next(axis);
+    assertTrue(summary == null);
   }
 
   /**
@@ -196,68 +191,68 @@ public class PathSummaryTest {
   private void testDeleteHelper(final @Nonnull PathSummary pSummary)
     throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
-    PathNode node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(1L, node.getNodeKey());
-    assertEquals(4L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals("{ns}a", axis.getTransaction().getQNameOfCurrentNode()
+    PathSummary summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(1L, summary.getNodeKey());
+    assertEquals(4L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals("{ns}a", axis.getTransaction().getQName()
       .toString());
-    assertEquals(1, node.getLevel());
-    assertEquals(3, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(4L, node.getNodeKey());
-    assertEquals(5L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(3L, node.getRightSiblingKey());
-    assertEquals("b", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(1, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(5L, node.getNodeKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(3L, node.getNodeKey());
-    assertEquals(4L, node.getLeftSiblingKey());
-    assertEquals(2L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("i", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.NAMESPACE, node.getPathKind());
-    assertEquals(2L, node.getNodeKey());
-    assertEquals(3L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("{ns}p", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(1, summary.getLevel());
+    assertEquals(3, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(4L, summary.getNodeKey());
+    assertEquals(5L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(3L, summary.getRightSiblingKey());
+    assertEquals("b", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(1, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(5L, summary.getNodeKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals("c", axis.getTransaction().getQName().toString());
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(3L, summary.getNodeKey());
+    assertEquals(4L, summary.getLeftSiblingKey());
+    assertEquals(2L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("i", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.NAMESPACE, summary.getPathKind());
+    assertEquals(2L, summary.getNodeKey());
+    assertEquals(3L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("{ns}p", axis.getTransaction().getQName()
       .toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    node = next(axis);
-    assertTrue(node == null);
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    summary = next(axis);
+    assertTrue(summary == null);
   }
 
   /**
-   * Test setQName on test document (does not find a corresponding path node after rename).
+   * Test setQName on test document (does not find a corresponding path summary after rename).
    * 
    * @throws SirixException
    *           if Sirix fails
@@ -268,11 +263,6 @@ public class PathSummaryTest {
     mWtx.setQName(new QName("foo"));
     PathSummary pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
-    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
-      axis.next();
-      System.out.println(axis.getTransaction().getNode());
-      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
-    }
     testSetQNameFirstHelper(pathSummary);
     mWtx.commit();
     mWtx.close();
@@ -284,104 +274,104 @@ public class PathSummaryTest {
   private void testSetQNameFirstHelper(final @Nonnull PathSummary pSummary)
     throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
-    PathNode node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(1L, node.getNodeKey());
-    assertEquals(7L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals("{ns}a", axis.getTransaction().getQNameOfCurrentNode()
+    PathSummary summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(1L, summary.getNodeKey());
+    assertEquals(7L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals("{ns}a", axis.getTransaction().getQName()
       .toString());
-    assertEquals(1, node.getLevel());
-    assertEquals(4, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(7L, node.getNodeKey());
-    assertEquals(9L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(4L, node.getRightSiblingKey());
-    assertEquals("foo", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(1, summary.getLevel());
+    assertEquals(4, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(7L, summary.getNodeKey());
+    assertEquals(9L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(4L, summary.getRightSiblingKey());
+    assertEquals("foo", axis.getTransaction().getQName()
       .toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(2, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(9L, node.getNodeKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(8L, node.getRightSiblingKey());
-    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(8L, node.getNodeKey());
-    assertEquals(9L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("{ns}x", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(2, summary.getLevel());
+    assertEquals(2, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(9L, summary.getNodeKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(8L, summary.getRightSiblingKey());
+    assertEquals("c", axis.getTransaction().getQName().toString());
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(8L, summary.getNodeKey());
+    assertEquals(9L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("{ns}x", axis.getTransaction().getQName()
       .toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(4L, node.getNodeKey());
-    assertEquals(7L, node.getLeftSiblingKey());
-    assertEquals(3L, node.getRightSiblingKey());
-    assertEquals(5L, node.getFirstChildKey());
-    assertEquals("b", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(1, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(5L, node.getNodeKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(3L, node.getNodeKey());
-    assertEquals(4L, node.getLeftSiblingKey());
-    assertEquals(2L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("i", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.NAMESPACE, node.getPathKind());
-    assertEquals(2L, node.getNodeKey());
-    assertEquals(3L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("{ns}p", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(4L, summary.getNodeKey());
+    assertEquals(7L, summary.getLeftSiblingKey());
+    assertEquals(3L, summary.getRightSiblingKey());
+    assertEquals(5L, summary.getFirstChildKey());
+    assertEquals("b", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(1, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(5L, summary.getNodeKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("c", axis.getTransaction().getQName().toString());
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(3L, summary.getNodeKey());
+    assertEquals(4L, summary.getLeftSiblingKey());
+    assertEquals(2L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("i", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.NAMESPACE, summary.getPathKind());
+    assertEquals(2L, summary.getNodeKey());
+    assertEquals(3L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("{ns}p", axis.getTransaction().getQName()
       .toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node == null);
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary == null);
   }
 
   /**
-   * Test setQName on test document (finds a corresponding path node after rename).
+   * Test setQName on test document (finds a corresponding path summary after rename).
    * 
    * @throws SirixException
    *           if Sirix fails
@@ -393,11 +383,6 @@ public class PathSummaryTest {
     mWtx.setQName(new QName("b"));
     PathSummary pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
-    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
-      axis.next();
-      System.out.println(axis.getTransaction().getNode());
-      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
-    }
     testSetQNameSecondHelper(pathSummary);
     mWtx.commit();
     mWtx.close();
@@ -409,81 +394,81 @@ public class PathSummaryTest {
   private void testSetQNameSecondHelper(final @Nonnull PathSummary pSummary)
     throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
-    PathNode node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(1L, node.getNodeKey());
-    assertEquals(4L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals("{ns}a", axis.getTransaction().getQNameOfCurrentNode()
+    PathSummary summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(1L, summary.getNodeKey());
+    assertEquals(4L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals("{ns}a", axis.getTransaction().getQName()
       .toString());
-    assertEquals(1, node.getLevel());
-    assertEquals(3, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(4L, node.getNodeKey());
-    assertEquals(10L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(3L, node.getRightSiblingKey());
-    assertEquals("b", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(2, node.getChildCount());
-    assertEquals(2, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(10L, node.getNodeKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(5L, node.getRightSiblingKey());
-    assertEquals("{ns}x", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(1, summary.getLevel());
+    assertEquals(3, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(4L, summary.getNodeKey());
+    assertEquals(10L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(3L, summary.getRightSiblingKey());
+    assertEquals("b", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(2, summary.getChildCount());
+    assertEquals(2, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(10L, summary.getNodeKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(5L, summary.getRightSiblingKey());
+    assertEquals("{ns}x", axis.getTransaction().getQName()
       .toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(5L, node.getNodeKey());
-    assertEquals(10L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(2, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(3L, node.getNodeKey());
-    assertEquals(4L, node.getLeftSiblingKey());
-    assertEquals(2L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("i", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.NAMESPACE, node.getPathKind());
-    assertEquals(2L, node.getNodeKey());
-    assertEquals(3L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("{ns}p", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(5L, summary.getNodeKey());
+    assertEquals(10L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("c", axis.getTransaction().getQName().toString());
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(2, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(3L, summary.getNodeKey());
+    assertEquals(4L, summary.getLeftSiblingKey());
+    assertEquals(2L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("i", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.NAMESPACE, summary.getPathKind());
+    assertEquals(2L, summary.getNodeKey());
+    assertEquals(3L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("{ns}p", axis.getTransaction().getQName()
       .toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node == null);
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary == null);
   }
 
   /**
-   * Test setQName on test document (finds no corresponding path node after rename -- after references dropped
+   * Test setQName on test document (finds no corresponding path summary after rename -- after references dropped
    * to 0).
    * 
    * @throws SirixException
@@ -497,11 +482,6 @@ public class PathSummaryTest {
     mWtx.setQName(new QName("t"));
     PathSummary pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
-    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
-      axis.next();
-      System.out.println(axis.getTransaction().getNode());
-      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
-    }
     testSetQNameThirdHelper(pathSummary);
     mWtx.commit();
     mWtx.close();
@@ -513,103 +493,103 @@ public class PathSummaryTest {
   private void testSetQNameThirdHelper(final @Nonnull PathSummary pSummary)
     throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
-    PathNode node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(1L, node.getNodeKey());
-    assertEquals(7L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals("{ns}a", axis.getTransaction().getQNameOfCurrentNode()
+    PathSummary summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(1L, summary.getNodeKey());
+    assertEquals(7L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals("{ns}a", axis.getTransaction().getQName()
       .toString());
-    assertEquals(1, node.getLevel());
-    assertEquals(4, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(7L, node.getNodeKey());
-    assertEquals(9L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(4L, node.getRightSiblingKey());
-    assertEquals("d", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(2, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(9L, node.getNodeKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(8L, node.getRightSiblingKey());
-    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(8L, node.getNodeKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals(9L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals("{ns}x", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(1, summary.getLevel());
+    assertEquals(4, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(7L, summary.getNodeKey());
+    assertEquals(9L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(4L, summary.getRightSiblingKey());
+    assertEquals("d", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(2, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(9L, summary.getNodeKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(8L, summary.getRightSiblingKey());
+    assertEquals("c", axis.getTransaction().getQName().toString());
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(8L, summary.getNodeKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals(9L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals("{ns}x", axis.getTransaction().getQName()
       .toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(4L, node.getNodeKey());
-    assertEquals(7L, node.getLeftSiblingKey());
-    assertEquals(3L, node.getRightSiblingKey());
-    assertEquals(5L, node.getFirstChildKey());
-    assertEquals("t", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(1, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(5L, node.getNodeKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(3L, node.getNodeKey());
-    assertEquals(4L, node.getLeftSiblingKey());
-    assertEquals(2L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("i", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.NAMESPACE, node.getPathKind());
-    assertEquals(2L, node.getNodeKey());
-    assertEquals(3L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("{ns}p", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(4L, summary.getNodeKey());
+    assertEquals(7L, summary.getLeftSiblingKey());
+    assertEquals(3L, summary.getRightSiblingKey());
+    assertEquals(5L, summary.getFirstChildKey());
+    assertEquals("t", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(1, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(5L, summary.getNodeKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("c", axis.getTransaction().getQName().toString());
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(3L, summary.getNodeKey());
+    assertEquals(4L, summary.getLeftSiblingKey());
+    assertEquals(2L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("i", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.NAMESPACE, summary.getPathKind());
+    assertEquals(2L, summary.getNodeKey());
+    assertEquals(3L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("{ns}p", axis.getTransaction().getQName()
       .toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node == null);
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary == null);
   }
 
   /**
-   * Test setQName on test document (finds no corresponding path node after rename -- after references dropped
+   * Test setQName on test document (finds no corresponding path summary after rename -- after references dropped
    * to 0).
    * 
    * @throws SirixException
@@ -634,99 +614,99 @@ public class PathSummaryTest {
   private void testSetQNameFourthHelper(final @Nonnull PathSummary pSummary)
     throws SirixException {
     final IAxis axis = new DescendantAxis(pSummary);
-    PathNode node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(1L, node.getNodeKey());
-    assertEquals(7L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals("{ns}a", axis.getTransaction().getQNameOfCurrentNode()
+    PathSummary summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(1L, summary.getNodeKey());
+    assertEquals(7L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals("{ns}a", axis.getTransaction().getQName()
       .toString());
-    assertEquals(1, node.getLevel());
-    assertEquals(4, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(7L, node.getNodeKey());
-    assertEquals(8L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(4L, node.getRightSiblingKey());
-    assertEquals("d", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(1, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(8L, node.getNodeKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(4L, node.getNodeKey());
-    assertEquals(7L, node.getLeftSiblingKey());
-    assertEquals(3L, node.getRightSiblingKey());
-    assertEquals(6L, node.getFirstChildKey());
-    assertEquals("b", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(2, node.getChildCount());
-    assertEquals(2, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(6L, node.getNodeKey());
-    assertEquals(-1L, node.getLeftSiblingKey());
-    assertEquals(5L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("{ns}x", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(1, summary.getLevel());
+    assertEquals(4, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(7L, summary.getNodeKey());
+    assertEquals(8L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(4L, summary.getRightSiblingKey());
+    assertEquals("d", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(1, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(8L, summary.getNodeKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals("c", axis.getTransaction().getQName().toString());
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(4L, summary.getNodeKey());
+    assertEquals(7L, summary.getLeftSiblingKey());
+    assertEquals(3L, summary.getRightSiblingKey());
+    assertEquals(6L, summary.getFirstChildKey());
+    assertEquals("b", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(2, summary.getChildCount());
+    assertEquals(2, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(6L, summary.getNodeKey());
+    assertEquals(-1L, summary.getLeftSiblingKey());
+    assertEquals(5L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("{ns}x", axis.getTransaction().getQName()
       .toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ELEMENT, node.getPathKind());
-    assertEquals(5L, node.getNodeKey());
-    assertEquals(6L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("c", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(3, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.ATTRIBUTE, node.getPathKind());
-    assertEquals(3L, node.getNodeKey());
-    assertEquals(4L, node.getLeftSiblingKey());
-    assertEquals(2L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("i", axis.getTransaction().getQNameOfCurrentNode().toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node != null);
-    assertEquals(EKind.NAMESPACE, node.getPathKind());
-    assertEquals(2L, node.getNodeKey());
-    assertEquals(3L, node.getLeftSiblingKey());
-    assertEquals(-1L, node.getRightSiblingKey());
-    assertEquals(-1L, node.getFirstChildKey());
-    assertEquals("{ns}p", axis.getTransaction().getQNameOfCurrentNode()
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ELEMENT, summary.getPathKind());
+    assertEquals(5L, summary.getNodeKey());
+    assertEquals(6L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("c", axis.getTransaction().getQName().toString());
+    assertEquals(3, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.ATTRIBUTE, summary.getPathKind());
+    assertEquals(3L, summary.getNodeKey());
+    assertEquals(4L, summary.getLeftSiblingKey());
+    assertEquals(2L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("i", axis.getTransaction().getQName().toString());
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary != null);
+    assertEquals(EKind.NAMESPACE, summary.getPathKind());
+    assertEquals(2L, summary.getNodeKey());
+    assertEquals(3L, summary.getLeftSiblingKey());
+    assertEquals(-1L, summary.getRightSiblingKey());
+    assertEquals(-1L, summary.getFirstChildKey());
+    assertEquals("{ns}p", axis.getTransaction().getQName()
       .toString());
-    assertEquals(2, node.getLevel());
-    assertEquals(0, node.getChildCount());
-    assertEquals(1, node.getReferences());
-    node = next(axis);
-    assertTrue(node == null);
+    assertEquals(2, summary.getLevel());
+    assertEquals(0, summary.getChildCount());
+    assertEquals(1, summary.getReferences());
+    summary = next(axis);
+    assertTrue(summary == null);
   }
 
   @Test
@@ -735,11 +715,6 @@ public class PathSummaryTest {
     mWtx.moveSubtreeToFirstChild(9);
     PathSummary pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
-    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
-      axis.next();
-      System.out.println(axis.getTransaction().getNode());
-      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
-    }
     mWtx.commit();
     mWtx.close();
     final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
@@ -753,20 +728,10 @@ public class PathSummaryTest {
     mWtx.insertElementAsFirstChild(new QName("bar"));
     PathSummary pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
-    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
-      axis.next();
-      System.out.println(axis.getTransaction().getNode());
-      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
-    }
     mWtx.moveTo(5);
     mWtx.moveSubtreeToRightSibling(9);
     pathSummary = mWtx.getPathSummary();
     pathSummary.moveToDocumentRoot();
-    for (final IAxis axis = new DescendantAxis(pathSummary); axis.hasNext();) {
-      axis.next();
-      System.out.println(axis.getTransaction().getNode());
-      System.out.println(axis.getTransaction().getQNameOfCurrentNode());
-    }
     mWtx.commit();
     mWtx.close();
     final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
@@ -774,16 +739,16 @@ public class PathSummaryTest {
   }
 
   /**
-   * Get the next node.
+   * Get the next summary.
    * 
    * @param axis
    *          the axis to use
-   * @return the next path node
+   * @return the next path summary
    */
-  private PathNode next(final @Nonnull IAxis axis) {
+  private PathSummary next(final @Nonnull IAxis axis) {
     if (axis.hasNext()) {
       axis.next();
-      return (PathNode)axis.getTransaction().getNode();
+      return (PathSummary)axis.getTransaction();
     }
     return null;
   }

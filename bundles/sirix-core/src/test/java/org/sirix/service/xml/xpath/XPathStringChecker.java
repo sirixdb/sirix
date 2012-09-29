@@ -55,7 +55,7 @@ public class XPathStringChecker {
     final INodeReadTrx rtx = ((INodeReadTrx)axis.getTransaction());
 
     // IAxis Convention 1.
-    final long startKey = rtx.getNode().getNodeKey();
+    final long startKey = rtx.getNodeKey();
 
     final String[] strValues = new String[expectedValues.length];
     int offset = 0;
@@ -65,10 +65,10 @@ public class XPathStringChecker {
       if (offset >= expectedValues.length) {
         fail("More nodes found than expected.");
       }
-      if (!("".equals(rtx.getValueOfCurrentNode()))) {
-        strValues[offset++] = rtx.getValueOfCurrentNode();
+      if (!("".equals(rtx.getValue()))) {
+        strValues[offset++] = rtx.getValue();
       } else {
-        strValues[offset++] = rtx.getQNameOfCurrentNode().toString();
+        strValues[offset++] = rtx.getQName().toString();
       }
 
       // // IAxis Convention 2.
@@ -85,7 +85,7 @@ public class XPathStringChecker {
     }
 
     // IAxis Convention 5.
-    assertEquals(startKey, rtx.getNode().getNodeKey());
+    assertEquals(startKey, rtx.getNodeKey());
 
     // IAxis results.
     assertArrayEquals(expectedValues, strValues);

@@ -45,17 +45,15 @@ public class IFilterTest {
   }
 
   public static void testIFilterConventions(final IFilter filter, final boolean expected) {
-
     final INodeReadTrx rtx = ((AbsFilter)filter).getTransaction();
 
     // IFilter Convention 1.
-    final long startKey = rtx.getNode().getNodeKey();
+    final long startKey = rtx.getNodeKey();
 
     assertEquals(expected, filter.filter());
 
     // IAxis Convention 2.
-    assertEquals(startKey, rtx.getNode().getNodeKey());
-
+    assertEquals(startKey, rtx.getNodeKey());
   }
 
   @Test

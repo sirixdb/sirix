@@ -354,7 +354,7 @@ public final class SunburstControl extends AbsSunburstControl {
                     mSunburstGUI.getModificationWeight()).setNewStartKey(item.getKey()).setDiff(
                     item.getDiff()));
               } else {
-                mModel.update(container.setNewStartKey(item.getItem().getNodeKey()));
+                mModel.update(container.setNewStartKey(item.getKey()));
               }
               refreshed(container, mHitTestIndex);
             } else if (SwingUtilities.isRightMouseButton(pEvent)) {
@@ -521,7 +521,7 @@ public final class SunburstControl extends AbsSunburstControl {
     if (mHitTestIndex > 0) {
       final SunburstItem item = mModel.getItem(mHitTestIndex);
       container.setDepth(item.getDepth()).setModWeight(mSunburstGUI.getModificationWeight()).setNewStartKey(
-        item.getItem().getNodeKey());
+        item.getKey());
     } else {
       container.setModWeight(mSunburstGUI.getModificationWeight());
     }

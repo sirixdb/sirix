@@ -107,16 +107,16 @@ public class ExceptAxis extends AbsAxis {
     // first all items of the second operand are stored in the set.
     while (mOp2.hasNext()) {
       mKey = mOp2.next();
-      if (getTransaction().getNode().getNodeKey() < 0) { // only nodes are
+      if (getTransaction().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
-      mDupSet.add(getTransaction().getNode().getNodeKey());
+      mDupSet.add(getTransaction().getNodeKey());
     }
 
     while (mOp1.hasNext()) {
       mKey = mOp1.next();
-      if (getTransaction().getNode().getNodeKey() < 0) { // only nodes are
+      if (getTransaction().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
@@ -125,7 +125,7 @@ public class ExceptAxis extends AbsAxis {
       // it is
       // not also an item of the result set of the second operand
       // sequence.
-      if (mDupSet.add(getTransaction().getNode().getNodeKey())) {
+      if (mDupSet.add(getTransaction().getNodeKey())) {
         return true;
       }
     }

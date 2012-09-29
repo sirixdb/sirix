@@ -46,6 +46,7 @@ import net.sf.saxon.Configuration;
 import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.xpath.XPathFactoryImpl;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -55,7 +56,6 @@ import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
 
 /**
  * Test XPath Java API.
@@ -144,7 +144,7 @@ public final class TestNodeWrapperXPath {
       assertNotNull(result);
 
       if (xpathConstants[i].equals(XPathConstants.NODESET)) {
-        final ArrayList<INode> test = (ArrayList<INode>)result[i];
+        final ArrayList<NodeWrapper> test = (ArrayList<NodeWrapper>)result[i];
 
         final String res = (String)expectedResults[i];
         final String[] expRes = res.split(" ");
@@ -152,16 +152,16 @@ public final class TestNodeWrapperXPath {
         // Iterate over expected result and the actual result and
         // compare it.
         for (int j = 0; j < test.size(); j++) {
-          final INode item = test.get(j);
+          final NodeWrapper item = test.get(j);
 
-          mHolder.getRtx().moveTo(item.getNodeKey());
+          mHolder.getRtx().moveTo(item.getKey());
 
-          final QName qName = mHolder.getRtx().getQNameOfCurrentNode();
+          final QName qName = mHolder.getRtx().getQName();
 
-          if (mHolder.getRtx().getNode().getKind() == EKind.ELEMENT) {
+          if (mHolder.getRtx().getKind() == EKind.ELEMENT) {
             assertEquals(expRes[j], qName.getPrefix() + ":" + qName.getLocalPart());
-          } else if (mHolder.getRtx().getNode().getKind() == EKind.TEXT) {
-            assertEquals(expRes[j], mHolder.getRtx().getValueOfCurrentNode());
+          } else if (mHolder.getRtx().getKind() == EKind.TEXT) {
+            assertEquals(expRes[j], mHolder.getRtx().getValue());
           }
 
         }
@@ -367,16 +367,16 @@ public final class TestNodeWrapperXPath {
     final NodeInfo doc = new DocumentWrapper(mHolder.getSession(), config);
 
     // Execute XPath.
-    final ArrayList<INode> result = (ArrayList<INode>)findLine.evaluate(doc, XPathConstants.NODESET);
+    final ArrayList<NodeWrapper> result = (ArrayList<NodeWrapper>)findLine.evaluate(doc, XPathConstants.NODESET);
     assertNotNull(result);
 
     final INodeReadTrx rtx = mHolder.getSession().beginNodeReadTrx();
-    rtx.moveTo(result.get(0).getNodeKey());
-    assertEquals("oops1", rtx.getValueOfCurrentNode());
-    rtx.moveTo(result.get(1).getNodeKey());
-    assertEquals("oops2", rtx.getValueOfCurrentNode());
-    rtx.moveTo(result.get(2).getNodeKey());
-    assertEquals("oops3", rtx.getValueOfCurrentNode());
+    rtx.moveTo(result.get(0).getKey());
+    assertEquals("oops1", rtx.getValue());
+    rtx.moveTo(result.get(1).getKey());
+    assertEquals("oops2", rtx.getValue());
+    rtx.moveTo(result.get(2).getKey());
+    assertEquals("oops3", rtx.getValue());
     rtx.close();
   }
 
@@ -414,18 +414,18 @@ public final class TestNodeWrapperXPath {
     final NodeInfo doc = new DocumentWrapper(mHolder.getSession(), config);
 
     // Execute XPath.
-    final ArrayList<INode> result = (ArrayList<INode>)findLine.evaluate(doc, XPathConstants.NODESET);
+    final ArrayList<NodeWrapper> result = (ArrayList<NodeWrapper>)findLine.evaluate(doc, XPathConstants.NODESET);
 
     assertNotNull(result);
-    assertEquals(5, result.get(0).getNodeKey());
-    assertEquals(9, result.get(1).getNodeKey());
+    assertEquals(5, result.get(0).getKey());
+    assertEquals(9, result.get(1).getKey());
 
     final INodeReadTrx rtx = mHolder.getSession().beginNodeReadTrx();
-    rtx.moveTo(result.get(0).getNodeKey());
-    assertEquals("b", rtx.getQNameOfCurrentNode().getLocalPart());
+    rtx.moveTo(result.get(0).getKey());
+    assertEquals("b", rtx.getQName().getLocalPart());
 
-    rtx.moveTo(result.get(1).getNodeKey());
-    assertEquals("b", rtx.getQNameOfCurrentNode().getLocalPart());
+    rtx.moveTo(result.get(1).getKey());
+    assertEquals("b", rtx.getQName().getLocalPart());
   }
 
   /**

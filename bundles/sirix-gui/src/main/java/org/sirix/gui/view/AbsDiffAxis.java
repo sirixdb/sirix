@@ -74,7 +74,7 @@ public abstract class AbsDiffAxis implements Iterator<Long>, Iterable<Long> {
   public AbsDiffAxis(final INodeReadTrx pRtx) {
     mRtx = checkNotNull(pRtx);
     mIncludeSelf = EIncludeSelf.NO;
-    reset(pRtx.getNode().getNodeKey());
+    reset(pRtx.getNodeKey());
   }
 
   /**
@@ -89,7 +89,7 @@ public abstract class AbsDiffAxis implements Iterator<Long>, Iterable<Long> {
     checkNotNull(pRtx);
     mRtx = pRtx;
     mIncludeSelf = pIncludeSelf;
-    reset(pRtx.getNode().getNodeKey());
+    reset(pRtx.getNodeKey());
   }
 
   @Override

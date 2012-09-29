@@ -57,24 +57,24 @@ public class AttributeAndNamespaceTest {
   @Test
   public void testAttribute() throws SirixException {
     holder.getRtx().moveTo(1L);
-    assertEquals(1, ((ElementNode)holder.getRtx().getNode()).getAttributeCount());
+    assertEquals(1, holder.getRtx().getAttributeCount());
     holder.getRtx().moveToAttribute(0);
-    assertEquals("i", holder.getRtx().getQNameOfCurrentNode().getLocalPart());
+    assertEquals("i", holder.getRtx().getQName().getLocalPart());
 
     holder.getRtx().moveTo(9L);
-    assertEquals(1, ((ElementNode)holder.getRtx().getNode()).getAttributeCount());
+    assertEquals(1, holder.getRtx().getAttributeCount());
     holder.getRtx().moveToAttribute(0);
-    assertEquals("p:x", new StringBuilder(holder.getRtx().getQNameOfCurrentNode().getPrefix()).append(":")
-      .append(holder.getRtx().getQNameOfCurrentNode().getLocalPart()).toString());
-    assertEquals("ns", holder.getRtx().getQNameOfCurrentNode().getNamespaceURI());
+    assertEquals("p:x", new StringBuilder(holder.getRtx().getQName().getPrefix()).append(":")
+      .append(holder.getRtx().getQName().getLocalPart()).toString());
+    assertEquals("ns", holder.getRtx().getQName().getNamespaceURI());
   }
 
   @Test
   public void testNamespace() throws SirixException {
     holder.getRtx().moveTo(1L);
-    assertEquals(1, ((ElementNode)holder.getRtx().getNode()).getNamespaceCount());
+    assertEquals(1, holder.getRtx().getNamespaceCount());
     holder.getRtx().moveToNamespace(0);
-    assertEquals("p", holder.getRtx().getQNameOfCurrentNode().getLocalPart());
-    assertEquals("ns", holder.getRtx().getQNameOfCurrentNode().getNamespaceURI());
+    assertEquals("p", holder.getRtx().getQName().getLocalPart());
+    assertEquals("ns", holder.getRtx().getQName().getNamespaceURI());
   }
 }

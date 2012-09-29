@@ -50,95 +50,91 @@ import org.sirix.node.interfaces.INode;
  */
 public final class FMSEVisitor extends AbsVisitorSupport {
 
-  /** {@link INodeReadTrx} reference. */
-  private final INodeReadTrx mRtx;
+	/** {@link INodeReadTrx} reference. */
+	private final INodeReadTrx mRtx;
 
-  /** Determines if nodes are in order. */
-  private final Map<Long, Boolean> mInOrder;
+	/** Determines if nodes are in order. */
+	private final Map<Long, Boolean> mInOrder;
 
-  /** Descendant count per node. */
-  private final Map<Long, Long> mDescendants;
+	/** Descendant count per node. */
+	private final Map<Long, Long> mDescendants;
 
-  /**
-   * Constructor.
-   * 
-   * @param pSession
-   *          {@link ISession} implementation
-   * @param pInOrder
-   *          {@link Map} reference to track ordered nodes
-   * @param pDescendants
-   *          {@link Map} reference to track descendants per node
-   * @throws SirixException
-   *           if setting up sirix fails
-   * @throws NullPointerException
-   *           if one of the arguments is {@code null}
-   */
-  public FMSEVisitor(@Nonnull final INodeReadTrx pReadTransaction,
-    @Nonnull final Map<Long, Boolean> pInOrder,
-    @Nonnull final Map<Long, Long> pDescendants) throws SirixException {
-    mRtx = checkNotNull(pReadTransaction);
-    mInOrder = checkNotNull(pInOrder);
-    mDescendants = checkNotNull(pDescendants);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pSession
+	 *          {@link ISession} implementation
+	 * @param pInOrder
+	 *          {@link Map} reference to track ordered nodes
+	 * @param pDescendants
+	 *          {@link Map} reference to track descendants per node
+	 * @throws SirixException
+	 *           if setting up sirix fails
+	 * @throws NullPointerException
+	 *           if one of the arguments is {@code null}
+	 */
+	public FMSEVisitor(@Nonnull final INodeReadTrx pReadTransaction,
+			@Nonnull final Map<Long, Boolean> pInOrder,
+			@Nonnull final Map<Long, Long> pDescendants) throws SirixException {
+		mRtx = checkNotNull(pReadTransaction);
+		mInOrder = checkNotNull(pInOrder);
+		mDescendants = checkNotNull(pDescendants);
+	}
 
-  @Override
-  public EVisitResult visit(@Nonnull final ElementNode pNode) {
-    final long nodeKey = pNode.getNodeKey();
-    mRtx.moveTo(nodeKey);
-    for (int i = 0; i < pNode.getAttributeCount(); i++) {
-      mRtx.moveToAttribute(i);
-      fillStructuralDataStructures();
-      mRtx.moveTo(nodeKey);
-    }
-    for (int i = 0; i < pNode.getNamespaceCount(); i++) {
-      mRtx.moveToNamespace(i);
-      fillStructuralDataStructures();
-      mRtx.moveTo(nodeKey);
-    }
-    countDescendants();
-    return EVisitResult.CONTINUE;
-  }
+	@Override
+	public EVisitResult visit(@Nonnull final ElementNode pNode) {
+		final long nodeKey = pNode.getNodeKey();
+		mRtx.moveTo(nodeKey);
+		for (int i = 0; i < pNode.getAttributeCount(); i++) {
+			mRtx.moveToAttribute(i);
+			fillStructuralDataStructures();
+			mRtx.moveTo(nodeKey);
+		}
+		for (int i = 0; i < pNode.getNamespaceCount(); i++) {
+			mRtx.moveToNamespace(i);
+			fillStructuralDataStructures();
+			mRtx.moveTo(nodeKey);
+		}
+		countDescendants();
+		return EVisitResult.CONTINUE;
+	}
 
-  /**
-   * Fill data structures.
-   */
-  private void fillStructuralDataStructures() {
-    final INode node = mRtx.getNode();
-    mInOrder.put(node.getNodeKey(), true);
-    mDescendants.put(node.getNodeKey(), 1L);
-  }
+	/**
+	 * Fill data structures.
+	 */
+	private void fillStructuralDataStructures() {
+		mInOrder.put(mRtx.getNodeKey(), true);
+		mDescendants.put(mRtx.getNodeKey(), 1L);
+	}
 
-  /**
-   * Count descendants of node (including self).
-   */
-  private void countDescendants() {
-    long descendants = 0;
-    final long nodeKey = mRtx.getNode().getNodeKey();
-    ElementNode element = (ElementNode)mRtx.getNode();
-    descendants += element.getNamespaceCount();
-    descendants += element.getAttributeCount();
-    if (mRtx.getStructuralNode().hasFirstChild()) {
-      mRtx.moveToFirstChild();
-      do {
-        descendants += mDescendants.get(mRtx.getNode().getNodeKey());
-        if (mRtx.getNode().getKind() == EKind.ELEMENT) {
-          element = (ElementNode)mRtx.getNode();
-          descendants += 1;
-        }
-      } while (mRtx.getStructuralNode().hasRightSibling()
-        && mRtx.moveToRightSibling());
-    }
-    mRtx.moveTo(nodeKey);
-    mInOrder.put(mRtx.getNode().getNodeKey(), false);
-    mDescendants.put(mRtx.getNode().getNodeKey(), descendants);
-  }
+	/**
+	 * Count descendants of node (including self).
+	 */
+	private void countDescendants() {
+		long descendants = 0;
+		final long nodeKey = mRtx.getNodeKey();
+		descendants += mRtx.getNamespaceCount();
+		descendants += mRtx.getAttributeCount();
+		if (mRtx.hasFirstChild()) {
+			mRtx.moveToFirstChild();
+			do {
+				descendants += mDescendants.get(mRtx.getNodeKey());
+				if (mRtx.getKind() == EKind.ELEMENT) {
+					descendants += 1;
+				}
+			} while (mRtx.hasRightSibling() && mRtx.moveToRightSibling().hasMoved());
+		}
+		mRtx.moveTo(nodeKey);
+		mInOrder.put(mRtx.getNodeKey(), false);
+		mDescendants.put(mRtx.getNodeKey(), descendants);
+	}
 
-  @Override
-  public EVisitResult visit(@Nonnull final TextNode pNode) {
-    final long nodeKey = pNode.getNodeKey();
-    mRtx.moveTo(nodeKey);
-    mInOrder.put(mRtx.getNode().getNodeKey(), false);
-    mDescendants.put(mRtx.getNode().getNodeKey(), 1L);
-    return EVisitResult.CONTINUE;
-  }
+	@Override
+	public EVisitResult visit(@Nonnull final TextNode pNode) {
+		final long nodeKey = pNode.getNodeKey();
+		mRtx.moveTo(nodeKey);
+		mInOrder.put(mRtx.getNodeKey(), false);
+		mDescendants.put(mRtx.getNodeKey(), 1L);
+		return EVisitResult.CONTINUE;
+	}
 }

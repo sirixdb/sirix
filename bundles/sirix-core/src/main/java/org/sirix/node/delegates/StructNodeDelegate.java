@@ -103,21 +103,6 @@ public class StructNodeDelegate extends AbsForwardingNode implements IStructNode
     mDescendantCount = pDescendantCount;
   }
 
-  /**
-   * Copy constructor.
-   * 
-   * @param pStructDel
-   *          old structural node delegate
-   */
-  public StructNodeDelegate(@Nonnull final StructNodeDelegate pStructDel) {
-    mDelegate = pStructDel.mDelegate;
-    mFirstChild = pStructDel.mFirstChild;
-    mRightSibling = pStructDel.mRightSibling;
-    mLeftSibling = pStructDel.mLeftSibling;
-    mChildCount = pStructDel.mChildCount;
-    mDescendantCount = pStructDel.mDescendantCount;
-  }
-
   @Override
   public EKind getKind() {
     return mDelegate.getKind();

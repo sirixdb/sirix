@@ -101,7 +101,7 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
 
   @Override
   public EKind getKind() {
-    return EKind.UNKOWN;
+    return EKind.UNKNOWN;
   }
 
   @Override

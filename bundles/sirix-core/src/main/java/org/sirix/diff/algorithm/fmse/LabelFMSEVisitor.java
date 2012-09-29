@@ -107,11 +107,11 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
    * Add leaf node label.
    */
   private void addLeafLabel() {
-    final EKind nodeKind = mRtx.getNode().getKind();
+    final EKind nodeKind = mRtx.getKind();
     if (!mLeafLabels.containsKey(nodeKind)) {
       mLeafLabels.put(nodeKind, new ArrayList<Long>());
     }
-    mLeafLabels.get(nodeKind).add(mRtx.getNode().getNodeKey());
+    mLeafLabels.get(nodeKind).add(mRtx.getNodeKey());
   }
 
   /**

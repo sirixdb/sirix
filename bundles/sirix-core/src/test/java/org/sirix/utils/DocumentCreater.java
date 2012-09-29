@@ -27,6 +27,7 @@
 
 package org.sirix.utils;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -70,10 +71,10 @@ import org.sirix.service.xml.shredder.XMLShredder;
  *     |-  4 #oops1
  *     |-  5 &lt;b&gt;
  *     |   |-  6 #foo
- *     |   |-  7 &lt;c&gt;
+ *     |   |-  7 &lt;c/&gt;
  *     |-  8 #oops2
  *     |-  9 &lt;b @p:x='y'&gt;
- *     |   |- 11 &lt;c&gt;
+ *     |   |- 11 &lt;c/&gt;
  *     |   |- 12 #bar
  *     |- 13 #oops3
  * </pre>
@@ -155,13 +156,13 @@ public final class DocumentCreater {
   public static void create(final @Nonnull INodeWriteTrx pWtx)
     throws SirixException {
     assertNotNull(pWtx);
-    assertTrue(pWtx.moveToDocumentRoot());
+    assertTrue(pWtx.moveToDocumentRoot().hasMoved());
 
     pWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
     pWtx.insertNamespace(new QName("ns", "xmlns", "p"));
-    assertTrue(pWtx.moveToParent());
+    assertTrue(pWtx.moveToParent().hasMoved());
     pWtx.insertAttribute(new QName("i"), "j");
-    assertTrue(pWtx.moveToParent());
+    assertTrue(pWtx.moveToParent().hasMoved());
 
     pWtx.insertTextAsFirstChild("oops1");
 
@@ -169,17 +170,18 @@ public final class DocumentCreater {
 
     pWtx.insertTextAsFirstChild("foo");
     pWtx.insertElementAsRightSibling(new QName("c"));
-    assertTrue(pWtx.moveToParent());
+    assertTrue(pWtx.moveToParent().hasMoved());
+    assertEquals(2l, pWtx.getDescendantCount());
 
     pWtx.insertTextAsRightSibling("oops2");
 
     pWtx.insertElementAsRightSibling(new QName("b"));
     pWtx.insertAttribute(new QName("ns", "x", "p"), "y");
-    assertTrue(pWtx.moveToParent());
+    assertTrue(pWtx.moveToParent().hasMoved());
 
     pWtx.insertElementAsFirstChild(new QName("c"));
     pWtx.insertTextAsRightSibling("bar");
-    assertTrue(pWtx.moveToParent());
+    assertTrue(pWtx.moveToParent().hasMoved());
 
     pWtx.insertTextAsRightSibling("oops3");
 
@@ -303,7 +305,7 @@ public final class DocumentCreater {
     secondWtx.moveToRightSibling();
     secondWtx.moveToFirstChild();
     secondWtx.moveToRightSibling();
-    final long key = secondWtx.getNode().getNodeKey();
+    final long key = secondWtx.getNodeKey();
     secondWtx.insertAttribute(new QName("role"), "bold");
     secondWtx.moveTo(key);
     secondWtx.moveToRightSibling();

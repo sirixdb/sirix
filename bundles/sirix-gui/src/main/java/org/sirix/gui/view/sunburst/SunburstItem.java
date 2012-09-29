@@ -29,9 +29,6 @@ package org.sirix.gui.view.sunburst;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Equivalence;
-
-import org.gicentre.utils.move.Ease;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -46,6 +43,7 @@ import javax.xml.namespace.QName;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 
+import org.gicentre.utils.move.Ease;
 import org.sirix.access.Utils;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.gui.ReadDB;
@@ -53,11 +51,13 @@ import org.sirix.gui.view.EHover;
 import org.sirix.gui.view.IVisualItem;
 import org.sirix.gui.view.splines.BSpline;
 import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
 import processing.core.PGraphics;
 import processing.core.PVector;
+
+import com.google.common.base.Equivalence;
 
 /**
  * <h1>SunburstItem</h1>
@@ -70,10 +70,6 @@ import processing.core.PVector;
  * 
  */
 public final class SunburstItem implements IVisualItem {
-
-	/** Current {@link INode} in sirix. */
-	private final INode mNode;
-
 	// Relations. ============================================
 	/** Index to parent node. */
 	private transient int mIndexToParent;
@@ -223,14 +219,15 @@ public final class SunburstItem implements IVisualItem {
 	
 	/** Easing parameter. */
 	private float mEasing = 0f;
+	
+	private long mNodeKey;
+
+	private EKind mKind;
 
 	/** Builder to setup the Items. */
 	public static final class Builder {
 		/** {@link PApplet} representing the core processing library. */
 		private final PApplet mParent;
-
-		/** Current {@link INode} in sirix. */
-		private transient INode mNode;
 
 		/** {@link QName} of current node. */
 		private transient QName mQName;
@@ -271,6 +268,10 @@ public final class SunburstItem implements IVisualItem {
 		/** Old node key. */
 		private long mOldKey;
 
+		private long mNodeKey;
+
+		private EKind mKind;
+
 		/**
 		 * Constructor.
 		 * 
@@ -297,19 +298,6 @@ public final class SunburstItem implements IVisualItem {
 			mExtension = pExtension;
 			mRelations = pRelations;
 			mGUI = pGUI;
-		}
-
-		/**
-		 * Set the node.
-		 * 
-		 * @param pNode
-		 *          {@link INode} in sirix, which belongs to this
-		 *          {@link SunburstItem}
-		 * @return this builder
-		 */
-		public Builder setNode(@Nonnull final INode pNode) {
-			mNode = checkNotNull(pNode);
-			return this;
 		}
 
 		/**
@@ -359,6 +347,17 @@ public final class SunburstItem implements IVisualItem {
 		 */
 		public Builder setNamespaces(@Nonnull final List<Namespace> pNamespaces) {
 			mNamespaces = checkNotNull(pNamespaces);
+			return this;
+		}
+		
+		public Builder setNodeKey(final @Nonnegative long pNodeKey) {
+			checkArgument(pNodeKey >= 0, "node key must be >= 0!");
+			mNodeKey = pNodeKey;
+			return this;
+		}
+		
+		public Builder setKind(final @Nonnegative EKind pKind) {
+			mKind = checkNotNull(pKind);
 			return this;
 		}
 
@@ -429,7 +428,6 @@ public final class SunburstItem implements IVisualItem {
 		 * @return a new sunburst item
 		 */
 		public SunburstItem build() {
-			checkNotNull(mNode);
 			if (mQName == null && mOldQName == null && mText == null
 					&& mOldText == null) {
 				throw new IllegalStateException();
@@ -447,6 +445,8 @@ public final class SunburstItem implements IVisualItem {
 	 *           if {@code pItem} is {@code null}
 	 */
 	public SunburstItem(@Nonnull final SunburstItem pItem) {
+		mNodeKey = pItem.mNodeKey;
+		mKind = pItem.mKind;
 		mOrigDepth = pItem.mOrigDepth;
 		mTmpDepth = mOrigDepth;
 		mOldKey = pItem.mOldKey;
@@ -454,7 +454,6 @@ public final class SunburstItem implements IVisualItem {
 		mAttributes = pItem.mAttributes;
 		mNamespaces = pItem.mNamespaces;
 		mGUI = pItem.mGUI;
-		mNode = pItem.mNode;
 		mQName = pItem.mQName;
 		mOldQName = pItem.mOldQName;
 		mText = pItem.mText;
@@ -501,7 +500,6 @@ public final class SunburstItem implements IVisualItem {
 		mOrigDepth = pBuilder.mRelations.mOrigDepth;
 		mTmpDepth = mOrigDepth;
 		mGUI = pBuilder.mGUI;
-		mNode = pBuilder.mNode;
 		mQName = pBuilder.mQName;
 		mOldQName = pBuilder.mOldQName;
 		mText = pBuilder.mText;
@@ -618,7 +616,7 @@ public final class SunburstItem implements IVisualItem {
 			float maxValue = mMaxValue;
 
 			if (mGUI.mUseDiffView == EView.DIFF && mGUI.mUseDiffView.getValue()
-					&& mNode.getKind() == EKind.ELEMENT) {
+					&& mKind == EKind.ELEMENT) {
 				value = (mValue - (float) mModifications) / mValue;
 				minValue = 0;
 				maxValue = 1;
@@ -645,7 +643,7 @@ public final class SunburstItem implements IVisualItem {
 			}
 
 			// Colors for element and other nodes.
-			switch (mNode.getKind()) {
+			switch (mKind) {
 			case ELEMENT:
 				float bright = PApplet.lerp(mGUI.getInnerNodeBrightnessStart(),
 						mGUI.getInnerNodeBrightnessEnd(), percent);
@@ -1274,7 +1272,7 @@ public final class SunburstItem implements IVisualItem {
 			builder.append(" ");
 		}
 		builder.append("DescendantCount: ").append((int) mValue);
-		builder.append(" NodeKey: ").append(mNode.getNodeKey());
+		builder.append(" NodeKey: ").append(mNodeKey);
 
 		if (mDiff != null) {
 			builder.append(" Diff: ").append(mDiff.toString());
@@ -1533,12 +1531,6 @@ public final class SunburstItem implements IVisualItem {
 		return mSubtract;
 	}
 
-	/** {@inheritDoc} */
-	@Override
-	public INode getItem() {
-		return mNode;
-	}
-
 	/**
 	 * Get index of parent node.
 	 * 
@@ -1584,6 +1576,15 @@ public final class SunburstItem implements IVisualItem {
 	public float getValue() {
 		return mValue;
 	}
+	
+	/**
+	 * Get the kind of item.
+	 * 
+	 * @return kind of item
+	 */
+	public EKind getKind() {
+		return mKind;
+	}
 
 	/**
 	 * Set if node has to be colored or not.
@@ -1614,7 +1615,7 @@ public final class SunburstItem implements IVisualItem {
 
 	@Override
 	public long getKey() {
-		return mNode.getNodeKey();
+		return mNodeKey;
 	}
 
 	/**

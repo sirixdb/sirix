@@ -119,11 +119,10 @@ public class FNString extends AbsFunction {
   private String getStrValue() {
     final StringBuilder value = new StringBuilder();
 
-    final INode node = getTransaction().getNode();
-    if (node.getNodeKey() >= 0) { // is node
-      if (node.getKind() == EKind.ATTRIBUTE || node.getKind() == EKind.TEXT) {
-        value.append(getTransaction().getValueOfCurrentNode());
-      } else if (node.getKind() == EKind.DOCUMENT_ROOT || node.getKind() == EKind.ELEMENT) {
+    if (getTransaction().getNodeKey() >= 0) { // is node
+      if (getTransaction().getKind() == EKind.ATTRIBUTE || getTransaction().getKind() == EKind.TEXT) {
+        value.append(getTransaction().getValue());
+      } else if (getTransaction().getKind() == EKind.DOCUMENT_ROOT || getTransaction().getKind() == EKind.ELEMENT) {
         final IAxis axis =
           new FilterAxis(new DescendantAxis(getTransaction()), new TextFilter(getTransaction()));
         while (axis.hasNext()) {
@@ -131,13 +130,13 @@ public class FNString extends AbsFunction {
           if (value.length() > 0) {
             value.append(" ");
           }
-          value.append(getTransaction().getValueOfCurrentNode());
+          value.append(getTransaction().getValue());
         }
       } else {
         throw new IllegalStateException();
       }
     } else {
-      value.append(getTransaction().getValueOfCurrentNode());
+      value.append(getTransaction().getValue());
     }
 
     return value.toString();

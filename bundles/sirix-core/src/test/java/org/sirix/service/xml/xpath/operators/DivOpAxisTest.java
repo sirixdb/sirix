@@ -73,8 +73,8 @@ public class DivOpAxisTest {
 
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertThat(0.5, is(Double.parseDouble(holder.getRtx().getValueOfCurrentNode())));
-    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getNode().getTypeKey());
+    assertThat(0.5, is(Double.parseDouble(holder.getRtx().getValue())));
+    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
   }

@@ -83,7 +83,7 @@ public class PredicateFilterAxis extends AbsAxis {
     // a predicate has to evaluate to true only once.
     if (mIsFirst) {
       mIsFirst = false;
-      mPredicate.reset(getTransaction().getNode().getNodeKey());
+      mPredicate.reset(getTransaction().getNodeKey());
 
       if (mPredicate.hasNext()) {
         mPredicate.next();
@@ -110,13 +110,13 @@ public class PredicateFilterAxis extends AbsAxis {
    * @return true, if Item is boolean typed atomic value with type "false".
    */
   private boolean isBooleanFalse() {
-    if (getTransaction().getNode().getNodeKey() >= 0) {
+    if (getTransaction().getNodeKey() >= 0) {
       return false;
     } else { // is AtomicValue
-      if (getTransaction().getNode().getTypeKey() == getTransaction().keyForName("xs:boolean")) {
+      if (getTransaction().getTypeKey() == getTransaction().keyForName("xs:boolean")) {
         // atomic value of type boolean
         // return true, if atomic values's value is false
-        return !(Boolean.parseBoolean(getTransaction().getValueOfCurrentNode()));
+        return !(Boolean.parseBoolean(getTransaction().getValue()));
       } else {
         return false;
       }

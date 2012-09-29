@@ -98,23 +98,9 @@ public class NodeDelegate implements INode {
 		mTypeKey = TYPE_KEY;
 	}
 
-	/**
-	 * Copy constructor.
-	 * 
-	 * @param pNodeDel
-	 *          old node delegate
-	 */
-	public NodeDelegate(@Nonnull final NodeDelegate pNodeDel) {
-		mNodeKey = pNodeDel.mNodeKey;
-		mParentKey = pNodeDel.mParentKey;
-		mHash = pNodeDel.mHash;
-		mRevision = pNodeDel.mRevision;
-		mTypeKey = NodeDelegate.TYPE_KEY;
-	}
-
 	@Override
 	public EKind getKind() {
-		return EKind.UNKOWN;
+		return EKind.UNKNOWN;
 	}
 
 	@Override

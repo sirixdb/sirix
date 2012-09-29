@@ -57,10 +57,10 @@ abstract class AbsDiffObservable implements IDiffObservable {
 
   @Override
   public final void fireDiff(@Nonnull final EDiff pDiff,
-    @Nonnull final IStructNode pNewNode, @Nonnull final IStructNode pOldNode,
+    @Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
     @Nonnull final DiffDepth pDepth) {
     for (final IDiffObserver observer : mDiffObservers) {
-      observer.diffListener(pDiff, pNewNode, pOldNode, pDepth);
+      observer.diffListener(pDiff, pNewNodeKey, pOldNodeKey, pDepth);
     }
   }
 

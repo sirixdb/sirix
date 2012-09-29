@@ -45,161 +45,155 @@ import processing.core.PGraphics;
  * 
  */
 public interface IVisualItem extends Comparable<IVisualItem> {
-  /**
-   * Update an item.
-   * 
-   * @param pDraw
-   *          drawing mode
-   * @param pMappingMode
-   *          determines how to normalize
-   * @param pGraphics
-   *          the {@link PGraphics} instance to write to
-   */
-  void update(@Nonnull EDraw pDraw, int pMappingMode, @Nonnull PGraphics pGraphics);
+	/**
+	 * Update an item.
+	 * 
+	 * @param pDraw
+	 *          drawing mode
+	 * @param pMappingMode
+	 *          determines how to normalize
+	 * @param pGraphics
+	 *          the {@link PGraphics} instance to write to
+	 */
+	void update(@Nonnull EDraw pDraw, int pMappingMode,
+			@Nonnull PGraphics pGraphics);
 
-  /**
-   * Item hovered.
-   * 
-   * @param pGraphic
-   *          {@link PGraphics} instance
-   */
-  void hover(@Nonnull PGraphics pGraphic);
+	/**
+	 * Item hovered.
+	 * 
+	 * @param pGraphic
+	 *          {@link PGraphics} instance
+	 */
+	void hover(@Nonnull PGraphics pGraphic);
 
-  /**
-   * Get node key.
-   * 
-   * @return node key
-   */
-  long getKey();
+	/**
+	 * Get node key.
+	 * 
+	 * @return node key
+	 */
+	long getKey();
 
-  /**
-   * Set XPath state.
-   * 
-   * @param pState
-   *          {@link EXPathState} value
-   */
-  void setXPathState(@Nonnull EXPathState pState);
+	/**
+	 * Set XPath state.
+	 * 
+	 * @param pState
+	 *          {@link EXPathState} value
+	 */
+	void setXPathState(@Nonnull EXPathState pState);
 
-  /**
-   * Set grey state.
-   * 
-   * @param pState
-   *          {@link EGreyState} value
-   */
-  void setGreyState(@Nonnull EGreyState pState);
+	/**
+	 * Set grey state.
+	 * 
+	 * @param pState
+	 *          {@link EGreyState} value
+	 */
+	void setGreyState(@Nonnull EGreyState pState);
 
-  /**
-   * Get grey state.
-   * 
-   * @return grey state
-   */
-  EGreyState getGreyState();
+	/**
+	 * Get grey state.
+	 * 
+	 * @return grey state
+	 */
+	EGreyState getGreyState();
 
-  /**
-   * Get type of diff.
-   * 
-   * @return type of diff
-   */
-  EDiff getDiff();
+	/**
+	 * Get type of diff.
+	 * 
+	 * @return type of diff
+	 */
+	EDiff getDiff();
 
-  /**
-   * Get item.
-   * 
-   * @return item
-   */
-  INode getItem();
+	/**
+	 * Set if node should be colored or not.
+	 * 
+	 * @param pColorNode
+	 *          enum to determine if node should be colored or not
+	 */
+	void setColorNode(@Nonnull EColorNode pColorNode);
 
-  /**
-   * Set if node should be colored or not.
-   * 
-   * @param pColorNode
-   *          enum to determine if node should be colored or not
-   */
-  void setColorNode(@Nonnull EColorNode pColorNode);
+	/**
+	 * Set the revision the item belongs to.
+	 * 
+	 * @param pRevision
+	 *          the revision to set
+	 */
+	void setRevision(@Nonnegative long pRevision);
 
-  /**
-   * Set the revision the item belongs to.
-   * 
-   * @param pRevision
-   *          the revision to set
-   */
-  void setRevision(@Nonnegative long pRevision);
+	/** Get the revision the item belongs to. */
+	long getRevision();
 
-  /** Get the revision the item belongs to. */
-  long getRevision();
+	/** Get text value of the item. */
+	String getText();
 
-  /** Get text value of the item. */
-  String getText();
+	/**
+	 * Set the minimum value.
+	 * 
+	 * @param pMinimum
+	 *          value
+	 */
+	void setMinimum(@Nonnegative float pMinimum);
 
-  /**
-   * Set the minimum value.
-   * 
-   * @param pMinimum
-   *          value
-   */
-  void setMinimum(@Nonnegative float pMinimum);
+	/**
+	 * Set the maximum value.
+	 * 
+	 * @param pMaximum
+	 *          value
+	 */
+	void setMaximum(@Nonnegative float pMaximum);
 
-  /**
-   * Set the maximum value.
-   * 
-   * @param pMaximum
-   *          value
-   */
-  void setMaximum(@Nonnegative float pMaximum);
+	/**
+	 * Item depth.
+	 * 
+	 * @return the depth of the item
+	 */
+	int getDepth();
 
-  /**
-   * Item depth.
-   * 
-   * @return the depth of the item
-   */
-  int getDepth();
+	/**
+	 * Get value.
+	 * 
+	 * @return value
+	 */
+	float getValue();
 
-  /**
-   * Get value.
-   * 
-   * @return value
-   */
-  float getValue();
+	/**
+	 * Get index of parent item.
+	 * 
+	 * @return index of the parent item
+	 */
+	int getIndexToParent();
 
-  /**
-   * Get index of parent item.
-   * 
-   * @return index of the parent item
-   */
-  int getIndexToParent();
+	/**
+	 * Get minimum value.
+	 * 
+	 * @return minimum value
+	 */
+	float getMinimum();
 
-  /**
-   * Get minimum value.
-   * 
-   * @return minimum value
-   */
-  float getMinimum();
+	/**
+	 * Get maximum value.
+	 * 
+	 * @return maximum value
+	 */
+	float getMaximum();
 
-  /**
-   * Get maximum value.
-   * 
-   * @return maximum value
-   */
-  float getMaximum();
+	/**
+	 * Get nodeKey of node in older revision which has been compared.
+	 * 
+	 * @return {@code nodeKey} of node in old revision
+	 */
+	long getOldKey();
 
-  /**
-   * Get nodeKey of node in older revision which has been compared.
-   * 
-   * @return {@code nodeKey} of node in old revision
-   */
-  long getOldKey();
+	/**
+	 * Get modification count.
+	 * 
+	 * @return modification count
+	 */
+	int getModificationCount();
 
-  /**
-   * Get modification count.
-   * 
-   * @return modification count
-   */
-  int getModificationCount();
-
-  /**
-   * Get maximum depth of unchanged items.
-   * 
-   * @return maximum depth of unchanged items
-   */
-  int getOriginalDepth();
+	/**
+	 * Get maximum depth of unchanged items.
+	 * 
+	 * @return maximum depth of unchanged items
+	 */
+	int getOriginalDepth();
 }

@@ -47,15 +47,15 @@ interface IDiffObservable {
    * 
    * @param pDiff
    *          the encountered diff
-   * @param pNewNode
-   *          current {@link IStructuralItem} in new revision
-   * @param pOldNode
-   *          current {@link IStructuralItem} in old revision
+   * @param pNewNodeKey
+   *          node key of current node in new revision
+   * @param pOldNodeKey
+   *          node key of current node in old revision
    * @param pDepth
    *          current {@link DiffDepth} instance
    */
   void fireDiff(@Nonnull final EDiff pDiff,
-    @Nonnull final IStructNode pNewNode, @Nonnull final IStructNode pOldNode,
+    @Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
     @Nonnull final DiffDepth pDepth);
 
   /**

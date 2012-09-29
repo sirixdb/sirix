@@ -32,7 +32,7 @@ enum EOperation implements IOperation<INodeWriteTrx> {
       checkNotNull(pChild);
       checkNotNull(pVisitor);
       checkNotNull(pIndex);
-      checkArgument(pWtx.getNode().getKind() == EKind.ELEMENT,
+      checkArgument(pWtx.getKind() == EKind.ELEMENT,
         "Transaction must be located at an element node!");
       if (Files.isDirectory(pChild)) {
         pIndex.put(pChild, EPath.ISDIRECTORY);
@@ -43,7 +43,7 @@ enum EOperation implements IOperation<INodeWriteTrx> {
       }
       pWtx.insertAttribute(new QName("name"), pChild.getFileName().toString());
       pWtx.moveToParent();
-      final long nodeKey = pWtx.getNode().getNodeKey();
+      final long nodeKey = pWtx.getNodeKey();
       processVisitor(pVisitor, pWtx, pChild);
       pWtx.moveTo(nodeKey);
     }
@@ -57,9 +57,9 @@ enum EOperation implements IOperation<INodeWriteTrx> {
       checkNotNull(pChild);
       checkNotNull(pVisitor);
       checkNotNull(pIndex);
-      checkArgument(pWtx.getNode().getKind() == EKind.ELEMENT,
+      checkArgument(pWtx.getKind() == EKind.ELEMENT,
         "Transaction must be located at an element node!");
-      final long nodeKey = pWtx.getNode().getNodeKey();
+      final long nodeKey = pWtx.getNodeKey();
       processVisitor(pVisitor, pWtx, pChild);
       pWtx.moveTo(nodeKey);
     }
@@ -73,7 +73,7 @@ enum EOperation implements IOperation<INodeWriteTrx> {
       checkNotNull(pChild);
       checkNotNull(pVisitor);
       checkNotNull(pIndex);
-      checkArgument(pWtx.getNode().getKind() == EKind.ELEMENT,
+      checkArgument(pWtx.getKind() == EKind.ELEMENT,
         "Transaction must be located at an element node!");
       pWtx.remove();
     }

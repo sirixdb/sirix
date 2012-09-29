@@ -72,17 +72,17 @@ public class LiteralExprTest {
     final AbsAxis axis1 = new LiteralExpr(holder.getRtx(), key1);
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(key1, holder.getRtx().getNode().getNodeKey());
-    assertEquals(holder.getRtx().keyForName("xs:boolean"), holder.getRtx().getNode().getTypeKey());
-    assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValueOfCurrentNode()));
+    assertEquals(key1, holder.getRtx().getNodeKey());
+    assertEquals(holder.getRtx().keyForName("xs:boolean"), holder.getRtx().getTypeKey());
+    assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis1.hasNext());
 
     final AbsAxis axis2 = new LiteralExpr(holder.getRtx(), key2);
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(key2, holder.getRtx().getNode().getNodeKey());
-    assertEquals(holder.getRtx().keyForName("xs:integer"), holder.getRtx().getNode().getTypeKey());
-    assertEquals(14, Integer.parseInt(holder.getRtx().getValueOfCurrentNode()));
+    assertEquals(key2, holder.getRtx().getNodeKey());
+    assertEquals(holder.getRtx().keyForName("xs:integer"), holder.getRtx().getTypeKey());
+    assertEquals(14, Integer.parseInt(holder.getRtx().getValue()));
     assertEquals(false, axis2.hasNext());
 
   }

@@ -93,7 +93,7 @@ public final class RevertTest {
     final long maxNodeKey = wtx.getMaxNodeKey();
     assertEquals(rev3MaxNodeKey, maxNodeKey);
     wtx.insertElementAsFirstChild(new QName(""));
-    assertEquals(maxNodeKey + 1, wtx.getNode().getNodeKey());
+    assertEquals(maxNodeKey + 1, wtx.getNodeKey());
     assertEquals(maxNodeKey + 1, wtx.getMaxNodeKey());
     wtx.commit();
     wtx.close();

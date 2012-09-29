@@ -79,8 +79,6 @@ import org.sirix.gui.view.sunburst.axis.DiffSunburstAxis;
 import org.sirix.gui.view.sunburst.model.Modification;
 import org.sirix.gui.view.sunburst.model.Modifications;
 import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -103,828 +101,814 @@ import com.sleepycat.je.DatabaseException;
  * 
  */
 public final class TraverseCompareTree extends AbsTraverseModel implements
-  Callable<Void>, IDiffObserver, ITraverseModel {
+		Callable<Void>, IDiffObserver, ITraverseModel {
 
-  /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
-    .getLogger(TraverseCompareTree.class));
+	/** {@link LogWrapper} reference. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(TraverseCompareTree.class));
 
-  /** Shared {@link ExecutorService} instance using the same thread for execution. */
-  private static final ExecutorService SAME_THREAD_EXECUTOR = MoreExecutors
-    .sameThreadExecutor();
+	/**
+	 * Shared {@link ExecutorService} instance using the same thread for
+	 * execution.
+	 */
+	private static final ExecutorService SAME_THREAD_EXECUTOR = MoreExecutors
+			.sameThreadExecutor();
 
-  /** Shared {@link ForkJoinPool} instance. */
-  private static final ForkJoinPool FORK_JOIN_POOL = new ForkJoinPool();
+	/** Shared {@link ForkJoinPool} instance. */
+	private static final ForkJoinPool FORK_JOIN_POOL = new ForkJoinPool();
 
-  /** {@link Levenshtein} instance. */
-  private final Levenshtein mLevenshtein = new Levenshtein();
+	/** {@link Levenshtein} instance. */
+	private final Levenshtein mLevenshtein = new Levenshtein();
 
-  /** Diff threshold, determining when a database has to be used. */
-  private static final int DIFF_THRESHOLD = 100_000_000;
+	/** Diff threshold, determining when a database has to be used. */
+	private static final int DIFF_THRESHOLD = 100_000_000;
 
-  /** Timeout for {@link CountDownLatch}. */
-  private static final long TIMEOUT_S = 6000; // 100mins
+	/** Timeout for {@link CountDownLatch}. */
+	private static final long TIMEOUT_S = 6000; // 100mins
 
-  /** Number of available processors. */
-  private static final int PROCESSORS = Runtime.getRuntime()
-    .availableProcessors();
+	/** Number of available processors. */
+	private static final int PROCESSORS = Runtime.getRuntime()
+			.availableProcessors();
 
-  /** Thread pool. */
-  private static final ExecutorService POOL = PROCESSORS > 3 ? Executors
-    .newFixedThreadPool(PROCESSORS) : SAME_THREAD_EXECUTOR;
+	/** Thread pool. */
+	private static final ExecutorService POOL = PROCESSORS > 3 ? Executors
+			.newFixedThreadPool(PROCESSORS) : SAME_THREAD_EXECUTOR;
 
-  /** Locking changes which are fired. */
-  private final Semaphore mLock;
+	/** Locking changes which are fired. */
+	private final Semaphore mLock;
 
-  /** {@link CountDownLatch} to wait until {@link List} of {@link EDiff}s has been created. */
-  private final CountDownLatch mStart;
+	/**
+	 * {@link CountDownLatch} to wait until {@link List} of {@link EDiff}s has been
+	 * created.
+	 */
+	private final CountDownLatch mStart;
 
-  /** New revision to compare. */
-  private final int mNewRevision;
+	/** New revision to compare. */
+	private final int mNewRevision;
 
-  /** Old revision to compare. */
-  private final int mOldRevision;
+	/** Old revision to compare. */
+	private final int mOldRevision;
 
-  /** Key in new revision from which to start traversal. */
-  private final long mNewStartKey;
+	/** Key in new revision from which to start traversal. */
+	private final long mNewStartKey;
 
-  /** Key in old revision from which to start traversal. */
-  private final long mOldStartKey;
+	/** Key in old revision from which to start traversal. */
+	private final long mOldStartKey;
 
-  /** {@link IModel} implementation. */
-  private final IModel<?, ?> mModel;
+	/** {@link IModel} implementation. */
+	private final IModel<?, ?> mModel;
 
-  /** {@link List} of {@link SunburstItem}s. */
-  private final List<SunburstItem> mItems;
+	/** {@link List} of {@link SunburstItem}s. */
+	private final List<SunburstItem> mItems;
 
-  /** Maximum depth in the tree. */
-  private int mDepthMax;
+	/** Maximum depth in the tree. */
+	private int mDepthMax;
 
-  /** {@link ReadDb} instance. */
-  private final ReadDB mDb;
+	/** {@link ReadDb} instance. */
+	private final ReadDB mDb;
 
-  /** Maximum descendant count in tree. */
-  private int mMaxDescendantCount;
+	/** Maximum descendant count in tree. */
+	private int mMaxDescendantCount;
 
-  /** Maximum descendant count {@link Future}. */
-  private Future<Modification> mMaxDescendantCountFuture;
+	/** Maximum descendant count {@link Future}. */
+	private Future<Modification> mMaxDescendantCountFuture;
 
-  /** Parent processing frame. */
-  private final PApplet mParent;
+	/** Parent processing frame. */
+	private final PApplet mParent;
 
-  /** {@link INodeReadTrx} instance. */
-  private INodeReadTrx mOldRtx;
+	/** {@link INodeReadTrx} instance. */
+	private INodeReadTrx mOldRtx;
 
-  /** Weighting of modifications. */
-  private float mModWeight;
+	/** Weighting of modifications. */
+	private float mModWeight;
 
-  /** Maximum depth in new revision. */
-  private int mNewDepthMax;
+	/** Maximum depth in new revision. */
+	private int mNewDepthMax;
 
-  /** {@link INodeReadTrx} on the revision to compare. */
-  private INodeReadTrx mNewRtx;
+	/** {@link INodeReadTrx} on the revision to compare. */
+	private INodeReadTrx mNewRtx;
 
-  /** {@link Map} of {@link DiffTuple}s. */
-  private Map<Integer, DiffTuple> mDiffs;
+	/** {@link Map} of {@link DiffTuple}s. */
+	private Map<Integer, DiffTuple> mDiffs;
 
-  /** Queue for diff-tuples used by a . */
-  private BlockingQueue<DiffTuple> mDiffQueue;
+	/** Queue for diff-tuples used by a . */
+	private BlockingQueue<DiffTuple> mDiffQueue;
 
-  /** Start depth in the tree. */
-  private int mDepth;
+	/** Start depth in the tree. */
+	private int mDepth;
 
-  /** Determines if tree should be pruned or not. */
-  private EPruning mPrune;
+	/** Determines if tree should be pruned or not. */
+	private EPruning mPrune;
 
-  /** Determines if current item is pruned or not. */
-  private boolean mIsPruned;
-
-  /** {@link DiffSunburstAxis} instance. */
-  private AbsSunburstAxis mAxis;
-
-  /** GUI which extends {@link AbsSunburstGUI}. */
-  private final AbsSunburstGUI mGUI;
-
-  /** Determines how to compare the two trees. */
-  private final ECompare mCompare;
-
-  /** Database to handle diffs. */
-  private final DiffDatabase mDiffDatabase;
-
-  /** {@link TransactionRunner} instance. */
-  private final TransactionRunner mRunner;
-
-  /** Counts diff entries. */
-  private int mEntries;
-
-  /** Determines if diffs have been done. */
-  private volatile boolean mDone;
-
-  /** {@link BlockingQueue} for the modifications of each node. */
-  private final BlockingQueue<Future<Modification>> mModificationQueue;
-
-  /** Datastructure to capture DELETED nodes. */
-  private final Map<Long, Integer> mOldKeys;
-
-  /** Datastructure to capture INSERTED nodes. */
-  private final Map<Long, Integer> mNewKeys;
-
-  /** The observer. */
-  private final IDiffObserver mObserver;
-
-  /** Determines if UPDATES have been fired. */
-  private boolean mHasUpdatedNodes;
-
-  /** Determines if last node has been {@code UPDATED}. */
-  private boolean mLastNodeUpdated;
-
-  /** Count root node modifications. */
-  private int mModifications;
-
-  /** Determines if move detection is enabled or disabled. */
-  private final boolean mMoveDetection;
-
-  /**
-   * Constructor.
-   * 
-   * @param pContainer
-   *          {@link SunburstContainer} reference
-   */
-  public TraverseCompareTree(@Nonnull final SunburstContainer pContainer) {
-    checkNotNull(pContainer);
-    checkArgument(pContainer.getRevision() >= 0);
-    checkArgument(pContainer.getOldStartKey() >= 0);
-    checkArgument(pContainer.getNewStartKey() >= 0);
-    checkArgument(pContainer.getDepth() >= 0);
-    checkArgument(pContainer.getModWeight() >= 0);
-    checkArgument(pContainer.getRevision() > pContainer.getOldRevision(),
-      "paramNewRevision must be greater than the currently opened revision!");
-    checkNotNull(pContainer.getPruning());
-    checkNotNull(pContainer.getGUI());
-    checkNotNull(pContainer.getModel());
-
-    LOGWRAPPER.debug("new revision: " + pContainer.getRevision());
-    LOGWRAPPER.debug("old revision: " + pContainer.getOldRevision());
-
-    mObserver = this;
-    mDiffDatabase = new DiffDatabase(new File("target"));
-    mRunner = new TransactionRunner(mDiffDatabase.getEnvironment());
-    mOldKeys = new HashMap<>();
-    mNewKeys = new HashMap<>();
-    mModel = pContainer.getModel();
-    addPropertyChangeListener(mModel);
-    mDb = mModel.getDb();
-    mOldRevision =
-      pContainer.getOldRevision() != -1 ? pContainer.getOldRevision() : mDb
-        .getRevisionNumber();
-
-    try {
-      mNewRtx = mDb.getSession().beginNodeReadTrx(pContainer.getRevision());
-      mOldRtx = mModel.getDb().getSession().beginNodeReadTrx(mOldRevision);
-    } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-
-    mGUI = pContainer.getGUI();
-    mNewRevision = pContainer.getRevision();
-    mModWeight = pContainer.getModWeight();
-    mDiffs = new LinkedHashMap<>(1500);
-    mStart = new CountDownLatch(2);
-    mItems = new ArrayList<>();
-    mParent = ((AbsModel<?, ?>)mModel).getParent();
-    mDepth = pContainer.getDepth();
-    mOldRtx.moveTo(pContainer.getNewStartKey());
-    if (mOldRtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
-      mOldRtx.moveToFirstChild();
-    }
-    mOldStartKey =
-      pContainer.getNewStartKey() == 0 ? mOldRtx.getNode().getNodeKey()
-        : pContainer.getNewStartKey();
-    mNewRtx.moveTo(pContainer.getNewStartKey());
-    if (mNewRtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
-      mNewRtx.moveToFirstChild();
-    }
-    mNewStartKey =
-      pContainer.getNewStartKey() == 0 ? mNewRtx.getNode().getNodeKey()
-        : pContainer.getNewStartKey();
-    mPrune = pContainer.getPruning();
-    mLock = pContainer.getLock();
-    mCompare = pContainer.getCompare();
-    mDiffQueue = new LinkedBlockingQueue<>();
-    mModificationQueue = new LinkedBlockingQueue<>();
-    mHasUpdatedNodes = (mPrune == EPruning.ITEMSIZE ? true : false);
-    mLastNodeUpdated = false;
-    mMoveDetection = pContainer.getMoveDetection();
-  }
-
-  @Override
-  public Void call() {
-    final long startTime = System.nanoTime();
-    LOGWRAPPER.debug("Build sunburst items.");
-
-    try {
-      firePropertyChange("progress", null, 0);
-
-      // Invoke diff.
-      LOGWRAPPER.debug("CountDownLatch: " + mStart.getCount());
-
-      POOL.submit(new Callable<Void>() {
-        @Override
-        public Void call() throws SirixException {
-          EDiffOptimized optimized = EDiffOptimized.NO;
-          if (mPrune == EPruning.DIFF
-            || mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES) {
-            optimized = EDiffOptimized.HASHED;
-          }
-          DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(mDb
-            .getSession(), mNewRevision, mOldRtx.getRevisionNumber(),
-            optimized, ImmutableSet.of(mObserver)).setNewDepth(mDepth)
-            .setOldDepth(mDepth).setNewStartKey(mNewStartKey).setOldStartKey(
-              mOldStartKey));
-          return null;
-        }
-      });
-
-      if (PROCESSORS == 2) {
-        final ExecutorService pool = Executors.newSingleThreadExecutor();
-        mDepthMax = pool.submit(new Callable<Integer>() {
-          @Override
-          public Integer call() {
-            // Maximum depth in old revision.
-            return getDepthMax();
-          }
-        }).get();
-        pool.shutdown();
-      } else {
-        mDepthMax = POOL.submit(new Callable<Integer>() {
-          @Override
-          public Integer call() {
-            // Maximum depth in old revision.
-            return getDepthMax();
-          }
-        }).get();
-      }
-
-      // Wait for diff list to complete.
-      final boolean done = mStart.await(TIMEOUT_S, TimeUnit.SECONDS);
-      if (!done) {
-        LOGWRAPPER.error("Diff failed - Timeout occured after " + TIMEOUT_S
-          + " seconds!");
-      }
-
-      final int size = mDiffs.size();
-      if (mEntries > DIFF_THRESHOLD) {
-        final int mapSize = mDiffDatabase.getMap().size();
-        LOGWRAPPER.debug("mapSize: " + mapSize);
-      }
-
-      LOGWRAPPER.debug("size: " + size);
-      int i = 0;
-      if (mMoveDetection) {
-        detectMoves();
-      }
-
-      i = 0;
-      final Map<Integer, DiffTuple> diffs =
-        mEntries > DIFF_THRESHOLD ? mDiffDatabase.getMap() : mDiffs;
-      firePropertyChange("diffs", null, diffs);
-
-      for (mAxis =
-        new DiffSunburstAxis(EIncludeSelf.YES, this, mNewRtx, mOldRtx, diffs,
-          mDepthMax, mDepth, mPrune); mAxis.hasNext(); i++) {
-        mAxis.next();
-        if (mCompare == ECompare.SINGLEINCREMENTAL) {
-          final int progress = (int)((i / (float)size) * 100);
-          firePropertyChange("progress", null, progress);
-        }
-      }
-    } catch (final InterruptedException | ExecutionException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-
-    try {
-      mOldRtx.close();
-      mNewRtx.close();
-    } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-    LOGWRAPPER.info(mItems.size() + " SunburstItems created!");
-    LOGWRAPPER.debug("oldMaxDepth: " + mDepthMax);
-
-    mLock.acquireUninterruptibly();
-
-    // Order of property changes is significant.
-    firePropertyChange("oldRev", null, mOldRevision);
-    firePropertyChange("newRev", null, mNewRevision);
-    firePropertyChange("oldmaxdepth", null, mDepthMax);
-    firePropertyChange("maxDepth", null, mNewDepthMax);
-    firePropertyChange("items", null, mItems);
-    firePropertyChange("updated", null, mHasUpdatedNodes);
-    firePropertyChange("revision", null, mNewRevision);
-    firePropertyChange("done", null, true);
-    firePropertyChange("progress", null, 100);
-
-    LOGWRAPPER.debug("Property changes sent!");
-    // Lock is released in the controller.
-
-    // mDiffDatabase.close();
-
-    final long endTime = System.nanoTime();
-
-    System.out.println((endTime - startTime) * 1e-6 / 1000);
-
-    return null;
-  }
-
-  /** Detect moves. */
-  private void detectMoves() {
-    // Only do move detection if the diffs don't have to be saved in a berkeleydb database.
-    if (mDiffs.size() <= DIFF_THRESHOLD) {
-      for (final DiffTuple diffCont : mDiffs.values()) {
-        final Integer newIndex = mNewKeys.get(diffCont.getOldNodeKey());
-        if (newIndex != null
-          && (diffCont.getDiff() == EDiff.DELETED || diffCont.getDiff() == EDiff.MOVEDFROM)) {
-          LOGWRAPPER.debug("new node key: "
-            + mDiffs.get(newIndex).getNewNodeKey());
-          mDiffs.get(newIndex).setDiff(EDiff.MOVEDTO);
-        }
-        final Integer oldIndex = mOldKeys.get(diffCont.getNewNodeKey());
-        if (oldIndex != null
-          && (diffCont.getDiff() == EDiff.INSERTED || diffCont.getDiff() == EDiff.MOVEDTO)) {
-          mDiffs.get(oldIndex).setDiff(EDiff.MOVEDFROM).setIndex(
-            mNewKeys.get(diffCont.getNewNodeKey()));
-        }
-      }
-    }
-  }
-
-  @Override
-  public void diffListener(@Nonnull final EDiff pDiff,
-    @Nonnull final IStructNode pNewNode, @Nonnull final IStructNode pOldNode,
-    @Nonnull final DiffDepth pDepth) {
-    LOGWRAPPER.debug("kind of diff: " + pDiff);
-
-    if (mPrune != EPruning.DIFF_WITHOUT_SAMEHASHES
-      || (mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES && pDiff != EDiff.SAMEHASH)
-      || mEntries == 0) {
-      final DiffTuple diffCont =
-        new DiffTuple(pDiff, pNewNode.getNodeKey(), pOldNode.getNodeKey(),
-          pDepth);
-      final EDiff diff = diffCont.getDiff();
-      if (!mHasUpdatedNodes && mLastNodeUpdated) {
-        // Has at least one diff, thus it's safe.
-        final DiffTuple oldCont = mDiffs.get(mEntries - 1);
-        final int oldDepth = getDepth(oldCont);
-        final int newDepth = getDepth(diffCont);
-        if (newDepth > oldDepth) {
-          mHasUpdatedNodes = true;
-        }
-      }
-      try {
-        mDiffQueue.put(diffCont);
-      } catch (final InterruptedException e) {
-        LOGWRAPPER.error(e.getMessage(), e);
-      }
-      mDiffs.put(mEntries, diffCont);
-      switch (diff) {
-      case INSERTED:
-        mNewKeys.put(pNewNode.getNodeKey(), mEntries);
-        mModifications++;
-        break;
-      case DELETED:
-        mOldKeys.put(pOldNode.getNodeKey(), mEntries);
-        mModifications++;
-        break;
-      case UPDATED:
-        mLastNodeUpdated = true;
-        mModifications++;
-        break;
-      case REPLACEDNEW:
-      case REPLACEDOLD:
-        mModifications++;
-        break;
-      default:
-        // Do nothing.
-      }
-      mEntries++;
-      if (mEntries % DIFF_THRESHOLD == 0) {
-        try {
-          // Works even if transactions are not enabled.
-          mRunner.run(new PopulateDatabase(mDiffDatabase, mDiffs, mDiffDatabase
-            .getMap().size()));
-        } catch (final Exception e) {
-          LOGWRAPPER.error(e.getMessage(), e);
-        }
-      }
-    }
-  }
-
-  /**
-   * Get depth of a node from a {@link DiffTuple} instance.
-   * 
-   * @param pDiffCont
-   *          {@link DiffTuple} instance
-   * @return the {@code depth} of the node
-   */
-  private int getDepth(@Nonnull final DiffTuple pDiffCont) {
-    int depth;
-    final EDiff diff = pDiffCont.getDiff();
-    if (diff == EDiff.DELETED || diff == EDiff.MOVEDFROM
-      || diff == EDiff.REPLACEDOLD) {
-      depth = pDiffCont.getDepth().getOldDepth();
-    } else {
-      depth = pDiffCont.getDepth().getNewDepth();
-    }
-    return depth;
-  }
-
-  @Override
-  public void diffDone() {
-    if (mDiffDatabase.getMap().get(1) != null) {
-      try {
-        mRunner.run(new PopulateDatabase(mDiffDatabase, mDiffs, mDiffDatabase
-          .getMap().size()));
-      } catch (final Exception e) {
-        LOGWRAPPER.error(e.getMessage(), e);
-      }
-    }
-    mDone = true;
-    mStart.countDown();
-  }
-
-  /** Populate the diff database. */
-  private static class PopulateDatabase implements TransactionWorker {
-
-    /** {@link StoredMap} reference. */
-    private Map<Integer, DiffTuple> mMap;
-
-    /** {@link List} of {@link DiffTuple}s. */
-    private Map<Integer, DiffTuple> mValue;
-
-    /** Old size of database. */
-    private int mOldSize;
-
-    /**
-     * Constructor.
-     * 
-     * @param pDatabase
-     *          {@link DiffDatabase} reference
-     * @param pValue
-     *          {@link Map} of {@link DiffTuple}s
-     * @param pOldSize
-     *          size of the database map
-     */
-    public PopulateDatabase(@Nonnull final DiffDatabase pDatabase,
-      @Nonnull final Map<Integer, DiffTuple> pValue, final int pOldSize) {
-      checkNotNull(pDatabase);
-      checkNotNull(pValue);
-      checkArgument(pOldSize >= 0, "pOldSize must be >= 0!");
-      mMap = pDatabase.getMap();
-      mValue = pValue;
-      mOldSize = pOldSize;
-    }
-
-    @Override
-    public void doWork() throws DatabaseException {
-      final int size = mMap.size();
-      for (int i = size, j = mOldSize; j < mValue.size(); i++, j++) {
-        mMap.put(i, mValue.get(j));
-      }
-    }
-  }
-
-  /**
-   * Get the maximum depth in the tree of the nodes which haven't changed.
-   * 
-   * @return {@code maximum depth} of unchanged nodes
-   */
-  private int getDepthMax() {
-    int depthMax = 0;
-    for (boolean isNotEmpty = !mDiffQueue.isEmpty(); ((isNotEmpty =
-      !mDiffQueue.isEmpty()) == true)
-      || !mDone;) {
-      if (isNotEmpty) {
-        final DiffTuple tuple = mDiffQueue.peek();
-        final EDiff diff = tuple.getDiff();
-        if (diff == EDiff.SAME || diff == EDiff.SAMEHASH) {
-          // Set depth max.
-          depthMax =
-            Math.max(mDiffQueue.poll().getDepth().getOldDepth() - mDepth,
-              depthMax);
-        } else {
-          mDiffQueue.poll();
-        }
-      }
-    }
-    mStart.countDown();
-    return depthMax;
-  }
-
-  @Override
-  public BlockingQueue<Future<Modification>> getModificationQueue() {
-    return mModificationQueue;
-  }
-
-  @Override
-  public float createSunburstItem(@Nonnull final Item pItem,
-    @Nonnegative final int pDepth, @Nonnegative final int pIndex) {
-    checkNotNull(pItem);
-    checkArgument(pDepth >= 0, "pDepth must be positive!");
-    checkArgument(pIndex >= 0, "pIndex must be >= 0!");
-
-    // Initialize variables.
-    final float angle = pItem.mAngle;
-    final float parExtension = pItem.mExtension;
-    final int indexToParent = pItem.mIndexToParent;
-    final int descendantCount = pItem.mDescendantCount;
-    final int parentDescCount = pItem.mParentDescendantCount;
-    final int modificationCount = pItem.mModificationCount;
-    long parentModificationCount = pItem.mParentModificationCount;
-    final boolean subtract = pItem.mSubtract;
-    final DiffTuple diffCont = pItem.mDiff;
-    final int origDepth = pItem.mOrigDepth;
-    final int nextDepth = pItem.mNextDepth;
-    final int depth = pDepth;
-
-    // Calculate extension.
-    float extension = 2 * PConstants.PI;
-    if (indexToParent > -1) {
-      if (mItems.get(indexToParent).getSubtract()) {
-        parentModificationCount -= FACTOR;
-      }
-      extension =
-        (1f - mModWeight)
-          * (parExtension * (float)descendantCount / ((float)parentDescCount - 1f))
-          + mModWeight
-          // -1 because we add the descendant-or-self count to the
-          // modificationCount/parentModificationCount.
-          * (parExtension * (float)modificationCount / ((float)parentModificationCount - 1f));
-    }
-
-    LOGWRAPPER.debug("ITEM: " + pIndex);
-    LOGWRAPPER.debug("modificationCount: " + modificationCount);
-    LOGWRAPPER.debug("parentModificationCount: " + parentModificationCount);
-    LOGWRAPPER.debug("descendantCount: " + descendantCount);
-    LOGWRAPPER.debug("parentDescCount: " + parentDescCount);
-    LOGWRAPPER.debug("indexToParent: " + indexToParent);
-    LOGWRAPPER.debug("extension: " + extension);
-    LOGWRAPPER.debug("depth: " + depth);
-    LOGWRAPPER.debug("next Depth: " + nextDepth);
-    LOGWRAPPER.debug("angle: " + angle);
-
-    if (mPrune == EPruning.ITEMSIZE
-      && extension < ITraverseModel.ANGLE_TO_PRUNE
-      && modificationCount <= descendantCount) {
-      nodePruned();
-    } else {
-      // Add a sunburst item.
-      if (mPrune == EPruning.DIFF && diffCont.getDiff() == EDiff.SAMEHASH) {
-        mIsPruned = true;
-      } else {
-        mIsPruned = false;
-      }
-
-      IStructNode node = null;
-      if (diffCont.getDiff() == EDiff.DELETED
-        || diffCont.getDiff() == EDiff.MOVEDFROM
-        || diffCont.getDiff() == EDiff.REPLACEDOLD) {
-        node = mOldRtx.getStructuralNode();
-      } else {
-        node = mNewRtx.getStructuralNode();
-      }
-
-      final EStructType structKind =
-        nextDepth > depth ? EStructType.ISINNERNODE : EStructType.ISLEAFNODE;
-
-      // Set node relations.
-      String text = "";
-      NodeRelations relations = null;
-      final EDiff currDiff = diffCont.getDiff();
-      if (node.getKind() == EKind.TEXT) {
-        if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM
-          || currDiff == EDiff.REPLACEDOLD) {
-          text = mOldRtx.getValueOfCurrentNode();
-        } else {
-          text = mNewRtx.getValueOfCurrentNode();
-        }
-        if (currDiff == EDiff.UPDATED
-          || ((currDiff == EDiff.REPLACEDNEW || currDiff == EDiff.REPLACEDOLD) && mOldRtx
-            .getNode().getKind() == mNewRtx.getNode().getKind())) {
-          final String oldValue = mOldRtx.getValueOfCurrentNode();
-          final String newValue = mNewRtx.getValueOfCurrentNode();
-          float similarity = 1;
-          // try {
-          // Integer.parseInt(oldValue);
-          // Integer.parseInt(newValue);
-          //
-          // // TODO: Implement similarity measure on numerical data (easy!).
-          // } catch (final NumberFormatException e) {
-          similarity = mLevenshtein.getSimilarity(oldValue, newValue);
-          // }
-          relations =
-            new NodeRelations(origDepth, depth, structKind, similarity, 0, 1,
-              indexToParent).setSubtract(subtract);
-        } else if (currDiff == EDiff.SAME || currDiff == EDiff.SAMEHASH) {
-          relations =
-            new NodeRelations(origDepth, depth, structKind, 1, 0, 1,
-              indexToParent).setSubtract(subtract);
-        } else {
-          relations =
-            new NodeRelations(origDepth, depth, structKind, 0, 0, 1,
-              indexToParent).setSubtract(subtract);
-        }
-      } else {
-        if (mMaxDescendantCount == 0) {
-          if (mPrune == EPruning.NO) {
-            try {
-              mMaxDescendantCount =
-                mMaxDescendantCountFuture.get().getDescendants();
-            } catch (final InterruptedException | ExecutionException e) {
-              LOGWRAPPER.error(e.getMessage(), e);
-            }
-          } else {
-            mMaxDescendantCount = mAxis.getDescendantCount();
-          }
-        }
-        relations =
-          new NodeRelations(origDepth, depth, structKind, descendantCount, 1,
-            mMaxDescendantCount, indexToParent).setSubtract(subtract);
-      }
-
-      // Build item.
-      final SunburstItem.Builder builder =
-        new SunburstItem.Builder(mParent, angle, extension, relations, mDb,
-          mGUI).setNode(node).setDiff(diffCont.getDiff());
-
-      if (modificationCount > descendantCount) {
-        final int diffCounts =
-          (modificationCount - descendantCount) / ITraverseModel.FACTOR;
-        LOGWRAPPER.debug("modCount: " + diffCounts);
-        builder.setModifications(diffCounts);
-      }
-
-      if (text.isEmpty()) {
-        QName name = null;
-        if (diffCont.getDiff() == EDiff.DELETED
-          || diffCont.getDiff() == EDiff.MOVEDFROM
-          || diffCont.getDiff() == EDiff.REPLACEDOLD) {
-          name = mOldRtx.getQNameOfCurrentNode();
-          builder.setAttributes(fillAttributes(mOldRtx));
-          builder.setNamespaces(fillNamespaces(mOldRtx));
-          builder.setOldKey(mOldRtx.getNode().getNodeKey());
-
-          LOGWRAPPER.debug("name: " + name.getLocalPart());
-          builder.setOldQName(name);
-        } else {
-          name = mNewRtx.getQNameOfCurrentNode();
-          builder.setAttributes(fillAttributes(mNewRtx));
-          builder.setNamespaces(fillNamespaces(mNewRtx));
-
-          LOGWRAPPER.debug("name: " + name.getLocalPart());
-          builder.setQName(name);
-        }
-      } else {
-        LOGWRAPPER.debug("text: " + text);
-
-        if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM
-          || currDiff == EDiff.REPLACEDOLD) {
-          builder.setOldText(text);
-          builder.setOldKey(mOldRtx.getNode().getNodeKey());
-        } else {
-          builder.setText(text);
-        }
-      }
-      updated(diffCont.getDiff(), builder);
-
-      final SunburstItem item = builder.build();
-      if (item.getDiff() == EDiff.MOVEDFROM) {
-        LOGWRAPPER.debug("movedToIndex: " + diffCont.getIndex());
-        item.setIndexMovedTo(diffCont.getIndex() - mAxis.getPrunedNodes());
-      }
-
-      mItems.add(item);
-
-      // Set depth max.
-      mNewDepthMax = Math.max(depth, mNewDepthMax);
-    }
-
-    return extension;
-  }
-
-  /** Subtree of current item is going to be pruned. */
-  private void nodePruned() {
-    mIsPruned = true;
-    mAxis.decrementIndex();
-  }
-
-  /**
-   * Add old node text or {@link QName} to the {@link SunburstItem.Builder}.
-   * 
-   * @param pDiff
-   *          determines if it's value is {@code EDiff.UPDATED}, {@code EDiff.REPLACEDOLD} or
-   *          {@code EDiff.REPLACEDNEW}
-   * @param pBuilder
-   *          {@link SunburstItem.Builder} reference
-   */
-  private void updated(@Nonnull final EDiff pDiff,
-    @Nonnull final SunburstItem.Builder pBuilder) {
-    assert pBuilder != null;
-    if (pDiff == EDiff.UPDATED) {
-      final INode oldNode = mOldRtx.getNode();
-      if (oldNode.getKind() == EKind.TEXT) {
-        pBuilder.setOldText(mOldRtx.getValueOfCurrentNode());
-      } else {
-        pBuilder.setOldQName(mOldRtx.getQNameOfCurrentNode());
-      }
-    }
-  }
-
-  @Override
-  public boolean getIsPruned() {
-    return mIsPruned;
-  }
-
-  @Override
-  public void descendants(@Nonnull final Optional<INodeReadTrx> pRtx)
-    throws InterruptedException, ExecutionException {
-    try {
-      final ExecutorService executor = Executors.newSingleThreadExecutor();
-      executor.submit(new GetDescendants());
-      executor.shutdown();
-    } catch (final Exception e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
-
-  /**
-   * Callable to get {@code descendant-or-self}-count as well as the {@code modification}-count of each node.
-   */
-  private final class GetDescendants implements Callable<Void> {
-
-    @Override
-    public Void call() throws Exception {
-      final int depthThreshold = 4;
-
-      final Map<Integer, DiffTuple> diffs =
-        mEntries > DIFF_THRESHOLD ? mDiffDatabase.getMap() : mDiffs;
-      DiffTuple diff = diffs.get(0);
-      final int rootDepth =
-        (diff.getDiff() == EDiff.DELETED || diff.getDiff() == EDiff.MOVEDFROM || diff
-          .getDiff() == EDiff.REPLACEDOLD) ? diff.getDepth().getOldDepth()
-          : diff.getDepth().getNewDepth();
-      final boolean subtract =
-        (diff.getDiff() != EDiff.SAME && diff.getDiff() != EDiff.SAMEHASH)
-          ? true : false;
-      boolean first = true;
-      if (diffs.size() == 1) {
-        final Future<Modification> modifications =
-          SAME_THREAD_EXECUTOR.submit(Callables.returning(new Modification(
-            ITraverseModel.FACTOR * mModifications, diffs.size(), subtract)));
-        mMaxDescendantCountFuture = modifications;
-        mModificationQueue.put(modifications);
-      } else {
-        assert diffs.size() > 1;
-        diff = diffs.get(1);
-        int currDepth =
-          (diff.getDiff() == EDiff.DELETED || diff.getDiff() == EDiff.MOVEDFROM || diff
-            .getDiff() == EDiff.REPLACEDOLD) ? diff.getDepth().getOldDepth()
-            : diff.getDepth().getNewDepth();
-        for (int index = 0; index < mDiffs.size() && currDepth > rootDepth; index++) {
-          Future<Modification> modifications = null;
-          if (first) {
-            first = false;
-            modifications =
-              SAME_THREAD_EXECUTOR.submit(Callables
-                .returning(new Modification(ITraverseModel.FACTOR
-                  * mModifications, diffs.size(), subtract)));
-            mMaxDescendantCountFuture = modifications;
-          } else {
-            if (currDepth > depthThreshold || PROCESSORS < 3) {
-              modifications =
-                SAME_THREAD_EXECUTOR.submit(Modifications.getInstance(index,
-                  diffs));
-            } else {
-              final ForkJoinTask<Modification> mods =
-                Modifications.getInstance(index, diffs);
-              modifications = FORK_JOIN_POOL.submit(mods);
-            }
-          }
-          assert modifications != null;
-          mModificationQueue.put(modifications);
-          if (index + 1 < diffs.size()) {
-            final DiffTuple currDiffCont = diffs.get(index + 1);
-            if (currDiffCont.getDiff() == EDiff.DELETED
-              || currDiffCont.getDiff() == EDiff.MOVEDFROM
-              || currDiffCont.getDiff() == EDiff.REPLACEDOLD) {
-              currDepth = currDiffCont.getDepth().getOldDepth();
-            } else {
-              currDepth = currDiffCont.getDepth().getNewDepth();
-            }
-          }
-        }
-      }
-
-      return null;
-    }
-  }
+	/** Determines if current item is pruned or not. */
+	private boolean mIsPruned;
+
+	/** {@link DiffSunburstAxis} instance. */
+	private AbsSunburstAxis mAxis;
+
+	/** GUI which extends {@link AbsSunburstGUI}. */
+	private final AbsSunburstGUI mGUI;
+
+	/** Determines how to compare the two trees. */
+	private final ECompare mCompare;
+
+	/** Database to handle diffs. */
+	private final DiffDatabase mDiffDatabase;
+
+	/** {@link TransactionRunner} instance. */
+	private final TransactionRunner mRunner;
+
+	/** Counts diff entries. */
+	private int mEntries;
+
+	/** Determines if diffs have been done. */
+	private volatile boolean mDone;
+
+	/** {@link BlockingQueue} for the modifications of each node. */
+	private final BlockingQueue<Future<Modification>> mModificationQueue;
+
+	/** Datastructure to capture DELETED nodes. */
+	private final Map<Long, Integer> mOldKeys;
+
+	/** Datastructure to capture INSERTED nodes. */
+	private final Map<Long, Integer> mNewKeys;
+
+	/** The observer. */
+	private final IDiffObserver mObserver;
+
+	/** Determines if UPDATES have been fired. */
+	private boolean mHasUpdatedNodes;
+
+	/** Determines if last node has been {@code UPDATED}. */
+	private boolean mLastNodeUpdated;
+
+	/** Count root node modifications. */
+	private int mModifications;
+
+	/** Determines if move detection is enabled or disabled. */
+	private final boolean mMoveDetection;
+
+	/**
+	 * Constructor.
+	 * 
+	 * @param pContainer
+	 *          {@link SunburstContainer} reference
+	 */
+	public TraverseCompareTree(@Nonnull final SunburstContainer pContainer) {
+		checkNotNull(pContainer);
+		checkArgument(pContainer.getRevision() >= 0);
+		checkArgument(pContainer.getOldStartKey() >= 0);
+		checkArgument(pContainer.getNewStartKey() >= 0);
+		checkArgument(pContainer.getDepth() >= 0);
+		checkArgument(pContainer.getModWeight() >= 0);
+		checkArgument(pContainer.getRevision() > pContainer.getOldRevision(),
+				"paramNewRevision must be greater than the currently opened revision!");
+		checkNotNull(pContainer.getPruning());
+		checkNotNull(pContainer.getGUI());
+		checkNotNull(pContainer.getModel());
+
+		LOGWRAPPER.debug("new revision: " + pContainer.getRevision());
+		LOGWRAPPER.debug("old revision: " + pContainer.getOldRevision());
+
+		mObserver = this;
+		mDiffDatabase = new DiffDatabase(new File("target"));
+		mRunner = new TransactionRunner(mDiffDatabase.getEnvironment());
+		mOldKeys = new HashMap<>();
+		mNewKeys = new HashMap<>();
+		mModel = pContainer.getModel();
+		addPropertyChangeListener(mModel);
+		mDb = mModel.getDb();
+		mOldRevision = pContainer.getOldRevision() != -1 ? pContainer
+				.getOldRevision() : mDb.getRevisionNumber();
+
+		try {
+			mNewRtx = mDb.getSession().beginNodeReadTrx(pContainer.getRevision());
+			mOldRtx = mModel.getDb().getSession().beginNodeReadTrx(mOldRevision);
+		} catch (final SirixException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+
+		mGUI = pContainer.getGUI();
+		mNewRevision = pContainer.getRevision();
+		mModWeight = pContainer.getModWeight();
+		mDiffs = new LinkedHashMap<>(1500);
+		mStart = new CountDownLatch(2);
+		mItems = new ArrayList<>();
+		mParent = ((AbsModel<?, ?>) mModel).getParent();
+		mDepth = pContainer.getDepth();
+		mOldRtx.moveTo(pContainer.getNewStartKey());
+		if (mOldRtx.getKind() == EKind.DOCUMENT_ROOT) {
+			mOldRtx.moveToFirstChild();
+		}
+		mOldStartKey = pContainer.getNewStartKey() == 0 ? mOldRtx.getNodeKey()
+				: pContainer.getNewStartKey();
+		mNewRtx.moveTo(pContainer.getNewStartKey());
+		if (mNewRtx.getKind() == EKind.DOCUMENT_ROOT) {
+			mNewRtx.moveToFirstChild();
+		}
+		mNewStartKey = pContainer.getNewStartKey() == 0 ? mNewRtx.getNodeKey()
+				: pContainer.getNewStartKey();
+		mPrune = pContainer.getPruning();
+		mLock = pContainer.getLock();
+		mCompare = pContainer.getCompare();
+		mDiffQueue = new LinkedBlockingQueue<>();
+		mModificationQueue = new LinkedBlockingQueue<>();
+		mHasUpdatedNodes = (mPrune == EPruning.ITEMSIZE ? true : false);
+		mLastNodeUpdated = false;
+		mMoveDetection = pContainer.getMoveDetection();
+	}
+
+	@Override
+	public Void call() {
+		final long startTime = System.nanoTime();
+		LOGWRAPPER.debug("Build sunburst items.");
+
+		try {
+			firePropertyChange("progress", null, 0);
+
+			// Invoke diff.
+			LOGWRAPPER.debug("CountDownLatch: " + mStart.getCount());
+
+			POOL.submit(new Callable<Void>() {
+				@Override
+				public Void call() throws SirixException {
+					EDiffOptimized optimized = EDiffOptimized.NO;
+					if (mPrune == EPruning.DIFF
+							|| mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES) {
+						optimized = EDiffOptimized.HASHED;
+					}
+					DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(mDb
+							.getSession(), mNewRevision, mOldRtx.getRevisionNumber(),
+							optimized, ImmutableSet.of(mObserver)).setNewDepth(mDepth)
+							.setOldDepth(mDepth).setNewStartKey(mNewStartKey)
+							.setOldStartKey(mOldStartKey));
+					return null;
+				}
+			});
+
+			if (PROCESSORS == 2) {
+				final ExecutorService pool = Executors.newSingleThreadExecutor();
+				mDepthMax = pool.submit(new Callable<Integer>() {
+					@Override
+					public Integer call() {
+						// Maximum depth in old revision.
+						return getDepthMax();
+					}
+				}).get();
+				pool.shutdown();
+			} else {
+				mDepthMax = POOL.submit(new Callable<Integer>() {
+					@Override
+					public Integer call() {
+						// Maximum depth in old revision.
+						return getDepthMax();
+					}
+				}).get();
+			}
+
+			// Wait for diff list to complete.
+			final boolean done = mStart.await(TIMEOUT_S, TimeUnit.SECONDS);
+			if (!done) {
+				LOGWRAPPER.error("Diff failed - Timeout occured after " + TIMEOUT_S
+						+ " seconds!");
+			}
+
+			final int size = mDiffs.size();
+			if (mEntries > DIFF_THRESHOLD) {
+				final int mapSize = mDiffDatabase.getMap().size();
+				LOGWRAPPER.debug("mapSize: " + mapSize);
+			}
+
+			LOGWRAPPER.debug("size: " + size);
+			int i = 0;
+			if (mMoveDetection) {
+				detectMoves();
+			}
+
+			i = 0;
+			final Map<Integer, DiffTuple> diffs = mEntries > DIFF_THRESHOLD ? mDiffDatabase
+					.getMap() : mDiffs;
+			firePropertyChange("diffs", null, diffs);
+
+			for (mAxis = new DiffSunburstAxis(EIncludeSelf.YES, this, mNewRtx,
+					mOldRtx, diffs, mDepthMax, mDepth, mPrune); mAxis.hasNext(); i++) {
+				mAxis.next();
+				if (mCompare == ECompare.SINGLEINCREMENTAL) {
+					final int progress = (int) ((i / (float) size) * 100);
+					firePropertyChange("progress", null, progress);
+				}
+			}
+		} catch (final InterruptedException | ExecutionException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+
+		try {
+			mOldRtx.close();
+			mNewRtx.close();
+		} catch (final SirixException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+		LOGWRAPPER.info(mItems.size() + " SunburstItems created!");
+		LOGWRAPPER.debug("oldMaxDepth: " + mDepthMax);
+
+		mLock.acquireUninterruptibly();
+
+		// Order of property changes is significant.
+		firePropertyChange("oldRev", null, mOldRevision);
+		firePropertyChange("newRev", null, mNewRevision);
+		firePropertyChange("oldmaxdepth", null, mDepthMax);
+		firePropertyChange("maxDepth", null, mNewDepthMax);
+		firePropertyChange("items", null, mItems);
+		firePropertyChange("updated", null, mHasUpdatedNodes);
+		firePropertyChange("revision", null, mNewRevision);
+		firePropertyChange("done", null, true);
+		firePropertyChange("progress", null, 100);
+
+		LOGWRAPPER.debug("Property changes sent!");
+		// Lock is released in the controller.
+
+		// mDiffDatabase.close();
+
+		final long endTime = System.nanoTime();
+
+		System.out.println((endTime - startTime) * 1e-6 / 1000);
+
+		return null;
+	}
+
+	/** Detect moves. */
+	private void detectMoves() {
+		// Only do move detection if the diffs don't have to be saved in a
+		// berkeleydb database.
+		if (mDiffs.size() <= DIFF_THRESHOLD) {
+			for (final DiffTuple diffCont : mDiffs.values()) {
+				final Integer newIndex = mNewKeys.get(diffCont.getOldNodeKey());
+				if (newIndex != null
+						&& (diffCont.getDiff() == EDiff.DELETED || diffCont.getDiff() == EDiff.MOVEDFROM)) {
+					LOGWRAPPER.debug("new node key: "
+							+ mDiffs.get(newIndex).getNewNodeKey());
+					mDiffs.get(newIndex).setDiff(EDiff.MOVEDTO);
+				}
+				final Integer oldIndex = mOldKeys.get(diffCont.getNewNodeKey());
+				if (oldIndex != null
+						&& (diffCont.getDiff() == EDiff.INSERTED || diffCont.getDiff() == EDiff.MOVEDTO)) {
+					mDiffs.get(oldIndex).setDiff(EDiff.MOVEDFROM)
+							.setIndex(mNewKeys.get(diffCont.getNewNodeKey()));
+				}
+			}
+		}
+	}
+
+	@Override
+	public void diffListener(@Nonnull final EDiff pDiff,
+			@Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
+			@Nonnull final DiffDepth pDepth) {
+		LOGWRAPPER.debug("kind of diff: " + pDiff);
+
+		if (mPrune != EPruning.DIFF_WITHOUT_SAMEHASHES
+				|| (mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES && pDiff != EDiff.SAMEHASH)
+				|| mEntries == 0) {
+			final DiffTuple diffCont = new DiffTuple(pDiff, pNewNodeKey, pOldNodeKey,
+					pDepth);
+			final EDiff diff = diffCont.getDiff();
+			if (!mHasUpdatedNodes && mLastNodeUpdated) {
+				// Has at least one diff, thus it's safe.
+				final DiffTuple oldCont = mDiffs.get(mEntries - 1);
+				final int oldDepth = getDepth(oldCont);
+				final int newDepth = getDepth(diffCont);
+				if (newDepth > oldDepth) {
+					mHasUpdatedNodes = true;
+				}
+			}
+			try {
+				mDiffQueue.put(diffCont);
+			} catch (final InterruptedException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+			mDiffs.put(mEntries, diffCont);
+			switch (diff) {
+			case INSERTED:
+				mNewKeys.put(pNewNodeKey, mEntries);
+				mModifications++;
+				break;
+			case DELETED:
+				mOldKeys.put(pOldNodeKey, mEntries);
+				mModifications++;
+				break;
+			case UPDATED:
+				mLastNodeUpdated = true;
+				mModifications++;
+				break;
+			case REPLACEDNEW:
+			case REPLACEDOLD:
+				mModifications++;
+				break;
+			default:
+				// Do nothing.
+			}
+			mEntries++;
+			if (mEntries % DIFF_THRESHOLD == 0) {
+				try {
+					// Works even if transactions are not enabled.
+					mRunner.run(new PopulateDatabase(mDiffDatabase, mDiffs, mDiffDatabase
+							.getMap().size()));
+				} catch (final Exception e) {
+					LOGWRAPPER.error(e.getMessage(), e);
+				}
+			}
+		}
+	}
+
+	/**
+	 * Get depth of a node from a {@link DiffTuple} instance.
+	 * 
+	 * @param pDiffCont
+	 *          {@link DiffTuple} instance
+	 * @return the {@code depth} of the node
+	 */
+	private int getDepth(@Nonnull final DiffTuple pDiffCont) {
+		int depth;
+		final EDiff diff = pDiffCont.getDiff();
+		if (diff == EDiff.DELETED || diff == EDiff.MOVEDFROM
+				|| diff == EDiff.REPLACEDOLD) {
+			depth = pDiffCont.getDepth().getOldDepth();
+		} else {
+			depth = pDiffCont.getDepth().getNewDepth();
+		}
+		return depth;
+	}
+
+	@Override
+	public void diffDone() {
+		if (mDiffDatabase.getMap().get(1) != null) {
+			try {
+				mRunner.run(new PopulateDatabase(mDiffDatabase, mDiffs, mDiffDatabase
+						.getMap().size()));
+			} catch (final Exception e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
+		mDone = true;
+		mStart.countDown();
+	}
+
+	/** Populate the diff database. */
+	private static class PopulateDatabase implements TransactionWorker {
+
+		/** {@link StoredMap} reference. */
+		private Map<Integer, DiffTuple> mMap;
+
+		/** {@link List} of {@link DiffTuple}s. */
+		private Map<Integer, DiffTuple> mValue;
+
+		/** Old size of database. */
+		private int mOldSize;
+
+		/**
+		 * Constructor.
+		 * 
+		 * @param pDatabase
+		 *          {@link DiffDatabase} reference
+		 * @param pValue
+		 *          {@link Map} of {@link DiffTuple}s
+		 * @param pOldSize
+		 *          size of the database map
+		 */
+		public PopulateDatabase(@Nonnull final DiffDatabase pDatabase,
+				@Nonnull final Map<Integer, DiffTuple> pValue, final int pOldSize) {
+			checkNotNull(pDatabase);
+			checkNotNull(pValue);
+			checkArgument(pOldSize >= 0, "pOldSize must be >= 0!");
+			mMap = pDatabase.getMap();
+			mValue = pValue;
+			mOldSize = pOldSize;
+		}
+
+		@Override
+		public void doWork() throws DatabaseException {
+			final int size = mMap.size();
+			for (int i = size, j = mOldSize; j < mValue.size(); i++, j++) {
+				mMap.put(i, mValue.get(j));
+			}
+		}
+	}
+
+	/**
+	 * Get the maximum depth in the tree of the nodes which haven't changed.
+	 * 
+	 * @return {@code maximum depth} of unchanged nodes
+	 */
+	private int getDepthMax() {
+		int depthMax = 0;
+		for (boolean isNotEmpty = !mDiffQueue.isEmpty(); ((isNotEmpty = !mDiffQueue
+				.isEmpty()) == true) || !mDone;) {
+			if (isNotEmpty) {
+				final DiffTuple tuple = mDiffQueue.peek();
+				final EDiff diff = tuple.getDiff();
+				if (diff == EDiff.SAME || diff == EDiff.SAMEHASH) {
+					// Set depth max.
+					depthMax = Math.max(mDiffQueue.poll().getDepth().getOldDepth()
+							- mDepth, depthMax);
+				} else {
+					mDiffQueue.poll();
+				}
+			}
+		}
+		mStart.countDown();
+		return depthMax;
+	}
+
+	@Override
+	public BlockingQueue<Future<Modification>> getModificationQueue() {
+		return mModificationQueue;
+	}
+
+	@Override
+	public float createSunburstItem(@Nonnull final Item pItem,
+			@Nonnegative final int pDepth, @Nonnegative final int pIndex) {
+		checkNotNull(pItem);
+		checkArgument(pDepth >= 0, "pDepth must be positive!");
+		checkArgument(pIndex >= 0, "pIndex must be >= 0!");
+
+		// Initialize variables.
+		final float angle = pItem.mAngle;
+		final float parExtension = pItem.mExtension;
+		final int indexToParent = pItem.mIndexToParent;
+		final int descendantCount = pItem.mDescendantCount;
+		final int parentDescCount = pItem.mParentDescendantCount;
+		final int modificationCount = pItem.mModificationCount;
+		long parentModificationCount = pItem.mParentModificationCount;
+		final boolean subtract = pItem.mSubtract;
+		final DiffTuple diffCont = pItem.mDiff;
+		final int origDepth = pItem.mOrigDepth;
+		final int nextDepth = pItem.mNextDepth;
+		final int depth = pDepth;
+
+		// Calculate extension.
+		float extension = 2 * PConstants.PI;
+		if (indexToParent > -1) {
+			if (mItems.get(indexToParent).getSubtract()) {
+				parentModificationCount -= FACTOR;
+			}
+			extension = (1f - mModWeight)
+					* (parExtension * (float) descendantCount / ((float) parentDescCount - 1f))
+					+ mModWeight
+					// -1 because we add the descendant-or-self count to the
+					// modificationCount/parentModificationCount.
+					* (parExtension * (float) modificationCount / ((float) parentModificationCount - 1f));
+		}
+
+		LOGWRAPPER.debug("ITEM: " + pIndex);
+		LOGWRAPPER.debug("modificationCount: " + modificationCount);
+		LOGWRAPPER.debug("parentModificationCount: " + parentModificationCount);
+		LOGWRAPPER.debug("descendantCount: " + descendantCount);
+		LOGWRAPPER.debug("parentDescCount: " + parentDescCount);
+		LOGWRAPPER.debug("indexToParent: " + indexToParent);
+		LOGWRAPPER.debug("extension: " + extension);
+		LOGWRAPPER.debug("depth: " + depth);
+		LOGWRAPPER.debug("next Depth: " + nextDepth);
+		LOGWRAPPER.debug("angle: " + angle);
+
+		if (mPrune == EPruning.ITEMSIZE
+				&& extension < ITraverseModel.ANGLE_TO_PRUNE
+				&& modificationCount <= descendantCount) {
+			nodePruned();
+		} else {
+			// Add a sunburst item.
+			if (mPrune == EPruning.DIFF && diffCont.getDiff() == EDiff.SAMEHASH) {
+				mIsPruned = true;
+			} else {
+				mIsPruned = false;
+			}
+
+			final INodeReadTrx rtx = (diffCont.getDiff() == EDiff.DELETED
+					|| diffCont.getDiff() == EDiff.MOVEDFROM || diffCont.getDiff() == EDiff.REPLACEDOLD) ? mOldRtx
+					: mNewRtx;
+
+			final EStructType structKind = nextDepth > depth ? EStructType.ISINNERNODE
+					: EStructType.ISLEAFNODE;
+
+			// Set node relations.
+			String text = "";
+			NodeRelations relations = null;
+			final EDiff currDiff = diffCont.getDiff();
+			if (rtx.getKind() == EKind.TEXT) {
+				if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM
+						|| currDiff == EDiff.REPLACEDOLD) {
+					text = mOldRtx.getValue();
+				} else {
+					text = mNewRtx.getValue();
+				}
+				if (currDiff == EDiff.UPDATED
+						|| ((currDiff == EDiff.REPLACEDNEW || currDiff == EDiff.REPLACEDOLD) && mOldRtx
+								.getKind() == mNewRtx.getKind())) {
+					final String oldValue = mOldRtx.getValue();
+					final String newValue = mNewRtx.getValue();
+					float similarity = 1;
+					// try {
+					// Integer.parseInt(oldValue);
+					// Integer.parseInt(newValue);
+					//
+					// // TODO: Implement similarity measure on numerical data (easy!).
+					// } catch (final NumberFormatException e) {
+					similarity = mLevenshtein.getSimilarity(oldValue, newValue);
+					// }
+					relations = new NodeRelations(origDepth, depth, structKind,
+							similarity, 0, 1, indexToParent).setSubtract(subtract);
+				} else if (currDiff == EDiff.SAME || currDiff == EDiff.SAMEHASH) {
+					relations = new NodeRelations(origDepth, depth, structKind, 1, 0, 1,
+							indexToParent).setSubtract(subtract);
+				} else {
+					relations = new NodeRelations(origDepth, depth, structKind, 0, 0, 1,
+							indexToParent).setSubtract(subtract);
+				}
+			} else {
+				if (mMaxDescendantCount == 0) {
+					if (mPrune == EPruning.NO) {
+						try {
+							mMaxDescendantCount = mMaxDescendantCountFuture.get()
+									.getDescendants();
+						} catch (final InterruptedException | ExecutionException e) {
+							LOGWRAPPER.error(e.getMessage(), e);
+						}
+					} else {
+						mMaxDescendantCount = mAxis.getDescendantCount();
+					}
+				}
+				relations = new NodeRelations(origDepth, depth, structKind,
+						descendantCount, 1, mMaxDescendantCount, indexToParent)
+						.setSubtract(subtract);
+			}
+
+			// Build item.
+			final SunburstItem.Builder builder = new SunburstItem.Builder(mParent,
+					angle, extension, relations, mDb, mGUI).setNodeKey(rtx.getNodeKey())
+					.setKind(rtx.getKind()).setDiff(diffCont.getDiff());
+
+			if (modificationCount > descendantCount) {
+				final int diffCounts = (modificationCount - descendantCount)
+						/ ITraverseModel.FACTOR;
+				LOGWRAPPER.debug("modCount: " + diffCounts);
+				builder.setModifications(diffCounts);
+			}
+
+			if (text.isEmpty()) {
+				QName name = null;
+				if (diffCont.getDiff() == EDiff.DELETED
+						|| diffCont.getDiff() == EDiff.MOVEDFROM
+						|| diffCont.getDiff() == EDiff.REPLACEDOLD) {
+					name = mOldRtx.getQName();
+					builder.setAttributes(fillAttributes(mOldRtx));
+					builder.setNamespaces(fillNamespaces(mOldRtx));
+					builder.setOldKey(mOldRtx.getNodeKey());
+
+					LOGWRAPPER.debug("name: " + name.getLocalPart());
+					builder.setOldQName(name);
+				} else {
+					name = mNewRtx.getQName();
+					builder.setAttributes(fillAttributes(mNewRtx));
+					builder.setNamespaces(fillNamespaces(mNewRtx));
+
+					LOGWRAPPER.debug("name: " + name.getLocalPart());
+					builder.setQName(name);
+				}
+			} else {
+				LOGWRAPPER.debug("text: " + text);
+
+				if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM
+						|| currDiff == EDiff.REPLACEDOLD) {
+					builder.setOldText(text);
+					builder.setOldKey(mOldRtx.getNodeKey());
+				} else {
+					builder.setText(text);
+				}
+			}
+			updated(diffCont.getDiff(), builder);
+
+			final SunburstItem item = builder.build();
+			if (item.getDiff() == EDiff.MOVEDFROM) {
+				LOGWRAPPER.debug("movedToIndex: " + diffCont.getIndex());
+				item.setIndexMovedTo(diffCont.getIndex() - mAxis.getPrunedNodes());
+			}
+
+			mItems.add(item);
+
+			// Set depth max.
+			mNewDepthMax = Math.max(depth, mNewDepthMax);
+		}
+
+		return extension;
+	}
+
+	/** Subtree of current item is going to be pruned. */
+	private void nodePruned() {
+		mIsPruned = true;
+		mAxis.decrementIndex();
+	}
+
+	/**
+	 * Add old node text or {@link QName} to the {@link SunburstItem.Builder}.
+	 * 
+	 * @param pDiff
+	 *          determines if it's value is {@code EDiff.UPDATED},
+	 *          {@code EDiff.REPLACEDOLD} or {@code EDiff.REPLACEDNEW}
+	 * @param pBuilder
+	 *          {@link SunburstItem.Builder} reference
+	 */
+	private void updated(@Nonnull final EDiff pDiff,
+			@Nonnull final SunburstItem.Builder pBuilder) {
+		assert pBuilder != null;
+		if (pDiff == EDiff.UPDATED) {
+			if (mOldRtx.getKind() == EKind.TEXT) {
+				pBuilder.setOldText(mOldRtx.getValue());
+			} else {
+				pBuilder.setOldQName(mOldRtx.getQName());
+			}
+		}
+	}
+
+	@Override
+	public boolean getIsPruned() {
+		return mIsPruned;
+	}
+
+	@Override
+	public void descendants(@Nonnull final Optional<INodeReadTrx> pRtx)
+			throws InterruptedException, ExecutionException {
+		try {
+			final ExecutorService executor = Executors.newSingleThreadExecutor();
+			executor.submit(new GetDescendants());
+			executor.shutdown();
+		} catch (final Exception e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
+
+	/**
+	 * Callable to get {@code descendant-or-self}-count as well as the
+	 * {@code modification}-count of each node.
+	 */
+	private final class GetDescendants implements Callable<Void> {
+
+		@Override
+		public Void call() throws Exception {
+			final int depthThreshold = 4;
+
+			final Map<Integer, DiffTuple> diffs = mEntries > DIFF_THRESHOLD ? mDiffDatabase
+					.getMap() : mDiffs;
+			DiffTuple diff = diffs.get(0);
+			final int rootDepth = (diff.getDiff() == EDiff.DELETED
+					|| diff.getDiff() == EDiff.MOVEDFROM || diff.getDiff() == EDiff.REPLACEDOLD) ? diff
+					.getDepth().getOldDepth() : diff.getDepth().getNewDepth();
+			final boolean subtract = (diff.getDiff() != EDiff.SAME && diff.getDiff() != EDiff.SAMEHASH) ? true
+					: false;
+			boolean first = true;
+			if (diffs.size() == 1) {
+				final Future<Modification> modifications = SAME_THREAD_EXECUTOR
+						.submit(Callables.returning(new Modification(ITraverseModel.FACTOR
+								* mModifications, diffs.size(), subtract)));
+				mMaxDescendantCountFuture = modifications;
+				mModificationQueue.put(modifications);
+			} else {
+				assert diffs.size() > 1;
+				diff = diffs.get(1);
+				int currDepth = (diff.getDiff() == EDiff.DELETED
+						|| diff.getDiff() == EDiff.MOVEDFROM || diff.getDiff() == EDiff.REPLACEDOLD) ? diff
+						.getDepth().getOldDepth() : diff.getDepth().getNewDepth();
+				for (int index = 0; index < mDiffs.size() && currDepth > rootDepth; index++) {
+					Future<Modification> modifications = null;
+					if (first) {
+						first = false;
+						modifications = SAME_THREAD_EXECUTOR.submit(Callables
+								.returning(new Modification(ITraverseModel.FACTOR
+										* mModifications, diffs.size(), subtract)));
+						mMaxDescendantCountFuture = modifications;
+					} else {
+						if (currDepth > depthThreshold || PROCESSORS < 3) {
+							modifications = SAME_THREAD_EXECUTOR.submit(Modifications
+									.getInstance(index, diffs));
+						} else {
+							final ForkJoinTask<Modification> mods = Modifications
+									.getInstance(index, diffs);
+							modifications = FORK_JOIN_POOL.submit(mods);
+						}
+					}
+					assert modifications != null;
+					mModificationQueue.put(modifications);
+					if (index + 1 < diffs.size()) {
+						final DiffTuple currDiffCont = diffs.get(index + 1);
+						if (currDiffCont.getDiff() == EDiff.DELETED
+								|| currDiffCont.getDiff() == EDiff.MOVEDFROM
+								|| currDiffCont.getDiff() == EDiff.REPLACEDOLD) {
+							currDepth = currDiffCont.getDepth().getOldDepth();
+						} else {
+							currDepth = currDiffCont.getDepth().getNewDepth();
+						}
+					}
+				}
+			}
+
+			return null;
+		}
+	}
 }

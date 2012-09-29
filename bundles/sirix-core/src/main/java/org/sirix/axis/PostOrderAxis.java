@@ -30,6 +30,7 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeCursor;
+import org.sirix.api.INodeReadTrx;
 import org.sirix.settings.EFixed;
 
 /**
@@ -41,108 +42,105 @@ import org.sirix.settings.EFixed;
  */
 public final class PostOrderAxis extends AbsAxis {
 
-  private boolean mMovedToParent;
+	private boolean mMovedToParent;
 
-  private boolean mIsStartKey;
+	private boolean mIsStartKey;
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with
-   */
-  public PostOrderAxis(@Nonnull final INodeCursor pRtx) {
-    super(pRtx);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param pRtx
+	 *          exclusive (immutable) trx to iterate with
+	 */
+	public PostOrderAxis(@Nonnull final INodeCursor pRtx) {
+		super(pRtx);
+	}
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with
-   */
-  public PostOrderAxis(@Nonnull final INodeCursor pRtx,
-    @Nonnull final EIncludeSelf pIncludeSelf) {
-    super(pRtx, pIncludeSelf);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param pRtx
+	 *          exclusive (immutable) trx to iterate with
+	 */
+	public PostOrderAxis(@Nonnull final INodeCursor pRtx,
+			@Nonnull final EIncludeSelf pIncludeSelf) {
+		super(pRtx, pIncludeSelf);
+	}
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    mKey = pNodeKey;
-    mMovedToParent = false;
-    mIsStartKey = false;
-  }
+	@Override
+	public void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		mKey = pNodeKey;
+		mMovedToParent = false;
+		mIsStartKey = false;
+	}
 
-  @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
+	@Override
+	public boolean hasNext() {
+		if (!isHasNext()) {
+			return false;
+		}
+		if (isNext()) {
+			return true;
+		}
 
-    resetToLastKey();
+		resetToLastKey();
+		final INodeReadTrx rtx = (INodeReadTrx) getTransaction();
+		
+		// No subtree.
+		if (!rtx.hasFirstChild() && rtx.getNodeKey() == getStartKey()
+				|| mIsStartKey) {
+			if (!mIsStartKey && isSelfIncluded() == EIncludeSelf.YES) {
+				mIsStartKey = true;
+				return true;
+			} else {
+				resetToStartKey();
+				return false;
+			}
+		}
 
-    // No subtree.
-    if (!getTransaction().getStructuralNode().hasFirstChild()
-      && getTransaction().getNode().getNodeKey() == getStartKey()
-      || mIsStartKey) {
-      if (!mIsStartKey && isSelfIncluded() == EIncludeSelf.YES) {
-        mIsStartKey = true;
-        return true;
-      } else {
-        resetToStartKey();
-        return false;
-      }
-    }
+		final long currKey = mKey;
 
-    final long currKey = mKey;
+		// Move down in the tree if it hasn't moved down before.
+		if ((!mMovedToParent && rtx.hasFirstChild())
+				|| (rtx.hasRightSibling() && (rtx.moveToRightSibling() != null))) {
+			while (rtx.hasFirstChild()) {
+				getTransaction().moveTo(rtx.getFirstChildKey());
+			}
 
-    // Move down in the tree if it hasn't moved down before.
-    if ((!mMovedToParent && getTransaction().getStructuralNode()
-      .hasFirstChild())
-      || (getTransaction().getStructuralNode().hasRightSibling() && getTransaction()
-        .moveToRightSibling())) {
-      while (getTransaction().getStructuralNode().hasFirstChild()) {
-        getTransaction().moveTo(
-          getTransaction().getStructuralNode().getFirstChildKey());
-      }
+			mKey = rtx.getNodeKey();
+			getTransaction().moveTo(currKey);
+			return true;
+		}
 
-      mKey = getTransaction().getNode().getNodeKey();
-      getTransaction().moveTo(currKey);
-      return true;
-    }
+		// Move to the right sibling or parent node after walking down.
+		if (rtx.hasRightSibling()) {
+			mKey = rtx.getRightSiblingKey();
+		} else {
+			mKey = rtx.getParentKey();
+			mMovedToParent = true;
+		}
 
-    // Move to the right sibling or parent node after walking down.
-    if (getTransaction().getStructuralNode().hasRightSibling()) {
-      mKey = getTransaction().getStructuralNode().getRightSiblingKey();
-    } else {
-      mKey = getTransaction().getNode().getParentKey();
-      mMovedToParent = true;
-    }
+		// Stop traversal if needed.
+		if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+			resetToStartKey();
+			return false;
+		}
 
-    // Stop traversal if needed.
-    if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-      resetToStartKey();
-      return false;
-    }
+		// Traversal is at start key.
+		if (mKey == getStartKey()) {
+			if (isSelfIncluded() == EIncludeSelf.YES) {
+				mIsStartKey = true;
+				return true;
+			} else {
+				resetToStartKey();
+				return false;
+			}
+		}
 
-    // Traversal is at start key.
-    if (mKey == getStartKey()) {
-      if (isSelfIncluded() == EIncludeSelf.YES) {
-        mIsStartKey = true;
-        return true;
-      } else {
-        resetToStartKey();
-        return false;
-      }
-    }
-
-    // Move back to current node.
-    getTransaction().moveTo(currKey);
-    return true;
-  }
+		// Move back to current node.
+		getTransaction().moveTo(currKey);
+		return true;
+	}
 
 }

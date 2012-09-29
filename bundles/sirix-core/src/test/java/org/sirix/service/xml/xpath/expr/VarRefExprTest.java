@@ -72,15 +72,15 @@ public class VarRefExprTest {
     axis1.update(5L);
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(5L, holder.getRtx().getNode().getNodeKey());
+    assertEquals(5L, holder.getRtx().getNodeKey());
     axis1.update(13L);
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(13L, holder.getRtx().getNode().getNodeKey());
+    assertEquals(13L, holder.getRtx().getNodeKey());
     axis1.update(1L);
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(1L, holder.getRtx().getNode().getNodeKey());
+    assertEquals(1L, holder.getRtx().getNodeKey());
     assertEquals(false, axis1.hasNext());
 
     final VarRefExpr axis2 = new VarRefExpr(holder.getRtx(), variable);
@@ -88,12 +88,12 @@ public class VarRefExprTest {
     axis2.update(13L);
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(13L, holder.getRtx().getNode().getNodeKey());
+    assertEquals(13L, holder.getRtx().getNodeKey());
     assertEquals(false, axis2.hasNext());
     axis2.update(12L);
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(12L, holder.getRtx().getNode().getNodeKey());
+    assertEquals(12L, holder.getRtx().getNodeKey());
     assertEquals(false, axis2.hasNext());
 
   }

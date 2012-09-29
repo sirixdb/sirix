@@ -79,7 +79,7 @@ public abstract class AbsAxis implements IAxis {
 		mRtx = checkNotNull(pRtx);
 		mIncludeSelf = EIncludeSelf.NO;
 		mHasNext = true;
-		reset(pRtx.getNode().getNodeKey());
+		reset(pRtx.getNodeKey());
 	}
 
 	/**
@@ -95,7 +95,7 @@ public abstract class AbsAxis implements IAxis {
 		mRtx = checkNotNull(pRtx);
 		mIncludeSelf = checkNotNull(pIncludeSelf);
 		mHasNext = true;
-		reset(pRtx.getNode().getNodeKey());
+		reset(pRtx.getNodeKey());
 	}
 
 	@Override
@@ -114,9 +114,11 @@ public abstract class AbsAxis implements IAxis {
 			}
 		}
 		if (mKey >= 0) {
-			if (!mRtx.moveTo(mKey)) {
+			if (mRtx.hasNode(mKey)) {
+				mRtx.moveTo(mKey);
+			} else {
 				throw new IllegalStateException("Failed to move to nodeKey: "
-						+ mRtx.getNode().getNodeKey());
+						+ mKey);
 			}
 		} else {
 			mRtx.moveTo(mKey);
@@ -232,7 +234,7 @@ public abstract class AbsAxis implements IAxis {
 	public final void foreach(@Nonnull final IVisitor pVisitor) {
 		checkNotNull(pVisitor);
 		for (; hasNext(); next()) {
-			mRtx.getNode().acceptVisitor(pVisitor);
+			mRtx.acceptVisitor(pVisitor);
 		}
 	}
 

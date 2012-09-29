@@ -95,13 +95,13 @@ public class RangeAxis extends AbsAxis {
     if (mFirst) {
       mFirst = false;
       if (mFrom.hasNext()
-        && Type.getType(mFrom.getTransaction().getNode().getTypeKey()).derivesFrom(Type.INTEGER)) {
-        mStart = Integer.parseInt(mFrom.getTransaction().getValueOfCurrentNode());
+        && Type.getType(mFrom.getTransaction().getTypeKey()).derivesFrom(Type.INTEGER)) {
+        mStart = Integer.parseInt(mFrom.getTransaction().getValue());
 
         if (mTo.hasNext()
-          && Type.getType(mTo.getTransaction().getNode().getTypeKey()).derivesFrom(Type.INTEGER)) {
+          && Type.getType(mTo.getTransaction().getTypeKey()).derivesFrom(Type.INTEGER)) {
 
-          mEnd = Integer.parseInt(mTo.getTransaction().getValueOfCurrentNode());
+          mEnd = Integer.parseInt(mTo.getTransaction().getValue());
 
         } else {
           // at least one operand is the empty sequence

@@ -56,29 +56,29 @@ public abstract class AbsShredder implements IShredder<String, QName> {
 		switch (mInsertLocation) {
 		case ASFIRSTCHILD:
 			if (mParents.peek() == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-				key = mWtx.insertElementAsFirstChild(name).getNode().getNodeKey();
+				key = mWtx.insertElementAsFirstChild(name).getNodeKey();
 			} else {
-				key = mWtx.insertElementAsRightSibling(name).getNode().getNodeKey();
+				key = mWtx.insertElementAsRightSibling(name).getNodeKey();
 			}
 			break;
 		case ASRIGHTSIBLING:
-			if (mWtx.getNode().getKind() == EKind.DOCUMENT_ROOT
-					|| mWtx.getNode().getParentKey() == EFixed.DOCUMENT_NODE_KEY
+			if (mWtx.getKind() == EKind.DOCUMENT_ROOT
+					|| mWtx.getParentKey() == EFixed.DOCUMENT_NODE_KEY
 							.getStandardProperty()) {
 				throw new IllegalStateException(
 						"Subtree can not be inserted as sibling of document root or the root-element!");
 			}
-			key = mWtx.insertElementAsRightSibling(name).getNode().getNodeKey();
+			key = mWtx.insertElementAsRightSibling(name).getNodeKey();
 			mInsertLocation = EInsert.ASFIRSTCHILD;
 			break;
 		case ASLEFTSIBLING:
-			if (mWtx.getNode().getKind() == EKind.DOCUMENT_ROOT
-					|| mWtx.getNode().getParentKey() == EFixed.DOCUMENT_NODE_KEY
+			if (mWtx.getKind() == EKind.DOCUMENT_ROOT
+					|| mWtx.getParentKey() == EFixed.DOCUMENT_NODE_KEY
 							.getStandardProperty()) {
 				throw new IllegalStateException(
 						"Subtree can not be inserted as sibling of document root or the root-element!");
 			}
-			key = mWtx.insertElementAsLeftSibling(name).getNode().getNodeKey();
+			key = mWtx.insertElementAsLeftSibling(name).getNodeKey();
 			mInsertLocation = EInsert.ASFIRSTCHILD;
 			break;
 		}
@@ -94,9 +94,9 @@ public abstract class AbsShredder implements IShredder<String, QName> {
 		long key;
 		if (!text.isEmpty()) {
 			if (mParents.peek() == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-				key = mWtx.insertTextAsFirstChild(text).getNode().getNodeKey();
+				key = mWtx.insertTextAsFirstChild(text).getNodeKey();
 			} else {
-				key = mWtx.insertTextAsRightSibling(text).getNode().getNodeKey();
+				key = mWtx.insertTextAsRightSibling(text).getNodeKey();
 			}
 
 			mParents.pop();

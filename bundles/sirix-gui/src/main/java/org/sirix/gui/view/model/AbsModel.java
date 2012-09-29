@@ -368,7 +368,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
      *          The XPath query.
      */
     private XPathEvaluation(final String pQuery) {
-      this(mRtx.getNode().getNodeKey(), pQuery);
+      this(mRtx.getNodeKey(), pQuery);
     }
 
     /**
@@ -387,7 +387,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
       try {
         mRTX = mSession.beginNodeReadTrx(mRtx.getRevisionNumber());
         mRTX.moveTo(mKey);
-        if (mRTX.getNode().getKind() == EKind.DOCUMENT_ROOT) {
+        if (mRTX.getKind() == EKind.DOCUMENT_ROOT) {
           mRTX.moveToFirstChild();
         }
       } catch (final SirixException exc) {
@@ -404,7 +404,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
         // Save found node keys with descendants.
         while (axis.hasNext()) {
           axis.next();
-          final long key = axis.getTransaction().getNode().getNodeKey();
+          final long key = axis.getTransaction().getNodeKey();
           nodeKeys.add(key);
           // for (final AbsAxis desc = new DescendantAxis(axis.getTransaction()); desc.hasNext(); desc
           // .next()) {
@@ -458,7 +458,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
       mItems = pSublist;
       try {
         mRTX = mSession.beginNodeReadTrx(mRtx.getRevisionNumber());
-        mRTX.moveTo(mRtx.getNode().getNodeKey());
+        mRTX.moveTo(mRtx.getNodeKey());
       } catch (final SirixException exc) {
         exc.printStackTrace();
       }

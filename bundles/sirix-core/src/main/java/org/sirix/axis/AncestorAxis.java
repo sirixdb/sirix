@@ -54,7 +54,7 @@ public final class AncestorAxis extends AbsAxis {
    * @param paramRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public AncestorAxis(@Nonnull final INodeCursor pRtx) {
+  public AncestorAxis(final @Nonnull INodeCursor pRtx) {
     super(pRtx);
   }
 
@@ -66,8 +66,8 @@ public final class AncestorAxis extends AbsAxis {
    * @param pIncludeSelf
    *          Is self included?
    */
-  public AncestorAxis(@Nonnull final INodeCursor pRtx,
-    @Nonnull final EIncludeSelf pIncludeSelf) {
+  public AncestorAxis(final @Nonnull INodeCursor pRtx,
+    final @Nonnull EIncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
   }
 
@@ -93,11 +93,11 @@ public final class AncestorAxis extends AbsAxis {
       return true;
     }
 
-    if (getTransaction().getNode().getKind() != EKind.DOCUMENT_ROOT
-      && getTransaction().getNode().hasParent()
-      && getTransaction().getNode().getParentKey() != EFixed.DOCUMENT_NODE_KEY
+    if (getTransaction().getKind() != EKind.DOCUMENT_ROOT
+      && getTransaction().hasParent()
+      && getTransaction().getParentKey() != EFixed.DOCUMENT_NODE_KEY
         .getStandardProperty()) {
-      mKey = getTransaction().getStructuralNode().getParentKey();
+      mKey = getTransaction().getParentKey();
       return true;
     }
     resetToStartKey();

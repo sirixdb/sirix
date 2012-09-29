@@ -28,9 +28,8 @@
 package org.sirix.axis;
 
 import org.sirix.api.INodeCursor;
+import org.sirix.api.INodeReadTrx;
 import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
 
 /**
  * <h1>PrecedingSiblingAxis</h1>
@@ -73,29 +72,28 @@ public final class PrecedingSiblingAxis extends AbsAxis {
     }
     
     resetToLastKey();
-    final INodeCursor rtx = getTransaction();
+    final INodeReadTrx rtx = getTransaction();
     if (mIsFirst) {
       mIsFirst = false;
       /*
        * If the context node is an attribute or namespace node,
        * the following-sibling axis is empty.
        */
-      final INode node = rtx.getNode();
-      final EKind kind = node.getKind();
+      final EKind kind = rtx.getKind();
       if (kind == EKind.ATTRIBUTE || kind == EKind.NAMESPACE) {
         resetToStartKey();
         return false;
       } else {
-        if (node.hasParent()) {
-          final long startNodeKey = rtx.getNode().getNodeKey();
+        if (rtx.hasParent()) {
+          final long startNodeKey = rtx.getNodeKey();
           rtx.moveToParent();
           rtx.moveToFirstChild();
 
-          if (rtx.getNode().getNodeKey() == startNodeKey) {
+          if (rtx.getNodeKey() == startNodeKey) {
             resetToStartKey();
             return false;
           } else {
-            mKey = rtx.getNode().getNodeKey();
+            mKey = rtx.getNodeKey();
             rtx.moveTo(startNodeKey);
             return true;
           }
@@ -103,9 +101,8 @@ public final class PrecedingSiblingAxis extends AbsAxis {
       }
     }
 
-    final IStructNode node = rtx.getStructuralNode();
-    if (node.hasRightSibling() && node.getRightSiblingKey() != getStartKey()) {
-      mKey = node.getRightSiblingKey();
+    if (rtx.hasRightSibling() && rtx.getRightSiblingKey() != getStartKey()) {
+      mKey = rtx.getRightSiblingKey();
       return true;
     }
     resetToStartKey();

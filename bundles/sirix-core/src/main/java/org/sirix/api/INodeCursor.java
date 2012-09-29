@@ -1,168 +1,200 @@
 package org.sirix.api;
 
-import com.google.common.base.Optional;
-import org.sirix.node.NullNode;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
+import javax.annotation.Nonnull;
 
-/** 
+import org.sirix.access.Move;
+import org.sirix.access.Moved;
+import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitor;
+import org.sirix.node.EKind;
+
+/**
  * Cursor interface.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
 public interface INodeCursor extends AutoCloseable {
-
 	/**
-	 * This method returns the current {@link INode} as a {@link IStructNode}.
-	 * 
-	 * @return the current node as {@link IStructNode} if possible, otherwise a
-	 *         special {@link NullNode} which wraps the non-structural node
-	 */
-	IStructNode getStructuralNode();
-
-	/**
-	 * Getting the current node.
-	 * 
-	 * @return the node
-	 */
-	INode getNode();
-
-	/**
-	 * Move cursor to a node by its node key.
+	 * Move cursor to a node by its node key. Check the postcondition with
+	 * {@code Moved#hasMoved()} or get the current cursor instance
+	 * with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
+	 * returns false and the cursor has not been moved.
 	 * 
 	 * @param pKey
 	 *          key of node to select
-	 * @return {@code true} if the node with the key {@code pKey} is selected,
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeCursor> moveTo(long pKey);
+
+	/**
+	 * Move cursor to document root node. Check the postcondition with
+	 * {@code Moved#hasMoved()} or get the current cursor instance
+	 * with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
+	 * returns false and the cursor has not been moved.
+	 * 
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeCursor> moveToDocumentRoot();
+
+	/**
+	 * Move cursor to parent node of currently selected node. Check the
+	 * postcondition with {@code Moved#hasMoved()} or get the current cursor
+	 * instance with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
+	 * returns false and the cursor has not been moved.
+	 * 
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeCursor> moveToParent();
+
+	/**
+	 * Move cursor to first child node of currently selected node. Check the
+	 * postcondition with {@code Moved#hasMoved()} or get the current cursor
+	 * instance with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
+	 * returns false and the cursor has not been moved.
+	 * 
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeCursor> moveToFirstChild();
+
+	/**
+	 * Move cursor to last child node of currently selected node. Check the
+	 * postcondition with {@code Moved#hasMoved()} or get the current cursor
+	 * instance with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
+	 * returns false and the cursor has not been moved.
+	 * 
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeCursor> moveToLastChild();
+
+	/**
+	 * Move cursor to left sibling node of the currently selected node. Check the
+	 * postcondition with {@code Moved#hasMoved()} or get the current cursor
+	 * instance with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
+	 * returns false and the cursor has not been moved.
+	 * 
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeCursor> moveToLeftSibling();
+
+	/**
+	 * Move cursor to right sibling node of the currently selected node. Check the
+	 * postcondition with {@code Moved#hasMoved()} or get the current cursor
+	 * instance with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
+	 * returns false and the cursor has not been moved.
+	 * 
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeCursor> moveToRightSibling();
+
+	/**
+	 * Determines if a node with the given key exists.
+	 * 
+	 * @param pKey
+	 *          unique key of node
+	 * @return {@code true} if the node with the key {@code pKey} exists,
 	 *         {@code false} otherwise
 	 */
-	boolean moveTo(long pKey);
+	boolean hasNode(long pKey);
 
 	/**
-	 * Move cursor to document root node.
+	 * Determines if the node located at the current cursor position has a parent.
 	 * 
-	 * @return {@code true} if the document node is selected, {@code false}
+	 * @return {@code true} if the node has a parent, {@code false} otherwise
+	 */
+	boolean hasParent();
+
+	/**
+	 * Determines if the node located at the current cursor position has a first
+	 * child.
+	 * 
+	 * @return {@code true} if the node has a parent, {@code false} otherwise
+	 */
+	boolean hasFirstChild();
+
+	/**
+	 * Determines if the node located at the current cursor position has a last
+	 * child.
+	 * 
+	 * @return {@code true} if the node has a parent, {@code false} otherwise
+	 */
+	boolean hasLastChild();
+
+	/**
+	 * Determines if the node located at the current cursor position has a left
+	 * sibling.
+	 * 
+	 * @return {@code true} if the node has a parent, {@code false} otherwise
+	 */
+	boolean hasLeftSibling();
+
+	/**
+	 * Determines if the node located at the current cursor position has a right
+	 * sibling.
+	 * 
+	 * @return {@code true} if the node has a right sibling, {@code false}
 	 *         otherwise
 	 */
-	boolean moveToDocumentRoot();
+	boolean hasRightSibling();
 
 	/**
-	 * Move cursor to parent node of currently selected node.
+	 * Accept a visitor.
 	 * 
-	 * @return {@code true} if the parent node is selected, {@code false}
-	 *         otherwise
+	 * @param pVisitor
+	 *          {@link IVisitor} implementation
+	 * @return {@link EVisitResult} value
 	 */
-	boolean moveToParent();
+	EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor);
 
 	/**
-	 * Move cursor to first child node of currently selected node.
+	 * Get unique node key, that is the unique ID of the currently selected node.
 	 * 
-	 * @return {@code true} if the first child node is selected, {@code false}
-	 *         otherwise
+	 * @return unique node key
 	 */
-	boolean moveToFirstChild();
+	long getNodeKey();
 
 	/**
-	 * Move cursor to last child node of currently selected node.
+	 * Get the kind/type of node of the right sibling of the currently selected
+	 * node.
 	 * 
-	 * @return {@code true} if the last child node is selected, {@code false}
-	 *         otherwise
+	 * @return kind of right sibling
 	 */
-	boolean moveToLastChild();
+	EKind getRightSiblingKind();
 
 	/**
-	 * Move cursor to left sibling node of the currently selected node.
+	 * Get the kind/type of node of the left sibling of the currently selected
+	 * node.
 	 * 
-	 * @return {@code true} if the left sibling node is selected, {@code false}
-	 *         otherwise
+	 * @return kind of left sibling
 	 */
-	boolean moveToLeftSibling();
+	EKind getLeftSiblingKind();
 
 	/**
-	 * Move cursor to right sibling node of the currently selected node.
+	 * Get the kind/type of node of the first child of the currently selected
+	 * node.
 	 * 
-	 * @return {@code true} if the right sibling node is selected, {@code false}
-	 *         otherwise
+	 * @return kind of right sibling
 	 */
-	boolean moveToRightSibling();
+	EKind getFirstChildKind();
 
 	/**
-	 * Move to the right sibling and return the right sibling.
+	 * Get the kind/type of node of the last child of the currently selected node.
 	 * 
-	 * @return an {@link Optional} instance which encapsulates the right sibling
-	 *         if it exists. Otherwise the right sibling is absent.
+	 * @return kind of last child
 	 */
-	Optional<IStructNode> moveToAndGetRightSibling();
+	EKind getLastChildKind();
 
 	/**
-	 * Move to the left sibling and return the left sibling.
+	 * Get the kind/type of node of the parent of the currently selected node.
 	 * 
-	 * @return an {@link Optional} instance which encapsulates the left sibling
-	 *         if it exists. Otherwise the left sibling is absent.
+	 * @return kind of parent
 	 */
-	Optional<IStructNode> moveToAndGetLeftSibling();
-
-	/**
-	 * Move to the parent and return it.
-	 * 
-	 * @return an {@link Optional} instance which encapsulates the parent
-	 *         if it exists. Otherwise the parent is absent.
-	 */
-	Optional<IStructNode> moveToAndGetParent();
-
-	/**
-	 * Move to the first child and return the first child.
-	 * 
-	 * @return an {@link Optional} instance which encapsulates the first child
-	 *         if it exists. Otherwise the first child is absent.
-	 */
-	Optional<IStructNode> moveToAndGetFirstChild();
-
-	/**
-	 * Move to the last child and return the last child.
-	 * 
-	 * @return an {@link Optional} instance which encapsulates the last child
-	 *         if it exists. Otherwise the last child is absent.
-	 */
-	Optional<IStructNode> moveToAndGetLastChild();
-
-	/**
-	 * Get the right sibling. Postcondition: The transaction-cursor isn't moved.
-	 * 
-	 * @return an {@link Optional} instance which encapsulates the right sibling
-	 *         if it exists. Otherwise the right sibling is absent.
-	 */
-	Optional<IStructNode> getRightSibling();
-
-	/**
-	 * Get the left sibling. Postcondition: The transaction-cursor isn't moved.
-	 * 
-	 * @return an {@link Optional} instance which encapsulates the left sibling
-	 *         if it exists. Otherwise the left sibling is absent.
-	 */
-	Optional<IStructNode> getLeftSibling();
-
-	/**
-	 * Get the parent. Postcondition: The transaction-cursor isn't moved.
-	 * 
-	 * @return an {@link Optional} instance which encapsulates the right sibling
-	 *         if it exists. Otherwise the parent is absent.
-	 */
-	Optional<IStructNode> getParent();
-
-	/**
-	 * Get the first child. Postcondition: The transaction-cursor isn't moved.
-	 * 
-	 * @return an {@link Optional} instance which encapsulates the first child
-	 *         if it exists. Otherwise the first child is absent.
-	 */
-	Optional<IStructNode> getFirstChild();
-
-	/**
-	 * Get the last child. Postcondition: The transaction-cursor isn't moved.
-	 * 
-	 * @return an {@link Optional} instance which encapsulates the last child
-	 *         if it exists. Otherwise the last child is absent.
-	 */
-	Optional<IStructNode> getLastChild();
+	EKind getParentKind();
 }

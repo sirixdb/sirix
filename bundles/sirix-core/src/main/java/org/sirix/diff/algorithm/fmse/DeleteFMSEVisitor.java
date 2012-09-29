@@ -79,7 +79,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
           + pNode.getNamespaceCount());
       for (int i = 0; i < pNode.getAttributeCount(); i++) {
         mWtx.moveToAttribute(i);
-        final long attNodeKey = mWtx.getNode().getNodeKey();
+        final long attNodeKey = mWtx.getNodeKey();
         if (mMatching.partner(attNodeKey) == null) {
           keysToDelete.add(attNodeKey);
         }
@@ -87,7 +87,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
       }
       for (int i = 0; i < pNode.getNamespaceCount(); i++) {
         mWtx.moveToNamespace(i);
-        final long namespNodeKey = mWtx.getNode().getNodeKey();
+        final long namespNodeKey = mWtx.getNodeKey();
         if (mMatching.partner(namespNodeKey) == null) {
           keysToDelete.add(namespNodeKey);
         }
@@ -135,135 +135,76 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
   private EVisitResult delete(@Nonnull final INode pNode) {
     try {
       mWtx.moveTo(pNode.getNodeKey());
-			final long nodeKey = mWtx.getNode().getNodeKey();
+			final long nodeKey = mWtx.getNodeKey();
 			boolean removeTextNode = false;
-			if (mWtx.getStructuralNode().hasLeftSibling() && mWtx.moveToLeftSibling()
-					&& mWtx.getNode().getKind() == EKind.TEXT
-					&& mWtx.moveToRightSibling()
-					&& mWtx.getStructuralNode().hasRightSibling()
-					&& mWtx.moveToRightSibling()
-					&& mWtx.getStructuralNode().getKind() == EKind.TEXT) {
+			if (mWtx.hasLeftSibling() && mWtx.moveToLeftSibling().hasMoved()
+					&& mWtx.getKind() == EKind.TEXT
+					&& mWtx.moveToRightSibling().hasMoved()
+					&& mWtx.hasRightSibling()
+					&& mWtx.moveToRightSibling().hasMoved()
+					&& mWtx.getKind() == EKind.TEXT) {
 				removeTextNode = true;
 			}
 			mWtx.moveTo(nodeKey);
 
 			// Case: Has no right and no left sibl. but the parent has a right sibl.
 			if (!removeTextNode) {
-				final boolean movedToParent = mWtx.moveToParent();
+				final boolean movedToParent = mWtx.moveToParent().hasMoved();
 				assert movedToParent;
-				final long parentNodeKey = mWtx.getNode().getNodeKey();
-				final IStructNode node = mWtx.getStructuralNode();
-				if (node.getChildCount() == 1 && node.hasRightSibling()) {
+				final long parentNodeKey = mWtx.getNodeKey();
+				if (mWtx.getChildCount() == 1 && mWtx.hasRightSibling()) {
 					mWtx.moveTo(nodeKey);
 					mWtx.remove();
-					assert mWtx.getNode().getNodeKey() == parentNodeKey;
+					assert mWtx.getNodeKey() == parentNodeKey;
 					return EVisitResult.SKIPSUBTREEPOPSTACK;
 				}
 			}
 			mWtx.moveTo(nodeKey);
 
 			// Case: Has left sibl. but no right sibl.
-			if (!mWtx.getStructuralNode().hasRightSibling()
-					&& mWtx.getStructuralNode().hasLeftSibling()) {
-				final long leftSiblKey = mWtx.getStructuralNode().getLeftSiblingKey();
+			if (!mWtx.hasRightSibling()
+					&& mWtx.hasLeftSibling()) {
+				final long leftSiblKey = mWtx.getLeftSiblingKey();
 				mWtx.remove();
-				assert mWtx.getNode().getNodeKey() == leftSiblKey;
+				assert mWtx.getNodeKey() == leftSiblKey;
 				return EVisitResult.SKIPSUBTREE;
 			}
 
 			// Case: Has right sibl. and left sibl.
-			if (mWtx.getStructuralNode().hasRightSibling()
-					&& mWtx.getStructuralNode().hasLeftSibling()) {
-				final long rightSiblKey = mWtx.getStructuralNode().getRightSiblingKey();
-				final long rightRightSiblKey = mWtx.moveToAndGetRightSibling().get()
-						.getRightSiblingKey();
+			if (mWtx.hasRightSibling() && mWtx.hasLeftSibling()) {
+				final long rightSiblKey = mWtx.getRightSiblingKey();
+				final long rightRightSiblKey = mWtx.moveToRightSibling().get().getRightSiblingKey();
 				mWtx.moveTo(nodeKey);
 				mWtx.remove();
 				if (removeTextNode) {
-					assert mWtx.getNode().getKind() == EKind.TEXT;
-					assert mWtx.getStructuralNode().getRightSiblingKey() == rightRightSiblKey;
+					assert mWtx.getKind() == EKind.TEXT;
+					assert mWtx.getRightSiblingKey() == rightRightSiblKey;
 					return EVisitResult.CONTINUE;
 				} else {
-					final boolean moved = mWtx.moveToLeftSibling();
+					final boolean moved = mWtx.moveToLeftSibling().hasMoved();
 					assert moved;
-					assert mWtx.getStructuralNode().getRightSiblingKey() == rightSiblKey;
+					assert mWtx.getRightSiblingKey() == rightSiblKey;
 					return EVisitResult.SKIPSUBTREE;
 				}
 			}
 
 			// Case: Has right sibl. but no left sibl.
-			if (mWtx.getStructuralNode().hasRightSibling()
-					&& !mWtx.getStructuralNode().hasLeftSibling()) {
-				final long rightSiblKey = mWtx.getStructuralNode().getRightSiblingKey();
+			if (mWtx.hasRightSibling()
+					&& !mWtx.hasLeftSibling()) {
+				final long rightSiblKey = mWtx.getRightSiblingKey();
 				mWtx.remove();
 				mWtx.moveToParent();
-				assert mWtx.getStructuralNode().getFirstChildKey() == rightSiblKey;
+				assert mWtx.getFirstChildKey() == rightSiblKey;
 				return EVisitResult.CONTINUE;
 			}
 
 			// Case: Has no right and no left sibl.
-			final long parentKey = mWtx.getParent().get().getNodeKey();
+			final long parentKey = mWtx.getParentKey();
 			mWtx.remove();
-			assert mWtx.getNode().getNodeKey() == parentKey;
+			assert mWtx.getNodeKey() == parentKey;
 		} catch (final SirixException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
 		return EVisitResult.CONTINUE;
-//      final long nodeKey = mWtx.getNode().getNodeKey();
-//      boolean removeTextNode = false;
-//      if (mWtx.getStructuralNode().hasLeftSibling() && mWtx.moveToLeftSibling()
-//        && mWtx.getNode().getKind() == EKind.TEXT
-//        && mWtx.moveToRightSibling()
-//        && mWtx.getStructuralNode().hasRightSibling()
-//        && mWtx.moveToRightSibling()
-//        && mWtx.getStructuralNode().getKind() == EKind.TEXT) {
-//        removeTextNode = true;
-//      }
-//      mWtx.moveTo(nodeKey);
-//
-//      // Case: Has no right and no left sibl. but the parent has a right sibl.
-//      mWtx.moveToParent();
-//      final IStructNode node = mWtx.getStructuralNode();
-//      if (node.getChildCount() == 1 && node.hasRightSibling()) {
-//        mWtx.moveTo(nodeKey);
-//        mWtx.remove();
-//        return EVisitResult.SKIPSUBTREEPOPSTACK;
-//      }
-//      mWtx.moveTo(nodeKey);
-//
-//      // Case: Has left sibl. but no right sibl.
-//      if (!mWtx.getStructuralNode().hasRightSibling()
-//        && mWtx.getStructuralNode().hasLeftSibling()) {
-//        mWtx.remove();
-//        return EVisitResult.CONTINUE;
-//      }
-//
-//      // Case: Has right sibl. and left sibl.
-//      if (mWtx.getStructuralNode().hasRightSibling()
-//        && mWtx.getStructuralNode().hasLeftSibling()) {
-//        if (removeTextNode) {
-//          mWtx.remove();
-//          return EVisitResult.CONTINUE;
-//        } else {
-//          mWtx.remove();
-//          mWtx.moveToLeftSibling();
-//          return EVisitResult.SKIPSUBTREE;
-//        }
-//      }
-//
-//      // Case: Has right sibl. but no left sibl.
-//      if (mWtx.getStructuralNode().hasRightSibling()
-//        && !mWtx.getStructuralNode().hasLeftSibling()) {
-//        mWtx.remove();
-//        mWtx.moveToParent();
-//        return EVisitResult.CONTINUE;
-//      }
-//
-//      // Case: Has no right and no left sibl.
-//      mWtx.remove();
-//    } catch (final AbsTTException e) {
-//      LOGWRAPPER.error(e.getMessage(), e);
-//    }
-//    return EVisitResult.CONTINUE;
   }
 }

@@ -70,15 +70,15 @@ public class AbsOpAxisTest {
     AbsObAxis axis = new DivOpAxis(holder.getRtx(), op1, op2);
 
     assertEquals(true, axis.hasNext());
-    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getNode().getTypeKey());
+    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
     // here both operands are the empty sequence
     axis = new DivOpAxis(holder.getRtx(), op1, op2);
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertThat(Double.NaN, is(Double.parseDouble(holder.getRtx().getValueOfCurrentNode())));
-    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getNode().getTypeKey());
+    assertThat(Double.NaN, is(Double.parseDouble(holder.getRtx().getValue())));
+    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
   }

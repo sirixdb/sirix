@@ -149,7 +149,7 @@ public abstract class AbsObAxis extends AbsAxis {
   private AtomicValue atomize(final IAxis mOperand) {
 
     final INodeReadTrx rtx = getTransaction();
-    int type = rtx.getNode().getTypeKey();
+    int type = rtx.getTypeKey();
     AtomicValue atom;
 
     if (XPATH_10_COMP) {
@@ -160,7 +160,7 @@ public abstract class AbsObAxis extends AbsAxis {
         Function.fnnumber(mOperand.getTransaction());
       }
 
-      atom = new AtomicValue(rtx.getValueOfCurrentNode().getBytes(), rtx.getNode().getTypeKey());
+      atom = new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey());
     } else {
       // unatomicType is cast to double
       if (type == rtx.keyForName("xs:untypedAtomic")) {
@@ -168,7 +168,7 @@ public abstract class AbsObAxis extends AbsAxis {
         // TODO: throw error, of cast fails
       }
 
-      atom = new AtomicValue(rtx.getValueOfCurrentNode().getBytes(), type);
+      atom = new AtomicValue(rtx.getValue().getBytes(), type);
     }
 
     // if (!XPATH_10_COMP && operand.hasNext()) {

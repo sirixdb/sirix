@@ -76,7 +76,7 @@ public final class SunburstPopupMenu extends JPopupMenu {
     mWtx = paramWtx;
     mCtrl = paramCtrl;
 
-    switch (mWtx.getNode().getKind()) {
+    switch (mWtx.getKind()) {
     case ELEMENT:
       createMenu();
       break;

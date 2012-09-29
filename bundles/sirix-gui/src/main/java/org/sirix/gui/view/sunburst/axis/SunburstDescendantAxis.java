@@ -147,9 +147,9 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     super.reset(pNodeKey);
     mRightSiblingKeyStack = new ArrayDeque<Long>();
     if (isSelfIncluded() == EIncludeSelf.YES) {
-      mNextKey = getTransaction().getNode().getNodeKey();
+      mNextKey = getTransaction().getNodeKey();
     } else {
-      mNextKey = getTransaction().getStructuralNode().getFirstChildKey();
+      mNextKey = getTransaction().getFirstChildKey();
     }
     mExtensionStack = new ArrayDeque<Float>();
     mAngleStack = new ArrayDeque<Float>();
@@ -163,7 +163,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     mExtension = PConstants.TWO_PI;
     mChildExtension = PConstants.TWO_PI;
     mIndex = -1;
-    mDescendantCount = (int)getTransaction().getStructuralNode().getDescendantCount() + 1;
+    mDescendantCount = (int)getTransaction().getDescendantCount() + 1;
     mParDescendantCount = mDescendantCount;
   }
 
@@ -184,14 +184,14 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     getTransaction().moveTo(mNextKey);
 
     // Fail if the subtree is finished.
-    if (getTransaction().getStructuralNode().getLeftSiblingKey() == getStartKey()) {
+    if (getTransaction().getLeftSiblingKey() == getStartKey()) {
       resetToStartKey();
       return false;
     }
 
     // Always follow first child if there is one.
-    if (getTransaction().getStructuralNode().hasFirstChild()) {
-      mDescendantCount = (int)(getTransaction().getStructuralNode().getDescendantCount() + 1);// mDescendants.take().get();
+    if (getTransaction().hasFirstChild()) {
+      mDescendantCount = (int)(getTransaction().getDescendantCount() + 1);// mDescendants.take().get();
       if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
         resetToStartKey();
         return false;
@@ -202,9 +202,9 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
         if (mPruning == EPruning.DEPTH && mDepth + 1 >= ITraverseModel.DEPTH_TO_PRUNE) {
           return processPruned();
         } else {
-          mNextKey = getTransaction().getStructuralNode().getFirstChildKey();
-          if (getTransaction().getStructuralNode().hasRightSibling()) {
-            mRightSiblingKeyStack.push(getTransaction().getStructuralNode().getRightSiblingKey());
+          mNextKey = getTransaction().getFirstChildKey();
+          if (getTransaction().hasRightSibling()) {
+            mRightSiblingKeyStack.push(getTransaction().getRightSiblingKey());
           }
           mAngleStack.push(mAngle);
           mExtensionStack.push(mChildExtension);
@@ -218,8 +218,8 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     }
 
     // Then follow right sibling if there is one.
-    if (getTransaction().getStructuralNode().hasRightSibling()) {
-      mDescendantCount = (int)(getTransaction().getStructuralNode().getDescendantCount() + 1);// mDescendants.take().get();
+    if (getTransaction().hasRightSibling()) {
+      mDescendantCount = (int)(getTransaction().getDescendantCount() + 1);// mDescendants.take().get();
       if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
         resetToStartKey();
         return false;
@@ -235,7 +235,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
 
     // Then follow right sibling on Deque.
     if (!mRightSiblingKeyStack.isEmpty()) {
-      mDescendantCount = (int)(getTransaction().getStructuralNode().getDescendantCount() + 1);// mDescendants.take().get();
+      mDescendantCount = (int)(getTransaction().getDescendantCount() + 1);// mDescendants.take().get();
       if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
         resetToStartKey();
         return false;
@@ -250,7 +250,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     }
 
     // Then end.
-    mDescendantCount = (int)(getTransaction().getStructuralNode().getDescendantCount() + 1);// mDescendants.take().get();
+    mDescendantCount = (int)(getTransaction().getDescendantCount() + 1);// mDescendants.take().get();
     if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
       resetToStartKey();
       return false;
@@ -266,7 +266,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
    * Process for next right sibling.
    */
   private void nextRightSibling() {
-    mNextKey = getTransaction().getStructuralNode().getRightSiblingKey();
+    mNextKey = getTransaction().getRightSiblingKey();
     mAngle += mChildExtension;
     mMoved = EMoved.STARTRIGHTSIBL;
   }
@@ -278,11 +278,11 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     assert !mRightSiblingKeyStack.isEmpty();
     mNextKey = mRightSiblingKeyStack.pop();
     mMoved = EMoved.ANCHESTSIBL;
-    final long currNodeKey = getTransaction().getNode().getNodeKey();
+    final long currNodeKey = getTransaction().getNodeKey();
     boolean first = true;
-    while (!getTransaction().getStructuralNode().hasRightSibling()
-      && getTransaction().getStructuralNode().hasParent()
-      && getTransaction().getNode().getNodeKey() != mNextKey) {
+    while (!getTransaction().hasRightSibling()
+      && getTransaction().hasParent()
+      && getTransaction().getNodeKey() != mNextKey) {
       if (first) {
         // Do not pop from Deque if it's a leaf node.
         first = false;
@@ -303,7 +303,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
    * Process pruned node.
    */
   private boolean processPruned() {
-    if (getTransaction().getStructuralNode().hasRightSibling()) {
+    if (getTransaction().hasRightSibling()) {
       nextRightSibling();
       return true;
     } else if (!mRightSiblingKeyStack.isEmpty()) {

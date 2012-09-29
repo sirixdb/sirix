@@ -85,7 +85,7 @@ public class SessionTest {
     rtx.close();
 
     try {
-      rtx.getNode();
+      rtx.getAttributeCount();
       fail();
     } catch (final IllegalStateException e) {
       // Must fail.
@@ -106,12 +106,12 @@ public class SessionTest {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     assertNotNull(wtx.moveToDocumentRoot());
-    assertEquals(EKind.DOCUMENT_ROOT, wtx.getNode().getKind());
+    assertEquals(EKind.DOCUMENT_ROOT, wtx.getKind());
 
     assertNotNull(wtx.moveToFirstChild());
-    assertEquals(EKind.ELEMENT, wtx.getNode().getKind());
-    assertEquals("p:a", new StringBuilder(wtx.getQNameOfCurrentNode().getPrefix()).append(":").append(
-      wtx.getQNameOfCurrentNode().getLocalPart()).toString());
+    assertEquals(EKind.ELEMENT, wtx.getKind());
+    assertEquals("p:a", new StringBuilder(wtx.getQName().getPrefix()).append(":").append(
+      wtx.getQName().getLocalPart()).toString());
 
     wtx.abort();
     wtx.close();
@@ -151,15 +151,15 @@ public class SessionTest {
     final INodeReadTrx rtx1 = holder.getSession().beginNodeReadTrx();
     assertEquals(0L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
-    assertEquals("bar", rtx1.getValueOfCurrentNode());
+    assertEquals("bar", rtx1.getValue());
 
     final INodeWriteTrx wtx2 = holder.getSession().beginNodeWriteTrx();
     assertEquals(1L, wtx2.getRevisionNumber());
     wtx2.moveTo(12L);
     wtx2.setValue("bar2");
 
-    assertEquals("bar", rtx1.getValueOfCurrentNode());
-    assertEquals("bar2", wtx2.getValueOfCurrentNode());
+    assertEquals("bar", rtx1.getValue());
+    assertEquals("bar2", wtx2.getValue());
     rtx1.close();
     wtx2.abort();
     wtx2.close();
@@ -167,7 +167,7 @@ public class SessionTest {
     final INodeReadTrx rtx2 = holder.getSession().beginNodeReadTrx();
     assertEquals(0L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);
-    assertEquals("bar", rtx2.getValueOfCurrentNode());
+    assertEquals("bar", rtx2.getValue());
     rtx2.close();
   }
 
@@ -189,15 +189,15 @@ public class SessionTest {
     final INodeReadTrx rtx1 = session2.beginNodeReadTrx();
     assertEquals(0L, rtx1.getRevisionNumber());
     rtx1.moveTo(12L);
-    assertEquals("bar", rtx1.getValueOfCurrentNode());
+    assertEquals("bar", rtx1.getValue());
 
     final INodeWriteTrx wtx2 = session2.beginNodeWriteTrx();
     assertEquals(1L, wtx2.getRevisionNumber());
     wtx2.moveTo(12L);
     wtx2.setValue("bar2");
 
-    assertEquals("bar", rtx1.getValueOfCurrentNode());
-    assertEquals("bar2", wtx2.getValueOfCurrentNode());
+    assertEquals("bar", rtx1.getValue());
+    assertEquals("bar2", wtx2.getValue());
 
     rtx1.close();
     wtx2.commit();
@@ -210,7 +210,7 @@ public class SessionTest {
     final INodeReadTrx rtx2 = session3.beginNodeReadTrx();
     assertEquals(1L, rtx2.getRevisionNumber());
     rtx2.moveTo(12L);
-    assertEquals("bar2", rtx2.getValueOfCurrentNode());
+    assertEquals("bar2", rtx2.getValue());
 
     rtx2.close();
     session3.close();
@@ -226,7 +226,7 @@ public class SessionTest {
     wtx.close();
 
     final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
-    assertEquals(false, rtx.moveTo(14L));
+    assertEquals(false, rtx.moveTo(14L).hasMoved());
     rtx.close();
     rtx.close();
     holder.getSession().close();

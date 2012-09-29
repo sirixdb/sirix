@@ -62,20 +62,24 @@ public interface IPageWriteTrx extends IPageReadTrx {
 	 * Finishing the node modification. That is storing the node including the
 	 * page in the cache.
 	 * 
-	 * @param pNode
-	 *          the node to be modified
+	 * @param pNodeKey
+	 *          node key from node to be removed
+	 * @param pPage
+	 * 					denoting the kind of node page
 	 */
-	void finishNodeModification(@Nonnull INodeBase pNode, @Nonnull EPage pPage);
+	void finishNodeModification(@Nonnull long pNodeKey, @Nonnull EPage pPage);
 
 	/**
 	 * Removing a node from the storage.
 	 * 
-	 * @param pNode
-	 *          node to be removed
+	 * @param pNodeKey
+	 *          node key from node to be removed
+	 * @param pPage
+	 * 					denoting the kind of node page
 	 * @throws SirixIOException
 	 *           if the removal fails
 	 */
-	void removeNode(@Nonnull INode pNode, @Nonnull EPage pPage)
+	void removeNode(@Nonnull long pNodeKey, @Nonnull EPage pPage)
 			throws SirixIOException;
 
 	/**

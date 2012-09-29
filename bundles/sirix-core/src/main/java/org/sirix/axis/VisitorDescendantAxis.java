@@ -36,6 +36,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeCursor;
+import org.sirix.api.INodeReadTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.interfaces.IStructNode;
@@ -152,7 +153,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		// Visitor.
 		Optional<EVisitResult> result = Optional.absent();
 		if (mVisitor.isPresent()) {
-			result = Optional.fromNullable(getTransaction().getNode().acceptVisitor(
+			result = Optional.fromNullable(getTransaction().acceptVisitor(
 					mVisitor.get()));
 		}
 
@@ -163,14 +164,16 @@ public final class VisitorDescendantAxis extends AbsAxis {
 			return false;
 		}
 
+		final INodeReadTrx rtx = getTransaction();
+		
 		// Determines if first call to hasNext().
 		if (mFirst) {
 			mFirst = false;
 
 			if (isSelfIncluded() == EIncludeSelf.YES) {
-				mKey = getTransaction().getNode().getNodeKey();
+				mKey = rtx.getNodeKey();
 			} else {
-				mKey = getTransaction().getStructuralNode().getFirstChildKey();
+				mKey = rtx.getFirstChildKey();
 			}
 
 			if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
@@ -185,18 +188,16 @@ public final class VisitorDescendantAxis extends AbsAxis {
 			mRightSiblingKeyStack.pop();
 		}
 
-		final IStructNode node = getTransaction().getStructuralNode();
-
 		// If visitor is present and result is not
 		// EVisitResult.SKIPSUBTREE/EVisitResult.SKIPSUBTREEPOPSTACK or visitor is
 		// not present.
 		if ((result.isPresent() && result.get() != EVisitResult.SKIPSUBTREE && result
 				.get() != EVisitResult.SKIPSUBTREEPOPSTACK) || !result.isPresent()) {
 			// Always follow first child if there is one.
-			if (node.hasFirstChild()) {
-				mKey = node.getFirstChildKey();
-				final long rightSiblNodeKey = node.getRightSiblingKey();
-				if (node.hasRightSibling()
+			if (rtx.hasFirstChild()) {
+				mKey = rtx.getFirstChildKey();
+				final long rightSiblNodeKey = rtx.getRightSiblingKey();
+				if (rtx.hasRightSibling()
 						&& (mRightSiblingKeyStack.isEmpty() || (!mRightSiblingKeyStack
 								.isEmpty() && mRightSiblingKeyStack.peek() != rightSiblNodeKey))) {
 					mRightSiblingKeyStack.push(rightSiblNodeKey);
@@ -210,16 +211,16 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		if ((result.isPresent() && result.get() != EVisitResult.SKIPSIBLINGS)
 				|| !result.isPresent()) {
 			// Then follow right sibling if there is one.
-			if (node.hasRightSibling()) {
-				mKey = node.getRightSiblingKey();
-				return hasNextNode(node.getNodeKey());
+			if (rtx.hasRightSibling()) {
+				mKey = rtx.getRightSiblingKey();
+				return hasNextNode(rtx.getNodeKey());
 			}
 		}
 
 		// Then follow right sibling on stack.
 		if (mRightSiblingKeyStack.size() > 0) {
 			mKey = mRightSiblingKeyStack.pop();
-			return hasNextNode(node.getNodeKey());
+			return hasNextNode(rtx.getNodeKey());
 		}
 
 		// Then end.
@@ -235,12 +236,13 @@ public final class VisitorDescendantAxis extends AbsAxis {
 	 */
 	private boolean hasNextNode(final @Nonnegative long pCurrKey) {
 		// Fail if the subtree is finished.
-		getTransaction().moveTo(mKey);
-		if (getTransaction().getStructuralNode().getLeftSiblingKey() == getStartKey()) {
+		final INodeReadTrx rtx = getTransaction();
+		rtx.moveTo(mKey);
+		if (rtx.getLeftSiblingKey() == getStartKey()) {
 			resetToStartKey();
 			return false;
 		} else {
-			getTransaction().moveTo(pCurrKey);
+			rtx.moveTo(pCurrKey);
 			return true;
 		}
 	}

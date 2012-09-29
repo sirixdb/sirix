@@ -1735,9 +1735,8 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 					if (oldRoot.getDiff() != null) {
 						builder.setDiff(oldRoot.getDiff());
 					}
-					if (oldRoot.getItem() != null) {
-						builder.setNode(oldRoot.getItem());
-					}
+					builder.setNodeKey(oldRoot.getKey());
+					builder.setKind(oldRoot.getKind());
 					builder.setModifications(oldRoot.getModificationCount());
 					root = builder.build();
 				}

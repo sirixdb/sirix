@@ -42,8 +42,8 @@ import org.sirix.utils.LogWrapper;
  * <h1>TreeModel</h1>
  * 
  * <p>
- * Extends an AbstractTreeModel and implements main methods, used to construct the Tree representation with
- * sirix items.
+ * Extends an AbstractTreeModel and implements main methods, used to construct
+ * the Tree representation with sirix items.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz.
@@ -51,223 +51,213 @@ import org.sirix.utils.LogWrapper;
  */
 public final class TreeModel extends AbsTreeModel {
 
-  /** Logger. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(TreeModel.class));
+	/** Logger. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(TreeModel.class));
 
-  /** sirix {@link INodeReadTrx}. */
-  private transient INodeReadTrx mRtx;
+	/** sirix {@link INodeReadTrx}. */
+	private transient INodeReadTrx mRtx;
 
-  /**
-   * Constructor.
-   * 
-   * @param pDB
-   *          {@link ReadDB} instance
-   */
-  TreeModel(final ReadDB pDB) {
-    try {
-      mRtx = pDB.getSession().beginNodeReadTrx(pDB.getRevisionNumber());
-      mRtx.moveTo(pDB.getNodeKey());
-    } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pDB
+	 *          {@link ReadDB} instance
+	 */
+	TreeModel(final ReadDB pDB) {
+		try {
+			mRtx = pDB.getSession().beginNodeReadTrx(pDB.getRevisionNumber());
+			mRtx.moveTo(pDB.getNodeKey());
+		} catch (final SirixException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
 
-  @Override
-  public Object getChild(final Object pParent, final int pIndex) {
-    final INode parentNode = (INode)pParent;
-    final long parentNodeKey = parentNode.getNodeKey();
-    mRtx.moveTo(parentNodeKey);
+	@Override
+	public Object getChild(final Object pParent, final int pIndex) {
+		final INodeReadTrx parentNode = (INodeReadTrx) pParent;
+		final long parentNodeKey = parentNode.getNodeKey();
+		mRtx.moveTo(parentNodeKey);
 
-    switch (parentNode.getKind()) {
-    case DOCUMENT_ROOT:
-      assert pIndex == 0;
-      mRtx.moveToFirstChild();
-      return mRtx.getNode();
-    case ELEMENT:
-      // Namespaces.
-      final int namespCount = ((ElementNode)parentNode).getNamespaceCount();
-      if (pIndex < namespCount) {
-        if (!mRtx.moveToNamespace(pIndex)) {
-          throw new IllegalStateException("No namespace with index " + pIndex + " found!");
-        }
-        return mRtx.getNode();
-      }
+		switch (parentNode.getKind()) {
+		case DOCUMENT_ROOT:
+			assert pIndex == 0;
+			mRtx.moveToFirstChild();
+			return mRtx;
+		case ELEMENT:
+			// Namespaces.
+			final int namespCount = parentNode.getNamespaceCount();
+			if (pIndex < namespCount) {
+				if (!mRtx.moveToNamespace(pIndex).hasMoved()) {
+					throw new IllegalStateException("No namespace with index " + pIndex
+							+ " found!");
+				}
+				return mRtx;
+			}
 
-      // Attributes.
-      final int attCount = ((ElementNode)parentNode).getAttributeCount();
-      if (pIndex < (namespCount + attCount)) {
-        if (!mRtx.moveToAttribute(pIndex - namespCount)) {
-          throw new IllegalStateException("No attribute with index " + pIndex + " found!");
-        }
-        return mRtx.getNode();
-      }
+			// Attributes.
+			final int attCount = parentNode.getAttributeCount();
+			if (pIndex < (namespCount + attCount)) {
+				if (!mRtx.moveToAttribute(pIndex - namespCount).hasMoved()) {
+					throw new IllegalStateException("No attribute with index " + pIndex
+							+ " found!");
+				}
+				return mRtx;
+			}
 
-      // Children.
-      final long childCount = ((ElementNode)parentNode).getChildCount();
-      if (pIndex < (namespCount + attCount + childCount)) {
-        if (!mRtx.moveToFirstChild()) {
-          throw new IllegalStateException("No node with index " + pIndex + " found!");
-        }
-        final long upper = pIndex - namespCount - attCount;
-        for (long i = 0; i < upper; i++) {
-          if (!mRtx.moveToRightSibling()) {
-            throw new IllegalStateException("No node with index " + pIndex + " found!");
-          }
-        }
-        // for (int i = 0; i < childCount; i++) {
-        // if (i == 0) {
-        // mRtx.moveToFirstChild();
-        // } else {
-        // mRtx.moveToRightSibling();
-        // }
-        // if (paramIndex == namespCount + attCount + i) {
-        // break;
-        // }
-        // }
+			// Children.
+			final long childCount = parentNode.getChildCount();
+			if (pIndex < (namespCount + attCount + childCount)) {
+				if (!mRtx.moveToFirstChild().hasMoved()) {
+					throw new IllegalStateException("No node with index " + pIndex
+							+ " found!");
+				}
+				final long upper = pIndex - namespCount - attCount;
+				for (long i = 0; i < upper; i++) {
+					if (!mRtx.moveToRightSibling().hasMoved()) {
+						throw new IllegalStateException("No node with index " + pIndex
+								+ " found!");
+					}
+				}
 
-        return mRtx.getNode();
-      } else {
-        throw new IllegalStateException("May not happen: node with " + pIndex + " not found!");
-      }
-    default:
-      return null;
-    }
-  }
+				return mRtx;
+			} else {
+				throw new IllegalStateException("May not happen: node with " + pIndex
+						+ " not found!");
+			}
+		default:
+			return null;
+		}
+	}
 
-  @Override
-  public int getChildCount(final Object parent) {
-    mRtx.moveTo(((INode)parent).getNodeKey());
+	@Override
+	public int getChildCount(final Object parent) {
+		mRtx.moveTo(((INodeReadTrx) parent).getNodeKey());
 
-    final INode parentNode = mRtx.getNode();
+		switch (mRtx.getKind()) {
+		case DOCUMENT_ROOT:
+			assert mRtx.hasFirstChild();
+			return 1;
+		case ELEMENT:
+			final int namespaces = mRtx.getNamespaceCount();
+			final int attributes = mRtx.getAttributeCount();
+			final long children = mRtx.getChildCount();
 
-    switch (parentNode.getKind()) {
-    case DOCUMENT_ROOT:
-      assert ((DocumentRootNode)mRtx.getNode()).hasFirstChild();
-      return 1;
-    case ELEMENT:
-      final int namespaces = ((ElementNode)parentNode).getNamespaceCount();
-      final int attributes = ((ElementNode)parentNode).getAttributeCount();
-      final long children = ((ElementNode)parentNode).getChildCount();
+			// TODO: possibly unsafe cast.
+			return (int) (namespaces + attributes + children);
+		default:
+			return 0;
+		}
+	}
 
-      // TODO: possibly unsafe cast.
-      return (int)(namespaces + attributes + children);
-    default:
-      return 0;
-    }
-  }
+	@Override
+	public int getIndexOfChild(final Object pParent, final Object pChild) {
+		if (pParent == null || pChild == null) {
+			return -1;
+		}
 
-  @Override
-  public int getIndexOfChild(final Object pParent, final Object pChild) {
-    if (pParent == null || pChild == null) {
-      return -1;
-    }
+		// Parent node.
+		mRtx.moveTo(((INodeReadTrx) pParent).getNodeKey());
+		final INodeReadTrx parentNode = mRtx;
 
-    // Parent node.
-    mRtx.moveTo(((INode)pParent).getNodeKey());
-    final INode parentNode = mRtx.getNode();
+		// Child node.
+		final INodeReadTrx childNode = (INodeReadTrx) pChild;
 
-    // Child node.
-    final INode childNode = (INode)pChild;
+		// Return value.
+		int index = -1;
 
-    // Return value.
-    int index = -1;
+		// Values needed.
+		final long nodeKey = parentNode.getNodeKey();
+		int namespCount = 0;
+		int attCount = 0;
 
-    // Values needed.
-    final long nodeKey = parentNode.getNodeKey();
-    int namespCount = 0;
-    int attCount = 0;
+		switch (childNode.getKind()) {
+		case NAMESPACE:
+			namespCount = parentNode.getNamespaceCount();
+			for (int i = 0; i < namespCount; i++) {
+				mRtx.moveToNamespace(i);
+				if (mRtx.getNodeKey() == childNode.getNodeKey()) {
+					index = i;
+					break;
+				}
+				mRtx.moveTo(nodeKey);
+			}
+			break;
+		case ATTRIBUTE:
+			namespCount = parentNode.getNamespaceCount();
+			attCount = parentNode.getAttributeCount();
+			for (int i = 0; i < attCount; i++) {
+				mRtx.moveToAttribute(i);
+				if (mRtx.getNodeKey() == childNode.getNodeKey()) {
+					index = namespCount + i;
+					break;
+				}
+				mRtx.moveTo(nodeKey);
+			}
+			break;
+		case WHITESPACE:
+			break;
+		case ELEMENT:
+		case COMMENT:
+		case PROCESSING:
+		case TEXT:
+			final IStructNode parent = (IStructNode) parentNode;
+			if (parent.getKind() == EKind.ELEMENT) {
+				namespCount = ((ElementNode) parent).getNamespaceCount();
+				attCount = ((ElementNode) parent).getAttributeCount();
+			}
+			final long childCount = parent.getChildCount();
 
-    switch (childNode.getKind()) {
-    case NAMESPACE:
-      namespCount = ((ElementNode)parentNode).getNamespaceCount();
-      for (int i = 0; i < namespCount; i++) {
-        mRtx.moveToNamespace(i);
-        if (mRtx.getNode().getNodeKey() == childNode.getNodeKey()) {
-          index = i;
-          break;
-        }
-        mRtx.moveTo(nodeKey);
-      }
-      break;
-    case ATTRIBUTE:
-      namespCount = ((ElementNode)parentNode).getNamespaceCount();
-      attCount = ((ElementNode)parentNode).getAttributeCount();
-      for (int i = 0; i < attCount; i++) {
-        mRtx.moveToAttribute(i);
-        if (mRtx.getNode().getNodeKey() == childNode.getNodeKey()) {
-          index = namespCount + i;
-          break;
-        }
-        mRtx.moveTo(nodeKey);
-      }
-      break;
-    case WHITESPACE:
-      break;
-    case ELEMENT:
-    case COMMENT:
-    case PROCESSING:
-    case TEXT:
-      final IStructNode parent = (IStructNode)parentNode;
-      if (parent.getKind() == EKind.ELEMENT) {
-        namespCount = ((ElementNode)parent).getNamespaceCount();
-        attCount = ((ElementNode)parent).getAttributeCount();
-      }
-      final long childCount = parent.getChildCount();
+			if (childCount == 0) {
+				throw new IllegalStateException("May not happen!");
+			}
 
-      if (childCount == 0) {
-        throw new IllegalStateException("May not happen!");
-      }
+			for (int i = 0; i < childCount; i++) {
+				if (i == 0) {
+					mRtx.moveToFirstChild();
+				} else {
+					mRtx.moveToRightSibling();
+				}
+				if (mRtx.getNodeKey() == childNode.getNodeKey()) {
+					index = namespCount + attCount + i;
+					break;
+				}
+			}
 
-      for (int i = 0; i < childCount; i++) {
-        if (i == 0) {
-          mRtx.moveToFirstChild();
-        } else {
-          mRtx.moveToRightSibling();
-        }
-        System.out.println("node key: " + mRtx.getNode().getNodeKey());
-        if (mRtx.getNode().getNodeKey() == childNode.getNodeKey()) {
-          index = namespCount + attCount + i;
-          System.out.println("LALALA");
-          break;
-        }
-      }
+			break;
+		default:
+			throw new IllegalStateException("Child node kind not known! ");
+		}
 
-      break;
-    default:
-      throw new IllegalStateException("Child node kind not known! ");
-    }
+		return index;
+	}
 
-    return index;
-  }
+	@Override
+	public Object getRoot() {
+		mRtx.moveToDocumentRoot();
+		return mRtx;
+	}
 
-  @Override
-  public Object getRoot() {
-    mRtx.moveToDocumentRoot();
-    return mRtx.getNode();
-  }
+	@Override
+	public boolean isLeaf(final Object pNode) {
+		mRtx.moveTo(((INodeReadTrx) pNode).getNodeKey());
 
-  @Override
-  public boolean isLeaf(final Object pNode) {
-    mRtx.moveTo(((INode)pNode).getNodeKey());
-    final INode currNode = mRtx.getNode();
-
-    switch (currNode.getKind()) {
-    case DOCUMENT_ROOT:
-      return false;
-    case ELEMENT:
-      final ElementNode elemNode = (ElementNode)currNode;
-      if (elemNode.getNamespaceCount() > 0) {
-        return false;
-      }
-      if (elemNode.getAttributeCount() > 0) {
-        return false;
-      }
-      if (elemNode.getChildCount() > 0) {
-        return false;
-      }
-    default:
-      // If it's not document root or element node it must be a leaf node.
-      return true;
-    }
-  }
+		switch (mRtx.getKind()) {
+		case DOCUMENT_ROOT:
+			return false;
+		case ELEMENT:
+			if (mRtx.getNamespaceCount() > 0) {
+				return false;
+			}
+			if (mRtx.getAttributeCount() > 0) {
+				return false;
+			}
+			if (mRtx.getChildCount() > 0) {
+				return false;
+			}
+		default:
+			// If it's not document root or element node it must be a leaf node.
+			return true;
+		}
+	}
 }

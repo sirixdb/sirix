@@ -97,650 +97,635 @@ import processing.core.PConstants;
  * 
  */
 public final class SunburstModel extends
-  AbsModel<SunburstContainer, SunburstItem> implements IChangeModel {
+		AbsModel<SunburstContainer, SunburstItem> implements IChangeModel {
 
-  /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
-    .getLogger(SunburstModel.class));
+	/** {@link LogWrapper} reference. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(SunburstModel.class));
 
-  /** {@link INodeWriteTrx} instance. */
-  private INodeWriteTrx mWtx;
+	/** {@link INodeWriteTrx} instance. */
+	private INodeWriteTrx mWtx;
 
-  /**
-   * Constructor.
-   * 
-   * @param pApplet
-   *          the processing {@link PApplet} core library
-   * @param pDb
-   *          {@link ReadDB} reference
-   */
-  public SunburstModel(@Nonnull final PApplet pApplet, @Nonnull final ReadDB pDb) {
-    super(pApplet, pDb);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pApplet
+	 *          the processing {@link PApplet} core library
+	 * @param pDb
+	 *          {@link ReadDB} reference
+	 */
+	public SunburstModel(@Nonnull final PApplet pApplet, @Nonnull final ReadDB pDb) {
+		super(pApplet, pDb);
+	}
 
-  @Override
-  public void update(@Nonnull final IContainer<SunburstContainer> pContainer) {
-    mLastItems.push(new ArrayList<>(mItems));
-    mLastDepths.push(mLastMaxDepth);
-    traverseTree(pContainer);
-  }
+	@Override
+	public void update(@Nonnull final IContainer<SunburstContainer> pContainer) {
+		mLastItems.push(new ArrayList<>(mItems));
+		mLastDepths.push(mLastMaxDepth);
+		traverseTree(pContainer);
+	}
 
-  @Override
-  public void traverseTree(
-    @Nonnull final IContainer<SunburstContainer> pContainer) {
-    final SunburstContainer container =
-      (SunburstContainer)checkNotNull(pContainer);
-    checkArgument(container.getNewStartKey() >= 0);
-    checkArgument(container.getOldStartKey() >= 0);
-    final ExecutorService executor = Executors.newSingleThreadExecutor();
-    try {
-      executor.submit(new TraverseTree(container.getNewStartKey(), container
-        .getPruning(), container.getGUI(), this));
-    } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-    shutdown(executor);
-  }
+	@Override
+	public void traverseTree(
+			@Nonnull final IContainer<SunburstContainer> pContainer) {
+		final SunburstContainer container = (SunburstContainer) checkNotNull(pContainer);
+		checkArgument(container.getNewStartKey() >= 0);
+		checkArgument(container.getOldStartKey() >= 0);
+		final ExecutorService executor = Executors.newSingleThreadExecutor();
+		try {
+			executor.submit(new TraverseTree(container.getNewStartKey(), container
+					.getPruning(), container.getGUI(), this));
+		} catch (final SirixException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+		shutdown(executor);
+	}
 
-  /** Traverse a tree (single revision). */
-  private static final class TraverseTree extends AbsTraverseModel implements
-    Callable<Void> {
+	/** Traverse a tree (single revision). */
+	private static final class TraverseTree extends AbsTraverseModel implements
+			Callable<Void> {
 
-    /** Key from which to start traversal. */
-    private transient long mKey;
+		/** Key from which to start traversal. */
+		private transient long mKey;
 
-    /** {@link SunburstModel} instance. */
-    private final SunburstModel mModel;
+		/** {@link SunburstModel} instance. */
+		private final SunburstModel mModel;
 
-    /** {@link INodeReadTrx} instance. */
-    private final INodeReadTrx mRtx;
+		/** {@link INodeReadTrx} instance. */
+		private final INodeReadTrx mRtx;
 
-    /** {@link List} of {@link SunburstItem}s. */
-    private final List<SunburstItem> mItems;
+		/** {@link List} of {@link SunburstItem}s. */
+		private final List<SunburstItem> mItems;
 
-    /** Maximum depth in the tree. */
-    private transient int mDepthMax;
+		/** Maximum depth in the tree. */
+		private transient int mDepthMax;
 
-    /** Minimum text length. */
-    private transient int mMinTextLength;
+		/** Minimum text length. */
+		private transient int mMinTextLength;
 
-    /** Maximum text length. */
-    private transient int mMaxTextLength;
+		/** Maximum text length. */
+		private transient int mMaxTextLength;
 
-    /** {@link ReadDb} instance. */
-    private final ReadDB mDb;
+		/** {@link ReadDb} instance. */
+		private final ReadDB mDb;
 
-    /** Maximum descendant count in tree. */
-    private transient int mMaxDescendantCount;
+		/** Maximum descendant count in tree. */
+		private transient int mMaxDescendantCount;
 
-    /** Parent processing frame. */
-    private transient PApplet mParent;
+		/** Parent processing frame. */
+		private transient PApplet mParent;
 
-    /** Depth in the tree. */
-    private transient int mDepth;
+		/** Depth in the tree. */
+		private transient int mDepth;
 
-    /** Determines if tree should be pruned or not. */
-    private transient EPruning mPruning;
+		/** Determines if tree should be pruned or not. */
+		private transient EPruning mPruning;
 
-    /** Determines if current item has been pruned or not. */
-    private transient boolean mPruned;
+		/** Determines if current item has been pruned or not. */
+		private transient boolean mPruned;
 
-    /** GUI which extends the {@link SunburstGUI}. */
-    private final AbsSunburstGUI mGUI;
+		/** GUI which extends the {@link SunburstGUI}. */
+		private final AbsSunburstGUI mGUI;
 
-    /**
-     * Constructor.
-     * 
-     * @param pKey
-     *          key from which to start traversal
-     * @param pPruning
-     *          pruning of nodes
-     * @param pModel
-     *          the {@link SunburstModel}
-     * @param pGUI
-     *          GUI which extends the {@link SunburstGUI}
-     */
-    private TraverseTree(@Nonnegative final long pKey,
-      @Nonnull final EPruning pPruning, @Nonnull final AbsSunburstGUI pGUI,
-      @Nonnull final SunburstModel pModel) throws SirixException {
-      assert pKey >= 0;
-      assert pModel != null;
-      assert pGUI != null;
-      mModel = pModel;
-      addPropertyChangeListener(mModel);
-      mPruning = pPruning;
-      mDb = mModel.getDb();
-      mRtx =
-        mModel.getDb().getSession().beginNodeReadTrx(
-          mModel.getDb().getRevisionNumber());
-      mMaxDescendantCount = (int)mRtx.getStructuralNode().getDescendantCount();
-      boolean moved =
-        pKey == EFixed.DOCUMENT_NODE_KEY.getStandardProperty() ? mRtx
-          .moveToFirstChild() : mRtx.moveTo(pKey);
-      assert moved;
-      mKey = mRtx.getNode().getNodeKey();
-      mParent = mModel.getParent();
-      mItems = new LinkedList<>();
-      mGUI = pGUI;
-    }
+		/**
+		 * Constructor.
+		 * 
+		 * @param pKey
+		 *          key from which to start traversal
+		 * @param pPruning
+		 *          pruning of nodes
+		 * @param pModel
+		 *          the {@link SunburstModel}
+		 * @param pGUI
+		 *          GUI which extends the {@link SunburstGUI}
+		 */
+		private TraverseTree(@Nonnegative final long pKey,
+				@Nonnull final EPruning pPruning, @Nonnull final AbsSunburstGUI pGUI,
+				@Nonnull final SunburstModel pModel) throws SirixException {
+			assert pKey >= 0;
+			assert pModel != null;
+			assert pGUI != null;
+			mModel = pModel;
+			addPropertyChangeListener(mModel);
+			mPruning = pPruning;
+			mDb = mModel.getDb();
+			mRtx = mModel.getDb().getSession()
+					.beginNodeReadTrx(mModel.getDb().getRevisionNumber());
+			mMaxDescendantCount = (int) mRtx.getDescendantCount();
+			boolean moved = pKey == EFixed.DOCUMENT_NODE_KEY.getStandardProperty() ? mRtx
+					.moveToFirstChild().hasMoved() : mRtx.moveTo(pKey).hasMoved();
+			assert moved;
+			mKey = mRtx.getNodeKey();
+			mParent = mModel.getParent();
+			mItems = new LinkedList<>();
+			mGUI = pGUI;
+		}
 
-    @Override
-    public Void call() {
-      LOGWRAPPER.debug("Build sunburst items.");
+		@Override
+		public Void call() {
+			LOGWRAPPER.debug("Build sunburst items.");
 
-      firePropertyChange("progress", null, 0);
+			firePropertyChange("progress", null, 0);
 
-      // Get min and max textLength.
-      if (mPruning == EPruning.NO) {
-        getMinMaxTextLength();
-      }
+			// Get min and max textLength.
+			if (mPruning == EPruning.NO) {
+				getMinMaxTextLength();
+			}
 
-      try {
-        // Iterate over nodes and perform appropriate stack actions internally.
-        int i = 0;
-        for (final SunburstDescendantAxis axis =
-          new SunburstDescendantAxis(mRtx, EIncludeSelf.YES, this, mPruning); axis
-          .hasNext(); i++) {
-          axis.next();
-          final int progress =
-            (int)((float)i / (float)mMaxDescendantCount * (float)100);
-          if (progress > 0 && progress < 100) {
-            firePropertyChange("progress", null, progress);
-          }
-        }
+			try {
+				// Iterate over nodes and perform appropriate stack actions internally.
+				int i = 0;
+				for (final SunburstDescendantAxis axis = new SunburstDescendantAxis(
+						mRtx, EIncludeSelf.YES, this, mPruning); axis.hasNext(); i++) {
+					axis.next();
+					final int progress = (int) ((float) i / (float) mMaxDescendantCount * (float) 100);
+					if (progress > 0 && progress < 100) {
+						firePropertyChange("progress", null, progress);
+					}
+				}
 
-        LOGWRAPPER.debug("Built " + mItems.size() + " SunburstItems!");
-        mRtx.close();
-      } catch (final SirixException e) {
-        LOGWRAPPER.error(e.getMessage(), e);
-      }
+				LOGWRAPPER.debug("Built " + mItems.size() + " SunburstItems!");
+				mRtx.close();
+			} catch (final SirixException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
 
-      // Fire property changes.
-      firePropertyChange("maxDepth", null, mDepthMax);
-      firePropertyChange("items", null, mItems);
-      firePropertyChange("done", null, true);
-      firePropertyChange("progress", null, 100);
+			// Fire property changes.
+			firePropertyChange("maxDepth", null, mDepthMax);
+			firePropertyChange("items", null, mItems);
+			firePropertyChange("done", null, true);
+			firePropertyChange("progress", null, 100);
 
-      return null;
-    }
+			return null;
+		}
 
-    @Override
-    public BlockingQueue<Future<Modification>> getModificationQueue() {
-      return null;
-    }
+		@Override
+		public BlockingQueue<Future<Modification>> getModificationQueue() {
+			return null;
+		}
 
-    @Override
-    public float createSunburstItem(@Nonnull final Item pItem,
-      @Nonnegative final int pDepth, @Nonnegative final int pIndex) {
-      checkArgument(pDepth >= 0, "must be positive: %s", pDepth);
-      checkArgument(pIndex >= 0, "must be >= 0: %s", pIndex);
+		@Override
+		public float createSunburstItem(@Nonnull final Item pItem,
+				@Nonnegative final int pDepth, @Nonnegative final int pIndex) {
+			checkArgument(pDepth >= 0, "must be positive: %s", pDepth);
+			checkArgument(pIndex >= 0, "must be >= 0: %s", pIndex);
 
-      // Initialize variables.
-      final float angle = pItem.mAngle;
-      final float extension = pItem.mExtension;
-      final int indexToParent = pItem.mIndexToParent;
-      final int descendantCount = pItem.mDescendantCount;
-      final int parDescendantCount = pItem.mParentDescendantCount;
-      final int depth = pDepth;
+			// Initialize variables.
+			final float angle = pItem.mAngle;
+			final float extension = pItem.mExtension;
+			final int indexToParent = pItem.mIndexToParent;
+			final int descendantCount = pItem.mDescendantCount;
+			final int parDescendantCount = pItem.mParentDescendantCount;
+			final int depth = pDepth;
 
-      // Add a sunburst item.
-      final IStructNode node = mRtx.getStructuralNode();
-      final EStructType structKind =
-        node.hasFirstChild() ? EStructType.ISINNERNODE : EStructType.ISLEAFNODE;
+			// Add a sunburst item.
+			final EStructType structKind = mRtx.hasFirstChild() ? EStructType.ISINNERNODE
+					: EStructType.ISLEAFNODE;
 
-      // Calculate extension.
-      float childExtension = 2 * PConstants.PI;
-      if (indexToParent > -1) {
-        childExtension =
-          extension * (float)descendantCount / ((float)parDescendantCount - 1f);
-      }
-      LOGWRAPPER.debug("ITEM: " + pIndex);
-      LOGWRAPPER.debug("descendantCount: " + descendantCount);
-      LOGWRAPPER.debug("parentDescCount: " + parDescendantCount);
-      LOGWRAPPER.debug("indexToParent: " + indexToParent);
-      LOGWRAPPER.debug("extension: " + childExtension);
-      LOGWRAPPER.debug("depth: " + depth);
-      LOGWRAPPER.debug("angle: " + angle);
+			// Calculate extension.
+			float childExtension = 2 * PConstants.PI;
+			if (indexToParent > -1) {
+				childExtension = extension * (float) descendantCount
+						/ ((float) parDescendantCount - 1f);
+			}
+			LOGWRAPPER.debug("ITEM: " + pIndex);
+			LOGWRAPPER.debug("descendantCount: " + descendantCount);
+			LOGWRAPPER.debug("parentDescCount: " + parDescendantCount);
+			LOGWRAPPER.debug("indexToParent: " + indexToParent);
+			LOGWRAPPER.debug("extension: " + childExtension);
+			LOGWRAPPER.debug("depth: " + depth);
+			LOGWRAPPER.debug("angle: " + angle);
 
-      // Set node relations.
-      String text = null;
-      NodeRelations relations = null;
-      if (mRtx.getNode().getKind() == EKind.TEXT) {
-        relations =
-          new NodeRelations(depth, depth, structKind, mRtx
-            .getValueOfCurrentNode().length(), mMinTextLength, mMaxTextLength,
-            indexToParent);
-        text = mRtx.getValueOfCurrentNode();
-        // LOGWRAPPER.debug("text: " + text);
-      } else {
-        relations =
-          new NodeRelations(depth, depth, structKind, descendantCount, 0,
-            mMaxDescendantCount, indexToParent);
-      }
+			// Set node relations.
+			String text = null;
+			NodeRelations relations = null;
+			if (mRtx.getKind() == EKind.TEXT) {
+				relations = new NodeRelations(depth, depth, structKind, mRtx.getValue()
+						.length(), mMinTextLength, mMaxTextLength, indexToParent);
+				text = mRtx.getValue();
+				// LOGWRAPPER.debug("text: " + text);
+			} else {
+				relations = new NodeRelations(depth, depth, structKind,
+						descendantCount, 0, mMaxDescendantCount, indexToParent);
+			}
 
-      // Build item.
-      final SunburstItem.Builder builder =
-        new SunburstItem.Builder(mParent, angle, childExtension, relations,
-          mDb, mGUI).setNode(node);
-      if (text != null) {
-        builder.setText(text).build();
-      } else {
-        // LOGWRAPPER.debug("QName: " + mRtx.getQNameOfCurrentNode());
-        builder.setQName(mRtx.getQNameOfCurrentNode()).build();
-        builder.setAttributes(fillAttributes(mRtx));
-        builder.setNamespaces(fillNamespaces(mRtx));
-      }
-      final SunburstItem item = builder.build();
-      mItems.add(item);
+			// Build item.
+			final SunburstItem.Builder builder = new SunburstItem.Builder(mParent,
+					angle, childExtension, relations, mDb, mGUI).setNodeKey(
+					mRtx.getNodeKey()).setKind(mRtx.getKind());
+			if (text != null) {
+				builder.setText(text).build();
+			} else {
+				// LOGWRAPPER.debug("QName: " + mRtx.getQNameOfCurrentNode());
+				builder.setQName(mRtx.getQName()).build();
+				builder.setAttributes(fillAttributes(mRtx));
+				builder.setNamespaces(fillNamespaces(mRtx));
+			}
+			final SunburstItem item = builder.build();
+			mItems.add(item);
 
-      firePropertyChange("items", null, mItems);
-      firePropertyChange("item", null, item);
+			firePropertyChange("items", null, mItems);
+			firePropertyChange("item", null, item);
 
-      // Set depth max.
-      mDepthMax = Math.max(depth, mDepthMax);
+			// Set depth max.
+			mDepthMax = Math.max(depth, mDepthMax);
 
-      return childExtension;
-    }
+			return childExtension;
+		}
 
-    @Override
-    public boolean getIsPruned() {
-      return mPruned;
-    }
+		@Override
+		public boolean getIsPruned() {
+			return mPruned;
+		}
 
-    /**
-     * Get minimum and maximum global text length.
-     */
-    void getMinMaxTextLength() {
-      mMinTextLength = Integer.MAX_VALUE;
-      mMaxTextLength = Integer.MIN_VALUE;
-      for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
-        .hasNext();) {
-        axis.next();
-        if (axis.getTransaction().getNode().getKind() == EKind.TEXT) {
-          final int length =
-            axis.getTransaction().getValueOfCurrentNode().length();
-          if (length < mMinTextLength) {
-            mMinTextLength = length;
-          }
+		/**
+		 * Get minimum and maximum global text length.
+		 */
+		void getMinMaxTextLength() {
+			mMinTextLength = Integer.MAX_VALUE;
+			mMaxTextLength = Integer.MIN_VALUE;
+			for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
+					.hasNext();) {
+				axis.next();
+				if (axis.getTransaction().getKind() == EKind.TEXT) {
+					final int length = axis.getTransaction().getValue().length();
+					if (length < mMinTextLength) {
+						mMinTextLength = length;
+					}
 
-          if (length > mMaxTextLength) {
-            mMaxTextLength = length;
-          }
-        }
-      }
-      if (mMinTextLength == Integer.MAX_VALUE) {
-        mMinTextLength = 0;
-      }
-      if (mMaxTextLength == Integer.MIN_VALUE) {
-        mMaxTextLength = 0;
-      }
+					if (length > mMaxTextLength) {
+						mMaxTextLength = length;
+					}
+				}
+			}
+			if (mMinTextLength == Integer.MAX_VALUE) {
+				mMinTextLength = 0;
+			}
+			if (mMaxTextLength == Integer.MIN_VALUE) {
+				mMaxTextLength = 0;
+			}
 
-      LOGWRAPPER.debug("MINIMUM text length: " + mMinTextLength);
-      LOGWRAPPER.debug("MAXIMUM text length: " + mMaxTextLength);
-    }
+			LOGWRAPPER.debug("MINIMUM text length: " + mMinTextLength);
+			LOGWRAPPER.debug("MAXIMUM text length: " + mMaxTextLength);
+		}
 
-    @Override
-    public void descendants(@Nonnull final Optional<INodeReadTrx> pRtx)
-      throws InterruptedException, ExecutionException {
-      checkNotNull(pRtx);
+		@Override
+		public void descendants(@Nonnull final Optional<INodeReadTrx> pRtx)
+				throws InterruptedException, ExecutionException {
+			checkNotNull(pRtx);
 
-      try {
-        final ExecutorService executor = Executors.newSingleThreadExecutor();
-        executor.submit(new GetDescendants(pRtx.get()));
-        mModel.shutdown(executor);
-      } catch (final SirixException e) {
-        LOGWRAPPER.error(e.getMessage(), e);
-      }
-    }
+			try {
+				final ExecutorService executor = Executors.newSingleThreadExecutor();
+				executor.submit(new GetDescendants(pRtx.get()));
+				mModel.shutdown(executor);
+			} catch (final SirixException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 
-    /**
-     * Callable to get descendant-or-self count of each node.
-     */
-    private final class GetDescendants implements Callable<Void> {
+		/**
+		 * Callable to get descendant-or-self count of each node.
+		 */
+		private final class GetDescendants implements Callable<Void> {
 
-      /** {@link INodeReadTrx} implementation. */
-      private final INodeReadTrx mRtx;
+			/** {@link INodeReadTrx} implementation. */
+			private final INodeReadTrx mRtx;
 
-      /**
-       * Get descendants.
-       * 
-       * @param pRtx
-       *          {@link INodeReadTrx} implementation
-       * @throws SirixException
-       *           if traversing a sirix resource fails
-       */
-      GetDescendants(final INodeReadTrx pRtx) throws SirixException {
-        mRtx = mDb.getSession().beginNodeReadTrx(mDb.getRevisionNumber());
-        mRtx.moveTo(pRtx.getNode().getNodeKey());
-      }
+			/**
+			 * Get descendants.
+			 * 
+			 * @param pRtx
+			 *          {@link INodeReadTrx} implementation
+			 * @throws SirixException
+			 *           if traversing a sirix resource fails
+			 */
+			GetDescendants(final INodeReadTrx pRtx) throws SirixException {
+				mRtx = mDb.getSession().beginNodeReadTrx(mDb.getRevisionNumber());
+				mRtx.moveTo(pRtx.getNodeKey());
+			}
 
-      /** {@inheritDoc} */
-      @Override
-      public Void call() throws SirixException, ExecutionException,
-        InterruptedException {
-        final ExecutorService executor =
-          Executors.newFixedThreadPool(Runtime.getRuntime()
-            .availableProcessors());
-        switch (mPruning) {
-        case DEPTH:
-          mDepth = 0;
-          boolean first = true;
+			/** {@inheritDoc} */
+			@Override
+			public Void call() throws SirixException, ExecutionException,
+					InterruptedException {
+				final ExecutorService executor = Executors.newFixedThreadPool(Runtime
+						.getRuntime().availableProcessors());
+				switch (mPruning) {
+				case DEPTH:
+					mDepth = 0;
+					boolean first = true;
 
-          if (mRtx.getNode().getKind() == EKind.DOCUMENT_ROOT) {
-            mRtx.moveToFirstChild();
-          }
-          final long key = mRtx.getNode().getNodeKey();
+					if (mRtx.getKind() == EKind.DOCUMENT_ROOT) {
+						mRtx.moveToFirstChild();
+					}
+					final long key = mRtx.getNodeKey();
 
-          if (mRtx.getStructuralNode().hasFirstChild()) {
-            boolean moved = false;
-            while (first || mRtx.getNode().getNodeKey() != key) {
-              if (mRtx.getStructuralNode().hasFirstChild()) {
-                if (first) {
-                  first = false;
-                  final Future<Integer> descs =
-                    countDescendants(mRtx, executor);
-                  mMaxDescendantCount = descs.get();
-                  LOGWRAPPER.debug("DESCS: " + mMaxDescendantCount);
-                  firePropertyChange("maxDescendantCount", null,
-                    mMaxDescendantCount);
-                  firePropertyChange("descendants", null, descs);
-                  mRtx.moveToFirstChild();
-                  mDepth++;
-                } else {
-                  if (mDepth >= DEPTH_TO_PRUNE) {
-                    while (!mRtx.getStructuralNode().hasRightSibling()
-                      && mRtx.getNode().getNodeKey() != key) {
-                      mRtx.moveToParent();
-                      mDepth--;
-                    }
-                    mRtx.moveToRightSibling();
-                  } else {
-                    if (!moved) {
-                      firePropertyChange("descendants", null, countDescendants(
-                        mRtx, executor));
-                    }
-                    mRtx.moveToFirstChild();
-                    mDepth++;
-                  }
-                  moved = false;
-                }
-              } else {
-                boolean movedToNextFollowing = false;
-                while (!mRtx.getStructuralNode().hasRightSibling()
-                  && mRtx.getNode().getNodeKey() != key) {
-                  if (!moved && !movedToNextFollowing
-                    && mDepth < DEPTH_TO_PRUNE) {
-                    firePropertyChange("descendants", null, countDescendants(
-                      mRtx, executor));
-                  }
-                  mRtx.moveToParent();
-                  mDepth--;
-                  movedToNextFollowing = true;
-                }
-                if (mRtx.getNode().getNodeKey() != key) {
-                  if (movedToNextFollowing) {
-                    mRtx.moveToRightSibling();
-                    moved = true;
-                    if (mDepth < DEPTH_TO_PRUNE) {
-                      firePropertyChange("descendants", null, countDescendants(
-                        mRtx, executor));
-                    }
-                  } else {
-                    if (mDepth < DEPTH_TO_PRUNE && !moved) {
-                      firePropertyChange("descendants", null, countDescendants(
-                        mRtx, executor));
-                    }
-                    moved = false;
-                    mRtx.moveToRightSibling();
-                  }
-                }
-              }
-            }
+					if (mRtx.hasFirstChild()) {
+						boolean moved = false;
+						while (first || mRtx.getNodeKey() != key) {
+							if (mRtx.hasFirstChild()) {
+								if (first) {
+									first = false;
+									final Future<Integer> descs = countDescendants(mRtx, executor);
+									mMaxDescendantCount = descs.get();
+									LOGWRAPPER.debug("DESCS: " + mMaxDescendantCount);
+									firePropertyChange("maxDescendantCount", null,
+											mMaxDescendantCount);
+									firePropertyChange("descendants", null, descs);
+									mRtx.moveToFirstChild();
+									mDepth++;
+								} else {
+									if (mDepth >= DEPTH_TO_PRUNE) {
+										while (!mRtx.hasRightSibling() && mRtx.getNodeKey() != key) {
+											mRtx.moveToParent();
+											mDepth--;
+										}
+										mRtx.moveToRightSibling();
+									} else {
+										if (!moved) {
+											firePropertyChange("descendants", null,
+													countDescendants(mRtx, executor));
+										}
+										mRtx.moveToFirstChild();
+										mDepth++;
+									}
+									moved = false;
+								}
+							} else {
+								boolean movedToNextFollowing = false;
+								while (!mRtx.hasRightSibling() && mRtx.getNodeKey() != key) {
+									if (!moved && !movedToNextFollowing
+											&& mDepth < DEPTH_TO_PRUNE) {
+										firePropertyChange("descendants", null,
+												countDescendants(mRtx, executor));
+									}
+									mRtx.moveToParent();
+									mDepth--;
+									movedToNextFollowing = true;
+								}
+								if (mRtx.getNodeKey() != key) {
+									if (movedToNextFollowing) {
+										mRtx.moveToRightSibling();
+										moved = true;
+										if (mDepth < DEPTH_TO_PRUNE) {
+											firePropertyChange("descendants", null,
+													countDescendants(mRtx, executor));
+										}
+									} else {
+										if (mDepth < DEPTH_TO_PRUNE && !moved) {
+											firePropertyChange("descendants", null,
+													countDescendants(mRtx, executor));
+										}
+										moved = false;
+										mRtx.moveToRightSibling();
+									}
+								}
+							}
+						}
 
-            mRtx.moveTo(mKey);
-          } else {
-            final Future<Integer> future = countDescendants(mRtx, executor);
-            firePropertyChange("maxDescendantCount", null, future.get());
-            firePropertyChange("descendants", null, future);
-          }
-          break;
-        case NO:
-          // Get descendants for every node and save it to a list.
-          boolean firstNode = true;
-          for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
-            .hasNext(); axis.next()) {
-            if (axis.getTransaction().getNode().getKind() != EKind.DOCUMENT_ROOT) {
-              // try {
-              final Future<Integer> futureSubmitted =
-                executor.submit(Callables.returning((int)mRtx
-                  .getStructuralNode().getDescendantCount() + 1));// */new
-                                                                  // Descendants(mDb.getSession(),
-                                                                  // mRtx
-              // .getRevisionNumber(), mRtx.getItem().getKey()));
-              if (firstNode) {
-                firstNode = false;
-                mMaxDescendantCount = futureSubmitted.get();
-                firePropertyChange("maxDescendantCount", null,
-                  mMaxDescendantCount);
-              }
-              firePropertyChange("descendants", null, futureSubmitted);
-              // } catch (TTIOException e) {
-              // LOGWRAPPER.error(e.getMessage(), e);
-              // }
-            }
-          }
-          break;
-        }
-        firePropertyChange("descendants", null, executor.submit(Callables
-          .returning(DESCENDANTS_DONE)));
-        mModel.shutdown(executor);
-        mRtx.close();
-        return null;
-      }
-    }
+						mRtx.moveTo(mKey);
+					} else {
+						final Future<Integer> future = countDescendants(mRtx, executor);
+						firePropertyChange("maxDescendantCount", null, future.get());
+						firePropertyChange("descendants", null, future);
+					}
+					break;
+				case NO:
+					// Get descendants for every node and save it to a list.
+					boolean firstNode = true;
+					for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
+							.hasNext(); axis.next()) {
+						if (axis.getTransaction().getKind() != EKind.DOCUMENT_ROOT) {
+							// try {
+							final Future<Integer> futureSubmitted = executor.submit(Callables
+									.returning((int) mRtx.getDescendantCount() + 1));// */new
+																																		// Descendants(mDb.getSession(),
+																																		// mRtx
+							// .getRevisionNumber(), mRtx.getItem().getKey()));
+							if (firstNode) {
+								firstNode = false;
+								mMaxDescendantCount = futureSubmitted.get();
+								firePropertyChange("maxDescendantCount", null,
+										mMaxDescendantCount);
+							}
+							firePropertyChange("descendants", null, futureSubmitted);
+							// } catch (TTIOException e) {
+							// LOGWRAPPER.error(e.getMessage(), e);
+							// }
+						}
+					}
+					break;
+				}
+				firePropertyChange("descendants", null,
+						executor.submit(Callables.returning(DESCENDANTS_DONE)));
+				mModel.shutdown(executor);
+				mRtx.close();
+				return null;
+			}
+		}
 
-    /**
-     * Count descendants.
-     * 
-     * @param pRtx
-     *          {@link INodeReadTrx} instance
-     */
-    Future<Integer> countDescendants(final INodeReadTrx pRtx,
-      final ExecutorService pExecutor) throws SirixException {
-      assert pRtx != null;
-      assert pExecutor != null;
+		/**
+		 * Count descendants.
+		 * 
+		 * @param pRtx
+		 *          {@link INodeReadTrx} instance
+		 */
+		Future<Integer> countDescendants(final INodeReadTrx pRtx,
+				final ExecutorService pExecutor) throws SirixException {
+			assert pRtx != null;
+			assert pExecutor != null;
 
-      try {
-        return pExecutor.submit(new PrunedDescendants(mDb.getSession(), pRtx
-          .getRevisionNumber(), pRtx.getNode().getNodeKey(), mDepth));
-      } catch (final SirixException e) {
-        LOGWRAPPER.error(e.getMessage(), e);
-        return null;
-      }
-    }
+			try {
+				return pExecutor.submit(new PrunedDescendants(mDb.getSession(), pRtx
+						.getRevisionNumber(), pRtx.getNodeKey(), mDepth));
+			} catch (final SirixException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+				return null;
+			}
+		}
 
-    /** Counts descendants but pruned after a specified level. */
-    private final static class PrunedDescendants implements Callable<Integer> {
+		/** Counts descendants but pruned after a specified level. */
+		private final static class PrunedDescendants implements Callable<Integer> {
 
-      /** sirix {@link INodeReadTrx}. */
-      private final INodeReadTrx mRtx;
+			/** sirix {@link INodeReadTrx}. */
+			private final INodeReadTrx mRtx;
 
-      /** Current depth in the tree. */
-      private transient int mDepth;
+			/** Current depth in the tree. */
+			private transient int mDepth;
 
-      /**
-       * Constructor.
-       * 
-       * @param pRtx
-       *          {@link INodeReadTrx} over which to iterate
-       */
-      PrunedDescendants(final ISession pSession, final int pRevision,
-        final long pNodeKey, final int pDepth) throws SirixException {
-        assert pSession != null;
-        assert !pSession.isClosed();
-        assert pRevision >= 0;
-        assert pNodeKey >= 0;
-        assert pDepth >= 0 && pDepth <= DEPTH_TO_PRUNE;
-        mRtx = pSession.beginNodeReadTrx(pRevision);
-        mRtx.moveTo(pNodeKey);
-        mDepth = pDepth;
-      }
+			/**
+			 * Constructor.
+			 * 
+			 * @param pRtx
+			 *          {@link INodeReadTrx} over which to iterate
+			 */
+			PrunedDescendants(final ISession pSession, final int pRevision,
+					final long pNodeKey, final int pDepth) throws SirixException {
+				assert pSession != null;
+				assert !pSession.isClosed();
+				assert pRevision >= 0;
+				assert pNodeKey >= 0;
+				assert pDepth >= 0 && pDepth <= DEPTH_TO_PRUNE;
+				mRtx = pSession.beginNodeReadTrx(pRevision);
+				mRtx.moveTo(pNodeKey);
+				mDepth = pDepth;
+			}
 
-      @Override
-      public Integer call() throws Exception {
-        assert mDepth < DEPTH_TO_PRUNE;
-        if (mDepth + 1 >= DEPTH_TO_PRUNE) {
-          mRtx.close();
-          return 1;
-        }
-        int retVal = 1;
-        final long key = mRtx.getNode().getNodeKey();
-        boolean first = true;
-        while (first || mRtx.getNode().getNodeKey() != key) {
-          first = false;
-          if (mRtx.getStructuralNode().hasFirstChild()) {
-            mDepth++;
-            if (mDepth < DEPTH_TO_PRUNE) {
-              mRtx.moveToFirstChild();
-              retVal++;
-            } else {
-              mDepth--;
-              retVal += nextFollowingNode(mRtx, key);
-            }
-          } else {
-            retVal += nextFollowingNode(mRtx, key);
-          }
-        }
-        mRtx.close();
-        return retVal;
-      }
+			@Override
+			public Integer call() throws Exception {
+				assert mDepth < DEPTH_TO_PRUNE;
+				if (mDepth + 1 >= DEPTH_TO_PRUNE) {
+					mRtx.close();
+					return 1;
+				}
+				int retVal = 1;
+				final long key = mRtx.getNodeKey();
+				boolean first = true;
+				while (first || mRtx.getNodeKey() != key) {
+					first = false;
+					if (mRtx.hasFirstChild()) {
+						mDepth++;
+						if (mDepth < DEPTH_TO_PRUNE) {
+							mRtx.moveToFirstChild();
+							retVal++;
+						} else {
+							mDepth--;
+							retVal += nextFollowingNode(mRtx, key);
+						}
+					} else {
+						retVal += nextFollowingNode(mRtx, key);
+					}
+				}
+				mRtx.close();
+				return retVal;
+			}
 
-      /**
-       * Move transaction to the next following node.
-       * 
-       * @param pRtx
-       *          {@link INodeReadTrx} implementation
-       * @param pKey
-       *          root key
-       */
-      private int nextFollowingNode(final INodeReadTrx pRtx, final long pKey) {
-        checkNotNull(pRtx);
-        int retVal = 0;
-        while (!pRtx.getStructuralNode().hasRightSibling()
-          && pRtx.getNode().getNodeKey() != pKey) {
-          pRtx.moveToParent();
-          mDepth--;
-        }
-        if (pRtx.getNode().getNodeKey() != pKey) {
-          pRtx.moveToRightSibling();
-          if (mDepth < DEPTH_TO_PRUNE) {
-            retVal++;
-          }
-        }
-        return retVal;
-      }
-    }
-  }
+			/**
+			 * Move transaction to the next following node.
+			 * 
+			 * @param pRtx
+			 *          {@link INodeReadTrx} implementation
+			 * @param pKey
+			 *          root key
+			 */
+			private int nextFollowingNode(final INodeReadTrx pRtx, final long pKey) {
+				checkNotNull(pRtx);
+				int retVal = 0;
+				while (!pRtx.hasRightSibling() && pRtx.getNodeKey() != pKey) {
+					pRtx.moveToParent();
+					mDepth--;
+				}
+				if (pRtx.getNodeKey() != pKey) {
+					pRtx.moveToRightSibling();
+					if (mDepth < DEPTH_TO_PRUNE) {
+						retVal++;
+					}
+				}
+				return retVal;
+			}
+		}
+	}
 
-  /**
-   * Shredder XML fragment input.
-   * 
-   * @param pFragment
-   *          XML fragment to shredder (might be text as well)
-   * @throws SirixException
-   *           if shredding in sirix fails
-   * @throws XMLStreamException
-   *           if parser can't parse the XML fragment
-   */
-  @Override
-  public void addXMLFragment(final String pFragment) throws SirixException,
-    XMLStreamException {
-    if (!pFragment.isEmpty()) {
-      try {
-        // Very simple heuristic to determine if it's character input or an XML fragment.
-        if (pFragment.startsWith("<")) {
-          // Annotation in this context questionable since it can't be checked at compile time!
-          @Syntax("XML")
-          final String xml = pFragment;
-          final XMLEventReader reader =
-            XMLInputFactory.newInstance().createXMLEventReader(
-              new ByteArrayInputStream(xml.getBytes()));
-          final ExecutorService service = Executors.newSingleThreadExecutor();
-          service.submit(new XMLShredder(mWtx, reader, mInsert,
-            EShredderCommit.NOCOMMIT));
-          service.shutdown();
-          service.awaitTermination(60, TimeUnit.SECONDS);
-        } else {
-          switch (mInsert) {
-          case ASFIRSTCHILD:
-            mWtx.insertTextAsFirstChild(pFragment);
-            break;
-          case ASRIGHTSIBLING:
-            mWtx.insertTextAsRightSibling(pFragment);
-          }
-        }
-      } catch (final InterruptedException e) {
-        LOGWRAPPER.error(e.getMessage(), e);
-      }
-    }
-  }
+	/**
+	 * Shredder XML fragment input.
+	 * 
+	 * @param pFragment
+	 *          XML fragment to shredder (might be text as well)
+	 * @throws SirixException
+	 *           if shredding in sirix fails
+	 * @throws XMLStreamException
+	 *           if parser can't parse the XML fragment
+	 */
+	@Override
+	public void addXMLFragment(final String pFragment) throws SirixException,
+			XMLStreamException {
+		if (!pFragment.isEmpty()) {
+			try {
+				// Very simple heuristic to determine if it's character input or an XML
+				// fragment.
+				if (pFragment.startsWith("<")) {
+					// Annotation in this context questionable since it can't be checked
+					// at compile time!
+					@Syntax("XML")
+					final String xml = pFragment;
+					final XMLEventReader reader = XMLInputFactory.newInstance()
+							.createXMLEventReader(new ByteArrayInputStream(xml.getBytes()));
+					final ExecutorService service = Executors.newSingleThreadExecutor();
+					service.submit(new XMLShredder(mWtx, reader, mInsert,
+							EShredderCommit.NOCOMMIT));
+					service.shutdown();
+					service.awaitTermination(60, TimeUnit.SECONDS);
+				} else {
+					switch (mInsert) {
+					case ASFIRSTCHILD:
+						mWtx.insertTextAsFirstChild(pFragment);
+						break;
+					case ASRIGHTSIBLING:
+						mWtx.insertTextAsRightSibling(pFragment);
+					}
+				}
+			} catch (final InterruptedException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
+	}
 
-  /**
-   * Commit changes.
-   * 
-   * @throws SirixException
-   *           if commiting or closeing transaction fails
-   */
-  @Override
-  public void commit() throws SirixException {
-    mWtx.commit();
-    mWtx.close();
-  }
+	/**
+	 * Commit changes.
+	 * 
+	 * @throws SirixException
+	 *           if commiting or closeing transaction fails
+	 */
+	@Override
+	public void commit() throws SirixException {
+		mWtx.commit();
+		mWtx.close();
+	}
 
-  /**
-   * Create a popup menu for modifying nodes.
-   * 
-   * @param pEvent
-   *          the current {@link MouseEvent}
-   * @param pCtrl
-   *          {@link ControlGroup} to insert XML fragment
-   * @param pHitTestIndex
-   *          the index of the {@link SunburstItem} which is currently hovered
-   * @throws SirixException
-   */
-  public void popupMenu(final MouseEvent pEvent, final ControlGroup<?> pCtrl,
-    final int pHitTestIndex) throws SirixException {
-    if (mWtx == null || mWtx.isClosed()) {
-      mWtx = getDb().getSession().beginNodeWriteTrx();
-      mWtx.revertTo(getDb().getRevisionNumber());
-    }
-    mWtx.moveTo(((SunburstItem)getItem(pHitTestIndex)).getItem().getNodeKey());
-    final SunburstPopupMenu menu =
-      SunburstPopupMenu.getInstance(this, mWtx, pCtrl);
-    menu.show(pEvent.getComponent(), pEvent.getX(), pEvent.getY());
-  }
+	/**
+	 * Create a popup menu for modifying nodes.
+	 * 
+	 * @param pEvent
+	 *          the current {@link MouseEvent}
+	 * @param pCtrl
+	 *          {@link ControlGroup} to insert XML fragment
+	 * @param pHitTestIndex
+	 *          the index of the {@link SunburstItem} which is currently hovered
+	 * @throws SirixException
+	 */
+	public void popupMenu(final MouseEvent pEvent, final ControlGroup<?> pCtrl,
+			final int pHitTestIndex) throws SirixException {
+		if (mWtx == null || mWtx.isClosed()) {
+			mWtx = getDb().getSession().beginNodeWriteTrx();
+			mWtx.revertTo(getDb().getRevisionNumber());
+		}
+		mWtx.moveTo(((SunburstItem) getItem(pHitTestIndex)).getKey());
+		final SunburstPopupMenu menu = SunburstPopupMenu.getInstance(this, mWtx,
+				pCtrl);
+		menu.show(pEvent.getComponent(), pEvent.getX(), pEvent.getY());
+	}
 
-  @SuppressWarnings("unchecked")
-  @Override
-  public void propertyChange(final PropertyChangeEvent pEvent) {
-    switch (pEvent.getPropertyName().toLowerCase()) {
-    case "maxdepth":
-      mLastMaxDepth = (Integer)pEvent.getNewValue();
-      firePropertyChange("maxDepth", null, mLastMaxDepth);
-      break;
-    case "done":
-      firePropertyChange("done", null, true);
-      break;
-    case "items":
-      mItems = (List<SunburstItem>)pEvent.getNewValue();
-      firePropertyChange("items", null, mItems);
-      break;
-    case "item":
-      firePropertyChange("item", null, pEvent.getNewValue());
-      break;
-    case "progress":
-      firePropertyChange("progress", null, pEvent.getNewValue());
-      break;
-    }
-  }
+	@SuppressWarnings("unchecked")
+	@Override
+	public void propertyChange(final PropertyChangeEvent pEvent) {
+		switch (pEvent.getPropertyName().toLowerCase()) {
+		case "maxdepth":
+			mLastMaxDepth = (Integer) pEvent.getNewValue();
+			firePropertyChange("maxDepth", null, mLastMaxDepth);
+			break;
+		case "done":
+			firePropertyChange("done", null, true);
+			break;
+		case "items":
+			mItems = (List<SunburstItem>) pEvent.getNewValue();
+			firePropertyChange("items", null, mItems);
+			break;
+		case "item":
+			firePropertyChange("item", null, pEvent.getNewValue());
+			break;
+		case "progress":
+			firePropertyChange("progress", null, pEvent.getNewValue());
+			break;
+		}
+	}
 }

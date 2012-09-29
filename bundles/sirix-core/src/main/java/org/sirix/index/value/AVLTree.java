@@ -5,8 +5,12 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.access.Move;
+import org.sirix.access.Moved;
 import org.sirix.api.INodeCursor;
 import org.sirix.api.IPageWriteTrx;
+import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
@@ -115,7 +119,8 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 					.prepareNodeForModification(
 							EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
 			document.setFirstChildKey(mRoot.getNodeKey());
-			mPageWriteTrx.finishNodeModification(document, EPage.VALUEPAGE);
+			mPageWriteTrx.finishNodeModification(document.getNodeKey(),
+					EPage.VALUEPAGE);
 			mSize++;
 			return pValue;
 		}
@@ -127,7 +132,8 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 				return node.getValue();
 			}
 
-			final boolean moved = c < 0 ? moveToLeftSibling() : moveToRightSibling();
+			final boolean moved = c < 0 ? moveToLeftSibling().hasMoved()
+					: moveToRightSibling().hasMoved();
 			if (moved) {
 				node = getAVLNode();
 				continue;
@@ -147,7 +153,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 				node.setRightChildKey(child.getNodeKey());
 				adjust(child);
 			}
-			mPageWriteTrx.finishNodeModification(node, EPage.VALUEPAGE);
+			mPageWriteTrx.finishNodeModification(node.getNodeKey(), EPage.VALUEPAGE);
 			mSize++;
 			return pValue;
 		}
@@ -184,7 +190,8 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 			if (c == 0) {
 				return Optional.fromNullable(node.getValue());
 			}
-			final boolean moved = c < 0 ? moveToLeftSibling() : moveToRightSibling();
+			final boolean moved = c < 0 ? moveToLeftSibling().hasMoved()
+					: moveToRightSibling().hasMoved();
 			if (moved) {
 				node = getAVLNode();
 			} else {
@@ -270,7 +277,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 		final AVLNode<K, V> node = (AVLNode<K, V>) mPageWriteTrx
 				.prepareNodeForModification(pNode.getNodeKey(), EPage.VALUEPAGE);
 		node.setChanged(pChanged);
-		mPageWriteTrx.finishNodeModification(node, EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(node.getNodeKey(), EPage.VALUEPAGE);
 	}
 
 	/**
@@ -282,7 +289,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	private AVLNode<K, V> left(@Nullable AVLNode<K, V> pNode) {
 		if (pNode == null)
 			return null;
-		return moveTo(pNode.getLeftChildKey()) ? getAVLNode() : null;
+		return moveTo(pNode.getLeftChildKey()).hasMoved() ? getAVLNode() : null;
 	}
 
 	/**
@@ -294,7 +301,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	private AVLNode<K, V> right(@Nullable AVLNode<K, V> pNode) {
 		if (pNode == null)
 			return null;
-		return moveTo(pNode.getRightChildKey()) ? getAVLNode() : null;
+		return moveTo(pNode.getRightChildKey()).hasMoved() ? getAVLNode() : null;
 	}
 
 	/**
@@ -308,7 +315,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 		if (pNode == null) {
 			return null;
 		}
-		return moveTo(pNode.getParentKey()) ? getAVLNode() : null;
+		return moveTo(pNode.getParentKey()).hasMoved() ? getAVLNode() : null;
 	}
 
 	/**
@@ -323,49 +330,54 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	private void rotateLeft(@Nonnull AVLNode<K, V> pNode) throws SirixIOException {
 		moveTo(pNode.getNodeKey());
 
-		AVLNode<K, V> right = (AVLNode<K, V>) getLastChild().get();
+		AVLNode<K, V> right = (AVLNode<K, V>) moveToLastChild().get().getAVLNode();
 
 		pNode = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 				pNode.getNodeKey(), EPage.VALUEPAGE);
 		pNode.setRightChildKey(right.getLeftChildKey());
-		mPageWriteTrx.finishNodeModification(pNode, EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), EPage.VALUEPAGE);
 
 		if (right.hasLeftChild()) {
 			final AVLNode<K, V> rightLeftChild = (AVLNode<K, V>) mPageWriteTrx
 					.prepareNodeForModification(right.getLeftChildKey(), EPage.VALUEPAGE);
 			rightLeftChild.setParentKey(pNode.getNodeKey());
-			mPageWriteTrx.finishNodeModification(rightLeftChild, EPage.VALUEPAGE);
+			mPageWriteTrx.finishNodeModification(rightLeftChild.getNodeKey(),
+					EPage.VALUEPAGE);
 		}
 
 		right = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 				right.getNodeKey(), EPage.VALUEPAGE);
 		right.setParentKey(pNode.getParentKey());
-		mPageWriteTrx.finishNodeModification(right, EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(right.getNodeKey(), EPage.VALUEPAGE);
 
 		if (pNode.getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
 			mRoot = right;
-		} else if (moveTo(pNode.getParentKey())
+		} else if (moveTo(pNode.getParentKey()).hasMoved()
 				&& getAVLNode().getLeftChildKey() == pNode.getNodeKey()) {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
-					.prepareNodeForModification(getNode().getNodeKey(), EPage.VALUEPAGE);
+					.prepareNodeForModification(mCurrentNode.getNodeKey(),
+							EPage.VALUEPAGE);
 			parent.setLeftChildKey(right.getNodeKey());
-			mPageWriteTrx.finishNodeModification(parent, EPage.VALUEPAGE);
+			mPageWriteTrx
+					.finishNodeModification(parent.getNodeKey(), EPage.VALUEPAGE);
 		} else {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
-					.prepareNodeForModification(getNode().getNodeKey(), EPage.VALUEPAGE);
+					.prepareNodeForModification(mCurrentNode.getNodeKey(),
+							EPage.VALUEPAGE);
 			parent.setRightChildKey(right.getNodeKey());
-			mPageWriteTrx.finishNodeModification(parent, EPage.VALUEPAGE);
+			mPageWriteTrx
+					.finishNodeModification(parent.getNodeKey(), EPage.VALUEPAGE);
 		}
 
 		right = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 				right.getNodeKey(), EPage.VALUEPAGE);
 		right.setLeftChildKey(pNode.getNodeKey());
-		mPageWriteTrx.finishNodeModification(right, EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(right.getNodeKey(), EPage.VALUEPAGE);
 
 		pNode = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 				pNode.getNodeKey(), EPage.VALUEPAGE);
 		pNode.setParentKey(right.getNodeKey());
-		mPageWriteTrx.finishNodeModification(pNode, EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), EPage.VALUEPAGE);
 	}
 
 	/**
@@ -381,49 +393,57 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 			throws SirixIOException {
 		moveTo(pNode.getNodeKey());
 
-		AVLNode<K, V> leftChild = (AVLNode<K, V>) getFirstChild().get();
+		AVLNode<K, V> leftChild = (AVLNode<K, V>) moveToFirstChild().get()
+				.getAVLNode();
 		pNode = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 				pNode.getNodeKey(), EPage.VALUEPAGE);
 		pNode.setLeftChildKey(leftChild.getRightChildKey());
-		mPageWriteTrx.finishNodeModification(pNode, EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), EPage.VALUEPAGE);
 
 		if (leftChild.hasRightChild()) {
 			final INode leftRightChild = (INode) mPageWriteTrx
 					.prepareNodeForModification(leftChild.getRightChildKey(),
 							EPage.VALUEPAGE);
 			leftRightChild.setParentKey(pNode.getNodeKey());
-			mPageWriteTrx.finishNodeModification(leftRightChild, EPage.VALUEPAGE);
+			mPageWriteTrx.finishNodeModification(leftRightChild.getNodeKey(),
+					EPage.VALUEPAGE);
 		}
 
 		leftChild = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 				leftChild.getNodeKey(), EPage.VALUEPAGE);
 		leftChild.setParentKey(pNode.getParentKey());
-		mPageWriteTrx.finishNodeModification(leftChild, EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(leftChild.getNodeKey(),
+				EPage.VALUEPAGE);
 
 		if (pNode.getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
 			mRoot = leftChild;
-		} else if (moveTo(pNode.getParentKey())
+		} else if (moveTo(pNode.getParentKey()).hasMoved()
 				&& getAVLNode().getRightChildKey() == pNode.getNodeKey()) {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
-					.prepareNodeForModification(getNode().getNodeKey(), EPage.VALUEPAGE);
+					.prepareNodeForModification(mCurrentNode.getNodeKey(),
+							EPage.VALUEPAGE);
 			parent.setRightChildKey(leftChild.getNodeKey());
-			mPageWriteTrx.finishNodeModification(parent, EPage.VALUEPAGE);
+			mPageWriteTrx
+					.finishNodeModification(parent.getNodeKey(), EPage.VALUEPAGE);
 		} else {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
-					.prepareNodeForModification(getNode().getNodeKey(), EPage.VALUEPAGE);
+					.prepareNodeForModification(mCurrentNode.getNodeKey(),
+							EPage.VALUEPAGE);
 			parent.setLeftChildKey(leftChild.getNodeKey());
-			mPageWriteTrx.finishNodeModification(parent, EPage.VALUEPAGE);
+			mPageWriteTrx
+					.finishNodeModification(parent.getNodeKey(), EPage.VALUEPAGE);
 		}
 
 		leftChild = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 				leftChild.getNodeKey(), EPage.VALUEPAGE);
 		leftChild.setRightChildKey(pNode.getNodeKey());
-		mPageWriteTrx.finishNodeModification(leftChild, EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(leftChild.getNodeKey(),
+				EPage.VALUEPAGE);
 
 		pNode = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 				pNode.getNodeKey(), EPage.VALUEPAGE);
 		pNode.setParentKey(leftChild.getNodeKey());
-		mPageWriteTrx.finishNodeModification(pNode, EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), EPage.VALUEPAGE);
 	}
 
 	@Override
@@ -449,8 +469,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 		mCurrentNode = checkNotNull(pNode);
 	}
 
-	@Override
-	public IStructNode getStructuralNode() {
+	private IStructNode getStructuralNode() {
 		if (mCurrentNode instanceof IStructNode) {
 			return (IStructNode) mCurrentNode;
 		} else {
@@ -459,169 +478,142 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	}
 
 	@Override
-	public INode getNode() {
-		return mCurrentNode;
+	public boolean hasNode(long pKey) {
+		final long currKey = mCurrentNode.getNodeKey();
+		final boolean moved = moveTo(pKey).hasMoved();
+		final Move<AVLTree<K, V>> movedCursor = moveTo(currKey);
+		assert movedCursor.hasMoved() == true : "Must be moveable back!";
+		return moved;
 	}
 
 	@Override
-	public boolean moveTo(final long pKey) {
-		return false;
+	public boolean hasParent() {
+		return mCurrentNode.hasParent();
 	}
 
 	@Override
-	public boolean moveToDocumentRoot() {
+	public boolean hasFirstChild() {
+		return getStructuralNode().hasFirstChild();
+	}
+
+	@Override
+	public boolean hasLastChild() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean hasLeftSibling() {
+		return getStructuralNode().hasLeftSibling();
+	}
+
+	@Override
+	public boolean hasRightSibling() {
+		return getStructuralNode().hasRightSibling();
+	}
+
+	@Override
+	public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public Move<AVLTree<K, V>> moveTo(final long pNodeKey) {
+		assertNotClosed();
+
+		// Remember old node and fetch new one.
+		final INode oldNode = mCurrentNode;
+		Optional<? extends INode> newNode;
+		try {
+			// Immediately return node from item list if node key negative.
+			@SuppressWarnings("unchecked")
+			final Optional<? extends INode> node = (Optional<? extends INode>) mPageWriteTrx
+					.getNode(pNodeKey, EPage.PATHSUMMARYPAGE);
+			newNode = node;
+		} catch (final SirixIOException e) {
+			newNode = Optional.absent();
+		}
+
+		if (newNode.isPresent()) {
+			mCurrentNode = newNode.get();
+			return Move.moved(this);
+		} else {
+			mCurrentNode = oldNode;
+			return Move.notMoved();
+		}
+	}
+
+	@Override
+	public Move<AVLTree<K, V>> moveToDocumentRoot() {
 		return moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
 	}
 
 	@Override
-	public boolean moveToParent() {
-		assertNotClosed();
-		if (mCurrentNode instanceof AVLNode) {
-			final AVLNode<K, V> node = getAVLNode();
-			if (!node.hasParent()) {
-				return false;
-			}
-			return moveTo(node.getParentKey());
-		}
-		return false;
+	public Move<AVLTree<K, V>> moveToParent() {
+		return moveTo(mCurrentNode.getParentKey());
 	}
 
 	@Override
-	public boolean moveToFirstChild() {
+	public Move<AVLTree<K, V>> moveToFirstChild() {
 		assertNotClosed();
-		if (mCurrentNode instanceof AVLNode) {
-			final AVLNode<K, V> node = getAVLNode();
-			if (!node.hasLeftChild()) {
-				return false;
-			}
-			return moveTo(node.getLeftChildKey());
+		final IStructNode node = getStructuralNode();
+		if (!node.hasFirstChild()) {
+			return Moved.notMoved();
 		}
-		return false;
+		return moveTo(node.getFirstChildKey());
 	}
 
 	@Override
-	public boolean moveToLastChild() {
-		assertNotClosed();
+	public Move<AVLTree<K, V>> moveToLastChild() {
 		if (mCurrentNode instanceof AVLNode) {
 			final AVLNode<K, V> node = getAVLNode();
 			if (!node.hasRightChild()) {
-				return false;
+				return Moved.notMoved();
 			}
 			return moveTo(node.getRightChildKey());
 		}
-		return false;
+		return Move.notMoved();
 	}
 
 	@Override
-	public boolean moveToLeftSibling() {
-		return false;
+	public Move<AVLTree<K, V>> moveToLeftSibling() {
+		return Move.notMoved();
 	}
 
 	@Override
-	public boolean moveToRightSibling() {
-		return false;
+	public Move<AVLTree<K, V>> moveToRightSibling() {
+		return Move.notMoved();
 	}
 
 	@Override
-	public Optional<IStructNode> moveToAndGetRightSibling() {
-		assertNotClosed();
-		return Optional.absent();
+	public long getNodeKey() {
+		return mCurrentNode.getNodeKey();
 	}
 
 	@Override
-	public Optional<IStructNode> moveToAndGetLeftSibling() {
-		assertNotClosed();
-		return Optional.absent();
+	public EKind getRightSiblingKind() {
+		return EKind.UNKNOWN;
 	}
 
 	@Override
-	public Optional<IStructNode> moveToAndGetParent() {
-		assertNotClosed();
-		if (mCurrentNode instanceof AVLNode) {
-			moveTo(mCurrentNode.getParentKey());
-			// Save: Every AVLNode and the document root are IStructNodes.
-			return Optional.of((IStructNode) mCurrentNode);
+	public EKind getLeftSiblingKind() {
+		return EKind.UNKNOWN;
+	}
+
+	@Override
+	public EKind getFirstChildKind() {
+		return EKind.AVL;
+	}
+
+	@Override
+	public EKind getLastChildKind() {
+		return EKind.AVL;
+	}
+
+	@Override
+	public EKind getParentKind() {
+		if (mCurrentNode.getKind() == EKind.DOCUMENT_ROOT) {
+			return EKind.DOCUMENT_ROOT;
 		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetFirstChild() {
-		assertNotClosed();
-		if (mCurrentNode instanceof AVLNode) {
-			@SuppressWarnings("unchecked")
-			final AVLNode<K, V> node = ((AVLNode<K, V>) mCurrentNode);
-			moveTo(node.getLeftChildKey());
-			// Save: Every AVLNode and the document root are IStructNodes.
-			return Optional.of((IStructNode) mCurrentNode);
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetLastChild() {
-		assertNotClosed();
-		if (mCurrentNode instanceof AVLNode) {
-			@SuppressWarnings("unchecked")
-			final AVLNode<K, V> node = ((AVLNode<K, V>) mCurrentNode);
-			moveTo(node.getRightChildKey());
-			// Save: Every AVLNode and the document root are IStructNodes.
-			return Optional.of((IStructNode) mCurrentNode);
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> getRightSibling() {
-		assertNotClosed();
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> getLeftSibling() {
-		assertNotClosed();
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> getParent() {
-		assertNotClosed();
-		if (mCurrentNode instanceof AVLNode) {
-			// Every AVLNode has a parent (the root node has a document root).
-			@SuppressWarnings("unchecked")
-			final AVLNode<K, V> node = (AVLNode<K, V>) mCurrentNode;
-			final Optional<IStructNode> parent = (Optional<IStructNode>) moveToAndGetParent();
-			moveTo(node.getNodeKey());
-			return parent;
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> getFirstChild() {
-		assertNotClosed();
-		if (mCurrentNode instanceof AVLNode) {
-			// Every AVLNode has a parent (the root node has a document root).
-			@SuppressWarnings("unchecked")
-			final AVLNode<K, V> node = (AVLNode<K, V>) mCurrentNode;
-			final Optional<IStructNode> firstChild = (Optional<IStructNode>) moveToAndGetFirstChild();
-			moveTo(node.getNodeKey());
-			return firstChild;
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> getLastChild() {
-		assertNotClosed();
-		if (mCurrentNode instanceof AVLNode) {
-			// Every AVLNode has a parent (the root node has a document root).
-			@SuppressWarnings("unchecked")
-			final AVLNode<K, V> node = (AVLNode<K, V>) mCurrentNode;
-			final Optional<IStructNode> lastChild = (Optional<IStructNode>) moveToAndGetLastChild();
-			moveTo(node.getNodeKey());
-			return lastChild;
-		}
-		return Optional.absent();
+		return EKind.AVL;
 	}
 }

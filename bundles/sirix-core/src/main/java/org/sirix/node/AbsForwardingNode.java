@@ -32,7 +32,7 @@ public abstract class AbsForwardingNode extends ForwardingObject implements
 	 */
 	@Nonnull
 	public NodeDelegate getNodeDelegate() {
-		return new NodeDelegate(delegate());
+		return delegate();
 	}
 
 	@Override

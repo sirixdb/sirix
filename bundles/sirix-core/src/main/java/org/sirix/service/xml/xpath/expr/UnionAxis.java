@@ -90,7 +90,7 @@ public class UnionAxis extends AbsAxis {
     while (mOp1.hasNext()) {
       mKey = mOp1.next();
 
-      if (getTransaction().getNode().getNodeKey() < 0) { // only nodes are
+      if (getTransaction().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
@@ -101,7 +101,7 @@ public class UnionAxis extends AbsAxis {
     while (mOp2.hasNext()) {
       mKey = mOp2.next();
 
-      if (getTransaction().getNode().getNodeKey() < 0) { // only nodes are
+      if (getTransaction().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }

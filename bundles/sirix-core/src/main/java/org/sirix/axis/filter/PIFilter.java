@@ -27,7 +27,10 @@
 
 package org.sirix.axis.filter;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
+import org.sirix.node.EKind;
 
 /**
  * <h1>NodeAxisTest</h1>
@@ -42,24 +45,15 @@ public class PIFilter extends AbsFilter {
    * Default constructor.
    * 
    * @param rtx
-   *          Transaction this filter is bound to.
+   *          transaction this filter is bound to
    */
-  public PIFilter(final INodeReadTrx rtx) {
+  public PIFilter(final @Nonnull INodeReadTrx rtx) {
     super(rtx);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public final boolean filter() {
-
-    return getTransaction().getNode().getKind().getId() == 7;
-
-    // TODO: As soon as an PI-node is implemented, use the second version,
-    // because this is much cleaner and more consistent to the other
-    // node-filters.
-    // return (getTransaction().isPIKind());
+    return getTransaction().getKind() == EKind.PROCESSING;
   }
 
 }

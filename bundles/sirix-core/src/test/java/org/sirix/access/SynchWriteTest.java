@@ -97,13 +97,13 @@ public class SynchWriteTest {
     r2.get();
 
     final INodeReadTrx rtx = holder.getSession().beginNodeWriteTrx();
-    Assert.assertTrue(rtx.moveToFirstChild());
-    Assert.assertTrue(rtx.moveToFirstChild());
-    Assert.assertFalse(rtx.moveToRightSibling());
-    Assert.assertTrue(rtx.moveToParent());
-    Assert.assertTrue(rtx.moveToRightSibling());
-    Assert.assertTrue(rtx.moveToFirstChild());
-    Assert.assertTrue(rtx.moveToFirstChild());
+    Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
+    Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
+    Assert.assertFalse(rtx.moveToRightSibling().hasMoved());
+    Assert.assertTrue(rtx.moveToParent().hasMoved());
+    Assert.assertTrue(rtx.moveToRightSibling().hasMoved());
+    Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
+    Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
     rtx.close();
   }
 }

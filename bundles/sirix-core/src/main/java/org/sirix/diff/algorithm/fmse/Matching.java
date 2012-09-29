@@ -111,7 +111,7 @@ public final class Matching {
   public void add(@Nonnegative final long pNodeX, @Nonnegative final long pNodeY) {
     mRtxOld.moveTo(pNodeX);
     mRtxNew.moveTo(pNodeY);
-    if (mRtxOld.getNode().getKind() != mRtxNew.getNode().getKind()) {
+    if (mRtxOld.getKind() != mRtxNew.getKind()) {
       throw new AssertionError();
     }
     mMapping.put(pNodeX, pNodeY);
@@ -145,10 +145,10 @@ public final class Matching {
 
     mIsInSubtree.set(pKey, pKey, true);
     pRtx.moveTo(pKey);
-    if (pRtx.getNode().hasParent()) {
-      while (pRtx.getNode().hasParent()) {
+    if (pRtx.hasParent()) {
+      while (pRtx.hasParent()) {
         pRtx.moveToParent();
-        mIsInSubtree.set(pRtx.getNode().getNodeKey(), pKey, true);
+        mIsInSubtree.set(pRtx.getNodeKey(), pKey, true);
       }
       pRtx.moveTo(pKey);
     }
@@ -183,20 +183,18 @@ public final class Matching {
     mRtxOld.moveTo(pNodeX);
     for (final IAxis axis = new DescendantAxis(mRtxOld, EIncludeSelf.YES); axis.hasNext();) {
       axis.next();
-      retVal += mIsInSubtree.get(pNodeY, partner(mRtxOld.getNode().getNodeKey())) ? 1 : 0;
-      final INode node = axis.getTransaction().getNode();
-      if (node.getKind() == EKind.ELEMENT) {
-        final ElementNode element = (ElementNode)node;
-        for (int i = 0; i < element.getNamespaceCount(); i++) {
+      retVal += mIsInSubtree.get(pNodeY, partner(mRtxOld.getNodeKey())) ? 1 : 0;
+      if (mRtxOld.getKind() == EKind.ELEMENT) {
+        for (int i = 0, nspCount = mRtxOld.getNamespaceCount(); i < nspCount; i++) {
           mRtxOld.moveToNamespace(i);
           retVal +=
-            mIsInSubtree.get(pNodeY, partner(axis.getTransaction().getNode().getNodeKey())) ? 1 : 0;
+            mIsInSubtree.get(pNodeY, partner(axis.getTransaction().getNodeKey())) ? 1 : 0;
           mRtxOld.moveToParent();
         }
-        for (int i = 0; i < element.getAttributeCount(); i++) {
+        for (int i = 0, attCount = mRtxOld.getAttributeCount(); i < attCount; i++) {
           mRtxOld.moveToAttribute(i);
           retVal +=
-            mIsInSubtree.get(pNodeY, partner(axis.getTransaction().getNode().getNodeKey())) ? 1 : 0;
+            mIsInSubtree.get(pNodeY, partner(axis.getTransaction().getNodeKey())) ? 1 : 0;
           mRtxOld.moveToParent();
         }
       }

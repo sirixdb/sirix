@@ -60,10 +60,6 @@ public class ValueComp extends AbsComparator {
     super(rtx, mOperand1, mOperand2, mComp);
   }
 
-  /**
-   * {@inheritDoc}
-   * 
-   */
   @Override
   protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2)
     throws SirixXPathException {
@@ -74,15 +70,12 @@ public class ValueComp extends AbsComparator {
     return getCompKind().compare(op1, op2, type);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   protected AtomicValue[] atomize(final IAxis mOperand) throws SirixXPathException {
 
     final INodeReadTrx trx = getTransaction();
 
-    int type = trx.getNode().getTypeKey();
+    int type = trx.getTypeKey();
 
     // (3.) if type is untypedAtomic, cast to string
     if (type == trx.keyForName("xs:unytpedAtomic")) {
@@ -90,7 +83,7 @@ public class ValueComp extends AbsComparator {
     }
 
     final AtomicValue atomized =
-      new AtomicValue(mOperand.getTransaction().getValueOfCurrentNode().getBytes(), type);
+      new AtomicValue(mOperand.getTransaction().getValue().getBytes(), type);
     final AtomicValue[] op = {
       atomized
     };

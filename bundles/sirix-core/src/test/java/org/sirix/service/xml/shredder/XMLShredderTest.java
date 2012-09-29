@@ -101,22 +101,20 @@ public class XMLShredderTest extends XMLTestCase {
     final Iterator<Long> descendants = new DescendantAxis(rtx);
 
     while (expectedDescendants.hasNext() && descendants.hasNext()) {
-      final IStructNode expDesc = expectedTrx.getStructuralNode();
-      final IStructNode desc = rtx.getStructuralNode();
-      assertEquals(expDesc.getNodeKey(), desc.getNodeKey());
-      assertEquals(expDesc.getParentKey(), desc.getParentKey());
-      assertEquals(expDesc.getFirstChildKey(), desc.getFirstChildKey());
-      assertEquals(expDesc.getLeftSiblingKey(), desc.getLeftSiblingKey());
-      assertEquals(expDesc.getRightSiblingKey(), desc.getRightSiblingKey());
-      assertEquals(expDesc.getChildCount(), desc.getChildCount());
-      if (expDesc.getKind() == EKind.ELEMENT || desc.getKind() == EKind.ELEMENT) {
+      assertEquals(expectedTrx.getNodeKey(), rtx.getNodeKey());
+      assertEquals(expectedTrx.getParentKey(), rtx.getParentKey());
+      assertEquals(expectedTrx.getFirstChildKey(), rtx.getFirstChildKey());
+      assertEquals(expectedTrx.getLeftSiblingKey(), rtx.getLeftSiblingKey());
+      assertEquals(expectedTrx.getRightSiblingKey(), rtx.getRightSiblingKey());
+      assertEquals(expectedTrx.getChildCount(), rtx.getChildCount());
+      if (expectedTrx.getKind() == EKind.ELEMENT || rtx.getKind() == EKind.ELEMENT) {
 
-        assertEquals(((ElementNode)expDesc).getAttributeCount(), ((ElementNode)desc).getAttributeCount());
-        assertEquals(((ElementNode)expDesc).getNamespaceCount(), ((ElementNode)desc).getNamespaceCount());
+        assertEquals(expectedTrx.getAttributeCount(), rtx.getAttributeCount());
+        assertEquals(expectedTrx.getNamespaceCount(), rtx.getNamespaceCount());
       }
-      assertEquals(expDesc.getKind(), desc.getKind());
-      assertEquals(expectedTrx.getQNameOfCurrentNode(), rtx.getQNameOfCurrentNode());
-      assertEquals(expectedTrx.getValueOfCurrentNode(), expectedTrx.getValueOfCurrentNode());
+      assertEquals(expectedTrx.getKind(), rtx.getKind());
+      assertEquals(expectedTrx.getQName(), rtx.getQName());
+      assertEquals(expectedTrx.getValue(), expectedTrx.getValue());
     }
 
     rtx.close();
@@ -161,7 +159,7 @@ public class XMLShredderTest extends XMLTestCase {
       expectedDescendants.next();
       descendants.hasNext();
       descendants.next();
-      assertEquals(expectedTrx.getQNameOfCurrentNode(), rtx.getQNameOfCurrentNode());
+      assertEquals(expectedTrx.getQName(), rtx.getQName());
     }
 
     // expectedTrx.moveToDocumentRoot();
@@ -205,14 +203,12 @@ public class XMLShredderTest extends XMLTestCase {
     while (expectedAttributes.hasNext() && attributes.hasNext()) {
       expectedAttributes.next();
       attributes.next();
-      if (expectedTrx2.getNode().getKind() == EKind.ELEMENT
-        || rtx.getNode().getKind() == EKind.ELEMENT) {
-        assertEquals(((ElementNode)expectedTrx2.getNode()).getNamespaceCount(), ((ElementNode)rtx.getNode())
-          .getNamespaceCount());
-        assertEquals(((ElementNode)expectedTrx2.getNode()).getAttributeCount(), ((ElementNode)rtx.getNode())
-          .getAttributeCount());
-        for (int i = 0; i < ((ElementNode)expectedTrx2.getNode()).getAttributeCount(); i++) {
-          assertEquals(expectedTrx2.getQNameOfCurrentNode(), rtx.getQNameOfCurrentNode());
+      if (expectedTrx2.getKind() == EKind.ELEMENT
+        || rtx.getKind() == EKind.ELEMENT) {
+        assertEquals(expectedTrx2.getNamespaceCount(), rtx.getNamespaceCount());
+        assertEquals(expectedTrx2.getAttributeCount(), rtx.getAttributeCount());
+        for (int i = 0; i < expectedTrx2.getAttributeCount(); i++) {
+          assertEquals(expectedTrx2.getQName(), rtx.getQName());
         }
       }
     }
@@ -237,13 +233,13 @@ public class XMLShredderTest extends XMLTestCase {
     wtx.close();
 
     final INodeReadTrx rtx = session.beginNodeReadTrx();
-    assertTrue(rtx.moveToFirstChild());
-    assertTrue(rtx.moveToFirstChild());
+    assertTrue(rtx.moveToFirstChild().hasMoved());
+    assertTrue(rtx.moveToFirstChild().hasMoved());
 
     final StringBuilder tnkBuilder = new StringBuilder();
     do {
-      tnkBuilder.append(rtx.getValueOfCurrentNode());
-    } while (rtx.moveToRightSibling());
+      tnkBuilder.append(rtx.getValue());
+    } while (rtx.moveToRightSibling().hasMoved());
 
     final String tnkString = tnkBuilder.toString();
 

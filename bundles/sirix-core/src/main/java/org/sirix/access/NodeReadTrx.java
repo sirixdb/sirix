@@ -29,9 +29,9 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
-import com.google.common.base.Optional;
+
+import java.util.Collections;
+import java.util.List;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -42,6 +42,8 @@ import org.sirix.api.IItemList;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
+import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
@@ -59,6 +61,10 @@ import org.sirix.service.xml.xpath.ItemList;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.Util;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Objects.ToStringHelper;
+import com.google.common.base.Optional;
 
 /**
  * <h1>ReadTransaction</h1>
@@ -120,29 +126,38 @@ final class NodeReadTrx implements INodeReadTrx {
 		mItemList = new ItemList();
 	}
 
+	/**
+	 * Get the currently selected node.
+	 * 
+	 * @return
+	 */
+	INode getNode() {
+		return mCurrentNode;
+	}
+
 	@Override
-	public final long getTransactionID() {
+	public long getTransactionID() {
 		assertNotClosed();
 		return mId;
 	}
 
 	@Override
-	public final int getRevisionNumber() throws SirixIOException {
+	public int getRevisionNumber() throws SirixIOException {
 		assertNotClosed();
 		return mPageReadTrx.getActualRevisionRootPage().getRevision();
 	}
 
 	@Override
-	public final long getRevisionTimestamp() throws SirixIOException {
+	public long getRevisionTimestamp() throws SirixIOException {
 		assertNotClosed();
 		return mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp();
 	}
 
 	@Override
-	public final boolean moveTo(final long pNodeKey) {
+	public Move<? extends INodeReadTrx> moveTo(final long pNodeKey) {
 		assertNotClosed();
 		if (pNodeKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-			return false;
+			return Move.notMoved();
 		}
 
 		// Remember old node and fetch new one.
@@ -167,87 +182,91 @@ final class NodeReadTrx implements INodeReadTrx {
 
 		if (newNode.isPresent()) {
 			mCurrentNode = (INode) newNode.get();
-			return true;
+			return Move.moved(this);
 		} else {
 			mCurrentNode = oldNode;
-			return false;
+			return Move.notMoved();
 		}
 	}
 
 	@Override
-	public final boolean moveToDocumentRoot() {
+	public Move<? extends INodeReadTrx> moveToDocumentRoot() {
 		assertNotClosed();
 		return moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
 	}
 
 	@Override
-	public final boolean moveToParent() {
+	public Move<? extends INodeReadTrx> moveToParent() {
 		assertNotClosed();
 		return moveTo(mCurrentNode.getParentKey());
 	}
 
 	@Override
-	public final boolean moveToFirstChild() {
+	public Move<? extends INodeReadTrx> moveToFirstChild() {
 		assertNotClosed();
 		final IStructNode node = getStructuralNode();
 		if (!node.hasFirstChild()) {
-			return false;
+			return Moved.notMoved();
 		}
 		return moveTo(node.getFirstChildKey());
 	}
 
 	@Override
-	public final boolean moveToLeftSibling() {
+	public Move<? extends INodeReadTrx> moveToLeftSibling() {
 		assertNotClosed();
 		final IStructNode node = getStructuralNode();
 		if (!node.hasLeftSibling()) {
-			return false;
+			return Moved.notMoved();
 		}
 		return moveTo(node.getLeftSiblingKey());
 	}
 
 	@Override
-	public final boolean moveToRightSibling() {
+	public Move<? extends INodeReadTrx> moveToRightSibling() {
 		assertNotClosed();
 		final IStructNode node = getStructuralNode();
 		if (!node.hasRightSibling()) {
-			return false;
+			return Move.notMoved();
 		}
 		return moveTo(node.getRightSiblingKey());
 	}
 
 	@Override
-	public final boolean moveToAttribute(final int pIndex) {
+	public Move<? extends INodeReadTrx> moveToAttribute(final int pIndex) {
 		assertNotClosed();
 		if (mCurrentNode.getKind() == EKind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
 			if (element.getAttributeCount() > pIndex) {
-				return moveTo(element.getAttributeKey(pIndex));
+				final Move<? extends INodeReadTrx> moved = (Move<? extends INodeReadTrx>) moveTo(element
+						.getAttributeKey(pIndex));
+				return moved;
 			} else {
-				return false;
+				return Moved.notMoved();
 			}
 		} else {
-			return false;
+			return Moved.notMoved();
 		}
 	}
 
 	@Override
-	public final boolean moveToNamespace(final int pIndex) {
+	public Move<? extends INodeReadTrx> moveToNamespace(final int pIndex) {
 		assertNotClosed();
 		if (mCurrentNode.getKind() == EKind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
 			if (element.getNamespaceCount() > pIndex) {
-				return moveTo(element.getNamespaceKey(pIndex));
+				final Move<? extends INodeReadTrx> moved = (Move<? extends INodeReadTrx>) moveTo(element
+						.getNamespaceKey(pIndex));
+				return moved;
 			} else {
-				return false;
+				return Moved.notMoved();
 			}
 		} else {
-			return false;
+			return Moved.notMoved();
 		}
 	}
 
 	@Override
-	public final String getValueOfCurrentNode() {
+	public String getValue() {
 		assertNotClosed();
 		String returnVal;
 		if (mCurrentNode instanceof IValNode) {
@@ -262,7 +281,7 @@ final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public final QName getQNameOfCurrentNode() {
+	public QName getQName() {
 		assertNotClosed();
 		if (mCurrentNode instanceof INameNode) {
 			final String name = mPageReadTrx.getName(
@@ -276,31 +295,44 @@ final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public final String getTypeOfCurrentNode() {
+	public long getNodeKey() {
 		assertNotClosed();
-		return mPageReadTrx.getName(mCurrentNode.getTypeKey(), getNode().getKind());
+		return mCurrentNode.getNodeKey();
 	}
 
 	@Override
-	public final int keyForName(@Nonnull final String pName) {
+	public EKind getKind() {
+		assertNotClosed();
+		return mCurrentNode.getKind();
+	}
+
+	@Override
+	public String getType() {
+		assertNotClosed();
+		return mPageReadTrx.getName(mCurrentNode.getTypeKey(),
+				mCurrentNode.getKind());
+	}
+
+	@Override
+	public int keyForName(@Nonnull final String pName) {
 		assertNotClosed();
 		return NamePageHash.generateHashForString(pName);
 	}
 
 	@Override
-	public final String nameForKey(final int pKey) {
+	public String nameForKey(final int pKey) {
 		assertNotClosed();
-		return mPageReadTrx.getName(pKey, getNode().getKind());
+		return mPageReadTrx.getName(pKey, mCurrentNode.getKind());
 	}
 
 	@Override
-	public final byte[] rawNameForKey(final int pKey) {
+	public byte[] rawNameForKey(final int pKey) {
 		assertNotClosed();
-		return mPageReadTrx.getRawName(pKey, getNode().getKind());
+		return mPageReadTrx.getRawName(pKey, mCurrentNode.getKind());
 	}
 
 	@Override
-	public final IItemList<AtomicValue> getItemList() {
+	public IItemList<AtomicValue> getItemList() {
 		assertNotClosed();
 		return mItemList;
 	}
@@ -310,7 +342,7 @@ final class NodeReadTrx implements INodeReadTrx {
 		if (!mClosed) {
 			// Callback on session to make sure everything is cleaned up.
 			mSession.closeReadTransaction(mId);
-			
+
 			// Close own state.
 			mPageReadTrx.close();
 			setPageReadTransaction(null);
@@ -325,27 +357,27 @@ final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public final String toString() {
-		ToStringHelper helper = Objects.toStringHelper(this);
+	public String toString() {
+		final ToStringHelper helper = Objects.toStringHelper(this);
 		try {
 			helper.add("Revision number", getRevisionNumber());
 		} catch (final SirixIOException e) {
 		}
 
-		if (getNode().getKind() == EKind.ATTRIBUTE
-				|| getNode().getKind() == EKind.ELEMENT) {
-			helper.add("Name of Node", getQNameOfCurrentNode().toString());
+		if (mCurrentNode.getKind() == EKind.ATTRIBUTE
+				|| mCurrentNode.getKind() == EKind.ELEMENT) {
+			helper.add("Name of Node", getQName().toString());
 		}
 
-		if (getNode().getKind() == EKind.ATTRIBUTE
-				|| getNode().getKind() == EKind.TEXT) {
-			helper.add("Value of Node", getValueOfCurrentNode());
+		if (mCurrentNode.getKind() == EKind.ATTRIBUTE
+				|| mCurrentNode.getKind() == EKind.TEXT) {
+			helper.add("Value of Node", getValue());
 		}
 
-		if (getNode().getKind() == EKind.DOCUMENT_ROOT) {
+		if (mCurrentNode.getKind() == EKind.DOCUMENT_ROOT) {
 			helper.addValue("Node is DocumentRoot");
 		}
-		helper.add("node", getNode().toString());
+		helper.add("node", mCurrentNode.toString());
 
 		return helper.toString();
 	}
@@ -353,7 +385,7 @@ final class NodeReadTrx implements INodeReadTrx {
 	/**
 	 * Set state to closed.
 	 */
-	final void setClosed() {
+	void setClosed() {
 		mClosed = true;
 	}
 
@@ -363,7 +395,7 @@ final class NodeReadTrx implements INodeReadTrx {
 	 * @return {@code true} if the transaction was closed, {@code false} otherwise
 	 */
 	@Override
-	public final boolean isClosed() {
+	public boolean isClosed() {
 		return mClosed;
 	}
 
@@ -392,7 +424,7 @@ final class NodeReadTrx implements INodeReadTrx {
 	 * @param pPageReadTransaction
 	 *          {@link PageReadTrx} instance
 	 */
-	protected final void setPageReadTransaction(
+	final void setPageReadTransaction(
 			@Nullable final IPageReadTrx pPageReadTransaction) {
 		assertNotClosed();
 		mPageReadTrx = pPageReadTransaction;
@@ -404,15 +436,9 @@ final class NodeReadTrx implements INodeReadTrx {
 	 * @param pCurrentNode
 	 *          the current node to set
 	 */
-	protected final void setCurrentNode(@Nullable final INode pCurrentNode) {
+	final void setCurrentNode(@Nullable final INode pCurrentNode) {
 		assertNotClosed();
 		mCurrentNode = pCurrentNode;
-	}
-
-	@Override
-	public final INode getNode() {
-		assertNotClosed();
-		return mCurrentNode;
 	}
 
 	@Override
@@ -421,9 +447,12 @@ final class NodeReadTrx implements INodeReadTrx {
 		return getPageTransaction().getActualRevisionRootPage().getMaxNodeKey();
 	}
 
-	@Override
-	public final IStructNode getStructuralNode() {
-		assertNotClosed();
+	/**
+	 * Retrieve the current node as a structural node.
+	 * 
+	 * @return structural node instance of current node
+	 */
+	final IStructNode getStructuralNode() {
 		if (mCurrentNode instanceof IStructNode) {
 			return (IStructNode) mCurrentNode;
 		} else {
@@ -438,28 +467,34 @@ final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public final boolean moveToNextFollowing() {
-		while (!getStructuralNode().hasRightSibling() && getNode().hasParent()) {
+	public Move<? extends INodeReadTrx> moveToNextFollowing() {
+		assertNotClosed();
+		while (!getStructuralNode().hasRightSibling() && mCurrentNode.hasParent()) {
 			moveToParent();
 		}
-		return moveToRightSibling();
+		final Move<? extends INodeReadTrx> moved = (Move<? extends INodeReadTrx>) moveToRightSibling();
+		return moved;
 	}
 
 	@Override
-	public boolean moveToAttributeByName(@Nonnull final QName pQName) {
+	public Move<? extends INodeReadTrx> moveToAttributeByName(
+			@Nonnull final QName pQName) {
 		assertNotClosed();
 		if (mCurrentNode.getKind() == EKind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
 			final Optional<Long> attrKey = element.getAttributeKeyByName(pQName);
 			if (attrKey.isPresent()) {
-				return moveTo(attrKey.get());
+				final Move<? extends INodeReadTrx> moved = (Move<? extends INodeReadTrx>) moveTo(attrKey
+						.get());
+				return moved;
 			}
 		}
-		return false;
+		return Move.notMoved();
 	}
 
 	@Override
 	public INodeReadTrx cloneInstance() throws SirixException {
+		assertNotClosed();
 		final INodeReadTrx rtx = mSession.beginNodeReadTrx(mPageReadTrx
 				.getActualRevisionRootPage().getRevision());
 		rtx.moveTo(mCurrentNode.getNodeKey());
@@ -484,7 +519,7 @@ final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public int getNameCount(final @Nonnull String pString,
+	public final int getNameCount(final @Nonnull String pString,
 			final @Nonnull EKind pKind) {
 		assertNotClosed();
 		if (mCurrentNode instanceof INameNode) {
@@ -496,7 +531,7 @@ final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public boolean moveToLastChild() {
+	public Move<? extends INodeReadTrx> moveToLastChild() {
 		assertNotClosed();
 		if (getStructuralNode().hasFirstChild()) {
 			moveToFirstChild();
@@ -505,126 +540,290 @@ final class NodeReadTrx implements INodeReadTrx {
 				moveToRightSibling();
 			}
 
-			return true;
+			return Move.moved(this);
 		}
-		return false;
+		return Move.notMoved();
 	}
 
 	@Override
-	public Optional<IStructNode> moveToAndGetRightSibling() {
+	public boolean hasNode(final @Nonnegative long pKey) {
 		assertNotClosed();
-		if (getStructuralNode().hasRightSibling()) {
+		final long nodeKey = mCurrentNode.getNodeKey();
+		final boolean retVal = moveTo(pKey) == null ? false : true;
+		moveTo(nodeKey);
+		return retVal;
+	}
+
+	@Override
+	public boolean hasParent() {
+		assertNotClosed();
+		return mCurrentNode.hasParent();
+	}
+
+	@Override
+	public boolean hasFirstChild() {
+		assertNotClosed();
+		return getStructuralNode().hasFirstChild();
+	}
+
+	@Override
+	public boolean hasLeftSibling() {
+		assertNotClosed();
+		return getStructuralNode().hasLeftSibling();
+	}
+
+	@Override
+	public boolean hasRightSibling() {
+		assertNotClosed();
+		return getStructuralNode().hasRightSibling();
+	}
+
+	@Override
+	public boolean hasLastChild() {
+		assertNotClosed();
+		final long nodeKey = mCurrentNode.getNodeKey();
+		final boolean retVal = moveToLastChild() == null ? false : true;
+		moveTo(nodeKey);
+		return retVal;
+	}
+
+	@Override
+	public int getAttributeCount() {
+		assertNotClosed();
+		if (mCurrentNode.getKind() == EKind.ELEMENT) {
+			final ElementNode node = (ElementNode) mCurrentNode;
+			return node.getAttributeCount();
+		}
+		return 0;
+	}
+
+	@Override
+	public int getNamespaceCount() {
+		assertNotClosed();
+		if (mCurrentNode.getKind() == EKind.ELEMENT) {
+			final ElementNode node = (ElementNode) mCurrentNode;
+			return node.getNamespaceCount();
+		}
+		return 0;
+	}
+
+	@Override
+	public boolean isNameNode() {
+		assertNotClosed();
+		return mCurrentNode instanceof INameNode;
+	}
+
+	@Override
+	public int getNameKey() {
+		assertNotClosed();
+		if (mCurrentNode instanceof INameNode) {
+			return ((INameNode) mCurrentNode).getNameKey();
+		} else {
+			return 0;
+		}
+	}
+
+	@Override
+	public int getTypeKey() {
+		assertNotClosed();
+		return mCurrentNode.getTypeKey();
+	}
+
+	@Override
+	public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
+		assertNotClosed();
+		return mCurrentNode.acceptVisitor(pVisitor);
+	}
+
+	@Override
+	public long getLeftSiblingKey() {
+		assertNotClosed();
+		return getStructuralNode().getLeftSiblingKey();
+	}
+
+	@Override
+	public long getRightSiblingKey() {
+		assertNotClosed();
+		return getStructuralNode().getRightSiblingKey();
+	}
+
+	@Override
+	public long getFirstChildKey() {
+		assertNotClosed();
+		return getStructuralNode().getFirstChildKey();
+	}
+
+	@Override
+	public long getLastChildKey() {
+		throw new UnsupportedOperationException();
+		// return getStructuralNode(;
+	}
+
+	@Override
+	public long getParentKey() {
+		assertNotClosed();
+		return mCurrentNode.getParentKey();
+	}
+
+	@Override
+	public long getAttributeKey(final @Nonnegative int pIndex) {
+		assertNotClosed();
+		if (mCurrentNode.getKind() == EKind.ELEMENT) {
+			return ((ElementNode) mCurrentNode).getAttributeKey(pIndex);
+		} else {
+			return -1;
+		}
+	}
+
+	@Override
+	public long getPathNodeKey() {
+		assertNotClosed();
+		if (mCurrentNode instanceof INameNode) {
+			return ((INameNode) mCurrentNode).getPathNodeKey();
+		}
+		return -1;
+	}
+
+	@Override
+	public EKind getPathKind() {
+		assertNotClosed();
+		return EKind.UNKNOWN;
+	}
+
+	@Override
+	public boolean isStructuralNode() {
+		assertNotClosed();
+		return mCurrentNode instanceof IStructNode;
+	}
+
+	@Override
+	public int getURIKey() {
+		assertNotClosed();
+		if (mCurrentNode instanceof INameNode) {
+			return ((INameNode) mCurrentNode).getURIKey();
+		}
+		return -1;
+	};
+
+	@Override
+	public List<Long> getAttributeKeys() {
+		assertNotClosed();
+		if (mCurrentNode.getKind() == EKind.ELEMENT) {
+			return ((ElementNode) mCurrentNode).getAttributeKeys();
+		}
+		return Collections.emptyList();
+	}
+
+	@Override
+	public List<Long> getNamespaceKeys() {
+		assertNotClosed();
+		if (mCurrentNode.getKind() == EKind.ELEMENT) {
+			return ((ElementNode) mCurrentNode).getNamespaceKeys();
+		}
+		return Collections.emptyList();
+	}
+
+	@Override
+	public long getHash() {
+		assertNotClosed();
+		return mCurrentNode.getHash();
+	}
+
+	@Override
+	public byte[] getRawValue() {
+		assertNotClosed();
+		if (mCurrentNode instanceof IValNode) {
+			return ((IValNode) mCurrentNode).getRawValue();
+		}
+		return null;
+	}
+
+	@Override
+	public long getChildCount() {
+		assertNotClosed();
+		return getStructuralNode().getChildCount();
+	}
+
+	@Override
+	public long getDescendantCount() {
+		assertNotClosed();
+		return getStructuralNode().getDescendantCount();
+	}
+
+	@Override
+	public String getNamespaceURI() {
+		assertNotClosed();
+		if (mCurrentNode instanceof INameNode) {
+			final String URI = mPageReadTrx.getName(
+					((INameNode) mCurrentNode).getURIKey(), EKind.NAMESPACE);
+			return URI;
+		}
+		return null;
+	}
+
+	@Override
+	public EKind getRightSiblingKind() {
+		assertNotClosed();
+		if (mCurrentNode instanceof IStructNode && hasRightSibling()) {
+			final long nodeKey = mCurrentNode.getNodeKey();
 			moveToRightSibling();
-			return Optional.of(getStructuralNode());
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetLeftSibling() {
-		assertNotClosed();
-		if (getStructuralNode().hasLeftSibling()) {
-			moveToLeftSibling();
-			return Optional.of(getStructuralNode());
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetParent() {
-		assertNotClosed();
-		if (getStructuralNode().hasParent()) {
-			moveToParent();
-			return Optional.of(getStructuralNode());
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetFirstChild() {
-		assertNotClosed();
-		if (getStructuralNode().hasFirstChild()) {
-			moveToFirstChild();
-			return Optional.of(getStructuralNode());
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetLastChild() {
-		assertNotClosed();
-		if (getStructuralNode().hasFirstChild()) {
-			moveToFirstChild();
-
-			while (getStructuralNode().hasRightSibling()) {
-				moveToRightSibling();
-			}
-
-			return Optional.of(getStructuralNode());
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> getRightSibling() {
-		assertNotClosed();
-		if (getStructuralNode().hasRightSibling()) {
-			moveToRightSibling();
-			final IStructNode rightSibl = getStructuralNode();
-			moveToLeftSibling();
-			return Optional.of(rightSibl);
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> getLeftSibling() {
-		assertNotClosed();
-		if (getStructuralNode().hasLeftSibling()) {
-			moveToLeftSibling();
-			final IStructNode leftSibl = getStructuralNode();
-			moveToRightSibling();
-			return Optional.of(leftSibl);
-		}
-		return Optional.absent();
-	}
-
-	@Override
-	public Optional<IStructNode> getParent() {
-		assertNotClosed();
-		if (getStructuralNode().hasParent()) {
-			final long nodeKey = getNode().getNodeKey();
-			moveToParent();
-			final IStructNode parent = getStructuralNode();
+			final EKind rightSiblKind = mCurrentNode.getKind();
 			moveTo(nodeKey);
-			return Optional.of(parent);
+			return rightSiblKind;
 		}
-		return Optional.absent();
+		return EKind.UNKNOWN;
 	}
 
 	@Override
-	public Optional<IStructNode> getFirstChild() {
+	public EKind getLeftSiblingKind() {
 		assertNotClosed();
-		if (getStructuralNode().hasFirstChild()) {
-			final long nodeKey = getNode().getNodeKey();
-			moveToFirstChild();
-			final IStructNode firstChild = getStructuralNode();
+		if (mCurrentNode instanceof IStructNode && hasLeftSibling()) {
+			final long nodeKey = mCurrentNode.getNodeKey();
+			moveToLeftSibling();
+			final EKind leftSiblKind = mCurrentNode.getKind();
 			moveTo(nodeKey);
-			return Optional.of(firstChild);
+			return leftSiblKind;
 		}
-		return Optional.absent();
+		return EKind.UNKNOWN;
 	}
 
 	@Override
-	public Optional<IStructNode> getLastChild() {
+	public EKind getFirstChildKind() {
 		assertNotClosed();
-		if (getStructuralNode().hasFirstChild()) {
-			final long nodeKey = getNode().getNodeKey();
+		if (mCurrentNode instanceof IStructNode && hasFirstChild()) {
+			final long nodeKey = mCurrentNode.getNodeKey();
+			moveToFirstChild();
+			final EKind firstChildKind = mCurrentNode.getKind();
+			moveTo(nodeKey);
+			return firstChildKind;
+		}
+		return EKind.UNKNOWN;
+	}
+
+	@Override
+	public EKind getLastChildKind() {
+		assertNotClosed();
+		if (mCurrentNode instanceof IStructNode && hasLastChild()) {
+			final long nodeKey = mCurrentNode.getNodeKey();
 			moveToLastChild();
-			final IStructNode lastChild = getStructuralNode();
+			final EKind lastChildKind = mCurrentNode.getKind();
 			moveTo(nodeKey);
-			return Optional.of(lastChild);
+			return lastChildKind;
 		}
-		return Optional.absent();
+		return EKind.UNKNOWN;
+	}
+
+	@Override
+	public EKind getParentKind() {
+		assertNotClosed();
+		if (mCurrentNode.getParentKey() == EFixed.NULL_NODE_KEY
+				.getStandardProperty()) {
+			return EKind.UNKNOWN;
+		}
+		final long nodeKey = mCurrentNode.getNodeKey();
+		moveToParent();
+		final EKind parentKind = mCurrentNode.getKind();
+		moveTo(nodeKey);
+		return parentKind;
 	}
 }

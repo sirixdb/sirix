@@ -32,8 +32,6 @@ import javax.annotation.Nonnull;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.exception.SirixException;
-import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.INode;
 
 /**
  * Full diff including attributes and namespaces. Note that this class is thread safe.
@@ -62,33 +60,28 @@ final class FullDiff extends AbsDiff {
     assert pSecondRtx != null;
 
     boolean found = false;
-    INode firstNode = pFirstRtx.getNode();
-    INode secondNode = pSecondRtx.getNode();
-    if (firstNode.getNodeKey() == secondNode.getNodeKey()
-      && firstNode.getKind() == secondNode.getKind()) {
-      switch (firstNode.getKind()) {
+    if (pFirstRtx.getNodeKey() == pSecondRtx.getNodeKey()
+      && pFirstRtx.getKind() == pSecondRtx.getKind()) {
+      switch (pFirstRtx.getKind()) {
       case ELEMENT:
-        final ElementNode firstElement = (ElementNode)pFirstRtx.getNode();
-        final ElementNode secondElement = (ElementNode)pSecondRtx.getNode();
-
-        if (firstElement.getNameKey() == secondElement.getNameKey()) {
-          if (((ElementNode)pFirstRtx.getNode()).getNamespaceCount() == 0
-            && ((ElementNode)pFirstRtx.getNode()).getAttributeCount() == 0
-            && ((ElementNode)pSecondRtx.getNode()).getAttributeCount() == 0
-            && ((ElementNode)pSecondRtx.getNode()).getNamespaceCount() == 0) {
+        if (pFirstRtx.getNameKey() == pSecondRtx.getNameKey()) {
+          if (pFirstRtx.getNamespaceCount() == 0
+            && pFirstRtx.getAttributeCount() == 0
+            && pFirstRtx.getAttributeCount() == 0
+            && pFirstRtx.getNamespaceCount() == 0) {
             found = true;
-          } else if (firstElement.getAttributeKeys().equals(
-            secondElement.getAttributeKeys())
-            && firstElement.getNamespaceKeys().equals(
-              secondElement.getNamespaceKeys())) {
+          } else if (pFirstRtx.getAttributeKeys().equals(
+          		pSecondRtx.getAttributeKeys())
+            && pSecondRtx.getNamespaceKeys().equals(
+            		pSecondRtx.getNamespaceKeys())) {
             found = true;
           }
         }
         break;
       case TEXT:
         found =
-          pFirstRtx.getValueOfCurrentNode().equals(
-            pSecondRtx.getValueOfCurrentNode());
+          pFirstRtx.getValue().equals(
+            pSecondRtx.getValue());
         break;
       default:
         throw new IllegalStateException(

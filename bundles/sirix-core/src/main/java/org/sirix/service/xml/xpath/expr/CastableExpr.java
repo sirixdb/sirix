@@ -112,8 +112,8 @@ public class CastableExpr extends AbsExpression {
     if (mSourceExpr.hasNext()) { // result sequence > 0
       mKey = mSourceExpr.next();
 
-      final Type sourceType = Type.getType(getTransaction().getNode().getTypeKey());
-      final String sourceValue = getTransaction().getValueOfCurrentNode();
+      final Type sourceType = Type.getType(getTransaction().getTypeKey());
+      final String sourceValue = getTransaction().getValue();
 
       // determine castability
       isCastable = sourceType.isCastableTo(mTargetType, sourceValue);

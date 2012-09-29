@@ -51,13 +51,7 @@ public class CommentFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getNode().getKind() == EKind.COMMENT;
-
-    // TODO: As soon as an comment node is implemented, use the second
-    // version,
-    // because this is much cleaner and more consistent to the other
-    // node-filters.
-    // return (getTransaction().isCommentKind());
+    return getTransaction().getKind() == EKind.COMMENT;
   }
 
 }

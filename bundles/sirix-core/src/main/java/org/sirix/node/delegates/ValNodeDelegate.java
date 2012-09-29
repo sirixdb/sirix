@@ -149,7 +149,7 @@ public class ValNodeDelegate extends AbsForwardingNode implements IValNode {
 
   @Override
   public EKind getKind() {
-    return EKind.UNKOWN;
+    return EKind.UNKNOWN;
   }
 
   @Override

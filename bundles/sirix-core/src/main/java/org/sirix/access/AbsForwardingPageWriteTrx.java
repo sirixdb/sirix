@@ -8,7 +8,6 @@ import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.INodeBase;
 import org.sirix.page.EPage;
 import org.sirix.page.PageReference;
@@ -40,13 +39,13 @@ public abstract class AbsForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public void finishNodeModification(@Nonnull INodeBase pNode,
+	public void finishNodeModification(@Nonnegative long pNode,
 			@Nonnull EPage pPage) {
 		delegate().finishNodeModification(pNode, pPage);
 	}
 
 	@Override
-	public void removeNode(@Nonnull INode pNode, @Nonnull EPage pPage)
+	public void removeNode(@Nonnegative long pNode, @Nonnull EPage pPage)
 			throws SirixIOException {
 		delegate().removeNode(pNode, pPage);
 	}

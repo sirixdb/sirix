@@ -53,9 +53,9 @@ public class Function {
         .keyForName(ebv.getReturnType()));
     if (bAxis.hasNext()) {
       bAxis.next();
-      final boolean result = Boolean.parseBoolean(bAxis.getTransaction().getValueOfCurrentNode());
+      final boolean result = Boolean.parseBoolean(bAxis.getTransaction().getValue());
       if (!bAxis.hasNext()) {
-        bAxis.reset(axis.getTransaction().getNode().getNodeKey());
+        bAxis.reset(axis.getTransaction().getNodeKey());
 
         return result;
       }
@@ -149,14 +149,14 @@ public class Function {
 
     if (axis.hasNext()) {
 
-      if (rtx.getNode().getNodeKey() >= 0) {
+      if (rtx.getNodeKey() >= 0) {
         // set to typed value
         // if has no typed value
         // TODO // throw new XPathError(FOTY0012);
 
         final int itemKey =
           rtx.getItemList().addItem(
-            new AtomicValue(rtx.getValueOfCurrentNode().getBytes(), rtx.getNode().getTypeKey()));
+            new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey()));
         rtx.moveTo(itemKey);
         return true;
       } else {
@@ -188,7 +188,7 @@ public class Function {
    */
   public static boolean fnNilled(final INodeReadTrx rtx, final AbsAxis axis) {
 
-    if (axis.hasNext() && rtx.getNode().getKind() == EKind.ELEMENT) {
+    if (axis.hasNext() && rtx.getKind() == EKind.ELEMENT) {
       final boolean nilled = false; // TODO how is the nilled property
                                     // defined?
       final int itemKey = rtx.getItemList().addItem(new AtomicValue(nilled));
@@ -217,7 +217,7 @@ public class Function {
 
     if (axis.hasNext()) {
 
-      final String name = rtx.getQNameOfCurrentNode().getLocalPart();
+      final String name = rtx.getQName().getLocalPart();
       if (!name.equals("-1")) {
         final int itemKey = rtx.getItemList().addItem(new AtomicValue(name, Type.STRING));
         rtx.moveTo(itemKey);
@@ -233,7 +233,7 @@ public class Function {
   public static boolean fnnot(final INodeReadTrx rtx, final AbsAxis axis) {
     if (axis.hasNext()) {
       axis.next();
-      final AtomicValue item = new AtomicValue(((IValNode)rtx.getNode()).getRawValue()[0] == 0);
+      final AtomicValue item = new AtomicValue(rtx.getRawValue()[0] == 0);
       final int itemKey = rtx.getItemList().addItem(item);
       rtx.moveTo(itemKey);
       return true;
@@ -254,7 +254,7 @@ public class Function {
   public static boolean fnnumber(final INodeReadTrx rtx) {
 
     // TODO: add error handling
-    final AtomicValue item = new AtomicValue(rtx.getValueOfCurrentNode().getBytes(), rtx.keyForName("xs:double"));
+    final AtomicValue item = new AtomicValue(rtx.getValue().getBytes(), rtx.keyForName("xs:double"));
     final int itemKey = rtx.getItemList().addItem(item);
     rtx.moveTo(itemKey);
 
@@ -283,7 +283,7 @@ public class Function {
 
     Double value = 0.0;
     while (axis.hasNext()) {
-      value = value + Double.parseDouble(rtx.getValueOfCurrentNode());
+      value = value + Double.parseDouble(rtx.getValue());
     }
 
     final int itemKey = rtx.getItemList().addItem(new AtomicValue(value, Type.DOUBLE));
@@ -300,7 +300,7 @@ public class Function {
       // zero
     } else {
       do {
-        value = value + Double.parseDouble(rtx.getValueOfCurrentNode());
+        value = value + Double.parseDouble(rtx.getValue());
       } while (axis.hasNext());
       final int itemKey = rtx.getItemList().addItem(new AtomicValue(value, Type.DOUBLE));
       rtx.moveTo(itemKey);

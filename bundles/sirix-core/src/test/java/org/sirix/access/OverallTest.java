@@ -80,7 +80,7 @@ public final class OverallTest extends TestCase {
     holder.getWtx().insertElementAsFirstChild(new QName(getString()));
     for (int i = 0; i < ELEMENTS; i++) {
       if (ran.nextBoolean()) {
-        switch (holder.getWtx().getNode().getKind()) {
+        switch (holder.getWtx().getKind()) {
         case ELEMENT:
           holder.getWtx().setQName(new QName(getString()));
           break;
@@ -97,10 +97,10 @@ public final class OverallTest extends TestCase {
         default:
         }
       } else {
-        if (holder.getWtx().getNode() instanceof ElementNode) {
-          if (holder.getWtx().getNode().getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-            assertTrue(holder.getWtx().moveToFirstChild());
-            assertTrue(holder.getWtx().moveToFirstChild());
+        if (holder.getWtx().getKind() == EKind.ELEMENT) {
+          if (holder.getWtx().getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+            assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
+            assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
           }
           if (ran.nextBoolean()) {
             holder.getWtx().insertElementAsFirstChild(new QName(getString()));
@@ -132,17 +132,17 @@ public final class OverallTest extends TestCase {
             holder.getWtx().moveToFirstChild();
           } else {
             holder.getWtx().moveTo(newKey);
-            if (holder.getWtx().getNode().getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+            if (holder.getWtx().getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
               holder.getWtx().moveToFirstChild();
             }
           }
-        } while (holder.getWtx().getNode() == null);
-        if (holder.getWtx().getNode().getKind() != EKind.ELEMENT) {
+        } while (holder.getWtx() == null);
+        if (holder.getWtx().getKind() != EKind.ELEMENT) {
           holder.getWtx().moveToParent();
         }
       }
     }
-    final long key = holder.getWtx().getNode().getNodeKey();
+    final long key = holder.getWtx().getNodeKey();
     holder.getWtx().remove();
     holder.getWtx().insertElementAsFirstChild(new QName(getString()));
     holder.getWtx().moveTo(key);

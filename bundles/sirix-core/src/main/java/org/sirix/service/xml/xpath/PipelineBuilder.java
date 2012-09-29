@@ -531,7 +531,7 @@ public final class PipelineBuilder {
     if (predicate instanceof LiteralExpr) {
       predicate.hasNext();
       // if is numeric literal -> abbrev for position()
-      final int type = pRtx.getNode().getTypeKey();
+      final int type = pRtx.getTypeKey();
       if (type == pRtx.keyForName("xs:integer") || type == pRtx.keyForName("xs:double")
         || type == pRtx.keyForName("xs:float") || type == pRtx.keyForName("xs:decimal")) {
 

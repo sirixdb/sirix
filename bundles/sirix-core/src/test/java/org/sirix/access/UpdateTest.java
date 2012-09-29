@@ -79,7 +79,7 @@ public class UpdateTest {
     wtx.insertElementAsRightSibling(new QName("blabla"));
     wtx.moveTo(5);
     wtx.remove();
-    assertEquals(8, wtx.getNode().getNodeKey());
+    assertEquals(8, wtx.getNodeKey());
     wtx.moveTo(4);
     testDelete(wtx);
     wtx.commit();
@@ -91,12 +91,12 @@ public class UpdateTest {
   }
 
   private final static void testDelete(final INodeReadTrx pRtx) {
-    assertFalse(pRtx.moveTo(5));
-    assertTrue(pRtx.moveTo(1));
-    assertEquals(5, pRtx.getStructuralNode().getChildCount());
-    assertEquals(7, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToDocumentRoot());
-    assertEquals(8, pRtx.getStructuralNode().getDescendantCount());
+    assertFalse(pRtx.moveTo(5).hasMoved());
+    assertTrue(pRtx.moveTo(1).hasMoved());
+    assertEquals(5, pRtx.getChildCount());
+    assertEquals(7, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToDocumentRoot().hasMoved());
+    assertEquals(8, pRtx.getDescendantCount());
   }
 
   @Test
@@ -113,30 +113,30 @@ public class UpdateTest {
   }
 
   private final static void testInsert(final INodeReadTrx pRtx) {
-    assertTrue(pRtx.moveToDocumentRoot());
-    assertEquals(10, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveTo(1));
-    assertEquals(9, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveTo(4));
-    assertEquals(0, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(2, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToFirstChild());
-    assertEquals(0, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(0, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(0, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(2, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToFirstChild());
-    assertEquals(0, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(0, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(0, pRtx.getStructuralNode().getDescendantCount());
+    assertTrue(pRtx.moveToDocumentRoot().hasMoved());
+    assertEquals(10, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveTo(1).hasMoved());
+    assertEquals(9, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveTo(4).hasMoved());
+    assertEquals(0, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(2, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToFirstChild().hasMoved());
+    assertEquals(0, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(0, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(0, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(2, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToFirstChild().hasMoved());
+    assertEquals(0, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(0, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(0, pRtx.getDescendantCount());
   }
 
   @Test
@@ -165,14 +165,14 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testNodeTransactionIsolation(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveToDocumentRoot());
-    assertEquals(0, pRtx.getNode().getNodeKey());
-    assertTrue(pRtx.moveToFirstChild());
-    assertEquals(1, pRtx.getNode().getNodeKey());
-    assertEquals(0, ((IStructNode)pRtx.getNode()).getChildCount());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getLeftSiblingKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getRightSiblingKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getFirstChildKey());
+    assertTrue(pRtx.moveToDocumentRoot().hasMoved());
+    assertEquals(0, pRtx.getNodeKey());
+    assertTrue(pRtx.moveToFirstChild().hasMoved());
+    assertEquals(1, pRtx.getNodeKey());
+    assertEquals(0, pRtx.getChildCount());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getFirstChildKey());
   }
 
   /** Test NamePage. */
@@ -190,10 +190,10 @@ public class UpdateTest {
     wtx.close();
     NodeReadTrx rtx = (NodeReadTrx)holder.getSession().beginNodeReadTrx(0);
     assertEquals(0, rtx.getRevisionNumber());
-    assertTrue(rtx.moveTo(7));
-    assertEquals("c", rtx.getQNameOfCurrentNode().getLocalPart());
-    assertTrue(rtx.moveTo(11));
-    assertEquals("c", rtx.getQNameOfCurrentNode().getLocalPart());
+    assertTrue(rtx.moveTo(7).hasMoved());
+    assertEquals("c", rtx.getQName().getLocalPart());
+    assertTrue(rtx.moveTo(11).hasMoved());
+    assertEquals("c", rtx.getQName().getLocalPart());
     rtx = (NodeReadTrx)holder.getSession().beginNodeReadTrx();
     assertEquals(1, rtx.getRevisionNumber());
     assertEquals(null, rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"),
@@ -215,12 +215,12 @@ public class UpdateTest {
     wtx.commit();
     wtx.close();
     final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
-    assertTrue(rtx.moveTo(1L));
-    assertEquals(4L, rtx.getStructuralNode().getFirstChildKey());
-    assertEquals(5L, rtx.getStructuralNode().getChildCount());
-    assertEquals(9L, rtx.getStructuralNode().getDescendantCount());
-    assertTrue(rtx.moveTo(4L));
-    assertEquals("foooops1", rtx.getValueOfCurrentNode());
+    assertTrue(rtx.moveTo(1L).hasMoved());
+    assertEquals(4L, rtx.getFirstChildKey());
+    assertEquals(5L, rtx.getChildCount());
+    assertEquals(9L, rtx.getDescendantCount());
+    assertTrue(rtx.moveTo(4L).hasMoved());
+    assertEquals("foooops1", rtx.getValue());
     rtx.close();
   }
 
@@ -235,12 +235,12 @@ public class UpdateTest {
     wtx.commit();
     wtx.close();
     final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
-    assertTrue(rtx.moveTo(1L));
-    assertEquals(4L, rtx.getStructuralNode().getFirstChildKey());
-    assertEquals(5L, rtx.getStructuralNode().getChildCount());
-    assertEquals(9L, rtx.getStructuralNode().getDescendantCount());
-    assertTrue(rtx.moveTo(4L));
-    assertEquals("oops1foo", rtx.getValueOfCurrentNode());
+    assertTrue(rtx.moveTo(1L).hasMoved());
+    assertEquals(4L, rtx.getFirstChildKey());
+    assertEquals(5L, rtx.getChildCount());
+    assertEquals(9L, rtx.getDescendantCount());
+    assertTrue(rtx.moveTo(4L).hasMoved());
+    assertEquals("oops1foo", rtx.getValue());
     rtx.close();
   }
 
@@ -255,12 +255,12 @@ public class UpdateTest {
     wtx.commit();
     wtx.close();
     final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
-    assertTrue(rtx.moveTo(1L));
-    assertEquals(4L, rtx.getStructuralNode().getFirstChildKey());
-    assertEquals(5L, rtx.getStructuralNode().getChildCount());
-    assertEquals(9L, rtx.getStructuralNode().getDescendantCount());
-    assertTrue(rtx.moveTo(8L));
-    assertEquals("foooops2", rtx.getValueOfCurrentNode());
+    assertTrue(rtx.moveTo(1L).hasMoved());
+    assertEquals(4L, rtx.getFirstChildKey());
+    assertEquals(5L, rtx.getChildCount());
+    assertEquals(9L, rtx.getDescendantCount());
+    assertTrue(rtx.moveTo(8L).hasMoved());
+    assertEquals("foooops2", rtx.getValue());
     rtx.close();
   }
 
@@ -275,22 +275,22 @@ public class UpdateTest {
     wtx.commit();
     wtx.close();
     final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
-    assertEquals(0, rtx.getNode().getNodeKey());
-    assertTrue(rtx.moveToFirstChild());
-    assertEquals(1, rtx.getNode().getNodeKey());
-    assertEquals(5, rtx.getStructuralNode().getFirstChildKey());
-    assertEquals(4, rtx.getStructuralNode().getChildCount());
-    assertEquals(8, rtx.getStructuralNode().getDescendantCount());
-    assertTrue(rtx.moveToFirstChild());
-    assertEquals(5, rtx.getNode().getNodeKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), rtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(rtx.moveToRightSibling());
-    assertEquals(8, rtx.getNode().getNodeKey());
-    assertEquals(5, rtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(rtx.moveToRightSibling());
-    assertEquals(9, rtx.getNode().getNodeKey());
-    assertTrue(rtx.moveToRightSibling());
-    assertEquals(13, rtx.getNode().getNodeKey());
+    assertEquals(0, rtx.getNodeKey());
+    assertTrue(rtx.moveToFirstChild().hasMoved());
+    assertEquals(1, rtx.getNodeKey());
+    assertEquals(5, rtx.getFirstChildKey());
+    assertEquals(4, rtx.getChildCount());
+    assertEquals(8, rtx.getDescendantCount());
+    assertTrue(rtx.moveToFirstChild().hasMoved());
+    assertEquals(5, rtx.getNodeKey());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), rtx.getLeftSiblingKey());
+    assertTrue(rtx.moveToRightSibling().hasMoved());
+    assertEquals(8, rtx.getNodeKey());
+    assertEquals(5, rtx.getLeftSiblingKey());
+    assertTrue(rtx.moveToRightSibling().hasMoved());
+    assertEquals(9, rtx.getNodeKey());
+    assertTrue(rtx.moveToRightSibling().hasMoved());
+    assertEquals(13, rtx.getNodeKey());
     rtx.close();
   }
 
@@ -320,7 +320,7 @@ public class UpdateTest {
       rtx.moveToFirstChild();
       rtx.moveToFirstChild();
       rtx.moveToRightSibling();
-      assertEquals(Integer.toString(i), rtx.getValueOfCurrentNode());
+      assertEquals(Integer.toString(i), rtx.getValue());
       assertEquals(i, rtx.getRevisionNumber());
       rtx.close();
     }
@@ -330,7 +330,7 @@ public class UpdateTest {
     rtx.moveToFirstChild();
     rtx.moveToFirstChild();
     rtx.moveToRightSibling();
-    assertEquals("50", rtx.getValueOfCurrentNode());
+    assertEquals("50", rtx.getValue());
     assertEquals(50L, rtx.getRevisionNumber());
     rtx.close();
   }
@@ -342,19 +342,19 @@ public class UpdateTest {
     wtx.close();
 
     wtx = holder.getSession().beginNodeWriteTrx();
-    assertTrue(wtx.moveToDocumentRoot());
-    assertEquals(1L, wtx.insertElementAsFirstChild(new QName("")).getNode().getNodeKey());
-    assertEquals(2L, wtx.insertElementAsFirstChild(new QName("")).getNode().getNodeKey());
-    assertEquals(3L, wtx.insertElementAsFirstChild(new QName("")).getNode().getNodeKey());
-    assertTrue(wtx.moveToParent());
-    assertEquals(4L, wtx.insertElementAsRightSibling(new QName("")).getNode().getNodeKey());
+    assertTrue(wtx.moveToDocumentRoot().hasMoved());
+    assertEquals(1L, wtx.insertElementAsFirstChild(new QName("")).getNodeKey());
+    assertEquals(2L, wtx.insertElementAsFirstChild(new QName("")).getNodeKey());
+    assertEquals(3L, wtx.insertElementAsFirstChild(new QName("")).getNodeKey());
+    assertTrue(wtx.moveToParent().hasMoved());
+    assertEquals(4L, wtx.insertElementAsRightSibling(new QName("")).getNodeKey());
     wtx.commit();
     wtx.close();
 
     final INodeWriteTrx wtx2 = holder.getSession().beginNodeWriteTrx();
-    assertTrue(wtx2.moveToDocumentRoot());
-    assertTrue(wtx2.moveToFirstChild());
-    assertEquals(5L, wtx2.insertElementAsFirstChild(new QName("")).getNode().getNodeKey());
+    assertTrue(wtx2.moveToDocumentRoot().hasMoved());
+    assertTrue(wtx2.moveToFirstChild().hasMoved());
+    assertEquals(5L, wtx2.insertElementAsFirstChild(new QName("")).getNodeKey());
     wtx2.commit();
     wtx2.close();
   }
@@ -387,8 +387,8 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testPageBoundary(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveTo(2L));
-    assertEquals(2L, pRtx.getNode().getNodeKey());
+    assertTrue(pRtx.moveTo(2L).hasMoved());
+    assertEquals(2L, pRtx.getNodeKey());
   }
 
   @Test(expected = SirixUsageException.class)
@@ -410,9 +410,9 @@ public class UpdateTest {
     final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.moveTo(0L);
-    // assertEquals(10L, wtx.getStructuralNode().getDescendantCount());
+    // assertEquals(10L, wtx.getDescendantCount());
     wtx.commit();
-    assertEquals(10L, wtx.getStructuralNode().getDescendantCount());
+    assertEquals(10L, wtx.getDescendantCount());
     wtx.moveTo(5L);
     wtx.remove();
     testRemoveDescendant(wtx);
@@ -432,21 +432,21 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testRemoveDescendant(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveToDocumentRoot());
-    assertEquals(0, pRtx.getNode().getNodeKey());
-    assertEquals(6, pRtx.getStructuralNode().getDescendantCount());
-    assertEquals(1, pRtx.getStructuralNode().getChildCount());
-    assertTrue(pRtx.moveToFirstChild());
-    assertEquals(1, pRtx.getNode().getNodeKey());
-    assertEquals(3, pRtx.getStructuralNode().getChildCount());
-    assertEquals(5, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToFirstChild());
-    assertEquals(4, pRtx.getNode().getNodeKey());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(9, pRtx.getNode().getNodeKey());
-    assertEquals(4, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(13, pRtx.getNode().getNodeKey());
+    assertTrue(pRtx.moveToDocumentRoot().hasMoved());
+    assertEquals(0, pRtx.getNodeKey());
+    assertEquals(6, pRtx.getDescendantCount());
+    assertEquals(1, pRtx.getChildCount());
+    assertTrue(pRtx.moveToFirstChild().hasMoved());
+    assertEquals(1, pRtx.getNodeKey());
+    assertEquals(3, pRtx.getChildCount());
+    assertEquals(5, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToFirstChild().hasMoved());
+    assertEquals(4, pRtx.getNodeKey());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(9, pRtx.getNodeKey());
+    assertEquals(4, pRtx.getLeftSiblingKey());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(13, pRtx.getNodeKey());
   }
 
   /** Test for text concatenation. */
@@ -476,18 +476,18 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testRemoveDescendantTextConcat2(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveToDocumentRoot());
-    assertEquals(0, pRtx.getNode().getNodeKey());
-    assertEquals(2, pRtx.getStructuralNode().getDescendantCount());
-    assertEquals(1, pRtx.getStructuralNode().getChildCount());
-    assertTrue(pRtx.moveToFirstChild());
-    assertEquals(1, pRtx.getNode().getNodeKey());
-    assertEquals(1, pRtx.getStructuralNode().getChildCount());
-    assertEquals(1, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToFirstChild());
-    assertEquals(4, pRtx.getNode().getNodeKey());
-    assertFalse(pRtx.moveToRightSibling());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getRightSiblingKey());
+    assertTrue(pRtx.moveToDocumentRoot().hasMoved());
+    assertEquals(0, pRtx.getNodeKey());
+    assertEquals(2, pRtx.getDescendantCount());
+    assertEquals(1, pRtx.getChildCount());
+    assertTrue(pRtx.moveToFirstChild().hasMoved());
+    assertEquals(1, pRtx.getNodeKey());
+    assertEquals(1, pRtx.getChildCount());
+    assertEquals(1, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToFirstChild().hasMoved());
+    assertEquals(4, pRtx.getNodeKey());
+    assertFalse(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
   }
 
   @Test
@@ -509,18 +509,18 @@ public class UpdateTest {
   }
 
   private void testReplaceTextNode(final INodeReadTrx pRtx) throws SirixException {
-    assertFalse(pRtx.moveTo(5));
-    assertTrue(pRtx.moveTo(4));
-    assertEquals("oops1baroops2", pRtx.getValueOfCurrentNode());
-    assertEquals(9, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(4, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertEquals(13, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(9, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(pRtx.moveTo(1));
-    assertEquals(3, pRtx.getStructuralNode().getChildCount());
-    assertEquals(5, pRtx.getStructuralNode().getDescendantCount());
+    assertFalse(pRtx.moveTo(5).hasMoved());
+    assertTrue(pRtx.moveTo(4).hasMoved());
+    assertEquals("oops1baroops2", pRtx.getValue());
+    assertEquals(9, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(4, pRtx.getLeftSiblingKey());
+    assertEquals(13, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(9, pRtx.getLeftSiblingKey());
+    assertTrue(pRtx.moveTo(1).hasMoved());
+    assertEquals(3, pRtx.getChildCount());
+    assertEquals(5, pRtx.getDescendantCount());
   }
 
   @Test
@@ -542,18 +542,18 @@ public class UpdateTest {
   }
 
   private void testReplaceElementNode(final INodeReadTrx pRtx) throws SirixException {
-    assertFalse(pRtx.moveTo(5));
-    assertTrue(pRtx.moveTo(4));
-    assertEquals(14, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(4, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertEquals(8, pRtx.getStructuralNode().getRightSiblingKey());
-    assertEquals("c", pRtx.getQNameOfCurrentNode().getLocalPart());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(14, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(pRtx.moveTo(1));
-    assertEquals(5, pRtx.getStructuralNode().getChildCount());
-    assertEquals(7, pRtx.getStructuralNode().getDescendantCount());
+    assertFalse(pRtx.moveTo(5).hasMoved());
+    assertTrue(pRtx.moveTo(4).hasMoved());
+    assertEquals(14, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(4, pRtx.getLeftSiblingKey());
+    assertEquals(8, pRtx.getRightSiblingKey());
+    assertEquals("c", pRtx.getQName().getLocalPart());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(14, pRtx.getLeftSiblingKey());
+    assertTrue(pRtx.moveTo(1).hasMoved());
+    assertEquals(5, pRtx.getChildCount());
+    assertEquals(7, pRtx.getDescendantCount());
   }
 
   @Test
@@ -579,24 +579,24 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testReplaceElement(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveTo(14));
-    assertEquals("d", pRtx.getQNameOfCurrentNode().getLocalPart());
-    assertTrue(pRtx.moveTo(4));
-    assertEquals(14, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(8, pRtx.getStructuralNode().getRightSiblingKey());
-    assertEquals(1, pRtx.getStructuralNode().getChildCount());
-    assertEquals(1, pRtx.getStructuralNode().getDescendantCount());
-    assertEquals(15, pRtx.getStructuralNode().getFirstChildKey());
-    assertTrue(pRtx.moveTo(15));
-    assertEquals(0, pRtx.getStructuralNode().getChildCount());
-    assertEquals(0, pRtx.getStructuralNode().getDescendantCount());
-    assertEquals(14, pRtx.getNode().getParentKey());
-    assertTrue(pRtx.moveTo(14));
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(14, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(pRtx.moveTo(1));
-    assertEquals(8, pRtx.getStructuralNode().getDescendantCount());
+    assertTrue(pRtx.moveTo(14).hasMoved());
+    assertEquals("d", pRtx.getQName().getLocalPart());
+    assertTrue(pRtx.moveTo(4).hasMoved());
+    assertEquals(14, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(8, pRtx.getRightSiblingKey());
+    assertEquals(1, pRtx.getChildCount());
+    assertEquals(1, pRtx.getDescendantCount());
+    assertEquals(15, pRtx.getFirstChildKey());
+    assertTrue(pRtx.moveTo(15).hasMoved());
+    assertEquals(0, pRtx.getChildCount());
+    assertEquals(0, pRtx.getDescendantCount());
+    assertEquals(14, pRtx.getParentKey());
+    assertTrue(pRtx.moveTo(14).hasMoved());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(14, pRtx.getLeftSiblingKey());
+    assertTrue(pRtx.moveTo(1).hasMoved());
+    assertEquals(8, pRtx.getDescendantCount());
   }
 
   @Test
@@ -622,14 +622,14 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testReplaceElementMergeTextNodes(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveTo(4));
-    assertEquals("oops1foooops2", pRtx.getValueOfCurrentNode());
-    assertEquals(9, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(4, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(pRtx.moveTo(1));
-    assertEquals(3, pRtx.getStructuralNode().getChildCount());
-    assertEquals(5, pRtx.getStructuralNode().getDescendantCount());
+    assertTrue(pRtx.moveTo(4).hasMoved());
+    assertEquals("oops1foooops2", pRtx.getValue());
+    assertEquals(9, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(4, pRtx.getLeftSiblingKey());
+    assertTrue(pRtx.moveTo(1).hasMoved());
+    assertEquals(3, pRtx.getChildCount());
+    assertEquals(5, pRtx.getDescendantCount());
   }
 
   @Test
@@ -655,23 +655,23 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testFirstMoveToFirstChild(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveToDocumentRoot());
-    assertEquals(10L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveTo(4));
-    assertEquals(pRtx.getValueOfCurrentNode(), "oops1");
-    assertTrue(pRtx.moveTo(7));
-    assertEquals(1, pRtx.getStructuralNode().getChildCount());
-    assertEquals(1, pRtx.getStructuralNode().getDescendantCount());
-    assertFalse(pRtx.getStructuralNode().hasLeftSibling());
-    assertTrue(pRtx.getStructuralNode().hasFirstChild());
-    assertTrue(pRtx.moveToFirstChild());
-    assertFalse(pRtx.getStructuralNode().hasFirstChild());
-    assertFalse(pRtx.getStructuralNode().hasLeftSibling());
-    assertFalse(pRtx.getStructuralNode().hasRightSibling());
-    assertEquals("foo", pRtx.getValueOfCurrentNode());
-    assertTrue(pRtx.moveTo(5));
-    assertEquals(1, pRtx.getStructuralNode().getChildCount());
-    assertEquals(2, pRtx.getStructuralNode().getDescendantCount());
+    assertTrue(pRtx.moveToDocumentRoot().hasMoved());
+    assertEquals(10L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveTo(4).hasMoved());
+    assertEquals(pRtx.getValue(), "oops1");
+    assertTrue(pRtx.moveTo(7).hasMoved());
+    assertEquals(1, pRtx.getChildCount());
+    assertEquals(1, pRtx.getDescendantCount());
+    assertFalse(pRtx.hasLeftSibling());
+    assertTrue(pRtx.hasFirstChild());
+    assertTrue(pRtx.moveToFirstChild().hasMoved());
+    assertFalse(pRtx.hasFirstChild());
+    assertFalse(pRtx.hasLeftSibling());
+    assertFalse(pRtx.hasRightSibling());
+    assertEquals("foo", pRtx.getValue());
+    assertTrue(pRtx.moveTo(5).hasMoved());
+    assertEquals(1, pRtx.getChildCount());
+    assertEquals(2, pRtx.getDescendantCount());
   }
 
   @Test
@@ -697,23 +697,23 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testSecondMoveToFirstChild(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveTo(1));
-    assertEquals(4L, pRtx.getStructuralNode().getChildCount());
-    assertEquals(8L, pRtx.getStructuralNode().getDescendantCount());
-    assertEquals(5L, pRtx.getStructuralNode().getFirstChildKey());
-    assertTrue(pRtx.moveTo(5));
-    assertEquals(2L, pRtx.getStructuralNode().getChildCount());
-    assertEquals(2L, pRtx.getStructuralNode().getDescendantCount());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getLeftSiblingKey());
-    assertEquals(4L, pRtx.getStructuralNode().getFirstChildKey());
-    assertFalse(pRtx.moveTo(6));
-    assertTrue(pRtx.moveTo(4));
-    assertEquals("oops1foo", pRtx.getValueOfCurrentNode());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getLeftSiblingKey());
-    assertEquals(5L, pRtx.getStructuralNode().getParentKey());
-    assertEquals(7L, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveTo(7));
-    assertEquals(4L, pRtx.getStructuralNode().getLeftSiblingKey());
+    assertTrue(pRtx.moveTo(1).hasMoved());
+    assertEquals(4L, pRtx.getChildCount());
+    assertEquals(8L, pRtx.getDescendantCount());
+    assertEquals(5L, pRtx.getFirstChildKey());
+    assertTrue(pRtx.moveTo(5).hasMoved());
+    assertEquals(2L, pRtx.getChildCount());
+    assertEquals(2L, pRtx.getDescendantCount());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(4L, pRtx.getFirstChildKey());
+    assertFalse(pRtx.moveTo(6).hasMoved());
+    assertTrue(pRtx.moveTo(4).hasMoved());
+    assertEquals("oops1foo", pRtx.getValue());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(5L, pRtx.getParentKey());
+    assertEquals(7L, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveTo(7).hasMoved());
+    assertEquals(4L, pRtx.getLeftSiblingKey());
   }
 
   @Test
@@ -739,24 +739,24 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testThirdMoveToFirstChild(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveTo(0));
-    assertEquals(10L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveTo(1));
-    assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveTo(5));
-    assertEquals(11L, pRtx.getStructuralNode().getFirstChildKey());
-    assertEquals(3L, pRtx.getStructuralNode().getChildCount());
-    assertEquals(3L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveTo(11));
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getLeftSiblingKey());
-    assertEquals(5L, pRtx.getStructuralNode().getParentKey());
-    assertEquals(6L, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveTo(6L));
-    assertEquals(11L, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertEquals(7L, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveTo(9L));
-    assertEquals(1L, pRtx.getStructuralNode().getChildCount());
-    assertEquals(1L, pRtx.getStructuralNode().getDescendantCount());
+    assertTrue(pRtx.moveTo(0).hasMoved());
+    assertEquals(10L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveTo(1).hasMoved());
+    assertEquals(9L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveTo(5).hasMoved());
+    assertEquals(11L, pRtx.getFirstChildKey());
+    assertEquals(3L, pRtx.getChildCount());
+    assertEquals(3L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveTo(11).hasMoved());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(5L, pRtx.getParentKey());
+    assertEquals(6L, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveTo(6L).hasMoved());
+    assertEquals(11L, pRtx.getLeftSiblingKey());
+    assertEquals(7L, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveTo(9L).hasMoved());
+    assertEquals(1L, pRtx.getChildCount());
+    assertEquals(1L, pRtx.getDescendantCount());
   }
 
   @Test(expected = SirixUsageException.class)
@@ -792,19 +792,19 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testFirstMoveSubtreeToRightSibling(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveTo(7));
-    assertFalse(pRtx.getStructuralNode().hasLeftSibling());
-    assertTrue(pRtx.getStructuralNode().hasRightSibling());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals(6L, pRtx.getNode().getNodeKey());
-    assertEquals("foo", pRtx.getValueOfCurrentNode());
-    assertTrue(pRtx.getStructuralNode().hasLeftSibling());
-    assertEquals(7L, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(pRtx.moveTo(5));
-    assertEquals(2L, pRtx.getStructuralNode().getChildCount());
-    assertEquals(2L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToDocumentRoot());
-    assertEquals(10L, pRtx.getStructuralNode().getDescendantCount());
+    assertTrue(pRtx.moveTo(7).hasMoved());
+    assertFalse(pRtx.hasLeftSibling());
+    assertTrue(pRtx.hasRightSibling());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals(6L, pRtx.getNodeKey());
+    assertEquals("foo", pRtx.getValue());
+    assertTrue(pRtx.hasLeftSibling());
+    assertEquals(7L, pRtx.getLeftSiblingKey());
+    assertTrue(pRtx.moveTo(5).hasMoved());
+    assertEquals(2L, pRtx.getChildCount());
+    assertEquals(2L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToDocumentRoot().hasMoved());
+    assertEquals(10L, pRtx.getDescendantCount());
   }
 
   @Test
@@ -831,20 +831,20 @@ public class UpdateTest {
    */
   private final static void testSecondMoveSubtreeToRightSibling(final INodeReadTrx pRtx)
     throws SirixException {
-    assertTrue(pRtx.moveToDocumentRoot());
-    assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToFirstChild());
-    assertEquals(4L, pRtx.getStructuralNode().getChildCount());
-    assertEquals(8L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveTo(4));
+    assertTrue(pRtx.moveToDocumentRoot().hasMoved());
+    assertEquals(9L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToFirstChild().hasMoved());
+    assertEquals(4L, pRtx.getChildCount());
+    assertEquals(8L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveTo(4).hasMoved());
     // Assert that oops1 and oops2 text nodes merged.
-    assertEquals("oops1oops2", pRtx.getValueOfCurrentNode());
-    assertFalse(pRtx.moveTo(8));
-    assertTrue(pRtx.moveTo(9));
-    assertEquals(5L, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveTo(5));
-    assertEquals(9L, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertEquals(13L, pRtx.getStructuralNode().getRightSiblingKey());
+    assertEquals("oops1oops2", pRtx.getValue());
+    assertFalse(pRtx.moveTo(8).hasMoved());
+    assertTrue(pRtx.moveTo(9).hasMoved());
+    assertEquals(5L, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveTo(5).hasMoved());
+    assertEquals(9L, pRtx.getLeftSiblingKey());
+    assertEquals(13L, pRtx.getRightSiblingKey());
   }
 
   @Test
@@ -870,18 +870,18 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testThirdMoveSubtreeToRightSibling(final INodeReadTrx pRtx) throws SirixException {
-    assertTrue(pRtx.moveToDocumentRoot());
-    assertTrue(pRtx.moveToFirstChild());
-    assertEquals(4, pRtx.getStructuralNode().getChildCount());
-    assertEquals(8, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveTo(4));
+    assertTrue(pRtx.moveToDocumentRoot().hasMoved());
+    assertTrue(pRtx.moveToFirstChild().hasMoved());
+    assertEquals(4, pRtx.getChildCount());
+    assertEquals(8, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveTo(4).hasMoved());
     // Assert that oops1 and oops3 text nodes merged.
-    assertEquals("oops1oops3", pRtx.getValueOfCurrentNode());
-    assertFalse(pRtx.moveTo(13));
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getRightSiblingKey());
-    assertEquals(9L, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(pRtx.moveTo(9));
-    assertEquals(4L, pRtx.getStructuralNode().getRightSiblingKey());
+    assertEquals("oops1oops3", pRtx.getValue());
+    assertFalse(pRtx.moveTo(13).hasMoved());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
+    assertEquals(9L, pRtx.getLeftSiblingKey());
+    assertTrue(pRtx.moveTo(9).hasMoved());
+    assertEquals(4L, pRtx.getRightSiblingKey());
   }
 
   @Test
@@ -908,17 +908,17 @@ public class UpdateTest {
    */
   private final static void testFourthMoveSubtreeToRightSibling(final INodeReadTrx pRtx)
     throws SirixException {
-    assertTrue(pRtx.moveTo(4));
+    assertTrue(pRtx.moveTo(4).hasMoved());
     // Assert that oops2 and oops1 text nodes merged.
-    assertEquals("oops2oops1", pRtx.getValueOfCurrentNode());
-    assertFalse(pRtx.moveTo(8));
-    assertEquals(9L, pRtx.getStructuralNode().getRightSiblingKey());
-    assertEquals(5L, pRtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(pRtx.moveTo(5L));
-    assertEquals(4L, pRtx.getStructuralNode().getRightSiblingKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getLeftSiblingKey());
-    assertTrue(pRtx.moveTo(9));
-    assertEquals(4L, pRtx.getStructuralNode().getLeftSiblingKey());
+    assertEquals("oops2oops1", pRtx.getValue());
+    assertFalse(pRtx.moveTo(8).hasMoved());
+    assertEquals(9L, pRtx.getRightSiblingKey());
+    assertEquals(5L, pRtx.getLeftSiblingKey());
+    assertTrue(pRtx.moveTo(5L).hasMoved());
+    assertEquals(4L, pRtx.getRightSiblingKey());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertTrue(pRtx.moveTo(9).hasMoved());
+    assertEquals(4L, pRtx.getLeftSiblingKey());
   }
 
   @Test
@@ -949,16 +949,16 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testFirstCopySubtreeAsFirstChild(final INodeReadTrx pRtx) {
-    assertTrue(pRtx.moveTo(9));
-    assertEquals(14, pRtx.getStructuralNode().getFirstChildKey());
-    assertTrue(pRtx.moveTo(14));
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getLeftSiblingKey());
-    assertEquals(11, pRtx.getStructuralNode().getRightSiblingKey());
-    assertEquals("oops1", pRtx.getValueOfCurrentNode());
-    assertTrue(pRtx.moveTo(1));
-    assertEquals(4, pRtx.getStructuralNode().getFirstChildKey());
-    assertTrue(pRtx.moveTo(4));
-    assertEquals("oops1", pRtx.getValueOfCurrentNode());
+    assertTrue(pRtx.moveTo(9).hasMoved());
+    assertEquals(14, pRtx.getFirstChildKey());
+    assertTrue(pRtx.moveTo(14).hasMoved());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(11, pRtx.getRightSiblingKey());
+    assertEquals("oops1", pRtx.getValue());
+    assertTrue(pRtx.moveTo(1).hasMoved());
+    assertEquals(4, pRtx.getFirstChildKey());
+    assertTrue(pRtx.moveTo(4).hasMoved());
+    assertEquals("oops1", pRtx.getValue());
   }
 
   @Test
@@ -989,25 +989,25 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testSecondCopySubtreeAsFirstChild(final INodeReadTrx pRtx) {
-    assertTrue(pRtx.moveTo(9));
-    assertEquals(14, pRtx.getStructuralNode().getFirstChildKey());
-    assertTrue(pRtx.moveTo(14));
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getLeftSiblingKey());
-    assertEquals(11, pRtx.getStructuralNode().getRightSiblingKey());
-    assertEquals("b", pRtx.getQNameOfCurrentNode().getLocalPart());
-    assertTrue(pRtx.moveTo(4));
-    assertEquals(5, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveTo(5));
-    assertEquals("b", pRtx.getQNameOfCurrentNode().getLocalPart());
-    assertTrue(pRtx.moveTo(14));
-    assertEquals(15, pRtx.getStructuralNode().getFirstChildKey());
-    assertTrue(pRtx.moveTo(15));
-    assertEquals("foo", pRtx.getValueOfCurrentNode());
-    assertTrue(pRtx.moveTo(16));
-    assertEquals("c", pRtx.getQNameOfCurrentNode().getLocalPart());
-    assertFalse(pRtx.moveTo(17));
-    assertEquals(16, pRtx.getStructuralNode().getNodeKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getStructuralNode().getRightSiblingKey());
+    assertTrue(pRtx.moveTo(9).hasMoved());
+    assertEquals(14, pRtx.getFirstChildKey());
+    assertTrue(pRtx.moveTo(14).hasMoved());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(11, pRtx.getRightSiblingKey());
+    assertEquals("b", pRtx.getQName().getLocalPart());
+    assertTrue(pRtx.moveTo(4).hasMoved());
+    assertEquals(5, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveTo(5).hasMoved());
+    assertEquals("b", pRtx.getQName().getLocalPart());
+    assertTrue(pRtx.moveTo(14).hasMoved());
+    assertEquals(15, pRtx.getFirstChildKey());
+    assertTrue(pRtx.moveTo(15).hasMoved());
+    assertEquals("foo", pRtx.getValue());
+    assertTrue(pRtx.moveTo(16).hasMoved());
+    assertEquals("c", pRtx.getQName().getLocalPart());
+    assertFalse(pRtx.moveTo(17).hasMoved());
+    assertEquals(16, pRtx.getNodeKey());
+    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
   }
 
   @Test
@@ -1038,21 +1038,21 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testFirstCopySubtreeAsRightSibling(final INodeReadTrx pRtx) {
-    assertTrue(pRtx.moveTo(9));
-    assertEquals(14, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveTo(14));
-    assertEquals(13, pRtx.getStructuralNode().getRightSiblingKey());
-    assertEquals(15, pRtx.getStructuralNode().getFirstChildKey());
-    assertTrue(pRtx.moveTo(15));
-    assertEquals(15, pRtx.getStructuralNode().getNodeKey());
-    assertEquals("foo", pRtx.getValueOfCurrentNode());
-    assertEquals(16, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveToRightSibling());
-    assertEquals("c", pRtx.getQNameOfCurrentNode().getLocalPart());
-    assertTrue(pRtx.moveTo(4));
-    assertEquals(5, pRtx.getStructuralNode().getRightSiblingKey());
-    assertTrue(pRtx.moveTo(5));
-    assertEquals(8, pRtx.getStructuralNode().getRightSiblingKey());
+    assertTrue(pRtx.moveTo(9).hasMoved());
+    assertEquals(14, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveTo(14).hasMoved());
+    assertEquals(13, pRtx.getRightSiblingKey());
+    assertEquals(15, pRtx.getFirstChildKey());
+    assertTrue(pRtx.moveTo(15).hasMoved());
+    assertEquals(15, pRtx.getNodeKey());
+    assertEquals("foo", pRtx.getValue());
+    assertEquals(16, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveToRightSibling().hasMoved());
+    assertEquals("c", pRtx.getQName().getLocalPart());
+    assertTrue(pRtx.moveTo(4).hasMoved());
+    assertEquals(5, pRtx.getRightSiblingKey());
+    assertTrue(pRtx.moveTo(5).hasMoved());
+    assertEquals(8, pRtx.getRightSiblingKey());
   }
 
   @Test
@@ -1081,13 +1081,13 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testSubtreeInsertAsFirstChildFirst(final INodeReadTrx pRtx) {
-    assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertEquals(12L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertEquals(19L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertEquals(20L, pRtx.getStructuralNode().getDescendantCount());
+    assertEquals(9L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertEquals(12L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertEquals(19L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertEquals(20L, pRtx.getDescendantCount());
   }
   
   @Test
@@ -1117,15 +1117,15 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testSubtreeInsertAsFirstChildSecond(final INodeReadTrx pRtx) {
-    assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertEquals(10L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertEquals(12L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertEquals(19L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertEquals(20L, pRtx.getStructuralNode().getDescendantCount());
+    assertEquals(9L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertEquals(10L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertEquals(12L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertEquals(19L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertEquals(20L, pRtx.getDescendantCount());
   }
   
   @Test
@@ -1154,11 +1154,11 @@ public class UpdateTest {
    * @throws SirixException
    */
   private final static void testSubtreeInsertAsRightSibling(final INodeReadTrx pRtx) {
-    assertEquals(9L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertEquals(19L, pRtx.getStructuralNode().getDescendantCount());
-    assertTrue(pRtx.moveToParent());
-    assertEquals(20L, pRtx.getStructuralNode().getDescendantCount());
+    assertEquals(9L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertEquals(19L, pRtx.getDescendantCount());
+    assertTrue(pRtx.moveToParent().hasMoved());
+    assertEquals(20L, pRtx.getDescendantCount());
   }
 
 }

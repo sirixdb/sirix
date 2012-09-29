@@ -73,8 +73,8 @@ public class AddOpAxisTest {
 
     assertEquals(true, axis.hasNext());
     axis.next();
-    assertThat(3.0, is(Double.parseDouble(holder.getRtx().getValueOfCurrentNode())));
-    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getNode().getTypeKey());
+    assertThat(3.0, is(Double.parseDouble(holder.getRtx().getValue())));
+    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
   }

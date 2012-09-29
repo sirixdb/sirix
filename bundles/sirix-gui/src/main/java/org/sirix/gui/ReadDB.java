@@ -183,7 +183,7 @@ public final class ReadDB implements AutoCloseable {
    * @return node key
    */
   public long getNodeKey() {
-    return mRtx.getNode().getNodeKey();
+    return mRtx.getNodeKey();
   }
 
   /**

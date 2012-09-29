@@ -53,15 +53,13 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.INameNode;
-import org.sirix.node.interfaces.IStructNode;
 import org.sirix.settings.ECharsForSerializing;
 import org.sirix.settings.IConstants;
 import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
+import org.yaml.snakeyaml.serializer.Serializer;
 
 /**
  * <h1>XMLSerializer</h1>
@@ -141,7 +139,7 @@ public final class XMLSerializer extends AbsSerializer {
 	@Override
 	protected void emitStartElement(final @Nonnull INodeReadTrx pRtx) {
 		try {
-			switch (pRtx.getNode().getKind()) {
+			switch (pRtx.getKind()) {
 			case DOCUMENT_ROOT:
 				if (mIndent) {
 					mOut.write(ECharsForSerializing.NEWLINE.getBytes());
@@ -151,22 +149,21 @@ public final class XMLSerializer extends AbsSerializer {
 				// Emit start element.
 				indent();
 				mOut.write(ECharsForSerializing.OPEN.getBytes());
-				mOut.write(pRtx.rawNameForKey(((INameNode) pRtx.getNode()).getNameKey()));
-				final long key = pRtx.getNode().getNodeKey();
+				mOut.write(pRtx.rawNameForKey(pRtx.getNameKey()));
+				final long key = pRtx.getNodeKey();
 				// Emit namespace declarations.
-				for (int index = 0, length = ((ElementNode) pRtx.getNode())
-						.getNamespaceCount(); index < length; index++) {
+				for (int index = 0, length = pRtx.getNamespaceCount(); index < length; index++) {
 					pRtx.moveToNamespace(index);
-					if (pRtx.nameForKey(((INameNode) pRtx.getNode()).getNameKey())
+					if (pRtx.nameForKey(pRtx.getNameKey())
 							.isEmpty()) {
 						mOut.write(ECharsForSerializing.XMLNS.getBytes());
-						write(pRtx.nameForKey(((INameNode) pRtx.getNode()).getURIKey()));
+						write(pRtx.nameForKey(pRtx.getURIKey()));
 						mOut.write(ECharsForSerializing.QUOTE.getBytes());
 					} else {
 						mOut.write(ECharsForSerializing.XMLNS_COLON.getBytes());
-						write(pRtx.nameForKey(((INameNode) pRtx.getNode()).getNameKey()));
+						write(pRtx.nameForKey(pRtx.getNameKey()));
 						mOut.write(ECharsForSerializing.EQUAL_QUOTE.getBytes());
-						write(pRtx.nameForKey(((INameNode) pRtx.getNode()).getURIKey()));
+						write(pRtx.nameForKey(pRtx.getURIKey()));
 						mOut.write(ECharsForSerializing.QUOTE.getBytes());
 					}
 					pRtx.moveTo(key);
@@ -181,24 +178,22 @@ public final class XMLSerializer extends AbsSerializer {
 					}
 					mOut.write(ECharsForSerializing.ID.getBytes());
 					mOut.write(ECharsForSerializing.EQUAL_QUOTE.getBytes());
-					write(pRtx.getNode().getNodeKey());
+					write(pRtx.getNodeKey());
 					mOut.write(ECharsForSerializing.QUOTE.getBytes());
 				}
 
 				// Iterate over all persistent attributes.
-				for (int index = 0; index < ((ElementNode) pRtx.getNode())
-						.getAttributeCount(); index++) {
+				for (int index = 0; index < pRtx.getAttributeCount(); index++) {
 					pRtx.moveToAttribute(index);
 					mOut.write(ECharsForSerializing.SPACE.getBytes());
-					mOut.write(pRtx.rawNameForKey(((INameNode) pRtx.getNode())
-							.getNameKey()));
+					mOut.write(pRtx.rawNameForKey(pRtx.getNameKey()));
 					mOut.write(ECharsForSerializing.EQUAL_QUOTE.getBytes());
-					mOut.write(XMLToken.escapeAttribute(pRtx.getValueOfCurrentNode())
+					mOut.write(XMLToken.escapeAttribute(pRtx.getValue())
 							.getBytes(IConstants.DEFAULT_ENCODING));// pRtx.getItem().getRawValue());
 					mOut.write(ECharsForSerializing.QUOTE.getBytes());
 					pRtx.moveTo(key);
 				}
-				if (((IStructNode) pRtx.getNode()).hasFirstChild()) {
+				if (pRtx.hasFirstChild()) {
 					mOut.write(ECharsForSerializing.CLOSE.getBytes());
 				} else {
 					mOut.write(ECharsForSerializing.SLASH_CLOSE.getBytes());
@@ -209,15 +204,15 @@ public final class XMLSerializer extends AbsSerializer {
 				break;
 			case TEXT:
 				indent();
-				mOut.write(XMLToken.escapeContent(pRtx.getValueOfCurrentNode())
+				mOut.write(XMLToken.escapeContent(pRtx.getValue())
 						.getBytes(IConstants.DEFAULT_ENCODING));
 				if (mIndent) {
 					mOut.write(ECharsForSerializing.NEWLINE.getBytes());
 				}
 				break;
 			}
-		} catch (final IOException exc) {
-			exc.printStackTrace();
+		} catch (final IOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
 		}
 	}
 
@@ -232,13 +227,13 @@ public final class XMLSerializer extends AbsSerializer {
 		try {
 			indent();
 			mOut.write(ECharsForSerializing.OPEN_SLASH.getBytes());
-			mOut.write(pRtx.rawNameForKey(((INameNode) pRtx.getNode()).getNameKey()));
+			mOut.write(pRtx.rawNameForKey(pRtx.getNameKey()));
 			mOut.write(ECharsForSerializing.CLOSE.getBytes());
 			if (mIndent) {
 				mOut.write(ECharsForSerializing.NEWLINE.getBytes());
 			}
-		} catch (final IOException exc) {
-			exc.printStackTrace();
+		} catch (final IOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
 		}
 	}
 
@@ -251,8 +246,8 @@ public final class XMLSerializer extends AbsSerializer {
 			if (mSerializeRest) {
 				write("<rest:sequence xmlns:rest=\"REST\"><rest:item>");
 			}
-		} catch (final IOException exc) {
-			exc.printStackTrace();
+		} catch (final IOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
 		}
 	}
 
@@ -263,8 +258,8 @@ public final class XMLSerializer extends AbsSerializer {
 				write("</rest:item></rest:sequence>");
 			}
 			mOut.flush();
-		} catch (final IOException exc) {
-			exc.printStackTrace();
+		} catch (final IOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
 		}
 
 	}
@@ -275,8 +270,8 @@ public final class XMLSerializer extends AbsSerializer {
 			write("<tt revision=\"");
 			write(Long.toString(pVersion));
 			write("\">");
-		} catch (final IOException exc) {
-			exc.printStackTrace();
+		} catch (final IOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
 		}
 
 	}
@@ -285,8 +280,8 @@ public final class XMLSerializer extends AbsSerializer {
 	protected void emitEndManualElement(final long pVersion) {
 		try {
 			write("</tt>");
-		} catch (final IOException exc) {
-			exc.printStackTrace();
+		} catch (final IOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
 		}
 	}
 

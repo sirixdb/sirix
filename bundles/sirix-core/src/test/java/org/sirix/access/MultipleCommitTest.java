@@ -73,7 +73,7 @@ public class MultipleCommitTest {
     holder.getWtx().insertElementAsFirstChild(new QName("foo"));
     assertEquals(1L, holder.getWtx().getRevisionNumber());
     holder.getWtx().moveTo(1);
-    assertEquals(new QName("foo"), holder.getWtx().getQNameOfCurrentNode());
+    assertEquals(new QName("foo"), holder.getWtx().getQName());
     holder.getWtx().abort();
 
     assertEquals(1L, holder.getWtx().getRevisionNumber());
@@ -110,9 +110,9 @@ public class MultipleCommitTest {
     final AbsAxis postorderAxis = new PostOrderAxis(holder.getWtx());
     while (postorderAxis.hasNext()) {
       postorderAxis.next();
-      if (holder.getWtx().getNode().getKind() == EKind.ELEMENT
-        && ((ElementNode)holder.getWtx().getNode()).getAttributeCount() > 0) {
-        for (int i = 0, attrCount = ((ElementNode)holder.getWtx().getNode()).getAttributeCount(); i < attrCount; i++) {
+      if (holder.getWtx().getKind() == EKind.ELEMENT
+        && holder.getWtx().getAttributeCount() > 0) {
+        for (int i = 0, attrCount = holder.getWtx().getAttributeCount(); i < attrCount; i++) {
           holder.getWtx().moveToAttribute(i);
           holder.getWtx().remove();
         }
@@ -125,9 +125,9 @@ public class MultipleCommitTest {
     final IAxis descAxis = new DescendantAxis(holder.getWtx());
     while (descAxis.hasNext()) {
       descAxis.next();
-      if (holder.getWtx().getNode().getKind() == EKind.ELEMENT) {
-        for (int i = 0, attrCount = ((ElementNode)holder.getWtx().getNode()).getAttributeCount(); i < attrCount; i++) {
-          if (holder.getWtx().moveToAttribute(i)) {
+      if (holder.getWtx().getKind() == EKind.ELEMENT) {
+        for (int i = 0, attrCount = holder.getWtx().getAttributeCount(); i < attrCount; i++) {
+          if (holder.getWtx().moveToAttribute(i).hasMoved()) {
             attrTouch++;
           } else {
             throw new IllegalStateException("Should never occur!");

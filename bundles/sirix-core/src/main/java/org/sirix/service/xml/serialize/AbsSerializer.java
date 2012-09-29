@@ -152,7 +152,7 @@ public abstract class AbsSerializer implements Callable<Void> {
 
 				// Setup primitives.
 				boolean closeElements = false;
-				long key = rtx.getNode().getNodeKey();
+				long key = rtx.getNodeKey();
 
 				// Iterate over all nodes of the subtree including self.
 				while (descAxis.hasNext()) {
@@ -161,7 +161,7 @@ public abstract class AbsSerializer implements Callable<Void> {
 					// Emit all pending end elements.
 					if (closeElements) {
 						while (!mStack.isEmpty()
-								&& mStack.peek() != rtx.getStructuralNode().getLeftSiblingKey()) {
+								&& mStack.peek() != rtx.getLeftSiblingKey()) {
 							rtx.moveTo(mStack.pop());
 							emitEndElement(rtx);
 							rtx.moveTo(key);
@@ -179,15 +179,15 @@ public abstract class AbsSerializer implements Callable<Void> {
 
 					// Push end element to stack if we are a start element with
 					// children.
-					if (rtx.getNode().getKind() == EKind.ELEMENT
-							&& rtx.getStructuralNode().hasFirstChild()) {
-						mStack.push(rtx.getNode().getNodeKey());
+					if (rtx.getKind() == EKind.ELEMENT
+							&& rtx.hasFirstChild()) {
+						mStack.push(rtx.getNodeKey());
 					}
 
 					// Remember to emit all pending end elements from stack if
 					// required.
-					if (!rtx.getStructuralNode().hasFirstChild()
-							&& !rtx.getStructuralNode().hasRightSibling()) {
+					if (!rtx.hasFirstChild()
+							&& !rtx.hasRightSibling()) {
 						closeElements = true;
 					}
 

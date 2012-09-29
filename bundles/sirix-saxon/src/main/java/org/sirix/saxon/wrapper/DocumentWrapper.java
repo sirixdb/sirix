@@ -46,6 +46,7 @@ import net.sf.saxon.trans.XPathException;
 import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.Value;
+
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
@@ -53,7 +54,6 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -154,22 +154,22 @@ public final class DocumentWrapper implements DocumentInfo {
       final INodeReadTrx rtx = mSession.beginNodeReadTrx();
       final IAxis axis = new DescendantAxis(rtx, EIncludeSelf.YES);
       while (axis.hasNext()) {
-        if (rtx.getNode().getKind() == EKind.ELEMENT) {
-          final int attCount = ((ElementNode)rtx.getNode()).getAttributeCount();
+        if (rtx.getKind() == EKind.ELEMENT) {
+          final int attCount = rtx.getAttributeCount();
 
           if (attCount > 0) {
-            final long nodeKey = rtx.getNode().getNodeKey();
+            final long nodeKey = rtx.getNodeKey();
 
             for (int index = 0; index < attCount; index++) {
               rtx.moveToAttribute(index);
 
-              if ("xml:id".equalsIgnoreCase(rtx.getQNameOfCurrentNode()
+              if ("xml:id".equalsIgnoreCase(rtx.getQName()
                 .getLocalPart())
-                && ID.equals(rtx.getValueOfCurrentNode())) {
+                && ID.equals(rtx.getValue())) {
                 if (getParent) {
                   rtx.moveToParent();
                 }
-                return new NodeWrapper(this, rtx.getNode().getNodeKey());
+                return new NodeWrapper(this, rtx.getNodeKey());
               }
               rtx.moveTo(nodeKey);
             }

@@ -66,19 +66,19 @@ public class CompAxisTest {
     final AbsAxis axis1 = new XPathAxis(holder.getRtx(), "1.0 = 1.0");
     assertEquals(true, axis1.hasNext());
     axis1.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValueOfCurrentNode()));
+    assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis1.hasNext());
 
     final AbsAxis axis2 = new XPathAxis(holder.getRtx(), "(1, 2, 3) < (2, 3)");
     assertEquals(true, axis2.hasNext());
     axis2.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValueOfCurrentNode()));
+    assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis2.hasNext());
 
     final AbsAxis axis3 = new XPathAxis(holder.getRtx(), "(1, 2, 3) > (3, 4)");
     assertEquals(true, axis3.hasNext());
     axis3.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValueOfCurrentNode()));
+    assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis3.hasNext());
   }
 

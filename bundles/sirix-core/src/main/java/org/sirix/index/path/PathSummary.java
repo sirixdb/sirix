@@ -2,14 +2,21 @@ package org.sirix.index.path;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.Collections;
+import java.util.List;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
+import org.sirix.access.Move;
+import org.sirix.access.Moved;
 import org.sirix.api.IItemList;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
+import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
@@ -37,7 +44,7 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class PathSummary implements INodeReadTrx {
+public final class PathSummary implements INodeReadTrx {
 
 	/** Logger. */
 	private final LogWrapper LOGWRAPPER = new LogWrapper(
@@ -95,8 +102,12 @@ public class PathSummary implements INodeReadTrx {
 		return new PathSummary(checkNotNull(pPageReadTrx), checkNotNull(pSession));
 	}
 
-	@Override
-	public INode getNode() {
+	/**
+	 * Get the node.
+	 * 
+	 * @return the node
+	 */
+	private INode getNode() {
 		assertNotClosed();
 		return mCurrentNode;
 	}
@@ -106,7 +117,7 @@ public class PathSummary implements INodeReadTrx {
 	 * 
 	 * @return {@link PathNode} reference or null for the document root.
 	 */
-	public PathNode getPathNode() {
+	private PathNode getPathNode() {
 		assertNotClosed();
 		if (mCurrentNode instanceof PathNode) {
 			return (PathNode) mCurrentNode;
@@ -116,7 +127,7 @@ public class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public final boolean moveTo(final long pNodeKey) {
+	public Move<? extends PathSummary> moveTo(final long pNodeKey) {
 		assertNotClosed();
 
 		// Remember old node and fetch new one.
@@ -134,42 +145,42 @@ public class PathSummary implements INodeReadTrx {
 
 		if (newNode.isPresent()) {
 			mCurrentNode = newNode.get();
-			return true;
+			return Move.moved(this);
 		} else {
 			mCurrentNode = oldNode;
-			return false;
+			return Moved.notMoved();
 		}
 	}
 
 	@Override
-	public final boolean moveToParent() {
+	public Move<? extends PathSummary> moveToParent() {
 		assertNotClosed();
 		return moveTo(getStructuralNode().getParentKey());
 	}
 
 	@Override
-	public final boolean moveToFirstChild() {
+	public Move<? extends PathSummary> moveToFirstChild() {
 		assertNotClosed();
 		if (!getStructuralNode().hasFirstChild()) {
-			return false;
+			return Move.notMoved();
 		}
 		return moveTo(getStructuralNode().getFirstChildKey());
 	}
 
 	@Override
-	public final boolean moveToLeftSibling() {
+	public Move<? extends PathSummary> moveToLeftSibling() {
 		assertNotClosed();
 		if (!getStructuralNode().hasLeftSibling()) {
-			return false;
+			return Move.notMoved();
 		}
 		return moveTo(getStructuralNode().getLeftSiblingKey());
 	}
 
 	@Override
-	public final boolean moveToRightSibling() {
+	public Move<? extends PathSummary> moveToRightSibling() {
 		assertNotClosed();
 		if (!getStructuralNode().hasRightSibling()) {
-			return false;
+			return Move.notMoved();
 		}
 		return moveTo(getStructuralNode().getRightSiblingKey());
 	}
@@ -201,12 +212,11 @@ public class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public boolean moveToDocumentRoot() {
+	public Move<? extends PathSummary> moveToDocumentRoot() {
 		return moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
 	}
 
-	@Override
-	public IStructNode getStructuralNode() {
+	private IStructNode getStructuralNode() {
 		if (mCurrentNode instanceof IStructNode) {
 			return (IStructNode) mCurrentNode;
 		} else {
@@ -235,32 +245,32 @@ public class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public boolean moveToAttribute(@Nonnegative int pIndex) {
+	public Move<? extends PathSummary> moveToAttribute(@Nonnegative int pIndex) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean moveToAttributeByName(@Nonnull QName pName) {
+	public Move<? extends PathSummary> moveToAttributeByName(@Nonnull QName pName) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean moveToNamespace(@Nonnegative int pIndex) {
+	public Move<? extends PathSummary> moveToNamespace(@Nonnegative int pIndex) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean moveToNextFollowing() {
+	public Move<? extends PathSummary> moveToNextFollowing() {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public String getValueOfCurrentNode() {
+	public String getValue() {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public QName getQNameOfCurrentNode() {
+	public QName getQName() {
 		assertNotClosed();
 		if (mCurrentNode instanceof INameNode) {
 			final String name = mPageReadTrx.getName(
@@ -275,7 +285,7 @@ public class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public String getTypeOfCurrentNode() {
+	public String getType() {
 		assertNotClosed();
 		return mPageReadTrx.getName(mCurrentNode.getTypeKey(), getNode().getKind());
 	}
@@ -333,7 +343,7 @@ public class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public boolean moveToLastChild() {
+	public Move<? extends PathSummary> moveToLastChild() {
 		assertNotClosed();
 		if (getStructuralNode().hasFirstChild()) {
 			moveToFirstChild();
@@ -342,68 +352,9 @@ public class PathSummary implements INodeReadTrx {
 				moveToRightSibling();
 			}
 
-			return true;
+			return Moved.moved(this);
 		}
-		return false;
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetRightSibling() {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetLeftSibling() {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetParent() {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetFirstChild() {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Optional<IStructNode> moveToAndGetLastChild() {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Optional<IStructNode> getRightSibling() {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Optional<IStructNode> getLeftSibling() {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Optional<IStructNode> getParent() {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Optional<IStructNode> getFirstChild() {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Optional<IStructNode> getLastChild() {
-		return null;
+		return Moved.notMoved();
 	}
 
 	@Override
@@ -424,5 +375,229 @@ public class PathSummary implements INodeReadTrx {
 
 		helper.add("node", mCurrentNode);
 		return helper.toString();
+	}
+
+	/**
+	 * Get level of currently selected path node.
+	 * 
+	 * @return level of currently selected path node
+	 */
+	public int getLevel() {
+		if (mCurrentNode instanceof PathNode) {
+			return getPathNode().getLevel();
+		}
+		return 0;
+	}
+
+	@Override
+	public boolean hasNode(final @Nonnegative long pKey) {
+		final long currNodeKey = mCurrentNode.getNodeKey();
+		final boolean retVal = moveTo(pKey).hasMoved();
+		final boolean movedBack = moveTo(currNodeKey).hasMoved();
+		assert movedBack : "moveTo(currNodeKey) must succeed!";
+		return retVal;
+	}
+
+	@Override
+	public boolean hasParent() {
+		return mCurrentNode.hasParent();
+	}
+
+	@Override
+	public boolean hasFirstChild() {
+		return getStructuralNode().hasFirstChild();
+	}
+
+	@Override
+	public boolean hasLastChild() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public boolean hasLeftSibling() {
+		return getStructuralNode().hasLeftSibling();
+	}
+
+	@Override
+	public boolean hasRightSibling() {
+		return getStructuralNode().hasRightSibling();
+	}
+
+	@Override
+	public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public long getNodeKey() {
+		return mCurrentNode.getNodeKey();
+	}
+
+	@Override
+	public long getLeftSiblingKey() {
+		return getStructuralNode().getLeftSiblingKey();
+	}
+
+	@Override
+	public long getRightSiblingKey() {
+		return getStructuralNode().getRightSiblingKey();
+	}
+
+	@Override
+	public long getFirstChildKey() {
+		return getStructuralNode().getFirstChildKey();
+	}
+
+	@Override
+	public long getLastChildKey() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public long getParentKey() {
+		return mCurrentNode.getParentKey();
+	}
+
+	@Override
+	public int getAttributeCount() {
+		return 0;
+	}
+
+	@Override
+	public int getNamespaceCount() {
+		return 0;
+	}
+
+	@Override
+	public EKind getKind() {
+		return EKind.PATH;
+	}
+
+	@Override
+	public boolean isNameNode() {
+		if (mCurrentNode instanceof INameNode) {
+			return true;
+		}
+		return false;
+	}
+
+	@Override
+	public int getNameKey() {
+		if (mCurrentNode instanceof INameNode) {
+			return ((INameNode) mCurrentNode).getNameKey();
+		}
+		return -1;
+	}
+
+	@Override
+	public int getTypeKey() {
+		return mCurrentNode.getTypeKey();
+	}
+
+	@Override
+	public long getAttributeKey(final @Nonnegative int pIndex) {
+		return -1;
+	}
+
+	@Override
+	public long getPathNodeKey() {
+		return -1;
+	}
+
+	@Override
+	public EKind getPathKind() {
+		if (mCurrentNode instanceof PathNode) {
+			return ((PathNode) mCurrentNode).getPathKind();
+		}
+		return EKind.NULL;
+	}
+
+	@Override
+	public boolean isStructuralNode() {
+		return true;
+	}
+
+	@Override
+	public int getURIKey() {
+		if (mCurrentNode instanceof INameNode) {
+			return ((INameNode) mCurrentNode).getURIKey();
+		}
+		return -1;
+	}
+
+	@Override
+	public long getHash() {
+		return mCurrentNode.getHash();
+	}
+
+	@Override
+	public List<Long> getAttributeKeys() {
+		return Collections.emptyList();
+	}
+
+	@Override
+	public List<Long> getNamespaceKeys() {
+		return Collections.emptyList();
+	}
+
+	@Override
+	public byte[] getRawValue() {
+		return null;
+	}
+
+	@Override
+	public long getChildCount() {
+		return getStructuralNode().getChildCount();
+	}
+
+	@Override
+	public long getDescendantCount() {
+		return getStructuralNode().getDescendantCount();
+	}
+
+	@Override
+	public String getNamespaceURI() {
+		return null;
+	}
+	
+	@Override
+	public EKind getFirstChildKind() {
+		return EKind.PATH;
+	}
+	
+	@Override
+	public EKind getLastChildKind() {
+		return EKind.PATH;
+	}
+	
+	@Override
+	public EKind getLeftSiblingKind() {
+		return EKind.PATH;
+	}
+	
+	@Override
+	public EKind getParentKind() {
+		if (mCurrentNode.getKind() == EKind.DOCUMENT_ROOT) {
+			return EKind.DOCUMENT_ROOT;
+		}
+		return EKind.PATH;
+	}
+	
+	@Override
+	public EKind getRightSiblingKind() {
+		return EKind.PATH;
+	}
+
+	/**
+	 * Get references.
+	 * 
+	 * @return number of references of a node
+	 */
+	public int getReferences() {
+		if (mCurrentNode.getKind() == EKind.DOCUMENT_ROOT) {
+			return 1;
+		} else {
+			return getPathNode().getReferences();
+		}
 	}
 }

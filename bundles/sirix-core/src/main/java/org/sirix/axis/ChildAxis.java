@@ -69,13 +69,12 @@ public final class ChildAxis extends AbsAxis {
       return true;
     }
     resetToLastKey();
-    final IStructNode node = getTransaction().getStructuralNode();
-    if (!mFirst && node.hasRightSibling()) {
-      mKey = node.getRightSiblingKey();
+    if (!mFirst && getTransaction().hasRightSibling()) {
+      mKey = getTransaction().getRightSiblingKey();
       return true;
-    } else if (mFirst && getTransaction().getStructuralNode().hasFirstChild()) {
+    } else if (mFirst && getTransaction().hasFirstChild()) {
       mFirst = false;
-      mKey = node.getFirstChildKey();
+      mKey = getTransaction().getFirstChildKey();
       return true;
     } else {
       resetToStartKey();

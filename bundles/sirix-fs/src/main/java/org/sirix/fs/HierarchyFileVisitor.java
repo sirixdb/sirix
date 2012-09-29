@@ -166,7 +166,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
       processStartTag(new QName("dir"));
       mWtx.insertAttribute(new QName("name"), pDir.getFileName().toString());
       mWtx.moveToParent();
-      final long nodeKey = mWtx.getNode().getNodeKey();
+      final long nodeKey = mWtx.getNodeKey();
       processDirectory(mVisitor, mWtx, pDir, pAttrs);
       mWtx.moveTo(nodeKey);
     } catch (SirixException e) {
@@ -207,7 +207,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
         processEmptyElement(new QName("file"));
         mWtx.insertAttribute(new QName("name"), pFile.getFileName().toString());
         mWtx.moveToParent();
-        final long nodeKey = mWtx.getNode().getNodeKey();
+        final long nodeKey = mWtx.getNodeKey();
         processFile(mVisitor, mWtx, pFile, pAttrs);
         mWtx.moveTo(nodeKey);
       }

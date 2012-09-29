@@ -27,6 +27,8 @@
 
 package org.sirix.axis.filter;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.EKind;
 
@@ -43,15 +45,15 @@ public class TextFilter extends AbsFilter {
    * Default constructor.
    * 
    * @param rtx
-   *          Transaction this filter is bound to.
+   *          transaction this filter is bound to
    */
-  public TextFilter(final INodeReadTrx rtx) {
+  public TextFilter(final @Nonnull INodeReadTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTransaction().getNode().getKind() == EKind.TEXT;
+    return getTransaction().getKind() == EKind.TEXT;
   }
 
 }

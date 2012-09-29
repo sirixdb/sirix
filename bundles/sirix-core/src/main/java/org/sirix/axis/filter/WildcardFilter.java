@@ -31,92 +31,93 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INameNode;
 
 /**
  * <h1>WildcardFilter</h1>
  * <p>
- * Filters ELEMENTS and ATTRIBUTES and supports wildcards either instead of the namespace prefix, or the local
- * name.
+ * Filters ELEMENTS and ATTRIBUTES and supports wildcards either instead of the
+ * namespace prefix, or the local name.
  * </p>
  */
 public class WildcardFilter extends AbsFilter {
 
-  public enum EType {
-    PREFIX,
+	/** Type. */
+	public enum EType {
+		/** Prefix filter. */
+		PREFIX,
 
-    LOCALNAME
-  }
+		/** Local name filter. */
+		LOCALNAME
+	}
 
-  /** Defines, if the defined part of the qualified name is the local name. */
-  private final EType mType;
+	/** Defines, if the defined part of the qualified name is the local name. */
+	private final EType mType;
 
-  /** Name key of the defined name part. */
-  private final int mKnownPartKey;
+	/** Name key of the defined name part. */
+	private final int mKnownPartKey;
 
-  /**
-   * Default constructor.
-   * 
-   * @param pRtx
-   *          transaction to operate on
-   * @param pKnownPart
-   *          part of the qualified name that is specified. This can be
-   *          either the namespace prefix, or the local name
-   * @param pIsName
-   *          defines, if the specified part is the prefix, or the local
-   *          name (true, if it is the local name)
-   */
-  public WildcardFilter(final INodeReadTrx pRtx, final String pKnownPart, final EType pType) {
-    super(pRtx);
-    mType = checkNotNull(pType);
-    mKnownPartKey = getTransaction().keyForName(checkNotNull(pKnownPart));
-  }
+	/**
+	 * Default constructor.
+	 * 
+	 * @param pRtx
+	 *          transaction to operate on
+	 * @param pKnownPart
+	 *          part of the qualified name that is specified. This can be either
+	 *          the namespace prefix, or the local name
+	 * @param pIsName
+	 *          defines, if the specified part is the prefix, or the local name
+	 *          (true, if it is the local name)
+	 */
+	public WildcardFilter(final INodeReadTrx pRtx, final String pKnownPart,
+			final EType pType) {
+		super(pRtx);
+		mType = checkNotNull(pType);
+		mKnownPartKey = getTransaction().keyForName(checkNotNull(pKnownPart));
+	}
 
-  @Override
-  public final boolean filter() {
-    final EKind kind = getTransaction().getNode().getKind();
-    switch (kind) {
-    case ELEMENT:
-      if (mType == EType.LOCALNAME) { // local name is given
-        return localNameMatch();
-      } else { // namespace prefix is given
-        final int prefixKey = mKnownPartKey;
-        for (int i = 0, nsCount = ((ElementNode)getTransaction().getNode()).getNamespaceCount(); i < nsCount; i++) {
-          getTransaction().moveToNamespace(i);
-          if (((INameNode)getTransaction().getNode()).getNameKey() == prefixKey) {
-            getTransaction().moveToParent();
-            return true;
-          }
-          getTransaction().moveToParent();
-        }
-        return false;
-      }
-    case ATTRIBUTE:
-      if (mType == EType.LOCALNAME) { // local name is given
-        return localNameMatch();
-      } else {
-        final String localname =
-          getTransaction().nameForKey(((INameNode)getTransaction().getNode()).getNameKey()).replaceFirst(
-            ":.*", "");
-        final int localnameKey = getTransaction().keyForName(localname);
-        return localnameKey == mKnownPartKey;
-      }
-    default:
-      return false;
-    }
-  }
+	@Override
+	public final boolean filter() {
+		final EKind kind = getTransaction().getKind();
+		switch (kind) {
+		case ELEMENT:
+			if (mType == EType.LOCALNAME) { // local name is given
+				return localNameMatch();
+			} else { // namespace prefix is given
+				final int prefixKey = mKnownPartKey;
+				for (int i = 0, nsCount = getTransaction().getNamespaceCount(); i < nsCount; i++) {
+					getTransaction().moveToNamespace(i);
+					if (getTransaction().getNameKey() == prefixKey) {
+						getTransaction().moveToParent();
+						return true;
+					}
+					getTransaction().moveToParent();
+				}
+				return false;
+			}
+		case ATTRIBUTE:
+			if (mType == EType.LOCALNAME) { // local name is given
+				return localNameMatch();
+			} else {
+				final String localname = getTransaction().nameForKey(
+						getTransaction().getNameKey()).replaceFirst(":.*", "");
+				final int localnameKey = getTransaction().keyForName(localname);
+				return localnameKey == mKnownPartKey;
+			}
+		default:
+			return false;
+		}
+	}
 
-  /**
-   * Determines if local names match.
-   * 
-   * @return {@code true}, if they match, {@code false} otherwise
-   */
-  private boolean localNameMatch() {
-    final String localname =
-      getTransaction().nameForKey(((INameNode)getTransaction().getNode()).getNameKey()).replaceFirst(".*:",
-        "");
-    final int localnameKey = getTransaction().keyForName(localname);
-    return localnameKey == mKnownPartKey;
-  }
+	/**
+	 * Determines if local names match.
+	 * 
+	 * @return {@code true}, if they match, {@code false} otherwise
+	 */
+	private boolean localNameMatch() {
+		final String localname = getTransaction().nameForKey(
+				getTransaction().getNameKey()).replaceFirst(".*:", "");
+		final int localnameKey = getTransaction().keyForName(localname);
+		return localnameKey == mKnownPartKey;
+	}
 }

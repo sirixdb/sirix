@@ -31,6 +31,7 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,7 +39,6 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.node.interfaces.INode;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.expr.LiteralExpr;
@@ -76,7 +76,7 @@ public class IDivOpAxisTest {
     // note: although getRawValue() returns [1], parseString returns ""
     // assertEquals(1,
     // Integer.parseInt(TypedValue.parseString(holder.getRtx().getRawValue())));
-    assertEquals(holder.getRtx().keyForName("xs:integer"), holder.getRtx().getNode().getTypeKey());
+    assertEquals(holder.getRtx().keyForName("xs:integer"), holder.getRtx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
   }

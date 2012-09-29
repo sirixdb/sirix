@@ -120,7 +120,7 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 		if (mFirst) {
 			return EVisitResult.TERMINATE;
 		}
-		return mRtx.getNode().acceptVisitor(this);
+		return mRtx.acceptVisitor(this);
 	}
 
 	@Override
@@ -129,7 +129,7 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 		try {
 			mInsert.insertNode(mWtx, mRtx);
 
-			if (!mFirst && mRtx.getStructuralNode().hasRightSibling()) {
+			if (!mFirst && mRtx.hasRightSibling()) {
 				mRtx.moveToRightSibling();
 				mInsert = EInsertPos.ASRIGHTSIBLING;
 			} else if (!mFirst) {
@@ -143,13 +143,13 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 		if (mFirst) {
 			return EVisitResult.TERMINATE;
 		}
-		return mRtx.getNode().acceptVisitor(this);
+		return mRtx.acceptVisitor(this);
 	}
 
 	/** Insert next node in document order/preorder. */
 	private boolean moveToNextNode() {
 		boolean retVal = false;
-		while (!mRtx.getStructuralNode().hasRightSibling() && mDepth > 0) {
+		while (!mRtx.hasRightSibling() && mDepth > 0) {
 			mRtx.moveToParent();
 			mWtx.moveToParent();
 			mDepth--;
@@ -157,7 +157,7 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 
 		if (mDepth > 0) {
 			mInsert = EInsertPos.ASRIGHTSIBLING;
-			if (mRtx.getStructuralNode().hasRightSibling()) {
+			if (mRtx.hasRightSibling()) {
 				mRtx.moveToRightSibling();
 				retVal = true;
 			}

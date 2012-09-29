@@ -87,23 +87,23 @@ public class FNBoolean extends AbsFunction {
 
       final INodeReadTrx rtx = axis.getTransaction();
 
-      if (rtx.getNode().getNodeKey() >= 0) { // first item is a real node
+      if (rtx.getNodeKey() >= 0) { // first item is a real node
                                              // ->
         // true
         value = true;
       } else {
 
-        final Type type = Type.getType(rtx.getNode().getTypeKey());
+        final Type type = Type.getType(rtx.getTypeKey());
 
         if (type.derivesFrom(Type.BOOLEAN)) {
-          value = Boolean.parseBoolean(rtx.getValueOfCurrentNode());
+          value = Boolean.parseBoolean(rtx.getValue());
           // value = TypedValue.parseBoolean(rtx.getRawValue());
         } else if (type.derivesFrom(Type.STRING) || type.derivesFrom(Type.ANY_URI)
           || type.derivesFrom(Type.UNTYPED_ATOMIC)) {
           // if length = 0 -> false
-          value = (rtx.getValueOfCurrentNode().length() > 0);
+          value = (rtx.getValue().length() > 0);
         } else if (type.isNumericType()) {
-          final double dValue = Double.parseDouble(rtx.getValueOfCurrentNode());
+          final double dValue = Double.parseDouble(rtx.getValue());
           value = !(Double.isNaN(dValue) || dValue == 0.0d);
         } else {
           // for all other types throw error FORG0006

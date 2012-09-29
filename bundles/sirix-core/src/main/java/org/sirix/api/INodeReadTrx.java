@@ -27,10 +27,13 @@
 
 package org.sirix.api;
 
+import java.util.List;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
+import org.sirix.access.Move;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
@@ -43,9 +46,10 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * 
  * <p>
  * Interface to access nodes based on the
- * Key/ParentKey/FirstChildKey/LeftSiblingKey/RightSiblingKey/ChildCount/DescendantCount encoding. This
- * encoding keeps the children ordered but has no knowledge of the global node ordering. The underlying tree
- * is accessed in a cursor-like fashion.
+ * Key/ParentKey/FirstChildKey/LeftSiblingKey
+ * /RightSiblingKey/ChildCount/DescendantCount encoding. This encoding keeps the
+ * children ordered but has no knowledge of the global node ordering. The
+ * underlying tree is accessed in a cursor-like fashion.
  * </p>
  * 
  * <h2>Convention</h2>
@@ -55,7 +59,8 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <li>Only a single thread accesses each IReadTransaction instance.</li>
  * <li><strong>Precondition</strong> before moving cursor:
  * <code>IReadTransaction.getItem().getKey() == n</code>.</li>
- * <li><strong>Postcondition</strong> after moving cursor: <code>(IReadTransaction.moveX() == true &&
+ * <li><strong>Postcondition</strong> after moving cursor:
+ * <code>(IReadTransaction.moveX() == true &&
  *       IReadTransaction.getItem().getKey() == m) ||
  *       (IReadTransaction.moveX() == false &&
  *       IReadTransaction.getItem().getKey() == n)</code>.</li>
@@ -113,192 +118,399 @@ import org.sirix.service.xml.xpath.AtomicValue;
  */
 public interface INodeReadTrx extends INodeCursor {
 
-  /** String constants used by XPath. */
-  String[] XPATHCONSTANTS = {
-    "xs:anyType", "xs:anySimpleType", "xs:anyAtomicType", "xs:untypedAtomic",
-    "xs:untyped", "xs:string", "xs:duration", "xs:yearMonthDuration",
-    "xs:dayTimeDuration", "xs:dateTime", "xs:time", "xs:date", "xs:gYearMonth",
-    "xs:gYear", "xs:gMonthDay", "xs:gDay", "xs:gMonth", "xs:boolean",
-    "xs:base64Binary", "xs:hexBinary", "xs:anyURI", "xs:QName", "xs:NOTATION",
-    "xs:float", "xs:double", "xs:pDecimal", "xs:decimal", "xs:integer",
-    "xs:long", "xs:int", "xs:short", "xs:byte", "xs:nonPositiveInteger",
-    "xs:negativeInteger", "xs:nonNegativeInteger", "xs:positiveInteger",
-    "xs:unsignedLong", "xs:unsignedInt", "xs:unsignedShort", "xs:unsignedByte",
-    "xs:normalizedString", "xs:token", "xs:language", "xs:name", "xs:NCName",
-    "xs:ID", "xs:IDREF", "xs:ENTITY", "xs:IDREFS", "xs:NMTOKEN", "xs:NMTOKENS",
-  };
+	/** String constants used by XPath. */
+	String[] XPATHCONSTANTS = { "xs:anyType", "xs:anySimpleType",
+			"xs:anyAtomicType", "xs:untypedAtomic", "xs:untyped", "xs:string",
+			"xs:duration", "xs:yearMonthDuration", "xs:dayTimeDuration",
+			"xs:dateTime", "xs:time", "xs:date", "xs:gYearMonth", "xs:gYear",
+			"xs:gMonthDay", "xs:gDay", "xs:gMonth", "xs:boolean", "xs:base64Binary",
+			"xs:hexBinary", "xs:anyURI", "xs:QName", "xs:NOTATION", "xs:float",
+			"xs:double", "xs:pDecimal", "xs:decimal", "xs:integer", "xs:long",
+			"xs:int", "xs:short", "xs:byte", "xs:nonPositiveInteger",
+			"xs:negativeInteger", "xs:nonNegativeInteger", "xs:positiveInteger",
+			"xs:unsignedLong", "xs:unsignedInt", "xs:unsignedShort",
+			"xs:unsignedByte", "xs:normalizedString", "xs:token", "xs:language",
+			"xs:name", "xs:NCName", "xs:ID", "xs:IDREF", "xs:ENTITY", "xs:IDREFS",
+			"xs:NMTOKEN", "xs:NMTOKENS", };
 
-  /**
-   * Get ID of transaction.
-   * 
-   * @return ID of transaction
-   */
-  long getTransactionID();
+	/**
+	 * Get ID of transaction.
+	 * 
+	 * @return ID of transaction
+	 */
+	long getTransactionID();
 
-  /**
-   * Get the revision number of this transaction.
-   * 
-   * @return immutable revision number of this IReadTransaction
-   * @throws SirixIOException
-   *           if can't get revision number
-   */
-  int getRevisionNumber() throws SirixIOException;
+	/**
+	 * Get the revision number of this transaction.
+	 * 
+	 * @return immutable revision number of this IReadTransaction
+	 * @throws SirixIOException
+	 *           if can't get revision number
+	 */
+	int getRevisionNumber() throws SirixIOException;
 
-  /**
-   * UNIX-style timestamp of the commit of the revision.
-   * 
-   * @throws SirixIOException
-   *           if can't get timestamp
-   * @return timestamp of revision commit
-   */
-  long getRevisionTimestamp() throws SirixIOException;
+	/**
+	 * UNIX-style timestamp of the commit of the revision.
+	 * 
+	 * @throws SirixIOException
+	 *           if can't get timestamp
+	 * @return timestamp of revision commit
+	 */
+	long getRevisionTimestamp() throws SirixIOException;
 
-  /**
-   * Getting the maximum nodekey available in this revision.
-   * 
-   * @return the maximum nodekey
-   * @throws SirixIOException
-   *           if can't get maxNodKey
-   */
-  long getMaxNodeKey() throws SirixIOException;
+	/**
+	 * Getting the maximum nodekey available in this revision.
+	 * 
+	 * @return the maximum nodekey
+	 * @throws SirixIOException
+	 *           if can't get maxNodKey
+	 */
+	long getMaxNodeKey() throws SirixIOException;
 
-  // --- Node Selectors
-  // --------------------------------------------------------
+	// --- Node Selectors
+	// --------------------------------------------------------
 
-  /**
-   * Move cursor to attribute by its index.
-   * 
-   * @param pIndex
-   *          index of attribute to move to
-   * @return {@code true} if the attribute node is selected, {@code false} otherwise
-   */
-  boolean moveToAttribute(@Nonnegative int pIndex);
+	/**
+	 * Move cursor to attribute by its index.
+	 * 
+	 * @param pIndex
+	 *          index of attribute to move to
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeReadTrx> moveToAttribute(@Nonnegative int pIndex);
 
-  /**
-   * Move cursor to attribute by its name key.
-   * 
-   * @param pNameKey
-   *          name key of attribute to move to
-   * @return {@code true} if the attribute node is selected, {@code false} otherwise
-   */
-  boolean moveToAttributeByName(@Nonnull QName pName);
+	/**
+	 * Move cursor to attribute by its name key.
+	 * 
+	 * @param pNameKey
+	 *          name key of attribute to move to
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeReadTrx> moveToAttributeByName(@Nonnull QName pName);
 
-  /**
-   * Move cursor to namespace declaration by its index.
-   * 
-   * @param pIndex
-   *          index of attribute to move to
-   * @return {@code true} if the namespace node is selected, {@code false} otherwise
-   */
-  boolean moveToNamespace(@Nonnegative int pIndex);
+	/**
+	 * Move cursor to namespace declaration by its index.
+	 * 
+	 * @param pIndex
+	 *          index of attribute to move to
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeReadTrx> moveToNamespace(@Nonnegative int pIndex);
 
-  /**
-   * Move to the next following node, that is the next node on the following axis.
-   * 
-   * @return {@code true} if the transaction moved, {@code false} otherwise
-   */
-  boolean moveToNextFollowing();
+	/**
+	 * Move to the next following node, that is the next node on the XPath
+	 * {@code following::-axis}, that is the next node which is not a descendant
+	 * of the current node.
+	 * 
+	 * @return {@link Moved} instance if the attribute node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends INodeReadTrx> moveToNextFollowing();
 
-  // --- Node Getters
-  // ----------------------------------------------------------
+	// --- Node Getters
+	// ----------------------------------------------------------
 
-  /**
-   * Getting the value of the current node.
-   * 
-   * @return the current value of the node
-   */
-  String getValueOfCurrentNode();
+	/**
+	 * Getting the value of the current node.
+	 * 
+	 * @return the current value of the node
+	 */
+	String getValue();
 
-  /**
-   * Getting the name of a current node.
-   * 
-   * @return the {@link QName} of the node
-   */
-  QName getQNameOfCurrentNode();
+	/**
+	 * Getting the name of a current node.
+	 * 
+	 * @return the {@link QName} of the node
+	 */
+	QName getQName();
 
-  /**
-   * Getting the type of the current node.
-   * 
-   * @return the normal type of the node
-   */
-  String getTypeOfCurrentNode();
+	/**
+	 * Getting the type of the current node.
+	 * 
+	 * @return the normal type of the node
+	 */
+	String getType();
 
-  /**
-   * Get key for given name. This is used for efficient name testing.
-   * 
-   * @param pName
-   *          name, i.e., local part, URI, or prefix
-   * @return internal key assigned to given name
-   */
-  int keyForName(@Nonnull String pName);
+	/**
+	 * Get key for given name. This is used for efficient name testing.
+	 * 
+	 * @param pName
+	 *          name, i.e., local part, URI, or prefix
+	 * @return internal key assigned to given name
+	 */
+	int keyForName(@Nonnull String pName);
 
-  /**
-   * Get name for key. This is used for efficient key testing.
-   * 
-   * @param pKey
-   *          key, i.e., local part key, URI key, or prefix key.
-   * @return String containing name for given key
-   */
-  String nameForKey(int pKey);
+	/**
+	 * Get name for key. This is used for efficient key testing.
+	 * 
+	 * @param pKey
+	 *          key, i.e., local part key, URI key, or prefix key.
+	 * @return String containing name for given key
+	 */
+	String nameForKey(int pKey);
 
-  /**
-   * Get raw name for key. This is used for efficient key testing.
-   * 
-   * @param pKey
-   *          key, i.e., local part key, URI key, or prefix key.
-   * @return byte array containing name for given key
-   */
-  byte[] rawNameForKey(int pKey);
+	/**
+	 * Get raw name for key. This is used for efficient key testing.
+	 * 
+	 * @param pKey
+	 *          key, i.e., local part key, URI key, or prefix key.
+	 * @return byte array containing name for given key
+	 */
+	byte[] rawNameForKey(int pKey);
 
-  /**
-   * Get item list containing volatile items such as atoms or fragments.
-   * 
-   * @return item list
-   */
-  IItemList<AtomicValue> getItemList();
+	/**
+	 * Get item list containing volatile items such as atoms or fragments.
+	 * 
+	 * @return item list
+	 */
+	IItemList<AtomicValue> getItemList();
 
-  /**
-   * Close shared read transaction and immediately release all resources.
-   * 
-   * This is an idempotent operation and does nothing if the transaction is
-   * already closed.
-   * 
-   * @throws SirixException
-   *           if can't close {@link INodeReadTrx}
-   */
-  @Override
-  void close() throws SirixException;
+	/**
+	 * Close shared read transaction and immediately release all resources.
+	 * 
+	 * This is an idempotent operation and does nothing if the transaction is
+	 * already closed.
+	 * 
+	 * @throws SirixException
+	 *           if can't close {@link INodeReadTrx}
+	 */
+	@Override
+	void close() throws SirixException;
 
-  /**
-   * Is this transaction closed?
-   * 
-   * @return {@code true} if closed, {@code false} otherwise
-   */
-  boolean isClosed();
+	/**
+	 * Is this transaction closed?
+	 * 
+	 * @return {@code true} if closed, {@code false} otherwise
+	 */
+	boolean isClosed();
 
-  /**
-   * Get the {@link ISession} this instance is bound to.
-   * 
-   * @return session instance
-   */
-  ISession getSession();
+	/**
+	 * Get the node key of the currently selected node.
+	 * 
+	 * @return node key of the currently selected node
+	 */
+	long getNodeKey();
 
-  /**
-   * Clone an instance, that is just create a new instance and move the new {@link INodeReadTrx} to the
-   * current node.
-   * 
-   * @return new instance
-   * @throws SirixException
-   *           if Sirix fails
-   */
-  INodeReadTrx cloneInstance() throws SirixException;
+	/**
+	 * Get the left sibling node key of the currently selected node.
+	 * 
+	 * @return left sibling node key of the currently selected node
+	 */
+	long getLeftSiblingKey();
 
-  /**
-   * Get the number of nodes which reference to the name.
-   * 
-   * @param pName
-   *            name to lookup
-   * @return number of nodes with the same name and node kind
-   */
-  int getNameCount(@Nonnull String pName, @Nonnull EKind pKind);
+	/**
+	 * Get the right sibling node key of the currently selected node.
+	 * 
+	 * @return right sibling node key of the currently selected node
+	 */
+	long getRightSiblingKey();
+
+	/**
+	 * Get the first child key of the currently selected node.
+	 * 
+	 * @return first child key of the currently selected node
+	 */
+	long getFirstChildKey();
+
+	/**
+	 * Get the last child key of the currently selected node.
+	 * 
+	 * @return last child key of the currently selected node
+	 */
+	long getLastChildKey();
+
+	/**
+	 * Get the parent key of the currently selected node.
+	 * 
+	 * @return parent key of the currently selected node
+	 */
+	long getParentKey();
+
+	/**
+	 * Get the number of attributes the currently selected node has.
+	 * 
+	 * @return number of attributes of the currently selected node
+	 */
+	int getAttributeCount();
+
+	/**
+	 * Get the number of namespaces the currently selected node has.
+	 * 
+	 * @return number of namespaces of the currently selected node
+	 */
+	int getNamespaceCount();
+
+	/**
+	 * Get the kind of node.
+	 * 
+	 * @return kind of node
+	 */
+	EKind getKind();
+
+	/**
+	 * Determines if the current node is a node with a name (element-, attribute-,
+	 * namespace- and processing instruction).
+	 * 
+	 * @return {@code true}, if it is, {@code false} otherwise
+	 */
+	boolean isNameNode();
+
+	/**
+	 * Name key of currently selected node.
+	 * 
+	 * @return name key of currently selected node, or 0 if it is not a node with
+	 *         a name
+	 */
+	int getNameKey();
+
+	/**
+	 * Get the {@link ISession} this instance is bound to.
+	 * 
+	 * @return session instance
+	 */
+	ISession getSession();
+
+	/**
+	 * Clone an instance, that is just create a new instance and move the new
+	 * {@link INodeReadTrx} to the current node.
+	 * 
+	 * @return new instance
+	 * @throws SirixException
+	 *           if Sirix fails
+	 */
+	INodeReadTrx cloneInstance() throws SirixException;
+
+	/**
+	 * Get the number of nodes which reference to the name.
+	 * 
+	 * @param pName
+	 *          name to lookup
+	 * @return number of nodes with the same name and node kind
+	 */
+	int getNameCount(@Nonnull String pName, @Nonnull EKind pKind);
+
+	/**
+	 * Get the type key of the node.
+	 * 
+	 * @return type key
+	 */
+	int getTypeKey();
+
+	/**
+	 * Get the attribute key of the index (for element nodes).
+	 * 
+	 * @return attribute key for index or {@code -1} if no attribute with the
+	 *         given index is available
+	 */
+	long getAttributeKey(@Nonnegative int pIndex);
+
+	/**
+	 * Get the path node key of the currently selected node. Make sure to check if
+	 * the node has a name through calling {@link #isNameNode()} at first.
+	 * 
+	 * @return the path node key if the currently selected node is a name node,
+	 *         {@code -1} else
+	 */
+	long getPathNodeKey();
+
+	/**
+	 * Get the type of path. Make sure to check if the node has a name through
+	 * calling {@link #isNameNode()} at first.
+	 * 
+	 * @return the path kind of the currently selected node or {@code null} if the
+	 *         node isn't a node with a name
+	 */
+	EKind getPathKind();
+
+	/**
+	 * Determines if current node is a structural node (element-, text-, comment-
+	 * and processing instruction)
+	 * 
+	 * @return {@code true} if it is a structural node, {@code false} otherwise
+	 */
+	boolean isStructuralNode();
+
+	/**
+	 * Get the URI-key of a node.
+	 * 
+	 * @return URI-key of the currently selected node, or {@code -1} if it is not
+	 *         a node with a name (element, attribute, namespace, processing
+	 *         instruction)
+	 */
+	int getURIKey();
+
+	/**
+	 * Get the hash of the currently selected node.
+	 * 
+	 * @return hash value
+	 */
+	long getHash();
+
+	/**
+	 * Get all attributes of currently selected node (only for elements useful,
+	 * otherwise returns an empty list).
+	 * 
+	 * @return all attribute keys
+	 */
+	List<Long> getAttributeKeys();
+
+	/**
+	 * Get all namespaces of currently selected node (only for elements useful,
+	 * otherwise returns an empty list).
+	 * 
+	 * @return all namespace keys
+	 */
+	List<Long> getNamespaceKeys();
+
+	/**
+	 * Get raw value byte-array of currently selected node
+	 * 
+	 * @return value of node
+	 */
+	byte[] getRawValue();
+
+	/**
+	 * Number of children of current node.
+	 * 
+	 * @return number of children of current node
+	 */
+	long getChildCount();
+
+	/**
+	 * Number of descendants of current node.
+	 * 
+	 * @return number of descendants of current node
+	 */
+	long getDescendantCount();
+
+	/**
+	 * Get the namespace URI of the current node.
+	 * 
+	 * @return namespace URI
+	 */
+	String getNamespaceURI();
+	
+	@Override
+	public Move<? extends INodeReadTrx> moveTo(long pKey);
+	
+	@Override
+	public Move<? extends INodeReadTrx> moveToDocumentRoot();
+	
+	@Override
+	public Move<? extends INodeReadTrx> moveToFirstChild();
+	
+	@Override
+	public Move<? extends INodeReadTrx> moveToLastChild();
+	
+	@Override
+	public Move<? extends INodeReadTrx> moveToLeftSibling();
+	
+	@Override
+	public Move<? extends INodeReadTrx> moveToParent();
+	
+	@Override
+	public Move<? extends INodeReadTrx> moveToRightSibling();
 }

@@ -30,7 +30,6 @@ package org.sirix.diff;
 import javax.annotation.Nonnull;
 
 import org.sirix.diff.DiffFactory.EDiff;
-import org.sirix.node.interfaces.IStructNode;
 
 /**
  * Interface for observers, which are listening for diffs.
@@ -45,13 +44,13 @@ public interface IDiffObserver {
    * @param pDiff
    *          the {@link EDiff} type
    * @param pNewNode
-   *          {@link IStructuralItem} in new revision
+   *          node key of node in new revision
    * @param pOldNode
-   *          {@link IStructuralItem} in old revision
+   *          node key of node in old revision
    * @param pDepth
    *          current {@link DiffDepth} instance
    */
-  void diffListener(@Nonnull final EDiff pDiff, @Nonnull final IStructNode pNewNode, @Nonnull final IStructNode pOldNode,
+  void diffListener(@Nonnull final EDiff pDiff, @Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
     @Nonnull final DiffDepth pDepth);
 
   /** Signals that the diff calculation is done. */

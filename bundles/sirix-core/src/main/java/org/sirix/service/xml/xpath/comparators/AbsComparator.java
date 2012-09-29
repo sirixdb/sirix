@@ -98,12 +98,12 @@ public abstract class AbsComparator extends AbsAxis {
 
       // TODO: why?
       if (!(mOperand1 instanceof LiteralExpr)) {
-        mOperand1.reset(getTransaction().getNode().getNodeKey());
+        mOperand1.reset(getTransaction().getNodeKey());
       }
 
       // TODO: why?
       if (!(mOperand2 instanceof LiteralExpr)) {
-        mOperand2.reset(getTransaction().getNode().getNodeKey());
+        mOperand2.reset(getTransaction().getNodeKey());
       }
 
       /*

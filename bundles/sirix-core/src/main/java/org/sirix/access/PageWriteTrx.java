@@ -202,11 +202,10 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 	}
 
 	@Override
-	public void finishNodeModification(final @Nonnull INodeBase pNode,
+	public void finishNodeModification(final @Nonnull long pNodeKey,
 			final @Nonnull EPage pPage) {
-		final long nodePageKey = mPageRtx.nodePageKey(pNode.getNodeKey());
+		final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
 		if (mNodePageCon == null
-				|| pNode == null
 				|| (mNodeLog.get(nodePageKey).equals(PageContainer.EMPTY_INSTANCE)
 						&& mPathLog.get(nodePageKey).equals(PageContainer.EMPTY_INSTANCE) && mValueLog
 						.get(nodePageKey).equals(PageContainer.EMPTY_INSTANCE))) {
@@ -257,20 +256,27 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 		prepareNodePage(nodePageKey, pPage);
 		final NodePage page = mNodePageCon.getModified();
 		page.setNode(pNode);
-		finishNodeModification(pNode, pPage);
+		finishNodeModification(pNode.getNodeKey(), pPage);
 		return pNode;
 	}
 
 	@Override
-	public void removeNode(@Nonnull final INode pNode, @Nonnull final EPage pPage)
+	public void removeNode(@Nonnull final long pNodeKey, @Nonnull final EPage pPage)
 			throws SirixIOException {
-		final long nodePageKey = mPageRtx.nodePageKey(pNode.getNodeKey());
+		final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
 		prepareNodePage(nodePageKey, pPage);
-		final INode delNode = new DeletedNode(new NodeDelegate(pNode.getNodeKey(),
-				pNode.getParentKey(), pNode.getHash(), pNode.getRevision()));
-		mNodePageCon.getModified().setNode(delNode);
-		mNodePageCon.getComplete().setNode(delNode);
-		finishNodeModification(pNode, pPage);
+		final Optional<INodeBase> node = getNode(pNodeKey, pPage);
+		if (node.isPresent()) {
+			final INodeBase nodeToDel = node.get();
+			final INode delNode = new DeletedNode(new NodeDelegate(nodeToDel.getNodeKey(),
+					-1, -1, -1));
+			mNodePageCon.getModified().setNode(delNode);
+			mNodePageCon.getComplete().setNode(delNode);
+			finishNodeModification(pNodeKey, pPage);
+		} else {
+			throw new IllegalStateException("Node not found!");
+		}
+		
 	}
 
 	@Override
