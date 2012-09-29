@@ -826,4 +826,39 @@ final class NodeReadTrx implements INodeReadTrx {
 		moveTo(nodeKey);
 		return parentKind;
 	}
+
+	@Override
+	public boolean isElement() {
+		return mCurrentNode.getKind() == EKind.ELEMENT;
+	}
+
+	@Override
+	public boolean isText() {
+		return mCurrentNode.getKind() == EKind.TEXT;
+	}
+
+	@Override
+	public boolean isDocumentRoot() {
+		return mCurrentNode.getKind() == EKind.DOCUMENT_ROOT;
+	}
+
+	@Override
+	public boolean isComment() {
+		return mCurrentNode.getKind() == EKind.COMMENT;
+	}
+
+	@Override
+	public boolean isAttribute() {
+		return mCurrentNode.getKind() == EKind.ATTRIBUTE;
+	}
+
+	@Override
+	public boolean isNamespace() {
+		return mCurrentNode.getKind() == EKind.NAMESPACE;
+	}
+
+	@Override
+	public boolean isPI() {
+		return mCurrentNode.getKind() == EKind.PROCESSING;
+	}
 }

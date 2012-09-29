@@ -353,4 +353,39 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	public EKind getParentKind() {
 		return delegate().getParentKind();
 	}
+	
+	@Override
+	public boolean isAttribute() {
+		return delegate().isAttribute();
+	}
+	
+	@Override
+	public boolean isComment() {
+		return delegate().isComment();
+	}
+	
+	@Override
+	public boolean isDocumentRoot() {
+		return delegate().isDocumentRoot();
+	}
+	
+	@Override
+	public boolean isElement() {
+		return delegate().isElement();
+	}
+	
+	@Override
+	public boolean isNamespace() {
+		return delegate().isNamespace();
+	}
+	
+	@Override
+	public boolean isPI() {
+		return delegate().isPI();
+	}
+	
+	@Override
+	public boolean isText() {
+		return delegate().isText();
+	}
 }

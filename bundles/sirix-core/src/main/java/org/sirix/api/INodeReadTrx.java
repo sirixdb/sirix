@@ -492,25 +492,76 @@ public interface INodeReadTrx extends INodeCursor {
 	 * @return namespace URI
 	 */
 	String getNamespaceURI();
-	
+
 	@Override
 	public Move<? extends INodeReadTrx> moveTo(long pKey);
-	
+
 	@Override
 	public Move<? extends INodeReadTrx> moveToDocumentRoot();
-	
+
 	@Override
 	public Move<? extends INodeReadTrx> moveToFirstChild();
-	
+
 	@Override
 	public Move<? extends INodeReadTrx> moveToLastChild();
-	
+
 	@Override
 	public Move<? extends INodeReadTrx> moveToLeftSibling();
-	
+
 	@Override
 	public Move<? extends INodeReadTrx> moveToParent();
-	
+
 	@Override
 	public Move<? extends INodeReadTrx> moveToRightSibling();
+
+	/**
+	 * Determines if current node is an {@link ElementNode}.
+	 * 
+	 * @return {@code true}, if it is an element node, {@code false} otherwise
+	 */
+	public boolean isElement();
+
+	/**
+	 * Determines if current node is a {@link TextNode}.
+	 * 
+	 * @return {@code true}, if it is an text node, {@code false} otherwise
+	 */
+	public boolean isText();
+
+	/**
+	 * Determines if current node is the {@link DocumentRootNode}.
+	 * 
+	 * @return {@code true}, if it is the document root node, {@code false}
+	 *         otherwise
+	 */
+	public boolean isDocumentRoot();
+
+	/**
+	 * Determines if current node is a {@link CommentNode}.
+	 * 
+	 * @return {@code true}, if it is a comment node, {@code false} otherwise
+	 */
+	public boolean isComment();
+
+	/**
+	 * Determines if current node is an {@link AttributeNode}.
+	 * 
+	 * @return {@code true}, if it is an attribute node, {@code false} otherwise
+	 */
+	public boolean isAttribute();
+
+	/**
+	 * Determines if current node is a {@link NamespaceNode}.
+	 * 
+	 * @return {@code true}, if it is a namespace node, {@code false} otherwise
+	 */
+	public boolean isNamespace();
+
+	/**
+	 * Determines if current node is a {@link PINode}.
+	 * 
+	 * @return {@code true}, if it is a processing instruction node, {@code false}
+	 *         otherwise
+	 */
+	public boolean isPI();
 }

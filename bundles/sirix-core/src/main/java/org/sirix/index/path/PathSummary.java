@@ -600,4 +600,39 @@ public final class PathSummary implements INodeReadTrx {
 			return getPathNode().getReferences();
 		}
 	}
+
+	@Override
+	public boolean isElement() {
+		return false;
+	}
+
+	@Override
+	public boolean isText() {
+		return false;
+	}
+
+	@Override
+	public boolean isDocumentRoot() {
+		return false;
+	}
+
+	@Override
+	public boolean isComment() {
+		return false;
+	}
+
+	@Override
+	public boolean isAttribute() {
+		return false;
+	}
+
+	@Override
+	public boolean isNamespace() {
+		return false;
+	}
+
+	@Override
+	public boolean isPI() {
+		return false;
+	}
 }
