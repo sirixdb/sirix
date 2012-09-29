@@ -59,7 +59,6 @@ import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
-import org.yaml.snakeyaml.serializer.Serializer;
 
 /**
  * <h1>XMLSerializer</h1>
@@ -154,8 +153,7 @@ public final class XMLSerializer extends AbsSerializer {
 				// Emit namespace declarations.
 				for (int index = 0, length = pRtx.getNamespaceCount(); index < length; index++) {
 					pRtx.moveToNamespace(index);
-					if (pRtx.nameForKey(pRtx.getNameKey())
-							.isEmpty()) {
+					if (pRtx.nameForKey(pRtx.getNameKey()).isEmpty()) {
 						mOut.write(ECharsForSerializing.XMLNS.getBytes());
 						write(pRtx.nameForKey(pRtx.getURIKey()));
 						mOut.write(ECharsForSerializing.QUOTE.getBytes());
@@ -188,8 +186,8 @@ public final class XMLSerializer extends AbsSerializer {
 					mOut.write(ECharsForSerializing.SPACE.getBytes());
 					mOut.write(pRtx.rawNameForKey(pRtx.getNameKey()));
 					mOut.write(ECharsForSerializing.EQUAL_QUOTE.getBytes());
-					mOut.write(XMLToken.escapeAttribute(pRtx.getValue())
-							.getBytes(IConstants.DEFAULT_ENCODING));// pRtx.getItem().getRawValue());
+					mOut.write(XMLToken.escapeAttribute(pRtx.getValue()).getBytes(
+							IConstants.DEFAULT_ENCODING));// pRtx.getItem().getRawValue());
 					mOut.write(ECharsForSerializing.QUOTE.getBytes());
 					pRtx.moveTo(key);
 				}
@@ -204,8 +202,8 @@ public final class XMLSerializer extends AbsSerializer {
 				break;
 			case TEXT:
 				indent();
-				mOut.write(XMLToken.escapeContent(pRtx.getValue())
-						.getBytes(IConstants.DEFAULT_ENCODING));
+				mOut.write(XMLToken.escapeContent(pRtx.getValue()).getBytes(
+						IConstants.DEFAULT_ENCODING));
 				if (mIndent) {
 					mOut.write(ECharsForSerializing.NEWLINE.getBytes());
 				}
