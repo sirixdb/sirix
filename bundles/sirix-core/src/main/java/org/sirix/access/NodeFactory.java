@@ -122,8 +122,8 @@ public class NodeFactory implements INodeFactory {
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
 				EFixed.NULL_NODE_KEY.getStandardProperty(), pRightSibKey, pLeftSibKey,
 				0, 0);
-		return (TextNode) mPageWriteTrx.createNode(new TextNode(valDel,
-				structDel), EPage.NODEPAGE);
+		return (TextNode) mPageWriteTrx.createNode(new TextNode(valDel, structDel),
+				EPage.NODEPAGE);
 	}
 
 	@Override
@@ -198,12 +198,12 @@ public class NodeFactory implements INodeFactory {
 	@Override
 	public PINode createPINode(@Nonnegative long pParentKey,
 			@Nonnegative long pLeftSibKey, @Nonnegative long pRightSibKey,
-			@Nonnull QName pName, @Nonnull byte[] pValue, boolean pIsCompressed,
+			@Nonnull QName pTarget, @Nonnull byte[] pContent, boolean pIsCompressed,
 			@Nonnegative long pPathNodeKey) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
-		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(pName),
-				EKind.ATTRIBUTE);
-		final int uriKey = mPageWriteTrx.createNameKey(pName.getNamespaceURI(),
+		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(pTarget),
+				EKind.PROCESSING);
+		final int uriKey = mPageWriteTrx.createNameKey(pTarget.getNamespaceURI(),
 				EKind.NAMESPACE);
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, pParentKey, 0,
@@ -213,7 +213,7 @@ public class NodeFactory implements INodeFactory {
 				0, 0);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
 				uriKey, pPathNodeKey);
-		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, pValue, false);
+		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, pContent, false);
 
 		return (PINode) mPageWriteTrx.createNode(new PINode(structDel, nameDel,
 				valDel), EPage.NODEPAGE);
@@ -221,7 +221,8 @@ public class NodeFactory implements INodeFactory {
 
 	@Override
 	public CommentNode createCommentNode() throws SirixIOException {
-		return createCommentNode(0l, 0l, 0l, "".getBytes(IConstants.DEFAULT_ENCODING), false);
+		return createCommentNode(0l, 0l, 0l,
+				"".getBytes(IConstants.DEFAULT_ENCODING), false);
 	}
 
 	@Override

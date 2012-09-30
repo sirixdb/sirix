@@ -46,7 +46,9 @@ import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.events.Attribute;
+import javax.xml.stream.events.Comment;
 import javax.xml.stream.events.Namespace;
+import javax.xml.stream.events.ProcessingInstruction;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
@@ -87,13 +89,69 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 	/** {@link XMLEventReader}. */
 	protected final XMLEventReader mReader;
 
-	/** Append as first child or not. */
-	protected final EInsert mFirstChildAppend;
-
 	/** Determines if changes are going to be commit right after shredding. */
 	private final EShredderCommit mCommit;
 
+	protected final EInsert mInsert;
+
+	private boolean mIncludeComments;
+
+	private boolean mIncludePIs;
+
+	public static class Builder {
+
+		private final INodeWriteTrx mWtx;
+
+		private final XMLEventReader mReader;
+
+		private final EInsert mInsert;
+
+		private boolean mIncludeComments = true;
+
+		private boolean mIncludePIs = true;
+
+		private EShredderCommit mCommit = EShredderCommit.NOCOMMIT;
+
+		public Builder(@Nonnull final INodeWriteTrx pWtx,
+				@Nonnull final XMLEventReader pReader, @Nonnull final EInsert pInsert) {
+			mWtx = checkNotNull(pWtx);
+			mReader = checkNotNull(pReader);
+			mInsert = checkNotNull(pInsert);
+		}
+
+		public Builder includeComments(final boolean pInclude) {
+			mIncludeComments = pInclude;
+			return this;
+		}
+
+		public Builder includePIs(final boolean pInclude) {
+			mIncludePIs = pInclude;
+			return this;
+		}
+
+		public Builder commitAfterwards(final EShredderCommit pCommit) {
+			mCommit = pCommit;
+			return this;
+		}
+
+		public XMLShredder build() {
+			return new XMLShredder(this);
+		}
+	}
+
+	private XMLShredder(final @Nonnull Builder pBuilder) {
+		super(pBuilder.mWtx, pBuilder.mInsert);
+		mWtx = pBuilder.mWtx;
+		mReader = pBuilder.mReader;
+		mInsert = pBuilder.mInsert;
+		mIncludeComments = pBuilder.mIncludeComments;
+		mIncludePIs = pBuilder.mIncludeComments;
+		mCommit = pBuilder.mCommit;
+	}
+
 	/**
+	 * Don't use, use the builder instead.
+	 * 
 	 * Normal constructor to invoke a shredding process on a existing
 	 * {@link NodeWriteTrx}.
 	 * 
@@ -102,19 +160,20 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 	 * @param pReader
 	 *          of the XML Fragment
 	 * @param pAddAsFirstChild
-	 *          if the insert is occuring on a node in an existing tree.
-	 *          <code>false</code> is not possible when wtx is on root node.
+	 *          determines the insertion position
 	 * @throws IllegalStateException
 	 *           if insertasfirstChild && updateOnly is both true OR if wtx is not
 	 *           pointing to doc-root and updateOnly= true
 	 */
+	@Deprecated
 	public XMLShredder(@Nonnull final INodeWriteTrx pWtx,
-			@Nonnull final XMLEventReader pReader,
-			@Nonnull final EInsert pAddAsFirstChild) {
-		this(pWtx, pReader, pAddAsFirstChild, EShredderCommit.COMMIT);
+			@Nonnull final XMLEventReader pReader, @Nonnull final EInsert pInsert) {
+		this(pWtx, pReader, pInsert, EShredderCommit.COMMIT);
 	}
 
 	/**
+	 * Don't use, use the builder instead.
+	 * 
 	 * Normal constructor to invoke a shredding process on a existing
 	 * {@link NodeWriteTrx}.
 	 * 
@@ -123,23 +182,22 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 	 * @param pReader
 	 *          {@link XMLEventReader} to parse the xml fragment, which should be
 	 *          inserted
-	 * @param pAddAsFirstChild
-	 *          determines if the insert is occuring on a node in an existing
-	 *          tree. <code>false</code> is not possible when wtx is on root node
+	 * @param pInsert
+	 *          determines the insertion position
 	 * @param pCommit
 	 *          determines if inserted nodes should be commited right afterwards
 	 * @throws SirixUsageException
 	 *           if insertasfirstChild && updateOnly is both true OR if wtx is not
 	 *           pointing to doc-root and updateOnly= true
 	 */
+	@Deprecated
 	public XMLShredder(@Nonnull final INodeWriteTrx pWtx,
-			@Nonnull final XMLEventReader pReader,
-			@Nonnull final EInsert pAddAsFirstChild,
+			@Nonnull final XMLEventReader pReader, @Nonnull final EInsert pInsert,
 			@Nonnull final EShredderCommit pCommit) {
-		super(pWtx, pAddAsFirstChild);
+		super(pWtx, pInsert);
 		mWtx = pWtx; // Checked for null in AbsShredder.
 		mReader = checkNotNull(pReader);
-		mFirstChildAppend = pAddAsFirstChild; // Checked for null in AbsShredder.
+		mInsert = pInsert; // Checked for null in AbsShredder.
 		mCommit = checkNotNull(pCommit);
 	}
 
@@ -205,7 +263,16 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 					}
 					break;
 				case XMLStreamConstants.COMMENT:
-					
+					if (mIncludeComments) {
+						processComment(((Comment) event).getText());
+					}
+					break;
+				case XMLStreamConstants.PROCESSING_INSTRUCTION:
+					if (mIncludePIs) {
+						final ProcessingInstruction pi = (ProcessingInstruction) event;
+						processPI(pi.getData(), pi.getTarget());
+					}
+					break;
 				default:
 					// Node kind not known.
 				}
@@ -258,15 +325,17 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 	 * @param pArgs
 	 *          input and output files
 	 * @throws XMLStreamException
-	 * 					 if the XML stream isn't valid
+	 *           if the XML stream isn't valid
 	 * @throws IOException
-	 * 					 if an I/O error occurs
+	 *           if an I/O error occurs
 	 * @throws SirixException
 	 *           if a Sirix error occurs
 	 */
-	public static void main(final String... pArgs) throws SirixException, IOException, XMLStreamException {
-		if (pArgs.length != 2) {
-			throw new IllegalArgumentException("Usage: XMLShredder XMLFile Database");
+	public static void main(final String... pArgs) throws SirixException,
+			IOException, XMLStreamException {
+		if (pArgs.length != 2 && pArgs.length != 3) {
+			throw new IllegalArgumentException(
+					"Usage: XMLShredder XMLFile Database [true/false] (shredder comment|PI)");
 		}
 		LOGWRAPPER.info("Shredding '" + pArgs[0] + "' to '" + pArgs[1] + "' ... ");
 		final long time = System.nanoTime();
@@ -281,8 +350,11 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 				"shredded").build());
 		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
 		final XMLEventReader reader = createFileReader(new File(pArgs[0]));
-		final XMLShredder shredder = new XMLShredder(wtx, reader,
-				EInsert.ASFIRSTCHILD);
+		final boolean includeCoPI = pArgs.length == 3 ? Boolean
+				.parseBoolean(pArgs[2]) : false;
+		final XMLShredder shredder = new XMLShredder.Builder(wtx, reader,
+				EInsert.ASFIRSTCHILD).commitAfterwards(EShredderCommit.COMMIT)
+				.includeComments(includeCoPI).includePIs(includeCoPI).build();
 		shredder.call();
 		wtx.close();
 		session.close();

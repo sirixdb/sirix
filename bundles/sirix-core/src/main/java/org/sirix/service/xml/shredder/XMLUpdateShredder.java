@@ -163,7 +163,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
   }
 
   /** Determines where a delete in the tree occurs. */
-  private transient EInternalInsert mInsert;
+  private transient EInternalInsert mInternalInsert;
 
   /** Determines where a delete in the tree occurs. */
   private enum EDelete {
@@ -636,7 +636,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    */
   private void sameTextNode() throws SirixIOException, XMLStreamException {
     // Update variables.
-    mInsert = EInternalInsert.NOINSERT;
+    mInternalInsert = EInternalInsert.NOINSERT;
     mDelete = EDelete.NODELETE;
     mInserted = false;
     mInsertedEndTag = false;
@@ -668,7 +668,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
       // }
     }
 
-    mInsert = EInternalInsert.ATMIDDLEBOTTOM;
+    mInternalInsert = EInternalInsert.ATMIDDLEBOTTOM;
   }
 
   // /**
@@ -717,7 +717,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
    */
   private void sameElementNode() throws XMLStreamException, SirixException {
     // Update variables.
-    mInsert = EInternalInsert.NOINSERT;
+    mInternalInsert = EInternalInsert.NOINSERT;
     mDelete = EDelete.NODELETE;
     mInserted = false;
     mInsertedEndTag = false;
@@ -735,7 +735,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
        * If next event needs to be inserted, it has to be inserted at the top of the subtree, as first
        * child.
        */
-      mInsert = EInternalInsert.ATTOP;
+      mInternalInsert = EInternalInsert.ATTOP;
       mWtx.moveToFirstChild();
 
       if (mReader.peek().getEventType() == XMLStreamConstants.END_ELEMENT) {
@@ -760,10 +760,10 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
        * sirix transaction can't find a child node, but StAX parser finds one, so it must be inserted
        * as a first child of the current node.
        */
-      mInsert = EInternalInsert.ATTOP;
+      mInternalInsert = EInternalInsert.ATTOP;
       mEmptyElement = true;
     } else {
-      mInsert = EInternalInsert.ATMIDDLEBOTTOM;
+      mInternalInsert = EInternalInsert.ATMIDDLEBOTTOM;
     }
   }
 
@@ -803,7 +803,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
     mDelete = EDelete.NODELETE;
     mRemovedNode = false;
 
-    switch (mInsert) {
+    switch (mInternalInsert) {
     case ATTOP:
       // We are at the top of a subtree, no end tag has been parsed before.
       if (!mEmptyElement) {
@@ -813,7 +813,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
 
       // Insert element as first child.
       addNewElement(EAdd.ASFIRSTCHILD, paramElement);
-      mInsert = EInternalInsert.INTERMEDIATE;
+      mInternalInsert = EInternalInsert.INTERMEDIATE;
       break;
     case INTERMEDIATE:
       // Inserts have been made before.
@@ -850,7 +850,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
 
       // Insert element as right sibling.
       addNewElement(EAdd.ASRIGHTSIBLING, paramElement);
-      mInsert = EInternalInsert.INTERMEDIATE;
+      mInternalInsert = EInternalInsert.INTERMEDIATE;
       break;
     default:
       throw new AssertionError("Enum value not known!");
@@ -880,7 +880,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
     mDelete = EDelete.NODELETE;
     mRemovedNode = false;
 
-    switch (mInsert) {
+    switch (mInternalInsert) {
     case ATTOP:
       // Insert occurs at the top of a subtree (no end tag has been parsed immediately before).
 
@@ -904,7 +904,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
         mDelete = EDelete.ATBOTTOM;
         deleteNode();
       }
-      mInsert = EInternalInsert.INTERMEDIATE;
+      mInternalInsert = EInternalInsert.INTERMEDIATE;
       break;
     case INTERMEDIATE:
       // Inserts have been made before.
@@ -949,7 +949,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
       // Move to next node.
       mWtx.moveToRightSibling();
 
-      mInsert = EInternalInsert.INTERMEDIATE;
+      mInternalInsert = EInternalInsert.INTERMEDIATE;
       break;
     default:
       throw new AssertionError("Enum value not known!");
@@ -1047,7 +1047,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
 
     // Check if transaction is on the last node in the shreddered file.
     // checkIfLastNode(true);
-    mInsert = EInternalInsert.NOINSERT;
+    mInternalInsert = EInternalInsert.NOINSERT;
   }
 
   /**
@@ -1098,7 +1098,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
     final QName name = paramStartElement.getName();
     long key;
 
-    if (mFirstChildAppend == EInsert.ASRIGHTSIBLING) {
+    if (mInsert == EInsert.ASRIGHTSIBLING) {
       key = mWtx.insertElementAsRightSibling(name).getNodeKey();
     } else {
       if (paramAdd == EAdd.ASFIRSTCHILD) {

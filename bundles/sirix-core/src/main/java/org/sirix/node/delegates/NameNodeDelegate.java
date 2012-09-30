@@ -44,7 +44,7 @@ import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INameNode;
 
 /**
- * Delegate method for all nodes containing \"naming\"-data. That means that
+ * Delegate method for all nodes containing naming-data. That means that
  * different fixed defined names are represented by the nodes delegating the
  * calls of the interface {@link INameNode} to this class. Mainly, keys are
  * stored referencing later on to the string stored in dedicated pages.

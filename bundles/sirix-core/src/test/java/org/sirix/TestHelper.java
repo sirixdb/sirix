@@ -308,6 +308,24 @@ public final class TestHelper {
 		wtx.close();
 		session.close();
 	}
+	
+	/**
+	 * Creating a test document at {@link PATHS#PATH1}.
+	 * 
+	 * @throws SirixException
+	 */
+	public static void createPICommentTestDocument() throws SirixException {
+		final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+		database.createResource(new ResourceConfiguration.Builder(RESOURCE,
+				PATHS.PATH1.config).build());
+		final ISession session = database
+				.getSession(new SessionConfiguration.Builder(RESOURCE).build());
+		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		DocumentCreater.createCommentPI(wtx);
+		wtx.commit();
+		wtx.close();
+		session.close();
+	}
 
 	/**
 	 * Generating random bytes.

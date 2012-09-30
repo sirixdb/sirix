@@ -817,21 +817,21 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx insertPIAsLeftSibling(@Nonnull QName pQName,
-			@Nonnull String pValue) throws SirixException {
-		return pi(pQName, pValue, EInsert.ASLEFTSIBLING);
+	public INodeWriteTrx insertPIAsLeftSibling(final @Nonnull String pTarget,
+			final @Nonnull String pContent) throws SirixException {
+		return pi(pTarget, pContent, EInsert.ASLEFTSIBLING);
 	}
 
 	@Override
-	public INodeWriteTrx insertPIAsRightSibling(@Nonnull QName pQName,
-			@Nonnull String pValue) throws SirixException {
-		return pi(pQName, pValue, EInsert.ASRIGHTSIBLING);
+	public INodeWriteTrx insertPIAsRightSibling(final @Nonnull String pTarget,
+			final @Nonnull String pContent) throws SirixException {
+		return pi(pTarget, pContent, EInsert.ASRIGHTSIBLING);
 	}
 
 	@Override
-	public INodeWriteTrx insertPIAsFirstChild(@Nonnull QName pQName,
-			@Nonnull String pValue) throws SirixException {
-		return pi(pQName, pValue, EInsert.ASFIRSTCHILD);
+	public INodeWriteTrx insertPIAsFirstChild(final @Nonnull String pTarget,
+			final @Nonnull String pContent) throws SirixException {
+		return pi(pTarget, pContent, EInsert.ASFIRSTCHILD);
 	}
 
 	/**
@@ -846,14 +846,15 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	 * @throws SirixException
 	 *           if any unexpected error occurs
 	 */
-	private INodeWriteTrx pi(final @Nonnull QName pQName,
-			final @Nonnull String pValue, final @Nonnull EInsert pInsert)
+	private INodeWriteTrx pi(final @Nonnull String pTarget,
+			final @Nonnull String pContent, final @Nonnull EInsert pInsert)
 			throws SirixException {
-		if (!XMLToken.isValidQName(checkNotNull(pQName))) {
-			throw new IllegalArgumentException("The QName is not valid!");
+		final byte[] target = getBytes(pTarget);
+		if (!XMLToken.isNCName(checkNotNull(target))) {
+			throw new IllegalArgumentException("The target is not valid!");
 		}
-		if (pValue.contains("?>-")) {
-			throw new SirixUsageException("pValue must not contain '?>-'");
+		if (pContent.contains("?>-")) {
+			throw new SirixUsageException("The content must not contain '?>-'");
 		}
 		acquireLock();
 		try {
@@ -861,10 +862,11 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				checkAccessAndCommit();
 
 				// Insert new comment node.
-				final byte[] value = getBytes(pValue);
+				final byte[] content = getBytes(pContent);
 				long parentKey = 0;
 				long leftSibKey = 0;
 				long rightSibKey = 0;
+				EInsertPos pos = EInsertPos.ASFIRSTCHILD;
 				switch (pInsert) {
 				case ASFIRSTCHILD:
 					parentKey = getNode().getNodeKey();
@@ -875,25 +877,28 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					parentKey = getNode().getParentKey();
 					leftSibKey = getNode().getNodeKey();
 					rightSibKey = ((IStructNode) getNode()).getRightSiblingKey();
+					pos = EInsertPos.ASRIGHTSIBLING;
 					break;
 				case ASLEFTSIBLING:
 					parentKey = getNode().getParentKey();
 					leftSibKey = ((IStructNode) getNode()).getLeftSiblingKey();
 					rightSibKey = getNode().getNodeKey();
+					pos = EInsertPos.ASLEFTSIBLING;
 					break;
 				default:
 					throw new IllegalStateException("Insert location not known!");
 				}
 
+				final QName targetName = new QName(pTarget);
 				final long pathNodeKey = mIndexes.contains(EIndexes.PATH) ? getPathNodeKey(
-						pQName, EKind.ATTRIBUTE) : 0;
+						targetName, EKind.PROCESSING) : 0;
 				final PINode node = mNodeFactory.createPINode(parentKey, leftSibKey,
-						rightSibKey, pQName, value,
+						rightSibKey, targetName, content,
 						mNodeRtx.mSession.mResourceConfig.mCompression, pathNodeKey);
 
 				// Adapt local nodes and hashes.
 				mNodeRtx.setCurrentNode(node);
-				adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.NODEPAGE);
+				adaptForInsert(node, pos, EPage.NODEPAGE);
 				mNodeRtx.setCurrentNode(node);
 				adaptHashesWithAdd();
 
@@ -907,21 +912,21 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public INodeWriteTrx insertCommentAsLeftSibling(@Nonnull String pValue)
+	public INodeWriteTrx insertCommentAsLeftSibling(final @Nonnull String pValue)
 			throws SirixException {
 		return comment(pValue, EInsert.ASLEFTSIBLING);
 	}
 
 	@Override
-	public INodeWriteTrx insertCommentAsRightSibling(@Nonnull String pValue)
+	public INodeWriteTrx insertCommentAsRightSibling(final @Nonnull String pValue)
 			throws SirixException {
 		return comment(pValue, EInsert.ASRIGHTSIBLING);
 	}
 
 	@Override
-	public INodeWriteTrx insertCommentAsFirstChild(@Nonnull String pValue)
+	public INodeWriteTrx insertCommentAsFirstChild(final @Nonnull String pValue)
 			throws SirixException {
-		return comment(pValue, EInsert.ASRIGHTSIBLING);
+		return comment(pValue, EInsert.ASFIRSTCHILD);
 	}
 
 	/**
@@ -954,6 +959,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				long parentKey = 0;
 				long leftSibKey = 0;
 				long rightSibKey = 0;
+				EInsertPos pos = EInsertPos.ASFIRSTCHILD;
 				switch (pInsert) {
 				case ASFIRSTCHILD:
 					parentKey = getNode().getNodeKey();
@@ -964,11 +970,13 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					parentKey = getNode().getParentKey();
 					leftSibKey = getNode().getNodeKey();
 					rightSibKey = ((IStructNode) getNode()).getRightSiblingKey();
+					pos = EInsertPos.ASRIGHTSIBLING;
 					break;
 				case ASLEFTSIBLING:
 					parentKey = getNode().getParentKey();
 					leftSibKey = ((IStructNode) getNode()).getLeftSiblingKey();
 					rightSibKey = getNode().getNodeKey();
+					pos = EInsertPos.ASLEFTSIBLING;
 					break;
 				default:
 					throw new IllegalStateException("Insert location not known!");
@@ -980,7 +988,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 
 				// Adapt local nodes and hashes.
 				mNodeRtx.setCurrentNode(node);
-				adaptForInsert(node, EInsertPos.ASFIRSTCHILD, EPage.NODEPAGE);
+				adaptForInsert(node, pos, EPage.NODEPAGE);
 				mNodeRtx.setCurrentNode(node);
 				adaptHashesWithAdd();
 
@@ -2129,17 +2137,17 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	public void commit() throws SirixException {
 		mNodeRtx.assertNotClosed();
 
-		// Assert that the DocumentNode has no more than one child node (the root
-		// node).
-		final long nodeKey = mNodeRtx.getNode().getNodeKey();
-		moveToDocumentRoot();
-		final DocumentRootNode document = (DocumentRootNode) mNodeRtx.getNode();
-		if (document.getChildCount() > 1) {
-			moveTo(nodeKey);
-			throw new IllegalStateException(
-					"DocumentRootNode may not have more than one child node!");
-		}
-		moveTo(nodeKey);
+//		// Assert that the DocumentNode has no more than one child node (the root
+//		// node).
+//		final long nodeKey = mNodeRtx.getNode().getNodeKey();
+//		moveToDocumentRoot();
+//		final DocumentRootNode document = (DocumentRootNode) mNodeRtx.getNode();
+//		if (document.getChildCount() > 1) {
+//			moveTo(nodeKey);
+//			throw new IllegalStateException(
+//					"DocumentRootNode may not have more than one child node!");
+//		}
+//		moveTo(nodeKey);
 
 		final File commitFile = mNodeRtx.mSession.mCommitFile;
 		try {

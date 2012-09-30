@@ -9,12 +9,31 @@ import org.sirix.exception.SirixException;
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
- * @param <S>
- *          generic type parameter for start tag/end tags (usually a {@link QName}
  * @param <T>
+ *          generic type parameter for start tag/end tags (usually a {@link QName}
+ * @param <S>
  *          generic type parameter for text nodes (usually a String)
  */
 public interface IShredder<S, T> {
+	
+	/**
+	 * Process a processing instruction.
+	 * 
+	 * @param pContent
+	 * 						the content
+	 * @param pTarget
+	 * 						the target
+	 */
+	void processPI(final @Nonnull S pContent, final @Nonnull S pTarget) throws SirixException;
+	
+	/**
+	 * Process a comment.
+	 * 
+	 * @param pValue
+	 * 						the value
+	 */
+	void processComment(@Nonnull final S pValue) throws SirixException;
+	
   /**
    * Process a start tag.
    * 

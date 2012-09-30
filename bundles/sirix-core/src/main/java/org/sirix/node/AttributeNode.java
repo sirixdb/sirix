@@ -136,7 +136,7 @@ public final class AttributeNode extends AbsForwardingNode implements IValNode,
   public boolean equals(@Nullable final Object pObj) {
     boolean retVal = false;
     if (pObj instanceof AttributeNode) {
-      AttributeNode other = (AttributeNode)pObj;
+      final AttributeNode other = (AttributeNode)pObj;
       retVal =
         Objects.equal(mNameDel, other.mNameDel)
           && Objects.equal(mValDel, other.mValDel);

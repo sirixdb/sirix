@@ -102,7 +102,6 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <h2>Developer Example</h2>
  * 
  * <p>
- * 
  * <pre>
  *   public void someIReadTransactionMethod() {
  *     // This must be called to make sure the transaction is not closed.
@@ -110,7 +109,6 @@ import org.sirix.service.xml.xpath.AtomicValue;
  *     ...
  *   }
  * </pre>
- * 
  * </p>
  */
 public interface INodeReadTrx extends INodeCursor {

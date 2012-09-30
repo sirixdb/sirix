@@ -58,6 +58,9 @@ public final class NamePage implements IPage {
 
   /** Namespace URIs. */
   private final Names mNamespaces;
+  
+  /** Processing instruction names. */
+  private final Names mPIs;
 
   /** Revision number. */
   private final int mRevision;
@@ -77,6 +80,7 @@ public final class NamePage implements IPage {
     mAttributes = Names.getInstance();
     mElements = Names.getInstance();
     mNamespaces = Names.getInstance();
+    mPIs = Names.getInstance();
     mIsDirty = true;
   }
 
@@ -91,6 +95,7 @@ public final class NamePage implements IPage {
     mElements = Names.clone(pIn);
     mNamespaces = Names.clone(pIn);
     mAttributes = Names.clone(pIn);
+    mPIs = Names.clone(pIn);
   }
 
   /**
@@ -111,6 +116,9 @@ public final class NamePage implements IPage {
       break;
     case ATTRIBUTE:
       rawName = mAttributes.getRawName(pKey);
+      break;
+    case PROCESSING:
+      rawName = mPIs.getRawName(pKey);
       break;
     default:
       throw new IllegalStateException("No other node types supported!");
@@ -137,6 +145,9 @@ public final class NamePage implements IPage {
     case ATTRIBUTE:
       name = mAttributes.getName(pKey);
       break;
+    case PROCESSING:
+    	name = mPIs.getName(pKey);
+    	break;
     default:
       throw new IllegalStateException("No other node types supported!");
     }
@@ -162,6 +173,8 @@ public final class NamePage implements IPage {
     case ATTRIBUTE:
       count = mAttributes.getCount(pKey);
       break;
+    case PROCESSING:
+    	count = mPIs.getCount(pKey);
     default:
       throw new IllegalStateException("No other node types supported!");
     }
@@ -190,6 +203,9 @@ public final class NamePage implements IPage {
     case ATTRIBUTE:
       mAttributes.setName(pKey, pName);
       break;
+    case PROCESSING:
+      mPIs.setName(pKey, pName);
+      break;
     default:
       throw new IllegalStateException("No other node types supported!");
     }
@@ -201,13 +217,14 @@ public final class NamePage implements IPage {
     mElements.serialize(pOut);
     mNamespaces.serialize(pOut);
     mAttributes.serialize(pOut);
+    mPIs.serialize(pOut);
   }
 
   @Override
   public String toString() {
     return Objects.toStringHelper(this).add("revision", mRevision).add(
       "elements", mElements).add("attributes", mAttributes).add("URIs",
-      mNamespaces).toString();
+      mNamespaces).add("PIs", mPIs).toString();
   }
 
   /**
@@ -226,6 +243,9 @@ public final class NamePage implements IPage {
       break;
     case ATTRIBUTE:
       mAttributes.removeName(pKey);
+      break;
+    case PROCESSING:
+      mPIs.removeName(pKey);
       break;
     default:
       throw new IllegalStateException("No other node types supported!");

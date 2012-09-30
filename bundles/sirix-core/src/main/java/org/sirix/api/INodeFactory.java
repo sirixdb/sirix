@@ -57,10 +57,10 @@ public interface INodeFactory {
 	 *          left sibling key
 	 * @param pRightSibKey
 	 *          right sibling key
-	 * @param pName
-	 * 					name of the node
-	 * @param pValue
-	 *          value of the node
+	 * @param pTarget
+	 *          target of the processing instruction
+	 * @param pContent
+	 *          content of the processing instruction
 	 * @param pIsCompressed
 	 *          determines if the value is compressed or not
 	 * @param pPCR
@@ -71,10 +71,9 @@ public interface INodeFactory {
 	 */
 	PINode createPINode(@Nonnegative final long pParentKey,
 			@Nonnegative final long pLeftSibKey,
-			@Nonnegative final long pRightSibKey,
-			@Nonnull final QName pName, @Nonnull final byte[] pValue,
-			final boolean pIsCompressed, @Nonnegative final long pPathNodeKey)
-			throws SirixIOException;
+			@Nonnegative final long pRightSibKey, @Nonnull final QName pTarget,
+			@Nonnull final byte[] pContent, final boolean pIsCompressed,
+			@Nonnegative final long pPathNodeKey) throws SirixIOException;
 
 	/**
 	 * Create a {@link CommentNode}.
@@ -103,8 +102,8 @@ public interface INodeFactory {
 	 */
 	CommentNode createCommentNode(@Nonnegative final long pParentKey,
 			@Nonnegative final long pLeftSibKey,
-			@Nonnegative final long pRightSibKey,
-			@Nonnull final byte[] pValue, final boolean pIsCompressed) throws SirixIOException;
+			@Nonnegative final long pRightSibKey, @Nonnull byte[] pValue,
+			final boolean pIsCompressed) throws SirixIOException;
 
 	/**
 	 * Create an {@link ElementNode}.

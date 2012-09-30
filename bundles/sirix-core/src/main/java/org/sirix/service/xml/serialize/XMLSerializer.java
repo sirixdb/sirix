@@ -200,6 +200,16 @@ public final class XMLSerializer extends AbsSerializer {
 					mOut.write(ECharsForSerializing.NEWLINE.getBytes());
 				}
 				break;
+			case COMMENT:
+				indent();
+				mOut.write(ECharsForSerializing.OPENCOMMENT.getBytes());
+				mOut.write(XMLToken.escapeContent(pRtx.getValue()).getBytes(
+						IConstants.DEFAULT_ENCODING));
+				if (mIndent) {
+					mOut.write(ECharsForSerializing.NEWLINE.getBytes());
+				}
+				mOut.write(ECharsForSerializing.CLOSECOMMENT.getBytes());
+				break;
 			case TEXT:
 				indent();
 				mOut.write(XMLToken.escapeContent(pRtx.getValue()).getBytes(
@@ -207,6 +217,18 @@ public final class XMLSerializer extends AbsSerializer {
 				if (mIndent) {
 					mOut.write(ECharsForSerializing.NEWLINE.getBytes());
 				}
+				break;
+			case PROCESSING:
+				indent();
+				mOut.write(ECharsForSerializing.OPENPI.getBytes());
+				mOut.write(pRtx.rawNameForKey(pRtx.getNameKey()));
+				mOut.write(ECharsForSerializing.SPACE.getBytes());
+				mOut.write(XMLToken.escapeContent(pRtx.getValue()).getBytes(
+						IConstants.DEFAULT_ENCODING));
+				if (mIndent) {
+					mOut.write(ECharsForSerializing.NEWLINE.getBytes());
+				}
+				mOut.write(ECharsForSerializing.CLOSEPI.getBytes());
 				break;
 			}
 		} catch (final IOException e) {
@@ -292,7 +314,7 @@ public final class XMLSerializer extends AbsSerializer {
 	private void indent() throws IOException {
 		if (mIndent) {
 			for (int i = 0; i < mStack.size() * mIndentSpaces; i++) {
-				mOut.write(" ".getBytes());
+				mOut.write(" ".getBytes(IConstants.DEFAULT_ENCODING));
 			}
 		}
 	}

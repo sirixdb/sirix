@@ -26,21 +26,23 @@
  */
 
 /**
- * <h1>Node Page Layer for sirix</h1>
+ * <h1>Node Page Layer for Sirix</h1>
  * <p>
- * Here, all different nodes are listed which are used in sirix. The nodes can be distinguished between
- * <code>AbsStructNode</code> and <code>AbsNode</code>.
+ * Here, all different nodes are listed which are used in Sirix. The nodes can be distinguished between
+ * {@code IStructNode} and {INode}.
  * <ul>
- * <li>An <code>AbsNode</code> is the super type of all nodes. It implements the <code>INode</code> Interface.
+ * <li>An {@code INode} is an interface defining the super type of all nodes.
  * </li>
- * <li>An <code>AbsStructNode</code> is the super type of all nodes. It inherits from the <code>AbsNode</code>
+ * <li>An {@code IStructuralNode} is the super type of all structural nodes.
  * .</li>
  * </ul>
  * </p>
  * 
+ * <p>In Java8 use traits/virtual methods for implementations!</p>
  * 
  * @author Marc Kramis, University of Konstanz
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
  */
 package org.sirix.node;
 

@@ -277,11 +277,11 @@ public interface INodeWriteTrx extends INodeReadTrx {
 			throws SirixException;
 
 	/**
-	 * Insert new comment node as left sibling of currently
-	 * selected node. The cursor is moved to the inserted node.
+	 * Insert new comment node as left sibling of currently selected node. The
+	 * cursor is moved to the inserted node.
 	 * 
 	 * @param pValue
-	 * 					value of node to insert
+	 *          value of node to insert
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
@@ -290,13 +290,13 @@ public interface INodeWriteTrx extends INodeReadTrx {
 	 */
 	INodeWriteTrx insertCommentAsLeftSibling(@Nonnull String pValue)
 			throws SirixException;
-	
+
 	/**
-	 * Insert new comment node as right sibling of currently
-	 * selected node. The cursor is moved to the inserted node.
+	 * Insert new comment node as right sibling of currently selected node. The
+	 * cursor is moved to the inserted node.
 	 * 
 	 * @param pValue
-	 * 					value of node to insert
+	 *          value of node to insert
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
@@ -305,13 +305,13 @@ public interface INodeWriteTrx extends INodeReadTrx {
 	 */
 	INodeWriteTrx insertCommentAsRightSibling(@Nonnull String pValue)
 			throws SirixException;
-	
+
 	/**
-	 * Insert new comment node as first child of currently
-	 * selected node. The cursor is moved to the inserted node.
+	 * Insert new comment node as first child of currently selected node. The
+	 * cursor is moved to the inserted node.
 	 * 
 	 * @param pValue
-	 * 					value of node to insert
+	 *          value of node to insert
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
@@ -320,57 +320,57 @@ public interface INodeWriteTrx extends INodeReadTrx {
 	 */
 	INodeWriteTrx insertCommentAsFirstChild(@Nonnull String pValue)
 			throws SirixException;
-	
+
 	/**
 	 * Insert new Processing Instruction node as left sibling of currently
 	 * selected node. The cursor is moved to the inserted node.
 	 * 
-	 * @param pName
-	 *          {@link QName} of node to insert
-	 * @param pValue
-	 * 					value of node to insert
+	 * @param pContent
+	 *          content of processing instruction
+	 * @param pTarget
+	 *          target of processing instruction
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
 	 *           if {@code pQName} is {@code null}
 	 * @return the transaction instance
 	 */
-	INodeWriteTrx insertPIAsLeftSibling(@Nonnull QName pQName, @Nonnull String pValue)
-			throws SirixException;
-	
+	INodeWriteTrx insertPIAsLeftSibling(@Nonnull String pContent,
+			@Nonnull String pTarget) throws SirixException;
+
 	/**
 	 * Insert new Processing Instruction node as right sibling of currently
 	 * selected node. The cursor is moved to the inserted node.
 	 * 
-	 * @param pName
-	 *          {@link QName} of node to insert
-	 * @param pValue
-	 * 					value of node to insert
+	 * @param pContent
+	 *          content of processing instruction
+	 * @param pTarget
+	 *          target of processing instruction
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
 	 *           if {@code pQName} is {@code null}
 	 * @return the transaction instance
 	 */
-	INodeWriteTrx insertPIAsRightSibling(@Nonnull QName pQName, @Nonnull String pValue)
-			throws SirixException;
-	
+	INodeWriteTrx insertPIAsRightSibling(@Nonnull String pContent,
+			@Nonnull String pTarget) throws SirixException;
+
 	/**
-	 * Insert new Processing Instruction node as first child of currently
-	 * selected node. The cursor is moved to the inserted node.
+	 * Insert new Processing Instruction node as first child of currently selected
+	 * node. The cursor is moved to the inserted node.
 	 * 
-	 * @param pName
-	 *          {@link QName} of node to insert
-	 * @param pValue
-	 * 					value of node to insert
+	 * @param pContent
+	 *          content of processing instruction
+	 * @param pTarget
+	 *          target of processing instruction
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
 	 *           if {@code pQName} is {@code null}
 	 * @return the transaction instance
 	 */
-	INodeWriteTrx insertPIAsFirstChild(@Nonnull QName pQName, @Nonnull String pValue)
-			throws SirixException;
+	INodeWriteTrx insertPIAsFirstChild(@Nonnull String pContent,
+			@Nonnull String pTarget) throws SirixException;
 
 	/**
 	 * Insert new element node as first child of currently selected node. The
