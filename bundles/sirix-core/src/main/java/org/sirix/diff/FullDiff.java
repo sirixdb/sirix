@@ -34,61 +34,65 @@ import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.exception.SirixException;
 
 /**
- * Full diff including attributes and namespaces. Note that this class is thread safe.
+ * Full diff including attributes and namespaces. Note that this class is thread
+ * safe.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 final class FullDiff extends AbsDiff {
 
-  /**
-   * Constructor.
-   * 
-   * @param pBuilder
-   *          {@link Builder} reference
-   * @throws SirixException
-   *           if anything goes wrong while setting up sirix transactions
-   */
-  FullDiff(@Nonnull final Builder pBuilder) throws SirixException {
-    super(pBuilder);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pBuilder
+	 *          {@link Builder} reference
+	 * @throws SirixException
+	 *           if anything goes wrong while setting up sirix transactions
+	 */
+	FullDiff(@Nonnull final Builder pBuilder) throws SirixException {
+		super(pBuilder);
+	}
 
-  @Override
-  boolean checkNodes(@Nonnull final INodeReadTrx pFirstRtx,
-    @Nonnull final INodeReadTrx pSecondRtx) {
-    assert pFirstRtx != null;
-    assert pSecondRtx != null;
+	@Override
+	boolean checkNodes(@Nonnull final INodeReadTrx pFirstRtx,
+			@Nonnull final INodeReadTrx pSecondRtx) {
+		assert pFirstRtx != null;
+		assert pSecondRtx != null;
 
-    boolean found = false;
-    if (pFirstRtx.getNodeKey() == pSecondRtx.getNodeKey()
-      && pFirstRtx.getKind() == pSecondRtx.getKind()) {
-      switch (pFirstRtx.getKind()) {
-      case ELEMENT:
-        if (pFirstRtx.getNameKey() == pSecondRtx.getNameKey()) {
-          if (pFirstRtx.getNamespaceCount() == 0
-            && pFirstRtx.getAttributeCount() == 0
-            && pFirstRtx.getAttributeCount() == 0
-            && pFirstRtx.getNamespaceCount() == 0) {
-            found = true;
-          } else if (pFirstRtx.getAttributeKeys().equals(
-          		pSecondRtx.getAttributeKeys())
-            && pSecondRtx.getNamespaceKeys().equals(
-            		pSecondRtx.getNamespaceKeys())) {
-            found = true;
-          }
-        }
-        break;
-      case TEXT:
-        found =
-          pFirstRtx.getValue().equals(
-            pSecondRtx.getValue());
-        break;
-      default:
-        throw new IllegalStateException(
-          "Other node types currently not supported!");
-      }
-    }
+		boolean found = false;
+		if (pFirstRtx.getNodeKey() == pSecondRtx.getNodeKey()
+				&& pFirstRtx.getKind() == pSecondRtx.getKind()) {
+			switch (pFirstRtx.getKind()) {
+			case ELEMENT:
+				if (pFirstRtx.getNameKey() == pSecondRtx.getNameKey()) {
+					if (pFirstRtx.getNamespaceCount() == 0
+							&& pFirstRtx.getAttributeCount() == 0
+							&& pFirstRtx.getAttributeCount() == 0
+							&& pFirstRtx.getNamespaceCount() == 0) {
+						found = true;
+					} else if (pFirstRtx.getAttributeKeys().equals(
+							pSecondRtx.getAttributeKeys())
+							&& pSecondRtx.getNamespaceKeys().equals(
+									pSecondRtx.getNamespaceKeys())) {
+						found = true;
+					}
+				}
+				break;
+			case PROCESSING:
+				found = pFirstRtx.getValue().equals(pSecondRtx.getValue())
+						&& pFirstRtx.getQName().equals(pSecondRtx.getQName());
+				break;
+			case TEXT:
+			case COMMENT:
+				found = pFirstRtx.getValue().equals(pSecondRtx.getValue());
+				break;
+			default:
+				throw new IllegalStateException(
+						"Other node types currently not supported!");
+			}
+		}
 
-    return found;
-  }
+		return found;
+	}
 }

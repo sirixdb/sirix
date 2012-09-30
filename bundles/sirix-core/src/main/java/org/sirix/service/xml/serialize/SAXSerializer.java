@@ -44,8 +44,10 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.node.ElementNode;
+import org.sirix.exception.SirixException;
+import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
+import org.slf4j.LoggerFactory;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.DTDHandler;
 import org.xml.sax.EntityResolver;
@@ -70,8 +72,12 @@ import org.xml.sax.helpers.DefaultHandler;
  */
 public final class SAXSerializer extends AbsSerializer implements XMLReader {
 
+	/** {@link LogWrapper} reference. */
+	private final LogWrapper LOGGER = new LogWrapper(
+			LoggerFactory.getLogger(SAXSerializer.class));
+
 	/** SAX content handler. */
-	private transient ContentHandler mContHandler;
+	private ContentHandler mContHandler;
 
 	/**
 	 * Constructor.
@@ -103,6 +109,12 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 		case TEXT:
 			generateText(pRtx);
 			break;
+		case COMMENT:
+			generateComment(pRtx);
+			break;
+		case PROCESSING:
+			generatePI(pRtx);
+			break;
 		default:
 			throw new UnsupportedOperationException(
 					"Node kind not supported by sirix!");
@@ -114,10 +126,11 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 		final QName qName = pRtx.getQName();
 		final String mURI = qName.getNamespaceURI();
 		try {
+			mContHandler.endPrefixMapping(qName.getPrefix());
 			mContHandler.endElement(mURI, qName.getLocalPart(),
 					Utils.buildName(qName));
-		} catch (final SAXException exc) {
-			exc.printStackTrace();
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
 		}
 	}
 
@@ -127,8 +140,8 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 		atts.addAttribute("", "revision", "tt", "", Long.toString(pRevision));
 		try {
 			mContHandler.startElement("", "tt", "tt", atts);
-		} catch (final SAXException exc) {
-			exc.printStackTrace();
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
 		}
 
 	}
@@ -137,8 +150,38 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	protected void emitEndManualElement(@Nonnegative final long pRevision) {
 		try {
 			mContHandler.endElement("", "tt", "tt");
-		} catch (final SAXException exc) {
-			exc.printStackTrace();
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
+		}
+	}
+
+	/**
+	 * Generates a comment event.
+	 * 
+	 * @param pRtx
+	 *          {@link INodeReadTrx} implementation
+	 */
+	private void generateComment(final @Nonnull INodeReadTrx pRtx) {
+		try {
+			final char[] content = pRtx.getValue().toCharArray();
+			mContHandler.characters(content, 0, content.length);
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
+		}
+	}
+
+	/**
+	 * Generate a processing instruction event.
+	 * 
+	 * @param pRtx
+	 *          {@link INodeReadTrx} implementation
+	 */
+	private void generatePI(final @Nonnull INodeReadTrx pRtx) {
+		try {
+			mContHandler.processingInstruction(pRtx.getQName().getLocalPart(),
+					pRtx.getValue());
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
 		}
 	}
 
@@ -146,7 +189,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	 * Generate a start element event.
 	 * 
 	 * @param pRtx
-	 *          Read Transaction
+	 *          {@link INodeReadTrx} implementation
 	 */
 	private void generateElement(@Nonnull final INodeReadTrx pRtx) {
 		final AttributesImpl atts = new AttributesImpl();
@@ -190,23 +233,23 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 				mContHandler.endElement(qName.getNamespaceURI(), qName.getLocalPart(),
 						Utils.buildName(qName));
 			}
-		} catch (final SAXException exc) {
-			exc.printStackTrace();
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
 		}
 	}
 
 	/**
 	 * Generate a text event.
 	 * 
-	 * @param mRtx
-	 *          Read Transaction.
+	 * @param pRtx
+	 *          {@link INodeReadTrx} implementation
 	 */
 	private void generateText(@Nonnull final INodeReadTrx pRtx) {
 		try {
 			mContHandler.characters(XMLToken.escapeContent(pRtx.getValue())
 					.toCharArray(), 0, pRtx.getValue().length());
-		} catch (final SAXException exc) {
-			exc.printStackTrace();
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
 		}
 	}
 
@@ -239,8 +282,8 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	protected void emitStartDocument() {
 		try {
 			mContHandler.startDocument();
-		} catch (final SAXException exc) {
-			exc.printStackTrace();
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
 		}
 	}
 
@@ -248,8 +291,8 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	protected void emitEndDocument() {
 		try {
 			mContHandler.endDocument();
-		} catch (final SAXException exc) {
-			exc.printStackTrace();
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
 		}
 	}
 
@@ -303,8 +346,8 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 		emitStartDocument();
 		try {
 			super.call();
-		} catch (final Exception exc) {
-			exc.printStackTrace();
+		} catch (final SirixException e) {
+			LOGGER.error(e.getMessage(), e);
 		}
 		emitEndDocument();
 	}

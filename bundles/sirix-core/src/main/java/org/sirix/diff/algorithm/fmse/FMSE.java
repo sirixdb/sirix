@@ -1191,7 +1191,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			retVal.append(Utils.buildName(pRtx.getQName()));
 			break;
 		case TEXT:
+		case COMMENT:
 			retVal.append(pRtx.getValue());
+			break;
+		case PROCESSING:
+			retVal.append(pRtx.getQName()).append(" ").append(pRtx.getValue());
 			break;
 		default:
 			// Do nothing.
@@ -1221,10 +1225,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			double ratio = 0;
 
 			if (mWtx.getKind() == EKind.ATTRIBUTE
-					|| mWtx.getKind() == EKind.NAMESPACE) {
+					|| mWtx.getKind() == EKind.NAMESPACE
+					|| mWtx.getKind() == EKind.PROCESSING) {
 				if (mWtx.getQName().equals(mRtx.getQName())) {
 					ratio = 1;
-					if (mWtx.getKind() == EKind.ATTRIBUTE) {
+					if (mWtx.getKind() == EKind.ATTRIBUTE || mWtx.getKind() == EKind.PROCESSING) {
 						ratio = calculateRatio(mWtx.getValue(), mRtx.getValue());
 					}
 

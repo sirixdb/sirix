@@ -36,7 +36,6 @@ import java.util.Map.Entry;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 
 import com.google.common.collect.ImmutableMap;

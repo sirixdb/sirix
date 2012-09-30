@@ -39,8 +39,6 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.EIncludeSelf;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.INode;
 
 /**
  * Keeps track of nodes in a matching.

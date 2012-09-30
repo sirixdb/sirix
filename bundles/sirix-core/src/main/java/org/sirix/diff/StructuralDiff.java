@@ -35,46 +35,51 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.ElementNode;
 
 /**
- * Structural diff, thus no attributes and namespace nodes are taken into account.
+ * Structural diff, thus no attributes and namespace nodes are taken into
+ * account.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 final class StructuralDiff extends AbsDiff {
 
-  /**
-   * Constructor.
-   * 
-   * @param pBuilder
-   *          {@link Builder} reference
-   * @throws SirixException
-   */
-  public StructuralDiff(@Nonnull final Builder pBuilder) throws SirixException {
-    super(pBuilder);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pBuilder
+	 *          {@link Builder} reference
+	 * @throws SirixException
+	 */
+	public StructuralDiff(@Nonnull final Builder pBuilder) throws SirixException {
+		super(pBuilder);
+	}
 
-  @Override
-  boolean checkNodes(@Nonnull final INodeReadTrx pNewRtx,
-    @Nonnull final INodeReadTrx pOldRtx) {
-    boolean found = false;
-    if (pNewRtx.getNodeKey() == pOldRtx.getNodeKey()
-      && pNewRtx.getKind() == pOldRtx.getKind()) {
-      switch (pNewRtx.getKind()) {
-      case ELEMENT:
-        if (pNewRtx.getNameKey() == pOldRtx.getNameKey()) {
-          found = true;
-        }
-        break;
-      case TEXT:
-        if (pNewRtx.getValue().equals(
-          pOldRtx.getValue())) {
-          found = true;
-        }
-        break;
-      default:
-        // Do nothing.
-      }
-    }
-    return found;
-  }
+	@Override
+	boolean checkNodes(@Nonnull final INodeReadTrx pNewRtx,
+			@Nonnull final INodeReadTrx pOldRtx) {
+		boolean found = false;
+		if (pNewRtx.getNodeKey() == pOldRtx.getNodeKey()
+				&& pNewRtx.getKind() == pOldRtx.getKind()) {
+			switch (pNewRtx.getKind()) {
+			case ELEMENT:
+				if (pNewRtx.getNameKey() == pOldRtx.getNameKey()) {
+					found = true;
+				}
+				break;
+			case PROCESSING:
+				found = pNewRtx.getValue().equals(pOldRtx.getValue())
+						&& pNewRtx.getQName().equals(pOldRtx.getQName());
+				break;
+			case COMMENT:
+			case TEXT:
+				if (pNewRtx.getValue().equals(pOldRtx.getValue())) {
+					found = true;
+				}
+				break;
+			default:
+				// Do nothing.
+			}
+		}
+		return found;
+	}
 }

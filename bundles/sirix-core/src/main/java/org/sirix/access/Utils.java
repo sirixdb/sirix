@@ -3,10 +3,16 @@ package org.sirix.access;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
+/**
+ * Encapsulates generic stuff.
+ * 
+ * @author Johannes Lichtenberger
+ * 
+ */
 public class Utils {
 
 	/**
-	 * Building name consisting out of prefix and name. NamespaceUri is not used
+	 * Building name consisting of a prefix and a name. The namespace-URI is not used
 	 * over here.
 	 * 
 	 * @param pQName
@@ -14,13 +20,8 @@ public class Utils {
 	 * @return a string with [prefix:]localname
 	 */
 	public static String buildName(final @Nonnull QName pQName) {
-		String name;
-		if (pQName.getPrefix().isEmpty()) {
-			name = pQName.getLocalPart();
-		} else {
-			name = new StringBuilder(pQName.getPrefix()).append(":")
-					.append(pQName.getLocalPart()).toString();
-		}
-		return name;
+		return pQName.getPrefix().isEmpty() ? pQName.getLocalPart()
+				: new StringBuilder(pQName.getPrefix()).append(":")
+						.append(pQName.getLocalPart()).toString();
 	}
 }

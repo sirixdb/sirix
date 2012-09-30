@@ -53,7 +53,6 @@ import org.sirix.axis.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
 import org.sirix.utils.XMLToken;
 
 /**
@@ -152,7 +151,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @param pCloseRtx
 	 *          Determines if rtx should be closed afterwards.
 	 */
-	public StAXSerializer(@Nonnull final INodeReadTrx pRtx,
+	public StAXSerializer(final @Nonnull INodeReadTrx pRtx,
 			final boolean pCloseRtx) {
 		mNextTag = false;
 		mAxis = new DescendantAxis(checkNotNull(pRtx), EIncludeSelf.YES);
@@ -171,8 +170,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @param pRTX
 	 *          sirix reading transaction {@link INodeReadTrx}.
 	 */
-	private void emitEndTag(final INodeReadTrx pRTX) {
-		assert pRTX != null;
+	private void emitEndTag(final @Nonnull INodeReadTrx pRTX) {
 		final long nodeKey = pRTX.getNodeKey();
 		mEvent = mFac
 				.createEndElement(pRTX.getQName(), new NamespaceIterator(pRTX));
@@ -185,8 +183,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @param pRTX
 	 *          sirix reading transaction {@link INodeReadTrx}.
 	 */
-	private void emitNode(final INodeReadTrx pRTX) {
-		assert pRTX != null;
+	private void emitNode(final @Nonnull INodeReadTrx pRTX) {
 		switch (pRTX.getKind()) {
 		case DOCUMENT_ROOT:
 			mEvent = mFac.createStartDocument();
@@ -200,6 +197,13 @@ public final class StAXSerializer implements XMLEventReader {
 			break;
 		case TEXT:
 			mEvent = mFac.createCharacters(XMLToken.escapeContent(pRTX.getValue()));
+			break;
+		case COMMENT:
+			mEvent = mFac.createComment(XMLToken.escapeContent(pRTX.getValue()));
+			break;
+		case PROCESSING:
+			mEvent = mFac.createProcessingInstruction(pRTX.getQName().getLocalPart(),
+					pRTX.getValue());
 			break;
 		default:
 			throw new IllegalStateException("Kind not known!");
@@ -398,6 +402,8 @@ public final class StAXSerializer implements XMLEventReader {
 		case ELEMENT:
 			emitEndTag(mAxis.getTransaction());
 			break;
+		case PROCESSING:
+		case COMMENT:
 		case TEXT:
 			emitNode(mAxis.getTransaction());
 			break;
