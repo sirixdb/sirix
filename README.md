@@ -41,6 +41,9 @@ Saxon interface (use Saxon to query data):
 
 Other modules are currently not available (namely the GUI, the distributed package) due to dependencies to processing.org which isn't available from a maven repository and other dependencies.
 
+##API Examples
+(Currently) a small set of API-examples is provided in the wiki: https://github.com/JohannesLichtenberger/sirix/wiki/Simple-usage.
+
 ##Mailinglist
 Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-users to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
