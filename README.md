@@ -50,9 +50,9 @@ Any questions or even consider to contribute or use Sirix? Use https://groups.go
 ##Content
 
 * README:					this readme file
-* LICENSE:	 				license file
+* LICENSE:	 			license file
 * bundles					all available bundles
-* pom.xml:					Simple pom (yes we do use Maven)
+* pom.xml:				Simple pom (yes we do use Maven)
 
 ##Further information
 
