@@ -13,7 +13,7 @@ Note that it is based on Treetank (http://treetank.org / http://github.com/disy/
 [![Build Status](https://secure.travis-ci.org/JohannesLichtenberger/sirix.png)](http://travis-ci.org/JohannesLichtenberger/sirix)
 
 ##Maven artifacts
-Maven artifacts are deployed to the OSS nexus repository. Currently the following artifacts are available:
+Maven artifacts are deployed to the central maven repository. Currently the following artifacts are available:
 
 Core project:
 <pre><code>&lt;dependency&gt;
