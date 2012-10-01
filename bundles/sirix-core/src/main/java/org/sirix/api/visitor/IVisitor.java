@@ -51,7 +51,7 @@ public interface IVisitor {
    * @param pNode
    *          the {@link ImmutablePI}
    */
-  EVisitResult visit(@Nonnull final ImmutablePI pNode);
+  IVisitResult visit(@Nonnull final ImmutablePI pNode);
   
   /**
    * Do something when visiting a {@link ImmutableComment}.
@@ -59,7 +59,7 @@ public interface IVisitor {
    * @param pNode
    *          the {@link ImmutableComment}
    */
-  EVisitResult visit(@Nonnull final ImmutableComment pNode);
+  IVisitResult visit(@Nonnull final ImmutableComment pNode);
 	
   /**
    * Do something when visiting an {@link ImmutableElement}.
@@ -67,7 +67,7 @@ public interface IVisitor {
    * @param pNode
    *          the {@link ImmutableElement}
    */
-  EVisitResult visit(@Nonnull final ImmutableElement pNode);
+  IVisitResult visit(@Nonnull final ImmutableElement pNode);
 
   /**
    * Do something when visiting a {@link ImmutableAttribute}.
@@ -75,7 +75,7 @@ public interface IVisitor {
    * @param pNode
    *          the {@link ImmutableAttribute}
    */
-  EVisitResult visit(@Nonnull final ImmutableAttribute pNode);
+  IVisitResult visit(@Nonnull final ImmutableAttribute pNode);
 
   /**ImmutableDocumentRoot
    * Do something when visiting a {@link ImmutableNamespace}.
@@ -83,7 +83,7 @@ public interface IVisitor {
    * @param pNode
    *          the {@link ImmutableNamespace}
    */
-  EVisitResult visit(@Nonnull final ImmutableNamespace pNode);
+  IVisitResult visit(@Nonnull final ImmutableNamespace pNode);
 
   /**
    * Do something when visiting a {@link ImmutableText}.
@@ -91,7 +91,7 @@ public interface IVisitor {
    * @param pNode
    *          the {@link ImmutableText}
    */
-  EVisitResult visit(@Nonnull final ImmutableText pNode);
+  IVisitResult visit(@Nonnull final ImmutableText pNode);
 
   /**
    * Do something when visiting the {@link ImmutableDocument}.
@@ -99,5 +99,5 @@ public interface IVisitor {
    * @param pNode
    *          the {@link ImmutableDocument}
    */
-  EVisitResult visit(@Nonnull final ImmutableDocument pNode);
+  IVisitResult visit(@Nonnull final ImmutableDocument pNode);
 }

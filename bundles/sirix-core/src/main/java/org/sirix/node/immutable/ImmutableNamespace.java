@@ -5,14 +5,12 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.EKind;
 import org.sirix.node.NamespaceNode;
-import org.sirix.node.PINode;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
 
 /**
  * Immutable namespace node wrapper.
@@ -62,7 +60,7 @@ public class ImmutableNamespace implements INameNode {
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+	public IVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
 		return pVisitor.visit(this);
 	}
 

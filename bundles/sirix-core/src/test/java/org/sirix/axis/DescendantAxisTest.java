@@ -33,6 +33,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
+import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.EFixed;
 

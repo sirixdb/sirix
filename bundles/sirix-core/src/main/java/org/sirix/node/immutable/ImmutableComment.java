@@ -6,10 +6,9 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.CommentNode;
-import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
@@ -63,7 +62,7 @@ public class ImmutableComment implements IValNode, IStructNode {
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
+	public IVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
 		return pVisitor.visit(this);
 	}
 

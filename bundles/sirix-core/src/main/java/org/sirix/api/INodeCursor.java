@@ -5,6 +5,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
 import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.EKind;
 
@@ -152,7 +153,7 @@ public interface INodeCursor extends AutoCloseable {
 	 *          {@link IVisitor} implementation
 	 * @return {@link EVisitResult} value
 	 */
-	EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor);
+	IVisitResult acceptVisitor(@Nonnull IVisitor pVisitor);
 
 	/**
 	 * Get unique node key, that is the unique ID of the currently selected node.

@@ -30,6 +30,7 @@ package org.sirix.access;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.immutable.ImmutableAttribute;
 import org.sirix.node.immutable.ImmutableComment;
@@ -79,37 +80,37 @@ import org.sirix.node.immutable.ImmutableText;
  */
 public abstract class AbsVisitorSupport implements IVisitor {
   @Override
-  public EVisitResult visit(@Nonnull final ImmutablePI pNode) {
+  public IVisitResult visit(@Nonnull final ImmutablePI pNode) {
     return EVisitResult.CONTINUE;
   }
   
   @Override
-  public EVisitResult visit(@Nonnull final ImmutableComment pNode) {
+  public IVisitResult visit(@Nonnull final ImmutableComment pNode) {
     return EVisitResult.CONTINUE;
   }
   
   @Override
-  public EVisitResult visit(@Nonnull final ImmutableElement pNode) {
+  public IVisitResult visit(@Nonnull final ImmutableElement pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final ImmutableText pNode) {
+  public IVisitResult visit(@Nonnull final ImmutableText pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final ImmutableDocument pNode) {
+  public IVisitResult visit(@Nonnull final ImmutableDocument pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final ImmutableAttribute pNode) {
+  public IVisitResult visit(@Nonnull final ImmutableAttribute pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final ImmutableNamespace pNode) {
+  public IVisitResult visit(@Nonnull final ImmutableNamespace pNode) {
     return EVisitResult.CONTINUE;
   }
 }

@@ -28,13 +28,12 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -43,6 +42,8 @@ import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.immutable.ImmutableAttribute;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.IValNode;
+
+import com.google.common.base.Objects;
 
 /**
  * <h1>AttributeNode</h1>
@@ -88,7 +89,7 @@ public final class AttributeNode extends AbsForwardingNode implements IValNode,
   }
 
   @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
+  public IVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return pVisitor.visit(ImmutableAttribute.of(this));
   }
 

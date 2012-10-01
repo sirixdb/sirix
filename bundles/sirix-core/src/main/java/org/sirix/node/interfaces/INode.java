@@ -30,7 +30,7 @@ package org.sirix.node.interfaces;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 
 /**
@@ -73,7 +73,7 @@ public interface INode extends INodeBase {
    *          implementation of the {@link IVisitor} interface
    * @return the result of a visit
    */
-  EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor);
+  IVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor);
   
   /**
    * Setting the actual hash of the structure. The hash of one node should

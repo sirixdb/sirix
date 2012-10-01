@@ -7,10 +7,9 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.sirix.api.IItemList;
-import org.sirix.api.INodeCursor;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -285,7 +284,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+	public IVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
 		return delegate().acceptVisitor(pVisitor);
 	}
 

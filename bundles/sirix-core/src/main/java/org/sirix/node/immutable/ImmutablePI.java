@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.EKind;
 import org.sirix.node.PINode;
@@ -57,12 +57,11 @@ public class ImmutablePI implements IValNode, INameNode, IStructNode {
 
 	@Override
 	public boolean isSameItem(@Nullable INode pOther) {
-		// TODO Auto-generated method stub
-		return false;
+		return mNode.isSameItem(pOther);
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+	public IVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
 		return pVisitor.visit(this);
 	}
 

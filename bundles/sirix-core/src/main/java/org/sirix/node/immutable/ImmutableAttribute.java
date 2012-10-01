@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.EKind;
@@ -61,7 +61,7 @@ public class ImmutableAttribute implements IValNode, INameNode {
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+	public IVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
 		return pVisitor.visit(this);
 	}
 

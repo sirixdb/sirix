@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -96,7 +96,7 @@ public final class NamespaceNode extends AbsForwardingNode implements INameNode 
   }
 
   @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
+  public IVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
   	return pVisitor.visit(ImmutableNamespace.of(this));
   }
 

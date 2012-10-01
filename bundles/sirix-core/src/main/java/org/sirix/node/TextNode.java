@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -104,7 +104,7 @@ public final class TextNode extends AbsStructForwardingNode implements IValNode 
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
+	public IVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
 		return pVisitor.visit(ImmutableText.of(this));
 	}
 

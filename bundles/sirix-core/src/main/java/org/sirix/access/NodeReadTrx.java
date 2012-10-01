@@ -42,7 +42,7 @@ import org.sirix.api.IItemList;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.IPageReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -630,7 +630,7 @@ final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
+	public IVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
 		assertNotClosed();
 		return mCurrentNode.acceptVisitor(pVisitor);
 	}

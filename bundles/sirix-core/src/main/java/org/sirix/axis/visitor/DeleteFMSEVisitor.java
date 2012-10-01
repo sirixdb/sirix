@@ -1,4 +1,4 @@
-package org.sirix.diff.algorithm.fmse;
+package org.sirix.axis.visitor;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -12,8 +12,9 @@ import javax.annotation.Nonnull;
 import org.sirix.access.AbsVisitorSupport;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.IVisitResult;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.VisitorDescendantAxis;
+import org.sirix.diff.algorithm.fmse.Matching;
 import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
 import org.sirix.node.immutable.ImmutableElement;
@@ -64,10 +65,10 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final ImmutableElement pNode) {
+  public IVisitResult visit(@Nonnull final ImmutableElement pNode) {
     final Long partner = mMatching.partner(pNode.getNodeKey());
     if (partner == null) {
-      EVisitResult retVal = delete(pNode);
+      IVisitResult retVal = delete(pNode);
       if (pNode.getNodeKey() == mStartKey) {
         retVal = EVisitResult.TERMINATE;
       }
@@ -110,10 +111,10 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final ImmutableText pNode) {
+  public IVisitResult visit(@Nonnull final ImmutableText pNode) {
     final Long partner = mMatching.partner(pNode.getNodeKey());
     if (partner == null) {
-      EVisitResult retVal = delete(pNode);
+      IVisitResult retVal = delete(pNode);
       if (pNode.getNodeKey() == mStartKey) {
         retVal = EVisitResult.TERMINATE;
       }
@@ -133,7 +134,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
    *          the node to check and possibly delete
    * @return {@code EVisitResult} how to move the transaction subsequently
    */
-  private EVisitResult delete(@Nonnull final INode pNode) {
+  private IVisitResult delete(@Nonnull final INode pNode) {
     try {
       mWtx.moveTo(pNode.getNodeKey());
 			final long nodeKey = mWtx.getNodeKey();
@@ -157,7 +158,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
 					mWtx.moveTo(nodeKey);
 					mWtx.remove();
 					assert mWtx.getNodeKey() == parentNodeKey;
-					return EVisitResult.SKIPSUBTREEPOPSTACK;
+					return ELocalVisitResult.SKIPSUBTREEPOPSTACK;
 				}
 			}
 			mWtx.moveTo(nodeKey);
