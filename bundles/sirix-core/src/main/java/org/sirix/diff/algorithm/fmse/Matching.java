@@ -186,13 +186,13 @@ public final class Matching {
         for (int i = 0, nspCount = mRtxOld.getNamespaceCount(); i < nspCount; i++) {
           mRtxOld.moveToNamespace(i);
           retVal +=
-            mIsInSubtree.get(pNodeY, partner(axis.getTransaction().getNodeKey())) ? 1 : 0;
+            mIsInSubtree.get(pNodeY, partner(axis.getTrx().getNodeKey())) ? 1 : 0;
           mRtxOld.moveToParent();
         }
         for (int i = 0, attCount = mRtxOld.getAttributeCount(); i < attCount; i++) {
           mRtxOld.moveToAttribute(i);
           retVal +=
-            mIsInSubtree.get(pNodeY, partner(axis.getTransaction().getNodeKey())) ? 1 : 0;
+            mIsInSubtree.get(pNodeY, partner(axis.getTrx().getNodeKey())) ? 1 : 0;
           mRtxOld.moveToParent();
         }
       }

@@ -112,8 +112,8 @@ public class CastableExpr extends AbsExpression {
     if (mSourceExpr.hasNext()) { // result sequence > 0
       mKey = mSourceExpr.next();
 
-      final Type sourceType = Type.getType(getTransaction().getTypeKey());
-      final String sourceValue = getTransaction().getValue();
+      final Type sourceType = Type.getType(getTrx().getTypeKey());
+      final String sourceValue = getTrx().getValue();
 
       // determine castability
       isCastable = sourceType.isCastableTo(mTargetType, sourceValue);
@@ -133,8 +133,8 @@ public class CastableExpr extends AbsExpression {
 
     // create result item and move transaction to it.
     final int mItemKey =
-      getTransaction().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(isCastable)), getTransaction().keyForName(
+      getTrx().getItemList().addItem(
+        new AtomicValue(TypedValue.getBytes(Boolean.toString(isCastable)), getTrx().keyForName(
           "xs:boolean")));
     mKey = mItemKey;
   }

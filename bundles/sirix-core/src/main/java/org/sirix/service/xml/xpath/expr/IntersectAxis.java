@@ -104,18 +104,18 @@ public class IntersectAxis extends AbsAxis {
     // store all item keys of the first sequence to the set.
     while (mOp1.hasNext()) {
       mKey = mOp1.next();
-      if (getTransaction().getNodeKey() < 0) { // only nodes are
+      if (getTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
 
-      mDupSet.add(getTransaction().getNodeKey());
+      mDupSet.add(getTrx().getNodeKey());
     }
 
     while (mOp2.hasNext()) {
       mKey = mOp2.next();
 
-      if (getTransaction().getNodeKey() < 0) { // only nodes are
+      if (getTrx().getNodeKey() < 0) { // only nodes are
         // allowed
         throw new XPathError(ErrorType.XPTY0004);
       }
@@ -123,7 +123,7 @@ public class IntersectAxis extends AbsAxis {
       // return true, if item key is already in the set -> item is
       // contained in
       // both input sequences.
-      if (!mDupSet.add(getTransaction().getNodeKey())) {
+      if (!mDupSet.add(getTrx().getNodeKey())) {
         return true;
       }
     }

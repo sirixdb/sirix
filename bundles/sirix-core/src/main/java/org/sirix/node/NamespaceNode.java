@@ -27,9 +27,7 @@
 
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -38,7 +36,10 @@ import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
+import org.sirix.node.immutable.ImmutableNamespace;
 import org.sirix.node.interfaces.INameNode;
+
+import com.google.common.base.Objects;
 
 /**
  * <h1>NamespaceNode</h1>
@@ -96,7 +97,7 @@ public final class NamespaceNode extends AbsForwardingNode implements INameNode 
 
   @Override
   public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-    return pVisitor.visit(this);
+  	return pVisitor.visit(ImmutableNamespace.of(this));
   }
 
   @Override

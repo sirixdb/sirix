@@ -93,11 +93,11 @@ public final class AncestorAxis extends AbsAxis {
       return true;
     }
 
-    if (getTransaction().getKind() != EKind.DOCUMENT_ROOT
-      && getTransaction().hasParent()
-      && getTransaction().getParentKey() != EFixed.DOCUMENT_NODE_KEY
+    if (getTrx().getKind() != EKind.DOCUMENT_ROOT
+      && getTrx().hasParent()
+      && getTrx().getParentKey() != EFixed.DOCUMENT_NODE_KEY
         .getStandardProperty()) {
-      mKey = getTransaction().getParentKey();
+      mKey = getTrx().getParentKey();
       return true;
     }
     resetToStartKey();

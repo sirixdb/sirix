@@ -107,8 +107,8 @@ public class EveryExpr extends AbsExpression {
       }
     }
     final int mItemKey =
-      getTransaction().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)), getTransaction().keyForName(
+      getTrx().getItemList().addItem(
+        new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)), getTrx().keyForName(
           "xs:boolean")));
     mKey = mItemKey;
 

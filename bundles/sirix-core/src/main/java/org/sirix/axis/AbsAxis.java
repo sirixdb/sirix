@@ -39,6 +39,7 @@ import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeCursor;
 import org.sirix.api.visitor.IVisitor;
+import org.sirix.settings.EFixed;
 
 /**
  * <h1>AbsAxis</h1>
@@ -152,7 +153,7 @@ public abstract class AbsAxis implements IAxis {
 	 * @return the {@link INodeReadTrx} used
 	 */
 	@Override
-	public INodeReadTrx getTransaction() {
+	public INodeReadTrx getTrx() {
 		if (mRtx instanceof INodeReadTrx) {
 			return (INodeReadTrx) mRtx;
 		} else {
@@ -241,7 +242,7 @@ public abstract class AbsAxis implements IAxis {
 	@Override
 	public synchronized final long nextNode() {
 		synchronized (mRtx) {
-			long retVal = -1;
+			long retVal = EFixed.NULL_NODE_KEY.getStandardProperty();
 			if (hasNext()) {
 				retVal = next();
 			}

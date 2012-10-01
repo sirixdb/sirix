@@ -28,7 +28,6 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -37,7 +36,11 @@ import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.immutable.ImmutableAttribute;
+import org.sirix.node.immutable.ImmutableDocument;
 import org.sirix.node.interfaces.IStructNode;
+
+import com.google.common.base.Objects;
 
 /**
  * <h1>DocumentNode</h1>
@@ -64,7 +67,7 @@ public final class DocumentRootNode extends AbsStructForwardingNode implements
    * @param pStructDel
    *          {@link StructNodeDelegate} reference
    */
-  public DocumentRootNode(@Nonnull final NodeDelegate pNodeDel,
+  public DocumentRootNode(final @Nonnull NodeDelegate pNodeDel,
     @Nonnull final StructNodeDelegate pStructDel) {
     mNodeDel = checkNotNull(pNodeDel);
     mStructNodeDel = checkNotNull(pStructDel);
@@ -76,8 +79,8 @@ public final class DocumentRootNode extends AbsStructForwardingNode implements
   }
 
   @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-    return pVisitor.visit(this);
+  public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
+  	return pVisitor.visit(ImmutableDocument.of(this));
   }
 
   @Override

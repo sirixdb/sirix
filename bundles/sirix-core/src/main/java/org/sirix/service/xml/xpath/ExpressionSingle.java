@@ -91,7 +91,7 @@ public class ExpressionSingle {
   public void add(final IAxis pAx) {
     IAxis axis = pAx;
       if (isDupOrd(axis)) {
-        axis = new DupFilterAxis(axis.getTransaction(), axis);
+        axis = new DupFilterAxis(axis.getTrx(), axis);
         DupState.nodup = true;
       }
 

@@ -73,13 +73,13 @@ public class FNPosition extends AbsFunction {
   @Override
   protected byte[] computeResult() {
     Integer position = 0;
-    final long currentNode = getTransaction().getNodeKey();
-    getTransaction().moveToParent();
-    getTransaction().moveToFirstChild();
+    final long currentNode = getTrx().getNodeKey();
+    getTrx().moveToParent();
+    getTrx().moveToFirstChild();
     do {
       position++;
-      getTransaction().moveToRightSibling();
-    } while (getTransaction().getNodeKey() != currentNode);
+      getTrx().moveToRightSibling();
+    } while (getTrx().getNodeKey() != currentNode);
 
     return TypedValue.getBytes(position.toString());
   }

@@ -63,7 +63,7 @@ public class NodeComp extends AbsComparator {
   @Override
   protected AtomicValue[] atomize(final IAxis mOperand) throws SirixXPathException {
 
-    final INodeReadTrx rtx = getTransaction();
+    final INodeReadTrx rtx = getTrx();
     // store item key as atomic value
     final AtomicValue mAtomized =
       new AtomicValue(TypedValue.getBytes(((Long)rtx.getNodeKey()).toString()), rtx

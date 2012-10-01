@@ -38,9 +38,8 @@ import org.sirix.api.ISession;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
-import org.sirix.node.TextNode;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.immutable.ImmutableElement;
+import org.sirix.node.immutable.ImmutableText;
 
 /**
  * Initialize data structures.
@@ -82,15 +81,15 @@ public final class FMSEVisitor extends AbsVisitorSupport {
 	}
 
 	@Override
-	public EVisitResult visit(@Nonnull final ElementNode pNode) {
+	public EVisitResult visit(@Nonnull final ImmutableElement pNode) {
 		final long nodeKey = pNode.getNodeKey();
 		mRtx.moveTo(nodeKey);
-		for (int i = 0; i < pNode.getAttributeCount(); i++) {
+		for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
 			mRtx.moveToAttribute(i);
 			fillStructuralDataStructures();
 			mRtx.moveTo(nodeKey);
 		}
-		for (int i = 0; i < pNode.getNamespaceCount(); i++) {
+		for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
 			mRtx.moveToNamespace(i);
 			fillStructuralDataStructures();
 			mRtx.moveTo(nodeKey);
@@ -130,7 +129,7 @@ public final class FMSEVisitor extends AbsVisitorSupport {
 	}
 
 	@Override
-	public EVisitResult visit(@Nonnull final TextNode pNode) {
+	public EVisitResult visit(@Nonnull final ImmutableText pNode) {
 		final long nodeKey = pNode.getNodeKey();
 		mRtx.moveTo(nodeKey);
 		mInOrder.put(mRtx.getNodeKey(), false);

@@ -85,7 +85,7 @@ public final class PostOrderAxis extends AbsAxis {
 		}
 
 		resetToLastKey();
-		final INodeReadTrx rtx = (INodeReadTrx) getTransaction();
+		final INodeReadTrx rtx = (INodeReadTrx) getTrx();
 		
 		// No subtree.
 		if (!rtx.hasFirstChild() && rtx.getNodeKey() == getStartKey()
@@ -105,11 +105,11 @@ public final class PostOrderAxis extends AbsAxis {
 		if ((!mMovedToParent && rtx.hasFirstChild())
 				|| (rtx.hasRightSibling() && (rtx.moveToRightSibling() != null))) {
 			while (rtx.hasFirstChild()) {
-				getTransaction().moveTo(rtx.getFirstChildKey());
+				getTrx().moveTo(rtx.getFirstChildKey());
 			}
 
 			mKey = rtx.getNodeKey();
-			getTransaction().moveTo(currKey);
+			getTrx().moveTo(currKey);
 			return true;
 		}
 
@@ -139,7 +139,7 @@ public final class PostOrderAxis extends AbsAxis {
 		}
 
 		// Move back to current node.
-		getTransaction().moveTo(currKey);
+		getTrx().moveTo(currKey);
 		return true;
 	}
 

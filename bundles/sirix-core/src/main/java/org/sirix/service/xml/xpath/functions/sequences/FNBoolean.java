@@ -85,7 +85,7 @@ public class FNBoolean extends AbsFunction {
     if (axis.hasNext()) {
       mKey = axis.next();
 
-      final INodeReadTrx rtx = axis.getTransaction();
+      final INodeReadTrx rtx = axis.getTrx();
 
       if (rtx.getNodeKey() >= 0) { // first item is a real node
                                              // ->

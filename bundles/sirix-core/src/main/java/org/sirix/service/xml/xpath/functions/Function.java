@@ -49,13 +49,13 @@ public class Function {
     final List<IAxis> param = new ArrayList<IAxis>();
     param.add(axis);
     final AbsAxis bAxis =
-      new FNBoolean(axis.getTransaction(), param, ebv.getMin(), ebv.getMax(), axis.getTransaction()
+      new FNBoolean(axis.getTrx(), param, ebv.getMin(), ebv.getMax(), axis.getTrx()
         .keyForName(ebv.getReturnType()));
     if (bAxis.hasNext()) {
       bAxis.next();
-      final boolean result = Boolean.parseBoolean(bAxis.getTransaction().getValue());
+      final boolean result = Boolean.parseBoolean(bAxis.getTrx().getValue());
       if (!bAxis.hasNext()) {
-        bAxis.reset(axis.getTransaction().getNodeKey());
+        bAxis.reset(axis.getTrx().getNodeKey());
 
         return result;
       }

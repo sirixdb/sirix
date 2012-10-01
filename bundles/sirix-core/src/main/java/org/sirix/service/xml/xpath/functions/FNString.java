@@ -119,24 +119,24 @@ public class FNString extends AbsFunction {
   private String getStrValue() {
     final StringBuilder value = new StringBuilder();
 
-    if (getTransaction().getNodeKey() >= 0) { // is node
-      if (getTransaction().getKind() == EKind.ATTRIBUTE || getTransaction().getKind() == EKind.TEXT) {
-        value.append(getTransaction().getValue());
-      } else if (getTransaction().getKind() == EKind.DOCUMENT_ROOT || getTransaction().getKind() == EKind.ELEMENT) {
+    if (getTrx().getNodeKey() >= 0) { // is node
+      if (getTrx().getKind() == EKind.ATTRIBUTE || getTrx().getKind() == EKind.TEXT) {
+        value.append(getTrx().getValue());
+      } else if (getTrx().getKind() == EKind.DOCUMENT_ROOT || getTrx().getKind() == EKind.ELEMENT) {
         final IAxis axis =
-          new FilterAxis(new DescendantAxis(getTransaction()), new TextFilter(getTransaction()));
+          new FilterAxis(new DescendantAxis(getTrx()), new TextFilter(getTrx()));
         while (axis.hasNext()) {
           axis.next();
           if (value.length() > 0) {
             value.append(" ");
           }
-          value.append(getTransaction().getValue());
+          value.append(getTrx().getValue());
         }
       } else {
         throw new IllegalStateException();
       }
     } else {
-      value.append(getTransaction().getValue());
+      value.append(getTrx().getValue());
     }
 
     return value.toString();

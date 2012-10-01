@@ -1,13 +1,12 @@
 package org.sirix.node;
 
-import com.google.common.collect.ForwardingObject;
-
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.INodeBase;
+
+import com.google.common.collect.ForwardingObject;
 
 /**
  * Skeletal implementation of {@link INode} interface.

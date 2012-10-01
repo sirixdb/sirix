@@ -10,6 +10,7 @@ import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.immutable.ImmutableComment;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.node.interfaces.IValNode;
@@ -76,7 +77,7 @@ public class CommentNode extends AbsStructForwardingNode implements IValNode {
 
 	@Override
 	public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
-		return pVisitor.visit(this);
+		return pVisitor.visit(ImmutableComment.of(this));
 	}
 
 	@Override

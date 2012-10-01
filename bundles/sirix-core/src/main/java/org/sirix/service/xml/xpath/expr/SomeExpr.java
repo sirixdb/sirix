@@ -106,9 +106,9 @@ public class SomeExpr extends AbsExpression {
     }
 
     final int itemKey =
-      getTransaction().getItemList().addItem(
+      getTrx().getItemList().addItem(
         new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
-          getTransaction().keyForName("xs:boolean")));
+          getTrx().keyForName("xs:boolean")));
     mKey = itemKey;
 
   }

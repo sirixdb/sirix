@@ -214,7 +214,7 @@ public final class StAXSerializer implements XMLEventReader {
 	public void close() throws XMLStreamException {
 		if (mCloseRtx) {
 			try {
-				mAxis.getTransaction().close();
+				mAxis.getTrx().close();
 			} catch (final SirixException e) {
 				throw new XMLStreamException(e);
 			}
@@ -223,7 +223,7 @@ public final class StAXSerializer implements XMLEventReader {
 
 	@Override
 	public String getElementText() throws XMLStreamException {
-		final INodeReadTrx rtx = mAxis.getTransaction();
+		final INodeReadTrx rtx = mAxis.getTrx();
 		final long nodeKey = rtx.getNodeKey();
 
 		/*
@@ -292,7 +292,7 @@ public final class StAXSerializer implements XMLEventReader {
 				mKey = mAxis.next();
 
 				if (mNextTag) {
-					if (mAxis.getTransaction().getKind() != EKind.ELEMENT) {
+					if (mAxis.getTrx().getKind() != EKind.ELEMENT) {
 						throw new XMLStreamException(
 								"The next tag isn't a start- or end-tag!");
 					}
@@ -303,7 +303,7 @@ public final class StAXSerializer implements XMLEventReader {
 				mEmitEndDocument = false;
 				mEvent = mFac.createEndDocument();
 			} else {
-				emit(mAxis.getTransaction());
+				emit(mAxis.getTrx());
 			}
 		} catch (final IOException e) {
 			throw new IllegalStateException(e);
@@ -321,8 +321,8 @@ public final class StAXSerializer implements XMLEventReader {
 
 	@Override
 	public XMLEvent peek() throws XMLStreamException {
-		final long currNodeKey = mAxis.getTransaction().getNodeKey();
-		final INodeReadTrx rtx = mAxis.getTransaction();
+		final long currNodeKey = mAxis.getTrx().getNodeKey();
+		final INodeReadTrx rtx = mAxis.getTrx();
 		try {
 			if (!mHasNext && mEmitEndDocument) {
 				mEvent = mFac.createEndDocument();
@@ -400,12 +400,12 @@ public final class StAXSerializer implements XMLEventReader {
 		assert pNodeKind != null;
 		switch (pNodeKind) {
 		case ELEMENT:
-			emitEndTag(mAxis.getTransaction());
+			emitEndTag(mAxis.getTrx());
 			break;
 		case PROCESSING:
 		case COMMENT:
 		case TEXT:
-			emitNode(mAxis.getTransaction());
+			emitNode(mAxis.getTrx());
 			break;
 		default:
 			// Do nothing.

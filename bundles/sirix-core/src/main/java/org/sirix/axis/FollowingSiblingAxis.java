@@ -77,8 +77,8 @@ public final class FollowingSiblingAxis extends AbsAxis {
        * If the context node is an attribute or namespace node,
        * the following-sibling axis is empty
        */
-      if (getTransaction().getKind() == EKind.ATTRIBUTE
-        || getTransaction().getKind() == EKind.NAMESPACE) {
+      if (getTrx().getKind() == EKind.ATTRIBUTE
+        || getTrx().getKind() == EKind.NAMESPACE) {
         resetToStartKey();
         return false;
       }
@@ -86,8 +86,8 @@ public final class FollowingSiblingAxis extends AbsAxis {
 
     resetToLastKey();
 
-    if (getTransaction().hasRightSibling()) {
-      mKey = getTransaction().getRightSiblingKey();
+    if (getTrx().hasRightSibling()) {
+      mKey = getTrx().getRightSiblingKey();
       return true;
     }
     resetToStartKey();

@@ -99,7 +99,7 @@ public class VariableAxis extends AbsAxis {
    */
   private void notifyObs() {
     for (final VarRefExpr varRef : mVarRefs) {
-      varRef.update(getTransaction().getNodeKey());
+      varRef.update(getTrx().getNodeKey());
     }
   }
 

@@ -72,7 +72,7 @@ public final class PrecedingSiblingAxis extends AbsAxis {
     }
     
     resetToLastKey();
-    final INodeReadTrx rtx = getTransaction();
+    final INodeReadTrx rtx = getTrx();
     if (mIsFirst) {
       mIsFirst = false;
       /*

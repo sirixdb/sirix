@@ -147,9 +147,9 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     super.reset(pNodeKey);
     mRightSiblingKeyStack = new ArrayDeque<Long>();
     if (isSelfIncluded() == EIncludeSelf.YES) {
-      mNextKey = getTransaction().getNodeKey();
+      mNextKey = getTrx().getNodeKey();
     } else {
-      mNextKey = getTransaction().getFirstChildKey();
+      mNextKey = getTrx().getFirstChildKey();
     }
     mExtensionStack = new ArrayDeque<Float>();
     mAngleStack = new ArrayDeque<Float>();
@@ -163,7 +163,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     mExtension = PConstants.TWO_PI;
     mChildExtension = PConstants.TWO_PI;
     mIndex = -1;
-    mDescendantCount = (int)getTransaction().getDescendantCount() + 1;
+    mDescendantCount = (int)getTrx().getDescendantCount() + 1;
     mParDescendantCount = mDescendantCount;
   }
 
@@ -181,17 +181,17 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
       return false;
     }
 
-    getTransaction().moveTo(mNextKey);
+    getTrx().moveTo(mNextKey);
 
     // Fail if the subtree is finished.
-    if (getTransaction().getLeftSiblingKey() == getStartKey()) {
+    if (getTrx().getLeftSiblingKey() == getStartKey()) {
       resetToStartKey();
       return false;
     }
 
     // Always follow first child if there is one.
-    if (getTransaction().hasFirstChild()) {
-      mDescendantCount = (int)(getTransaction().getDescendantCount() + 1);// mDescendants.take().get();
+    if (getTrx().hasFirstChild()) {
+      mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
       if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
         resetToStartKey();
         return false;
@@ -202,9 +202,9 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
         if (mPruning == EPruning.DEPTH && mDepth + 1 >= ITraverseModel.DEPTH_TO_PRUNE) {
           return processPruned();
         } else {
-          mNextKey = getTransaction().getFirstChildKey();
-          if (getTransaction().hasRightSibling()) {
-            mRightSiblingKeyStack.push(getTransaction().getRightSiblingKey());
+          mNextKey = getTrx().getFirstChildKey();
+          if (getTrx().hasRightSibling()) {
+            mRightSiblingKeyStack.push(getTrx().getRightSiblingKey());
           }
           mAngleStack.push(mAngle);
           mExtensionStack.push(mChildExtension);
@@ -218,8 +218,8 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     }
 
     // Then follow right sibling if there is one.
-    if (getTransaction().hasRightSibling()) {
-      mDescendantCount = (int)(getTransaction().getDescendantCount() + 1);// mDescendants.take().get();
+    if (getTrx().hasRightSibling()) {
+      mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
       if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
         resetToStartKey();
         return false;
@@ -235,7 +235,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
 
     // Then follow right sibling on Deque.
     if (!mRightSiblingKeyStack.isEmpty()) {
-      mDescendantCount = (int)(getTransaction().getDescendantCount() + 1);// mDescendants.take().get();
+      mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
       if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
         resetToStartKey();
         return false;
@@ -250,7 +250,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     }
 
     // Then end.
-    mDescendantCount = (int)(getTransaction().getDescendantCount() + 1);// mDescendants.take().get();
+    mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
     if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
       resetToStartKey();
       return false;
@@ -266,7 +266,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
    * Process for next right sibling.
    */
   private void nextRightSibling() {
-    mNextKey = getTransaction().getRightSiblingKey();
+    mNextKey = getTrx().getRightSiblingKey();
     mAngle += mChildExtension;
     mMoved = EMoved.STARTRIGHTSIBL;
   }
@@ -278,11 +278,11 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     assert !mRightSiblingKeyStack.isEmpty();
     mNextKey = mRightSiblingKeyStack.pop();
     mMoved = EMoved.ANCHESTSIBL;
-    final long currNodeKey = getTransaction().getNodeKey();
+    final long currNodeKey = getTrx().getNodeKey();
     boolean first = true;
-    while (!getTransaction().hasRightSibling()
-      && getTransaction().hasParent()
-      && getTransaction().getNodeKey() != mNextKey) {
+    while (!getTrx().hasRightSibling()
+      && getTrx().hasParent()
+      && getTrx().getNodeKey() != mNextKey) {
       if (first) {
         // Do not pop from Deque if it's a leaf node.
         first = false;
@@ -293,17 +293,17 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
         mDescendantsStack.pop();
       }
 
-      getTransaction().moveToParent();
+      getTrx().moveToParent();
       mDepth--;
     }
-    getTransaction().moveTo(currNodeKey);
+    getTrx().moveTo(currNodeKey);
   }
 
   /**
    * Process pruned node.
    */
   private boolean processPruned() {
-    if (getTransaction().hasRightSibling()) {
+    if (getTrx().hasRightSibling()) {
       nextRightSibling();
       return true;
     } else if (!mRightSiblingKeyStack.isEmpty()) {
@@ -323,7 +323,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
       new Item.Builder(mAngle, mExtension, mIndexToParent, mDepth, mDepth).setParentDescendantCount(
         mParDescendantCount).setDescendantCount(mDescendantCount).build();
     mMoved
-      .processMove(getTransaction(), mItem, mAngleStack, mExtensionStack, mParentStack, mDescendantsStack);
+      .processMove(getTrx(), mItem, mAngleStack, mExtensionStack, mParentStack, mDescendantsStack);
     mAngle = mItem.mAngle;
     mExtension = mItem.mExtension;
     mIndexToParent = mItem.mIndexToParent;

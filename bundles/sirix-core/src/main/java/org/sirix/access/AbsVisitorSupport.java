@@ -31,13 +31,13 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.AttributeNode;
-import org.sirix.node.CommentNode;
-import org.sirix.node.DocumentRootNode;
-import org.sirix.node.ElementNode;
-import org.sirix.node.NamespaceNode;
-import org.sirix.node.PINode;
-import org.sirix.node.TextNode;
+import org.sirix.node.immutable.ImmutableAttribute;
+import org.sirix.node.immutable.ImmutableComment;
+import org.sirix.node.immutable.ImmutableDocument;
+import org.sirix.node.immutable.ImmutableElement;
+import org.sirix.node.immutable.ImmutableNamespace;
+import org.sirix.node.immutable.ImmutablePI;
+import org.sirix.node.immutable.ImmutableText;
 
 /**
  * <h1>AbsVisitorSupport</h1>
@@ -52,25 +52,25 @@ import org.sirix.node.TextNode;
  * 
  * <code><pre>
  * final IVisitor visitor = new NamespaceChangeVisitor(session);
- * for (final IAxis axis = new DescendantAxis(rtx, EIncludeSelf.YES); axis.hasNext();) {
+ * for (final IAxis axis = new DescendantAxis.Builder(rtx).includeSelf().build(); axis.hasNext();) {
  *      axis.next();
- *      rtx.getItem().acceptVisitor(visitor);
+ *      rtx.acceptVisitor(visitor);
  * }
  * </pre></code>
  * 
  * <code><pre>
  * final IVisitor visitor = new AbsVisitorSupport(rtx) {
- *      public void visit(final ElementNode pNode) {
+ *      public void visit(final ImmutableElement pNode) {
  *              rtx.moveTo(pNode.getKey());
- *              System.out.println(
- *                      "Element name: " + mRtx.getCurrentQName().getLocalName()
+ *              LOGGER.info(
+ *                      "Element name: " + mRtx.getQName().getLocalName()
  *              );
  *      }     
  * };
  * 
- * for (final AbsAxis axis = new DescendantAxis(rtx); axis.hasNext();) {
+ * for (final IAxis axis = new DescendantAxis(rtx); axis.hasNext();) {
  *      axis.next();
- *      rtx.getItem().acceptVisitor(visitor);
+ *      rtx.acceptVisitor(visitor);
  * }
  * </pre></code>
  * 
@@ -79,37 +79,37 @@ import org.sirix.node.TextNode;
  */
 public abstract class AbsVisitorSupport implements IVisitor {
   @Override
-  public EVisitResult visit(@Nonnull final PINode pNode) {
+  public EVisitResult visit(@Nonnull final ImmutablePI pNode) {
     return EVisitResult.CONTINUE;
   }
   
   @Override
-  public EVisitResult visit(@Nonnull final CommentNode pNode) {
+  public EVisitResult visit(@Nonnull final ImmutableComment pNode) {
     return EVisitResult.CONTINUE;
   }
   
   @Override
-  public EVisitResult visit(@Nonnull final ElementNode pNode) {
+  public EVisitResult visit(@Nonnull final ImmutableElement pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final TextNode pNode) {
+  public EVisitResult visit(@Nonnull final ImmutableText pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final DocumentRootNode pNode) {
+  public EVisitResult visit(@Nonnull final ImmutableDocument pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final AttributeNode pNode) {
+  public EVisitResult visit(@Nonnull final ImmutableAttribute pNode) {
     return EVisitResult.CONTINUE;
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final NamespaceNode pNode) {
+  public EVisitResult visit(@Nonnull final ImmutableNamespace pNode) {
     return EVisitResult.CONTINUE;
   }
 }

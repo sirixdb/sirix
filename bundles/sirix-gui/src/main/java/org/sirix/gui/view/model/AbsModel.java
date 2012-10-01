@@ -404,13 +404,13 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
         // Save found node keys with descendants.
         while (axis.hasNext()) {
           axis.next();
-          final long key = axis.getTransaction().getNodeKey();
+          final long key = axis.getTrx().getNodeKey();
           nodeKeys.add(key);
           // for (final AbsAxis desc = new DescendantAxis(axis.getTransaction()); desc.hasNext(); desc
           // .next()) {
           // nodeKeys.add(desc.getTransaction().getItem().getKey());
           // }
-          axis.getTransaction().moveTo(key);
+          axis.getTrx().moveTo(key);
         }
 
         // Do the work.

@@ -29,13 +29,13 @@ package org.sirix.api.visitor;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.node.AttributeNode;
-import org.sirix.node.CommentNode;
-import org.sirix.node.DocumentRootNode;
-import org.sirix.node.ElementNode;
-import org.sirix.node.NamespaceNode;
-import org.sirix.node.PINode;
-import org.sirix.node.TextNode;
+import org.sirix.node.immutable.ImmutableAttribute;
+import org.sirix.node.immutable.ImmutableComment;
+import org.sirix.node.immutable.ImmutableDocument;
+import org.sirix.node.immutable.ImmutableElement;
+import org.sirix.node.immutable.ImmutableNamespace;
+import org.sirix.node.immutable.ImmutablePI;
+import org.sirix.node.immutable.ImmutableText;
 
 /**
  * Interface which must be implemented from visitors to implement functionality
@@ -46,58 +46,58 @@ import org.sirix.node.TextNode;
  */
 public interface IVisitor {
   /**
-   * Do something when visiting a {@link PINode}.
+   * Do something when visiting a {@link ImmutablePI}.
    * 
    * @param pNode
-   *          the {@link PINode}
+   *          the {@link ImmutablePI}
    */
-  EVisitResult visit(@Nonnull final PINode pNode);
+  EVisitResult visit(@Nonnull final ImmutablePI pNode);
   
   /**
-   * Do something when visiting a {@link CommentNode}.
+   * Do something when visiting a {@link ImmutableComment}.
    * 
    * @param pNode
-   *          the {@link CommentNode}
+   *          the {@link ImmutableComment}
    */
-  EVisitResult visit(@Nonnull final CommentNode pNode);
+  EVisitResult visit(@Nonnull final ImmutableComment pNode);
 	
   /**
-   * Do something when visiting an {@link ElementNode}.
+   * Do something when visiting an {@link ImmutableElement}.
    * 
    * @param pNode
-   *          the {@link ElementNode}
+   *          the {@link ImmutableElement}
    */
-  EVisitResult visit(@Nonnull final ElementNode pNode);
+  EVisitResult visit(@Nonnull final ImmutableElement pNode);
 
   /**
-   * Do something when visiting a {@link AttributeNode}.
+   * Do something when visiting a {@link ImmutableAttribute}.
    * 
    * @param pNode
-   *          the {@link AttributeNode}
+   *          the {@link ImmutableAttribute}
    */
-  EVisitResult visit(@Nonnull final AttributeNode pNode);
+  EVisitResult visit(@Nonnull final ImmutableAttribute pNode);
+
+  /**ImmutableDocumentRoot
+   * Do something when visiting a {@link ImmutableNamespace}.
+   * 
+   * @param pNode
+   *          the {@link ImmutableNamespace}
+   */
+  EVisitResult visit(@Nonnull final ImmutableNamespace pNode);
 
   /**
-   * Do something when visiting a {@link NamespaceNode}.
+   * Do something when visiting a {@link ImmutableText}.
    * 
    * @param pNode
-   *          the {@link NamespaceNode}
+   *          the {@link ImmutableText}
    */
-  EVisitResult visit(@Nonnull final NamespaceNode pNode);
+  EVisitResult visit(@Nonnull final ImmutableText pNode);
 
   /**
-   * Do something when visiting a {@link TextNode}.
+   * Do something when visiting the {@link ImmutableDocument}.
    * 
    * @param pNode
-   *          the {@link ElementNode}
+   *          the {@link ImmutableDocument}
    */
-  EVisitResult visit(@Nonnull final TextNode pNode);
-
-  /**
-   * Do something when visiting the {@link DocumentRootNode}.
-   * 
-   * @param pNode
-   *          the {@link DocumentRootNode}
-   */
-  EVisitResult visit(@Nonnull final DocumentRootNode pNode);
+  EVisitResult visit(@Nonnull final ImmutableDocument pNode);
 }

@@ -59,7 +59,7 @@ public final class FilterAxis extends AbsAxis {
    */
   public FilterAxis(@Nonnull final IAxis pAxis,
     @Nonnull final IFilter pFirstAxisTest, @Nonnull final IFilter... pAxisTest) {
-    super(pAxis.getTransaction());
+    super(pAxis.getTrx());
     mAxis = pAxis;
     final int length = pAxisTest.length == 0 ? 1 : pAxisTest.length + 1;
     mAxisFilter = new IFilter[length];

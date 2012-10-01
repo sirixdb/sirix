@@ -81,7 +81,7 @@ public final class PrecedingAxis extends AbsAxis {
       return true;
     }
     
-		final INodeReadTrx rtx = getTransaction();
+		final INodeReadTrx rtx = getTrx();
 		
     // Assure, that preceding is not evaluated on an attribute or a namespace.
     if (mIsFirst) {
@@ -105,7 +105,7 @@ public final class PrecedingAxis extends AbsAxis {
     }
 
     if (rtx.hasLeftSibling()) {
-      getTransaction().moveToLeftSibling();
+      getTrx().moveToLeftSibling();
       /*
        * Because this axis return the precedings in reverse document
        * order, we need to iterate to the node in the subtree, that comes last in
@@ -113,19 +113,19 @@ public final class PrecedingAxis extends AbsAxis {
        */
       getLastChild();
       mKey = rtx.getNodeKey();
-      getTransaction().moveTo(key);
+      getTrx().moveTo(key);
       return true;
     }
 
     while (rtx.hasParent()) {
       // Ancestors are not part of the preceding set.
-      getTransaction().moveToParent();
+      getTrx().moveToParent();
       if (rtx.hasLeftSibling()) {
-        getTransaction().moveToLeftSibling();
+        getTrx().moveToLeftSibling();
         // Move to last node in the subtree.
         getLastChild();
         mKey = rtx.getNodeKey();
-        getTransaction().moveTo(key);
+        getTrx().moveTo(key);
         return true;
       }
     }
@@ -142,7 +142,7 @@ public final class PrecedingAxis extends AbsAxis {
    */
   private void getLastChild() {
   	
-  	final INodeReadTrx rtx = getTransaction();
+  	final INodeReadTrx rtx = getTrx();
   	
     // Nodekey of the root of the current subtree.
     final long parent = rtx.getNodeKey();
@@ -154,7 +154,7 @@ public final class PrecedingAxis extends AbsAxis {
     if (rtx.hasFirstChild()) {
       while (rtx.hasFirstChild()) {
         mStack.push(rtx.getNodeKey());
-        getTransaction().moveToFirstChild();
+        getTrx().moveToFirstChild();
       }
 
       /*
@@ -163,7 +163,7 @@ public final class PrecedingAxis extends AbsAxis {
        */
       while (rtx.hasRightSibling()) {
         mStack.push(rtx.getNodeKey());
-        getTransaction().moveToRightSibling();
+        getTrx().moveToRightSibling();
         getLastChild();
       }
 
@@ -178,14 +178,14 @@ public final class PrecedingAxis extends AbsAxis {
         while (rtx.hasParent()
           && (rtx.getParentKey() != parent)) {
 
-          getTransaction().moveToParent();
+          getTrx().moveToParent();
 
           /*
            * Traverse all the siblings of the leftmost leave and all
            * their descendants and push all of them to the stack
            */
           while (rtx.hasRightSibling()) {
-            getTransaction().moveToRightSibling();
+            getTrx().moveToRightSibling();
             getLastChild();
             mStack.push(rtx.getNodeKey());
           }
@@ -195,7 +195,7 @@ public final class PrecedingAxis extends AbsAxis {
          * Set transaction to the node in the subtree that is last in
          * document order.
          */
-        getTransaction().moveTo(mStack.pop());
+        getTrx().moveTo(mStack.pop());
       }
     }
   }

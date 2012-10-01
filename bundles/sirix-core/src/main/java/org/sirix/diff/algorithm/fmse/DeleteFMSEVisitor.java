@@ -9,18 +9,18 @@ import java.util.List;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.access.AbsVisitorSupport;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.axis.DescendantAxis;
+import org.sirix.axis.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
-import org.sirix.node.TextNode;
+import org.sirix.node.immutable.ImmutableElement;
+import org.sirix.node.immutable.ImmutableText;
 import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /**
  * Visitor implementation for use with the {@link VisitorDescendantAxis} to delete
@@ -64,7 +64,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final ElementNode pNode) {
+  public EVisitResult visit(@Nonnull final ImmutableElement pNode) {
     final Long partner = mMatching.partner(pNode.getNodeKey());
     if (partner == null) {
       EVisitResult retVal = delete(pNode);
@@ -73,11 +73,12 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
       }
       return retVal;
     } else {
+    	mWtx.moveTo(pNode.getNodeKey());
       final long nodeKey = pNode.getNodeKey();
       final List<Long> keysToDelete =
-        new ArrayList<>(pNode.getAttributeCount()
-          + pNode.getNamespaceCount());
-      for (int i = 0; i < pNode.getAttributeCount(); i++) {
+        new ArrayList<>(mWtx.getAttributeCount()
+          + mWtx.getNamespaceCount());
+      for (int i = 0, attCount = mWtx.getAttributeCount(); i < attCount; i++) {
         mWtx.moveToAttribute(i);
         final long attNodeKey = mWtx.getNodeKey();
         if (mMatching.partner(attNodeKey) == null) {
@@ -85,7 +86,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
         }
         mWtx.moveTo(nodeKey);
       }
-      for (int i = 0; i < pNode.getNamespaceCount(); i++) {
+      for (int i = 0, nspCount = mWtx.getNamespaceCount(); i < nspCount; i++) {
         mWtx.moveToNamespace(i);
         final long namespNodeKey = mWtx.getNodeKey();
         if (mMatching.partner(namespNodeKey) == null) {
@@ -109,7 +110,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
   }
 
   @Override
-  public EVisitResult visit(@Nonnull final TextNode pNode) {
+  public EVisitResult visit(@Nonnull final ImmutableText pNode) {
     final Long partner = mMatching.partner(pNode.getNodeKey());
     if (partner == null) {
       EVisitResult retVal = delete(pNode);

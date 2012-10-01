@@ -72,7 +72,7 @@ public final class ParentAxis extends AbsAxis {
     }
 
     resetToLastKey();
-    final INodeReadTrx rtx = getTransaction();
+    final INodeReadTrx rtx = getTrx();
     if (rtx.getKind() != EKind.DOCUMENT_ROOT && mFirst && rtx.hasParent()
       && rtx.getParentKey() != EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       mFirst = false;

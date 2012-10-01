@@ -71,7 +71,7 @@ public final class ForAxis extends AbsAxis {
    *          the return expression of the for expression
    */
   public ForAxis(@Nonnull final IAxis pRange, @Nonnull final IAxis pReturnExpr) {
-    super(pRange.getTransaction());
+    super(pRange.getTrx());
     mRange = pRange;
     mReturn = pReturnExpr;
     mIsFirst = true;

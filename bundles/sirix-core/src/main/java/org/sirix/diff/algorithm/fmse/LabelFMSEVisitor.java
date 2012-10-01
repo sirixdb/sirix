@@ -41,8 +41,8 @@ import org.sirix.api.ISession;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
-import org.sirix.node.TextNode;
+import org.sirix.node.immutable.ImmutableElement;
+import org.sirix.node.immutable.ImmutableText;
 
 /**
  * Label visitor. Treats empty-elements as internal nodes.
@@ -52,40 +52,41 @@ import org.sirix.node.TextNode;
  */
 public final class LabelFMSEVisitor extends AbsVisitorSupport {
 
-  /** {@link INodeReadTrx} implementation. */
-  private final INodeReadTrx mRtx;
+	/** {@link INodeReadTrx} implementation. */
+	private final INodeReadTrx mRtx;
 
-  /** For each node type: list of inner nodes. */
-  private final Map<EKind, List<Long>> mLabels;
+	/** For each node type: list of inner nodes. */
+	private final Map<EKind, List<Long>> mLabels;
 
-  /** For each node type: list of leaf nodes. */
-  private final Map<EKind, List<Long>> mLeafLabels;
+	/** For each node type: list of leaf nodes. */
+	private final Map<EKind, List<Long>> mLeafLabels;
 
-  /**
-   * Constructor.
-   * 
-   * @param pSession
-   *          {@link ISession} implementation
-   * @throws SirixException
-   *           if setting up sirix fails
-   */
-  public LabelFMSEVisitor(@Nonnull final INodeReadTrx pReadTrx) throws SirixException {
-    mRtx = checkNotNull(pReadTrx);
-    mLabels = new HashMap<>();
-    mLeafLabels = new HashMap<>();
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pSession
+	 *          {@link ISession} implementation
+	 * @throws SirixException
+	 *           if setting up sirix fails
+	 */
+	public LabelFMSEVisitor(@Nonnull final INodeReadTrx pReadTrx)
+			throws SirixException {
+		mRtx = checkNotNull(pReadTrx);
+		mLabels = new HashMap<>();
+		mLeafLabels = new HashMap<>();
+	}
 
-  @Override
-  public EVisitResult visit(@Nonnull final ElementNode pNode) {
+	@Override
+  public EVisitResult visit(@Nonnull final ImmutableElement pNode) {
     final long nodeKey = pNode.getNodeKey();
     mRtx.moveTo(nodeKey);
-    for (int i = 0; i < pNode.getAttributeCount(); i++) {
-      mRtx.moveToAttribute(i);
+    for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
+      mRtx.moveToNamespace(i);
       addLeafLabel();
       mRtx.moveTo(nodeKey);
     }
-    for (int i = 0; i < pNode.getNamespaceCount(); i++) {
-      mRtx.moveToNamespace(i);
+    for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
+      mRtx.moveToAttribute(i);
       addLeafLabel();
       mRtx.moveTo(nodeKey);
     }
@@ -96,39 +97,39 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
     return EVisitResult.CONTINUE;
   }
 
-  @Override
-  public EVisitResult visit(@Nonnull final TextNode pNode) {
-    mRtx.moveTo(pNode.getNodeKey());
-    addLeafLabel();
-    return EVisitResult.CONTINUE;
-  }
+	@Override
+	public EVisitResult visit(@Nonnull final ImmutableText pNode) {
+		mRtx.moveTo(pNode.getNodeKey());
+		addLeafLabel();
+		return EVisitResult.CONTINUE;
+	}
 
-  /**
-   * Add leaf node label.
-   */
-  private void addLeafLabel() {
-    final EKind nodeKind = mRtx.getKind();
-    if (!mLeafLabels.containsKey(nodeKind)) {
-      mLeafLabels.put(nodeKind, new ArrayList<Long>());
-    }
-    mLeafLabels.get(nodeKind).add(mRtx.getNodeKey());
-  }
+	/**
+	 * Add leaf node label.
+	 */
+	private void addLeafLabel() {
+		final EKind nodeKind = mRtx.getKind();
+		if (!mLeafLabels.containsKey(nodeKind)) {
+			mLeafLabels.put(nodeKind, new ArrayList<Long>());
+		}
+		mLeafLabels.get(nodeKind).add(mRtx.getNodeKey());
+	}
 
-  /**
-   * Get labels.
-   * 
-   * @return the Labels
-   */
-  public Map<EKind, List<Long>> getLabels() {
-    return mLabels;
-  }
+	/**
+	 * Get labels.
+	 * 
+	 * @return the Labels
+	 */
+	public Map<EKind, List<Long>> getLabels() {
+		return mLabels;
+	}
 
-  /**
-   * Get leaf labels.
-   * 
-   * @return the leaf labels
-   */
-  public Map<EKind, List<Long>> getLeafLabels() {
-    return mLeafLabels;
-  }
+	/**
+	 * Get leaf labels.
+	 * 
+	 * @return the leaf labels
+	 */
+	public Map<EKind, List<Long>> getLeafLabels() {
+		return mLeafLabels;
+	}
 }

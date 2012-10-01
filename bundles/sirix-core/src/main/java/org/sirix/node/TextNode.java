@@ -37,6 +37,7 @@ import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.immutable.ImmutableText;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.node.interfaces.IValNode;
@@ -104,7 +105,7 @@ public final class TextNode extends AbsStructForwardingNode implements IValNode 
 
 	@Override
 	public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
-		return pVisitor.visit(this);
+		return pVisitor.visit(ImmutableText.of(this));
 	}
 
 	@Override

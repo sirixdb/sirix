@@ -12,6 +12,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.immutable.ImmutablePI;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.IValNode;
 
@@ -62,7 +63,7 @@ public final class PINode extends AbsStructForwardingNode implements IValNode,
 
 	@Override
 	public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
-		return pVisitor.visit(this);
+		return pVisitor.visit(ImmutablePI.of(this));
 	}
 
 	@Override

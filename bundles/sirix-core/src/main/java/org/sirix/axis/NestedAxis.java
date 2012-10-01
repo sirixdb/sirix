@@ -61,7 +61,7 @@ public final class NestedAxis extends AbsAxis {
    */
   public NestedAxis(@Nonnull final IAxis pParentAxis,
     @Nonnull final IAxis pChildAxis) {
-    super(pParentAxis.getTransaction());
+    super(pParentAxis.getTrx());
     mParentAxis = checkNotNull(pParentAxis);
     mChildAxis = checkNotNull(pChildAxis);
     mIsFirst = true;

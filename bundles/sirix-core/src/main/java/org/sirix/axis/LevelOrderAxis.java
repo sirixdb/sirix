@@ -198,7 +198,7 @@ public final class LevelOrderAxis extends AbsAxis {
     }
     resetToLastKey();
 
-    final INodeReadTrx rtx = getTransaction();
+    final INodeReadTrx rtx = getTrx();
     // Determines if it's the first call to hasNext().
     if (mFirst) {
       mFirst = false;
@@ -253,7 +253,7 @@ public final class LevelOrderAxis extends AbsAxis {
       }
 
       // Then follow first child if there is one.
-      if (getTransaction().hasFirstChild()) {
+      if (getTrx().hasFirstChild()) {
         mLevel++;
         
         // End traversal if level is reached.
@@ -262,7 +262,7 @@ public final class LevelOrderAxis extends AbsAxis {
           return false;
         }
         
-        mKey = getTransaction().getFirstChildKey();
+        mKey = getTrx().getFirstChildKey();
         return true;
       }
 
@@ -274,7 +274,7 @@ public final class LevelOrderAxis extends AbsAxis {
 
   /** Process an element node. */
   private void processElement() {
-    final INodeReadTrx rtx = (INodeReadTrx)getTransaction();
+    final INodeReadTrx rtx = (INodeReadTrx)getTrx();
     if (rtx.getKind() == EKind.ELEMENT
       && mIncludeNodes == EIncludeNodes.NONSTRUCTURAL) {
       for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {

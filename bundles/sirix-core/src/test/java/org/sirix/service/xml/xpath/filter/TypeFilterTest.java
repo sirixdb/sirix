@@ -60,7 +60,7 @@ public class TypeFilterTest {
   public void testIFilterConvetions() throws Exception {
 
     final AbsAxis axis = new XPathAxis(holder.getRtx(), "a");
-    final INodeReadTrx xtx = ((INodeReadTrx)axis.getTransaction());
+    final INodeReadTrx xtx = ((INodeReadTrx)axis.getTrx());
 
     xtx.moveTo(9L);
     IFilterTest.testIFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);

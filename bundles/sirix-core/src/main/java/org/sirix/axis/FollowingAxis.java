@@ -79,7 +79,7 @@ public final class FollowingAxis extends AbsAxis {
     // Assure, that preceding is not evaluated on an attribute or a
     // namespace.
     if (mIsFirst) {
-      switch (getTransaction().getKind()) {
+      switch (getTrx().getKind()) {
       case ATTRIBUTE:
       case NAMESPACE:
         resetToStartKey();
@@ -89,7 +89,7 @@ public final class FollowingAxis extends AbsAxis {
     }
 
     resetToLastKey();
-    final long currKey = getTransaction().getNodeKey();
+    final long currKey = getTrx().getNodeKey();
 
     if (mIsFirst) {
       mIsFirst = false;
@@ -99,31 +99,31 @@ public final class FollowingAxis extends AbsAxis {
        * sibling of the first ancestor that has a right sibling. Note:
        * ancestors and descendants are no following node!
        */
-      if (getTransaction().hasRightSibling()) {
-        getTransaction().moveToRightSibling();
-        mKey = getTransaction().getNodeKey();
+      if (getTrx().hasRightSibling()) {
+        getTrx().moveToRightSibling();
+        mKey = getTrx().getNodeKey();
 
-        if (getTransaction().hasRightSibling()) {
+        if (getTrx().hasRightSibling()) {
           // Push right sibling on a stack to reduce path traversal.
-          mRightSiblingStack.push(getTransaction()
+          mRightSiblingStack.push(getTrx()
             .getRightSiblingKey());
         }
 
-        getTransaction().moveTo(currKey);
+        getTrx().moveTo(currKey);
         return true;
       }
       // Try to find the right sibling of one of the ancestors.
-      while (getTransaction().hasParent()) {
-        getTransaction().moveToParent();
-        if (getTransaction().hasRightSibling()) {
-          getTransaction().moveToRightSibling();
-          mKey = getTransaction().getNodeKey();
+      while (getTrx().hasParent()) {
+        getTrx().moveToParent();
+        if (getTrx().hasRightSibling()) {
+          getTrx().moveToRightSibling();
+          mKey = getTrx().getNodeKey();
 
-          if (getTransaction().hasRightSibling()) {
-            mRightSiblingStack.push(getTransaction()
+          if (getTrx().hasRightSibling()) {
+            mRightSiblingStack.push(getTrx()
               .getRightSiblingKey());
           }
-          getTransaction().moveTo(currKey);
+          getTrx().moveTo(currKey);
           return true;
         }
       }
@@ -133,51 +133,51 @@ public final class FollowingAxis extends AbsAxis {
 
     }
     // Step down the tree in document order.
-    if (getTransaction().hasFirstChild()) {
-      getTransaction().moveToFirstChild();
-      mKey = getTransaction().getNodeKey();
+    if (getTrx().hasFirstChild()) {
+      getTrx().moveToFirstChild();
+      mKey = getTrx().getNodeKey();
 
-      if (getTransaction().hasRightSibling()) {
+      if (getTrx().hasRightSibling()) {
         // Push right sibling on a stack to reduce path traversal.
-        mRightSiblingStack.push(getTransaction()
+        mRightSiblingStack.push(getTrx()
           .getRightSiblingKey());
       }
 
-      getTransaction().moveTo(currKey);
+      getTrx().moveTo(currKey);
       return true;
     }
     if (mRightSiblingStack.isEmpty()) {
       // Try to find the right sibling of one of the ancestors.
-      while (getTransaction().hasParent()) {
-        getTransaction().moveToParent();
-        if (getTransaction().hasRightSibling()) {
-          getTransaction().moveToRightSibling();
-          mKey = getTransaction().getNodeKey();
+      while (getTrx().hasParent()) {
+        getTrx().moveToParent();
+        if (getTrx().hasRightSibling()) {
+          getTrx().moveToRightSibling();
+          mKey = getTrx().getNodeKey();
 
-          if (getTransaction().hasRightSibling()) {
+          if (getTrx().hasRightSibling()) {
             // Push right sibling on a stack to reduce path
             // traversal.
-            mRightSiblingStack.push(getTransaction()
+            mRightSiblingStack.push(getTrx()
               .getRightSiblingKey());
           }
 
-          getTransaction().moveTo(currKey);
+          getTrx().moveTo(currKey);
           return true;
         }
       }
 
     } else {
       // Get root key of sibling subtree.
-      getTransaction().moveTo(mRightSiblingStack.pop());
-      mKey = getTransaction().getNodeKey();
+      getTrx().moveTo(mRightSiblingStack.pop());
+      mKey = getTrx().getNodeKey();
 
-      if (getTransaction().hasRightSibling()) {
+      if (getTrx().hasRightSibling()) {
         // Push right sibling on a stack to reduce path traversal.
-        mRightSiblingStack.push(getTransaction()
+        mRightSiblingStack.push(getTrx()
           .getRightSiblingKey());
       }
 
-      getTransaction().moveTo(currKey);
+      getTrx().moveTo(currKey);
       return true;
 
     }

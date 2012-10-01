@@ -19,7 +19,7 @@ public interface IAxis extends Iterator<Long>, Iterable<Long> {
    * 
    * @return the transaction or {@code null}
    */
-  INodeReadTrx getTransaction();
+  INodeReadTrx getTrx();
 
   /**
    * Foreach-iterator using a {@link IVistor}.
@@ -32,7 +32,7 @@ public interface IAxis extends Iterator<Long>, Iterable<Long> {
   /**
    * Thread safe node iterator.
    * 
-   * @return next node key if one is available via the axis or {@code -1} if not
+   * @return next node kind if one is available via the axis or {@code EKing.UNKNOWN} if not
    */
   long nextNode();
 

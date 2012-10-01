@@ -40,6 +40,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
+import org.sirix.node.immutable.ImmutableAttribute;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.IValNode;
 
@@ -88,7 +89,7 @@ public final class AttributeNode extends AbsForwardingNode implements IValNode,
 
   @Override
   public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-    return pVisitor.visit(this);
+    return pVisitor.visit(ImmutableAttribute.of(this));
   }
 
   @Override

@@ -153,7 +153,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		// Visitor.
 		Optional<EVisitResult> result = Optional.absent();
 		if (mVisitor.isPresent()) {
-			result = Optional.fromNullable(getTransaction().acceptVisitor(
+			result = Optional.fromNullable(getTrx().acceptVisitor(
 					mVisitor.get()));
 		}
 
@@ -164,7 +164,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 			return false;
 		}
 
-		final INodeReadTrx rtx = getTransaction();
+		final INodeReadTrx rtx = getTrx();
 		
 		// Determines if first call to hasNext().
 		if (mFirst) {
@@ -236,7 +236,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 	 */
 	private boolean hasNextNode(final @Nonnegative long pCurrKey) {
 		// Fail if the subtree is finished.
-		final INodeReadTrx rtx = getTransaction();
+		final INodeReadTrx rtx = getTrx();
 		rtx.moveTo(mKey);
 		if (rtx.getLeftSiblingKey() == getStartKey()) {
 			resetToStartKey();

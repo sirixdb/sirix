@@ -111,13 +111,13 @@ public class DupFilterAxis extends AbsAxis {
         if (((AbsAxis)mAxis).isNext()) {
           mKey = mAxis.next();
         } else {
-          mKey = mAxis.getTransaction().getNodeKey();
+          mKey = mAxis.getTrx().getNodeKey();
         }
 
         // add current item key to the set. If true is returned the item is
         // no
         // duplicate and can be returned by the duplicate filter.
-        if (mDupSet.add(getTransaction().getNodeKey())) {
+        if (mDupSet.add(getTrx().getNodeKey())) {
           return true;
         }
       }

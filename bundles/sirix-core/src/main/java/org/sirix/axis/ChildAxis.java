@@ -69,12 +69,12 @@ public final class ChildAxis extends AbsAxis {
       return true;
     }
     resetToLastKey();
-    if (!mFirst && getTransaction().hasRightSibling()) {
-      mKey = getTransaction().getRightSiblingKey();
+    if (!mFirst && getTrx().hasRightSibling()) {
+      mKey = getTrx().getRightSiblingKey();
       return true;
-    } else if (mFirst && getTransaction().hasFirstChild()) {
+    } else if (mFirst && getTrx().hasFirstChild()) {
       mFirst = false;
-      mKey = getTransaction().getFirstChildKey();
+      mKey = getTrx().getFirstChildKey();
       return true;
     } else {
       resetToStartKey();

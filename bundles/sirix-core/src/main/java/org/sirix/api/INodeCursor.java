@@ -9,7 +9,8 @@ import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.EKind;
 
 /**
- * Cursor interface.
+ * Cursor interface which supports moving and other very basic functionality to
+ * query the currently selected node.
  * 
  * @author Johannes Lichtenberger
  * 
@@ -42,8 +43,8 @@ public interface INodeCursor extends AutoCloseable {
 	/**
 	 * Move cursor to parent node of currently selected node. Check the
 	 * postcondition with {@code Moved#hasMoved()} or get the current cursor
-	 * instance with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
-	 * returns false and the cursor has not been moved.
+	 * instance with{Moved#get()}. In case the node does not exist
+	 * {@code Moved#hasMoved()} returns false and the cursor has not been moved.
 	 * 
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
@@ -53,8 +54,8 @@ public interface INodeCursor extends AutoCloseable {
 	/**
 	 * Move cursor to first child node of currently selected node. Check the
 	 * postcondition with {@code Moved#hasMoved()} or get the current cursor
-	 * instance with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
-	 * returns false and the cursor has not been moved.
+	 * instance with{Moved#get()}. In case the node does not exist
+	 * {@code Moved#hasMoved()} returns false and the cursor has not been moved.
 	 * 
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
@@ -64,8 +65,8 @@ public interface INodeCursor extends AutoCloseable {
 	/**
 	 * Move cursor to last child node of currently selected node. Check the
 	 * postcondition with {@code Moved#hasMoved()} or get the current cursor
-	 * instance with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
-	 * returns false and the cursor has not been moved.
+	 * instance with{Moved#get()}. In case the node does not exist
+	 * {@code Moved#hasMoved()} returns false and the cursor has not been moved.
 	 * 
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
@@ -75,8 +76,8 @@ public interface INodeCursor extends AutoCloseable {
 	/**
 	 * Move cursor to left sibling node of the currently selected node. Check the
 	 * postcondition with {@code Moved#hasMoved()} or get the current cursor
-	 * instance with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
-	 * returns false and the cursor has not been moved.
+	 * instance with{Moved#get()}. In case the node does not exist
+	 * {@code Moved#hasMoved()} returns false and the cursor has not been moved.
 	 * 
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
@@ -86,8 +87,8 @@ public interface INodeCursor extends AutoCloseable {
 	/**
 	 * Move cursor to right sibling node of the currently selected node. Check the
 	 * postcondition with {@code Moved#hasMoved()} or get the current cursor
-	 * instance with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
-	 * returns false and the cursor has not been moved.
+	 * instance with{Moved#get()}. In case the node does not exist
+	 * {@code Moved#hasMoved()} returns false and the cursor has not been moved.
 	 * 
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
@@ -197,4 +198,11 @@ public interface INodeCursor extends AutoCloseable {
 	 * @return kind of parent
 	 */
 	EKind getParentKind();
+
+	/**
+	 * Get the kind of node.
+	 * 
+	 * @return kind of node
+	 */
+	EKind getKind();
 }

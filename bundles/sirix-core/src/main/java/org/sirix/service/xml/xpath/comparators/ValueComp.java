@@ -73,7 +73,7 @@ public class ValueComp extends AbsComparator {
   @Override
   protected AtomicValue[] atomize(final IAxis mOperand) throws SirixXPathException {
 
-    final INodeReadTrx trx = getTransaction();
+    final INodeReadTrx trx = getTrx();
 
     int type = trx.getTypeKey();
 
@@ -83,7 +83,7 @@ public class ValueComp extends AbsComparator {
     }
 
     final AtomicValue atomized =
-      new AtomicValue(mOperand.getTransaction().getValue().getBytes(), type);
+      new AtomicValue(mOperand.getTrx().getValue().getBytes(), type);
     final AtomicValue[] op = {
       atomized
     };

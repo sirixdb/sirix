@@ -120,8 +120,8 @@ public class InstanceOfExpr extends AbsExpression {
 
     // create result item and move transaction to it.
     final int itemKey =
-      getTransaction().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(isInstanceOf)), getTransaction().keyForName(
+      getTrx().getItemList().addItem(
+        new AtomicValue(TypedValue.getBytes(Boolean.toString(isInstanceOf)), getTrx().keyForName(
           "xs:boolean")));
     mKey = itemKey;
 

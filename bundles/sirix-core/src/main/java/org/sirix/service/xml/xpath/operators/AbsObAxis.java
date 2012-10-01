@@ -114,7 +114,7 @@ public abstract class AbsObAxis extends AbsAxis {
           try {
             final AtomicValue result = (AtomicValue)operate(mItem1, mItem2);
             // add retrieved AtomicValue to item list
-            final int itemKey = getTransaction().getItemList().addItem(result);
+            final int itemKey = getTrx().getItemList().addItem(result);
             mKey = itemKey;
 
             return true;
@@ -126,7 +126,7 @@ public abstract class AbsObAxis extends AbsAxis {
 
       if (XPATH_10_COMP) { // and empty sequence, return NaN
         final AtomicValue result = new AtomicValue(Double.NaN, Type.DOUBLE);
-        final int itemKey = getTransaction().getItemList().addItem(result);
+        final int itemKey = getTrx().getItemList().addItem(result);
         mKey = itemKey;
         return true;
       }
@@ -148,7 +148,7 @@ public abstract class AbsObAxis extends AbsAxis {
    */
   private AtomicValue atomize(final IAxis mOperand) {
 
-    final INodeReadTrx rtx = getTransaction();
+    final INodeReadTrx rtx = getTrx();
     int type = rtx.getTypeKey();
     AtomicValue atom;
 
@@ -157,7 +157,7 @@ public abstract class AbsObAxis extends AbsAxis {
         || type == rtx.keyForName("xs:boolean") || type == rtx.keyForName("xs:string")
         || type == rtx.keyForName("xs:integer") || type == rtx.keyForName("xs:float")
         || type == rtx.keyForName("xs:decimal")) {
-        Function.fnnumber(mOperand.getTransaction());
+        Function.fnnumber(mOperand.getTrx());
       }
 
       atom = new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey());

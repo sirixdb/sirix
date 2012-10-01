@@ -127,8 +127,8 @@ public class OrExpr extends AbsExpression {
 
     // add result item to list and set the item as the current item
     final int itemKey =
-      getTransaction().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(result)), getTransaction().keyForName(
+      getTrx().getItemList().addItem(
+        new AtomicValue(TypedValue.getBytes(Boolean.toString(result)), getTrx().keyForName(
           "xs:boolean")));
     mKey = itemKey;
 

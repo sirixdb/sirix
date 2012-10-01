@@ -787,7 +787,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 				} catch (final SirixException e) {
 					current = null;
 					try {
-						mAxis.getTransaction().close();
+						mAxis.getTrx().close();
 					} catch (final SirixException exc) {
 						LOGGER.error(exc.toString());
 					}
@@ -795,7 +795,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 			} else {
 				current = null;
 				try {
-					mAxis.getTransaction().close();
+					mAxis.getTrx().close();
 				} catch (SirixException exc) {
 					LOGGER.error(exc.toString());
 				}

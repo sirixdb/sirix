@@ -178,8 +178,8 @@ public interface INodeReadTrx extends INodeCursor {
 	/**
 	 * Move cursor to attribute by its name key.
 	 * 
-	 * @param pNameKey
-	 *          name key of attribute to move to
+	 * @param pName
+	 *          {@link QName} of attribute
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
 	 */
@@ -337,13 +337,6 @@ public interface INodeReadTrx extends INodeCursor {
 	 * @return number of namespaces of the currently selected node
 	 */
 	int getNamespaceCount();
-
-	/**
-	 * Get the kind of node.
-	 * 
-	 * @return kind of node
-	 */
-	EKind getKind();
 
 	/**
 	 * Determines if the current node is a node with a name (element-, attribute-,

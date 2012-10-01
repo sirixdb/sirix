@@ -98,9 +98,9 @@ public final class DescendantAxis extends AbsAxis {
       mFirst = false;
 
       if (isSelfIncluded() == EIncludeSelf.YES) {
-        mKey = getTransaction().getNodeKey();
+        mKey = getTrx().getNodeKey();
       } else {
-        mKey = getTransaction().getFirstChildKey();
+        mKey = getTrx().getFirstChildKey();
       }
 
       if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
@@ -111,24 +111,24 @@ public final class DescendantAxis extends AbsAxis {
     }
 
     // Always follow first child if there is one.
-    if (getTransaction().hasFirstChild()) {
-      mKey = getTransaction().getFirstChildKey();
-      if (getTransaction().hasRightSibling()) {
-        mRightSiblingKeyStack.push(getTransaction().getRightSiblingKey());
+    if (getTrx().hasFirstChild()) {
+      mKey = getTrx().getFirstChildKey();
+      if (getTrx().hasRightSibling()) {
+        mRightSiblingKeyStack.push(getTrx().getRightSiblingKey());
       }
       return true;
     }
 
     // Then follow right sibling if there is one.
-    if (getTransaction().hasRightSibling()) {
-      final long currKey = getTransaction().getNodeKey();
-      mKey = getTransaction().getRightSiblingKey();
+    if (getTrx().hasRightSibling()) {
+      final long currKey = getTrx().getNodeKey();
+      mKey = getTrx().getRightSiblingKey();
       return hasNextNode(currKey);
     }
 
     // Then follow right sibling on stack.
     if (mRightSiblingKeyStack.size() > 0) {
-      final long currKey = getTransaction().getNodeKey();
+      final long currKey = getTrx().getNodeKey();
       mKey = mRightSiblingKeyStack.pop();
       return hasNextNode(currKey);
     }
@@ -146,12 +146,12 @@ public final class DescendantAxis extends AbsAxis {
    * @return {@code false} if finished, {@code true} if not
    */
   private boolean hasNextNode(@Nonnegative final long pCurrKey) {
-    getTransaction().moveTo(mKey);
-    if (getTransaction().getLeftSiblingKey() == getStartKey()) {
+    getTrx().moveTo(mKey);
+    if (getTrx().getLeftSiblingKey() == getStartKey()) {
       resetToStartKey();
       return false;
     } else {
-      getTransaction().moveTo(pCurrKey);
+      getTrx().moveTo(pCurrKey);
       return true;
     }
   }

@@ -42,6 +42,7 @@ import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.immutable.ImmutableElement;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
@@ -58,257 +59,250 @@ import com.google.common.collect.BiMap;
  * </p>
  */
 public final class ElementNode extends AbsStructForwardingNode implements
-  INameNode {
+		INameNode {
 
-  /** Delegate for name node information. */
-  private final NameNodeDelegate mNameDel;
+	/** Delegate for name node information. */
+	private final NameNodeDelegate mNameDel;
 
-  /** Mapping names/keys. */
-  private final BiMap<Integer, Long> mAttributes;
+	/** Mapping names/keys. */
+	private final BiMap<Integer, Long> mAttributes;
 
-  /** Keys of attributes. */
-  private final List<Long> mAttributeKeys;
+	/** Keys of attributes. */
+	private final List<Long> mAttributeKeys;
 
-  /** Keys of namespace declarations. */
-  private final List<Long> mNamespaceKeys;
+	/** Keys of namespace declarations. */
+	private final List<Long> mNamespaceKeys;
 
-  /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
+	/** {@link StructNodeDelegate} reference. */
+	private final StructNodeDelegate mStructNodeDel;
 
-  /**
-   * Constructor
-   * 
-   * @param pNodeDel
-   *          {@link NodeDelegate} to be set
-   * @param pStructDel
-   *          {@link StructNodeDelegate} to be set
-   * @param pNameDel
-   *          {@link NameNodeDelegate} to be set
-   * @param pAttributeKeys
-   *          keys of attributes to be set
-   * @param pNamespaceKeys
-   *          keys of namespaces to be set
-   */
-  public ElementNode(@Nonnull final StructNodeDelegate pStructDel,
-    @Nonnull final NameNodeDelegate pNameDel,
-    @Nonnull final List<Long> pAttributeKeys,
-    @Nonnull final BiMap<Integer, Long> pAttributes,
-    @Nonnull final List<Long> pNamespaceKeys) {
-    mStructNodeDel = checkNotNull(pStructDel);
-    mNameDel = checkNotNull(pNameDel);
-    mAttributeKeys = checkNotNull(pAttributeKeys);
-    mAttributes = checkNotNull(pAttributes);
-    mNamespaceKeys = checkNotNull(pNamespaceKeys);
-  }
+	/**
+	 * Constructor
+	 * 
+	 * @param pNodeDel
+	 *          {@link NodeDelegate} to be set
+	 * @param pStructDel
+	 *          {@link StructNodeDelegate} to be set
+	 * @param pNameDel
+	 *          {@link NameNodeDelegate} to be set
+	 * @param pAttributeKeys
+	 *          keys of attributes to be set
+	 * @param pNamespaceKeys
+	 *          keys of namespaces to be set
+	 */
+	public ElementNode(@Nonnull final StructNodeDelegate pStructDel,
+			@Nonnull final NameNodeDelegate pNameDel,
+			@Nonnull final List<Long> pAttributeKeys,
+			@Nonnull final BiMap<Integer, Long> pAttributes,
+			@Nonnull final List<Long> pNamespaceKeys) {
+		mStructNodeDel = checkNotNull(pStructDel);
+		mNameDel = checkNotNull(pNameDel);
+		mAttributeKeys = checkNotNull(pAttributeKeys);
+		mAttributes = checkNotNull(pAttributes);
+		mNamespaceKeys = checkNotNull(pNamespaceKeys);
+	}
 
-  /**
-   * Getting the count of attributes.
-   * 
-   * @return the count of attributes
-   */
-  public int getAttributeCount() {
-    return mAttributeKeys.size();
-  }
+	/**
+	 * Getting the count of attributes.
+	 * 
+	 * @return the count of attributes
+	 */
+	public int getAttributeCount() {
+		return mAttributeKeys.size();
+	}
 
-  /**
-   * Getting the attribute key for an given index.
-   * 
-   * @param pIndex
-   *          index of the attribute
-   * @return the attribute key
-   */
-  public long getAttributeKey(final int pIndex) {
-    if (mAttributeKeys.size() <= pIndex) {
-      return EFixed.NULL_NODE_KEY.getStandardProperty();
-    }
-    return mAttributeKeys.get(pIndex);
-  }
+	/**
+	 * Getting the attribute key for an given index.
+	 * 
+	 * @param pIndex
+	 *          index of the attribute
+	 * @return the attribute key
+	 */
+	public long getAttributeKey(final int pIndex) {
+		if (mAttributeKeys.size() <= pIndex) {
+			return EFixed.NULL_NODE_KEY.getStandardProperty();
+		}
+		return mAttributeKeys.get(pIndex);
+	}
 
-  /**
-   * Getting the attribute key by name (from the dictionary).
-   * 
-   * @param pNameIndex
-   *          name index
-   * @return the attribute key
-   */
-  public Optional<Long> getAttributeKeyByName(@Nonnull final QName pQName) {
-    final int nameIndex =
-      NamePageHash.generateHashForString(Utils.buildName(pQName));
-    return Optional.fromNullable(mAttributes.get(nameIndex));
-  }
+	/**
+	 * Getting the attribute key by name (from the dictionary).
+	 * 
+	 * @param pNameIndex
+	 *          name index
+	 * @return the attribute key
+	 */
+	public Optional<Long> getAttributeKeyByName(@Nonnull final QName pQName) {
+		final int nameIndex = NamePageHash.generateHashForString(Utils
+				.buildName(pQName));
+		return Optional.fromNullable(mAttributes.get(nameIndex));
+	}
 
-  /**
-   * Inserting an attribute.
-   * 
-   * @param pAttrKey
-   *          the new attribute key
-   * @param pNameIndex
-   *          index mapping to name string
-   */
-  public void insertAttribute(final long pAttrKey, final int pNameIndex) {
-    mAttributeKeys.add(pAttrKey);
-    mAttributes.put(pNameIndex, pAttrKey);
-  }
+	/**
+	 * Inserting an attribute.
+	 * 
+	 * @param pAttrKey
+	 *          the new attribute key
+	 * @param pNameIndex
+	 *          index mapping to name string
+	 */
+	public void insertAttribute(final long pAttrKey, final int pNameIndex) {
+		mAttributeKeys.add(pAttrKey);
+		mAttributes.put(pNameIndex, pAttrKey);
+	}
 
-  /**
-   * Removing an attribute.
-   * 
-   * @param pAttrKey
-   *          the key of the attribute to be removed
-   */
-  public void removeAttribute(final long pAttrKey) {
-    mAttributeKeys.remove(pAttrKey);
-    mAttributes.inverse().remove(pAttrKey);
-  }
+	/**
+	 * Removing an attribute.
+	 * 
+	 * @param pAttrKey
+	 *          the key of the attribute to be removed
+	 */
+	public void removeAttribute(final long pAttrKey) {
+		mAttributeKeys.remove(pAttrKey);
+		mAttributes.inverse().remove(pAttrKey);
+	}
 
-  /**
-   * Getting the count of namespaces.
-   * 
-   * @return the count of namespaces
-   */
-  public int getNamespaceCount() {
-    return mNamespaceKeys.size();
-  }
+	/**
+	 * Getting the count of namespaces.
+	 * 
+	 * @return the count of namespaces
+	 */
+	public int getNamespaceCount() {
+		return mNamespaceKeys.size();
+	}
 
-  /**
-   * Getting the namespace key for a given index.
-   * 
-   * @param pNamespaceKey
-   *          index of the namespace
-   * @return the namespace key
-   */
-  public long getNamespaceKey(final int pNamespaceKey) {
-    if (mNamespaceKeys.size() <= pNamespaceKey) {
-      return EFixed.NULL_NODE_KEY.getStandardProperty();
-    }
-    return mNamespaceKeys.get(pNamespaceKey);
-  }
+	/**
+	 * Getting the namespace key for a given index.
+	 * 
+	 * @param pNamespaceKey
+	 *          index of the namespace
+	 * @return the namespace key
+	 */
+	public long getNamespaceKey(final int pNamespaceKey) {
+		if (mNamespaceKeys.size() <= pNamespaceKey) {
+			return EFixed.NULL_NODE_KEY.getStandardProperty();
+		}
+		return mNamespaceKeys.get(pNamespaceKey);
+	}
 
-  /**
-   * Inserting a namespace.
-   * 
-   * @param pNamespaceKey
-   *          new namespace key
-   */
-  public void insertNamespace(final long pNamespaceKey) {
-    mNamespaceKeys.add(pNamespaceKey);
-  }
+	/**
+	 * Inserting a namespace.
+	 * 
+	 * @param pNamespaceKey
+	 *          new namespace key
+	 */
+	public void insertNamespace(final long pNamespaceKey) {
+		mNamespaceKeys.add(pNamespaceKey);
+	}
 
-  /**
-   * Removing a namepsace.
-   * 
-   * @param pNamespaceKey
-   *          the key of the namespace to be removed
-   */
-  public void removeNamespace(final long pNamespaceKey) {
-    mNamespaceKeys.remove(pNamespaceKey);
-  }
+	/**
+	 * Removing a namepsace.
+	 * 
+	 * @param pNamespaceKey
+	 *          the key of the namespace to be removed
+	 */
+	public void removeNamespace(final long pNamespaceKey) {
+		mNamespaceKeys.remove(pNamespaceKey);
+	}
 
-  @Override
-  public int getNameKey() {
-    return mNameDel.getNameKey();
-  }
+	@Override
+	public int getNameKey() {
+		return mNameDel.getNameKey();
+	}
 
-  @Override
-  public int getURIKey() {
-    return mNameDel.getURIKey();
-  }
+	@Override
+	public int getURIKey() {
+		return mNameDel.getURIKey();
+	}
 
-  @Override
-  public void setNameKey(final int pNameKey) {
-    mNameDel.setNameKey(pNameKey);
-  }
+	@Override
+	public void setNameKey(final int pNameKey) {
+		mNameDel.setNameKey(pNameKey);
+	}
 
-  @Override
-  public void setURIKey(final int pUriKey) {
-    mNameDel.setURIKey(pUriKey);
-  }
+	@Override
+	public void setURIKey(final int pUriKey) {
+		mNameDel.setURIKey(pUriKey);
+	}
 
-  @Override
-  public EKind getKind() {
-    return EKind.ELEMENT;
-  }
+	@Override
+	public EKind getKind() {
+		return EKind.ELEMENT;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("nameDelegate", mNameDel).add(
-      "nameSpaceKeys", mNamespaceKeys).add("attributeKeys", mAttributeKeys)
-      .add("structDelegate", mStructNodeDel).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("nameDelegate", mNameDel)
+				.add("nameSpaceKeys", mNamespaceKeys)
+				.add("attributeKeys", mAttributeKeys)
+				.add("structDelegate", mStructNodeDel).toString();
+	}
 
-  @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-    return pVisitor.visit(this);
-  }
+	@Override
+	public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
+		return pVisitor.visit(ImmutableElement.of(this));
+	}
 
-  @Override
-  public int hashCode() {
-    final int prime = 31;
-    int result = 1;
-    result =
-      prime * result + ((delegate() == null) ? 0 : delegate().hashCode());
-    result = prime * result + ((mNameDel == null) ? 0 : mNameDel.hashCode());
-    return result;
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(delegate(), mNameDel);
+	}
 
-  @Override
-  public boolean equals(final Object pObj) {
-    if (this == pObj)
-      return true;
-    if (pObj == null)
-      return false;
-    if (getClass() != pObj.getClass())
-      return false;
-    ElementNode other = (ElementNode)pObj;
-    return Objects.equal(delegate(), other.delegate())
-      && Objects.equal(mNameDel, other.mNameDel);
-  }
+	@Override
+	public boolean equals(final Object pObj) {
+		if (pObj instanceof ElementNode) {
+			final ElementNode other = (ElementNode) pObj;
+			return Objects.equal(delegate(), other.delegate())
+					&& Objects.equal(mNameDel, other.mNameDel);
+		}
+		return false;
+	}
 
-  /**
-   * Get a {@link List} with all attribute keys.
-   * 
-   * @return unmodifiable view of {@link List} with all attribute keys
-   */
-  public List<Long> getAttributeKeys() {
-    return Collections.unmodifiableList(mAttributeKeys);
-  }
+	/**
+	 * Get a {@link List} with all attribute keys.
+	 * 
+	 * @return unmodifiable view of {@link List} with all attribute keys
+	 */
+	public List<Long> getAttributeKeys() {
+		return Collections.unmodifiableList(mAttributeKeys);
+	}
 
-  /**
-   * Get a {@link List} with all namespace keys.
-   * 
-   * @return unmodifiable view of {@link List} with all namespace keys
-   */
-  public List<Long> getNamespaceKeys() {
-    return Collections.unmodifiableList(mNamespaceKeys);
-  }
+	/**
+	 * Get a {@link List} with all namespace keys.
+	 * 
+	 * @return unmodifiable view of {@link List} with all namespace keys
+	 */
+	public List<Long> getNamespaceKeys() {
+		return Collections.unmodifiableList(mNamespaceKeys);
+	}
 
-  @Override
-  protected NodeDelegate delegate() {
-    return mStructNodeDel.getNodeDelegate();
-  }
+	@Override
+	protected NodeDelegate delegate() {
+		return mStructNodeDel.getNodeDelegate();
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return mStructNodeDel;
+	}
 
-  /**
-   * Get name node delegate.
-   * 
-   * @return snapshot of the name node delegate (new instance)
-   */
-  @Nonnull
-  public NameNodeDelegate getNameNodeDelegate() {
-    return new NameNodeDelegate(mNameDel);
-  }
+	/**
+	 * Get name node delegate.
+	 * 
+	 * @return snapshot of the name node delegate (new instance)
+	 */
+	@Nonnull
+	public NameNodeDelegate getNameNodeDelegate() {
+		return new NameNodeDelegate(mNameDel);
+	}
 
-  @Override
-  public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
-    mNameDel.setPathNodeKey(pPathNodeKey);
-  }
+	@Override
+	public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
+		mNameDel.setPathNodeKey(pPathNodeKey);
+	}
 
-  @Override
-  public long getPathNodeKey() {
-    return mNameDel.getPathNodeKey();
-  }
+	@Override
+	public long getPathNodeKey() {
+		return mNameDel.getPathNodeKey();
+	}
 }

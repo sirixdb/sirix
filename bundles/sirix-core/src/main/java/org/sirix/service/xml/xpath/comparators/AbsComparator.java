@@ -98,12 +98,12 @@ public abstract class AbsComparator extends AbsAxis {
 
       // TODO: why?
       if (!(mOperand1 instanceof LiteralExpr)) {
-        mOperand1.reset(getTransaction().getNodeKey());
+        mOperand1.reset(getTrx().getNodeKey());
       }
 
       // TODO: why?
       if (!(mOperand2 instanceof LiteralExpr)) {
-        mOperand2.reset(getTransaction().getNodeKey());
+        mOperand2.reset(getTrx().getNodeKey());
       }
 
       /*
@@ -127,7 +127,7 @@ public abstract class AbsComparator extends AbsAxis {
               final AtomicValue result = new AtomicValue(resultValue);
 
               // add retrieved AtomicValue to item list
-              final int itemKey = getTransaction().getItemList().addItem(result);
+              final int itemKey = getTrx().getItemList().addItem(result);
               mKey = itemKey;
             } catch (SirixXPathException e) {
               throw new RuntimeException(e);

@@ -347,8 +347,8 @@ public final class SunburstModel extends
 			for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
 					.hasNext();) {
 				axis.next();
-				if (axis.getTransaction().getKind() == EKind.TEXT) {
-					final int length = axis.getTransaction().getValue().length();
+				if (axis.getTrx().getKind() == EKind.TEXT) {
+					final int length = axis.getTrx().getValue().length();
 					if (length < mMinTextLength) {
 						mMinTextLength = length;
 					}
@@ -495,7 +495,7 @@ public final class SunburstModel extends
 					boolean firstNode = true;
 					for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
 							.hasNext(); axis.next()) {
-						if (axis.getTransaction().getKind() != EKind.DOCUMENT_ROOT) {
+						if (axis.getTrx().getKind() != EKind.DOCUMENT_ROOT) {
 							// try {
 							final Future<Integer> futureSubmitted = executor.submit(Callables
 									.returning((int) mRtx.getDescendantCount() + 1));// */new

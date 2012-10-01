@@ -235,9 +235,9 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 				.includeSelf(EIncludeSelf.YES)
 				.includeNodes(EIncludeNodes.NONSTRUCTURAL).build(); axis.hasNext();) {
 			axis.next();
-			final long nodeKey = axis.getTransaction().getNodeKey();
+			final long nodeKey = axis.getTrx().getNodeKey();
 			doFirstFSMEStep(pWtx, pRtx);
-			axis.getTransaction().moveTo(nodeKey);
+			axis.getTrx().moveTo(nodeKey);
 		}
 	}
 
@@ -415,7 +415,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			final Map<Long, Boolean> pInOrder) {
 		for (final AbsAxis axis = new ChildAxis(pRtx); axis.hasNext();) {
 			axis.next();
-			pInOrder.put(axis.getTransaction().getNodeKey(), false);
+			pInOrder.put(axis.getTrx().getNodeKey(), false);
 		}
 	}
 
@@ -772,8 +772,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 						pRtx, EIncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext();) {
 					oldAxis.next();
 					newAxis.next();
-					final INodeReadTrx oldRtx = oldAxis.getTransaction();
-					final INodeReadTrx newRtx = newAxis.getTransaction();
+					final INodeReadTrx oldRtx = oldAxis.getTrx();
+					final INodeReadTrx newRtx = newAxis.getTrx();
 					process(oldRtx.getNodeKey(), newRtx.getNodeKey());
 					final long newNodeKey = newRtx.getNodeKey();
 					final long oldNodeKey = oldRtx.getNodeKey();
@@ -785,13 +785,13 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 								for (int j = 0, oldAttCount = oldRtx.getAttributeCount(); i < oldAttCount; j++) {
 									pWtx.moveToAttribute(j);
 									if (pWtx.getQName().equals(pRtx.getQName())) {
-										process(oldAxis.getTransaction().getNodeKey(), newAxis
-												.getTransaction().getNodeKey());
+										process(oldAxis.getTrx().getNodeKey(), newAxis.getTrx()
+												.getNodeKey());
 										break;
 									}
-									oldAxis.getTransaction().moveTo(oldNodeKey);
+									oldAxis.getTrx().moveTo(oldNodeKey);
 								}
-								newAxis.getTransaction().moveTo(newNodeKey);
+								newAxis.getTrx().moveTo(newNodeKey);
 							}
 						}
 						if (newRtx.getNamespaceCount() > 0) {
@@ -806,14 +806,14 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 										process(pWtx.getNodeKey(), pRtx.getNodeKey());
 										break;
 									}
-									oldAxis.getTransaction().moveTo(oldNodeKey);
+									oldAxis.getTrx().moveTo(oldNodeKey);
 								}
-								newAxis.getTransaction().moveTo(newNodeKey);
+								newAxis.getTrx().moveTo(newNodeKey);
 							}
 						}
 					}
 
-					newAxis.getTransaction().moveTo(newNodeKey);
+					newAxis.getTrx().moveTo(newNodeKey);
 				}
 			}
 		} catch (final SirixException e) {
@@ -1105,10 +1105,10 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 		final long nodeKey = pRtx.getNodeKey();
 		for (final IAxis axis = new PostOrderAxis(pRtx); axis.hasNext();) {
 			axis.next();
-			if (axis.getTransaction().getNodeKey() == nodeKey) {
+			if (axis.getTrx().getNodeKey() == nodeKey) {
 				break;
 			}
-			axis.getTransaction().acceptVisitor(pVisitor);
+			axis.getTrx().acceptVisitor(pVisitor);
 		}
 		pRtx.acceptVisitor(pVisitor);
 	}
@@ -1132,10 +1132,10 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 		final long nodeKey = pRtx.getNodeKey();
 		for (final AbsAxis axis = new PostOrderAxis(pRtx); axis.hasNext();) {
 			axis.next();
-			if (axis.getTransaction().getNodeKey() == nodeKey) {
+			if (axis.getTrx().getNodeKey() == nodeKey) {
 				break;
 			}
-			axis.getTransaction().acceptVisitor(pVisitor);
+			axis.getTrx().acceptVisitor(pVisitor);
 		}
 		pRtx.acceptVisitor(pVisitor);
 	}
@@ -1195,7 +1195,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			retVal.append(pRtx.getValue());
 			break;
 		case PROCESSING:
-			retVal.append(pRtx.getQName()).append(" ").append(pRtx.getValue());
+			retVal.append(pRtx.getQName().getLocalPart()).append(" ")
+					.append(pRtx.getValue());
 			break;
 		default:
 			// Do nothing.
@@ -1229,7 +1230,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 					|| mWtx.getKind() == EKind.PROCESSING) {
 				if (mWtx.getQName().equals(mRtx.getQName())) {
 					ratio = 1;
-					if (mWtx.getKind() == EKind.ATTRIBUTE || mWtx.getKind() == EKind.PROCESSING) {
+					if (mWtx.getKind() == EKind.ATTRIBUTE
+							|| mWtx.getKind() == EKind.PROCESSING) {
 						ratio = calculateRatio(mWtx.getValue(), mRtx.getValue());
 					}
 
