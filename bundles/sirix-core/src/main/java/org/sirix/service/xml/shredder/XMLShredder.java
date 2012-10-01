@@ -92,26 +92,51 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 	/** Determines if changes are going to be commit right after shredding. */
 	private final EShredderCommit mCommit;
 
+	/** Insertion position. */
 	protected final EInsert mInsert;
 
+	/** Determines if comments should be included. */
 	private boolean mIncludeComments;
 
+	/** Determines if processing instructions should be included. */
 	private boolean mIncludePIs;
 
+	/**
+	 * Builder to build an {@link XMLShredder} instance.
+	 */
 	public static class Builder {
 
+		/** {@link INodeWriteTrx} implementation. */
 		private final INodeWriteTrx mWtx;
 
+		/** {@link XMLEventReader} implementation. */
 		private final XMLEventReader mReader;
 
+		/** Insertion position. */
 		private final EInsert mInsert;
 
+		/** Determines if comments should be included. */
 		private boolean mIncludeComments = true;
 
+		/** Determines if processing instructions should be included. */
 		private boolean mIncludePIs = true;
 
+		/**
+		 * Determines if after shredding the transaction should be immediately
+		 * commited.
+		 */
 		private EShredderCommit mCommit = EShredderCommit.NOCOMMIT;
 
+		/**
+		 * Constructor.
+		 * 
+		 * @param pWtx
+		 *          {@link INodeWriteTrx} implementation
+		 * @param pReader
+		 *          {@link XMLEventReader} implementation
+		 * @param pInsert
+		 *          insertion position
+		 */
 		public Builder(@Nonnull final INodeWriteTrx pWtx,
 				@Nonnull final XMLEventReader pReader, @Nonnull final EInsert pInsert) {
 			mWtx = checkNotNull(pWtx);
@@ -119,26 +144,58 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 			mInsert = checkNotNull(pInsert);
 		}
 
+		/**
+		 * Include comments or not (default: yes).
+		 * 
+		 * @param pInclude
+		 *          include comments
+		 * @return this builder instance
+		 */
 		public Builder includeComments(final boolean pInclude) {
 			mIncludeComments = pInclude;
 			return this;
 		}
 
+		/**
+		 * Include processing instructions or not (default: yes).
+		 * 
+		 * @param pInclude
+		 *          processing instructions
+		 * @return this builder instance
+		 */
 		public Builder includePIs(final boolean pInclude) {
 			mIncludePIs = pInclude;
 			return this;
 		}
 
+		/**
+		 * Commit afterwards.
+		 * 
+		 * @param pCommit
+		 *          yes, commit / no, do not commit
+		 * @return this builder instance
+		 */
 		public Builder commitAfterwards(final EShredderCommit pCommit) {
 			mCommit = pCommit;
 			return this;
 		}
 
+		/**
+		 * Build an instance.
+		 * 
+		 * @return {@link XMLShredder} instance
+		 */
 		public XMLShredder build() {
 			return new XMLShredder(this);
 		}
 	}
 
+	/**
+	 * Private constructor.
+	 * 
+	 * @param pBuilder
+	 *          builder reference
+	 */
 	private XMLShredder(final @Nonnull Builder pBuilder) {
 		super(pBuilder.mWtx, pBuilder.mInsert);
 		mWtx = pBuilder.mWtx;
