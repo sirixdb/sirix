@@ -13,6 +13,7 @@ Note that it is based on Treetank (http://treetank.org / http://github.com/disy/
 [![Build Status](https://secure.travis-ci.org/JohannesLichtenberger/sirix.png)](http://travis-ci.org/JohannesLichtenberger/sirix)
 
 ##Maven artifacts
+At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/johanneslichtenberger/sirix/.
 Maven artifacts are deployed to the central maven repository. Currently the following artifacts are available:
 
 Core project:
