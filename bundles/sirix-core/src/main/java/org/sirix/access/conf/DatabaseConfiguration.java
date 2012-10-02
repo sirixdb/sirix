@@ -132,7 +132,7 @@ public final class DatabaseConfiguration {
 
 	// STATIC STANDARD FIELDS
 	/** Identification for string. */
-	public static final String BINARY = "5.4.0";
+	public static final String BINARY = "0.1.0";
 	// END STATIC STANDARD FIELDS
 
 	/** Binary version of storage. */
