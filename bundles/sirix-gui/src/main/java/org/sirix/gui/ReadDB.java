@@ -27,14 +27,14 @@
 
 package org.sirix.gui;
 
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkArgument;
-
-import com.google.common.base.Objects;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
 
-import org.slf4j.LoggerFactory;
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
 import org.sirix.access.Database;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
@@ -43,6 +43,9 @@ import org.sirix.api.ISession;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.view.model.TraverseCompareTree;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Objects;
 
 /**
  * <h1>ReadDB</h1>
@@ -56,182 +59,191 @@ import org.sirix.utils.LogWrapper;
  */
 public final class ReadDB implements AutoCloseable {
 
-  /** {@link LogWrapper}. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
-    .getLogger(TraverseCompareTree.class));
+	/** {@link LogWrapper}. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(TraverseCompareTree.class));
 
-  /** sirix {@link IDatabase}. */
-  private final IDatabase mDatabase;
+	/** Sirix {@link IDatabase}. */
+	private final IDatabase mDatabase;
 
-  /** sirix {@link ISession}. */
-  private final ISession mSession;
+	/** Sirix {@link ISession}. */
+	private final ISession mSession;
 
-  /** sirix {@link INodeReadTrx}. */
-  private final INodeReadTrx mRtx;
+	/** Sirix {@link INodeReadTrx}. */
+	private final INodeReadTrx mRtx;
 
-  /** Revision number. */
-  private final int mRevision;
+	/** Revision number. */
+	private final int mRevision;
 
-  /** Compare revision. */
-  private int mCompareRevision;
+	/** Compare revision. */
+	private int mCompareRevision;
 
-  /**
-   * Constructor.
-   * 
-   * @param paramFile
-   *          The {@link File} to open.
-   * @throws SirixException
-   *           if anything went wrong while opening a file
-   */
-  public ReadDB(final File paramFile) throws SirixException {
-    this(paramFile, -1, 0);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pFile
+	 *          The {@link File} to open.
+	 * @throws SirixException
+	 *           if anything went wrong while opening a file
+	 */
+	public ReadDB(final File pFile) throws SirixException {
+		this(pFile, -1, 0);
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param paramFile
-   *          The {@link File} to open.
-   * @param paramRevision
-   *          The revision to open.
-   * @throws SirixException
-   *           if anything went wrong while opening a file
-   */
-  public ReadDB(final File paramFile, final int paramRevision) throws SirixException {
-    this(paramFile, paramRevision, 0);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pFile
+	 *          The {@link File} to open.
+	 * @param pRevision
+	 *          The revision to open.
+	 * @throws SirixException
+	 *           if anything went wrong while opening a file
+	 */
+	public ReadDB(final File pFile, final int pRevision) throws SirixException {
+		this(pFile, pRevision, 0);
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param pFile
-   *          The {@link File} to open.
-   * @param pRevision
-   *          The revision to open.
-   * @param pNodekeyToStart
-   *          The key of the node where the transaction initially has to move to.
-   * @throws SirixException
-   *           if anything went wrong while opening a file
-   */
-  public ReadDB(final File pFile, final int pRevision, final long pNodekeyToStart) throws SirixException {
-    checkNotNull(pFile);
-    checkArgument(pRevision >= -1, "pRevision must be >= -1!");
-    checkArgument(pNodekeyToStart >= 0, "pNodekeyToStart must be >= 0!");
+	/**
+	 * Constructor.
+	 * 
+	 * @param pFile
+	 *          The {@link File} to open.
+	 * @param pRevision
+	 *          The revision to open.
+	 * @param pNodekeyToStart
+	 *          The key of the node where the transaction initially has to move
+	 *          to.
+	 * @throws SirixException
+	 *           if anything went wrong while opening a file
+	 */
+	public ReadDB(final @Nonnull File pFile, final @Nonnegative int pRevision,
+			final long pNodekeyToStart) throws SirixException {
+		checkNotNull(pFile);
+		checkArgument(pRevision >= -1, "pRevision must be >= -1!");
+		checkArgument(pNodekeyToStart >= 0, "pNodekeyToStart must be >= 0!");
 
-    // Initialize database.
-    mDatabase = Database.openDatabase(pFile);
-    mSession = mDatabase.getSession(new SessionConfiguration.Builder("shredded").build());
+		// Initialize database.
+		mDatabase = Database.openDatabase(pFile);
+		mSession = mDatabase
+				.getSession(new SessionConfiguration.Builder("shredded").build());
 
-    if (pRevision == -1) {
-      // Open newest revision.
-      mRtx = mSession.beginNodeReadTrx();
-    } else {
-      mRtx = mSession.beginNodeReadTrx(pRevision);
-    }
-    mRtx.moveTo(pNodekeyToStart);
-    mRevision = mRtx.getRevisionNumber();
-  }
+		if (pRevision == -1) {
+			// Open newest revision.
+			mRtx = mSession.beginNodeReadTrx();
+		} else {
+			mRtx = mSession.beginNodeReadTrx(pRevision);
+		}
+		mRtx.moveTo(pNodekeyToStart);
+		mRevision = mRtx.getRevisionNumber();
+	}
 
-  /**
-   * Get the {@link IDatabase} instance.
-   * 
-   * @return the Database.
-   */
-  public IDatabase getDatabase() {
-    return mDatabase;
-  }
+	/**
+	 * Get the {@link IDatabase} instance.
+	 * 
+	 * @return the Database.
+	 */
+	public IDatabase getDatabase() {
+		return mDatabase;
+	}
 
-  /**
-   * Get the {@link ISession} instance.
-   * 
-   * @return the Session.
-   */
-  public ISession getSession() {
-    return mSession;
-  }
+	/**
+	 * Get the {@link ISession} instance.
+	 * 
+	 * @return the Session.
+	 */
+	public ISession getSession() {
+		return mSession;
+	}
 
-  /**
-   * Get revision number.
-   * 
-   * @return current revision number or 0 if a sirixIOException occured
-   */
-  public int getRevisionNumber() {
-    return mRevision;
-  }
+	/**
+	 * Get revision number.
+	 * 
+	 * @return current revision number or 0 if a SirixIOException occured
+	 */
+	public int getRevisionNumber() {
+		return mRevision;
+	}
 
-  /**
-   * Set compare number.
-   * 
-   * @param pRevision
-   *          revision number to set
-   */
-  public void setCompareRevisionNumber(final int pRevision) {
-    checkArgument(pRevision > 0, "paramRevision must be > 0!");
-    mCompareRevision = pRevision;
-  }
+	/**
+	 * Set compare number.
+	 * 
+	 * @param pRevision
+	 *          revision number to set
+	 */
+	public void setCompareRevisionNumber(final int pRevision) {
+		checkArgument(pRevision > 0, "paramRevision must be > 0!");
+		mCompareRevision = pRevision;
+	}
 
-  /**
-   * Get compare number.
-   */
-  public int getCompareRevisionNumber() {
-    return mCompareRevision;
-  }
+	/**
+	 * Get compare number.
+	 */
+	public int getCompareRevisionNumber() {
+		return mCompareRevision;
+	}
 
-  /**
-   * Get current node key.
-   * 
-   * @return node key
-   */
-  public long getNodeKey() {
-    return mRtx.getNodeKey();
-  }
+	/**
+	 * Get current node key.
+	 * 
+	 * @return node key
+	 */
+	public long getNodeKey() {
+		return mRtx.getNodeKey();
+	}
 
-  /**
-   * Set node key.
-   * 
-   * @param paramNodeKey
-   *          node key
-   */
-  public void setKey(final long paramNodeKey) {
-    mRtx.moveTo(paramNodeKey);
-  }
+	/**
+	 * Set node key.
+	 * 
+	 * @param pNodeKey
+	 *          node key
+	 */
+	public void setKey(final long pNodeKey) {
+		mRtx.moveTo(pNodeKey);
+	}
 
-  /**
-   * Close all database related instances.
-   */
-  @Override
-  public void close() {
-    try {
-      mRtx.close();
-      mSession.close();
-    } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+	/**
+	 * Close all database related instances.
+	 */
+	@Override
+	public void close() {
+		try {
+			mRtx.close();
+			mSession.close();
+			mDatabase.close();
+		} catch (final SirixException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
 
-  @Override
-  public boolean equals(final Object pObj) {
-    if (this == pObj) {
-      return true;
-    }
+	@Override
+	public boolean equals(final Object pObj) {
+		if (this == pObj) {
+			return true;
+		}
 
-    if (pObj instanceof ReadDB) {
-      final ReadDB other = (ReadDB)pObj;
-      return Objects.equal(mDatabase, other.mDatabase) && Objects.equal(mSession, other.mSession)
-        && Objects.equal(mRtx, other.mRtx) && Objects.equal(mRevision, other.mRevision)
-        && Objects.equal(mCompareRevision, other.mCompareRevision);
-    } else {
-      return false;
-    }
-  }
+		if (pObj instanceof ReadDB) {
+			final ReadDB other = (ReadDB) pObj;
+			return Objects.equal(mDatabase, other.mDatabase)
+					&& Objects.equal(mSession, other.mSession)
+					&& Objects.equal(mRtx, other.mRtx)
+					&& Objects.equal(mRevision, other.mRevision)
+					&& Objects.equal(mCompareRevision, other.mCompareRevision);
+		} else {
+			return false;
+		}
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mDatabase, mSession, mRtx, mRevision, mCompareRevision);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mDatabase, mSession, mRtx, mRevision,
+				mCompareRevision);
+	}
 
-  @Override
-  public String toString() {
-    return super.toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("database", mDatabase)
+				.add("session", mSession).add("rtx", mRtx).add("revision", mRevision)
+				.add("comp Revision", mCompareRevision).toString();
+	}
 }

@@ -212,14 +212,14 @@ public final class SunburstItem implements IVisualItem {
 	private int mOrigDepth;
 
 	/**
-	 * Temporary depth of item (normal depth before transition for modified
-	 * nodes + transformation).
+	 * Temporary depth of item (normal depth before transition for modified nodes
+	 * + transformation).
 	 */
 	private float mTmpDepth;
-	
+
 	/** Easing parameter. */
 	private float mEasing = 0f;
-	
+
 	private long mNodeKey;
 
 	private EKind mKind;
@@ -349,13 +349,27 @@ public final class SunburstItem implements IVisualItem {
 			mNamespaces = checkNotNull(pNamespaces);
 			return this;
 		}
-		
+
+		/**
+		 * Set the node key.
+		 * 
+		 * @param pNodeKey
+		 *          node key
+		 * @return this builder
+		 */
 		public Builder setNodeKey(final @Nonnegative long pNodeKey) {
 			checkArgument(pNodeKey >= 0, "node key must be >= 0!");
 			mNodeKey = pNodeKey;
 			return this;
 		}
-		
+
+		/**
+		 * Set the node kind.
+		 * 
+		 * @param pKind
+		 *          node kind
+		 * @return this builder
+		 */
 		public Builder setKind(final @Nonnegative EKind pKind) {
 			mKind = checkNotNull(pKind);
 			return this;
@@ -497,6 +511,8 @@ public final class SunburstItem implements IVisualItem {
 	 *          the Builder to build a new sunburst item
 	 */
 	private SunburstItem(@Nonnull final Builder pBuilder) {
+		mKind = pBuilder.mKind;
+		mNodeKey = pBuilder.mNodeKey;
 		mOrigDepth = pBuilder.mRelations.mOrigDepth;
 		mTmpDepth = mOrigDepth;
 		mGUI = pBuilder.mGUI;
@@ -1576,7 +1592,7 @@ public final class SunburstItem implements IVisualItem {
 	public float getValue() {
 		return mValue;
 	}
-	
+
 	/**
 	 * Get the kind of item.
 	 * 

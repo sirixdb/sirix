@@ -140,10 +140,10 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
   public synchronized void propertyChange(final PropertyChangeEvent pEvent) {
     switch (pEvent.getPropertyName().toLowerCase()) {
     case "oldrev":
-      firePropertyChange("oldRev", null, (Long)pEvent.getNewValue());
+      firePropertyChange("oldRev", null, (Integer)pEvent.getNewValue());
       break;
     case "newrev":
-      firePropertyChange("newRev", null, (Long)pEvent.getNewValue());
+      firePropertyChange("newRev", null, (Integer)pEvent.getNewValue());
       break;
     case "oldmaxdepth":
       mLastOldMaxDepth = (Integer)pEvent.getNewValue();

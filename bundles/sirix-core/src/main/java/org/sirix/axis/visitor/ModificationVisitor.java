@@ -147,8 +147,8 @@ public final class ModificationVisitor extends AbsVisitorSupport {
 		try {
 			final long nodeKey = mWtx.getNodeKey();
 			boolean removeTextNode = false;
-			if (mWtx.hasLeftSibling() && mWtx.getLeftSiblingKind() == EKind.TEXT
-					&& mWtx.hasRightSibling() && mWtx.getRightSiblingKind() == EKind.TEXT) {
+			if (mWtx.getLeftSiblingKind() == EKind.TEXT &&
+					mWtx.getRightSiblingKind() == EKind.TEXT) {
 				removeTextNode = true;
 			}
 			mWtx.moveTo(nodeKey);

@@ -27,16 +27,13 @@
 
 package org.sirix.gui.view.tree;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
-import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>TreeModel</h1>
@@ -75,7 +72,7 @@ public final class TreeModel extends AbsTreeModel {
 
 	@Override
 	public Object getChild(final Object pParent, final int pIndex) {
-		final INodeReadTrx parentNode = (INodeReadTrx) pParent;
+		final INode parentNode = (INode) pParent;
 		final long parentNodeKey = parentNode.getNodeKey();
 		mRtx.moveTo(parentNodeKey);
 
@@ -83,30 +80,30 @@ public final class TreeModel extends AbsTreeModel {
 		case DOCUMENT_ROOT:
 			assert pIndex == 0;
 			mRtx.moveToFirstChild();
-			return mRtx;
+			return mRtx.getNode();
 		case ELEMENT:
 			// Namespaces.
-			final int namespCount = parentNode.getNamespaceCount();
+			final int namespCount = mRtx.getNamespaceCount();
 			if (pIndex < namespCount) {
 				if (!mRtx.moveToNamespace(pIndex).hasMoved()) {
 					throw new IllegalStateException("No namespace with index " + pIndex
 							+ " found!");
 				}
-				return mRtx;
+				return mRtx.getNode();
 			}
 
 			// Attributes.
-			final int attCount = parentNode.getAttributeCount();
+			final int attCount = mRtx.getAttributeCount();
 			if (pIndex < (namespCount + attCount)) {
 				if (!mRtx.moveToAttribute(pIndex - namespCount).hasMoved()) {
 					throw new IllegalStateException("No attribute with index " + pIndex
 							+ " found!");
 				}
-				return mRtx;
+				return mRtx.getNode();
 			}
 
 			// Children.
-			final long childCount = parentNode.getChildCount();
+			final long childCount = mRtx.getChildCount();
 			if (pIndex < (namespCount + attCount + childCount)) {
 				if (!mRtx.moveToFirstChild().hasMoved()) {
 					throw new IllegalStateException("No node with index " + pIndex
@@ -120,7 +117,7 @@ public final class TreeModel extends AbsTreeModel {
 					}
 				}
 
-				return mRtx;
+				return mRtx.getNode();
 			} else {
 				throw new IllegalStateException("May not happen: node with " + pIndex
 						+ " not found!");
@@ -132,7 +129,7 @@ public final class TreeModel extends AbsTreeModel {
 
 	@Override
 	public int getChildCount(final Object parent) {
-		mRtx.moveTo(((INodeReadTrx) parent).getNodeKey());
+		mRtx.moveTo(((INode) parent).getNodeKey());
 
 		switch (mRtx.getKind()) {
 		case DOCUMENT_ROOT:
@@ -157,11 +154,11 @@ public final class TreeModel extends AbsTreeModel {
 		}
 
 		// Parent node.
-		mRtx.moveTo(((INodeReadTrx) pParent).getNodeKey());
-		final INodeReadTrx parentNode = mRtx;
+		mRtx.moveTo(((INode) pParent).getNodeKey());
+		final INode parentNode = (INode) pParent;
 
 		// Child node.
-		final INodeReadTrx childNode = (INodeReadTrx) pChild;
+		final INode childNode = (INode) pChild;
 
 		// Return value.
 		int index = -1;
@@ -173,7 +170,7 @@ public final class TreeModel extends AbsTreeModel {
 
 		switch (childNode.getKind()) {
 		case NAMESPACE:
-			namespCount = parentNode.getNamespaceCount();
+			namespCount = mRtx.getNamespaceCount();
 			for (int i = 0; i < namespCount; i++) {
 				mRtx.moveToNamespace(i);
 				if (mRtx.getNodeKey() == childNode.getNodeKey()) {
@@ -184,8 +181,8 @@ public final class TreeModel extends AbsTreeModel {
 			}
 			break;
 		case ATTRIBUTE:
-			namespCount = parentNode.getNamespaceCount();
-			attCount = parentNode.getAttributeCount();
+			namespCount = mRtx.getNamespaceCount();
+			attCount = mRtx.getAttributeCount();
 			for (int i = 0; i < attCount; i++) {
 				mRtx.moveToAttribute(i);
 				if (mRtx.getNodeKey() == childNode.getNodeKey()) {
@@ -201,12 +198,11 @@ public final class TreeModel extends AbsTreeModel {
 		case COMMENT:
 		case PROCESSING:
 		case TEXT:
-			final IStructNode parent = (IStructNode) parentNode;
-			if (parent.getKind() == EKind.ELEMENT) {
-				namespCount = ((ElementNode) parent).getNamespaceCount();
-				attCount = ((ElementNode) parent).getAttributeCount();
+			if (parentNode.getKind() == EKind.ELEMENT) {
+				namespCount = mRtx.getNamespaceCount();
+				attCount = mRtx.getAttributeCount();
 			}
-			final long childCount = parent.getChildCount();
+			final long childCount = mRtx.getChildCount();
 
 			if (childCount == 0) {
 				throw new IllegalStateException("May not happen!");
@@ -235,12 +231,12 @@ public final class TreeModel extends AbsTreeModel {
 	@Override
 	public Object getRoot() {
 		mRtx.moveToDocumentRoot();
-		return mRtx;
+		return mRtx.getNode();
 	}
 
 	@Override
 	public boolean isLeaf(final Object pNode) {
-		mRtx.moveTo(((INodeReadTrx) pNode).getNodeKey());
+		mRtx.moveTo(((INode) pNode).getNodeKey());
 
 		switch (mRtx.getKind()) {
 		case DOCUMENT_ROOT:

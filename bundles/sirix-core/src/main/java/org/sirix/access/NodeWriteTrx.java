@@ -1425,7 +1425,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				// which is needed because
 				// of text merges.
 				if (mNodeRtx.hasRightSibling()
-						&& moveTo(node.getRightSiblingKey()) != null) {
+						&& moveTo(node.getRightSiblingKey()).hasMoved()) {
 				} else if (node.hasLeftSibling()) {
 					moveTo(node.getLeftSiblingKey());
 				} else {

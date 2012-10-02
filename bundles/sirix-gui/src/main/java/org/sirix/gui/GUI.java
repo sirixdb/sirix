@@ -34,6 +34,8 @@ import java.awt.SplashScreen;
 import java.awt.Toolkit;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.awt.event.WindowEvent;
+import java.awt.event.WindowListener;
 import java.io.File;
 
 import javax.annotation.Nonnegative;
@@ -119,6 +121,37 @@ public final class GUI extends JFrame {
 		// Set default size and close operation.
 		final Dimension frameSize = new Dimension(WIDTH, HEIGHT);
 		setSize(frameSize);
+		addWindowListener(new WindowListener() {
+			@Override
+			public void windowOpened(WindowEvent e) {
+			}
+			
+			@Override
+			public void windowIconified(WindowEvent e) {
+			}
+			
+			@Override
+			public void windowDeiconified(WindowEvent e) {
+			}
+			
+			@Override
+			public void windowDeactivated(WindowEvent e) {
+			}
+			
+			@Override
+			public void windowClosing(WindowEvent e) {
+				dispose();
+			}
+			
+			@Override
+			public void windowClosed(final WindowEvent e) {
+				dispose();
+			}
+			
+			@Override
+			public void windowActivated(WindowEvent e) {
+			}
+		});
 		setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
 
 		// // Create Panels.
