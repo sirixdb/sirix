@@ -8,6 +8,7 @@ import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.EKind;
+import org.sirix.node.interfaces.INode;
 
 /**
  * Cursor interface which supports moving and other very basic functionality to
@@ -154,6 +155,13 @@ public interface INodeCursor extends AutoCloseable {
 	 * @return {@link EVisitResult} value
 	 */
 	IVisitResult acceptVisitor(@Nonnull IVisitor pVisitor);
+	
+	/**
+	 * Get the node where the cursor currently is located.
+	 * 
+	 * @return the immutable node instance
+	 */
+	INode getNode();
 
 	/**
 	 * Get unique node key, that is the unique ID of the currently selected node.

@@ -19,7 +19,7 @@ import org.sirix.node.interfaces.IStructNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutableElement implements INameNode, IStructNode {
+public class ImmutableElement implements INameNode, IStructNode, INode {
 
 	/** Mutable {@link ElementNode}. */
 	private final ElementNode mNode;

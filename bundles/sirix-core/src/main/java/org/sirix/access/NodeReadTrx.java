@@ -46,10 +46,22 @@ import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.node.AttributeNode;
+import org.sirix.node.CommentNode;
+import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.NullNode;
+import org.sirix.node.PINode;
+import org.sirix.node.TextNode;
+import org.sirix.node.immutable.ImmutableAttribute;
+import org.sirix.node.immutable.ImmutableComment;
+import org.sirix.node.immutable.ImmutableDocument;
+import org.sirix.node.immutable.ImmutableElement;
+import org.sirix.node.immutable.ImmutableNamespace;
+import org.sirix.node.immutable.ImmutablePI;
+import org.sirix.node.immutable.ImmutableText;
 import org.sirix.node.interfaces.INameNode;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.INodeBase;
@@ -125,14 +137,31 @@ final class NodeReadTrx implements INodeReadTrx {
 		mClosed = false;
 		mItemList = new ItemList();
 	}
-
-	/**
-	 * Get the currently selected node.
-	 * 
-	 * @return
-	 */
-	INode getNode() {
+	
+	INode getCurrentNode() {
 		return mCurrentNode;
+	}
+
+	@Override
+	public INode getNode() {
+		switch (mCurrentNode.getKind()) {
+		case ELEMENT:
+			return ImmutableElement.of((ElementNode) mCurrentNode);
+		case TEXT:
+			return ImmutableText.of((TextNode) mCurrentNode);
+		case COMMENT:
+			return ImmutableComment.of((CommentNode) mCurrentNode);
+		case PROCESSING:
+			return ImmutablePI.of((PINode) mCurrentNode);
+		case ATTRIBUTE:
+			return ImmutableAttribute.of((AttributeNode) mCurrentNode);
+		case NAMESPACE:
+			return ImmutableNamespace.of((NamespaceNode) mCurrentNode);
+		case DOCUMENT_ROOT:
+			return ImmutableDocument.of((DocumentRootNode) mCurrentNode);
+		default:
+			throw new IllegalStateException("Node kind not known!");
+		}
 	}
 
 	@Override

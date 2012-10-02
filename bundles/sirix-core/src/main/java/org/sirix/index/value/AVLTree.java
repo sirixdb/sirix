@@ -621,4 +621,9 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	public EKind getKind() {
 		return EKind.AVL;
 	}
+
+	@Override
+	public INode getNode() {
+		return mCurrentNode;
+	}
 }

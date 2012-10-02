@@ -14,6 +14,7 @@ import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.EKind;
+import org.sirix.node.interfaces.INode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 import com.google.common.collect.ForwardingObject;
@@ -286,6 +287,11 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	@Override
 	public IVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
 		return delegate().acceptVisitor(pVisitor);
+	}
+	
+	@Override
+	public INode getNode() {
+		return delegate().getNode();
 	}
 
 	@Override

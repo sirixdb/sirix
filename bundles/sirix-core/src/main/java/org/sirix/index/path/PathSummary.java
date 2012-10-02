@@ -102,13 +102,10 @@ public final class PathSummary implements INodeReadTrx {
 		return new PathSummary(checkNotNull(pPageReadTrx), checkNotNull(pSession));
 	}
 
-	/**
-	 * Get the node.
-	 * 
-	 * @return the node
-	 */
-	private INode getNode() {
+	@Override
+	public INode getNode() {
 		assertNotClosed();
+		// FIXME: Do not expose a mutable node.
 		return mCurrentNode;
 	}
 
