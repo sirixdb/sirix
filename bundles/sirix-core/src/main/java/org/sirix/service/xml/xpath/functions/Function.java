@@ -32,7 +32,7 @@ import java.util.List;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;

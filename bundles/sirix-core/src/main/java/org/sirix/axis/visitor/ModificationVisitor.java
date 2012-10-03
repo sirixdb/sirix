@@ -37,7 +37,7 @@ public final class ModificationVisitor extends AbsVisitorSupport {
 			LoggerFactory.getLogger(ModificationVisitor.class));
 
 	/** Determines the modify rate. */
-	private static final int MODIFY_EVERY = 111;
+	private static final int MODIFY_EVERY = 1111;
 
 	/** Sirix {@link INodeWriteTrx}. */
 	private final INodeWriteTrx mWtx;

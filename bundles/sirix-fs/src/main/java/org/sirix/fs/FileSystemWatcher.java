@@ -32,8 +32,6 @@ import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
 import static java.nio.file.StandardWatchEventKinds.OVERFLOW;
-import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 
 import java.io.File;
 import java.io.IOException;
@@ -61,10 +59,10 @@ import org.sirix.access.Database;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.api.IAxis;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.axis.AbsAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.XPathAxis;
@@ -72,6 +70,9 @@ import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Optional;
 
 /**
  * <p>
@@ -339,7 +340,7 @@ public class FileSystemWatcher implements AutoCloseable {
    *           if {@code pXPath} is {@code null}
    */
   private void findNode(@Nonnull final String pXPath) throws SirixXPathException {
-    final AbsAxis axis = new XPathAxis(mWtx, checkNotNull(pXPath));
+    final IAxis axis = new XPathAxis(mWtx, checkNotNull(pXPath));
     int countResults = 0;
     long resultNodeKey = (Long)EFixed.NULL_NODE_KEY.getStandardProperty();
     while (axis.hasNext()) {

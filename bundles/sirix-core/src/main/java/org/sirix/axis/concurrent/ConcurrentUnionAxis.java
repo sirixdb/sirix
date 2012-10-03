@@ -25,7 +25,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.xpath.concurrent;
+package org.sirix.axis.concurrent;
 
 import javax.annotation.Nonnull;
 
@@ -76,7 +76,7 @@ public class ConcurrentUnionAxis extends AbsAxis {
   }
 
   @Override
-  public synchronized void reset(final long nodeKey) {
+  public void reset(final long nodeKey) {
     super.reset(nodeKey);
 
     if (mOp1 != null) {
@@ -88,15 +88,13 @@ public class ConcurrentUnionAxis extends AbsAxis {
 
     mFirst = true;
   }
-
+  
   @Override
-  public synchronized boolean hasNext() {
-    resetToLastKey();
-
+  protected long nextKey() {
     if (mFirst) {
       mFirst = false;
-      mCurrentResult1 = getNext(mOp1);
-      mCurrentResult2 = getNext(mOp2);
+      mCurrentResult1 = Util.getNext(mOp1);
+      mCurrentResult2 = Util.getNext(mOp2);
     }
 
     final long nodeKey;
@@ -107,16 +105,16 @@ public class ConcurrentUnionAxis extends AbsAxis {
       if (!mOp2.isFinished()) {
         if (mCurrentResult1 < mCurrentResult2) {
           nodeKey = mCurrentResult1;
-          mCurrentResult1 = getNext(mOp1);
+          mCurrentResult1 = Util.getNext(mOp1);
 
         } else if (mCurrentResult1 > mCurrentResult2) {
           nodeKey = mCurrentResult2;
-          mCurrentResult2 = getNext(mOp2);
+          mCurrentResult2 = Util.getNext(mOp2);
         } else {
           // return only one of the values (prevent duplicates)
           nodeKey = mCurrentResult2;
-          mCurrentResult1 = getNext(mOp1);
-          mCurrentResult2 = getNext(mOp2);
+          mCurrentResult1 = Util.getNext(mOp1);
+          mCurrentResult2 = Util.getNext(mOp2);
         }
 
         if (nodeKey < 0) {
@@ -126,16 +124,14 @@ public class ConcurrentUnionAxis extends AbsAxis {
             mExp.printStackTrace();
           }
         }
-        mKey = nodeKey;
-        return true;
+        return nodeKey;
       }
 
       // only operand1 has results left, so return all of them
       nodeKey = mCurrentResult1;
-      if (isValid(nodeKey)) {
-        mCurrentResult1 = getNext(mOp1);
-        mKey = nodeKey;
-        return true;
+      if (Util.isValid(nodeKey)) {
+        mCurrentResult1 = Util.getNext(mOp1);
+        return nodeKey;
       }
       // should never come here!
       throw new IllegalStateException(nodeKey + " is not valid!");
@@ -144,54 +140,14 @@ public class ConcurrentUnionAxis extends AbsAxis {
       // only operand1 has results left, so return all of them
 
       nodeKey = mCurrentResult2;
-      if (isValid(nodeKey)) {
-        mCurrentResult2 = getNext(mOp2);
-        mKey = nodeKey;
-        return true;
+      if (Util.isValid(nodeKey)) {
+        mCurrentResult2 = Util.getNext(mOp2);
+        return nodeKey;
       }
       // should never come here!
       throw new IllegalStateException(nodeKey + " is not valid!");
-
     }
-    // no results left
-    resetToStartKey();
-    return false;
-
+    
+    return EFixed.NULL_NODE_KEY.getStandardProperty();
   }
-
-  /**
-   * Get next result from axis.
-   * 
-   * @return the next result of the axis. If the axis has no next result, the
-   *         null node key is returned.
-   */
-  private long getNext(@Nonnull final IAxis axis) {
-    return (axis.hasNext()) ? axis.next() : EFixed.NULL_NODE_KEY
-      .getStandardProperty();
-  }
-
-  /**
-   * Checks, whether the given nodekey belongs to a node or an atomic value.
-   * Returns true for a node and throws an exception for an atomic value,
-   * because these are not allowed in the except expression.
-   * 
-   * @param nodeKey
-   *          the nodekey to validate
-   * @return true, if key is a key of a node, otherwise throws an exception
-   */
-  private boolean isValid(final long nodeKey) {
-    if (nodeKey < 0) {
-      // throw new XPathError(ErrorType.XPTY0004);
-      try {
-        throw new SirixXPathException(
-          "err:XPTY0004 The type is not appropriate the expression or the "
-            + "typedoes not match a required type as specified by the matching rules.");
-      } catch (SirixXPathException mExp) {
-        mExp.printStackTrace();
-      }
-    }
-    return true;
-
-  }
-
 }

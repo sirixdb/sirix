@@ -56,7 +56,6 @@ public class MulOpAxis extends AbsObAxis {
    *          Second value of the operation
    */
   public MulOpAxis(final INodeReadTrx rtx, final IAxis mOp1, final IAxis mOp2) {
-
     super(rtx, mOp1, mOp2);
   }
 
@@ -65,7 +64,6 @@ public class MulOpAxis extends AbsObAxis {
    */
   @Override
   public INode operate(final AtomicValue mOperand1, final AtomicValue mOperand2) throws SirixXPathException {
-
     final Type returnType = getReturnType(mOperand1.getTypeKey(), mOperand2.getTypeKey());
     final int typeKey = getTrx().keyForName(returnType.getStringRepr());
 

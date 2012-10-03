@@ -27,8 +27,15 @@
 
 package org.sirix.axis.filter;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
 import org.sirix.api.IFilter;
 import org.sirix.api.INodeReadTrx;
+
+import com.google.common.base.Predicate;
 
 /**
  * <h1>AbstractFilter</h1>
@@ -37,35 +44,32 @@ import org.sirix.api.INodeReadTrx;
  * Filter node of transaction this filter is bound to.
  * </p>
  */
-public abstract class AbsFilter implements IFilter {
+public abstract class AbsFilter implements IFilter, Predicate<Void> {
 
   /** Iterate over transaction exclusive to this step. */
-  private INodeReadTrx mRTX;
+  private final INodeReadTrx mRtx;
 
   /**
    * Bind axis step to transaction.
    * 
-   * @param rtx
-   *          Transaction to operate with.
+   * @param pRtx
+   *          transaction to operate with
    */
-  protected AbsFilter(final INodeReadTrx rtx) {
-    mRTX = rtx;
+  protected AbsFilter(final @Nonnull INodeReadTrx pRtx) {
+    mRtx = checkNotNull(pRtx);
   }
 
-  /**
-   * Getting the Transaction of this filter
-   * 
-   * @return the transaction of this filter
-   */
-  protected final INodeReadTrx getTransaction() {
-    return mRTX;
+  @Override
+  public final INodeReadTrx getTrx() {
+    return mRtx;
   }
 
   @Override
   public abstract boolean filter();
-
+  
   @Override
-  public synchronized void setTransaction(final INodeReadTrx rtx) {
-    mRTX = rtx;
+  public boolean apply(@Nullable Void input) {
+  	// TODO Auto-generated method stub
+  	return false;
   }
 }

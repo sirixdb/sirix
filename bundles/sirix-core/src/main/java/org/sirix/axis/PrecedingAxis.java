@@ -35,7 +35,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.INodeCursor;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.EKind;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.settings.EFixed;
 
 /**
  * <h1>PrecedingAxis</h1>
@@ -71,16 +71,9 @@ public final class PrecedingAxis extends AbsAxis {
     mIsFirst = true;
     mStack = new ArrayDeque<>();
   }
-
+  
   @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    
+  protected long nextKey() {
 		final INodeReadTrx rtx = getTrx();
 		
     // Assure, that preceding is not evaluated on an attribute or a namespace.
@@ -88,20 +81,16 @@ public final class PrecedingAxis extends AbsAxis {
       mIsFirst = false;
       if (rtx.getKind() == EKind.ATTRIBUTE
         || rtx.getKind() == EKind.NAMESPACE) {
-        resetToStartKey();
-        return false;
+        return done();
       }
     }
 
-    resetToLastKey();
-
     // Current node key.
-    final long key = mKey;
+    final long key = rtx.getNodeKey();
 
     if (!mStack.isEmpty()) {
       // Return all nodes of the current subtree in reverse document order.
-      mKey = mStack.pop();
-      return true;
+      return mStack.pop();
     }
 
     if (rtx.hasLeftSibling()) {
@@ -112,9 +101,9 @@ public final class PrecedingAxis extends AbsAxis {
        * document order.
        */
       getLastChild();
-      mKey = rtx.getNodeKey();
+      final long nodeKey = rtx.getNodeKey();
       getTrx().moveTo(key);
-      return true;
+      return nodeKey;
     }
 
     while (rtx.hasParent()) {
@@ -124,14 +113,13 @@ public final class PrecedingAxis extends AbsAxis {
         getTrx().moveToLeftSibling();
         // Move to last node in the subtree.
         getLastChild();
-        mKey = rtx.getNodeKey();
+        final long nodeKey = rtx.getNodeKey();
         getTrx().moveTo(key);
-        return true;
+        return nodeKey;
       }
     }
-
-    resetToStartKey();
-    return false;
+    
+    return done();
   }
 
   /**
@@ -141,7 +129,6 @@ public final class PrecedingAxis extends AbsAxis {
    * order.
    */
   private void getLastChild() {
-  	
   	final INodeReadTrx rtx = getTrx();
   	
     // Nodekey of the root of the current subtree.

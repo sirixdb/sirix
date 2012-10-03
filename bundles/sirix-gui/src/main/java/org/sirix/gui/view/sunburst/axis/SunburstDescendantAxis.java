@@ -168,33 +168,24 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
   }
 
   @Override
-  public boolean hasNext() {
-    if (isNext()) {
-      return true;
-    }
-    
-    resetToLastKey();
-
+  protected long nextKey() {
     // Fail if there is no node anymore.
     if (mNextKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-      resetToStartKey();
-      return false;
+    	return done();
     }
 
     getTrx().moveTo(mNextKey);
 
     // Fail if the subtree is finished.
     if (getTrx().getLeftSiblingKey() == getStartKey()) {
-      resetToStartKey();
-      return false;
+    	return getTrx().getLeftSiblingKey();
     }
 
     // Always follow first child if there is one.
     if (getTrx().hasFirstChild()) {
       mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
       if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
-        resetToStartKey();
-        return false;
+      	return done();
       } else {
         processMove();
         mChildExtension = mModel.createSunburstItem(mItem, mDepth, mIndex);
@@ -213,7 +204,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
           mDepth++;
           mMoved = EMoved.CHILD;
         }
-        return true;
+        return mNextKey;
       }
     }
 
@@ -221,15 +212,14 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     if (getTrx().hasRightSibling()) {
       mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
       if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
-        resetToStartKey();
-        return false;
+      	return done();
       } else {
         processMove();
         mChildExtension = mModel.createSunburstItem(mItem, mDepth, mIndex);
 
         // Next node is a right sibling.
         nextRightSibling();
-        return true;
+        return mNextKey;
       }
     }
 
@@ -237,28 +227,26 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     if (!mRightSiblingKeyStack.isEmpty()) {
       mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
       if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
-        resetToStartKey();
-        return false;
+      	return done();
       } else {
         processMove();
         mChildExtension = mModel.createSunburstItem(mItem, mDepth, mIndex);
 
         // Next node will be a right sibling of an anchestor node or the traversal ends.
         nextFollowing();
-        return true;
+        return mNextKey;
       }
     }
 
     // Then end.
     mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
     if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
-      resetToStartKey();
-      return false;
+    	return done();
     } else {
       processMove();
       mChildExtension = mModel.createSunburstItem(mItem, mDepth, mIndex);
       mNextKey = (Long)EFixed.NULL_NODE_KEY.getStandardProperty();
-      return true;
+      return mNextKey;
     }
   }
 
@@ -302,16 +290,15 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
   /**
    * Process pruned node.
    */
-  private boolean processPruned() {
+  private long processPruned() {
     if (getTrx().hasRightSibling()) {
       nextRightSibling();
-      return true;
+      return mNextKey;
     } else if (!mRightSiblingKeyStack.isEmpty()) {
       nextFollowing();
-      return true;
+      return mNextKey;
     } else {
-      resetToStartKey();
-      return false;
+    	return done();
     }
   }
 

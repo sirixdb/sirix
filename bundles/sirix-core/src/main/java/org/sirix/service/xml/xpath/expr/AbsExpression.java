@@ -31,7 +31,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.IExpression;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.exception.SirixXPathException;
 
 /**

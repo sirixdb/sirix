@@ -53,7 +53,7 @@ public class TextFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getKind() == EKind.TEXT;
+    return getTrx().getKind() == EKind.TEXT;
   }
 
 }

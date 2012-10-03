@@ -37,6 +37,7 @@ import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
+import org.sirix.service.xml.xpath.AbsAxis;
 
 /**
  * JUnit-test class to test the functionality of the DubFilter.
@@ -102,13 +103,16 @@ public class ForAxisTest {
 
     final AbsAxis axis = new XPathAxis(rtx, "for $i in (10, 20), $j in (1, 2) return ($i + $j)");
     assertEquals(true, axis.hasNext());
-
+    axis.next();
     assertEquals("11.0", rtx.getValue());
     assertEquals(true, axis.hasNext());
+    axis.next();
     assertEquals("12.0", rtx.getValue());
     assertEquals(true, axis.hasNext());
+    axis.next();
     assertEquals("21.0", rtx.getValue());
     assertEquals(true, axis.hasNext());
+    axis.next();
     assertEquals("22.0", rtx.getValue());
     assertEquals(false, axis.hasNext());
   }

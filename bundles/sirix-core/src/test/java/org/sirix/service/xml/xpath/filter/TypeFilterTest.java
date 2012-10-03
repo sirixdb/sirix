@@ -33,7 +33,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.axis.filter.IFilterTest;
 import org.sirix.axis.filter.TypeFilter;
 import org.sirix.exception.SirixException;

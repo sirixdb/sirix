@@ -51,7 +51,7 @@ public class AttributeFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getKind() == EKind.ATTRIBUTE;
+    return getTrx().getKind() == EKind.ATTRIBUTE;
   }
 
 }

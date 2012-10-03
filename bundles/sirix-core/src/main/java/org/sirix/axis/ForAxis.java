@@ -30,6 +30,7 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
+import org.sirix.settings.EFixed;
 
 /**
  * <h1>ForAxis</h1>
@@ -85,17 +86,9 @@ public final class ForAxis extends AbsAxis {
       mRange.reset(pNodeKey);
     }
   }
-
+  
   @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    resetToLastKey();
-
+  protected long nextKey() {
     if (mIsFirst) {
       /*
        * Makes sure, that mRange.hasNext() is called before the return
@@ -104,23 +97,20 @@ public final class ForAxis extends AbsAxis {
       mIsFirst = false;
     } else {
       if (mReturn.hasNext()) {
-        mKey = mReturn.next();
-        return true;
+        return mReturn.next();
       }
     }
 
     // Check for more items in the binding sequence.
     while (mRange.hasNext()) {
-      mKey = mRange.next();
+      mRange.next();
 
       mReturn.reset(getStartKey());
       if (mReturn.hasNext()) {
-        mKey = mReturn.next();
-        return true;
+        return mReturn.next();
       }
     }
-
-    resetToStartKey();
-    return false;
+    
+    return done();
   }
 }

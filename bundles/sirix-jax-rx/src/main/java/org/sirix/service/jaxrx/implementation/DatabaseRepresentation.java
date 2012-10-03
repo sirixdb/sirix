@@ -53,7 +53,7 @@ import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
-import org.sirix.axis.AbsAxis;
+import org.sirix.api.IAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.util.RESTResponseHelper;
 import org.sirix.service.jaxrx.util.RESTXMLShredder;
@@ -324,9 +324,8 @@ public class DatabaseRepresentation {
 				session = database
 						.getSession(new SessionConfiguration.Builder(resource).build());
 				wtx = session.beginNodeWriteTrx();
-				wtx.moveTo(EFixed.NULL_NODE_KEY.getStandardProperty());
-				final XMLShredder shredder = new XMLShredder(wtx,
-						RESTXMLShredder.createReader(xmlInput), EInsert.ASFIRSTCHILD);
+				final XMLShredder shredder = new XMLShredder.Builder(wtx,
+						RESTXMLShredder.createReader(xmlInput), EInsert.ASFIRSTCHILD).commitAfterwards().build();
 				shredder.call();
 				allOk = true;
 			}
@@ -454,7 +453,7 @@ public class DatabaseRepresentation {
 
 			// Connection to sirix, creating a session
 			IDatabase database = null;
-			AbsAxis axis = null;
+			IAxis axis = null;
 			INodeReadTrx rtx = null;
 			ISession session = null;
 			// List for all restIds of modifications
@@ -473,6 +472,7 @@ public class DatabaseRepresentation {
 				axis = new XPathAxis(rtx, ".//*");
 
 				while (axis.hasNext()) {
+					axis.next();
 					if (rtx.getNodeKey() > maxRestidRev1) {
 						maxRestidRev1 = rtx.getNodeKey();
 					}
@@ -487,6 +487,7 @@ public class DatabaseRepresentation {
 				axis = new XPathAxis(rtx, ".//*");
 
 				while (axis.hasNext()) {
+					axis.next();
 					final Long nodeKey = rtx.getNodeKey();
 					if (nodeKey > maxRestidRev2) {
 						maxRestidRev2 = rtx.getNodeKey();

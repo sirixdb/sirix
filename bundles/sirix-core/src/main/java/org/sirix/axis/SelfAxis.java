@@ -30,6 +30,7 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeReadTrx;
+import org.sirix.settings.EFixed;
 
 /**
  * <h1>ParentAxis</h1>
@@ -40,40 +41,33 @@ import org.sirix.api.INodeReadTrx;
  */
 public final class SelfAxis extends AbsAxis {
 
-  /** Track number of calls of next. */
-  private boolean mFirst;
+	/** Track number of calls of next. */
+	private boolean mFirst;
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with
-   */
-  public SelfAxis(@Nonnull final INodeReadTrx pRtx) {
-    super(pRtx);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param pRtx
+	 *          exclusive (immutable) trx to iterate with
+	 */
+	public SelfAxis(final @Nonnull INodeReadTrx pRtx) {
+		super(pRtx);
+	}
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    mFirst = true;
-  }
+	@Override
+	public void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		mFirst = true;
+	}
 
-  @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    resetToLastKey();
-    if (mFirst) {
-      mFirst = false;
-      return true;
-    }
-    resetToStartKey();
-    return false;
-  }
+	@Override
+	protected long nextKey() {
+		if (mFirst) {
+			mFirst = false;
+			return getTrx().getNodeKey();
+		}
+
+		return done();
+	}
 
 }

@@ -25,7 +25,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.xpath.concurrent;
+package org.sirix.axis.concurrent;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -41,6 +41,8 @@ import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.settings.EFixed;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>ConcurrentAxis</h1>
@@ -60,9 +62,10 @@ import org.sirix.settings.EFixed;
  */
 public class ConcurrentAxis extends AbsAxis {
 
-  /**
-   * Axis that is running in an own thread and produces results for this axis.
-   */
+	/** Logger. */
+	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxis.class));
+	
+  /** Axis that is running in an own thread and produces results for this axis. */
   private final IAxis mProducer;
 
   /**
@@ -121,15 +124,9 @@ public class ConcurrentAxis extends AbsAxis {
       task = new ConcurrentAxisHelper(mProducer, mResults);
     }
   }
-
+  
   @Override
-  public synchronized boolean hasNext() {
-    if (isNext()) {
-      return true;
-    }
-
-    resetToLastKey();
-
+  protected long nextKey() {
     // Start producer on first call.
     if (mFirst) {
       mFirst = false;
@@ -137,8 +134,7 @@ public class ConcurrentAxis extends AbsAxis {
     }
 
     if (mFinished) {
-      resetToStartKey();
-      return false;
+    	return done();
     }
 
     long result = EFixed.NULL_NODE_KEY.getStandardProperty();
@@ -147,18 +143,16 @@ public class ConcurrentAxis extends AbsAxis {
       // Get result from producer as soon as it is available.
       result = mResults.take();
     } catch (final InterruptedException e) {
-      e.printStackTrace();
+    	LOGGER.warn(e.getMessage(), e);
     }
 
     // NULL_NODE_KEY marks end of the sequence computed by the producer.
     if (result != EFixed.NULL_NODE_KEY.getStandardProperty()) {
-      mKey = result;
-      return true;
+      return result;
     }
 
     mFinished = true;
-    resetToStartKey();
-    return false;
+    return done();
   }
 
   /**

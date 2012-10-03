@@ -30,7 +30,7 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeCursor;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.settings.EFixed;
 
 /**
  * <h1>ChildAxis</h1>
@@ -50,7 +50,7 @@ public final class ChildAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public ChildAxis(@Nonnull final INodeCursor pRtx) {
+  public ChildAxis(final @Nonnull INodeCursor pRtx) {
     super(pRtx);
   }
 
@@ -59,27 +59,16 @@ public final class ChildAxis extends AbsAxis {
     super.reset(pNodeKey);
     mFirst = true;
   }
-
+  
   @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    resetToLastKey();
+  protected long nextKey() {
     if (!mFirst && getTrx().hasRightSibling()) {
-      mKey = getTrx().getRightSiblingKey();
-      return true;
+      return getTrx().getRightSiblingKey();
     } else if (mFirst && getTrx().hasFirstChild()) {
       mFirst = false;
-      mKey = getTrx().getFirstChildKey();
-      return true;
-    } else {
-      resetToStartKey();
-      return false;
+      return getTrx().getFirstChildKey();
     }
+    
+    return done();
   }
-
 }

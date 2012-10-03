@@ -67,8 +67,8 @@ public abstract class AbsShredder implements IShredder<String, QName> {
 	}
 
 	@Override
-	public void processPI(final @Nonnull String pContent, final @Nonnull String pTarget)
-			throws SirixException {
+	public void processPI(final @Nonnull String pContent,
+			final @Nonnull String pTarget) throws SirixException {
 		final String content = checkNotNull(pContent);
 		final String target = checkNotNull(pTarget);
 		long key;

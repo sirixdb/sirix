@@ -34,8 +34,8 @@ import static org.junit.Assert.fail;
 import org.junit.After;
 import org.junit.Before;
 import org.sirix.TestHelper;
+import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.AbsAxis;
 import org.sirix.exception.SirixException;
 
 public class XPathStringChecker {
@@ -50,9 +50,9 @@ public class XPathStringChecker {
     TestHelper.closeEverything();
   }
 
-  public static void testIAxisConventions(final AbsAxis axis, final String[] expectedValues) {
+  public static void testIAxisConventions(final IAxis axis, final String[] expectedValues) {
 
-    final INodeReadTrx rtx = ((INodeReadTrx)axis.getTrx());
+    final INodeReadTrx rtx = axis.getTrx();
 
     // IAxis Convention 1.
     final long startKey = rtx.getNodeKey();

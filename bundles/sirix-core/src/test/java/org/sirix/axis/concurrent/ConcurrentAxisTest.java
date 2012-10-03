@@ -25,19 +25,15 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.xpath.concurrent;
+package org.sirix.axis.concurrent;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 
 import java.io.File;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.perfidix.annotation.AfterEachRun;
-import org.perfidix.annotation.BeforeEachRun;
-import org.perfidix.annotation.Bench;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
@@ -112,8 +108,7 @@ public class ConcurrentAxisTest {
 		final String query = "//regions/africa//location";
 		// final String result = "<name>Limor Simone</name>";
 		final int resultNumber = 55;
-		IAxis axis = null;
-		axis = new XPathAxis(holder.getRtx(), query);
+		final IAxis axis = new XPathAxis(holder.getRtx(), query);
 		for (int i = 0; i < resultNumber; i++) {
 			assertEquals(true, axis.hasNext());
 			axis.next();

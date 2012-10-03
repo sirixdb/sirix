@@ -42,8 +42,10 @@ import org.sirix.settings.EFixed;
  */
 public final class PostOrderAxis extends AbsAxis {
 
+	/** Determines if transaction moved to the parent before. */
 	private boolean mMovedToParent;
 
+	/** Determines if current key is the start node key before the traversal. */
 	private boolean mIsStartKey;
 
 	/**
@@ -70,36 +72,26 @@ public final class PostOrderAxis extends AbsAxis {
 	@Override
 	public void reset(final long pNodeKey) {
 		super.reset(pNodeKey);
-		mKey = pNodeKey;
 		mMovedToParent = false;
 		mIsStartKey = false;
 	}
 
 	@Override
-	public boolean hasNext() {
-		if (!isHasNext()) {
-			return false;
-		}
-		if (isNext()) {
-			return true;
-		}
+	protected long nextKey() {
+		final INodeReadTrx rtx = getTrx();
 
-		resetToLastKey();
-		final INodeReadTrx rtx = (INodeReadTrx) getTrx();
-		
 		// No subtree.
 		if (!rtx.hasFirstChild() && rtx.getNodeKey() == getStartKey()
 				|| mIsStartKey) {
 			if (!mIsStartKey && isSelfIncluded() == EIncludeSelf.YES) {
 				mIsStartKey = true;
-				return true;
+				return rtx.getNodeKey();
 			} else {
-				resetToStartKey();
-				return false;
+				return done();
 			}
 		}
 
-		final long currKey = mKey;
+		final long currKey = rtx.getNodeKey();
 
 		// Move down in the tree if it hasn't moved down before.
 		if ((!mMovedToParent && rtx.hasFirstChild())
@@ -108,39 +100,37 @@ public final class PostOrderAxis extends AbsAxis {
 				getTrx().moveTo(rtx.getFirstChildKey());
 			}
 
-			mKey = rtx.getNodeKey();
+			final long key = rtx.getNodeKey();
 			getTrx().moveTo(currKey);
-			return true;
+			return key;
 		}
 
 		// Move to the right sibling or parent node after walking down.
+		long key = 0;
 		if (rtx.hasRightSibling()) {
-			mKey = rtx.getRightSiblingKey();
+			key = rtx.getRightSiblingKey();
 		} else {
-			mKey = rtx.getParentKey();
+			key = rtx.getParentKey();
 			mMovedToParent = true;
 		}
 
 		// Stop traversal if needed.
-		if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-			resetToStartKey();
-			return false;
+		if (key == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+			return key;
 		}
 
 		// Traversal is at start key.
-		if (mKey == getStartKey()) {
+		if (key == getStartKey()) {
 			if (isSelfIncluded() == EIncludeSelf.YES) {
 				mIsStartKey = true;
-				return true;
+				return key;
 			} else {
-				resetToStartKey();
-				return false;
+				return done();
 			}
 		}
 
 		// Move back to current node.
 		getTrx().moveTo(currKey);
-		return true;
+		return key;
 	}
-
 }

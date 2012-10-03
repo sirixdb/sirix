@@ -36,6 +36,6 @@ public class PathKindFilter extends AbsFilter {
 
   @Override
   public boolean filter() {
-    return mType == getTransaction().getPathKind();
+    return mType == getTrx().getPathKind();
   }
 }

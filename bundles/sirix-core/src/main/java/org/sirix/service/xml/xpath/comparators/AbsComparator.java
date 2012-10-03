@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.comparators;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.expr.LiteralExpr;
@@ -88,7 +88,7 @@ public abstract class AbsComparator extends AbsAxis {
       mOperand2.reset(mNodeKey);
     }
   }
-
+  
   @Override
   public final boolean hasNext() {
     resetToLastKey();

@@ -116,7 +116,7 @@ public final class GUI extends JFrame {
 
 		// ===== Setup GUI ======
 		// Title of the frame.
-		setTitle("sirix GUI");
+		setTitle("Sirix GUI");
 
 		// Set default size and close operation.
 		final Dimension frameSize = new Dimension(WIDTH, HEIGHT);

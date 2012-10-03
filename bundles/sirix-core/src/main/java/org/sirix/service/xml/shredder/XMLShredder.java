@@ -171,12 +171,10 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 		/**
 		 * Commit afterwards.
 		 * 
-		 * @param pCommit
-		 *          yes, commit / no, do not commit
 		 * @return this builder instance
 		 */
-		public Builder commitAfterwards(final EShredderCommit pCommit) {
-			mCommit = pCommit;
+		public Builder commitAfterwards() {
+			mCommit = EShredderCommit.COMMIT;
 			return this;
 		}
 
@@ -202,7 +200,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 		mReader = pBuilder.mReader;
 		mInsert = pBuilder.mInsert;
 		mIncludeComments = pBuilder.mIncludeComments;
-		mIncludePIs = pBuilder.mIncludeComments;
+		mIncludePIs = pBuilder.mIncludePIs;
 		mCommit = pBuilder.mCommit;
 	}
 
@@ -410,7 +408,7 @@ public class XMLShredder extends AbsShredder implements Callable<Long> {
 		final boolean includeCoPI = pArgs.length == 3 ? Boolean
 				.parseBoolean(pArgs[2]) : false;
 		final XMLShredder shredder = new XMLShredder.Builder(wtx, reader,
-				EInsert.ASFIRSTCHILD).commitAfterwards(EShredderCommit.COMMIT)
+				EInsert.ASFIRSTCHILD).commitAfterwards()
 				.includeComments(includeCoPI).includePIs(includeCoPI).build();
 		shredder.call();
 		wtx.close();

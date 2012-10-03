@@ -34,7 +34,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeCursor;
-import org.sirix.node.interfaces.IStructNode;
 import org.sirix.settings.EFixed;
 
 /**
@@ -83,59 +82,45 @@ public final class DescendantAxis extends AbsAxis {
   }
 
   @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-
-    resetToLastKey();
-
+  protected long nextKey() {
     // Determines if first call to hasNext().
+  	long key = EFixed.NULL_NODE_KEY.getStandardProperty();
     if (mFirst) {
       mFirst = false;
 
       if (isSelfIncluded() == EIncludeSelf.YES) {
-        mKey = getTrx().getNodeKey();
+      	key = getTrx().getNodeKey();
       } else {
-        mKey = getTrx().getFirstChildKey();
+      	key = getTrx().getFirstChildKey();
       }
 
-      if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-        resetToStartKey();
-        return false;
-      }
-      return true;
+      return key;
     }
 
     // Always follow first child if there is one.
     if (getTrx().hasFirstChild()) {
-      mKey = getTrx().getFirstChildKey();
+    	key = getTrx().getFirstChildKey();
       if (getTrx().hasRightSibling()) {
         mRightSiblingKeyStack.push(getTrx().getRightSiblingKey());
       }
-      return true;
+      return key;
     }
 
     // Then follow right sibling if there is one.
     if (getTrx().hasRightSibling()) {
       final long currKey = getTrx().getNodeKey();
-      mKey = getTrx().getRightSiblingKey();
-      return hasNextNode(currKey);
+      key = getTrx().getRightSiblingKey();
+      return hasNextNode(key, currKey);
     }
 
     // Then follow right sibling on stack.
     if (mRightSiblingKeyStack.size() > 0) {
       final long currKey = getTrx().getNodeKey();
-      mKey = mRightSiblingKeyStack.pop();
-      return hasNextNode(currKey);
+      key = mRightSiblingKeyStack.pop();
+      return hasNextNode(key, currKey);
     }
-
-    // Then end.
-    resetToStartKey();
-    return false;
+    
+    return key;
   }
 
   /**
@@ -145,14 +130,14 @@ public final class DescendantAxis extends AbsAxis {
    *          current node key
    * @return {@code false} if finished, {@code true} if not
    */
-  private boolean hasNextNode(@Nonnegative final long pCurrKey) {
-    getTrx().moveTo(mKey);
+  private long hasNextNode(@Nonnegative long pKey, @Nonnegative final long pCurrKey) {
+    getTrx().moveTo(pKey);
     if (getTrx().getLeftSiblingKey() == getStartKey()) {
-      resetToStartKey();
-      return false;
+    	pKey = EFixed.NULL_NODE_KEY.getStandardProperty();
+      return pKey;
     } else {
       getTrx().moveTo(pCurrKey);
-      return true;
+      return pKey;
     }
   }
 }

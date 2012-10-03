@@ -38,69 +38,61 @@ import org.sirix.settings.EFixed;
  * <h1>AncestorAxis</h1>
  * 
  * <p>
- * Iterate over all descendants of kind ELEMENT or TEXT starting at a given node. Self is not included.
+ * Iterate over all descendants of kind ELEMENT or TEXT starting at a given
+ * node. Self is not included.
  * </p>
  */
 public final class AncestorAxis extends AbsAxis {
 
-  /**
-   * First touch of node.
-   */
-  private boolean mFirst;
+	/**
+	 * First touch of node.
+	 */
+	private boolean mFirst;
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param paramRtx
-   *          exclusive (immutable) trx to iterate with
-   */
-  public AncestorAxis(final @Nonnull INodeCursor pRtx) {
-    super(pRtx);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param paramRtx
+	 *          exclusive (immutable) trx to iterate with
+	 */
+	public AncestorAxis(final @Nonnull INodeCursor pRtx) {
+		super(pRtx);
+	}
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with
-   * @param pIncludeSelf
-   *          Is self included?
-   */
-  public AncestorAxis(final @Nonnull INodeCursor pRtx,
-    final @Nonnull EIncludeSelf pIncludeSelf) {
-    super(pRtx, pIncludeSelf);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param pRtx
+	 *          exclusive (immutable) trx to iterate with
+	 * @param pIncludeSelf
+	 *          Is self included?
+	 */
+	public AncestorAxis(final @Nonnull INodeCursor pRtx,
+			final @Nonnull EIncludeSelf pIncludeSelf) {
+		super(pRtx, pIncludeSelf);
+	}
 
-  @Override
-  public void reset(@Nonnegative final long pNodeKey) {
-    super.reset(pNodeKey);
-    mFirst = true;
-  }
+	@Override
+	public void reset(final @Nonnegative long pNodeKey) {
+		super.reset(pNodeKey);
+		mFirst = true;
+	}
 
-  @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    resetToLastKey();
+	@Override
+	protected long nextKey() {
+		// Self
+		if (mFirst && isSelfIncluded() == EIncludeSelf.YES) {
+			mFirst = false;
+			return getTrx().getNodeKey();
+		}
 
-    // Self
-    if (mFirst && isSelfIncluded() == EIncludeSelf.YES) {
-      mFirst = false;
-      return true;
-    }
+		if (getTrx().getKind() != EKind.DOCUMENT_ROOT
+				&& getTrx().hasParent()
+				&& getTrx().getParentKey() != EFixed.DOCUMENT_NODE_KEY
+						.getStandardProperty()) {
+			return getTrx().getParentKey();
+		}
 
-    if (getTrx().getKind() != EKind.DOCUMENT_ROOT
-      && getTrx().hasParent()
-      && getTrx().getParentKey() != EFixed.DOCUMENT_NODE_KEY
-        .getStandardProperty()) {
-      mKey = getTrx().getParentKey();
-      return true;
-    }
-    resetToStartKey();
-    return false;
-  }
+		return done();
+	}
 }

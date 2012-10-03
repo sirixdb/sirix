@@ -32,6 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
+import org.sirix.settings.EFixed;
 
 /**
  * <h1>NestedAxis</h1>
@@ -78,27 +79,16 @@ public final class NestedAxis extends AbsAxis {
     }
     mIsFirst = true;
   }
-
+  
   @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    
-    resetToLastKey();
-
+  protected long nextKey() {
     // Make sure that parent axis is moved for the first time.
     if (mIsFirst) {
       mIsFirst = false;
       if (mParentAxis.hasNext()) {
-        mKey = mParentAxis.next();
-        mChildAxis.reset(mKey);
+        mChildAxis.reset(mParentAxis.next());
       } else {
-        resetToStartKey();
-        return false;
+        return done();
       }
     }
 
@@ -106,19 +96,15 @@ public final class NestedAxis extends AbsAxis {
     boolean hasNext = false;
     while (!(hasNext = mChildAxis.hasNext())) {
       if (mParentAxis.hasNext()) {
-        mKey = mParentAxis.next();
-        mChildAxis.reset(mKey);
+        mChildAxis.reset(mParentAxis.next());
       } else {
         break;
       }
     }
     if (hasNext) {
-      mKey = mChildAxis.next();
-      return true;
+      return mChildAxis.next();
     }
-
-    resetToStartKey();
-    return false;
+    
+    return done();
   }
-
 }

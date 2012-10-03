@@ -53,6 +53,6 @@ public class ElementFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getKind() == EKind.ELEMENT;
+    return getTrx().getKind() == EKind.ELEMENT;
   }
 }

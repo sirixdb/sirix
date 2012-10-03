@@ -37,7 +37,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.axis.AbsAxis;
+import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -87,6 +87,7 @@ public class XPathAxisWideTest {
     final AbsAxis axis5 = new XPathAxis(holder.getRtx(), "mondial/lake/node()");
     for (int i = 0; i < 61; i++) {
       assertEquals(true, axis5.hasNext());
+      axis5.next();
     }
     // assertEquals(29891L, axis5.next());
     assertEquals(false, axis5.hasNext());
@@ -105,6 +106,7 @@ public class XPathAxisWideTest {
     }
     assertEquals(true, axis7.hasNext());
     // assertEquals(29891L, axis7.next());
+    axis7.next();
     assertEquals(false, axis7.hasNext());
 
     final AbsAxis axis8 = new XPathAxis(holder.getRtx(), "//*[@id]");

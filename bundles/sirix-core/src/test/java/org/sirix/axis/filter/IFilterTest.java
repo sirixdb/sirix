@@ -45,7 +45,7 @@ public class IFilterTest {
   }
 
   public static void testIFilterConventions(final IFilter filter, final boolean expected) {
-    final INodeReadTrx rtx = ((AbsFilter)filter).getTransaction();
+    final INodeReadTrx rtx = ((AbsFilter)filter).getTrx();
 
     // IFilter Convention 1.
     final long startKey = rtx.getNodeKey();

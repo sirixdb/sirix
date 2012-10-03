@@ -30,6 +30,7 @@ package org.sirix.axis;
 import org.sirix.api.INodeCursor;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.EKind;
+import org.sirix.settings.EFixed;
 
 /**
  * <h1>PrecedingSiblingAxis</h1>
@@ -61,17 +62,9 @@ public final class PrecedingSiblingAxis extends AbsAxis {
     super.reset(pNodeKey);
     mIsFirst = true;
   }
-
+  
   @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    
-    resetToLastKey();
+  protected long nextKey() {
     final INodeReadTrx rtx = getTrx();
     if (mIsFirst) {
       mIsFirst = false;
@@ -81,8 +74,7 @@ public final class PrecedingSiblingAxis extends AbsAxis {
        */
       final EKind kind = rtx.getKind();
       if (kind == EKind.ATTRIBUTE || kind == EKind.NAMESPACE) {
-        resetToStartKey();
-        return false;
+        return done();
       } else {
         if (rtx.hasParent()) {
           final long startNodeKey = rtx.getNodeKey();
@@ -90,23 +82,20 @@ public final class PrecedingSiblingAxis extends AbsAxis {
           rtx.moveToFirstChild();
 
           if (rtx.getNodeKey() == startNodeKey) {
-            resetToStartKey();
-            return false;
+            return EFixed.NULL_NODE_KEY.getStandardProperty();
           } else {
-            mKey = rtx.getNodeKey();
+            final long key = rtx.getNodeKey();
             rtx.moveTo(startNodeKey);
-            return true;
+            return key;
           }
         }
       }
     }
 
     if (rtx.hasRightSibling() && rtx.getRightSiblingKey() != getStartKey()) {
-      mKey = rtx.getRightSiblingKey();
-      return true;
+      return rtx.getRightSiblingKey();
     }
-    resetToStartKey();
-    return false;
+    
+    return done();
   }
-
 }

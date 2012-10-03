@@ -56,7 +56,6 @@ public class SubOpAxis extends AbsObAxis {
    *          Second value of the operation
    */
   public SubOpAxis(final INodeReadTrx rtx, final IAxis mOp1, final IAxis mOp2) {
-
     super(rtx, mOp1, mOp2);
   }
 

@@ -138,8 +138,9 @@ public interface INodeWriteTrx extends INodeReadTrx {
 	// --------------------------------------------------------
 
 	/**
-	 * Copy subtree from another {@code database/resource/revision} and insert as
-	 * right sibling of the current node.
+	 * Copy subtree from another {@code database/resource/revision} (the subtree
+	 * rooted at the provided transaction) and insert as right sibling of the
+	 * current node.
 	 * 
 	 * @param pRtx
 	 *          read transaction reference which implements the
@@ -154,8 +155,9 @@ public interface INodeWriteTrx extends INodeReadTrx {
 			throws SirixException;
 
 	/**
-	 * Copy subtree from another {@code database/resource/revision} and insert as
-	 * left sibling of the current node.
+	 * Copy subtree from another {@code database/resource/revision} (the subtree
+	 * rooted at the provided transaction) and insert as left sibling of the
+	 * current node.
 	 * 
 	 * @param pRtx
 	 *          read transaction reference which implements the
@@ -170,8 +172,9 @@ public interface INodeWriteTrx extends INodeReadTrx {
 			throws SirixException;
 
 	/**
-	 * Copy subtree from another {@code database/resource/revision} and insert as
-	 * right sibling of the current node.
+	 * Copy subtree from another {@code database/resource/revision} (the subtree
+	 * rooted at the provided transaction) and insert as right sibling of the
+	 * current node.
 	 * 
 	 * @param pRtx
 	 *          read transaction reference which implements the
@@ -186,8 +189,8 @@ public interface INodeWriteTrx extends INodeReadTrx {
 			throws SirixException;
 
 	/**
-	 * Replace a node with another node or subtree, depending whether the replaced
-	 * node is an {@code element}- or a {@code text-}node.
+	 * Replace a node with another node or subtree, depending on whether the
+	 * replaced node is an {@code element}- or a {@code text-}node.
 	 * 
 	 * @param pXML
 	 *          an XML representation
@@ -205,8 +208,9 @@ public interface INodeWriteTrx extends INodeReadTrx {
 			IOException, XMLStreamException;
 
 	/**
-	 * Replace a node with another node or subtree, depending whether the replaced
-	 * node is an {@code element}- or a {@code text-}node.
+	 * Replace a node with another node or subtree (the subtree rooted at the
+	 * provided transaction), depending on whether the replaced node is an
+	 * {@code element}- or a {@code text-}node.
 	 * 
 	 * @param pNode
 	 *          a node from another resource

@@ -31,6 +31,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.IFilter;
+import org.sirix.settings.EFixed;
 
 /**
  * <h1>TestAxis</h1>
@@ -41,71 +42,72 @@ import org.sirix.api.IFilter;
  */
 public final class FilterAxis extends AbsAxis {
 
-  /** Axis to test. */
-  private final IAxis mAxis;
+	/** Axis to test. */
+	private final IAxis mAxis;
 
-  /** Test to apply to axis. */
-  private final IFilter[] mAxisFilter;
+	/** Test to apply to axis. */
+	private final IFilter[] mAxisFilter;
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param pAxis
-   *          axis to iterate over
-   * @param pFirstAxisTest
-   *          test to perform for each node found with axis
-   * @param pAxisTest
-   *          tests to perform for each node found with axis
-   */
-  public FilterAxis(@Nonnull final IAxis pAxis,
-    @Nonnull final IFilter pFirstAxisTest, @Nonnull final IFilter... pAxisTest) {
-    super(pAxis.getTrx());
-    mAxis = pAxis;
-    final int length = pAxisTest.length == 0 ? 1 : pAxisTest.length + 1;
-    mAxisFilter = new IFilter[length];
-    mAxisFilter[0] = pFirstAxisTest;
-    for (int i = 1; i < length; i++) {
-      mAxisFilter[i] = pAxisTest[i - 1];
-    }
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param pAxis
+	 *          axis to iterate over
+	 * @param pFirstAxisTest
+	 *          test to perform for each node found with axis
+	 * @param pAxisTest
+	 *          tests to perform for each node found with axis
+	 */
+	public FilterAxis(final @Nonnull IAxis pAxis,
+			final @Nonnull IFilter pFirstAxisTest,
+			final @Nonnull IFilter... pAxisTest) {
+		super(pAxis.getTrx());
+		mAxis = pAxis;
+		final int length = pAxisTest.length == 0 ? 1 : pAxisTest.length + 1;
+		mAxisFilter = new IFilter[length];
+		mAxisFilter[0] = pFirstAxisTest;
+		if (!mAxis.getTrx().equals(mAxisFilter[0].getTrx())) {
+			throw new IllegalStateException(
+					"The filter must be bound to the same transaction as the axis!");
+		}
+		for (int i = 1; i < length; i++) {
+			mAxisFilter[i] = pAxisTest[i - 1];
+			if (!mAxis.getTrx().equals(mAxisFilter[i].getTrx())) {
+				throw new IllegalStateException(
+						"The filter must be bound to the same transaction as the axis!");
+			}
+		}
+	}
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    if (mAxis != null) {
-      mAxis.reset(pNodeKey);
-    }
-  }
+	@Override
+	public void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		if (mAxis != null) {
+			mAxis.reset(pNodeKey);
+		}
+	}
 
-  @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    resetToLastKey();
-    while (mAxis.hasNext()) {
-      mKey = mAxis.next();
-      boolean filterResult = true;
-      for (final IFilter filter : mAxisFilter) {
-        filterResult = filterResult && filter.filter();
-      }
-      if (filterResult) {
-        return true;
-      }
-    }
-    resetToStartKey();
-    return false;
-  }
+	@Override
+	protected long nextKey() {
+		while (mAxis.hasNext()) {
+			final long nodeKey = mAxis.next();
+			boolean filterResult = true;
+			for (final IFilter filter : mAxisFilter) {
+				filterResult = filterResult && filter.filter();
+			}
+			if (filterResult) {
+				return nodeKey;
+			}
+		}
+		return done();
+	}
 
-  /**
-   * Returns the inner axis.
-   * 
-   * @return the axis
-   */
-  public IAxis getAxis() {
-    return mAxis;
-  }
+	/**
+	 * Returns the inner axis.
+	 * 
+	 * @return the axis
+	 */
+	public IAxis getAxis() {
+		return mAxis;
+	}
 }

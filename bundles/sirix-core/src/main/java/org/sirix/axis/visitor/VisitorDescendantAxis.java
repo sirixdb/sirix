@@ -145,50 +145,31 @@ public final class VisitorDescendantAxis extends AbsAxis {
 	}
 
 	@Override
-	public boolean hasNext() {
-		if (!isHasNext()) {
-			return false;
-		}
-		if (isNext()) {
-			return true;
-		}
-		resetToLastKey();
-
+	protected long nextKey() {
 		// Visitor.
 		Optional<IVisitResult> result = Optional.absent();
 		if (mVisitor.isPresent()) {
-			result = Optional.fromNullable(getTrx().acceptVisitor(
-					mVisitor.get()));
+			result = Optional.fromNullable(getTrx().acceptVisitor(mVisitor.get()));
 		}
 
 		// If visitor is present and the return value is EVisitResult.TERMINATE than
 		// return false.
 		if (result.isPresent() && result.get() == EVisitResult.TERMINATE) {
-			resetToStartKey();
-			return false;
+			return EFixed.NULL_NODE_KEY.getStandardProperty();
 		}
 
 		final INodeReadTrx rtx = getTrx();
-		
+
 		// Determines if first call to hasNext().
 		if (mFirst) {
 			mFirst = false;
-
-			if (isSelfIncluded() == EIncludeSelf.YES) {
-				mKey = rtx.getNodeKey();
-			} else {
-				mKey = rtx.getFirstChildKey();
-			}
-
-			if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
-				resetToStartKey();
-				return false;
-			}
-			return true;
+			return isSelfIncluded() == EIncludeSelf.YES ? rtx.getNodeKey() : rtx
+					.getFirstChildKey();
 		}
 
 		// If visitor is present and the the righ sibling stack must be adapted.
-		if (result.isPresent() && result.get() == ELocalVisitResult.SKIPSUBTREEPOPSTACK) {
+		if (result.isPresent()
+				&& result.get() == ELocalVisitResult.SKIPSUBTREEPOPSTACK) {
 			mRightSiblingKeyStack.pop();
 		}
 
@@ -199,14 +180,14 @@ public final class VisitorDescendantAxis extends AbsAxis {
 				.get() != ELocalVisitResult.SKIPSUBTREEPOPSTACK) || !result.isPresent()) {
 			// Always follow first child if there is one.
 			if (rtx.hasFirstChild()) {
-				mKey = rtx.getFirstChildKey();
+				final long key = rtx.getFirstChildKey();
 				final long rightSiblNodeKey = rtx.getRightSiblingKey();
 				if (rtx.hasRightSibling()
 						&& (mRightSiblingKeyStack.isEmpty() || (!mRightSiblingKeyStack
 								.isEmpty() && mRightSiblingKeyStack.peek() != rightSiblNodeKey))) {
 					mRightSiblingKeyStack.push(rightSiblNodeKey);
 				}
-				return true;
+				return key;
 			}
 		}
 
@@ -216,20 +197,18 @@ public final class VisitorDescendantAxis extends AbsAxis {
 				|| !result.isPresent()) {
 			// Then follow right sibling if there is one.
 			if (rtx.hasRightSibling()) {
-				mKey = rtx.getRightSiblingKey();
-				return hasNextNode(rtx.getNodeKey());
+				final long nextKey = rtx.getRightSiblingKey();
+				return hasNextNode(nextKey, rtx.getNodeKey());
 			}
 		}
 
 		// Then follow right sibling on stack.
 		if (mRightSiblingKeyStack.size() > 0) {
-			mKey = mRightSiblingKeyStack.pop();
-			return hasNextNode(rtx.getNodeKey());
+			final long nextKey = mRightSiblingKeyStack.pop();
+			return hasNextNode(nextKey, rtx.getNodeKey());
 		}
 
-		// Then end.
-		resetToStartKey();
-		return false;
+		return EFixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	/**
@@ -238,16 +217,16 @@ public final class VisitorDescendantAxis extends AbsAxis {
 	 * @param pCurrKey
 	 *          node key of current node
 	 */
-	private boolean hasNextNode(final @Nonnegative long pCurrKey) {
+	private long hasNextNode(final @Nonnegative long pNextKey,
+			final @Nonnegative long pCurrKey) {
 		// Fail if the subtree is finished.
 		final INodeReadTrx rtx = getTrx();
-		rtx.moveTo(mKey);
+		rtx.moveTo(pNextKey);
 		if (rtx.getLeftSiblingKey() == getStartKey()) {
-			resetToStartKey();
-			return false;
+			return EFixed.NULL_NODE_KEY.getStandardProperty();
 		} else {
 			rtx.moveTo(pCurrKey);
-			return true;
+			return pNextKey;
 		}
 	}
 }

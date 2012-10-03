@@ -51,7 +51,7 @@ public class CommentFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getKind() == EKind.COMMENT;
+    return getTrx().getKind() == EKind.COMMENT;
   }
 
 }

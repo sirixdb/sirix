@@ -96,9 +96,9 @@ public class ValueFilter extends AbsFilter {
 
 	@Override
 	public final boolean filter() {
-		return (getTransaction().getKind() == EKind.TEXT || getTransaction()
+		return (getTrx().getKind() == EKind.TEXT || getTrx()
 				.getKind() == EKind.ATTRIBUTE)
-				&& (TypedValue.equals(getTransaction().getValue(), mValue));
+				&& (TypedValue.equals(getTrx().getValue(), mValue));
 	}
 
 }

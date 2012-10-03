@@ -59,19 +59,14 @@ public class DocumentNodeAxis extends AbsAxis {
     super.reset(pNodeKey);
     mFirst = true;
   }
-
+  
   @Override
-  public final boolean hasNext() {
-    resetToLastKey();
-
+  protected long nextKey() {
     if (mFirst) {
       mFirst = false;
-      mKey = EFixed.DOCUMENT_NODE_KEY.getStandardProperty();
-      return true;
-    } else {
-      resetToStartKey();
-      return false;
+      return EFixed.DOCUMENT_NODE_KEY.getStandardProperty();
     }
+    
+    return done();
   }
-
 }

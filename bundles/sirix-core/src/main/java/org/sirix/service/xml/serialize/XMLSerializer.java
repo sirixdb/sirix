@@ -119,10 +119,10 @@ public final class XMLSerializer extends AbsSerializer {
 	 * @param pRevisions
 	 *          further revisions to serialize
 	 */
-	private XMLSerializer(@Nonnull final ISession pSession,
-			@Nonnegative final long pNodeKey,
-			@Nonnull final XMLSerializerBuilder pBuilder,
-			@Nonnegative final int pRevision, @Nonnull final int... pRevisions) {
+	private XMLSerializer(final @Nonnull ISession pSession,
+			final @Nonnegative long pNodeKey,
+			final @Nonnull XMLSerializerBuilder pBuilder,
+			final @Nonnegative int pRevision, final @Nonnull int... pRevisions) {
 		super(pSession, pNodeKey, pRevision, pRevisions);
 		mOut = new BufferedOutputStream(pBuilder.mStream, 4096);
 		mIndent = pBuilder.mIndent;
@@ -151,7 +151,7 @@ public final class XMLSerializer extends AbsSerializer {
 				mOut.write(pRtx.rawNameForKey(pRtx.getNameKey()));
 				final long key = pRtx.getNodeKey();
 				// Emit namespace declarations.
-				for (int index = 0, length = pRtx.getNamespaceCount(); index < length; index++) {
+				for (int index = 0, nspCount = pRtx.getNamespaceCount(); index < nspCount; index++) {
 					pRtx.moveToNamespace(index);
 					if (pRtx.nameForKey(pRtx.getNameKey()).isEmpty()) {
 						mOut.write(ECharsForSerializing.XMLNS.getBytes());
@@ -181,7 +181,7 @@ public final class XMLSerializer extends AbsSerializer {
 				}
 
 				// Iterate over all persistent attributes.
-				for (int index = 0; index < pRtx.getAttributeCount(); index++) {
+				for (int index = 0, attCount = pRtx.getAttributeCount(); index < attCount; index++) {
 					pRtx.moveToAttribute(index);
 					mOut.write(ECharsForSerializing.SPACE.getBytes());
 					mOut.write(pRtx.rawNameForKey(pRtx.getNameKey()));
@@ -230,6 +230,8 @@ public final class XMLSerializer extends AbsSerializer {
 				}
 				mOut.write(ECharsForSerializing.CLOSEPI.getBytes());
 				break;
+			default:
+				throw new IllegalStateException("Node kind not known!");
 			}
 		} catch (final IOException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
@@ -329,7 +331,7 @@ public final class XMLSerializer extends AbsSerializer {
 	 * @throws UnsupportedEncodingException
 	 *           if unsupport encoding
 	 */
-	protected void write(@Nonnull final String pString)
+	protected void write(final @Nonnull String pString)
 			throws UnsupportedEncodingException, IOException {
 		mOut.write(pString.getBytes(IConstants.DEFAULT_ENCODING));
 	}
@@ -430,10 +432,10 @@ public final class XMLSerializer extends AbsSerializer {
 		private final ISession mSession;
 
 		/** Further revisions to serialize. */
-		private int[] mRevisions;
+		private int[] mVersions;
 
 		/** Revision to serialize. */
-		private int mRevision;
+		private int mVersion;
 
 		/** Node key of subtree to shredder. */
 		private final long mNodeKey;
@@ -448,18 +450,18 @@ public final class XMLSerializer extends AbsSerializer {
 		 * @param pRevisions
 		 *          revisions to serialize
 		 */
-		public XMLSerializerBuilder(@Nonnull final ISession pSession,
-				@Nonnull final OutputStream pStream, final int... pRevisions) {
+		public XMLSerializerBuilder(final @Nonnull ISession pSession,
+				final @Nonnull OutputStream pStream, final int... pRevisions) {
 			mNodeKey = 0;
 			mSession = checkNotNull(pSession);
 			mStream = checkNotNull(pStream);
 			if (pRevisions == null || pRevisions.length == 0) {
-				mRevision = mSession.getLastRevisionNumber();
+				mVersion = mSession.getLastRevisionNumber();
 			} else {
-				mRevision = pRevisions[0];
-				mRevisions = new int[pRevisions.length - 1];
+				mVersion = pRevisions[0];
+				mVersions = new int[pRevisions.length - 1];
 				for (int i = 0; i < pRevisions.length - 1; i++) {
-					mRevisions[i] = pRevisions[i + 1];
+					mVersions[i] = pRevisions[i + 1];
 				}
 			}
 		}
@@ -478,21 +480,21 @@ public final class XMLSerializer extends AbsSerializer {
 		 * @param paramVersions
 		 *          version(s) to serialize
 		 */
-		public XMLSerializerBuilder(@Nonnull final ISession pSession,
-				@Nonnegative final long pNodeKey, @Nonnull final OutputStream pStream,
-				@Nonnull final XMLSerializerProperties pProperties,
+		public XMLSerializerBuilder(final @Nonnull ISession pSession,
+				final @Nonnegative long pNodeKey, final @Nonnull OutputStream pStream,
+				final @Nonnull XMLSerializerProperties pProperties,
 				final int... pRevisions) {
 			checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
 			mSession = checkNotNull(pSession);
 			mNodeKey = pNodeKey;
 			mStream = checkNotNull(pStream);
 			if (pRevisions == null || pRevisions.length == 0) {
-				mRevision = mSession.getLastRevisionNumber();
+				mVersion = mSession.getLastRevisionNumber();
 			} else {
-				mRevision = pRevisions[0];
-				mRevisions = new int[pRevisions.length - 1];
+				mVersion = pRevisions[0];
+				mVersions = new int[pRevisions.length - 1];
 				for (int i = 0; i < pRevisions.length - 1; i++) {
-					mRevisions[i] = pRevisions[i + 1];
+					mVersions[i] = pRevisions[i + 1];
 				}
 			}
 			final ConcurrentMap<?, ?> map = checkNotNull(pProperties.getProps());
@@ -552,14 +554,14 @@ public final class XMLSerializer extends AbsSerializer {
 		}
 
 		/**
-		 * Setting the ids on nodes.
+		 * Setting the versions to serialize.
 		 * 
-		 * @param pRevisions
-		 *          revisions to serialize
+		 * @param pVersions
+		 *          versions to serialize
 		 * @return XMLSerializerBuilder reference
 		 */
-		public XMLSerializerBuilder setVersions(final int[] pRevisions) {
-			mRevisions = checkNotNull(pRevisions);
+		public XMLSerializerBuilder setVersions(final int[] pVersions) {
+			mVersions = checkNotNull(pVersions);
 			return this;
 		}
 
@@ -569,7 +571,7 @@ public final class XMLSerializer extends AbsSerializer {
 		 * @return a new {@link Serializer} instance
 		 */
 		public XMLSerializer build() {
-			return new XMLSerializer(mSession, mNodeKey, this, mRevision, mRevisions);
+			return new XMLSerializer(mSession, mNodeKey, this, mVersion, mVersions);
 		}
 	}
 

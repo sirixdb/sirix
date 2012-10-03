@@ -25,7 +25,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis;
+package org.sirix.service.xml.xpath;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -36,9 +36,10 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeCursor;
+import org.sirix.api.INodeReadTrx;
 import org.sirix.api.visitor.IVisitor;
+import org.sirix.axis.EIncludeSelf;
 import org.sirix.settings.EFixed;
 
 /**
@@ -48,8 +49,7 @@ import org.sirix.settings.EFixed;
  * Provide standard Java iterator capability compatible with the new enhanced
  * for loop available since Java 5.
  * 
- * Override the "template method" {@code nextKey()} to implement an axis. Return
- * {@code done()} if the axis has no more "elements".
+ * Override the "template method" {@code nextKey()} to implement an axis.
  * </p>
  */
 public abstract class AbsAxis implements IAxis {
@@ -58,7 +58,7 @@ public abstract class AbsAxis implements IAxis {
 	private final INodeCursor mRtx;
 
 	/** Key of next node. */
-	private long mKey;
+	protected long mKey;
 
 	/**
 	 * Make sure {@code next()} can only be called after {@code hasNext()} has
@@ -110,37 +110,33 @@ public abstract class AbsAxis implements IAxis {
 	public final Iterator<Long> iterator() {
 		return this;
 	}
-
+	
 	/**
-	 * Signals that axis traversal is done, that is {@code hasNext()} must return
-	 * false. Can be called from subclasses to signal that axis is done.
+	 * Signals that axis traversal is done, that is {@code hasNext()} must return false.
+	 * Can be called from subclasses to signal that axis is done.
 	 * 
 	 * @return null node key
 	 */
-	protected final long done() {
+	protected long done() {
 		return EFixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	/**
 	 * {@inheritDoc}
 	 * 
-	 * <p>
-	 * During the last call to {@code hasNext()}, that is {@code hasNext()}
-	 * returns false, the transaction is reset to the start key.
-	 * </p>
+	 * <p>During the last call to {@code hasNext()}, that is {@code hasNext()}
+	 * returns false, the transaction is reset to the start key.</p>
 	 * 
-	 * <p>
-	 * <strong>Implementors must implement {@code nextKey()} instead which is a
-	 * template method called from this {@code hasNext()} method.</strong>
-	 * </p>
+	 * <p><strong>Implementors should implement {@code nextKey()} instead which is a template
+	 * method called from this {@code hasNext()} method.</strong></p>
 	 */
 	@Override
-	public final boolean hasNext() {
-		if (!mHasNext) {
+	public boolean hasNext() {
+		if (!isHasNext()) {
 			// End of the axis reached.
 			return false;
 		}
-		if (mNext) {
+		if (isNext()) {
 			// hasNext() has been called before without an intermediate next()-call.
 			return true;
 		}
@@ -169,7 +165,9 @@ public abstract class AbsAxis implements IAxis {
 	 * 
 	 * @return next node key
 	 */
-	protected abstract long nextKey();
+	protected long nextKey() {
+		return 0;
+	}
 
 	@Override
 	public final Long next() {
@@ -194,9 +192,6 @@ public abstract class AbsAxis implements IAxis {
 		return mKey;
 	}
 
-	/**
-	 * Remove is not supported.
-	 */
 	@Override
 	public final void remove() {
 		throw new UnsupportedOperationException();
@@ -230,16 +225,15 @@ public abstract class AbsAxis implements IAxis {
 		}
 	}
 
-	//
-	// /**
-	// * Determines if axis might have more results.
-	// *
-	// * @return {@code true} if axis might have more results, {@code false}
-	// * otherwise
-	// */
-	// private boolean isHasNext() {
-	// return mHasNext;
-	// }
+	/**
+	 * Determines if axis might have more results.
+	 * 
+	 * @return {@code true} if axis might have more results, {@code false}
+	 *         otherwise
+	 */
+	public boolean isHasNext() {
+		return mHasNext;
+	}
 
 	/**
 	 * Make sure the transaction points to the node it started with. This must be
@@ -248,7 +242,7 @@ public abstract class AbsAxis implements IAxis {
 	 * @return key of node where transaction was before the first call of
 	 *         {@code hasNext()}
 	 */
-	private final long resetToStartKey() {
+	protected final long resetToStartKey() {
 		// No check because of IAxis Convention 4.
 		mRtx.moveTo(mStartKey);
 		mNext = false;
@@ -263,7 +257,7 @@ public abstract class AbsAxis implements IAxis {
 	 * @return key of node where transaction was after the last call of
 	 *         {@code hasNext()}
 	 */
-	private final long resetToLastKey() {
+	protected final long resetToLastKey() {
 		// No check because of IAxis Convention 4.
 		mRtx.moveTo(mKey);
 		mNext = true;

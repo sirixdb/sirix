@@ -39,7 +39,6 @@ import org.sirix.api.IAxis;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.api.ISession;
-import org.sirix.axis.AbsAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.settings.EFixed;
@@ -174,7 +173,7 @@ public class RestXPathProcessor {
 
       final boolean exist = rtx.moveTo(rId).hasMoved();
       if (exist) {
-        final AbsAxis axis = new XPathAxis(rtx, qQuery);
+        final IAxis axis = new XPathAxis(rtx, qQuery);
         if (doWrap) {
           output.write(beginResult.getBytes());
           for (final long key : axis) {

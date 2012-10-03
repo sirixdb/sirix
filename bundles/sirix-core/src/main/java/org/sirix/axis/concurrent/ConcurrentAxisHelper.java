@@ -25,7 +25,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.xpath.concurrent;
+package org.sirix.axis.concurrent;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 

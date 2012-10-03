@@ -42,7 +42,6 @@ import org.sirix.settings.EFixed;
  * </p>
  */
 public final class ParentAxis extends AbsAxis {
-
   /** Track number of calls of next. */
   private boolean mFirst;
 
@@ -61,27 +60,15 @@ public final class ParentAxis extends AbsAxis {
     super.reset(pNodeKey);
     mFirst = true;
   }
-
+  
   @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-
-    resetToLastKey();
+  protected long nextKey() {
     final INodeReadTrx rtx = getTrx();
     if (rtx.getKind() != EKind.DOCUMENT_ROOT && mFirst && rtx.hasParent()
       && rtx.getParentKey() != EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       mFirst = false;
-      mKey = rtx.getParentKey();
-      return true;
-    } else {
-      resetToStartKey();
-      return false;
+      return rtx.getParentKey();
     }
+    return done();
   }
-  
 }

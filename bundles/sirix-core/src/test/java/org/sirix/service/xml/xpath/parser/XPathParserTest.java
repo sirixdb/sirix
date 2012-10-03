@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.axis.AbsAxis;
+import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 
@@ -64,36 +64,42 @@ public class XPathParserTest {
 
     axis = new XPathAxis(holder.getRtx(), "\"12.5\"");
     assertEquals(true, axis.hasNext());
+    axis.next();
     assertEquals("12.5", holder.getRtx().getValue());
     assertEquals(holder.getRtx().keyForName("xs:string"), holder.getRtx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
     axis = new XPathAxis(holder.getRtx(), "\"He said, \"\"I don't like it\"\"\"");
     assertEquals(true, axis.hasNext());
+    axis.next();
     assertEquals("He said, I don't like it", holder.getRtx().getValue());
     assertEquals(holder.getRtx().keyForName("xs:string"), holder.getRtx().getTypeKey());
     assertEquals(false, axis.hasNext());
 
     axis = new XPathAxis(holder.getRtx(), "12");
     assertEquals(true, axis.hasNext());
+    axis.next();
     assertEquals(holder.getRtx().keyForName("xs:integer"), holder.getRtx().getTypeKey());
     assertEquals("12", holder.getRtx().getValue());
     assertEquals(false, axis.hasNext());
 
     axis = new XPathAxis(holder.getRtx(), "12.5");
     assertEquals(true, axis.hasNext());
+    axis.next();
     assertEquals(holder.getRtx().keyForName("xs:decimal"), holder.getRtx().getTypeKey());
     assertEquals("12.5", holder.getRtx().getValue());
     assertEquals(false, axis.hasNext());
 
     axis = new XPathAxis(holder.getRtx(), "12.5E2");
     assertEquals(true, axis.hasNext());
+    axis.next();
     assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getTypeKey());
     assertEquals("12.5E2", holder.getRtx().getValue());
     assertEquals(false, axis.hasNext());
 
     axis = new XPathAxis(holder.getRtx(), "1");
     assertEquals(true, axis.hasNext());
+    axis.next();
     assertEquals("1", holder.getRtx().getValue());
     assertEquals(holder.getRtx().keyForName("xs:integer"), holder.getRtx().getTypeKey());
     assertEquals(false, axis.hasNext());

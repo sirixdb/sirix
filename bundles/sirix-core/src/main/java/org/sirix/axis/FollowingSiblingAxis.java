@@ -32,6 +32,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.INodeCursor;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.IStructNode;
+import org.sirix.settings.EFixed;
 
 /**
  * <h1>FollowingSiblingAxis</h1>
@@ -61,16 +62,9 @@ public final class FollowingSiblingAxis extends AbsAxis {
     super.reset(pNodeKey);
     mIsFirst = true;
   }
-
+  
   @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    
+  protected long nextKey() {
     if (mIsFirst) {
       mIsFirst = false;
       /*
@@ -79,19 +73,15 @@ public final class FollowingSiblingAxis extends AbsAxis {
        */
       if (getTrx().getKind() == EKind.ATTRIBUTE
         || getTrx().getKind() == EKind.NAMESPACE) {
-        resetToStartKey();
-        return false;
+        return done();
       }
     }
 
-    resetToLastKey();
-
     if (getTrx().hasRightSibling()) {
-      mKey = getTrx().getRightSiblingKey();
-      return true;
+      return getTrx().getRightSiblingKey();
     }
-    resetToStartKey();
-    return false;
+    
+    return done();
   }
 
 }

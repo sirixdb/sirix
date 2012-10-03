@@ -31,7 +31,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.INodeReadTrx;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
+import org.sirix.settings.EFixed;
 
 /**
  * <h1>AttributeAxis</h1>
@@ -60,19 +60,11 @@ public final class AttributeAxis extends AbsAxis {
     super.reset(pNodeKey);
     mNextIndex = 0;
   }
-
+  
   @Override
-  public boolean hasNext() {
-    if (!isHasNext()) {
-      return false;
-    }
-    if (isNext()) {
-      return true;
-    }
-    resetToLastKey();
-    // move back to element, if there was already an attribute found. In
-    // this
-    // case the current node was set to an attribute by resetToLastKey()
+  protected long nextKey() {
+    // Move back to element, if there was already an attribute found. In
+    // this case the current node was set to an attribute by resetToLastKey().
     if (mNextIndex > 0) {
       assert getTrx().getKind() == EKind.ATTRIBUTE;
       getTrx().moveToParent();
@@ -80,13 +72,12 @@ public final class AttributeAxis extends AbsAxis {
 
     if (getTrx().getKind() == EKind.ELEMENT) {
       if (mNextIndex < getTrx().getAttributeCount()) {
-        mKey = getTrx().getAttributeKey(mNextIndex);
+        final long key = getTrx().getAttributeKey(mNextIndex);
         mNextIndex += 1;
-        return true;
+        return key;
       }
     }
-    resetToStartKey();
-    return false;
+    
+    return done();
   }
-
 }

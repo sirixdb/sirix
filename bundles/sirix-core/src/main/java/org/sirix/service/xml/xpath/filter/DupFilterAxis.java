@@ -32,7 +32,7 @@ import java.util.Set;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.axis.FilterAxis;
 import org.sirix.axis.NestedAxis;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
@@ -84,9 +84,6 @@ public class DupFilterAxis extends AbsAxis {
 
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public final void reset(final long mNodeKey) {
 
@@ -96,9 +93,6 @@ public class DupFilterAxis extends AbsAxis {
     }
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
   public final boolean hasNext() {
     if (isNext()) {
@@ -108,11 +102,12 @@ public class DupFilterAxis extends AbsAxis {
 
       while (mAxis.hasNext()) {
         // call next(), if it was not already called for that axis.
-        if (((AbsAxis)mAxis).isNext()) {
-          mKey = mAxis.next();
-        } else {
-          mKey = mAxis.getTrx().getNodeKey();
-        }
+//        if (((IAxis)mAxis).isNext()) {
+//        	mKey = mAxis.next();
+//        } else {
+      	mAxis.next();
+        	mKey = mAxis.getTrx().getNodeKey();
+//        }
 
         // add current item key to the set. If true is returned the item is
         // no

@@ -70,7 +70,7 @@ public class TypeFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getTypeKey() == mType;
+    return getTrx().getTypeKey() == mType;
   }
 
 }

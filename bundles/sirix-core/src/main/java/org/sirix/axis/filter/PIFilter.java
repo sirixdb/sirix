@@ -53,7 +53,7 @@ public class PIFilter extends AbsFilter {
 
   @Override
   public final boolean filter() {
-    return getTransaction().getKind() == EKind.PROCESSING;
+    return getTrx().getKind() == EKind.PROCESSING;
   }
 
 }

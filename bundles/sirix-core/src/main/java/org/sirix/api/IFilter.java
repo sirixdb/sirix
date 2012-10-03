@@ -41,9 +41,9 @@ package org.sirix.api;
  * <p>
  * <ol>
  * <li><strong>Precondition</strong> before each call to <code>IFilter.filter()</code>:
- * <code>IReadTransaction.getKey() == n</code>.</li>
+ * <code>INodeReadTrx.getKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after each call to <code>IFilter.filter()</code>:
- * <code>IReadTransaction.getKey() == n</code>.</li>
+ * <code>INodeReadTrx.getKey() == n</code>.</li>
  * </ol>
  * </p>
  * 
@@ -52,7 +52,7 @@ package org.sirix.api;
  * <p>
  * 
  * <pre>
- * // hasNext() yields true iff rtx selects an element with local part &quot;foo&quot;.
+ * // hasNext() yields true, iff rtx selects an element with local part &quot;foo&quot;.
  * new FilterAxis(new SelfAxis(rtx), new NameFilter(rtx, &quot;foo&quot;));
  * </pre>
  * 
@@ -64,16 +64,16 @@ package org.sirix.api;
  * 
  * <pre>
  * // Must extend &lt;code&gt;AbstractFilter&lt;/code&gt; and implement &lt;code&gt;IFilter&lt;/code&gt;.
- * public class ExampleFilter extends AbstractFilter implements IFilter {
+ * public final class ExampleFilter extends AbstractFilter {
  * 
- *   public ExampleFilter(final IReadTransaction rtx) {
+ *   public ExampleFilter(final @Nonnull INodeReadTrx pRtx) {
  *     // Must be called as first.
- *     super(rtx);
+ *     super(pRtx);
  *   }
  * 
  *   public final boolean filter() {
  *     // Do not move cursor.
- *     return (getTransaction().isSelected());
+ *     return (getTrx().isStructuralNode());
  *   }
  * }
  * </pre>
@@ -88,13 +88,12 @@ public interface IFilter {
    * @return {@code true} if node passes filter, {@code false} otherwise
    */
   boolean filter();
-
+  
   /**
-   * Set transaction to which this filter is bound.
+   * Getting the transaction of this filter
    * 
-   * @param pRtx
-   *          read transaction which is bound to transaction
+   * @return the transaction of this filter
    */
-  void setTransaction(final INodeReadTrx pRtx);
+  INodeReadTrx getTrx();
 
 }

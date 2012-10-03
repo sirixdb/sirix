@@ -25,59 +25,34 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.xpath.concurrent;
+package org.sirix.axis.concurrent;
 
-import org.perfidix.AbstractConfig;
-import org.perfidix.element.KindOfArrangement;
-import org.perfidix.meter.AbstractMeter;
-import org.perfidix.meter.MemMeter;
-import org.perfidix.meter.Memory;
-import org.perfidix.meter.Time;
-import org.perfidix.meter.TimeMeter;
-import org.perfidix.ouput.AbstractOutput;
+import org.perfidix.Benchmark;
+import org.perfidix.ouput.TabularSummaryOutput;
+import org.perfidix.result.BenchmarkResult;
 
 /**
- * Config class for Perfidix test settings.
+ * Main class for Perfidix test.
  * 
  * @author Patrick Lang, University of Konstanz
  */
-public class ConcurrentBenchConfig extends AbstractConfig {
+public class ConcurrentBenchTestMain {
 
-  /**
-   * Number of runs.
-   */
-  private final static int RUNS = 50;
+  public static void main(String[] args) {
+    /*
+     * Get config settings from config class and add a class to test.
+     */
+    final Benchmark bench = new Benchmark(new ConcurrentBenchConfig());
+    bench.add(ConcurrentAxisTest.class);
 
-  /**
-   * Test units of time and memory.
-   */
-  private final static AbstractMeter[] METERS = {
-    new TimeMeter(Time.Seconds), new MemMeter(Memory.Mebibyte)
-  };
-
-  /**
-   * Kind of output result viewer.
-   */
-  private static final AbstractOutput[] OUTPUT = {/*
-                                                   * new
-                                                   * TabularSummaryOutput()
-                                                   */};
-  /**
-   * Kind of arrangement.
-   */
-  private final static KindOfArrangement ARRAN = KindOfArrangement.SequentialMethodArrangement;
-
-  /**
-   * Member gcProb.
-   */
-  private final static double GCPROB = 1.0d;
-
-  /**
-   * Constructor to set settings.
-   */
-  public ConcurrentBenchConfig() {
-    super(RUNS, METERS, OUTPUT, ARRAN, GCPROB);
-
+    /*
+     * Start test.
+     */
+    final BenchmarkResult res = bench.run();
+    /*
+     * Output test results.
+     */
+    new TabularSummaryOutput().visitBenchmark(res);
   }
 
 }

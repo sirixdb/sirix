@@ -2946,7 +2946,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		}
 		if (!(rtx.isStructuralNode())) {
 			throw new IllegalStateException(
-					"Node to insert must be a structural node (currently Text or Element)!");
+					"Node to insert must be a structural node (Text, PI, Comment, Document root or Element)!");
 		}
 
 		if (rtx.getKind() == EKind.TEXT) {
@@ -2964,10 +2964,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 			}
 		} else {
 			final XMLEventReader reader = new StAXSerializer(pRtx);
-			new XMLShredder(this, reader, pInsert, EShredderCommit.NOCOMMIT).call();
+			new XMLShredder.Builder(this, reader, pInsert).build().call();
 		}
-		// rtx.getCurrentNode().acceptVisitor(new InsertSubtreeVisitor(rtx, this,
-		// pInsert));
 		rtx.close();
 	}
 

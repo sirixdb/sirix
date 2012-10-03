@@ -73,25 +73,25 @@ public class WildcardFilter extends AbsFilter {
 			final EType pType) {
 		super(pRtx);
 		mType = checkNotNull(pType);
-		mKnownPartKey = getTransaction().keyForName(checkNotNull(pKnownPart));
+		mKnownPartKey = getTrx().keyForName(checkNotNull(pKnownPart));
 	}
 
 	@Override
 	public final boolean filter() {
-		final EKind kind = getTransaction().getKind();
+		final EKind kind = getTrx().getKind();
 		switch (kind) {
 		case ELEMENT:
 			if (mType == EType.LOCALNAME) { // local name is given
 				return localNameMatch();
 			} else { // namespace prefix is given
 				final int prefixKey = mKnownPartKey;
-				for (int i = 0, nsCount = getTransaction().getNamespaceCount(); i < nsCount; i++) {
-					getTransaction().moveToNamespace(i);
-					if (getTransaction().getNameKey() == prefixKey) {
-						getTransaction().moveToParent();
+				for (int i = 0, nsCount = getTrx().getNamespaceCount(); i < nsCount; i++) {
+					getTrx().moveToNamespace(i);
+					if (getTrx().getNameKey() == prefixKey) {
+						getTrx().moveToParent();
 						return true;
 					}
-					getTransaction().moveToParent();
+					getTrx().moveToParent();
 				}
 				return false;
 			}
@@ -99,9 +99,9 @@ public class WildcardFilter extends AbsFilter {
 			if (mType == EType.LOCALNAME) { // local name is given
 				return localNameMatch();
 			} else {
-				final String localname = getTransaction().nameForKey(
-						getTransaction().getNameKey()).replaceFirst(":.*", "");
-				final int localnameKey = getTransaction().keyForName(localname);
+				final String localname = getTrx().nameForKey(
+						getTrx().getNameKey()).replaceFirst(":.*", "");
+				final int localnameKey = getTrx().keyForName(localname);
 				return localnameKey == mKnownPartKey;
 			}
 		default:
@@ -115,9 +115,9 @@ public class WildcardFilter extends AbsFilter {
 	 * @return {@code true}, if they match, {@code false} otherwise
 	 */
 	private boolean localNameMatch() {
-		final String localname = getTransaction().nameForKey(
-				getTransaction().getNameKey()).replaceFirst(".*:", "");
-		final int localnameKey = getTransaction().keyForName(localname);
+		final String localname = getTrx().nameForKey(
+				getTrx().getNameKey()).replaceFirst(".*:", "");
+		final int localnameKey = getTrx().keyForName(localname);
 		return localnameKey == mKnownPartKey;
 	}
 }

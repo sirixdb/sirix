@@ -25,13 +25,11 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.xpath.concurrent;
+package org.sirix.axis.concurrent;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.settings.EFixed;
 
 /**
@@ -94,15 +92,13 @@ public class ConcurrentIntersectAxis extends AbsAxis {
     mCurrentResult1 = EFixed.NULL_NODE_KEY.getStandardProperty();
     mCurrentResult2 = EFixed.NULL_NODE_KEY.getStandardProperty();
   }
-
+  
   @Override
-  public synchronized boolean hasNext() {
-    resetToLastKey();
-
+  protected long nextKey() {
     if (mFirst) {
       mFirst = false;
-      mCurrentResult1 = getNext(mOp1);
-      mCurrentResult2 = getNext(mOp2);
+      mCurrentResult1 = Util.getNext(mOp1);
+      mCurrentResult2 = Util.getNext(mOp2);
     }
 
     final long nodeKey;
@@ -111,22 +107,19 @@ public class ConcurrentIntersectAxis extends AbsAxis {
     // returned
     while (!mOp1.isFinished()) {
       while (!mOp2.isFinished()) {
-
         // if both results are not equal get next values
         while (mCurrentResult1 != mCurrentResult2 && !mOp1.isFinished() && !mOp2.isFinished()) {
 
           // get next result from 1st axis, if current is smaller than
           // 2nd
           while (mCurrentResult1 < mCurrentResult2 && !mOp1.isFinished() && !mOp2.isFinished()) {
-            mCurrentResult1 = getNext(mOp1);
-
+            mCurrentResult1 = Util.getNext(mOp1);
           }
 
           // get next result from 2nd axis if current is smaller than
           // 1st
           while (mCurrentResult1 > mCurrentResult2 && !mOp1.isFinished() && !mOp2.isFinished()) {
-            mCurrentResult2 = getNext(mOp2);
-
+            mCurrentResult2 = Util.getNext(mOp2);
           }
         }
 
@@ -134,11 +127,10 @@ public class ConcurrentIntersectAxis extends AbsAxis {
           // if both results are equal return it
           assert (mCurrentResult1 == mCurrentResult2);
           nodeKey = mCurrentResult1;
-          if (isValid(nodeKey)) {
-            mCurrentResult1 = getNext(mOp1);
-            mCurrentResult2 = getNext(mOp2);
-            mKey = nodeKey;
-            return true;
+          if (Util.isValid(nodeKey)) {
+            mCurrentResult1 = Util.getNext(mOp1);
+            mCurrentResult2 = Util.getNext(mOp2);
+            return nodeKey;
           }
           // should never come here!
           throw new IllegalStateException(nodeKey + " is not valid!");
@@ -148,40 +140,8 @@ public class ConcurrentIntersectAxis extends AbsAxis {
 
       }
       break;
-
     }
-    // no results left
-    resetToStartKey();
-    return false;
-
-  }
-
-  /**
-   * @return the next result of the axis. If the axis has no next result, the
-   *         null node key is returned.
-   */
-  private long getNext(final AbsAxis axis) {
-    return (axis.hasNext()) ? axis.next() : (Long)EFixed.NULL_NODE_KEY.getStandardProperty();
-  }
-
-  /**
-   * Checks, whether the given nodekey belongs to a node or an atomic value.
-   * Returns true for a node and throws an exception for an atomic value,
-   * because these are not allowed in the except expression.
-   * 
-   * @param nodeKey
-   *          the nodekey to validate
-   * @return true, if key is a key of a node, otherwise throws an exception
-   */
-  private boolean isValid(final long nodeKey) {
-    if (nodeKey < 0) {
-      try {
-        throw EXPathError.XPTY0004.getEncapsulatedException();
-      } catch (final SirixXPathException mExp) {
-        mExp.printStackTrace();
-      }
-    }
-    return true;
-
+    
+    return EFixed.NULL_NODE_KEY.getStandardProperty();
   }
 }
