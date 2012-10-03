@@ -40,7 +40,7 @@ import org.sirix.settings.EFixed;
  * <h1>DescendantAxis</h1>
  * 
  * <p>
- * Iterate over all descendants of kind ELEMENT or TEXT starting at a given node. Self is not included.
+ * Iterate over all structural descendants starting at a given node. Self is not included.
  * </p>
  */
 public final class DescendantAxis extends AbsAxis {
@@ -57,7 +57,7 @@ public final class DescendantAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public DescendantAxis(@Nonnull final INodeCursor pRtx) {
+  public DescendantAxis(final @Nonnull INodeCursor pRtx) {
     super(pRtx);
   }
 
@@ -69,8 +69,8 @@ public final class DescendantAxis extends AbsAxis {
    * @param pIncludeSelf
    *          Is self included?
    */
-  public DescendantAxis(@Nonnull final INodeCursor pRtx,
-    @Nonnull final EIncludeSelf pIncludeSelf) {
+  public DescendantAxis(final @Nonnull INodeCursor pRtx,
+    final @Nonnull EIncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
   }
 
@@ -83,8 +83,9 @@ public final class DescendantAxis extends AbsAxis {
 
   @Override
   protected long nextKey() {
-    // Determines if first call to hasNext().
   	long key = EFixed.NULL_NODE_KEY.getStandardProperty();
+ 
+    // Determines if first call to hasNext().
     if (mFirst) {
       mFirst = false;
 
@@ -126,11 +127,13 @@ public final class DescendantAxis extends AbsAxis {
   /**
    * Determines if the subtree-traversal is finished.
    * 
+   * @param pKey
+   * 					next key
    * @param pCurrKey
    *          current node key
    * @return {@code false} if finished, {@code true} if not
    */
-  private long hasNextNode(@Nonnegative long pKey, @Nonnegative final long pCurrKey) {
+  private long hasNextNode(@Nonnegative long pKey, final @Nonnegative long pCurrKey) {
     getTrx().moveTo(pKey);
     if (getTrx().getLeftSiblingKey() == getStartKey()) {
     	pKey = EFixed.NULL_NODE_KEY.getStandardProperty();

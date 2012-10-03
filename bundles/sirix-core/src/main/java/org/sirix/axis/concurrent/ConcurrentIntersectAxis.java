@@ -142,6 +142,6 @@ public class ConcurrentIntersectAxis extends AbsAxis {
       break;
     }
     
-    return EFixed.NULL_NODE_KEY.getStandardProperty();
+    return done();
   }
 }

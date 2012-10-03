@@ -235,13 +235,13 @@ public final class Database implements IDatabase {
 	}
 
 	@Override
-	public synchronized String getResourceName(final @Nonnegative long pID) {
+	public synchronized String getResourceName(final @Nonnegative int pID) {
 		checkArgument(pID >= 0, "pID must be >= 0!");
 		return mResources.get(pID);
 	}
 
 	@Override
-	public synchronized long getResourceID(final @Nonnull String pName) {
+	public synchronized int getResourceID(final @Nonnull String pName) {
 		return mResources.inverse().get(checkNotNull(pName));
 	}
 

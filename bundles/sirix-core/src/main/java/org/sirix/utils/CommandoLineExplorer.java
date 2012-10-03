@@ -37,8 +37,8 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.ISession;
 import org.sirix.exception.SirixException;
 
 /**
@@ -87,7 +87,6 @@ public final class CommandoLineExplorer {
 		ISession session = null;
 		INodeReadTrx rtx = null;
 		if (args.length > 0) {
-
 			int revision = 0;
 			if (args.length > 1) {
 				revision = Integer.parseInt(args[1]);
@@ -104,6 +103,7 @@ public final class CommandoLineExplorer {
 			if (revision != 0) {
 				rtx = session.beginNodeWriteTrx();
 			} else {
+				assert session != null;
 				rtx = session.beginNodeReadTrx(revision);
 			}
 		} else {
@@ -175,7 +175,7 @@ public final class CommandoLineExplorer {
 				}
 			}
 
-		} catch (final Exception e) {
+		} catch (final SirixException e) {
 			if (rtx != null) {
 				rtx.close();
 			}

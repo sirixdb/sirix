@@ -159,6 +159,6 @@ public final class ConcurrentExceptAxis extends AbsAxis {
 			}
 		}
 		
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return done();
 	}
 }

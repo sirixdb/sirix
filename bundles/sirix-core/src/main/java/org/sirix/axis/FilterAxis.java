@@ -31,7 +31,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.IFilter;
-import org.sirix.settings.EFixed;
 
 /**
  * <h1>TestAxis</h1>

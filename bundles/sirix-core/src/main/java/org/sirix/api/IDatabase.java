@@ -134,7 +134,7 @@ public interface IDatabase extends AutoCloseable {
 	 * @throws IllegalArgumentException
 	 *           if {@code pID} is negative
 	 */
-	String getResourceName(@Nonnegative long pID);
+	String getResourceName(@Nonnegative int pID);
 
 	/**
 	 * Get the resource-ID associated with the given resource name.
@@ -145,5 +145,5 @@ public interface IDatabase extends AutoCloseable {
 	 * @throws NullPointerException
 	 *           if {@code pName} is {@code null}
 	 */
-	long getResourceID(@Nonnull String pName);
+	int getResourceID(@Nonnull String pName);
 }

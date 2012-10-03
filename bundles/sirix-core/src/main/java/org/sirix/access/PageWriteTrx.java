@@ -389,7 +389,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 			}
 
 			// If none is in the log.
-			if (page == null) {
+//			if (page == null) {
 				// // Then try to get one from the page cache.
 				// if (nodePageKey == -1 && pReference.getKey() != IConstants.NULL_ID) {
 				// page = mPageLog.get(pReference.getKey());
@@ -402,7 +402,7 @@ final class PageWriteTrx extends AbsForwardingPageReadTrx implements
 						return;
 					}
 				}
-			}
+//			}
 
 			pReference.setPage(page);
 			if (pReference.getPageKind() == null) {

@@ -22,7 +22,7 @@ public interface IAxis extends Iterator<Long>, Iterable<Long> {
   INodeReadTrx getTrx();
 
   /**
-   * Foreach-iterator using a {@link IVistor}.
+   * Foreach-iterator calling a {@link IVistor} for each iteration.
    * 
    * @param pVisitor
    *          {@link IVisitor} implementation

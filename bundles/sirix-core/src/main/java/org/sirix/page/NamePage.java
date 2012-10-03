@@ -175,6 +175,7 @@ public final class NamePage implements IPage {
       break;
     case PROCESSING:
     	count = mPIs.getCount(pKey);
+    	break;
     default:
       throw new IllegalStateException("No other node types supported!");
     }

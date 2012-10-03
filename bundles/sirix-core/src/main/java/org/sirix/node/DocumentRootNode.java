@@ -81,13 +81,17 @@ public final class DocumentRootNode extends AbsStructForwardingNode implements
   public IVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
   	return pVisitor.visit(ImmutableDocument.of(this));
   }
+  
+  @Override
+  public int hashCode() {
+  	return Objects.hashCode(mNodeDel);
+  }
 
   @Override
   public boolean equals(@Nullable final Object pObj) {
     if (pObj instanceof DocumentRootNode) {
       final DocumentRootNode other = (DocumentRootNode)pObj;
-      return Objects.equal(mNodeDel, other.mNodeDel)
-        && Objects.equal(mStructNodeDel, other.mStructNodeDel);
+      return Objects.equal(mNodeDel, other.mNodeDel);
     }
     return false;
   }

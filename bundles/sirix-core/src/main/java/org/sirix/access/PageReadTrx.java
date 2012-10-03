@@ -234,7 +234,7 @@ final class PageReadTrx implements IPageReadTrx {
 				public PageContainer load(final Long pKey) throws SirixException {
 					final PageContainer container = mValueLog.isPresent() ? mValueLog
 							.get().get(pKey) : null;
-					if (container.equals(PageContainer.EMPTY_INSTANCE)) {
+					if (PageContainer.EMPTY_INSTANCE.equals(container)) {
 						return getNodeFromPage(pKey, EPage.VALUEPAGE);
 					} else {
 						return container;
@@ -604,7 +604,7 @@ final class PageReadTrx implements IPageReadTrx {
 			ref = getPathSummaryPage(pRef).getIndirectPageReference();
 			break;
 		default:
-			new IllegalStateException(
+			throw new IllegalStateException(
 					"Only defined for node pages and path summary pages!");
 		}
 		return ref;

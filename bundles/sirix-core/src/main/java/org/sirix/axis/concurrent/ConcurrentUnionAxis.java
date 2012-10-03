@@ -148,6 +148,6 @@ public class ConcurrentUnionAxis extends AbsAxis {
       throw new IllegalStateException(nodeKey + " is not valid!");
     }
     
-    return EFixed.NULL_NODE_KEY.getStandardProperty();
+    return done();
   }
 }

@@ -51,6 +51,8 @@ import org.sirix.settings.EFixed;
  * Override the "template method" {@code nextKey()} to implement an axis. Return
  * {@code done()} if the axis has no more "elements".
  * </p>
+ * 
+ * @author Johannes Lichtenberger
  */
 public abstract class AbsAxis implements IAxis {
 
@@ -113,7 +115,9 @@ public abstract class AbsAxis implements IAxis {
 
 	/**
 	 * Signals that axis traversal is done, that is {@code hasNext()} must return
-	 * false. Can be called from subclasses to signal that axis is done.
+	 * false. Is callable from subclasses which implement {@link #nextKey()} to
+	 * signal that the axis-traversal is done and {@link #hasNext()} must return
+	 * false.
 	 * 
 	 * @return null node key
 	 */
@@ -230,17 +234,6 @@ public abstract class AbsAxis implements IAxis {
 		}
 	}
 
-	//
-	// /**
-	// * Determines if axis might have more results.
-	// *
-	// * @return {@code true} if axis might have more results, {@code false}
-	// * otherwise
-	// */
-	// private boolean isHasNext() {
-	// return mHasNext;
-	// }
-
 	/**
 	 * Make sure the transaction points to the node it started with. This must be
 	 * called just before {@code hasNext() == false}.
@@ -273,7 +266,7 @@ public abstract class AbsAxis implements IAxis {
 	/**
 	 * Get start key.
 	 * 
-	 * @return Start key.
+	 * @return start key
 	 */
 	protected final long getStartKey() {
 		return mStartKey;
@@ -282,17 +275,6 @@ public abstract class AbsAxis implements IAxis {
 	@Override
 	public final EIncludeSelf isSelfIncluded() {
 		return mIncludeSelf;
-	}
-
-	/**
-	 * Get mNext which determines if {@code hasNext()} has at least been called
-	 * once before the call to {@code next()}.
-	 * 
-	 * @return {@code true} if {@code hasNext()} has been called before calling
-	 *         {@code next()}, {@code false} otherwise
-	 */
-	public final boolean isNext() {
-		return mNext;
 	}
 
 	/**

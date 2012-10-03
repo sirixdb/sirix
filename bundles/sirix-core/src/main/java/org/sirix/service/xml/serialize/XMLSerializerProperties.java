@@ -83,7 +83,7 @@ public final class XMLSerializerProperties {
   };
 
   /** Property file. */
-  private static String mFilePath;
+  private String mFilePath;
 
   /** Properties. */
   private final ConcurrentMap<String, Object> mProps = new ConcurrentHashMap<String, Object>();

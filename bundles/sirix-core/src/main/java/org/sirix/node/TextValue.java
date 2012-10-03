@@ -2,6 +2,9 @@ package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.util.Arrays;
+
 import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
@@ -56,14 +59,19 @@ public class TextValue implements Comparable<INodeBase>, INodeBase {
 	@Override
 	public int compareTo(final @Nullable INodeBase pOther) {
 		final TextValue value = (TextValue) pOther;
-		return mValue.toString().compareTo(value.toString());
+		return new String(mValue).compareTo(new String(value.mValue));
+	}
+	
+	@Override
+	public int hashCode() {
+		return Arrays.hashCode(mValue);
 	}
 
 	@Override
 	public boolean equals(final @Nullable Object pObj) {
 		if (pObj instanceof TextValue) {
 			final TextValue otherValue = (TextValue) pObj;
-			return otherValue.mValue.equals(mValue);
+			return Arrays.equals(otherValue.mValue, mValue);
 		}
 		return false;
 	}
@@ -90,7 +98,7 @@ public class TextValue implements Comparable<INodeBase>, INodeBase {
 	@Override
 	public String toString() {
 		return Objects.toStringHelper(this).add("nodeKey", mNodeKey)
-				.add("value", mValue.toString()).toString();
+				.add("value", new String(mValue)).toString();
 	}
 
 	@Override

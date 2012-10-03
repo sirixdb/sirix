@@ -50,7 +50,6 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 
@@ -287,10 +286,10 @@ public class StAXSerializerTest {
       strBuilder.append(' ');
     }
 
-    if (qName.getPrefix() == "") {
+    if ("".equals(qName.getPrefix())) {
       strBuilder.append(qName.getLocalPart());
     } else {
-      strBuilder.append(qName.getPrefix() + ':' + qName.getLocalPart());
+      strBuilder.append(qName.getPrefix()).append(':').append(qName.getLocalPart());
     }
   }
 }

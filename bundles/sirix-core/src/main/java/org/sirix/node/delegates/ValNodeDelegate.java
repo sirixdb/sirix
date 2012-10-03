@@ -27,8 +27,8 @@
 package org.sirix.node.delegates;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
+import java.util.Arrays;
 import java.util.zip.Deflater;
 
 import javax.annotation.Nonnull;
@@ -41,6 +41,8 @@ import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
 import org.sirix.node.interfaces.IValNode;
 import org.sirix.utils.Compression;
+
+import com.google.common.base.Objects;
 
 /**
  * Delegate method for all nodes containing \"value\"-data. That means that
@@ -132,7 +134,7 @@ public class ValNodeDelegate extends AbsForwardingNode implements IValNode {
     if (pObj instanceof ValNodeDelegate) {
       final ValNodeDelegate other = (ValNodeDelegate)pObj;
       return Objects.equal(mDelegate, other.mDelegate)
-        && Objects.equal(mVal, other.mVal);
+        && Arrays.equals(mVal, other.mVal);
     }
     return false;
   }
