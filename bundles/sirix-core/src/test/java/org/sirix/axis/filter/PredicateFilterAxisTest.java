@@ -25,7 +25,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.xpath.filter;
+package org.sirix.axis.filter;
 
 import org.junit.After;
 import org.junit.Before;

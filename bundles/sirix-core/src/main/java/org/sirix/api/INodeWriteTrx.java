@@ -88,7 +88,6 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * // Without auto commit.
  * final INodeWriteTransaction wtx = session.beginNodeWriteTrx();
  * wtx.insertElementAsFirstChild(&quot;foo&quot;);
- * // Explicit forced commit.
  * wtx.commit();
  * wtx.close();
  * 
@@ -96,21 +95,26 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * final INodeWriteTransaction wtx = session.beginNodeWriteTrx(10,
  * 		TimeUnit.MINUTES, 0);
  * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
- * // Implicit commit.
+ * // 9 other modifications.
+ * // Auto commit.
  * wtx.close();
  * 
  * // With auto commit after every minute.
  * final INodeWriteTransaction wtx = session.beginNodeWriteTrx(0,
  * 		TimeUnit.MINUTES, 1);
  * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
- * // Implicit commit.
+ * ...
+ * // Then abort.
+ * wtx.abort();
  * wtx.close();
  * 
  * // With auto commit after every 10th modification and every second.
  * final INodeWriteTransaction wtx = session.beginNodeWriteTrx(10,
  * 		TimeUnit.SECONDS, 1);
  * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
- * // Implicit commit.
+ * ...
+ * // Then abort.
+ * wtx.abort();
  * wtx.close();
  * </pre>
  * 
