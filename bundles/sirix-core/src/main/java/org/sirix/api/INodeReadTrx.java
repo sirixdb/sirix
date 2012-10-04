@@ -225,7 +225,7 @@ public interface INodeReadTrx extends INodeCursor {
 	/**
 	 * Getting the type of the current node.
 	 * 
-	 * @return the normal type of the node
+	 * @return the type of the node
 	 */
 	String getType();
 
