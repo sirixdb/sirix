@@ -788,8 +788,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				checkAccessAndCommit();
 				mBulkInsert = true;
 				long nodeKey = getCurrentNode().getNodeKey();
-				final XMLShredder shredder = new XMLShredder(this, pReader, pInsert,
-						EShredderCommit.NOCOMMIT);
+				final XMLShredder shredder = new XMLShredder.Builder(this, pReader,
+						pInsert).commitAfterwards().build();
 				shredder.call();
 				moveTo(nodeKey);
 				switch (pInsert) {
@@ -3001,8 +3001,8 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 								moveToParent();
 							}
 
-							final XMLShredder shredder = new XMLShredder(this, reader, pos,
-									EShredderCommit.NOCOMMIT);
+							final XMLShredder shredder = new XMLShredder.Builder(this,
+									reader, pos).build();
 							shredder.call();
 							if (reader.hasNext()) {
 								reader.nextEvent(); // End document.

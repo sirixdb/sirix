@@ -65,138 +65,138 @@ import org.sirix.service.xml.shredder.XMLUpdateShredder;
  */
 enum EShredder {
 
-  /** Determines normal shredding. */
-  NORMAL {
-    @Override
-    boolean shred(final File pSource, final File pTarget) {
-      return shredder(checkNotNull(pSource), checkNotNull(pTarget),
-        EType.NORMAL);
-    }
-  },
+	/** Determines normal shredding. */
+	NORMAL {
+		@Override
+		boolean shred(final File pSource, final File pTarget) {
+			return shredder(checkNotNull(pSource), checkNotNull(pTarget),
+					EType.NORMAL);
+		}
+	},
 
-  /** Determines update only shredding. */
-  UPDATEONLY {
-    @Override
-    boolean shred(final File pSource, final File pTarget) {
-      return shredder(checkNotNull(pSource), checkNotNull(pTarget),
-        EType.UPDATE);
-    }
-  };
+	/** Determines update only shredding. */
+	UPDATEONLY {
+		@Override
+		boolean shred(final File pSource, final File pTarget) {
+			return shredder(checkNotNull(pSource), checkNotNull(pTarget),
+					EType.UPDATE);
+		}
+	};
 
-  /** Logger. */
-  private static final Logger LOGWRAPPER = LoggerFactory
-    .getLogger(EShredder.class);
+	/** Logger. */
+	private static final Logger LOGWRAPPER = LoggerFactory
+			.getLogger(EShredder.class);
 
-  /**
-   * Shred XML file.
-   * 
-   * @param pSource
-   *          source XML file
-   * @param pTarget
-   *          target folder
-   * @return true if successfully shreddered, false otherwise
-   */
-  abstract boolean shred(final File pSource, final File pTarget);
+	/**
+	 * Shred XML file.
+	 * 
+	 * @param pSource
+	 *          source XML file
+	 * @param pTarget
+	 *          target folder
+	 * @return true if successfully shreddered, false otherwise
+	 */
+	abstract boolean shred(final File pSource, final File pTarget);
 
-  /** Kind of shredder. */
-  private enum EType {
-    /** Normal shredder. */
-    NORMAL {
-      @Override
-      Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx)
-        throws IOException, XMLStreamException, SirixUsageException {
-        final XMLEventReader reader = XMLShredder.createFileReader(pSource);
-        return new XMLShredder(pWtx, reader, EInsert.ASFIRSTCHILD);
-      }
-    },
+	/** Kind of shredder. */
+	private enum EType {
+		/** Normal shredder. */
+		NORMAL {
+			@Override
+			Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx)
+					throws IOException, XMLStreamException, SirixUsageException {
+				final XMLEventReader reader = XMLShredder.createFileReader(pSource);
+				return new XMLShredder.Builder(pWtx, reader, EInsert.ASFIRSTCHILD)
+						.includeComments(true).includePIs(true).build();
+			}
+		},
 
-    /** Update shredder. */
-    UPDATE {
-      @Override
-      Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx)
-        throws IOException, XMLStreamException, SirixUsageException {
-        final XMLEventReader reader = XMLShredder.createFileReader(pSource);
-        try {
-          return new XMLUpdateShredder(pWtx, reader, EInsert.ASFIRSTCHILD,
-            pSource, EShredderCommit.COMMIT);
-        } catch (final SirixIOException e) {
-          throw new IOException(e);
-        }
-      }
-    };
+		/** Update shredder. */
+		UPDATE {
+			@Override
+			Callable<Long> newInstance(final File pSource, final INodeWriteTrx pWtx)
+					throws IOException, XMLStreamException, SirixUsageException {
+				final XMLEventReader reader = XMLShredder.createFileReader(pSource);
+				try {
+					return new XMLUpdateShredder(pWtx, reader, EInsert.ASFIRSTCHILD,
+							pSource, EShredderCommit.COMMIT);
+				} catch (final SirixIOException e) {
+					throw new IOException(e);
+				}
+			}
+		};
 
-    /**
-     * Get new instance of the appropriate shredder.
-     * 
-     * @param pSource
-     *          source to shredder
-     * @param pWtx
-     *          sirix {@link INodeWriteTrx}
-     * @return instance of appropriate {@link IShredder} implementation
-     * @throws IOException
-     *           if {@code pSource} can't be read
-     * @throws XMLStreamException
-     *           if parser encounters an error
-     * @throws SirixUsageException
-     *           if the shredder isn't used properly
-     */
-    abstract Callable<Long> newInstance(final File pSource,
-      final INodeWriteTrx pWtx) throws IOException, XMLStreamException,
-      SirixUsageException;
-  }
+		/**
+		 * Get new instance of the appropriate shredder.
+		 * 
+		 * @param pSource
+		 *          source to shredder
+		 * @param pWtx
+		 *          sirix {@link INodeWriteTrx}
+		 * @return instance of appropriate {@link IShredder} implementation
+		 * @throws IOException
+		 *           if {@code pSource} can't be read
+		 * @throws XMLStreamException
+		 *           if parser encounters an error
+		 * @throws SirixUsageException
+		 *           if the shredder isn't used properly
+		 */
+		abstract Callable<Long> newInstance(final File pSource,
+				final INodeWriteTrx pWtx) throws IOException, XMLStreamException,
+				SirixUsageException;
+	}
 
-  /**
-   * Do the shredding.
-   * 
-   * @param pSource
-   *          the source file to shredder
-   * @param pTarget
-   *          the database to create/open
-   */
-  private static boolean shredder(final File pSource, final File pTarget,
-    final EType pType) {
-    assert pSource != null;
-    assert pTarget != null;
-    assert pType != null;
-    boolean retVal = true;
-    try {
-      final IDatabase database = setupDatabase(pTarget);
-      try (final ISession session =
-        database.getSession(new SessionConfiguration.Builder("shredded")
-          .build());
-      final INodeWriteTrx wtx = session.beginNodeWriteTrx();) {
-        final ExecutorService executor = Executors.newSingleThreadExecutor();
-        executor.submit(pType.newInstance(pSource, wtx));
-        executor.shutdown();
-        executor.awaitTermination(5 * 60, TimeUnit.SECONDS);
-      }
-    } catch (final IOException | XMLStreamException | InterruptedException
-    | SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-      retVal = false;
-    }
-    return retVal;
+	/**
+	 * Do the shredding.
+	 * 
+	 * @param pSource
+	 *          the source file to shredder
+	 * @param pTarget
+	 *          the database to create/open
+	 */
+	private static boolean shredder(final File pSource, final File pTarget,
+			final EType pType) {
+		assert pSource != null;
+		assert pTarget != null;
+		assert pType != null;
+		boolean retVal = true;
+		try {
+			final IDatabase database = setupDatabase(pTarget);
+			try (final ISession session = database
+					.getSession(new SessionConfiguration.Builder("shredded").build());
+					final INodeWriteTrx wtx = session.beginNodeWriteTrx();) {
+				final ExecutorService executor = Executors.newSingleThreadExecutor();
+				executor.submit(pType.newInstance(pSource, wtx));
+				executor.shutdown();
+				executor.awaitTermination(5 * 60, TimeUnit.SECONDS);
+			}
+		} catch (final IOException | XMLStreamException | InterruptedException
+				| SirixException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+			retVal = false;
+		}
+		return retVal;
 
-  }
+	}
 
-  /**
-   * Setup a new {@code database/resource}.
-   * 
-   * @param pTarget
-   *          the database to create/open
-   * @return {@link IDatabase} implementation
-   * @throws SirixException
-   *           if something went wrong
-   */
-  private static IDatabase setupDatabase(final File pTarget)
-    throws SirixException {
-    assert pTarget != null;
-    final DatabaseConfiguration config = new DatabaseConfiguration(pTarget);
-    Database.truncateDatabase(config);
-    Database.createDatabase(config);
-    final IDatabase db = Database.openDatabase(pTarget);
-    db.createResource(new ResourceConfiguration.Builder("shredded", config)
-      .useCompression(false).build());
-    return db;
-  }
+	/**
+	 * Setup a new {@code database/resource}.
+	 * 
+	 * @param pTarget
+	 *          the database to create/open
+	 * @return {@link IDatabase} implementation
+	 * @throws SirixException
+	 *           if something went wrong
+	 */
+	private static IDatabase setupDatabase(final File pTarget)
+			throws SirixException {
+		assert pTarget != null;
+		final DatabaseConfiguration config = new DatabaseConfiguration(pTarget);
+		Database.truncateDatabase(config);
+		Database.createDatabase(config);
+		final IDatabase db = Database.openDatabase(pTarget);
+		db.createResource(new ResourceConfiguration.Builder("shredded", config)
+				.useCompression(false).build());
+		return db;
+	}
 }

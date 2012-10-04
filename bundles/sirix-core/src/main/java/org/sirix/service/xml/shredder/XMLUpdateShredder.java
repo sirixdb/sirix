@@ -47,7 +47,6 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.access.Database;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -59,12 +58,10 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.INameNode;
-import org.sirix.node.interfaces.IStructNode;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.TypedValue;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>XMLUpdateShredder</h1>
@@ -78,7 +75,7 @@ import org.sirix.utils.TypedValue;
  * 
  */
 @Deprecated
-public final class XMLUpdateShredder extends XMLShredder implements Callable<Long> {
+public final class XMLUpdateShredder implements Callable<Long> {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
@@ -212,6 +209,12 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
 
   /** Determines if it's an empty element before an insert at the top of a subtree. */
   private transient boolean mEmptyElement;
+  
+  private final INodeWriteTrx mWtx;
+  
+  private final XMLEventReader mReader;
+
+	private EInsert mInsert;
 
   /**
    * Normal constructor to invoke a shredding process on a existing {@link INodeWriteTrx}.
@@ -240,7 +243,9 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
   public XMLUpdateShredder(final INodeWriteTrx paramWtx, final XMLEventReader paramReader,
     final EInsert paramAddAsFirstChild, final Object paramData, final EShredderCommit paramCommit)
     throws SirixIOException {
-    super(paramWtx, paramReader, paramAddAsFirstChild);
+  	mInsert = paramAddAsFirstChild;
+  	mWtx = paramWtx;
+  	mReader = paramReader;
     if (paramData == null || paramCommit == null) {
       throw new IllegalArgumentException("None of the constructor parameters may be null!");
     }
@@ -290,7 +295,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
       // If structure already exists, make a sync against the current structure.
       if (mMaxNodeKey == 0) {
         // If no content is in the XML, a normal insertNewContent is executed.
-        insertNewContent();
+        new XMLShredder.Builder(mWtx, mReader, mInsert).build().call();
       } else {
         if (mWtx.getKind() == EKind.DOCUMENT_ROOT) {
           // Find the start key for the update operation.
@@ -1147,9 +1152,9 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
        * StAX parser is.
        */
       if (mFile != null) {
-        mParser = createFileReader(mFile);
+        mParser = XMLShredder.createFileReader(mFile);
       } else if (mEvents != null) {
-        mParser = createQueueReader(mEvents);
+        mParser = XMLShredder.createQueueReader(mEvents);
       } else {
         throw new IllegalStateException("Your XMLEventReader implementation is not supported!");
       }
@@ -1359,7 +1364,7 @@ public final class XMLUpdateShredder extends XMLShredder implements Callable<Lon
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
       final ISession session = db.getSession(new SessionConfiguration.Builder("shredded").build());
       final INodeWriteTrx wtx = session.beginNodeWriteTrx();
-      final XMLEventReader reader = createFileReader(new File(args[0]));
+      final XMLEventReader reader = XMLShredder.createFileReader(new File(args[0]));
       final XMLUpdateShredder shredder =
         new XMLUpdateShredder(wtx, reader, EInsert.ASFIRSTCHILD, new File(args[0]),
           EShredderCommit.COMMIT);

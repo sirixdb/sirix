@@ -651,8 +651,7 @@ public final class SunburstModel extends
 					final XMLEventReader reader = XMLInputFactory.newInstance()
 							.createXMLEventReader(new ByteArrayInputStream(xml.getBytes()));
 					final ExecutorService service = Executors.newSingleThreadExecutor();
-					service.submit(new XMLShredder(mWtx, reader, mInsert,
-							EShredderCommit.NOCOMMIT));
+					service.submit(new XMLShredder.Builder(mWtx, reader, mInsert).build());
 					service.shutdown();
 					service.awaitTermination(60, TimeUnit.SECONDS);
 				} else {
@@ -662,6 +661,8 @@ public final class SunburstModel extends
 						break;
 					case ASRIGHTSIBLING:
 						mWtx.insertTextAsRightSibling(pFragment);
+					default:
+						mWtx.insertTextAsLeftSibling(pFragment);
 					}
 				}
 			} catch (final InterruptedException e) {

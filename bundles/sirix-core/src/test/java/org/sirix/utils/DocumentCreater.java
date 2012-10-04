@@ -64,11 +64,12 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * <li><code>EKind.NAMESPACE: §prefix:namespaceURI</code></li>
  * <li><code>EKind.ATTRIBUTE: &#64;prefix:localPart='value'</code></li>
  * <li><code>EKind.TEXT: #value</code></li>
- * <li><code>EKind.COMMENT: %comment</code></li> 
+ * <li><code>EKind.COMMENT: %comment</code></li>
  * <li><code>EKind.PI: &amp;content:target</code></li>
  * </ul>
  * 
  * without processing instruction and comment:
+ * 
  * <pre>
  * 0 doc()
  * |-  1 &lt;p:a §p:ns @i='j'&gt;
@@ -84,6 +85,7 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * </pre>
  * 
  * with processing instruction and comment:
+ * 
  * <pre>
  * 0 doc()
  * |-  1 &lt;p:a §p:ns @i='j'&gt;
@@ -350,8 +352,9 @@ public final class DocumentCreater {
 		final INodeWriteTrx firstWtx = pDB.getSession(
 				new SessionConfiguration.Builder(TestHelper.RESOURCE).build())
 				.beginNodeWriteTrx();
-		final XMLShredder shredder = new XMLShredder(firstWtx,
-				XMLShredder.createStringReader(REVXML), EInsert.ASFIRSTCHILD);
+		final XMLShredder shredder = new XMLShredder.Builder(firstWtx,
+				XMLShredder.createStringReader(REVXML), EInsert.ASFIRSTCHILD)
+				.commitAfterwards().build();
 		shredder.call();
 		firstWtx.close();
 		final INodeWriteTrx secondWtx = pDB.getSession(

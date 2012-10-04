@@ -72,222 +72,235 @@ import org.sirix.service.xml.shredder.XMLShredder;
  */
 public class TestNodeWrapper {
 
-  private static final DatabaseConfiguration DB_CONFIG = new DatabaseConfiguration(TestHelper.PATHS.PATH1
-    .getFile());
+	private static final DatabaseConfiguration DB_CONFIG = new DatabaseConfiguration(
+			TestHelper.PATHS.PATH1.getFile());
 
-  private IDatabase mDatabase;
+	private IDatabase mDatabase;
 
-  /** sirix session on sirix test document. */
-  private Holder mHolder;
+	/** sirix session on sirix test document. */
+	private Holder mHolder;
 
-  /** Document node. */
-  private NodeWrapper node;
+	/** Document node. */
+	private NodeWrapper node;
 
-  @Before
-  public void beforeMethod() throws SirixException {
-    Database.truncateDatabase(DB_CONFIG);
-    Database.createDatabase(DB_CONFIG);
-    TestHelper.createTestDocument();
-    mHolder = Holder.generateRtx();
+	@Before
+	public void beforeMethod() throws SirixException {
+		Database.truncateDatabase(DB_CONFIG);
+		Database.createDatabase(DB_CONFIG);
+		TestHelper.createTestDocument();
+		mHolder = Holder.generateRtx();
 
-    final Processor proc = new Processor(false);
-    final Configuration config = proc.getUnderlyingConfiguration();
+		final Processor proc = new Processor(false);
+		final Configuration config = proc.getUnderlyingConfiguration();
 
-    node = new DocumentWrapper(mHolder.getSession(), config).getNodeWrapper();
-  }
+		node = new DocumentWrapper(mHolder.getSession(), config).getNodeWrapper();
+	}
 
-  @After
-  public void afterMethod() throws SirixException {
-    mHolder.close();
-  }
+	@After
+	public void afterMethod() throws SirixException {
+		mHolder.close();
+	}
 
-  @Test
-  public void testAtomize() throws Exception {
-    final Value value = node.atomize();
-    assertEquals(true, value instanceof UntypedAtomicValue);
-    assertEquals("oops1foooops2baroops3", value.getStringValue());
-  }
+	@Test
+	public void testAtomize() throws Exception {
+		final Value value = node.atomize();
+		assertEquals(true, value instanceof UntypedAtomicValue);
+		assertEquals("oops1foooops2baroops3", value.getStringValue());
+	}
 
-  @Test
-  public void testCompareOrder() throws XPathException, SirixException {
-    final Processor proc = new Processor(false);
-    final Configuration config = proc.getUnderlyingConfiguration();
+	@Test
+	public void testCompareOrder() throws XPathException, SirixException {
+		final Processor proc = new Processor(false);
+		final Configuration config = proc.getUnderlyingConfiguration();
 
-    final ISession session = generateSession();
+		final ISession session = generateSession();
 
-    // Not the same document.
-    NodeInfo node = new DocumentWrapper(session, config);
-    NodeInfo other = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config), 3);
-    try {
-      node.compareOrder(other);
-      fail();
-    } catch (final IllegalStateException e) {
-    }
+		// Not the same document.
+		NodeInfo node = new DocumentWrapper(session, config);
+		NodeInfo other = new NodeWrapper(new DocumentWrapper(mHolder.getSession(),
+				config), 3);
+		try {
+			node.compareOrder(other);
+			fail();
+		} catch (final IllegalStateException e) {
+		}
 
-    // Before.
-    node = new DocumentWrapper(mHolder.getSession(), config);
-    other = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config), 3);
-    assertEquals(-1, node.compareOrder(other));
+		// Before.
+		node = new DocumentWrapper(mHolder.getSession(), config);
+		other = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config),
+				3);
+		assertEquals(-1, node.compareOrder(other));
 
-    // After.
-    node = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config), 3);
-    other = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config), 0);
-    assertEquals(1, node.compareOrder(other));
+		// After.
+		node = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config), 3);
+		other = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config),
+				0);
+		assertEquals(1, node.compareOrder(other));
 
-    // Same.
-    node = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config), 3);
-    other = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config), 3);
-    assertEquals(0, node.compareOrder(other));
+		// Same.
+		node = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config), 3);
+		other = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), config),
+				3);
+		assertEquals(0, node.compareOrder(other));
 
-    session.close();
-    mDatabase.close();
-  }
+		session.close();
+		mDatabase.close();
+	}
 
-  @Test
-  public void testGetAttributeValue() throws SirixException {
-    final Processor proc = new Processor(false);
-    node = new NodeWrapper(new DocumentWrapper(mHolder.getSession(), proc.getUnderlyingConfiguration()), 1);
+	@Test
+	public void testGetAttributeValue() throws SirixException {
+		final Processor proc = new Processor(false);
+		node = new NodeWrapper(new DocumentWrapper(mHolder.getSession(),
+				proc.getUnderlyingConfiguration()), 1);
 
-    final AxisIterator iterator = node.iterateAxis(Axis.ATTRIBUTE);
-    final NodeInfo attribute = (NodeInfo)iterator.next();
+		final AxisIterator iterator = node.iterateAxis(Axis.ATTRIBUTE);
+		final NodeInfo attribute = (NodeInfo) iterator.next();
 
-    node.getNamePool().allocate(attribute.getPrefix(), attribute.getURI(), attribute.getLocalPart());
+		node.getNamePool().allocate(attribute.getPrefix(), attribute.getURI(),
+				attribute.getLocalPart());
 
-    // Only supported on element nodes.
-    // node = (NodeWrapper) node.getParent();
+		// Only supported on element nodes.
+		// node = (NodeWrapper) node.getParent();
 
-    assertEquals("j", node.getAttributeValue(attribute.getFingerprint()));
-  }
+		assertEquals("j", node.getAttributeValue(attribute.getFingerprint()));
+	}
 
-  @Test
-  public void testGetBaseURI() throws Exception {
-    // Test with xml:base specified.
-    final File source =
-      new File("src" + File.separator + "test" + File.separator + "resources" + File.separator + "data"
-        + File.separator + "testBaseURI.xml");
+	@Test
+	public void testGetBaseURI() throws Exception {
+		// Test with xml:base specified.
+		final File source = new File("src" + File.separator + "test"
+				+ File.separator + "resources" + File.separator + "data"
+				+ File.separator + "testBaseURI.xml");
 
-    final ISession session = generateSession();
-    final INodeWriteTrx wtx = session.beginNodeWriteTrx();
-    final XMLEventReader reader = XMLShredder.createFileReader(source);
-    final XMLShredder shredder = new XMLShredder(wtx, reader, EInsert.ASFIRSTCHILD);
-    shredder.call();
-    wtx.close();
+		final ISession session = generateSession();
+		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final XMLEventReader reader = XMLShredder.createFileReader(source);
+		final XMLShredder shredder = new XMLShredder.Builder(wtx, reader,
+				EInsert.ASFIRSTCHILD).commitAfterwards().build();
+		shredder.call();
+		wtx.close();
 
-    final Processor proc = new Processor(false);
-    final NodeInfo doc = new DocumentWrapper(session, proc.getUnderlyingConfiguration());
+		final Processor proc = new Processor(false);
+		final NodeInfo doc = new DocumentWrapper(session,
+				proc.getUnderlyingConfiguration());
 
-    doc.getNamePool().allocate("xml", "http://www.w3.org/XML/1998/namespace", "base");
-    doc.getNamePool().allocate("", "", "baz");
+		doc.getNamePool().allocate("xml", "http://www.w3.org/XML/1998/namespace",
+				"base");
+		doc.getNamePool().allocate("", "", "baz");
 
-    final NameTest test = new NameTest(Type.ELEMENT, "", "baz", doc.getNamePool());
-    final AxisIterator iterator = doc.iterateAxis(Axis.DESCENDANT, test);
-    final NodeInfo baz = (NodeInfo)iterator.next();
+		final NameTest test = new NameTest(Type.ELEMENT, "", "baz",
+				doc.getNamePool());
+		final AxisIterator iterator = doc.iterateAxis(Axis.DESCENDANT, test);
+		final NodeInfo baz = (NodeInfo) iterator.next();
 
-    assertEquals("http://example.org", baz.getBaseURI());
-    session.close();
-    mDatabase.close();
-  }
+		assertEquals("http://example.org", baz.getBaseURI());
+		session.close();
+		mDatabase.close();
+	}
 
-  @Test
-  public void testGetDeclaredNamespaces() {
-    // Namespace declared.
-    final AxisIterator iterator = node.iterateAxis(Axis.CHILD);
-    node = (NodeWrapper)iterator.next();
-    final int[] namespaces = node.getDeclaredNamespaces(new int[1]);
+	@Test
+	public void testGetDeclaredNamespaces() {
+		// Namespace declared.
+		final AxisIterator iterator = node.iterateAxis(Axis.CHILD);
+		node = (NodeWrapper) iterator.next();
+		final int[] namespaces = node.getDeclaredNamespaces(new int[1]);
 
-    node.getNamePool().allocateNamespaceCode("p", "ns");
-    final int expected = node.getNamePool().getNamespaceCode("p", "ns");
+		node.getNamePool().allocateNamespaceCode("p", "ns");
+		final int expected = node.getNamePool().getNamespaceCode("p", "ns");
 
-    assertEquals(expected, namespaces[0]);
+		assertEquals(expected, namespaces[0]);
 
-    // Namespace not declared (on element node) -- returns zero length
-    // array.
-    final AxisIterator iter = node.iterateAxis(Axis.DESCENDANT);
-    node = (NodeWrapper)iter.next();
-    node = (NodeWrapper)iter.next();
+		// Namespace not declared (on element node) -- returns zero length
+		// array.
+		final AxisIterator iter = node.iterateAxis(Axis.DESCENDANT);
+		node = (NodeWrapper) iter.next();
+		node = (NodeWrapper) iter.next();
 
-    final int[] namesp = node.getDeclaredNamespaces(new int[1]);
+		final int[] namesp = node.getDeclaredNamespaces(new int[1]);
 
-    assertTrue(namesp.length == 0);
+		assertTrue(namesp.length == 0);
 
-    // Namespace nod declared on other nodes -- return null.
-    final AxisIterator it = node.iterateAxis(Axis.DESCENDANT);
-    node = (NodeWrapper)it.next();
+		// Namespace nod declared on other nodes -- return null.
+		final AxisIterator it = node.iterateAxis(Axis.DESCENDANT);
+		node = (NodeWrapper) it.next();
 
-    assertNull(node.getDeclaredNamespaces(new int[1]));
-  }
+		assertNull(node.getDeclaredNamespaces(new int[1]));
+	}
 
-  @Test
-  public void testGetStringValueCS() {
-    // Test on document node.
-    assertEquals("oops1foooops2baroops3", node.getStringValueCS());
+	@Test
+	public void testGetStringValueCS() {
+		// Test on document node.
+		assertEquals("oops1foooops2baroops3", node.getStringValueCS());
 
-    // Test on element node.
-    AxisIterator iterator = node.iterateAxis(Axis.DESCENDANT);
-    node = (NodeWrapper)iterator.next();
-    assertEquals("oops1foooops2baroops3", node.getStringValueCS());
+		// Test on element node.
+		AxisIterator iterator = node.iterateAxis(Axis.DESCENDANT);
+		node = (NodeWrapper) iterator.next();
+		assertEquals("oops1foooops2baroops3", node.getStringValueCS());
 
-    // Test on namespace node.
-    iterator = node.iterateAxis(Axis.NAMESPACE);
-    NamespaceNodeImpl namespace = (NamespaceNodeImpl)iterator.next();
+		// Test on namespace node.
+		iterator = node.iterateAxis(Axis.NAMESPACE);
+		NamespaceNodeImpl namespace = (NamespaceNodeImpl) iterator.next();
 
-    /*
-     * Elements have always the default xml:NamespaceConstant.XML namespace,
-     * so we have to search if "ns" is found somewhere in the iterator
-     * (order unpredictable because it's implemented with a HashMap
-     * internally).
-     */
-    while (!"ns".equals(namespace.getStringValueCS()) && namespace != null) {
-      namespace = (NamespaceNodeImpl)iterator.next();
-    }
+		/*
+		 * Elements have always the default xml:NamespaceConstant.XML namespace, so
+		 * we have to search if "ns" is found somewhere in the iterator (order
+		 * unpredictable because it's implemented with a HashMap internally).
+		 */
+		while (!"ns".equals(namespace.getStringValueCS()) && namespace != null) {
+			namespace = (NamespaceNodeImpl) iterator.next();
+		}
 
-    if (namespace == null) {
-      fail("namespace is null!");
-    } else {
-      assertEquals("ns", namespace.getStringValueCS());
-    }
+		if (namespace == null) {
+			fail("namespace is null!");
+		} else {
+			assertEquals("ns", namespace.getStringValueCS());
+		}
 
-    // Test on attribute node.
-    final NodeWrapper attrib = (NodeWrapper)node.iterateAxis(Axis.ATTRIBUTE).next();
-    assertEquals("j", attrib.getStringValueCS());
+		// Test on attribute node.
+		final NodeWrapper attrib = (NodeWrapper) node.iterateAxis(Axis.ATTRIBUTE)
+				.next();
+		assertEquals("j", attrib.getStringValueCS());
 
-    // Test on text node.
-    final NodeWrapper text = (NodeWrapper)node.iterateAxis(Axis.CHILD).next();
-    assertEquals("oops1", text.getStringValueCS());
-  }
+		// Test on text node.
+		final NodeWrapper text = (NodeWrapper) node.iterateAxis(Axis.CHILD).next();
+		assertEquals("oops1", text.getStringValueCS());
+	}
 
-  @Test
-  public void testGetSiblingPosition() {
-    // Test every node in test document.
-    final AxisIterator iterator = node.iterateAxis(Axis.DESCENDANT);
-    node = (NodeWrapper)iterator.next();
-    node = (NodeWrapper)iterator.next();
-    assertEquals(0, node.getSiblingPosition());
-    node = (NodeWrapper)iterator.next();
-    assertEquals(1, node.getSiblingPosition());
-    node = (NodeWrapper)iterator.next();
-    assertEquals(0, node.getSiblingPosition());
-    node = (NodeWrapper)iterator.next();
-    assertEquals(1, node.getSiblingPosition());
-    node = (NodeWrapper)iterator.next();
-    assertEquals(2, node.getSiblingPosition());
-    node = (NodeWrapper)iterator.next();
-    assertEquals(3, node.getSiblingPosition());
-    node = (NodeWrapper)iterator.next();
-    assertEquals(0, node.getSiblingPosition());
-    node = (NodeWrapper)iterator.next();
-    assertEquals(1, node.getSiblingPosition());
-    node = (NodeWrapper)iterator.next();
-    assertEquals(4, node.getSiblingPosition());
-  }
+	@Test
+	public void testGetSiblingPosition() {
+		// Test every node in test document.
+		final AxisIterator iterator = node.iterateAxis(Axis.DESCENDANT);
+		node = (NodeWrapper) iterator.next();
+		node = (NodeWrapper) iterator.next();
+		assertEquals(0, node.getSiblingPosition());
+		node = (NodeWrapper) iterator.next();
+		assertEquals(1, node.getSiblingPosition());
+		node = (NodeWrapper) iterator.next();
+		assertEquals(0, node.getSiblingPosition());
+		node = (NodeWrapper) iterator.next();
+		assertEquals(1, node.getSiblingPosition());
+		node = (NodeWrapper) iterator.next();
+		assertEquals(2, node.getSiblingPosition());
+		node = (NodeWrapper) iterator.next();
+		assertEquals(3, node.getSiblingPosition());
+		node = (NodeWrapper) iterator.next();
+		assertEquals(0, node.getSiblingPosition());
+		node = (NodeWrapper) iterator.next();
+		assertEquals(1, node.getSiblingPosition());
+		node = (NodeWrapper) iterator.next();
+		assertEquals(4, node.getSiblingPosition());
+	}
 
-  @Ignore
-  public ISession generateSession() throws SirixException {
-    final DatabaseConfiguration dbConfig = new DatabaseConfiguration(TestHelper.PATHS.PATH2.getFile());
-    Database.truncateDatabase(dbConfig);
-    Database.createDatabase(dbConfig);
-    mDatabase = Database.openDatabase(dbConfig.getFile());
-    mDatabase.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE, dbConfig).build());
-    return mDatabase.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
-  }
+	@Ignore
+	public ISession generateSession() throws SirixException {
+		final DatabaseConfiguration dbConfig = new DatabaseConfiguration(
+				TestHelper.PATHS.PATH2.getFile());
+		Database.truncateDatabase(dbConfig);
+		Database.createDatabase(dbConfig);
+		mDatabase = Database.openDatabase(dbConfig.getFile());
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, dbConfig).build());
+		return mDatabase.getSession(new SessionConfiguration.Builder(
+				TestHelper.RESOURCE).build());
+	}
 }

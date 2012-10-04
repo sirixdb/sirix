@@ -279,8 +279,8 @@ public final class FMSETest extends XMLTestCase {
           first = false;
           try (final INodeWriteTrx wtx = session.beginNodeWriteTrx()) {
             final XMLShredder shredder =
-              new XMLShredder(wtx, XMLShredder.createFileReader(file),
-                EInsert.ASFIRSTCHILD, EShredderCommit.COMMIT);
+              new XMLShredder.Builder(wtx, XMLShredder.createFileReader(file),
+                EInsert.ASFIRSTCHILD).commitAfterwards().build();
             shredder.call();
           }
         } else {

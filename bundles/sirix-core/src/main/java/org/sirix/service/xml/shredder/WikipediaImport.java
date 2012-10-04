@@ -75,7 +75,8 @@ import org.sirix.utils.LogWrapper;
  * <h1>WikipediaImport</h1>
  * 
  * <p>
- * Import sorted Wikipedia revisions. Precondition is a file, which is produced from a Hadoop job.
+ * Import sorted Wikipedia revisions. Precondition is a file, which is produced
+ * from a Hadoop job.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -83,537 +84,557 @@ import org.sirix.utils.LogWrapper;
  */
 public final class WikipediaImport implements IImport<StartElement> {
 
-  /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(WikipediaImport.class));
+	/** {@link LogWrapper} reference. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(WikipediaImport.class));
 
-  /** Temporal path to shredder the events into a temporal database. */
-  private static final Path TMP_PATH = Paths.get("target", "tnk", "tmp");
+	/** Temporal path to shredder the events into a temporal database. */
+	private static final Path TMP_PATH = Paths.get("target", "tnk", "tmp");
 
-  /** StAX parser {@link XMLEventReader}. */
-  private transient XMLEventReader mReader;
+	/** StAX parser {@link XMLEventReader}. */
+	private transient XMLEventReader mReader;
 
-  /** sirix {@link ISession}. */
-  private final ISession mSession;
+	/** sirix {@link ISession}. */
+	private final ISession mSession;
 
-  /** sirix {@link INodeWriteTrx}. */
-  private transient INodeWriteTrx mWtx;
+	/** sirix {@link INodeWriteTrx}. */
+	private transient INodeWriteTrx mWtx;
 
-  /** {@link XMLEvent}s which specify the page metadata. */
-  private transient Deque<XMLEvent> mPageEvents;
+	/** {@link XMLEvent}s which specify the page metadata. */
+	private transient Deque<XMLEvent> mPageEvents;
 
-  /** Determines if page has been found in sirix storage. */
-  private transient boolean mFound;
+	/** Determines if page has been found in sirix storage. */
+	private transient boolean mFound;
 
-  /** String value of text-element. */
-  private transient String mIdText;
+	/** String value of text-element. */
+	private transient String mIdText;
 
-  /** Determines if StAX parser is currently parsing revision metadata. */
-  private transient boolean mIsRev;
+	/** Determines if StAX parser is currently parsing revision metadata. */
+	private transient boolean mIsRev;
 
-  /** Timestamp of each revision as a simple String. */
-  private transient String mTimestamp;
+	/** Timestamp of each revision as a simple String. */
+	private transient String mTimestamp;
 
-  /** sirix {@link IDatabase}. */
-  private final IDatabase mDatabase;
+	/** sirix {@link IDatabase}. */
+	private final IDatabase mDatabase;
 
-  public enum EDateBy {
-    SECONDS,
+	public enum EDateBy {
+		SECONDS,
 
-    MINUTES,
+		MINUTES,
 
-    HOURS,
+		HOURS,
 
-    DAYS,
+		DAYS,
 
-    MONTHS
-  }
+		MONTHS
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param pXMLFile
-   *          The XML file to import.
-   * @param pTTDir
-   *          The sirix destination storage directory.
-   * 
-   */
-  public WikipediaImport(final File pXMLFile, final File pTTDir) throws SirixException {
-    mPageEvents = new ArrayDeque<>();
-    final XMLInputFactory xmlif = XMLInputFactory.newInstance();
-    try {
-      mReader = xmlif.createXMLEventReader(new FileInputStream(checkNotNull(pXMLFile)));
-    } catch (XMLStreamException | FileNotFoundException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pXMLFile
+	 *          The XML file to import.
+	 * @param pTTDir
+	 *          The sirix destination storage directory.
+	 * 
+	 */
+	public WikipediaImport(final File pXMLFile, final File pTTDir)
+			throws SirixException {
+		mPageEvents = new ArrayDeque<>();
+		final XMLInputFactory xmlif = XMLInputFactory.newInstance();
+		try {
+			mReader = xmlif.createXMLEventReader(new FileInputStream(
+					checkNotNull(pXMLFile)));
+		} catch (XMLStreamException | FileNotFoundException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
 
-    final DatabaseConfiguration config = new DatabaseConfiguration(pTTDir);
-    Database.createDatabase(config);
-    mDatabase = Database.openDatabase(pTTDir);
-    mDatabase.createResource(new ResourceConfiguration.Builder("shredded", config).useCompression(false)
-      .build());
-    mSession = mDatabase.getSession(new SessionConfiguration.Builder("shredded").build());
-    mWtx = mSession.beginNodeWriteTrx();
-  }
+		final DatabaseConfiguration config = new DatabaseConfiguration(pTTDir);
+		Database.createDatabase(config);
+		mDatabase = Database.openDatabase(pTTDir);
+		mDatabase.createResource(new ResourceConfiguration.Builder("shredded",
+				config).useCompression(false).build());
+		mSession = mDatabase
+				.getSession(new SessionConfiguration.Builder("shredded").build());
+		mWtx = mSession.beginNodeWriteTrx();
+	}
 
-  /**
-   * Import data.
-   * 
-   * @param pDateRange
-   *          <p>
-   *          Date range, the following values are possible:
-   *          </p>
-   *          <dl>
-   *          <dt>h</dt>
-   *          <dd>hourly revisions</dd>
-   *          <dt>d</dt>
-   *          <dd>daily revisions</dd>
-   *          <dt>w</dt>
-   *          <dd>weekly revisions (currently unsupported)</dd>
-   *          <dt>m</dt>
-   *          <dd>monthly revisions</dd>
-   *          </dl>
-   * 
-   * @param pData
-   *          <p>
-   *          List of {@link StartElement}s with the following meaning:
-   *          </p>
-   *          <dl>
-   *          <dt>Zero index</dt>
-   *          <dd>Timestamp start tag {@link StartElement}.</dd>
-   *          <dt>First index</dt>
-   *          <dd>Page start tag {@link StartElement}.</dd>
-   *          <dt>Second index</dt>
-   *          <dd>Revision start tag {@link StartElement}.</dd>
-   *          <dt>Third index</dt>
-   *          <dd>Page-ID start tag {@link StartElement}.</dd>
-   *          <dt>Fourth index</dt>
-   *          <dd>Revision text start tag {@link StartElement}.</dd>
-   *          </dl>
-   */
-  @Override
-  public void importData(final EDateBy pDateRange, final List<StartElement> pData) {
-    // Some checks.
-    checkNotNull(pDateRange);
-    checkNotNull(pData);
-    checkArgument(pData.size() == 5, "paramData must have 5 elements!");
+	/**
+	 * Import data.
+	 * 
+	 * @param pDateRange
+	 *          <p>
+	 *          Date range, the following values are possible:
+	 *          </p>
+	 *          <dl>
+	 *          <dt>h</dt>
+	 *          <dd>hourly revisions</dd>
+	 *          <dt>d</dt>
+	 *          <dd>daily revisions</dd>
+	 *          <dt>w</dt>
+	 *          <dd>weekly revisions (currently unsupported)</dd>
+	 *          <dt>m</dt>
+	 *          <dd>monthly revisions</dd>
+	 *          </dl>
+	 * 
+	 * @param pData
+	 *          <p>
+	 *          List of {@link StartElement}s with the following meaning:
+	 *          </p>
+	 *          <dl>
+	 *          <dt>Zero index</dt>
+	 *          <dd>Timestamp start tag {@link StartElement}.</dd>
+	 *          <dt>First index</dt>
+	 *          <dd>Page start tag {@link StartElement}.</dd>
+	 *          <dt>Second index</dt>
+	 *          <dd>Revision start tag {@link StartElement}.</dd>
+	 *          <dt>Third index</dt>
+	 *          <dd>Page-ID start tag {@link StartElement}.</dd>
+	 *          <dt>Fourth index</dt>
+	 *          <dd>Revision text start tag {@link StartElement}.</dd>
+	 *          </dl>
+	 */
+	@Override
+	public void importData(final EDateBy pDateRange,
+			final List<StartElement> pData) {
+		// Some checks.
+		checkNotNull(pDateRange);
+		checkNotNull(pData);
+		checkArgument(pData.size() == 5, "paramData must have 5 elements!");
 
-    final StartElement timestamp = pData.get(0);
-    final StartElement page = pData.get(1);
-    final StartElement rev = pData.get(2);
-    final StartElement id = pData.get(3);
-    // final StartElement text = pData.get(4);
+		final StartElement timestamp = pData.get(0);
+		final StartElement page = pData.get(1);
+		final StartElement rev = pData.get(2);
+		final StartElement id = pData.get(3);
+		// final StartElement text = pData.get(4);
 
-    // Initialize variables.
-    mFound = false;
-    mIsRev = false;
-    boolean isFirst = true;
+		// Initialize variables.
+		mFound = false;
+		mIsRev = false;
+		boolean isFirst = true;
 
-    try {
-      while (mReader.hasNext()) {
-        final XMLEvent event = mReader.nextEvent();
+		try {
+			while (mReader.hasNext()) {
+				final XMLEvent event = mReader.nextEvent();
 
-        if (isWhitespace(event)) {
-          continue;
-        }
+				if (isWhitespace(event)) {
+					continue;
+				}
 
-        // Add event to page or revision metadata list if it's not a
-        // whitespace.
-        mPageEvents.add(event);
+				// Add event to page or revision metadata list if it's not a
+				// whitespace.
+				mPageEvents.add(event);
 
-        switch (event.getEventType()) {
-        case XMLStreamConstants.START_ELEMENT:
-          if (checkStAXStartElement(event.asStartElement(), rev)) {
-            // StAX parser in rev metadata.
-            isFirst = false;
-            mIsRev = true;
-          } else {
-            parseStartTag(event, timestamp, page, rev, id, pDateRange);
-          }
+				switch (event.getEventType()) {
+				case XMLStreamConstants.START_ELEMENT:
+					if (checkStAXStartElement(event.asStartElement(), rev)) {
+						// StAX parser in rev metadata.
+						isFirst = false;
+						mIsRev = true;
+					} else {
+						parseStartTag(event, timestamp, page, rev, id, pDateRange);
+					}
 
-          break;
-        case XMLStreamConstants.END_ELEMENT:
-          if (event.asEndElement().getName().equals(page.getName()) && !isFirst) {
-            // StAX parser is located at the end of an article/page.
-            mIsRev = false;
+					break;
+				case XMLStreamConstants.END_ELEMENT:
+					if (event.asEndElement().getName().equals(page.getName()) && !isFirst) {
+						// StAX parser is located at the end of an article/page.
+						mIsRev = false;
 
-            if (mFound) {
-              try {
-                updateShredder();
-              } catch (final IOException e) {
-                LOGWRAPPER.error(e.getMessage(), e);
-              }
-            } else {
-              // Move wtx to end of file and append page.
-              mWtx.moveToDocumentRoot();
-              final boolean hasFirstChild = mWtx.hasFirstChild();
-              if (hasFirstChild) {
-                moveToLastPage(page);
-                assert mWtx.getQName().equals(page.getName());
-              }
+						if (mFound) {
+							try {
+								updateShredder();
+							} catch (final IOException e) {
+								LOGWRAPPER.error(e.getMessage(), e);
+							}
+						} else {
+							// Move wtx to end of file and append page.
+							mWtx.moveToDocumentRoot();
+							final boolean hasFirstChild = mWtx.hasFirstChild();
+							if (hasFirstChild) {
+								moveToLastPage(page);
+								assert mWtx.getQName().equals(page.getName());
+							}
 
-              XMLShredder shredder = null;
-              if (hasFirstChild) {
-                // Shredder as child.
-                shredder =
-                  new XMLShredder(mWtx, XMLShredder.createQueueReader(mPageEvents), EInsert.ASRIGHTSIBLING,
-                    EShredderCommit.NOCOMMIT);
-              } else {
-                // Shredder as right sibling.
-                shredder =
-                  new XMLShredder(mWtx, XMLShredder.createQueueReader(mPageEvents), EInsert.ASFIRSTCHILD,
-                    EShredderCommit.NOCOMMIT);
-              }
+							XMLShredder shredder = null;
+							if (hasFirstChild) {
+								// Shredder as child.
+								shredder = new XMLShredder.Builder(mWtx,
+										XMLShredder.createQueueReader(mPageEvents),
+										EInsert.ASRIGHTSIBLING).build();
+							} else {
+								// Shredder as right sibling.
+								shredder = new XMLShredder.Builder(mWtx,
+										XMLShredder.createQueueReader(mPageEvents),
+										EInsert.ASFIRSTCHILD).build();
+							}
 
-              shredder.call();
-              mPageEvents.clear();
-            }
-          }
-          break;
-        default:
-        }
-      }
+							shredder.call();
+							mPageEvents.clear();
+						}
+					}
+					break;
+				default:
+				}
+			}
 
-      mWtx.commit();
-      mWtx.close();
-      mSession.close();
-      mDatabase.close();
-    } catch (final XMLStreamException | SirixException | IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+			mWtx.commit();
+			mWtx.close();
+			mSession.close();
+			mDatabase.close();
+		} catch (final XMLStreamException | SirixException | IOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
 
-  /** Update shredder. */
-  private void updateShredder() throws SirixException, IOException, XMLStreamException {
-    final DatabaseConfiguration dbConf = new DatabaseConfiguration(TMP_PATH.toFile());
-    Database.truncateDatabase(dbConf);
-    Database.createDatabase(dbConf);
-    final IDatabase db = Database.openDatabase(TMP_PATH.toFile());
-    db.createResource(new ResourceConfiguration.Builder("wiki", dbConf).useCompression(false).build());
-    final ISession session = db.getSession(new SessionConfiguration.Builder("wiki").build());
-    if (mPageEvents.peek().isStartElement()
-      && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
-      mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
-      mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
-    }
-    final INodeWriteTrx wtx = session.beginNodeWriteTrx();
-    final XMLShredder shredder =
-      new XMLShredder(wtx, XMLShredder.createQueueReader(mPageEvents), EInsert.ASFIRSTCHILD);
-    shredder.call();
-    wtx.close();
-    mPageEvents = new ArrayDeque<>();
-    final INodeReadTrx rtx = session.beginNodeReadTrx();
-    rtx.moveToFirstChild();
-    rtx.moveToFirstChild();
-    final long nodeKey = mWtx.getNodeKey();
-    final FMSE fmse = new FMSE();
-    fmse.diff(mWtx, rtx);
-    mWtx.moveTo(nodeKey);
-    rtx.close();
-    session.close();
-    db.close();
-  }
+	/** Update shredder. */
+	private void updateShredder() throws SirixException, IOException,
+			XMLStreamException {
+		final DatabaseConfiguration dbConf = new DatabaseConfiguration(
+				TMP_PATH.toFile());
+		Database.truncateDatabase(dbConf);
+		Database.createDatabase(dbConf);
+		final IDatabase db = Database.openDatabase(TMP_PATH.toFile());
+		db.createResource(new ResourceConfiguration.Builder("wiki", dbConf)
+				.useCompression(false).build());
+		final ISession session = db.getSession(new SessionConfiguration.Builder(
+				"wiki").build());
+		if (mPageEvents.peek().isStartElement()
+				&& !mPageEvents.peek().asStartElement().getName().getLocalPart()
+						.equals("root")) {
+			mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(
+					new QName("root"), null, null));
+			mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(
+					new QName("root"), null));
+		}
+		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final XMLShredder shredder = new XMLShredder.Builder(wtx,
+				XMLShredder.createQueueReader(mPageEvents), EInsert.ASFIRSTCHILD)
+				.commitAfterwards().build();
+		shredder.call();
+		wtx.close();
+		mPageEvents = new ArrayDeque<>();
+		final INodeReadTrx rtx = session.beginNodeReadTrx();
+		rtx.moveToFirstChild();
+		rtx.moveToFirstChild();
+		final long nodeKey = mWtx.getNodeKey();
+		try (final FMSE fmse = new FMSE()) {
+			fmse.diff(mWtx, rtx);
+		}
+		mWtx.moveTo(nodeKey);
+		rtx.close();
+		session.close();
+		db.close();
+	}
 
-  /**
-   * Parses a start tag.
-   * 
-   * @param pEvent
-   *          Current StAX {@link XMLEvent}.
-   * @param pTimestamp
-   *          Timestamp start tag {@link StartElement}.
-   * @param pPage
-   *          Page start tag {@link StartElement}.
-   * @param pRev
-   *          Revision start tag {@link StartElement}.
-   * @param pID
-   *          Page-ID start tag {@link StartElement}.
-   * @param pDateRange
-   *          Date range, the following values are possible:
-   *          <dl>
-   *          <dt>h</dt>
-   *          <dd>hourly revisions</dd>
-   *          <dt>d</dt>
-   *          <dd>daily revisions</dd>
-   *          <dt>w</dt>
-   *          <dd>weekly revisions (currently unsupported)</dd>
-   *          <dt>m</dt>
-   *          <dd>monthly revisions</dd>
-   *          </dl>
-   * @throws XMLStreamException
-   *           In case of any XML parsing errors.
-   * @throws SirixException
-   *           In case of any sirix errors.
-   */
-  private void parseStartTag(final XMLEvent pEvent, final StartElement pTimestamp, final StartElement pPage,
-    final StartElement pRev, final StartElement pID, final EDateBy pDateRange) throws XMLStreamException,
-    SirixException {
-    XMLEvent event = pEvent;
+	/**
+	 * Parses a start tag.
+	 * 
+	 * @param pEvent
+	 *          Current StAX {@link XMLEvent}.
+	 * @param pTimestamp
+	 *          Timestamp start tag {@link StartElement}.
+	 * @param pPage
+	 *          Page start tag {@link StartElement}.
+	 * @param pRev
+	 *          Revision start tag {@link StartElement}.
+	 * @param pID
+	 *          Page-ID start tag {@link StartElement}.
+	 * @param pDateRange
+	 *          Date range, the following values are possible:
+	 *          <dl>
+	 *          <dt>h</dt>
+	 *          <dd>hourly revisions</dd>
+	 *          <dt>d</dt>
+	 *          <dd>daily revisions</dd>
+	 *          <dt>w</dt>
+	 *          <dd>weekly revisions (currently unsupported)</dd>
+	 *          <dt>m</dt>
+	 *          <dd>monthly revisions</dd>
+	 *          </dl>
+	 * @throws XMLStreamException
+	 *           In case of any XML parsing errors.
+	 * @throws SirixException
+	 *           In case of any sirix errors.
+	 */
+	private void parseStartTag(final XMLEvent pEvent,
+			final StartElement pTimestamp, final StartElement pPage,
+			final StartElement pRev, final StartElement pID, final EDateBy pDateRange)
+			throws XMLStreamException, SirixException {
+		XMLEvent event = pEvent;
 
-    if (checkStAXStartElement(event.asStartElement(), pID)) {
-      event = mReader.nextEvent();
-      mPageEvents.add(event);
+		if (checkStAXStartElement(event.asStartElement(), pID)) {
+			event = mReader.nextEvent();
+			mPageEvents.add(event);
 
-      if (!mIsRev) {
-        mIdText = event.asCharacters().getData();
-      }
-    } else if (checkStAXStartElement(event.asStartElement(), pTimestamp)) {
-      // Timestamp start tag found.
-      event = mReader.nextEvent();
-      mPageEvents.add(event);
+			if (!mIsRev) {
+				mIdText = event.asCharacters().getData();
+			}
+		} else if (checkStAXStartElement(event.asStartElement(), pTimestamp)) {
+			// Timestamp start tag found.
+			event = mReader.nextEvent();
+			mPageEvents.add(event);
 
-      final String currTimestamp = event.asCharacters().getData();
+			final String currTimestamp = event.asCharacters().getData();
 
-      // Timestamp.
-      if (mTimestamp == null) {
-        mTimestamp = parseTimestamp(pDateRange, currTimestamp);
-      } else if (!parseTimestamp(pDateRange, currTimestamp).equals(mTimestamp)) {
-        mTimestamp = parseTimestamp(pDateRange, currTimestamp);
-        mWtx.commit();
-        mWtx.close();
-        mWtx = mSession.beginNodeWriteTrx();
-      }
+			// Timestamp.
+			if (mTimestamp == null) {
+				mTimestamp = parseTimestamp(pDateRange, currTimestamp);
+			} else if (!parseTimestamp(pDateRange, currTimestamp).equals(mTimestamp)) {
+				mTimestamp = parseTimestamp(pDateRange, currTimestamp);
+				mWtx.commit();
+				mWtx.close();
+				mWtx = mSession.beginNodeWriteTrx();
+			}
 
-      assert mIdText != null;
+			assert mIdText != null;
 
-      // Search for existing page.
-      final QName page = pPage.getName();
-      final QName id = pID.getName();
-      final String query =
-        "//" + qNameToString(page) + "[fn:string(" + qNameToString(id) + ") = '" + mIdText + "']";
-      mWtx.moveToDocumentRoot();
-      final IAxis axis = new XPathAxis(mWtx, query);
+			// Search for existing page.
+			final QName page = pPage.getName();
+			final QName id = pID.getName();
+			final String query = "//" + qNameToString(page) + "[fn:string("
+					+ qNameToString(id) + ") = '" + mIdText + "']";
+			mWtx.moveToDocumentRoot();
+			final IAxis axis = new XPathAxis(mWtx, query);
 
-      mFound = false; // Determines if page is found in shreddered file.
-      int resCounter = 0; // Counts found page.
-      long key = mWtx.getNodeKey();
-      while (axis.hasNext()) {
-        axis.next();
+			mFound = false; // Determines if page is found in shreddered file.
+			int resCounter = 0; // Counts found page.
+			long key = mWtx.getNodeKey();
+			while (axis.hasNext()) {
+				axis.next();
 
-        // Page is found.
-        mFound = true;
+				// Page is found.
+				mFound = true;
 
-        // Make sure no more than one page with a unique id is found.
-        resCounter++;
-        assert resCounter == 1;
+				// Make sure no more than one page with a unique id is found.
+				resCounter++;
+				assert resCounter == 1;
 
-        // Make sure the transaction is on the page element found.
-        assert mWtx.getQName().equals(pPage.getName());
-        key = mWtx.getNodeKey();
-      }
-      mWtx.moveTo(key);
-    }
-  }
+				// Make sure the transaction is on the page element found.
+				assert mWtx.getQName().equals(pPage.getName());
+				key = mWtx.getNodeKey();
+			}
+			mWtx.moveTo(key);
+		}
+	}
 
-  /**
-   * Parses a given Timestamp-String to extract time interval which is used
-   * (simple String value to improve performance).
-   * 
-   * @param pDateRange
-   *          date Range which is used for revisioning
-   * @param pTimestamp
-   *          the timestamp to parse
-   * @return parsed and truncated String
-   */
-  private String parseTimestamp(final EDateBy pDateRange, final String pTimestamp) {
-    final StringBuilder sb = new StringBuilder();
+	/**
+	 * Parses a given Timestamp-String to extract time interval which is used
+	 * (simple String value to improve performance).
+	 * 
+	 * @param pDateRange
+	 *          date Range which is used for revisioning
+	 * @param pTimestamp
+	 *          the timestamp to parse
+	 * @return parsed and truncated String
+	 */
+	private String parseTimestamp(final EDateBy pDateRange,
+			final String pTimestamp) {
+		final StringBuilder sb = new StringBuilder();
 
-    switch (pDateRange) {
-    case SECONDS:
-      sb.append(pTimestamp);
-      break;
-    case HOURS:
-      final String[] splittedHour = pTimestamp.split(":");
-      sb.append(splittedHour[0]);
-      sb.append(":");
-      sb.append(splittedHour[1]);
-      break;
-    case DAYS:
-      final String[] splittedDay = pTimestamp.split("T");
-      sb.append(splittedDay[0]);
-      break;
-    case MINUTES:
-      throw new UnsupportedOperationException("Not supported right now!");
-    case MONTHS:
-      final String[] splittedMonth = pTimestamp.split("-");
-      sb.append(splittedMonth[0]);
-      sb.append("-");
-      sb.append(splittedMonth[1]);
-      break;
-    default:
-      throw new IllegalStateException("Date range not known!");
-    }
+		switch (pDateRange) {
+		case SECONDS:
+			sb.append(pTimestamp);
+			break;
+		case HOURS:
+			final String[] splittedHour = pTimestamp.split(":");
+			sb.append(splittedHour[0]);
+			sb.append(":");
+			sb.append(splittedHour[1]);
+			break;
+		case DAYS:
+			final String[] splittedDay = pTimestamp.split("T");
+			sb.append(splittedDay[0]);
+			break;
+		case MINUTES:
+			throw new UnsupportedOperationException("Not supported right now!");
+		case MONTHS:
+			final String[] splittedMonth = pTimestamp.split("-");
+			sb.append(splittedMonth[0]);
+			sb.append("-");
+			sb.append(splittedMonth[1]);
+			break;
+		default:
+			throw new IllegalStateException("Date range not known!");
+		}
 
-    return sb.toString();
-  }
+		return sb.toString();
+	}
 
-  /**
-   * Determines if the current event is a whitespace event.
-   * 
-   * @param pEvent
-   *          {@link XMLEvent} to check.
-   * @return true if it is whitespace, otherwise false.
-   */
-  private boolean isWhitespace(final XMLEvent pEvent) {
-    return pEvent.isCharacters() && pEvent.asCharacters().isWhiteSpace();
-  }
+	/**
+	 * Determines if the current event is a whitespace event.
+	 * 
+	 * @param pEvent
+	 *          {@link XMLEvent} to check.
+	 * @return true if it is whitespace, otherwise false.
+	 */
+	private boolean isWhitespace(final XMLEvent pEvent) {
+		return pEvent.isCharacters() && pEvent.asCharacters().isWhiteSpace();
+	}
 
-  /**
-   * Get prefix:localname or localname String representation of a qName.
-   * 
-   * @param pQName
-   *          the full qualified name
-   * @return string representation
-   */
-  private static String qNameToString(final QName pQName) {
-    final StringBuilder retVal = new StringBuilder();
-    if ("".equals(pQName.getPrefix())) {
-      retVal.append(pQName.getLocalPart());
-    } else {
-      retVal.append(pQName.getPrefix()).append(":").append(pQName.getLocalPart());
-    }
-    return retVal.toString();
-  }
+	/**
+	 * Get prefix:localname or localname String representation of a qName.
+	 * 
+	 * @param pQName
+	 *          the full qualified name
+	 * @return string representation
+	 */
+	private static String qNameToString(final QName pQName) {
+		final StringBuilder retVal = new StringBuilder();
+		if ("".equals(pQName.getPrefix())) {
+			retVal.append(pQName.getLocalPart());
+		} else {
+			retVal.append(pQName.getPrefix()).append(":")
+					.append(pQName.getLocalPart());
+		}
+		return retVal.toString();
+	}
 
-  /**
-   * Moves {@link INodeWriteTrx} to last shreddered article/page.
-   * 
-   * @param pPage
-   *          {@link StartElement} page
-   */
-  private void moveToLastPage(final StartElement pPage) {
-    assert pPage != null;
-    // All subsequent shredders, move cursor to the end.
-    mWtx.moveToFirstChild();
-    mWtx.moveToFirstChild();
+	/**
+	 * Moves {@link INodeWriteTrx} to last shreddered article/page.
+	 * 
+	 * @param pPage
+	 *          {@link StartElement} page
+	 */
+	private void moveToLastPage(final StartElement pPage) {
+		assert pPage != null;
+		// All subsequent shredders, move cursor to the end.
+		mWtx.moveToFirstChild();
+		mWtx.moveToFirstChild();
 
-    assert mWtx.getKind() == EKind.ELEMENT;
-    assert mWtx.getQName().equals(pPage.getName());
-    while (mWtx.hasRightSibling()) {
-      mWtx.moveToRightSibling();
-    }
-    assert mWtx.getKind() == EKind.ELEMENT;
-    assert mWtx.getQName().equals(pPage.getName());
-  }
+		assert mWtx.getKind() == EKind.ELEMENT;
+		assert mWtx.getQName().equals(pPage.getName());
+		while (mWtx.hasRightSibling()) {
+			mWtx.moveToRightSibling();
+		}
+		assert mWtx.getKind() == EKind.ELEMENT;
+		assert mWtx.getQName().equals(pPage.getName());
+	}
 
-  /**
-   * Check if start element of two StAX parsers match.
-   * 
-   * @param mStartTag
-   *          StartTag of the StAX parser, where it is currently (the "real"
-   *          StAX parser over the whole document).
-   * @param mElem
-   *          StartTag to check against.
-   * @return {@code true} if start elements match, {@code false} otherwise
-   * @throws XMLStreamException
-   *           handling XML Stream Exception
-   */
-  private static boolean checkStAXStartElement(final StartElement mStartTag, final StartElement mElem)
-    throws XMLStreamException {
-    assert mStartTag != null && mElem != null;
-    boolean retVal = false;
-    if (mStartTag.getEventType() == XMLStreamConstants.START_ELEMENT
-      && mStartTag.getName().equals(mElem.getName())) {
-      // Check attributes.
-      boolean foundAtts = false;
-      boolean hasAtts = false;
-      for (final Iterator<?> itStartTag = mStartTag.getAttributes(); itStartTag.hasNext();) {
-        hasAtts = true;
-        final Attribute attStartTag = (Attribute)itStartTag.next();
-        for (final Iterator<?> itElem = mElem.getAttributes(); itElem.hasNext();) {
-          final Attribute attElem = (Attribute)itElem.next();
-          if (attStartTag.getName().equals(attElem.getName())
-            && attStartTag.getName().equals(attElem.getName())) {
-            foundAtts = true;
-            break;
-          }
-        }
+	/**
+	 * Check if start element of two StAX parsers match.
+	 * 
+	 * @param mStartTag
+	 *          StartTag of the StAX parser, where it is currently (the "real"
+	 *          StAX parser over the whole document).
+	 * @param mElem
+	 *          StartTag to check against.
+	 * @return {@code true} if start elements match, {@code false} otherwise
+	 * @throws XMLStreamException
+	 *           handling XML Stream Exception
+	 */
+	private static boolean checkStAXStartElement(final StartElement mStartTag,
+			final StartElement mElem) throws XMLStreamException {
+		assert mStartTag != null && mElem != null;
+		boolean retVal = false;
+		if (mStartTag.getEventType() == XMLStreamConstants.START_ELEMENT
+				&& mStartTag.getName().equals(mElem.getName())) {
+			// Check attributes.
+			boolean foundAtts = false;
+			boolean hasAtts = false;
+			for (final Iterator<?> itStartTag = mStartTag.getAttributes(); itStartTag
+					.hasNext();) {
+				hasAtts = true;
+				final Attribute attStartTag = (Attribute) itStartTag.next();
+				for (final Iterator<?> itElem = mElem.getAttributes(); itElem.hasNext();) {
+					final Attribute attElem = (Attribute) itElem.next();
+					if (attStartTag.getName().equals(attElem.getName())
+							&& attStartTag.getName().equals(attElem.getName())) {
+						foundAtts = true;
+						break;
+					}
+				}
 
-        if (!foundAtts) {
-          break;
-        }
-      }
-      if (!hasAtts) {
-        foundAtts = true;
-      }
+				if (!foundAtts) {
+					break;
+				}
+			}
+			if (!hasAtts) {
+				foundAtts = true;
+			}
 
-      // Check namespaces.
-      boolean foundNamesps = false;
-      boolean hasNamesps = false;
-      for (final Iterator<?> itStartTag = mStartTag.getNamespaces(); itStartTag.hasNext();) {
-        hasNamesps = true;
-        final Namespace nsStartTag = (Namespace)itStartTag.next();
-        for (final Iterator<?> itElem = mElem.getNamespaces(); itElem.hasNext();) {
-          final Namespace nsElem = (Namespace)itElem.next();
-          if (nsStartTag.getName().equals(nsElem.getName()) && nsStartTag.getName().equals(nsElem.getName())) {
-            foundNamesps = true;
-            break;
-          }
-        }
+			// Check namespaces.
+			boolean foundNamesps = false;
+			boolean hasNamesps = false;
+			for (final Iterator<?> itStartTag = mStartTag.getNamespaces(); itStartTag
+					.hasNext();) {
+				hasNamesps = true;
+				final Namespace nsStartTag = (Namespace) itStartTag.next();
+				for (final Iterator<?> itElem = mElem.getNamespaces(); itElem.hasNext();) {
+					final Namespace nsElem = (Namespace) itElem.next();
+					if (nsStartTag.getName().equals(nsElem.getName())
+							&& nsStartTag.getName().equals(nsElem.getName())) {
+						foundNamesps = true;
+						break;
+					}
+				}
 
-        if (!foundNamesps) {
-          break;
-        }
-      }
-      if (!hasNamesps) {
-        foundNamesps = true;
-      }
+				if (!foundNamesps) {
+					break;
+				}
+			}
+			if (!hasNamesps) {
+				foundNamesps = true;
+			}
 
-      // Check if qname, atts and namespaces are the same.
-      if (foundAtts && foundNamesps) {
-        retVal = true;
-      } else {
-        retVal = false;
-      }
-    }
-    return retVal;
-  }
+			// Check if qname, atts and namespaces are the same.
+			if (foundAtts && foundNamesps) {
+				retVal = true;
+			} else {
+				retVal = false;
+			}
+		}
+		return retVal;
+	}
 
-  /**
-   * Main method.
-   * 
-   * @param args
-   *          Arguments.
-   * @throws SirixException
-   *           if anything within sirix fails
-   */
-  public static void main(final String... args) throws SirixException {
-    if (args.length != 2) {
-      throw new IllegalArgumentException("Usage: WikipediaImport path/to/xmlFile path/to/TTStorage");
-    }
+	/**
+	 * Main method.
+	 * 
+	 * @param args
+	 *          Arguments.
+	 * @throws SirixException
+	 *           if anything within sirix fails
+	 */
+	public static void main(final String... args) throws SirixException {
+		if (args.length != 2) {
+			throw new IllegalArgumentException(
+					"Usage: WikipediaImport path/to/xmlFile path/to/TTStorage");
+		}
 
-    LOGWRAPPER.info("Importing wikipedia...");
-    final long start = System.nanoTime();
+		LOGWRAPPER.info("Importing wikipedia...");
+		final long start = System.nanoTime();
 
-    final File xml = new File(args[0]);
-    final File tnk = new File(args[1]);
-    Database.truncateDatabase(new DatabaseConfiguration(tnk));
+		final File xml = new File(args[0]);
+		final File tnk = new File(args[1]);
+		Database.truncateDatabase(new DatabaseConfiguration(tnk));
 
-    // Create necessary element nodes.
-    final String NSP_URI = "http://www.mediawiki.org/xml/export-0.4/";
-    final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
-    final StartElement timestamp =
-      eventFactory.createStartElement(new QName(NSP_URI, "timestamp", XMLConstants.DEFAULT_NS_PREFIX), null,
-        null);
-    final StartElement page =
-      eventFactory.createStartElement(new QName(NSP_URI, "page", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-    final StartElement rev =
-      eventFactory.createStartElement(new QName(NSP_URI, "revision", XMLConstants.DEFAULT_NS_PREFIX), null,
-        null);
-    final StartElement id =
-      eventFactory.createStartElement(new QName(NSP_URI, "id", XMLConstants.DEFAULT_NS_PREFIX), null, null);
-    final StartElement text =
-      eventFactory.createStartElement(new QName(NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+		// Create necessary element nodes.
+		final String NSP_URI = "http://www.mediawiki.org/xml/export-0.4/";
+		final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
+		final StartElement timestamp = eventFactory.createStartElement(new QName(
+				NSP_URI, "timestamp", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+		final StartElement page = eventFactory.createStartElement(new QName(
+				NSP_URI, "page", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+		final StartElement rev = eventFactory.createStartElement(new QName(NSP_URI,
+				"revision", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+		final StartElement id = eventFactory.createStartElement(new QName(NSP_URI,
+				"id", XMLConstants.DEFAULT_NS_PREFIX), null, null);
+		final StartElement text = eventFactory.createStartElement(new QName(
+				NSP_URI, "text", XMLConstants.DEFAULT_NS_PREFIX), null, null);
 
-    // Create list.
-    final List<StartElement> list = new LinkedList<StartElement>();
-    list.add(timestamp);
-    list.add(page);
-    list.add(rev);
-    list.add(id);
-    list.add(text);
+		// Create list.
+		final List<StartElement> list = new LinkedList<StartElement>();
+		list.add(timestamp);
+		list.add(page);
+		list.add(rev);
+		list.add(id);
+		list.add(text);
 
-    // Invoke import.
-    new WikipediaImport(xml, tnk).importData(EDateBy.HOURS, list);
+		// Invoke import.
+		new WikipediaImport(xml, tnk).importData(EDateBy.HOURS, list);
 
-    LOGWRAPPER.info(" done in " + (System.nanoTime() - start) / 1_000_000_000 + "[s].");
-  }
+		LOGWRAPPER.info(" done in " + (System.nanoTime() - start) / 1_000_000_000
+				+ "[s].");
+	}
 }

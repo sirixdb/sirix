@@ -73,8 +73,8 @@ public final class DiffTestHelper {
   }
 
   static void setUpThird(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
-    new XMLShredder(pHolder.getWtx(), XMLShredder.createFileReader(new File(RESOURCES + File.separator
-      + "revXMLsDelete1" + File.separator + "1.xml")), EInsert.ASFIRSTCHILD).call();
+    new XMLShredder.Builder(pHolder.getWtx(), XMLShredder.createFileReader(new File(RESOURCES + File.separator
+      + "revXMLsDelete1" + File.separator + "1.xml")), EInsert.ASFIRSTCHILD).commitAfterwards().build().call();
     final INodeWriteTrx wtx = pHolder.getWtx();
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
@@ -133,18 +133,18 @@ public final class DiffTestHelper {
 
     int i = 0;
     for (final File file : pFile) {
-      XMLShredder init;
       if (i == 0) {
-        init =
-          new XMLShredder(pHolder.getWtx(), XMLShredder.createFileReader(file),
-            EInsert.ASFIRSTCHILD);
+      	final XMLShredder init =
+          new XMLShredder.Builder(pHolder.getWtx(), XMLShredder.createFileReader(file),
+            EInsert.ASFIRSTCHILD).commitAfterwards().build();
+        init.call();
       } else {
-        init =
+        final XMLUpdateShredder init =
           new XMLUpdateShredder(pHolder.getWtx(), XMLShredder.createFileReader(file),
             EInsert.ASFIRSTCHILD, file, EShredderCommit.COMMIT);
+        init.call();
       }
       i++;
-      init.call();
     }
 
   }
