@@ -36,7 +36,6 @@ import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.FilterAxis;
 import org.sirix.exception.SirixException;
 
 public class FilterAxisTest {
@@ -58,7 +57,6 @@ public class FilterAxisTest {
 
   @Test
   public void testNameAxisTest() throws SirixException {
-    // Build simple test tree.
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveToDocumentRoot();
@@ -70,7 +68,6 @@ public class FilterAxisTest {
 
   @Test
   public void testValueAxisTest() throws SirixException {
-    // Build simple test tree.
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveToDocumentRoot();
@@ -82,7 +79,6 @@ public class FilterAxisTest {
 
   @Test
   public void testValueAndNameAxisTest() throws SirixException {
-    // Build simple test tree.
     final INodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(1L);

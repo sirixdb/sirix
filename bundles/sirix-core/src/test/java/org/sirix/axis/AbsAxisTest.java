@@ -31,6 +31,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 import org.junit.After;
@@ -103,6 +104,20 @@ public class AbsAxisTest {
     assertEquals(startKey, axis.getTrx().getNodeKey());
 
     // IAxis results.
+    assertArrayEquals(expectedKeys, keys);
+  }
+  
+  public static void testIterable(final Iterator<Long> axis, final long[] expectedKeys) {
+    final long[] keys = new long[expectedKeys.length];
+    int offset = 0;
+    while (axis.hasNext()) {
+      final long key = axis.next();
+      // Iterable results.
+      assertTrue(offset < expectedKeys.length);
+      keys[offset++] = key;
+    }
+
+    // Iterable results.
     assertArrayEquals(expectedKeys, keys);
   }
 

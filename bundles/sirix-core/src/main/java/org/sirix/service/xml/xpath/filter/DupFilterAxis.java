@@ -33,8 +33,8 @@ import java.util.Set;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
-import org.sirix.axis.FilterAxis;
 import org.sirix.axis.NestedAxis;
+import org.sirix.axis.filter.FilterAxis;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 
 /**

@@ -32,7 +32,7 @@ import java.util.List;
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.FilterAxis;
+import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.EKind;

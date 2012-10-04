@@ -44,7 +44,7 @@ import com.google.common.base.Predicate;
  * Filter node of transaction this filter is bound to.
  * </p>
  */
-public abstract class AbsFilter implements IFilter, Predicate<INodeReadTrx> {
+public abstract class AbsFilter implements IFilter, Predicate<Long> {
 
   /** Iterate over transaction exclusive to this step. */
   private INodeReadTrx mRtx;
@@ -68,8 +68,8 @@ public abstract class AbsFilter implements IFilter, Predicate<INodeReadTrx> {
   public abstract boolean filter();
   
   @Override
-  public boolean apply(final @Nullable INodeReadTrx pInput) {
-  	mRtx = checkNotNull(pInput);
+  public boolean apply(final @Nullable Long pNodeKey) {
+  	mRtx.moveTo(checkNotNull(pNodeKey));
   	return filter();
   }
 }

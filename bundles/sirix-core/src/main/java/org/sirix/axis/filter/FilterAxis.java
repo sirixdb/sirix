@@ -25,12 +25,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.axis;
+package org.sirix.axis.filter;
 
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.IFilter;
+import org.sirix.axis.AbsAxis;
 
 /**
  * <h1>TestAxis</h1>

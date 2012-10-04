@@ -25,7 +25,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package org.sirix.service.xml.xpath.filter;
+package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -33,7 +33,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.axis.AbsAxis;
 
 /**
  * <h1>PredicateFilterAxis</h1>
@@ -46,8 +46,10 @@ import org.sirix.service.xml.xpath.AbsAxis;
  */
 public class PredicateFilterAxis extends AbsAxis {
 
+	/** First run. */
   private boolean mIsFirst;
 
+  /** Predicate axis. */
   private final IAxis mPredicate;
 
   /**
@@ -72,42 +74,31 @@ public class PredicateFilterAxis extends AbsAxis {
     }
     mIsFirst = true;
   }
-
+  
   @Override
-  public final boolean hasNext() {
-    if (isNext()) {
-      return true;
-    }
-    resetToLastKey();
-
-    // a predicate has to evaluate to true only once.
+  protected long nextKey() {
+    // A predicate has to evaluate to true only once.
     if (mIsFirst) {
       mIsFirst = false;
-      mPredicate.reset(getTrx().getNodeKey());
+      
+      final long currKey = getTrx().getNodeKey();
+      mPredicate.reset(currKey);
 
       if (mPredicate.hasNext()) {
         mPredicate.next();
         if (isBooleanFalse()) {
-          resetToStartKey();
-          return false;
+          return done();
         }
-
-        // reset is needed, because a predicate works more like a
-        // filter. It does not change the current transaction.
-        resetToLastKey();
-        return true;
+        return currKey;
       }
     }
-
-    resetToStartKey();
-    return false;
-
+    return done();
   }
 
   /**
-   * Tests whether current Item is an atomic value with boolean value "false".
+   * Tests whether current item is an atomic value with boolean value "false".
    * 
-   * @return true, if Item is boolean typed atomic value with type "false".
+   * @return {@code true}, if item is boolean typed atomic value with type "false".
    */
   private boolean isBooleanFalse() {
     if (getTrx().getNodeKey() >= 0) {

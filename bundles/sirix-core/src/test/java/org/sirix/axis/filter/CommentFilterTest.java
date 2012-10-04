@@ -69,6 +69,5 @@ public class CommentFilterTest {
     wtx.moveTo(9L);
     wtx.moveToAttribute(0);
     IFilterTest.testIFilterConventions(new CommentFilter(wtx), false);
-
   }
 }

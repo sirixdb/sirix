@@ -33,6 +33,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
+import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.NodeFilter;
 import org.sirix.axis.filter.TextFilter;
