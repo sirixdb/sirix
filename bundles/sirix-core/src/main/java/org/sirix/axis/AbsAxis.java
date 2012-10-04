@@ -28,6 +28,7 @@
 package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import java.util.Iterator;
 import java.util.NoSuchElementException;
@@ -36,8 +37,8 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
 import org.sirix.api.INodeCursor;
+import org.sirix.api.INodeReadTrx;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.settings.EFixed;
 
@@ -62,20 +63,29 @@ public abstract class AbsAxis implements IAxis {
 	/** Key of next node. */
 	private long mKey;
 
-	/**
-	 * Make sure {@code next()} can only be called after {@code hasNext()} has
-	 * been called.
-	 */
-	private boolean mNext;
-
 	/** Key of node where axis started. */
 	private long mStartKey;
 
 	/** Include self? */
 	private final EIncludeSelf mIncludeSelf;
 
-	/** Determines if a next node follows or not. */
-	private boolean mHasNext;
+	/** Current state. */
+	private EState mState = EState.NOT_READY;
+
+	/** State of the iterator. */
+	private enum EState {
+		/** We have computed the next element and haven't returned it yet. */
+		READY,
+
+		/** We haven't yet computed or have already returned the element. */
+		NOT_READY,
+
+		/** We have reached the end of the data and are finished. */
+		DONE,
+
+		/** We've suffered an exception and are kaput. */
+		FAILED,
+	}
 
 	/**
 	 * Bind axis step to transaction.
@@ -88,7 +98,6 @@ public abstract class AbsAxis implements IAxis {
 	public AbsAxis(final @Nonnull INodeCursor pRtx) {
 		mRtx = checkNotNull(pRtx);
 		mIncludeSelf = EIncludeSelf.NO;
-		mHasNext = true;
 		reset(pRtx.getNodeKey());
 	}
 
@@ -104,7 +113,6 @@ public abstract class AbsAxis implements IAxis {
 			final @Nonnull EIncludeSelf pIncludeSelf) {
 		mRtx = checkNotNull(pRtx);
 		mIncludeSelf = checkNotNull(pIncludeSelf);
-		mHasNext = true;
 		reset(pRtx.getNodeKey());
 	}
 
@@ -140,51 +148,94 @@ public abstract class AbsAxis implements IAxis {
 	 */
 	@Override
 	public final boolean hasNext() {
-		if (!mHasNext) {
-			// End of the axis reached.
+		// First check the state.
+		checkState(mState != EState.FAILED);
+		switch (mState) {
+		case DONE:
 			return false;
-		}
-		if (mNext) {
-			// hasNext() has been called before without an intermediate next()-call.
+		case READY:
 			return true;
+		default:
 		}
 
 		// Reset to last node key.
 		resetToLastKey();
 
-		// Template method.
-		mKey = nextKey();
-
-		if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+		final boolean hasNext = tryToComputeNext();
+		if (hasNext) {
+			return true;
+		} else {
 			// Reset to the start key before invoking the axis.
 			resetToStartKey();
 			return false;
-		} else {
-			return true;
 		}
 	}
 
 	/**
-	 * Please do not override {@code hasNext()} directly. Use this template method
-	 * instead. It determines the next node key in the axis. Override this method
-	 * to simplify {@code hasNext()}. Simply return
-	 * {@code EFixed.NULL_NODE_KEY.getStandardProperty()} if no more node is
-	 * following in the axis, otherwise return the node key of the next node.
+	 * Try to compute the next node key.
 	 * 
-	 * @return next node key
+	 * @return {@code true} if next node key exists, {@code false} otherwise
+	 */
+	private boolean tryToComputeNext() {
+		mState = EState.FAILED; // temporary pessimism
+		// Template method.
+		mKey = nextKey();
+		if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+			mState = EState.DONE;
+		}
+		if (mState == EState.DONE) {
+			return false;
+		}
+		mState = EState.READY;
+		return true;
+	}
+
+	/**
+	 * Returns the next node key. <strong>Note:</strong> the implementation must
+	 * either call {@link #done()} when there are no elements left in the
+	 * iteration or return the node key
+	 * {@code EFixed.NULL_NODE.getStandardProperty()}.
+	 * 
+	 * <p>
+	 * The initial invocation of {@link #hasNext()} or {@link #next()} calls this
+	 * method, as does the first invocation of {@code hasNext} or {@code next}
+	 * following each successful call to {@code next}. Once the implementation
+	 * either invokes {@link #done()}, returns
+	 * {@code EFixed.NULL_NODE.getStandardProperty()} or throws an exception,
+	 * {@code nextKey()} is guaranteed to never be called again.
+	 * </p>
+	 * 
+	 * <p>
+	 * If this method throws an exception, it will propagate outward to the
+	 * {@code hasNext} or {@code next} invocation that invoked this method. Any
+	 * further attempts to use the iterator will result in an
+	 * {@link IllegalStateException}.
+	 * </p>
+	 * 
+	 * <p>
+	 * The implementation of this method may not invoke the {@code hasNext},
+	 * {@code next}, or {@link #peek()} methods on this instance; if it does, an
+	 * {@code IllegalStateException} will result.
+	 * </p>
+	 * 
+	 * @return the next node key
+	 * @throws RuntimeException
+	 *           if any unrecoverable error happens. This exception will propagate
+	 *           outward to the {@code hasNext()}, {@code next()}, or
+	 *           {@code peek()} invocation that invoked this method. Any further
+	 *           attempts to use the iterator will result in an
+	 *           {@link IllegalStateException}.
 	 */
 	protected abstract long nextKey();
 
 	@Override
 	public final Long next() {
-		if (!mHasNext) {
-			throw new NoSuchElementException("No more nodes in the axis!");
+		if (!hasNext()) {
+			throw new NoSuchElementException();
 		}
-		if (!mNext) {
-			if (!hasNext()) {
-				throw new NoSuchElementException("No more nodes in the axis!");
-			}
-		}
+		mState = EState.NOT_READY;
+
+		// Move to next.
 		if (mKey >= 0) {
 			if (mRtx.hasNode(mKey)) {
 				mRtx.moveTo(mKey);
@@ -194,7 +245,6 @@ public abstract class AbsAxis implements IAxis {
 		} else {
 			mRtx.moveTo(mKey);
 		}
-		mNext = false;
 		return mKey;
 	}
 
@@ -216,8 +266,7 @@ public abstract class AbsAxis implements IAxis {
 	public void reset(@Nonnegative final long pNodeKey) {
 		mStartKey = pNodeKey;
 		mKey = pNodeKey;
-		mNext = false;
-		mHasNext = true;
+		mState = EState.NOT_READY;
 	}
 
 	/**
@@ -244,8 +293,6 @@ public abstract class AbsAxis implements IAxis {
 	private final long resetToStartKey() {
 		// No check because of IAxis Convention 4.
 		mRtx.moveTo(mStartKey);
-		mNext = false;
-		mHasNext = false;
 		return mStartKey;
 	}
 
@@ -259,16 +306,19 @@ public abstract class AbsAxis implements IAxis {
 	private final long resetToLastKey() {
 		// No check because of IAxis Convention 4.
 		mRtx.moveTo(mKey);
-		mNext = true;
 		return mKey;
 	}
 
-	/**
-	 * Get start key.
-	 * 
-	 * @return start key
-	 */
-	protected final long getStartKey() {
+	@Override
+	public final Long peek() {
+		if (!hasNext()) {
+			throw new NoSuchElementException();
+		}
+		return mKey;
+	}
+
+	@Override
+	public final long getStartKey() {
 		return mStartKey;
 	}
 
@@ -286,7 +336,8 @@ public abstract class AbsAxis implements IAxis {
 	@Override
 	public final void foreach(@Nonnull final IVisitor pVisitor) {
 		checkNotNull(pVisitor);
-		for (; hasNext(); next()) {
+		while (hasNext()) {
+			next();
 			mRtx.acceptVisitor(pVisitor);
 		}
 	}

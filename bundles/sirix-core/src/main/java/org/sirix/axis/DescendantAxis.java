@@ -121,7 +121,7 @@ public final class DescendantAxis extends AbsAxis {
       return hasNextNode(key, currKey);
     }
     
-    return key;
+    return done();
   }
 
   /**
@@ -136,8 +136,7 @@ public final class DescendantAxis extends AbsAxis {
   private long hasNextNode(@Nonnegative long pKey, final @Nonnegative long pCurrKey) {
     getTrx().moveTo(pKey);
     if (getTrx().getLeftSiblingKey() == getStartKey()) {
-    	pKey = EFixed.NULL_NODE_KEY.getStandardProperty();
-      return pKey;
+      return done();
     } else {
       getTrx().moveTo(pCurrKey);
       return pKey;

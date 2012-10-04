@@ -264,18 +264,19 @@ public abstract class AbsAxis implements IAxis {
 		return mKey;
 	}
 
-	/**
-	 * Get start key.
-	 * 
-	 * @return Start key.
-	 */
-	protected final long getStartKey() {
+	@Override
+	public final long getStartKey() {
 		return mStartKey;
 	}
 
 	@Override
 	public final EIncludeSelf isSelfIncluded() {
 		return mIncludeSelf;
+	}
+	
+	@Override
+	public Long peek() {
+		return null;
 	}
 
 	/**

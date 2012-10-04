@@ -59,6 +59,8 @@ import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
  * @author Johannes Lichtenberger, University of Konstanz.
  */
 public class StAXSerializerTest {
+	
+	/** {@link Holder} instance. */
   private Holder holder;
 
   @Before
