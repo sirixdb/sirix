@@ -640,16 +640,18 @@ public interface INodeWriteTrx extends INodeReadTrx {
 	void addPostCommitHook(@Nonnull IPostCommitHook pHook);
 
 	/**
-	 * Get the {@link PathSummary} associated with the current write transaction.
+	 * Get the {@link PathSummary} associated with the current write transaction --
+	 * might be {@code null} if no path summary index is used.
 	 * 
 	 * @return {@link PathSummary} instance
 	 */
 	PathSummary getPathSummary();
 
 	/**
-	 * Get the {@link AVLTree} associated with the current write transaction.
+	 * Get the value index associated with the current write transaction -- might be
+	 * {@code null} if no value index is used.
 	 * 
 	 * @return {@link AVLTree} instance
 	 */
-	AVLTree<TextValue, TextReferences> getAVLTree();
+	AVLTree<TextValue, TextReferences> getValueIndex();
 }

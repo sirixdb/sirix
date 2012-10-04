@@ -3210,7 +3210,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public AVLTree<TextValue, TextReferences> getAVLTree() {
+	public AVLTree<TextValue, TextReferences> getValueIndex() {
 		acquireLock();
 		try {
 			return mAVLTree;
