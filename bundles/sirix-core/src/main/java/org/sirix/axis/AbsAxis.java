@@ -259,7 +259,7 @@ public abstract class AbsAxis implements IAxis {
 	/**
 	 * Resetting the nodekey of this axis to a given nodekey.
 	 * 
-	 * @param paramNodeKey
+	 * @param pNodeKey
 	 *          the nodekey where the reset should occur to
 	 */
 	@Override
