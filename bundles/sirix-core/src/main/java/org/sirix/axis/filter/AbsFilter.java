@@ -44,10 +44,10 @@ import com.google.common.base.Predicate;
  * Filter node of transaction this filter is bound to.
  * </p>
  */
-public abstract class AbsFilter implements IFilter, Predicate<Void> {
+public abstract class AbsFilter implements IFilter, Predicate<INodeReadTrx> {
 
   /** Iterate over transaction exclusive to this step. */
-  private final INodeReadTrx mRtx;
+  private INodeReadTrx mRtx;
 
   /**
    * Bind axis step to transaction.
@@ -68,8 +68,8 @@ public abstract class AbsFilter implements IFilter, Predicate<Void> {
   public abstract boolean filter();
   
   @Override
-  public boolean apply(@Nullable Void input) {
-  	// TODO Auto-generated method stub
-  	return false;
+  public boolean apply(final @Nullable INodeReadTrx pInput) {
+  	mRtx = checkNotNull(pInput);
+  	return filter();
   }
 }
