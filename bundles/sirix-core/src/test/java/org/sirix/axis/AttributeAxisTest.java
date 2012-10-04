@@ -94,17 +94,17 @@ public class AttributeAxisTest {
 
     Assert.assertEquals(true, wtx.moveToAttribute(0).hasMoved());
     Assert.assertEquals("0", wtx.getValue());
-    Assert.assertEquals(new QName("foo0"), wtx.getQName());
+    Assert.assertEquals(new QName("foo0"), wtx.getName());
 
     Assert.assertEquals(true, wtx.moveToParent().hasMoved());
     Assert.assertEquals(true, wtx.moveToAttribute(1).hasMoved());
     Assert.assertEquals("1", wtx.getValue());
-    Assert.assertEquals(new QName("foo1"), wtx.getQName());
+    Assert.assertEquals(new QName("foo1"), wtx.getName());
 
     Assert.assertEquals(true, wtx.moveToParent().hasMoved());
     Assert.assertEquals(true, wtx.moveToAttribute(2).hasMoved());
     Assert.assertEquals("2", wtx.getValue());
-    Assert.assertEquals(new QName("foo2"), wtx.getQName());
+    Assert.assertEquals(new QName("foo2"), wtx.getName());
 
     Assert.assertEquals(true, wtx.moveTo(nodeKey).hasMoved());
     final AbsAxis axis = new AttributeAxis(wtx);
@@ -112,19 +112,19 @@ public class AttributeAxisTest {
     Assert.assertEquals(true, axis.hasNext());
     axis.next();
     Assert.assertEquals(nodeKey + 1, wtx.getNodeKey());
-    Assert.assertEquals(new QName("foo0"), wtx.getQName());
+    Assert.assertEquals(new QName("foo0"), wtx.getName());
     Assert.assertEquals("0", wtx.getValue());
 
     Assert.assertEquals(true, axis.hasNext());
     axis.next();
     Assert.assertEquals(nodeKey + 2, wtx.getNodeKey());
-    Assert.assertEquals(new QName("foo1"), wtx.getQName());
+    Assert.assertEquals(new QName("foo1"), wtx.getName());
     Assert.assertEquals("1", wtx.getValue());
 
     Assert.assertEquals(true, axis.hasNext());
     axis.next();
     Assert.assertEquals(nodeKey + 3, wtx.getNodeKey());
-    Assert.assertEquals(new QName("foo2"), wtx.getQName());
+    Assert.assertEquals(new QName("foo2"), wtx.getName());
     Assert.assertEquals("2", wtx.getValue());
 
     wtx.abort();

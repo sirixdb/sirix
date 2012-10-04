@@ -123,7 +123,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 
 	@Override
 	protected void emitEndElement(@Nonnull final INodeReadTrx pRtx) {
-		final QName qName = pRtx.getQName();
+		final QName qName = pRtx.getName();
 		final String mURI = qName.getNamespaceURI();
 		try {
 			mContHandler.endPrefixMapping(qName.getPrefix());
@@ -178,7 +178,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	 */
 	private void generatePI(final @Nonnull INodeReadTrx pRtx) {
 		try {
-			mContHandler.processingInstruction(pRtx.getQName().getLocalPart(),
+			mContHandler.processingInstruction(pRtx.getName().getLocalPart(),
 					pRtx.getValue());
 		} catch (final SAXException e) {
 			LOGGER.error(e.getMessage(), e);
@@ -199,7 +199,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 			// Process namespace nodes.
 			for (int i = 0, namesCount = pRtx.getNamespaceCount(); i < namesCount; i++) {
 				pRtx.moveToNamespace(i);
-				final QName qName = pRtx.getQName();
+				final QName qName = pRtx.getName();
 				mContHandler.startPrefixMapping(qName.getPrefix(),
 						qName.getNamespaceURI());
 				final String mURI = qName.getNamespaceURI();
@@ -208,7 +208,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 					atts.addAttribute(mURI, "xmlns", "xmlns", "CDATA", mURI);
 				} else {
 					atts.addAttribute(mURI, "xmlns", "xmlns:"
-							+ pRtx.getQName().getLocalPart(), "CDATA", mURI);
+							+ pRtx.getName().getLocalPart(), "CDATA", mURI);
 				}
 				pRtx.moveTo(key);
 			}
@@ -216,7 +216,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 			// Process attributes.
 			for (int i = 0, attCount = pRtx.getAttributeCount(); i < attCount; i++) {
 				pRtx.moveToAttribute(i);
-				final QName qName = pRtx.getQName();
+				final QName qName = pRtx.getName();
 				final String mURI = qName.getNamespaceURI();
 				atts.addAttribute(mURI, qName.getLocalPart(), Utils.buildName(qName),
 						pRtx.getType(), pRtx.getValue());
@@ -224,7 +224,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 			}
 
 			// Create SAX events.
-			final QName qName = pRtx.getQName();
+			final QName qName = pRtx.getName();
 			mContHandler.startElement(qName.getNamespaceURI(), qName.getLocalPart(),
 					Utils.buildName(qName), atts);
 

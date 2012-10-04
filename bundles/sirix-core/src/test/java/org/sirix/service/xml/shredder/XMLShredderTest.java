@@ -115,7 +115,7 @@ public class XMLShredderTest extends XMLTestCase {
 				assertEquals(expectedTrx.getNamespaceCount(), rtx.getNamespaceCount());
 			}
 			assertEquals(expectedTrx.getKind(), rtx.getKind());
-			assertEquals(expectedTrx.getQName(), rtx.getQName());
+			assertEquals(expectedTrx.getName(), rtx.getName());
 			assertEquals(expectedTrx.getValue(), expectedTrx.getValue());
 		}
 
@@ -164,7 +164,7 @@ public class XMLShredderTest extends XMLTestCase {
 			expectedDescendants.next();
 			descendants.hasNext();
 			descendants.next();
-			assertEquals(expectedTrx.getQName(), rtx.getQName());
+			assertEquals(expectedTrx.getName(), rtx.getName());
 			assertEquals(expectedTrx.getValue(), rtx.getValue());
 		}
 
@@ -218,7 +218,7 @@ public class XMLShredderTest extends XMLTestCase {
 				assertEquals(expectedTrx2.getNamespaceCount(), rtx.getNamespaceCount());
 				assertEquals(expectedTrx2.getAttributeCount(), rtx.getAttributeCount());
 				for (int i = 0; i < expectedTrx2.getAttributeCount(); i++) {
-					assertEquals(expectedTrx2.getQName(), rtx.getQName());
+					assertEquals(expectedTrx2.getName(), rtx.getName());
 				}
 			}
 		}

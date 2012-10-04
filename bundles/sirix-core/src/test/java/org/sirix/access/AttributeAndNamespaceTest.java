@@ -59,14 +59,14 @@ public class AttributeAndNamespaceTest {
     holder.getRtx().moveTo(1L);
     assertEquals(1, holder.getRtx().getAttributeCount());
     holder.getRtx().moveToAttribute(0);
-    assertEquals("i", holder.getRtx().getQName().getLocalPart());
+    assertEquals("i", holder.getRtx().getName().getLocalPart());
 
     holder.getRtx().moveTo(9L);
     assertEquals(1, holder.getRtx().getAttributeCount());
     holder.getRtx().moveToAttribute(0);
-    assertEquals("p:x", new StringBuilder(holder.getRtx().getQName().getPrefix()).append(":")
-      .append(holder.getRtx().getQName().getLocalPart()).toString());
-    assertEquals("ns", holder.getRtx().getQName().getNamespaceURI());
+    assertEquals("p:x", new StringBuilder(holder.getRtx().getName().getPrefix()).append(":")
+      .append(holder.getRtx().getName().getLocalPart()).toString());
+    assertEquals("ns", holder.getRtx().getName().getNamespaceURI());
   }
 
   @Test
@@ -74,7 +74,7 @@ public class AttributeAndNamespaceTest {
     holder.getRtx().moveTo(1L);
     assertEquals(1, holder.getRtx().getNamespaceCount());
     holder.getRtx().moveToNamespace(0);
-    assertEquals("p", holder.getRtx().getQName().getLocalPart());
-    assertEquals("ns", holder.getRtx().getQName().getNamespaceURI());
+    assertEquals("p", holder.getRtx().getName().getLocalPart());
+    assertEquals("ns", holder.getRtx().getName().getNamespaceURI());
   }
 }

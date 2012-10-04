@@ -220,7 +220,7 @@ public interface INodeReadTrx extends INodeCursor {
 	 * 
 	 * @return the {@link QName} of the node
 	 */
-	QName getQName();
+	QName getName();
 
 	/**
 	 * Getting the type of the current node.

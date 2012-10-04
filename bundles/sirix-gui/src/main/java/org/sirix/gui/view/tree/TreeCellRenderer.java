@@ -104,8 +104,8 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
     switch (node.getKind()) {
     case ELEMENT:
       mRTX.moveTo(node.getNodeKey());
-      final String prefix = mRTX.getQName().getPrefix();
-      final QName qName = mRTX.getQName();
+      final String prefix = mRTX.getName().getPrefix();
+      final QName qName = mRTX.getName();
 
       if (prefix == null || prefix.equals(XMLConstants.DEFAULT_NS_PREFIX)) {
         final String localPart = qName.getLocalPart();
@@ -135,8 +135,8 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
       }
 
       // Display value.
-      final String attPrefix = mRTX.getQName().getPrefix();
-      final QName attQName = mRTX.getQName();
+      final String attPrefix = mRTX.getName().getPrefix();
+      final QName attQName = mRTX.getName();
 
       if (attPrefix == null || attPrefix.equals("")) {
         pValue =

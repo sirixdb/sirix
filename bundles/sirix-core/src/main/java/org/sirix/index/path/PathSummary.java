@@ -267,7 +267,7 @@ public final class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public QName getQName() {
+	public QName getName() {
 		assertNotClosed();
 		if (mCurrentNode instanceof INameNode) {
 			final String name = mPageReadTrx.getName(

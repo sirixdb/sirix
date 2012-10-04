@@ -757,7 +757,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 				if (diffCont.getDiff() == EDiff.DELETED
 						|| diffCont.getDiff() == EDiff.MOVEDFROM
 						|| diffCont.getDiff() == EDiff.REPLACEDOLD) {
-					name = mOldRtx.getQName();
+					name = mOldRtx.getName();
 					builder.setAttributes(fillAttributes(mOldRtx));
 					builder.setNamespaces(fillNamespaces(mOldRtx));
 					builder.setOldKey(mOldRtx.getNodeKey());
@@ -765,7 +765,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 					LOGWRAPPER.debug("name: " + name.getLocalPart());
 					builder.setOldQName(name);
 				} else {
-					name = mNewRtx.getQName();
+					name = mNewRtx.getName();
 					builder.setAttributes(fillAttributes(mNewRtx));
 					builder.setNamespaces(fillNamespaces(mNewRtx));
 
@@ -822,7 +822,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			if (mOldRtx.getKind() == EKind.TEXT) {
 				pBuilder.setOldText(mOldRtx.getValue());
 			} else {
-				pBuilder.setOldQName(mOldRtx.getQName());
+				pBuilder.setOldQName(mOldRtx.getName());
 			}
 		}
 	}

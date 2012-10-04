@@ -178,7 +178,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	private void emitEndTag(final INodeReadTrx pRTX) {
 		assert pRTX != null;
 		final long nodeKey = pRTX.getNodeKey();
-		mEvent = mFac.createEndElement(pRTX.getQName(),
+		mEvent = mFac.createEndElement(pRTX.getName(),
 				new NamespaceIterator(pRTX));
 		pRTX.moveTo(nodeKey);
 	}
@@ -197,7 +197,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			break;
 		case ELEMENT:
 			final long key = pRTX.getNodeKey();
-			final QName qName = pRTX.getQName();
+			final QName qName = pRTX.getName();
 			mEvent = mFac.createStartElement(qName, new AttributeIterator(pRTX),
 					new NamespaceIterator(pRTX));
 			pRTX.moveTo(key);
@@ -593,7 +593,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			mRTX.moveTo(mNodeKey);
 			mRTX.moveToAttribute(mIndex++);
 			assert mRTX.getKind() == EKind.ATTRIBUTE;
-			final QName qName = mRTX.getQName();
+			final QName qName = mRTX.getName();
 			final String value = XMLToken.escapeAttribute(mRTX
 					.getValue());
 			mRTX.moveTo(mNodeKey);
@@ -663,7 +663,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			mRTX.moveTo(mNodeKey);
 			mRTX.moveToNamespace(mIndex++);
 			assert mRTX.getKind() == EKind.NAMESPACE;
-			final QName qName = mRTX.getQName();
+			final QName qName = mRTX.getName();
 			mRTX.moveTo(mNodeKey);
 			return mFac
 					.createNamespace(qName.getLocalPart(), qName.getNamespaceURI());

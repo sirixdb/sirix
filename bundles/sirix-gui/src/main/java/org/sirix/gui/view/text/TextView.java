@@ -406,8 +406,8 @@ public final class TextView extends JScrollPane implements IView {
 				}
 
 				// Display value.
-				final String attPrefix = rtx.getQName().getPrefix();
-				final QName attQName = rtx.getQName();
+				final String attPrefix = rtx.getName().getPrefix();
+				final QName attQName = rtx.getName();
 
 				if (attPrefix == null || attPrefix.isEmpty()) {
 					doc.insertString(doc.getLength(),

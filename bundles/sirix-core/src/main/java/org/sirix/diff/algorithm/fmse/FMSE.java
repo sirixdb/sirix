@@ -643,7 +643,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 				assert pRtx.getKind() == EKind.ELEMENT
 						|| pRtx.getKind() == EKind.ATTRIBUTE
 						|| pRtx.getKind() == EKind.NAMESPACE;
-				pWtx.setQName(pRtx.getQName());
+				pWtx.setQName(pRtx.getName());
 
 				if (pWtx.getKind() == EKind.ATTRIBUTE) {
 					pWtx.setValue(pRtx.getValue());
@@ -699,7 +699,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			switch (pRtx.getKind()) {
 			case ATTRIBUTE:
 				try {
-					pWtx.insertAttribute(pRtx.getQName(), pRtx.getValue());
+					pWtx.insertAttribute(pRtx.getName(), pRtx.getValue());
 				} catch (final SirixUsageException e) {
 					mTotalMatching.remove(pWtx.getNodeKey());
 					pWtx.setValue(pRtx.getValue());
@@ -709,8 +709,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			case NAMESPACE:
 				// Note that the insertion is right (localPart as prefix).
 				try {
-					pWtx.insertNamespace(new QName(pRtx.getQName().getNamespaceURI(), "",
-							pRtx.getQName().getLocalPart()));
+					pWtx.insertNamespace(new QName(pRtx.getName().getNamespaceURI(), "",
+							pRtx.getName().getLocalPart()));
 				} catch (final SirixUsageException e) {
 					mTotalMatching.remove(pWtx.getNodeKey());
 				}
@@ -784,7 +784,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 								pRtx.moveToAttribute(i);
 								for (int j = 0, oldAttCount = oldRtx.getAttributeCount(); i < oldAttCount; j++) {
 									pWtx.moveToAttribute(j);
-									if (pWtx.getQName().equals(pRtx.getQName())) {
+									if (pWtx.getName().equals(pRtx.getName())) {
 										process(oldAxis.getTrx().getNodeKey(), newAxis.getTrx()
 												.getNodeKey());
 										break;
@@ -799,10 +799,10 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 								pRtx.moveToNamespace(i);
 								for (int j = 0, oldNspCount = oldRtx.getNamespaceCount(); j < oldNspCount; j++) {
 									pWtx.moveToNamespace(j);
-									if (pWtx.getQName().getNamespaceURI()
-											.equals(pRtx.getQName().getNamespaceURI())
-											&& pWtx.getQName().getPrefix()
-													.equals(pWtx.getQName().getPrefix())) {
+									if (pWtx.getName().getNamespaceURI()
+											.equals(pRtx.getName().getNamespaceURI())
+											&& pWtx.getName().getPrefix()
+													.equals(pWtx.getName().getPrefix())) {
 										process(pWtx.getNodeKey(), pRtx.getNodeKey());
 										break;
 									}
@@ -1188,14 +1188,14 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 		case ELEMENT:
 		case NAMESPACE:
 		case ATTRIBUTE:
-			retVal.append(Utils.buildName(pRtx.getQName()));
+			retVal.append(Utils.buildName(pRtx.getName()));
 			break;
 		case TEXT:
 		case COMMENT:
 			retVal.append(pRtx.getValue());
 			break;
 		case PROCESSING:
-			retVal.append(pRtx.getQName().getLocalPart()).append(" ")
+			retVal.append(pRtx.getName().getLocalPart()).append(" ")
 					.append(pRtx.getValue());
 			break;
 		default:
@@ -1228,7 +1228,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			if (mWtx.getKind() == EKind.ATTRIBUTE
 					|| mWtx.getKind() == EKind.NAMESPACE
 					|| mWtx.getKind() == EKind.PROCESSING) {
-				if (mWtx.getQName().equals(mRtx.getQName())) {
+				if (mWtx.getName().equals(mRtx.getName())) {
 					ratio = 1;
 					if (mWtx.getKind() == EKind.ATTRIBUTE
 							|| mWtx.getKind() == EKind.PROCESSING) {
@@ -1320,13 +1320,13 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 				final long maxFamilySize = Math.max(mDescendantsOldRev.get(pFirstNode),
 						mDescendantsNewRev.get(pSecondNode));
 				if (common == 0 && maxFamilySize == 1) {
-					retVal = mWtx.getQName().equals(mRtx.getQName());
+					retVal = mWtx.getName().equals(mRtx.getName());
 				} else {
 					retVal = ((double) common / (double) maxFamilySize) >= FMESTHRESHOLD;
 				}
 			} else {
-				final QName oldName = mWtx.getQName();
-				final QName newName = mRtx.getQName();
+				final QName oldName = mWtx.getName();
+				final QName newName = mRtx.getName();
 				if (oldName.getNamespaceURI().equals(newName.getNamespaceURI())
 						&& calculateRatio(oldName.getLocalPart(), newName.getLocalPart()) > 0.7) {
 					retVal = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey());

@@ -73,7 +73,7 @@ public class MultipleCommitTest {
     holder.getWtx().insertElementAsFirstChild(new QName("foo"));
     assertEquals(1L, holder.getWtx().getRevisionNumber());
     holder.getWtx().moveTo(1);
-    assertEquals(new QName("foo"), holder.getWtx().getQName());
+    assertEquals(new QName("foo"), holder.getWtx().getName());
     holder.getWtx().abort();
 
     assertEquals(1L, holder.getWtx().getRevisionNumber());

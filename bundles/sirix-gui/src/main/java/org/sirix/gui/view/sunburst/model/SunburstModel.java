@@ -317,7 +317,7 @@ public final class SunburstModel extends
 				builder.setText(text).build();
 			} else {
 				// LOGWRAPPER.debug("QName: " + mRtx.getQNameOfCurrentNode());
-				builder.setQName(mRtx.getQName()).build();
+				builder.setQName(mRtx.getName()).build();
 				builder.setAttributes(fillAttributes(mRtx));
 				builder.setNamespaces(fillNamespaces(mRtx));
 			}

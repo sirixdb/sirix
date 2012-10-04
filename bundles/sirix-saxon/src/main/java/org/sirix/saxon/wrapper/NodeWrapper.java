@@ -146,7 +146,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 		mRevision = pDocWrapper.mRevision;
 
 		if (mNodeKind == EKind.ELEMENT || mNodeKind == EKind.ATTRIBUTE) {
-			mQName = rtx.getQName();
+			mQName = rtx.getName();
 		} else {
 			mQName = null;
 		}

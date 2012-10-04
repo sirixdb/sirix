@@ -341,7 +341,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					// Adapt path summary.
 					if (mIndexes.contains(EIndexes.PATH) && toMove instanceof INameNode) {
 						final INameNode moved = (INameNode) toMove;
-						adaptPathForChangedNode(moved, getQName(), moved.getNameKey(),
+						adaptPathForChangedNode(moved, getName(), moved.getNameKey(),
 								moved.getURIKey(), EOPType.MOVED);
 					}
 				}
@@ -419,7 +419,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 						final INameNode moved = (INameNode) toMove;
 						final EOPType type = moved.getParentKey() == parentKey ? EOPType.MOVEDSAMELEVEL
 								: EOPType.MOVED;
-						adaptPathForChangedNode(moved, getQName(), moved.getNameKey(),
+						adaptPathForChangedNode(moved, getName(), moved.getNameKey(),
 								moved.getURIKey(), type);
 					}
 				}
@@ -1264,7 +1264,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 						.getAttributeKeyByName(pQName);
 				if (attKey.isPresent()) {
 					moveTo(attKey.get());
-					final QName qName = getQName();
+					final QName qName = getName();
 					if (pQName.equals(qName)
 							&& pQName.getPrefix().equals(qName.getPrefix())) {
 						if (!getValue().equals(pValue)) {
@@ -1325,7 +1325,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				for (int i = 0, namespCount = ((ElementNode) getCurrentNode())
 						.getNamespaceCount(); i < namespCount; i++) {
 					moveToNamespace(i);
-					final QName qName = getQName();
+					final QName qName = getName();
 					if (pQName.getPrefix().equals(qName.getPrefix())) {
 						throw new SirixUsageException("Duplicate namespace!");
 					}
@@ -1583,7 +1583,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof INameNode) {
-				if (!getQName().equals(pQName)) {
+				if (!getName().equals(pQName)) {
 					checkAccessAndCommit();
 
 					INameNode node = (INameNode) mNodeRtx.getCurrentNode();
@@ -1740,7 +1740,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 							insertPathAsFirstChild(pQName, EKind.ELEMENT, ++level);
 							nodeKey = mPathSummary.getNodeKey();
 						} else {
-							insertPathAsFirstChild(this.getQName(), EKind.ELEMENT, ++level);
+							insertPathAsFirstChild(this.getName(), EKind.ELEMENT, ++level);
 						}
 						resetPathNodeKey(getCurrentNode().getNodeKey());
 
@@ -1748,7 +1748,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 						for (int i = 0, nsps = this.getNamespaceCount(); i < nsps; i++) {
 							moveToNamespace(i);
 							// Path Summary : New mapping.
-							insertPathAsFirstChild(this.getQName(), EKind.NAMESPACE,
+							insertPathAsFirstChild(this.getName(), EKind.NAMESPACE,
 									level + 1);
 							resetPathNodeKey(getCurrentNode().getNodeKey());
 							moveToParent();
@@ -1759,7 +1759,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 						for (int i = 0, atts = this.getAttributeCount(); i < atts; i++) {
 							moveToAttribute(i);
 							// Path Summary : New mapping.
-							insertPathAsFirstChild(this.getQName(), EKind.ATTRIBUTE,
+							insertPathAsFirstChild(this.getName(), EKind.ATTRIBUTE,
 									level + 1);
 							resetPathNodeKey(getCurrentNode().getNodeKey());
 							moveToParent();
@@ -1858,7 +1858,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					new LevelOrderAxis.Builder(mPathSummary)
 							.filterLevel(cloned.getLevel() - oldLevel)
 							.includeSelf(EIncludeSelf.YES).build(), new NameFilter(
-							mPathSummary, Utils.buildName(cloned.getQName())),
+							mPathSummary, Utils.buildName(cloned.getName())),
 					new PathKindFilter(mPathSummary, cloned.getPathKind()),
 					new PathLevelFilter(mPathSummary, cloned.getLevel()));
 			if (axis.hasNext()) {
@@ -1876,7 +1876,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 				}
 			} else {
 				// Insert new node.
-				insertPathAsFirstChild(cloned.getQName(), cloned.getPathKind(),
+				insertPathAsFirstChild(cloned.getName(), cloned.getPathKind(),
 						mPathSummary.getLevel() + 1);
 
 				// Set new reference count.
@@ -1950,7 +1950,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		mPathSummary.moveTo(pNewPathNodeKey);
 		final IAxis filterAxis = new FilterAxis(new LevelOrderAxis.Builder(
 				mPathSummary).includeSelf(EIncludeSelf.YES).build(), new NameFilter(
-				mPathSummary, Utils.buildName(mNodeRtx.getQName())),
+				mPathSummary, Utils.buildName(mNodeRtx.getName())),
 				new PathKindFilter(mPathSummary, mNodeRtx.getCurrentNode().getKind()),
 				new PathLevelFilter(mPathSummary, pOldLevel));
 		if (filterAxis.hasNext()) {
@@ -3049,14 +3049,14 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 					throw new IllegalStateException(
 							"Current node must be an attribute node!");
 				}
-				insertAttribute(pRtx.getQName(), pRtx.getValue());
+				insertAttribute(pRtx.getName(), pRtx.getValue());
 				break;
 			case NAMESPACE:
 				if (mNodeRtx.getCurrentNode().getClass() != NamespaceNode.class) {
 					throw new IllegalStateException(
 							"Current node must be a namespace node!");
 				}
-				insertNamespace(pRtx.getQName());
+				insertNamespace(pRtx.getName());
 				break;
 			default:
 				throw new UnsupportedOperationException("Node type not supported!");

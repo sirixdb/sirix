@@ -1240,7 +1240,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
           }
 
           if (mWtx.getKind() == EKind.ELEMENT
-            && mWtx.getQName().equals(paramElem.getName()) && mDescendantLevel == 0) {
+            && mWtx.getName().equals(paramElem.getName()) && mDescendantLevel == 0) {
             found = true;
             lastToCheck = true;
           }
@@ -1277,7 +1277,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
 
     // Matching element names?
     if (mWtx.getKind() == EKind.ELEMENT
-      && mWtx.getQName().equals(mEvent.getName())) {
+      && mWtx.getName().equals(mEvent.getName())) {
       // Check if atts and namespaces are the same.
       final long nodeKey = mWtx.getNodeKey();
 
@@ -1289,7 +1289,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
         final Attribute attribute = (Attribute)it.next();
         for (int i = 0, attCount = mWtx.getAttributeCount(); i < attCount; i++) {
           mWtx.moveToAttribute(i);
-          if (attribute.getName().equals(mWtx.getQName())
+          if (attribute.getName().equals(mWtx.getName())
             && attribute.getValue().equals(mWtx.getValue())) {
             foundAtts = true;
             mWtx.moveTo(nodeKey);

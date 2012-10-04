@@ -39,7 +39,7 @@ public abstract class AbsTraverseModel extends AbsObservableComponent implements
     for (int i = 0; i < attNumber; i++) {
       pRtx.moveToAttribute(i);
       attributes
-        .add(eventFactory.createAttribute(pRtx.getQName(), pRtx.getValue()));
+        .add(eventFactory.createAttribute(pRtx.getName(), pRtx.getValue()));
       pRtx.moveToParent();
     }
     return attributes;
@@ -61,7 +61,7 @@ public abstract class AbsTraverseModel extends AbsObservableComponent implements
     final List<Namespace> namespaces = new ArrayList<>(nspNumber);
     for (int i = 0; i < nspNumber; i++) {
       pRtx.moveToNamespace(i);
-      final QName qName = pRtx.getQName();
+      final QName qName = pRtx.getName();
       namespaces.add(eventFactory.createNamespace(qName.getPrefix(), qName.getNamespaceURI()));
       pRtx.moveToParent();
     }

@@ -81,7 +81,7 @@ final class FullDiff extends AbsDiff {
 				break;
 			case PROCESSING:
 				found = pFirstRtx.getValue().equals(pSecondRtx.getValue())
-						&& pFirstRtx.getQName().equals(pSecondRtx.getQName());
+						&& pFirstRtx.getName().equals(pSecondRtx.getName());
 				break;
 			case TEXT:
 			case COMMENT:

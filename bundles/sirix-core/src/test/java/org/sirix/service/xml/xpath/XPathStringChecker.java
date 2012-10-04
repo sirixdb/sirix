@@ -68,7 +68,7 @@ public class XPathStringChecker {
       if (!("".equals(rtx.getValue()))) {
         strValues[offset++] = rtx.getValue();
       } else {
-        strValues[offset++] = rtx.getQName().toString();
+        strValues[offset++] = rtx.getName().toString();
       }
 
       // // IAxis Convention 2.

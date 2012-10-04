@@ -156,7 +156,7 @@ public final class TestNodeWrapperXPath {
 
           mHolder.getRtx().moveTo(item.getKey());
 
-          final QName qName = mHolder.getRtx().getQName();
+          final QName qName = mHolder.getRtx().getName();
 
           if (mHolder.getRtx().getKind() == EKind.ELEMENT) {
             assertEquals(expRes[j], qName.getPrefix() + ":" + qName.getLocalPart());
@@ -422,10 +422,10 @@ public final class TestNodeWrapperXPath {
 
     final INodeReadTrx rtx = mHolder.getSession().beginNodeReadTrx();
     rtx.moveTo(result.get(0).getKey());
-    assertEquals("b", rtx.getQName().getLocalPart());
+    assertEquals("b", rtx.getName().getLocalPart());
 
     rtx.moveTo(result.get(1).getKey());
-    assertEquals("b", rtx.getQName().getLocalPart());
+    assertEquals("b", rtx.getName().getLocalPart());
   }
 
   /**

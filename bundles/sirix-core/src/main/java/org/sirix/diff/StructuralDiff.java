@@ -68,7 +68,7 @@ final class StructuralDiff extends AbsDiff {
 				break;
 			case PROCESSING:
 				found = pNewRtx.getValue().equals(pOldRtx.getValue())
-						&& pNewRtx.getQName().equals(pOldRtx.getQName());
+						&& pNewRtx.getName().equals(pOldRtx.getName());
 				break;
 			case COMMENT:
 			case TEXT:

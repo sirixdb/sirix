@@ -254,11 +254,11 @@ public final class CommandoLineExplorer {
 				switch (mCurrentRtx.getKind()) {
 				case ELEMENT:
 					builder.append("Element\n");
-					builder.append(mCurrentRtx.getQName());
+					builder.append(mCurrentRtx.getName());
 					break;
 				case ATTRIBUTE:
 					builder.append("Attribute\n");
-					builder.append(mCurrentRtx.getQName());
+					builder.append(mCurrentRtx.getName());
 					builder.append("=");
 					builder.append(mCurrentRtx.getValue());
 					break;
@@ -268,7 +268,7 @@ public final class CommandoLineExplorer {
 					break;
 				case NAMESPACE:
 					builder.append("Namespace\n");
-					builder.append(mCurrentRtx.getQName());
+					builder.append(mCurrentRtx.getName());
 					break;
 				case PROCESSING:
 					builder.append("Processing instruction\n");

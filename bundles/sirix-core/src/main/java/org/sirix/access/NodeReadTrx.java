@@ -310,7 +310,7 @@ final class NodeReadTrx implements INodeReadTrx {
 	}
 
 	@Override
-	public QName getQName() {
+	public QName getName() {
 		assertNotClosed();
 		if (mCurrentNode instanceof INameNode) {
 			final String name = mPageReadTrx.getName(
@@ -395,7 +395,7 @@ final class NodeReadTrx implements INodeReadTrx {
 
 		if (mCurrentNode.getKind() == EKind.ATTRIBUTE
 				|| mCurrentNode.getKind() == EKind.ELEMENT) {
-			helper.add("Name of Node", getQName().toString());
+			helper.add("Name of Node", getName().toString());
 		}
 
 		if (mCurrentNode.getKind() == EKind.ATTRIBUTE

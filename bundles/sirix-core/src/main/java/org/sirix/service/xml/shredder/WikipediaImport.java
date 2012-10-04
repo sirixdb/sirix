@@ -254,7 +254,7 @@ public final class WikipediaImport implements IImport<StartElement> {
 							final boolean hasFirstChild = mWtx.hasFirstChild();
 							if (hasFirstChild) {
 								moveToLastPage(page);
-								assert mWtx.getQName().equals(page.getName());
+								assert mWtx.getName().equals(page.getName());
 							}
 
 							XMLShredder shredder = null;
@@ -412,7 +412,7 @@ public final class WikipediaImport implements IImport<StartElement> {
 				assert resCounter == 1;
 
 				// Make sure the transaction is on the page element found.
-				assert mWtx.getQName().equals(pPage.getName());
+				assert mWtx.getName().equals(pPage.getName());
 				key = mWtx.getNodeKey();
 			}
 			mWtx.moveTo(key);
@@ -504,12 +504,12 @@ public final class WikipediaImport implements IImport<StartElement> {
 		mWtx.moveToFirstChild();
 
 		assert mWtx.getKind() == EKind.ELEMENT;
-		assert mWtx.getQName().equals(pPage.getName());
+		assert mWtx.getName().equals(pPage.getName());
 		while (mWtx.hasRightSibling()) {
 			mWtx.moveToRightSibling();
 		}
 		assert mWtx.getKind() == EKind.ELEMENT;
-		assert mWtx.getQName().equals(pPage.getName());
+		assert mWtx.getName().equals(pPage.getName());
 	}
 
 	/**

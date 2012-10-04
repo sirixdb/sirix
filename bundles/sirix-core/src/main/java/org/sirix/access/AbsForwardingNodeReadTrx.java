@@ -56,8 +56,8 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public QName getQName() {
-		return delegate().getQName();
+	public QName getName() {
+		return delegate().getName();
 	}
 
 	@Override

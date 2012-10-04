@@ -148,7 +148,7 @@ enum EInsertPos {
 					|| pWtx.getKind() == EKind.DOCUMENT_ROOT;
 			switch (pRtx.getKind()) {
 			case ELEMENT:
-				pWtx.insertElementAsFirstChild(pRtx.getQName());
+				pWtx.insertElementAsFirstChild(pRtx.getName());
 				break;
 			case TEXT:
 				assert pWtx.getKind() == EKind.ELEMENT;
@@ -305,7 +305,7 @@ enum EInsertPos {
 			assert pWtx.getKind() == EKind.ELEMENT || pWtx.getKind() == EKind.TEXT;
 			switch (pRtx.getKind()) {
 			case ELEMENT:
-				pWtx.insertElementAsRightSibling(pRtx.getQName());
+				pWtx.insertElementAsRightSibling(pRtx.getName());
 				break;
 			case TEXT:
 				pWtx.insertTextAsRightSibling(pRtx.getValue());
@@ -333,13 +333,13 @@ enum EInsertPos {
 			assert pWtx.getKind() == EKind.ELEMENT;
 			switch (pRtx.getKind()) {
 			case NAMESPACE:
-				final QName name = pRtx.getQName();
+				final QName name = pRtx.getName();
 				pWtx.insertNamespace(new QName(name.getNamespaceURI(), "", name
 						.getLocalPart()));
 				pWtx.moveToParent();
 				break;
 			case ATTRIBUTE:
-				pWtx.insertAttribute(pRtx.getQName(), pRtx.getValue());
+				pWtx.insertAttribute(pRtx.getName(), pRtx.getValue());
 				pWtx.moveToParent();
 				break;
 			default:
@@ -365,7 +365,7 @@ enum EInsertPos {
 			assert pWtx.getKind() == EKind.ELEMENT || pWtx.getKind() == EKind.TEXT;
 			switch (pRtx.getKind()) {
 			case ELEMENT:
-				pWtx.insertElementAsLeftSibling(pRtx.getQName());
+				pWtx.insertElementAsLeftSibling(pRtx.getName());
 				break;
 			case TEXT:
 				pWtx.insertTextAsLeftSibling(pRtx.getValue());

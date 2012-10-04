@@ -191,9 +191,9 @@ public class UpdateTest {
     NodeReadTrx rtx = (NodeReadTrx)holder.getSession().beginNodeReadTrx(0);
     assertEquals(0, rtx.getRevisionNumber());
     assertTrue(rtx.moveTo(7).hasMoved());
-    assertEquals("c", rtx.getQName().getLocalPart());
+    assertEquals("c", rtx.getName().getLocalPart());
     assertTrue(rtx.moveTo(11).hasMoved());
-    assertEquals("c", rtx.getQName().getLocalPart());
+    assertEquals("c", rtx.getName().getLocalPart());
     rtx = (NodeReadTrx)holder.getSession().beginNodeReadTrx();
     assertEquals(1, rtx.getRevisionNumber());
     assertEquals(null, rtx.getPageTransaction().getName(NamePageHash.generateHashForString("c"),
@@ -548,7 +548,7 @@ public class UpdateTest {
     assertTrue(pRtx.moveToRightSibling().hasMoved());
     assertEquals(4, pRtx.getLeftSiblingKey());
     assertEquals(8, pRtx.getRightSiblingKey());
-    assertEquals("c", pRtx.getQName().getLocalPart());
+    assertEquals("c", pRtx.getName().getLocalPart());
     assertTrue(pRtx.moveToRightSibling().hasMoved());
     assertEquals(14, pRtx.getLeftSiblingKey());
     assertTrue(pRtx.moveTo(1).hasMoved());
@@ -580,7 +580,7 @@ public class UpdateTest {
    */
   private final static void testReplaceElement(final INodeReadTrx pRtx) throws SirixException {
     assertTrue(pRtx.moveTo(14).hasMoved());
-    assertEquals("d", pRtx.getQName().getLocalPart());
+    assertEquals("d", pRtx.getName().getLocalPart());
     assertTrue(pRtx.moveTo(4).hasMoved());
     assertEquals(14, pRtx.getRightSiblingKey());
     assertTrue(pRtx.moveToRightSibling().hasMoved());
@@ -994,17 +994,17 @@ public class UpdateTest {
     assertTrue(pRtx.moveTo(14).hasMoved());
     assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
     assertEquals(11, pRtx.getRightSiblingKey());
-    assertEquals("b", pRtx.getQName().getLocalPart());
+    assertEquals("b", pRtx.getName().getLocalPart());
     assertTrue(pRtx.moveTo(4).hasMoved());
     assertEquals(5, pRtx.getRightSiblingKey());
     assertTrue(pRtx.moveTo(5).hasMoved());
-    assertEquals("b", pRtx.getQName().getLocalPart());
+    assertEquals("b", pRtx.getName().getLocalPart());
     assertTrue(pRtx.moveTo(14).hasMoved());
     assertEquals(15, pRtx.getFirstChildKey());
     assertTrue(pRtx.moveTo(15).hasMoved());
     assertEquals("foo", pRtx.getValue());
     assertTrue(pRtx.moveTo(16).hasMoved());
-    assertEquals("c", pRtx.getQName().getLocalPart());
+    assertEquals("c", pRtx.getName().getLocalPart());
     assertFalse(pRtx.moveTo(17).hasMoved());
     assertEquals(16, pRtx.getNodeKey());
     assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
@@ -1048,7 +1048,7 @@ public class UpdateTest {
     assertEquals("foo", pRtx.getValue());
     assertEquals(16, pRtx.getRightSiblingKey());
     assertTrue(pRtx.moveToRightSibling().hasMoved());
-    assertEquals("c", pRtx.getQName().getLocalPart());
+    assertEquals("c", pRtx.getName().getLocalPart());
     assertTrue(pRtx.moveTo(4).hasMoved());
     assertEquals(5, pRtx.getRightSiblingKey());
     assertTrue(pRtx.moveTo(5).hasMoved());
