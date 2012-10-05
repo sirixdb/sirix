@@ -122,7 +122,7 @@ public final class SunburstModel extends
 	public void update(@Nonnull final IContainer<SunburstContainer> pContainer) {
 		mLastItems.push(new ArrayList<>(mItems));
 		mLastDepths.push(mLastMaxDepth);
-		traverseTree(pContainer);
+//		traverseTree(pContainer);
 	}
 
 	@Override

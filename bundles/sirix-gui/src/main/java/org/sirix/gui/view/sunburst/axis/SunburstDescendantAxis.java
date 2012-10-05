@@ -178,7 +178,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
 
     // Fail if the subtree is finished.
     if (getTrx().getLeftSiblingKey() == getStartKey()) {
-    	return getTrx().getLeftSiblingKey();
+    	return EFixed.NULL_NODE_KEY.getStandardProperty();
     }
 
     // Always follow first child if there is one.
