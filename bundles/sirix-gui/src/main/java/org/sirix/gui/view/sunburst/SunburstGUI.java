@@ -448,7 +448,7 @@ public class SunburstGUI extends AbsSunburstGUI {
       break;
     case "done":
       try {
-        mLock.acquireUninterruptibly();
+      	mLock.acquireUninterruptibly();
         resetZoom();
         if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()
           && mControl.getModel().getItemsSize() < ANIMATION_THRESHOLD) {

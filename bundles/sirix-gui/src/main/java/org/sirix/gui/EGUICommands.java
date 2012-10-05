@@ -332,7 +332,7 @@ public enum EGUICommands implements IGUICommand {
 		// frame.
 		final JPanel panel = new JPanel();
 		panel.setLayout(new BorderLayout());
-		final JComboBox<Long> cb = new JComboBox<Long>();
+		final JComboBox<Integer> cb = new JComboBox<>();
 		cb.addActionListener(mActionListener);
 
 		panel.add(cb, BorderLayout.SOUTH);
@@ -371,7 +371,7 @@ public enum EGUICommands implements IGUICommand {
 
 					if (!error) {
 						// Create items, which are used as available revisions.
-						for (long i = 0; i <= revNumber; i++) {
+						for (int i = 0; i <= revNumber; i++) {
 							cb.addItem(i);
 						}
 					}

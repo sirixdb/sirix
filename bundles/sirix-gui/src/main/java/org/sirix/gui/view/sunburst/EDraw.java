@@ -94,7 +94,8 @@ public enum EDraw {
 			if (pGUI.isShowArcs()
 					&& (!pGUI.isShowLines() || pItem.getLineWeight() <= 0.5f)) {
 				if (pGUI.mParent.recorder != null) {
-					drawStaticLabel(pGUI, pGUI.mParent.recorder, pItem, EHovered.NO, EDraw.DRAW);
+					drawStaticLabel(pGUI, pGUI.mParent.recorder, pItem, EHovered.NO,
+							EDraw.DRAW);
 				}
 				drawStaticLabel(pGUI, pGUI.mParent.g, pItem, EHovered.NO, EDraw.DRAW);
 			}
@@ -105,7 +106,8 @@ public enum EDraw {
 			if (!pGUI.mInit && pItem.getGreyState() == EGreyState.NO) {
 				if (pGUI.mParent.recorder != null) {
 					pItem.hover(pGUI.mParent.recorder);
-					drawStaticLabel(pGUI, pGUI.mParent.recorder, pItem, EHovered.YES, EDraw.DRAW);
+					drawStaticLabel(pGUI, pGUI.mParent.recorder, pItem, EHovered.YES,
+							EDraw.DRAW);
 				}
 				pItem.hover(pGUI.mParent.g);
 				drawStaticLabel(pGUI, pGUI.mParent.g, pItem, EHovered.YES, EDraw.DRAW);
@@ -251,7 +253,7 @@ public enum EDraw {
 			final EHovered pHovered, final EDraw pDraw) {
 		assert pGUI != null;
 		assert pGraphic != null;
-		final float depth = pDraw == EDraw.UPDATEBUFFER ? pItem.getDepth() : pItem
+		final float depth = pDraw == EDraw.UPDATEBUFFER || pHovered == EHovered.YES ? pItem.getDepth() : pItem
 				.getTmpDepth();
 		final float startAngle = pItem.getAngleStart();
 		final float endAngle = pItem.getAngleEnd();

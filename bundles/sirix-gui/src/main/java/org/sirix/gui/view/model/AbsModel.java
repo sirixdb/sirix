@@ -88,7 +88,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(AbsModel.class));
 
   /** {@link List} of items. */
-  protected transient List<T> mItems;
+  protected volatile List<T> mItems;
 
   /** sirix {@link INodeReadTrx}. */
   protected transient INodeReadTrx mRtx;

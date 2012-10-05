@@ -342,7 +342,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 	 * Determines a threshold for the item count until which an animation is
 	 * drawn.
 	 */
-	static final int ANIMATION_THRESHOLD = 2_000;
+	static final int ANIMATION_THRESHOLD = 500;
 
 	/**
 	 * Constructor.
@@ -590,6 +590,10 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 		mBuffer.translate((float) mBuffer.width / 2f, (float) mBuffer.height / 2f);
 		mBuffer.rotate(PApplet.radians(mRad));
 		mBuffer.textFont(mFont);
+		mBuffer.noFill();
+		
+		// Draw items.
+		drawItems(EDraw.UPDATEBUFFER);
 		
 		mBuffer.stroke(0);
 		mBuffer.strokeWeight(2f);
@@ -602,11 +606,6 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 		mBuffer.text("start", mBuffer.width * 0.5f - 60f, 20f);
 		drawArrow(mBuffer, (int) Math.round(mBuffer.width * 0.5f - 80), 0, 30,
 				PConstants.PI * 0.5f);
-		
-		mBuffer.noFill();
-		
-		// Draw items.
-		drawItems(EDraw.UPDATEBUFFER);
 
 		mBuffer.popMatrix();
 	}
@@ -1902,6 +1901,13 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 		mDone = false;
 		mLock.acquireUninterruptibly();
 		if (!mImages.isEmpty()) {
+      resetZoom();
+      if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()
+        && mControl.getModel().getItemsSize() < ANIMATION_THRESHOLD) {
+        mInit = true;
+      } else {
+      	mInit = false;
+      }
 			mImg = mImages.pop();
 		}
 		mLock.release();

@@ -2,8 +2,6 @@ package org.sirix.gui.view;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.google.common.base.Optional;
-
 import java.awt.Dimension;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
@@ -12,14 +10,15 @@ import java.awt.event.WindowStateListener;
 
 import javax.swing.JPanel;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.GUI;
 import org.sirix.gui.ReadDB;
-import org.sirix.gui.view.sunburst.SunburstView;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 import processing.core.PApplet;
+
+import com.google.common.base.Optional;
 
 public abstract class AbsView extends JPanel implements IView {
 

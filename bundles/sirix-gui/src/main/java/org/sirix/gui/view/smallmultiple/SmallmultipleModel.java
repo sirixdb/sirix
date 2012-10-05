@@ -137,7 +137,7 @@ public class SmallmultipleModel extends AbsModel<SunburstContainer, SunburstItem
   public void propertyChange(final PropertyChangeEvent pEvent) {
     switch (pEvent.getPropertyName().toLowerCase()) {
     case "revision":
-      mRevision = (long)pEvent.getNewValue();
+      mRevision = (int)pEvent.getNewValue();
       break;
     case "dotbrightness":
       firePropertyChange("dotBrightness", null, pEvent.getNewValue());

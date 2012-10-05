@@ -45,11 +45,10 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <h2>Description</h2>
  * 
  * <p>
- * Interface to access nodes based on the
- * Key/ParentKey/FirstChildKey/LeftSiblingKey
+ * Interface to access nodes based on the Key/ParentKey/FirstChildKey/LeftSiblingKey
  * /RightSiblingKey/ChildCount/DescendantCount encoding. This encoding keeps the
- * children ordered but has no knowledge of the global node ordering. The
- * underlying tree is accessed in a cursor-like fashion.
+ * children ordered but has no knowledge of the global node ordering. The underlying 
+ * tree is accessed in a cursor-like fashion.
  * </p>
  * 
  * <h2>Convention</h2>
@@ -102,6 +101,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <h2>Developer Example</h2>
  * 
  * <p>
+ * 
  * <pre>
  *   public void someIReadTransactionMethod() {
  *     // This must be called to make sure the transaction is not closed.
@@ -109,6 +109,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  *     ...
  *   }
  * </pre>
+ * 
  * </p>
  */
 public interface INodeReadTrx extends INodeCursor {
