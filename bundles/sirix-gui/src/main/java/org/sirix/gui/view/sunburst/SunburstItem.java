@@ -1851,4 +1851,15 @@ public final class SunburstItem implements IVisualItem {
 		mOrigDepth = pDepth;
 		mTmpDepth = mOrigDepth;
 	}
+
+	/**
+	 * Set the temporal depth.
+	 * 
+	 * @param pDepth
+	 * 						new depth
+	 */
+	public void setTempDepth(final @Nonnegative int pDepth) {
+		checkArgument(pDepth >= 0, "pDepth must be >= 0!");
+		mTmpDepth = pDepth;
+	}
 }

@@ -36,6 +36,8 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.PathSummary;
 
+import com.google.common.base.Optional;
+
 /**
  * <h1>ISession</h1>
  * 
@@ -130,6 +132,30 @@ public interface ISession extends AutoCloseable {
 	 * @return {@link INodeWriteTrx} instance
 	 */
 	INodeWriteTrx beginNodeWriteTrx() throws SirixException;
+	
+	/**
+	 * Begin exclusive read/write transaction with auto commit.
+	 * 
+	 * @param pMaxNodes
+	 *          count of node modifications after which a commit is issued
+	 * @param pTimeUnit
+	 *          unit used for time
+	 * @param pMaxTime
+	 *          time after which a commit is issued
+	 * @throws SirixException
+	 *           if can't begin Write Transaction
+	 * @return {@link INodeWriteTrx} instance
+	 */
+	INodeWriteTrx beginNodeWriteTrx(@Nonnegative final int pMaxNodes,
+			@Nonnull final TimeUnit pTimeUnit, final int pMaxTime)
+			throws SirixException;
+
+	/**
+	 * Get the only write-transaction associated with the resource.
+	 * 
+	 * @return optional write-transaction
+	 */
+	Optional<INodeWriteTrx> getNodeWriteTrx();
 
 	/**
 	 * Open the path summary to allow iteration (basically implementation of
@@ -152,24 +178,7 @@ public interface ISession extends AutoCloseable {
 	 *           if can't open path summary
 	 */
 	PathSummary openPathSummary() throws SirixException;
-
-	/**
-	 * Begin exclusive read/write transaction with auto commit.
-	 * 
-	 * @param pMaxNodes
-	 *          count of node modifications after which a commit is issued
-	 * @param pTimeUnit
-	 *          unit used for time
-	 * @param pMaxTime
-	 *          time after which a commit is issued
-	 * @throws SirixException
-	 *           if can't begin Write Transaction
-	 * @return {@link INodeWriteTrx} instance
-	 */
-	INodeWriteTrx beginNodeWriteTrx(@Nonnegative final int pMaxNodes,
-			@Nonnull final TimeUnit pTimeUnit, final int pMaxTime)
-			throws SirixException;
-
+	
 	/**
 	 * Safely close session and immediately release all resources. If there are
 	 * running transactions, they will automatically be closed.

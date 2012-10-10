@@ -26,14 +26,15 @@
  */
 package org.sirix.gui.view.sunburst.control;
 
-import controlP5.ControlListener;
-
 import java.util.List;
 
 import javax.xml.stream.XMLStreamException;
 
+import org.gicentre.utils.move.ZoomPanListener;
 import org.sirix.gui.view.controls.IControl;
 import org.sirix.gui.view.sunburst.SunburstItem;
+
+import controlP5.ControlListener;
 
 /**
  * Interface for SunburstControllers which adds specific methods to {@link IControl}.
@@ -41,7 +42,7 @@ import org.sirix.gui.view.sunburst.SunburstItem;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public interface ISunburstControl extends IControl, ControlListener {
+public interface ISunburstControl extends IControl, ControlListener, ZoomPanListener {
   /**
    * Method to process event for submit-button.
    * 

@@ -395,6 +395,21 @@ public interface INodeReadTrx extends INodeCursor {
 	 *         given index is available
 	 */
 	long getAttributeKey(@Nonnegative int pIndex);
+	
+	/**
+	 * Determines if current node has children.
+	 * 
+	 * @return {@code true} if it has children, {@code false} otherwise
+	 */
+	boolean hasChildren();
+	
+	/**
+	 * Determines if current node has attributes (only elements might have attributes).
+	 * 
+	 * @return {@code true} if it has attributes, {@code false} otherwise
+	 */
+	boolean hasAttributes();
+
 
 	/**
 	 * Get the path node key of the currently selected node. Make sure to check if
@@ -421,6 +436,13 @@ public interface INodeReadTrx extends INodeCursor {
 	 * @return {@code true} if it is a structural node, {@code false} otherwise
 	 */
 	boolean isStructuralNode();
+	
+	/**
+	 * Determines if current node is a {@link IValNode}.
+	 * 
+	 * @return {@code true} if it has a value, {@code false} otherwise
+	 */
+	boolean isValueNode();
 
 	/**
 	 * Get the URI-key of a node.

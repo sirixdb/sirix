@@ -36,6 +36,8 @@ import javax.swing.JComponent;
 import javax.swing.JMenuBar;
 
 import org.sirix.gui.view.controls.IControl;
+import org.sirix.gui.view.sunburst.AbsSunburstGUI.EResetZoomer;
+
 import processing.core.PApplet;
 
 /**
@@ -48,9 +50,6 @@ public class ProcessingEmbeddedView {
 
   /** {@link IProcessingGUI} reference. */
   private final IProcessingGUI mProcessingGUI;
-
-  /** {@link ViewNotifier} reference. */
-  private final ViewNotifier mNotifier;
 
   /** {@link IControl} implementation. */
   private final IControl mControl;
@@ -67,46 +66,45 @@ public class ProcessingEmbeddedView {
   /**
    * Constructor.
    * 
-   * @param paramProcessingGUI
+   * @param pProcessingGUI
    *          {@link IProcessingGUI} implementation
-   * @param paramControl
+   * @param pControl
    *          {@link IControl} implementation
-   * @param paramViewNotifier
+   * @param pViewNotifier
    *          {@link ViewNotifier} reference
    */
-  private ProcessingEmbeddedView(final PApplet pApplet, final IView paramView,
-    final IProcessingGUI paramProcessingGUI, final IControl paramControl, final ViewNotifier paramViewNotifier) {
+  private ProcessingEmbeddedView(final PApplet pApplet, final IView pView,
+    final IProcessingGUI pProcessingGUI, final IControl pControl, final ViewNotifier pViewNotifier) {
     mApplet = pApplet;
-    mView = paramView;
-    mProcessingGUI = paramProcessingGUI;
-    mControl = paramControl;
-    mNotifier = paramViewNotifier;
+    mView = pView;
+    mProcessingGUI = pProcessingGUI;
+    mControl = pControl;
   }
 
   /**
    * Get an instance, usually the same instance until the view resets everything.
    * 
-   * @param paramView
+   * @param pView
    *          the implementing {@link IView} instance, which embeds the processing view
-   * @param paramProcessingGUI
+   * @param pProcessingGUI
    *          {@link IProcessingGUI} implementation
-   * @param paramControl
+   * @param pControl
    *          {@link IControl} implementation
-   * @param paramViewNotifier
+   * @param pViewNotifier
    *          {@link ViewNotifier} reference
    * @return {@link ProcessingEmbeddedView} singleton
    */
   public static synchronized ProcessingEmbeddedView
-    getInstance(final PApplet pApplet, final IView paramView, final IProcessingGUI paramProcessingGUI,
-      final IControl paramControl, final ViewNotifier paramViewNotifier) {
+    getInstance(final PApplet pApplet, final IView pView, final IProcessingGUI pProcessingGUI,
+      final IControl pControl, final ViewNotifier pViewNotifier) {
     checkNotNull(pApplet);
-    checkNotNull(paramView);
-    checkNotNull(paramProcessingGUI);
-    checkNotNull(paramControl);
-    checkNotNull(paramViewNotifier);
+    checkNotNull(pView);
+    checkNotNull(pProcessingGUI);
+    checkNotNull(pControl);
+    checkNotNull(pViewNotifier);
     if (mEmbeddedView == null) {
       mEmbeddedView =
-        new ProcessingEmbeddedView(pApplet, paramView, paramProcessingGUI, paramControl, paramViewNotifier);
+        new ProcessingEmbeddedView(pApplet, pView, pProcessingGUI, pControl, pViewNotifier);
     }
     return mEmbeddedView;
   }
@@ -125,17 +123,17 @@ public class ProcessingEmbeddedView {
   }
 
   /** {@inheritDoc} */
-  public void mouseEntered(final MouseEvent paramEvent) {
+  public void mouseEntered(final MouseEvent pEvent) {
     if (mControl != null) {
-      mControl.mouseEntered(paramEvent);
+      mControl.mouseEntered(pEvent);
       handleHLWeight();
     }
   }
 
   /** {@inheritDoc} */
-  public void mouseExited(final MouseEvent paramEvent) {
+  public void mouseExited(final MouseEvent pEvent) {
     if (mControl != null) {
-      mControl.mouseExited(paramEvent);
+      mControl.mouseExited(pEvent);
       handleHLWeight();
     }
   }
@@ -149,18 +147,12 @@ public class ProcessingEmbeddedView {
   }
 
   /** {@inheritDoc} */
-  public void mousePressed(final MouseEvent paramEvent) {
+  public void mousePressed(final MouseEvent pEvent) {
     if (mControl != null) {
-      mControl.mousePressed(paramEvent);
+      mControl.mousePressed(pEvent);
       handleHLWeight();
     }
   }
-
-  //
-  // /** Refresh. Thus sirix storage has been updated to a new revision. */
-  // public void refresh() {
-  // mNotifier.update(mView, Opti);
-  // }
 
   /** Update the GUI. */
   public void updateGUI() {
@@ -169,7 +161,7 @@ public class ProcessingEmbeddedView {
       mApplet.resize(dim.width - 2, dim.height);
     }
     if (mProcessingGUI != null) {
-      mProcessingGUI.update();
+      mProcessingGUI.update(EResetZoomer.YES);
       mProcessingGUI.relocate();
     }
   }
@@ -182,19 +174,19 @@ public class ProcessingEmbeddedView {
     if (parent instanceof JComponent) {
       ((JComponent)parent).revalidate();
     }
-    // final Window window = SwingUtilities.getWindowAncestor(this);
-    // if (window != null) {
-    // window.validate();
-    // }
+//		final Window window = SwingUtilities.getWindowAncestor(this);
+//		if (window != null) {
+//			window.validate();
+//		}
   }
 
   /**
    * Provide hovering mechanisms for the current {@link IVisualItem} implementation.
    * 
-   * @param paramItem
+   * @param pItem
    *          {@link IVisualItem} implementation
    */
-  public void hover(final IVisualItem paramItem) {
-    mView.hover(paramItem);
+  public void hover(final IVisualItem pItem) {
+    mView.hover(pItem);
   }
 }

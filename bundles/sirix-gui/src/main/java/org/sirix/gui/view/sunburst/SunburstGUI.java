@@ -28,11 +28,6 @@
 package org.sirix.gui.view.sunburst;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import controlP5.Button;
-import controlP5.ControlGroup;
-import controlP5.DropdownList;
-import controlP5.Textfield;
-import controlP5.Toggle;
 
 import java.beans.PropertyChangeEvent;
 import java.util.concurrent.Callable;
@@ -41,17 +36,23 @@ import java.util.concurrent.Executors;
 
 import javax.xml.stream.XMLStreamException;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewUtilities;
 import org.sirix.gui.view.model.interfaces.IModel;
 import org.sirix.gui.view.sunburst.SunburstView.Embedded;
 import org.sirix.gui.view.sunburst.control.ISunburstControl;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
 import processing.core.PImage;
 import processing.core.PVector;
+import controlP5.Button;
+import controlP5.ControlGroup;
+import controlP5.DropdownList;
+import controlP5.Textfield;
+import controlP5.Toggle;
 
 /**
  * <h1>SunburstGUI</h1>
@@ -226,16 +227,7 @@ public class SunburstGUI extends AbsSunburstGUI {
         mParent.smooth();
 
         if (mIsZoomingPanning || isSavePDF() || mFisheye || mInit) {
-          LOGWRAPPER.debug("Without buffered image!");
-          if (mInit) {
-            mInit = false;
-            for (final SunburstItem item : mModel) {
-              if (item.getTmpDepth() < item.getDepth()) {
-                mInit = true;
-                break;
-              }
-            }
-          }
+        	LOGWRAPPER.debug("Without buffered image!");
           mParent.background(0, 0, getBackgroundBrightness());
           mParent.translate((float)mParent.width / 2f, (float)mParent.height / 2f);
           mParent.rotate(PApplet.radians(mRad));
@@ -250,7 +242,7 @@ public class SunburstGUI extends AbsSunburstGUI {
 
           if (mRadChanged) {
             mRadChanged = false;
-            update();
+            update(EResetZoomer.YES);
           }
 
           mLock.acquireUninterruptibly();
@@ -333,7 +325,7 @@ public class SunburstGUI extends AbsSunburstGUI {
         }
 
         if (mZoomPanReset) {
-          update();
+          update(EResetZoomer.YES);
           mZoomPanReset = false;
           mIsZoomingPanning = false;
         }
@@ -444,7 +436,7 @@ public class SunburstGUI extends AbsSunburstGUI {
       assert pEvent.getNewValue() instanceof Integer;
       final int progress = (Integer)pEvent.getNewValue();
       assert progress >= 0 && progress <= 100;
-      ViewUtilities.processGlassPaneEvents(mListener, (Embedded)mParent, progress);
+      	ViewUtilities.processGlassPaneEvents(mListener, (Embedded)mParent, progress);
       break;
     case "done":
       try {
@@ -456,13 +448,13 @@ public class SunburstGUI extends AbsSunburstGUI {
           EXECUTOR_SERVICE.submit(new Callable<Void>() {
             @Override
             public Void call() throws Exception {
-              update();
+              update(EResetZoomer.YES);
               return null;
             }
           });
         } else {
           mInit = false;
-          update();
+          update(EResetZoomer.YES);
         }
       } finally {
         mLock.release();

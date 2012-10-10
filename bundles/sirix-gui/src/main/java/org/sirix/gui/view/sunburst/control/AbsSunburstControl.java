@@ -28,10 +28,6 @@
 package org.sirix.gui.view.sunburst.control;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import controlP5.ControlEvent;
-import controlP5.Range;
-import controlP5.Slider;
-import controlP5.Toggle;
 
 import java.awt.event.MouseEvent;
 import java.util.List;
@@ -43,9 +39,15 @@ import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.controls.AbsControl;
 import org.sirix.gui.view.model.interfaces.IModel;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI;
+import org.sirix.gui.view.sunburst.AbsSunburstGUI.EResetZoomer;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
+
 import processing.core.PApplet;
+import controlP5.ControlEvent;
+import controlP5.Range;
+import controlP5.Slider;
+import controlP5.Toggle;
 
 /**
  * Abstract class to simplify the implementation of {@link ISunburstControl}.
@@ -96,6 +98,16 @@ public abstract class AbsSunburstControl extends AbsControl implements ISunburst
    */
   protected abstract AbsSunburstGUI getGUIInstance();
 
+  @Override
+  public void zoomEnded() {
+  	mGUI.noAnimation();
+  }
+  
+  @Override
+  public void panEnded() {
+  	mGUI.noAnimation();
+  }
+  
   /**
    * Implements processing mousePressed.
    * 
@@ -188,7 +200,7 @@ public abstract class AbsSunburstControl extends AbsControl implements ISunburst
           }
         }
 
-        mGUI.update();
+        mGUI.update(EResetZoomer.YES);
       }
     }
   }

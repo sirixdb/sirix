@@ -290,6 +290,21 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 	
 	@Override
+	public boolean isValueNode() {
+		return delegate().isValueNode();
+	}
+	
+	@Override
+	public boolean hasAttributes() {
+		return delegate().hasAttributes();
+	}
+	
+	@Override
+	public boolean hasChildren() {
+		return delegate().hasChildren();
+	}
+	
+	@Override
 	public INode getNode() {
 		return delegate().getNode();
 	}

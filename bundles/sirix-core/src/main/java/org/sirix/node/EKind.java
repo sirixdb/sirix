@@ -76,7 +76,7 @@ public enum EKind implements IKind {
 			final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, pSource);
 
 			// Attributes.
-			int attrCount = pSource.readInt();
+			final int attrCount = pSource.readInt();
 			final List<Long> attrKeys = new ArrayList<>(attrCount);
 			final BiMap<Integer, Long> attrs = HashBiMap.<Integer, Long> create();
 			for (int i = 0; i < attrCount; i++) {
@@ -86,7 +86,7 @@ public enum EKind implements IKind {
 			}
 
 			// Namespaces.
-			int nsCount = pSource.readInt();
+			final int nsCount = pSource.readInt();
 			final List<Long> namespKeys = new ArrayList<>(nsCount);
 			for (int i = 0; i < nsCount; i++) {
 				namespKeys.add(pSource.readLong());
@@ -104,8 +104,9 @@ public enum EKind implements IKind {
 			serializeNameDelegate(node.getNameNodeDelegate(), pSink);
 			pSink.writeInt(node.getAttributeCount());
 			for (int i = 0, attCount = node.getAttributeCount(); i < attCount; i++) {
-				pSink.writeLong(node.getAttributeKey(i));
-				pSink.writeInt(node.getNameKey());
+				final long key = node.getAttributeKey(i);
+				pSink.writeLong(key);
+				pSink.writeInt(node.getAttributeNameKey(key).get());
 			}
 			pSink.writeInt(node.getNamespaceCount());
 			for (int i = 0, nspCount = node.getNamespaceCount(); i < nspCount; i++) {

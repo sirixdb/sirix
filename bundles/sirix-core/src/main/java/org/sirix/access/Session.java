@@ -44,6 +44,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -98,7 +99,7 @@ public final class Session implements ISession {
 	private final Semaphore mReadSemaphore;
 
 	/** Strong reference to uber page before the begin of a write transaction. */
-	private volatile UberPage mLastCommittedUberPage;
+	private AtomicReference<UberPage> mLastCommittedUberPage;
 
 	/** Remember all running node transactions (both read and write). */
 	private final Map<Long, INodeReadTrx> mNodeTrxMap;
@@ -173,21 +174,21 @@ public final class Session implements ISession {
 			final IReader reader = mFac.getReader();
 			final PageReference firstRef = reader.readFirstReference();
 			if (firstRef.getPage() == null) {
-				mLastCommittedUberPage = (UberPage) reader.read(firstRef.getKey());
+				mLastCommittedUberPage = new AtomicReference<>((UberPage) reader.read(firstRef.getKey()));
 			} else {
-				mLastCommittedUberPage = (UberPage) firstRef.getPage();
+				mLastCommittedUberPage = new AtomicReference<>((UberPage) firstRef.getPage());
 			}
 			reader.close();
 		} else {
 			// Bootstrap uber page and make sure there already is a root node.
-			mLastCommittedUberPage = new UberPage();
+			mLastCommittedUberPage = new AtomicReference<>(new UberPage());
 
 			final Set<EIndexes> indexes = mResourceConfig.mIndexes;
 			if (indexes.contains(EIndexes.PATH)) {
-				mLastCommittedUberPage.createPathSummaryTree();
+				mLastCommittedUberPage.get().createPathSummaryTree();
 			}
 			if (indexes.contains(EIndexes.VALUE)) {
-				mLastCommittedUberPage.createValueTree();
+				mLastCommittedUberPage.get().createValueTree();
 			}
 		}
 		mClosed = false;
@@ -195,7 +196,7 @@ public final class Session implements ISession {
 
 	@Override
 	public INodeReadTrx beginNodeReadTrx() throws SirixException {
-		return beginNodeReadTrx(mLastCommittedUberPage.getRevisionNumber());
+		return beginNodeReadTrx(mLastCommittedUberPage.get().getRevisionNumber());
 	}
 
 	@Override
@@ -217,7 +218,7 @@ public final class Session implements ISession {
 		// Create new read transaction.
 		final INodeReadTrx rtx = new NodeReadTrx(this,
 				mNodeTrxIDCounter.incrementAndGet(), new PageReadTrx(this,
-						mLastCommittedUberPage, pRevisionKey, mFac.getReader(), log));
+						mLastCommittedUberPage.get(), pRevisionKey, mFac.getReader(), log));
 
 		// Remember transaction for debugging and safe close.
 		if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
@@ -253,7 +254,7 @@ public final class Session implements ISession {
 	 *          revision number
 	 */
 	private void commitFile(final int pRevision) {
-		final int revision = mLastCommittedUberPage.isBootstrap() ? 0
+		final int revision = mLastCommittedUberPage.get().isBootstrap() ? 0
 				: pRevision + 1;
 		mCommitFile = new File(mResourceConfig.mPath, new File(
 				ResourceConfiguration.Paths.TransactionLog.getFile(), new File(
@@ -270,7 +271,7 @@ public final class Session implements ISession {
 			@Nonnegative final int pMaxNodeCount, @Nonnull final TimeUnit pTimeUnit,
 			@Nonnegative final int pMaxTime) throws SirixException {
 		// Checks.
-		assertAccess(mLastCommittedUberPage.getRevision());
+		assertAccess(mLastCommittedUberPage.get().getRevision());
 		if (pMaxNodeCount < 0 || pMaxTime < 0) {
 			throw new SirixUsageException("pMaxNodeCount may not be < 0!");
 		}
@@ -290,7 +291,7 @@ public final class Session implements ISession {
 		// Create new page write transaction (shares the same ID with the node write
 		// trx).
 		final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
-		final int lastRev = mLastCommittedUberPage.getRevisionNumber();
+		final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
 		commitFile(lastRev);
 		final IPageWriteTrx pageWtx = createPageWriteTransaction(currentTrxID,
 				lastRev, lastRev);
@@ -329,10 +330,10 @@ public final class Session implements ISession {
 		checkArgument(pRepresentRevision >= 0, "pRepresentRevision must be >= 0!");
 		checkArgument(pStoreRevision >= 0, "pStoreRevision must be >= 0!");
 		final IWriter writer = mFac.getWriter();
-		final int lastCommitedRev = mLastCommittedUberPage
-				.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage
+		final int lastCommitedRev = mLastCommittedUberPage.get()
+				.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage.get()
 				.getLastCommitedRevisionNumber() : 0;
-		return new PageWriteTrx(this, new UberPage(mLastCommittedUberPage,
+		return new PageWriteTrx(this, new UberPage(mLastCommittedUberPage.get(),
 				pStoreRevision + 1), writer, pId, pRepresentRevision, pStoreRevision,
 				lastCommitedRev);
 	}
@@ -388,10 +389,10 @@ public final class Session implements ISession {
 		}
 		if (pRevision < 0) {
 			throw new IllegalArgumentException("Revision must be at least 0!");
-		} else if (pRevision > mLastCommittedUberPage.getRevision()) {
+		} else if (pRevision > mLastCommittedUberPage.get().getRevision()) {
 			throw new IllegalArgumentException(new StringBuilder(
 					"Revision must not be bigger than")
-					.append(Long.toString(mLastCommittedUberPage.getRevision()))
+					.append(Long.toString(mLastCommittedUberPage.get().getRevision()))
 					.append("!").toString());
 		}
 	}
@@ -599,9 +600,9 @@ public final class Session implements ISession {
 	 * @param pPage
 	 *          the new {@link UberPage}
 	 */
-	protected synchronized void setLastCommittedUberPage(
+	protected void setLastCommittedUberPage(
 			@Nonnull final UberPage pPage) {
-		mLastCommittedUberPage = checkNotNull(pPage);
+		mLastCommittedUberPage.set(checkNotNull(pPage));
 	}
 
 	@Override
@@ -611,46 +612,46 @@ public final class Session implements ISession {
 
 	@Override
 	public int getLastRevisionNumber() {
-		return mLastCommittedUberPage.getRevisionNumber();
+		return mLastCommittedUberPage.get().getRevisionNumber();
 	}
 
 	@Override
-	public PathSummary openPathSummary(@Nonnegative int pRev)
+	public synchronized PathSummary openPathSummary(@Nonnegative int pRev)
 			throws SirixException {
 		assertAccess(pRev);
 
 		return PathSummary.getInstance(
-				new PageReadTrx(this, mLastCommittedUberPage, pRev, mFac.getReader(),
+				new PageReadTrx(this, mLastCommittedUberPage.get(), pRev, mFac.getReader(),
 						Optional.<TransactionLogPageCache> absent()), this);
 	}
 
 	@Override
 	public PathSummary openPathSummary() throws SirixException {
-		return openPathSummary(mLastCommittedUberPage.getRevisionNumber());
+		return openPathSummary(mLastCommittedUberPage.get().getRevisionNumber());
 	}
 
 	@Override
 	public IPageReadTrx beginPageReadTrx() throws SirixException {
-		return beginPageReadTrx(mLastCommittedUberPage.getRevisionNumber());
+		return beginPageReadTrx(mLastCommittedUberPage.get().getRevisionNumber());
 	}
 
 	@Override
 	public synchronized IPageReadTrx beginPageReadTrx(@Nonnegative int pRev)
 			throws SirixException {
-		return new PageReadTrx(this, mLastCommittedUberPage, pRev,
+		return new PageReadTrx(this, mLastCommittedUberPage.get(), pRev,
 				mFac.getReader(), Optional.<TransactionLogPageCache> absent());
 	}
 
 	@Override
 	public IPageWriteTrx beginPageWriteTrx() throws SirixException {
-		return beginPageWriteTrx(mLastCommittedUberPage.getRevisionNumber());
+		return beginPageWriteTrx(mLastCommittedUberPage.get().getRevisionNumber());
 	}
 
 	@Override
 	public synchronized IPageWriteTrx beginPageWriteTrx(@Nonnegative int pRev)
 			throws SirixException {
 		final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
-		final int lastRev = mLastCommittedUberPage.getRevisionNumber();
+		final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
 		final IPageWriteTrx pageWtx = createPageWriteTransaction(currentPageTrxID,
 				lastRev, lastRev);
 
@@ -664,7 +665,12 @@ public final class Session implements ISession {
 	}
 
 	@Override
-	public IDatabase getDatabase() {
+	public synchronized IDatabase getDatabase() {
 		return mDatabase;
+	}
+
+	@Override
+	public Optional<INodeWriteTrx> getNodeWriteTrx() {
+		return null;
 	}
 }

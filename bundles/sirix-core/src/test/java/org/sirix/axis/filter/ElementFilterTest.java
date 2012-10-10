@@ -36,9 +36,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.INodeReadTrx;
 import org.sirix.axis.AbsAxisTest;
-import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.NestedAxis;
 import org.sirix.exception.SirixException;
 
 import com.google.common.collect.FluentIterable;

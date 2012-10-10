@@ -28,20 +28,6 @@ package org.sirix.gui.view.sunburst;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.collect.Lists;
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
-import controlP5.ControlP5;
-import controlP5.ControllerStyle;
-import controlP5.Group;
-import controlP5.Label;
-import controlP5.Range;
-import controlP5.Slider;
-import controlP5.Textfield;
-import controlP5.Toggle;
 
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
@@ -65,7 +51,6 @@ import javax.annotation.Nonnull;
 import javax.xml.stream.events.Attribute;
 
 import org.gicentre.utils.move.ZoomPan;
-import org.slf4j.LoggerFactory;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.IProcessingGUI;
@@ -75,12 +60,30 @@ import org.sirix.gui.view.model.interfaces.IModel;
 import org.sirix.gui.view.sunburst.EDraw.EDrawSunburst;
 import org.sirix.gui.view.sunburst.control.ISunburstControl;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
 import processing.core.PFont;
 import processing.core.PGraphics;
 import processing.core.PImage;
 import processing.core.PVector;
+
+import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
+
+import controlP5.ControlP5;
+import controlP5.ControllerStyle;
+import controlP5.Group;
+import controlP5.Label;
+import controlP5.Range;
+import controlP5.Slider;
+import controlP5.Textfield;
+import controlP5.Toggle;
 
 /**
  * Abstract Sunburst Processing GUI.
@@ -109,6 +112,12 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 	/** Model which implements {@link IModel} for the SunburstView. */
 	protected IModel<SunburstContainer, SunburstItem> mModel;
 
+	public enum EResetZoomer {
+		YES,
+		
+		NO
+	}
+	
 	/** Determines if a line is drawn or not. */
 	public enum EDrawLine {
 		YES {
@@ -363,6 +372,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 		mListener = new GlassPaneListener();
 		mZoomer = new ZoomPan(mParent);
 		mZoomer.setMouseMask(PConstants.CONTROL);
+		mZoomer.addZoomPanListener(mControl);
 		mControlP5 = new ControlP5(mParent);
 		mControlP5.disableShortcuts();
 		mSliders = new LinkedList<Slider>();
@@ -554,14 +564,13 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 
 	/** Update items as well as the buffered offscreen image. */
 	@Override
-	public void update() {
+	public void update(final @Nonnull EResetZoomer pReset) {
 		LOGWRAPPER.debug("[update()]: Available permits: "
 				+ mLock.availablePermits());
 		LOGWRAPPER.debug("parent width: " + mParent.width + " parent height: "
 				+ mParent.height);
-		mZoomer.reset();
-		setBuffer(mParent.createGraphics(mParent.width, mParent.height,
-				PConstants.JAVA2D));
+		mBuffer = mParent.createGraphics(mParent.width, mParent.height,
+				PConstants.JAVA2D);
 		mBuffer.beginDraw();
 		mBuffer.textFont(mFont);
 		updateBuffer();
@@ -1846,15 +1855,26 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 				mDepthMax = depthMax;
 				mOldDepthMax = oldDepthMax;
 				setDepthMax();
-				update();
-
 				if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()
 						&& mControl.getModel().getItemsSize() < ANIMATION_THRESHOLD) {
 					mInit = true;
+				} else {
+					mInit = false;
 				}
+				update(EResetZoomer.YES);
 				return null;
 			}
 		});
+	}
+
+	/**
+	 * Draw no animation.
+	 */
+	public void noAnimation() {
+		mInit = false;
+		for (final SunburstItem item : mModel) {
+			item.setTempDepth(item.getDepth());
+		}
 	}
 
 	/** Set maximum depth. */

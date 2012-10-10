@@ -137,7 +137,7 @@ final class NodeReadTrx implements INodeReadTrx {
 		mClosed = false;
 		mItemList = new ItemList();
 	}
-	
+
 	INode getCurrentNode() {
 		return mCurrentNode;
 	}
@@ -327,6 +327,12 @@ final class NodeReadTrx implements INodeReadTrx {
 	public long getNodeKey() {
 		assertNotClosed();
 		return mCurrentNode.getNodeKey();
+	}
+
+	@Override
+	public boolean isValueNode() {
+		assertNotClosed();
+		return mCurrentNode instanceof IValNode;
 	}
 
 	@Override
@@ -858,36 +864,56 @@ final class NodeReadTrx implements INodeReadTrx {
 
 	@Override
 	public boolean isElement() {
+		assertNotClosed();
 		return mCurrentNode.getKind() == EKind.ELEMENT;
 	}
 
 	@Override
 	public boolean isText() {
+		assertNotClosed();
 		return mCurrentNode.getKind() == EKind.TEXT;
 	}
 
 	@Override
 	public boolean isDocumentRoot() {
+		assertNotClosed();
 		return mCurrentNode.getKind() == EKind.DOCUMENT_ROOT;
 	}
 
 	@Override
 	public boolean isComment() {
+		assertNotClosed();
 		return mCurrentNode.getKind() == EKind.COMMENT;
 	}
 
 	@Override
 	public boolean isAttribute() {
+		assertNotClosed();
 		return mCurrentNode.getKind() == EKind.ATTRIBUTE;
 	}
 
 	@Override
 	public boolean isNamespace() {
+		assertNotClosed();
 		return mCurrentNode.getKind() == EKind.NAMESPACE;
 	}
 
 	@Override
 	public boolean isPI() {
+		assertNotClosed();
 		return mCurrentNode.getKind() == EKind.PROCESSING;
+	}
+
+	@Override
+	public boolean hasChildren() {
+		assertNotClosed();
+		return getStructuralNode().hasFirstChild();
+	}
+
+	@Override
+	public boolean hasAttributes() {
+		assertNotClosed();
+		return mCurrentNode.getKind() == EKind.ELEMENT
+				&& ((ElementNode) mCurrentNode).getAttributeCount() > 0;
 	}
 }

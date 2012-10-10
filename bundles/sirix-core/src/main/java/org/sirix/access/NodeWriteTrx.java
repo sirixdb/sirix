@@ -91,7 +91,6 @@ import org.sirix.page.NamePage;
 import org.sirix.page.UberPage;
 import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.EInsert;
-import org.sirix.service.xml.shredder.EShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.settings.EFixed;
 import org.sirix.settings.IConstants;
@@ -486,6 +485,7 @@ final class NodeWriteTrx extends AbsForwardingNodeReadTrx implements
 		case ASNONSTRUCTURAL:
 			// Do not decrement child count.
 			break;
+		default:
 		}
 
 		// Adapt first child key of former parent.

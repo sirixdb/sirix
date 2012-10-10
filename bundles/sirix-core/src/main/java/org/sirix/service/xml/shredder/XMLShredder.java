@@ -61,7 +61,6 @@ import org.sirix.api.INodeWriteTrx;
 import org.sirix.api.ISession;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.exception.SirixUsageException;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -203,58 +202,6 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 		mIncludePIs = pBuilder.mIncludePIs;
 		mCommit = pBuilder.mCommit;
 	}
-
-//	/**
-//	 * Don't use, use the builder instead.
-//	 * 
-//	 * Normal constructor to invoke a shredding process on a existing
-//	 * {@link NodeWriteTrx}.
-//	 * 
-//	 * @param pWtx
-//	 *          where the new XML Fragment should be placed
-//	 * @param pReader
-//	 *          of the XML Fragment
-//	 * @param pAddAsFirstChild
-//	 *          determines the insertion position
-//	 * @throws IllegalStateException
-//	 *           if insertasfirstChild && updateOnly is both true OR if wtx is not
-//	 *           pointing to doc-root and updateOnly= true
-//	 */
-//	@Deprecated
-//	public XMLShredder(@Nonnull final INodeWriteTrx pWtx,
-//			@Nonnull final XMLEventReader pReader, @Nonnull final EInsert pInsert) {
-//		this(pWtx, pReader, pInsert, EShredderCommit.COMMIT);
-//	}
-//
-//	/**
-//	 * Don't use, use the builder instead.
-//	 * 
-//	 * Normal constructor to invoke a shredding process on a existing
-//	 * {@link NodeWriteTrx}.
-//	 * 
-//	 * @param pWtx
-//	 *          {@link INodeWriteTrx} where the new XML Fragment should be placed
-//	 * @param pReader
-//	 *          {@link XMLEventReader} to parse the xml fragment, which should be
-//	 *          inserted
-//	 * @param pInsert
-//	 *          determines the insertion position
-//	 * @param pCommit
-//	 *          determines if inserted nodes should be commited right afterwards
-//	 * @throws SirixUsageException
-//	 *           if insertasfirstChild && updateOnly is both true OR if wtx is not
-//	 *           pointing to doc-root and updateOnly= true
-//	 */
-//	@Deprecated
-//	public XMLShredder(@Nonnull final INodeWriteTrx pWtx,
-//			@Nonnull final XMLEventReader pReader, @Nonnull final EInsert pInsert,
-//			@Nonnull final EShredderCommit pCommit) {
-//		super(pWtx, pInsert);
-//		mWtx = pWtx; // Checked for null in AbsShredder.
-//		mReader = checkNotNull(pReader);
-//		mInsert = pInsert; // Checked for null in AbsShredder.
-//		mCommit = checkNotNull(pCommit);
-//	}
 
 	/**
 	 * Invoking the shredder.

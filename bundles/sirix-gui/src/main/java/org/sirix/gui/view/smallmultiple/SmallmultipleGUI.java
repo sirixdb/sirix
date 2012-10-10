@@ -48,6 +48,7 @@ import org.sirix.gui.view.sunburst.SunburstGUI;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.SunburstItemKeyEquivalence;
 import org.sirix.gui.view.sunburst.control.ISunburstControl;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
 import processing.core.PGraphics;
@@ -298,7 +299,7 @@ public class SmallmultipleGUI extends AbsSunburstGUI implements PropertyChangeLi
       assert pEvent.getNewValue() instanceof Boolean;
       try {
         mLock.acquireUninterruptibly();
-        update();
+        update(EResetZoomer.YES);
         mImage = new ImageStore(mBuffer, mSelectedRev, mDepthMax, mOldDepthMax);
         mBufferedImages.add(mImage);
         final long revDiff = mDb.getSession().getLastRevisionNumber() - mDb.getRevisionNumber();

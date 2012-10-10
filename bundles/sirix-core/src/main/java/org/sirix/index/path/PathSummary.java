@@ -89,6 +89,11 @@ public final class PathSummary implements INodeReadTrx {
 			LOGWRAPPER.error(e.getMessage(), e.getCause());
 		}
 	}
+	
+	@Override
+	public boolean isValueNode() {
+		return false;
+	}
 
 	/**
 	 * Get a new path summary instance.
@@ -107,6 +112,16 @@ public final class PathSummary implements INodeReadTrx {
 		assertNotClosed();
 		// FIXME: Do not expose a mutable node.
 		return mCurrentNode;
+	}
+	
+	@Override
+	public boolean hasAttributes() {
+		return getStructuralNode().hasFirstChild();
+	}
+	
+	@Override
+	public boolean hasChildren() {
+		return getStructuralNode().getChildCount() > 0;
 	}
 
 	/**

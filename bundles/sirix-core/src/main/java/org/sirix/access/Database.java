@@ -441,6 +441,8 @@ public final class Database implements IDatabase {
 
 	@Override
 	public String[] listResources() {
-		return DatabaseConfiguration.Paths.Data.getFile().list();
+		return new File(mDBConfig.getFile(),
+				DatabaseConfiguration.Paths.Data.getFile().getName()).list();
+//		return DatabaseConfiguration.Paths.Data.getFile().list();
 	}
 }

@@ -139,6 +139,17 @@ public final class ElementNode extends AbsStructForwardingNode implements
 	}
 
 	/**
+	 * Get name key by node key.
+	 * 
+	 * @param pKey
+	 *          node key
+	 * @return optional name key
+	 */
+	public Optional<Integer> getAttributeNameKey(final @Nonnegative long pKey) {
+		return Optional.fromNullable(mAttributes.inverse().get(pKey));
+	}
+
+	/**
 	 * Inserting an attribute.
 	 * 
 	 * @param pAttrKey

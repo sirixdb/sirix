@@ -28,10 +28,6 @@ package org.sirix.gui.view.sunburst;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Optional;
-import controlP5.ControlEvent;
-import controlP5.ControllerGroup;
-import controlP5.Toggle;
 
 import java.awt.event.MouseEvent;
 import java.util.List;
@@ -43,20 +39,28 @@ import javax.swing.SwingUtilities;
 import javax.xml.stream.FactoryConfigurationError;
 import javax.xml.stream.XMLStreamException;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewNotifier;
 import org.sirix.gui.view.ViewUtilities;
 import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.gui.view.model.interfaces.IModel;
+import org.sirix.gui.view.sunburst.AbsSunburstGUI.EResetZoomer;
 import org.sirix.gui.view.sunburst.SunburstView.Embedded;
 import org.sirix.gui.view.sunburst.control.AbsSunburstControl;
 import org.sirix.gui.view.sunburst.model.SunburstCompareModel;
 import org.sirix.gui.view.sunburst.model.SunburstModel;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
+
+import com.google.common.base.Optional;
+
+import controlP5.ControlEvent;
+import controlP5.ControllerGroup;
+import controlP5.Toggle;
 
 /**
  * Controller for the {@link SunburstView}.
@@ -267,7 +271,7 @@ public final class SunburstControl extends AbsSunburstControl {
       case '1':
       case '2':
       case '3':
-        mSunburstGUI.update();
+        mSunburstGUI.update(EResetZoomer.YES);
         break;
       case 'm':
       case 'M':
