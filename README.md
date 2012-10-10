@@ -14,7 +14,7 @@ Note that it is based on Treetank (http://treetank.org / http://github.com/disy/
 
 ##GUI
 A screencast is available depicting the SunburstView and the TextView side by side: 
-![A Visual Analytics Approach for Comparing Tree-Structures](http://www.youtube.com/watch?v=l9CXXBkl5vI "A Visual Analytics Approach for Comparing Tree-Structures")
+http://www.youtube.com/watch?v=l9CXXBkl5vI
 
 ![Moves visualized through Hierarchical Edge Bundles](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/moves-cut.png "Moves visualized through Hierarchical Edge Bundles")
 ![SunburstView](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/sunburstview-cut.png "SunburstView")
