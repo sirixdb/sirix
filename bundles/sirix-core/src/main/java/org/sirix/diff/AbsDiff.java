@@ -557,6 +557,7 @@ abstract class AbsDiff extends AbsDiffObservable {
 				diff = found.kindOfDiff();
 			}
 
+			mDiff = diff;
 			emitDiffs(diff);
 		}
 
