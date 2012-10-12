@@ -27,12 +27,14 @@
 
 package org.sirix.access.conf;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -141,6 +143,9 @@ public final class DatabaseConfiguration {
 	/** Path to file. */
 	private final File mFile;
 
+	/** Maximum unique resource ID. */
+	private long mMaxResourceID;
+
 	/**
 	 * Constructor with the path to be set.
 	 * 
@@ -150,6 +155,28 @@ public final class DatabaseConfiguration {
 	public DatabaseConfiguration(final @Nonnull File pFile) {
 		mBinaryVersion = BINARY;
 		mFile = pFile.getAbsoluteFile();
+	}
+
+	/**
+	 * Set unique maximum resource ID.
+	 * 
+	 * @param pID
+	 *          maximum resource ID
+	 * @return this {@link DatabaseConfiguration} reference
+	 */
+	public DatabaseConfiguration setMaximumResourceID(final long pID) {
+		checkArgument(pID >= 0, "pID must be >= 0!");
+		mMaxResourceID = pID;
+		return this;
+	}
+
+	/**
+	 * Set unique maximum resource ID.
+	 * 
+	 * @return maximum resource ID
+	 */
+	public long getMaxResourceID() {
+		return mMaxResourceID;
 	}
 
 	/**
@@ -206,6 +233,7 @@ public final class DatabaseConfiguration {
 			jsonWriter.beginObject();
 			final String filePath = pConfig.mFile.getAbsolutePath();
 			jsonWriter.name("file").value(filePath);
+			jsonWriter.name("ID").value(pConfig.mMaxResourceID);
 			jsonWriter.endObject();
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
@@ -227,11 +255,14 @@ public final class DatabaseConfiguration {
 				Paths.ConfigBinary.getFile().getName()));
 				final JsonReader jsonReader = new JsonReader(fileReader);) {
 			jsonReader.beginObject();
-			final String name = jsonReader.nextName();
-			assert name.equals("file");
+			final String fileName = jsonReader.nextName();
+			assert fileName.equals("file");
 			final File file = new File(jsonReader.nextString());
+			final String IDName = jsonReader.nextName();
+			assert IDName.equals("ID");
+			final int ID = jsonReader.nextInt();
 			jsonReader.endObject();
-			return new DatabaseConfiguration(file);
+			return new DatabaseConfiguration(file).setMaximumResourceID(ID);
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}

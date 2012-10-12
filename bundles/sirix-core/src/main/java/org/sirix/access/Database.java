@@ -35,6 +35,7 @@ import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -69,9 +70,12 @@ public final class Database implements IDatabase {
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
 			LoggerFactory.getLogger(Database.class));
+	
+	/** Unique ID of a database. */
+	private final AtomicInteger mDatabaseID = new AtomicInteger();
 
 	/** Unique ID of a resource. */
-	private final AtomicInteger mResourceID = new AtomicInteger();
+	private final AtomicLong mResourceID = new AtomicLong();
 
 	/** Central repository of all running databases. */
 	private static final ConcurrentMap<File, Database> DATABASEMAP = new ConcurrentHashMap<>();
@@ -80,7 +84,7 @@ public final class Database implements IDatabase {
 	private final ConcurrentMap<File, Session> mSessions;
 
 	/** Central repository of all resource-ID/ResourceConfiguration tuples. */
-	private final BiMap<Integer, String> mResources;
+	private final BiMap<Long, String> mResources;
 
 	/** DatabaseConfiguration with fixed settings. */
 	private final DatabaseConfiguration mDBConfig;
@@ -98,7 +102,7 @@ public final class Database implements IDatabase {
 			throws SirixException {
 		mDBConfig = checkNotNull(pDBConf);
 		mSessions = new ConcurrentHashMap<>();
-		mResources = Maps.synchronizedBiMap(HashBiMap.<Integer, String> create());
+		mResources = Maps.synchronizedBiMap(HashBiMap.<Long, String> create());
 	}
 
 	// //////////////////////////////////////////////////////////
@@ -220,8 +224,10 @@ public final class Database implements IDatabase {
 				}
 			}
 			// Serialization of the config.
+			mResourceID.set(mDBConfig.getMaxResourceID());
 			ResourceConfiguration.serialize(pResConf.setID(mResourceID
 					.getAndIncrement()));
+			mDBConfig.setMaximumResourceID(mResourceID.get());
 			mResources.forcePut(mResourceID.get(), pResConf.getResource()
 					.getName());
 
@@ -235,18 +241,18 @@ public final class Database implements IDatabase {
 	}
 
 	@Override
-	public synchronized String getResourceName(final @Nonnegative int pID) {
+	public synchronized String getResourceName(final @Nonnegative long pID) {
 		checkArgument(pID >= 0, "pID must be >= 0!");
 		return mResources.get(pID);
 	}
 
 	@Override
-	public synchronized int getResourceID(final @Nonnull String pName) {
+	public synchronized long getResourceID(final @Nonnull String pName) {
 		return mResources.inverse().get(checkNotNull(pName));
 	}
 
 	@Override
-	public synchronized void truncateResource(final @Nonnull String pName) {
+	public synchronized IDatabase truncateResource(final @Nonnull String pName) {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.Data.getFile().getName()), pName);
 		// Check that database must be closed beforehand.
@@ -262,6 +268,8 @@ public final class Database implements IDatabase {
 				}
 			}
 		}
+		
+		return this;
 	}
 
 	// //////////////////////////////////////////////////////////
@@ -443,6 +451,16 @@ public final class Database implements IDatabase {
 	public String[] listResources() {
 		return new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.Data.getFile().getName()).list();
-//		return DatabaseConfiguration.Paths.Data.getFile().list();
+	}
+
+	@Override
+	public synchronized IDatabase commitAll() throws SirixException {
+		// Close all sessions.
+		for (final ISession session : mSessions.values()) {
+			if (!session.isClosed()) {
+				session.commitAll();
+			}
+		}
+		return this;
 	}
 }

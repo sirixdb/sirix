@@ -174,9 +174,11 @@ public final class Session implements ISession {
 			final IReader reader = mFac.getReader();
 			final PageReference firstRef = reader.readFirstReference();
 			if (firstRef.getPage() == null) {
-				mLastCommittedUberPage = new AtomicReference<>((UberPage) reader.read(firstRef.getKey()));
+				mLastCommittedUberPage = new AtomicReference<>(
+						(UberPage) reader.read(firstRef.getKey()));
 			} else {
-				mLastCommittedUberPage = new AtomicReference<>((UberPage) firstRef.getPage());
+				mLastCommittedUberPage = new AtomicReference<>(
+						(UberPage) firstRef.getPage());
 			}
 			reader.close();
 		} else {
@@ -600,8 +602,7 @@ public final class Session implements ISession {
 	 * @param pPage
 	 *          the new {@link UberPage}
 	 */
-	protected void setLastCommittedUberPage(
-			@Nonnull final UberPage pPage) {
+	protected void setLastCommittedUberPage(@Nonnull final UberPage pPage) {
 		mLastCommittedUberPage.set(checkNotNull(pPage));
 	}
 
@@ -621,8 +622,8 @@ public final class Session implements ISession {
 		assertAccess(pRev);
 
 		return PathSummary.getInstance(
-				new PageReadTrx(this, mLastCommittedUberPage.get(), pRev, mFac.getReader(),
-						Optional.<TransactionLogPageCache> absent()), this);
+				new PageReadTrx(this, mLastCommittedUberPage.get(), pRev, mFac
+						.getReader(), Optional.<TransactionLogPageCache> absent()), this);
 	}
 
 	@Override
@@ -671,6 +672,19 @@ public final class Session implements ISession {
 
 	@Override
 	public Optional<INodeWriteTrx> getNodeWriteTrx() {
+		// TODO
 		return null;
+	}
+
+	@Override
+	public ISession commitAll() throws SirixException {
+		if (!mClosed) {
+			for (INodeReadTrx rtx : mNodeTrxMap.values()) {
+				if (rtx instanceof INodeWriteTrx) {
+					((INodeWriteTrx) rtx).commit();
+				}
+			}
+		}
+		return this;
 	}
 }

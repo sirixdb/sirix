@@ -156,6 +156,15 @@ public interface ISession extends AutoCloseable {
 	 * @return optional write-transaction
 	 */
 	Optional<INodeWriteTrx> getNodeWriteTrx();
+	
+	/**
+	 * Commit all running {@link INodeWriteTrx}s.
+	 * 
+	 * @return this session reference
+	 * @throws SirixException
+	 *           if commiting fails
+	 */
+	ISession commitAll() throws SirixException;
 
 	/**
 	 * Open the path summary to allow iteration (basically implementation of

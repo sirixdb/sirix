@@ -63,7 +63,7 @@ public interface IDatabase extends AutoCloseable {
 	 * 
 	 * @param pResConf
 	 *          the config of the resource
-	 * @return boolean with true if successful, false otherwise
+	 * @return {@code true} if successful, {@code false} otherwise
 	 * @throws SirixIOException
 	 *           if anything happens while creating the resource
 	 */
@@ -104,9 +104,8 @@ public interface IDatabase extends AutoCloseable {
 	 * 
 	 * @param pName
 	 *          resource name
-	 * 
 	 */
-	void truncateResource(@Nonnull String pName);
+	IDatabase truncateResource(@Nonnull String pName);
 
 	/**
 	 * Closing the database for further access.
@@ -126,6 +125,15 @@ public interface IDatabase extends AutoCloseable {
 	DatabaseConfiguration getDatabaseConfig();
 
 	/**
+	 * Commit all running {@link INodeWriteTrx}s.
+	 * 
+	 * @return this database reference
+	 * @throws SirixException
+	 *           if commiting fails
+	 */
+	IDatabase commitAll() throws SirixException;
+
+	/**
 	 * Get the resource name associated with the given ID.
 	 * 
 	 * @param pID
@@ -134,7 +142,7 @@ public interface IDatabase extends AutoCloseable {
 	 * @throws IllegalArgumentException
 	 *           if {@code pID} is negative
 	 */
-	String getResourceName(@Nonnegative int pID);
+	String getResourceName(@Nonnegative long pID);
 
 	/**
 	 * Get the resource-ID associated with the given resource name.
@@ -145,5 +153,5 @@ public interface IDatabase extends AutoCloseable {
 	 * @throws NullPointerException
 	 *           if {@code pName} is {@code null}
 	 */
-	int getResourceID(@Nonnull String pName);
+	long getResourceID(@Nonnull String pName);
 }
