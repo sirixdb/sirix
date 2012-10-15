@@ -27,59 +27,38 @@
 
 package org.sirix.axis;
 
-import javax.annotation.Nonnull;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.sirix.Holder;
+import org.sirix.TestHelper;
+import org.sirix.api.INodeReadTrx;
+import org.sirix.exception.SirixException;
 
-import org.sirix.api.INodeCursor;
-import org.sirix.node.EKind;
+public class NonStructuralWrapperAxisTest {
 
-/**
- * <h1>FollowingSiblingAxis</h1>
- * 
- * <p>
- * Iterate over all following siblings of kind ELEMENT or TEXT starting at a given node. Self is not included.
- * </p>
- */
-public final class FollowingSiblingAxis extends AbsAxis {
+	private Holder holder;
 
-  /** Determines if it's the first call to hasNext(). */
-  private boolean mIsFirst;
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with
-   */
-  public FollowingSiblingAxis(@Nonnull final INodeCursor pRtx) {
-    super(pRtx);
-    mIsFirst = true;
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    mIsFirst = true;
-  }
-  
-  @Override
-  protected long nextKey() {
-    if (mIsFirst) {
-      mIsFirst = false;
-      /*
-       * If the context node is an attribute or namespace node,
-       * the following-sibling axis is empty
-       */
-      if (getTrx().getKind() == EKind.ATTRIBUTE
-        || getTrx().getKind() == EKind.NAMESPACE) {
-        return done();
-      }
-    }
+	@Test
+	public void testAxisConventions() throws SirixException {
+		final INodeReadTrx rtx = holder.getRtx();
 
-    if (getTrx().hasRightSibling()) {
-      return getTrx().getRightSiblingKey();
-    }
-    
-    return done();
-  }
+		AbsAxisTest.testIAxisConventions(new NonStructuralWrapperAxis(
+				new DescendantAxis(rtx)), new long[] { 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L,
+				9L, 10L, 11L, 12L, 13L });
+	}
 
 }

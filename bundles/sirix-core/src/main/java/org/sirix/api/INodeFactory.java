@@ -8,13 +8,18 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.PathNode;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.CommentNode;
-import org.sirix.node.DocumentRootNode;
 import org.sirix.node.EKind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.PINode;
 import org.sirix.node.TextNode;
 
+/**
+ * Node factory for creating nodes.
+ * 
+ * @author Johannes Lichtenberger
+ *
+ */
 public interface INodeFactory {
 	/**
 	 * Create a {@link PathNode}.
@@ -31,22 +36,17 @@ public interface INodeFactory {
 	 *          {@link QName} of the node
 	 * @param pPCR
 	 *          path class record of node
+	 * @param pSiblingPos
+	 *          sibling position
 	 * @return the created node
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	PathNode createPathNode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey, final long pRightSibKey,
-			final long pHash, @Nonnull final QName pName, @Nonnull final EKind pKind,
-			@Nonnegative final int pLevel) throws SirixIOException;
-
-	/**
-	 * Create a {@link PINode}.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	PINode createPINode() throws SirixIOException;
+	PathNode createPathNode(final @Nonnegative long pParentKey,
+			final @Nonnegative long pLeftSibKey, final long pRightSibKey,
+			final long pHash, final @Nonnull QName pName, final @Nonnull EKind pKind,
+			final @Nonnegative int pLevel)
+			throws SirixIOException;
 
 	/**
 	 * Create a {@link PINode}.
@@ -65,23 +65,18 @@ public interface INodeFactory {
 	 *          determines if the value is compressed or not
 	 * @param pPCR
 	 *          path class record of node
+	 * @param pSiblingPos
+	 *          sibling position
 	 * @return the created node
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	PINode createPINode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey,
-			@Nonnegative final long pRightSibKey, @Nonnull final QName pTarget,
-			@Nonnull final byte[] pContent, final boolean pIsCompressed,
-			@Nonnegative final long pPathNodeKey) throws SirixIOException;
-
-	/**
-	 * Create a {@link CommentNode}.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	CommentNode createCommentNode() throws SirixIOException;
+	PINode createPINode(final @Nonnegative long pParentKey,
+			final @Nonnegative long pLeftSibKey,
+			final @Nonnegative long pRightSibKey, final @Nonnull QName pTarget,
+			final @Nonnull byte[] pContent, final boolean pIsCompressed,
+			final @Nonnegative long pPathNodeKey)
+			throws SirixIOException;
 
 	/**
 	 * Create a {@link CommentNode}.
@@ -96,22 +91,17 @@ public interface INodeFactory {
 	 *          value of the node
 	 * @param pIsCompressed
 	 *          determines if the value is compressed or not
+	 * @param pSiblingPos
+	 *          sibling position
 	 * @return the created node
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	CommentNode createCommentNode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey,
-			@Nonnegative final long pRightSibKey, @Nonnull byte[] pValue,
-			final boolean pIsCompressed) throws SirixIOException;
-
-	/**
-	 * Create an {@link ElementNode}.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	ElementNode createElementNode() throws SirixIOException;
+	CommentNode createCommentNode(final @Nonnegative long pParentKey,
+			final @Nonnegative long pLeftSibKey,
+			final @Nonnegative long pRightSibKey, @Nonnull byte[] pValue,
+			final boolean pIsCompressed)
+			throws SirixIOException;
 
 	/**
 	 * Create an {@link ElementNode}.
@@ -128,23 +118,16 @@ public interface INodeFactory {
 	 *          {@link QName} of the node
 	 * @param pPCR
 	 *          path class record of node
+	 * @param pSiblingPos
+	 *          sibling position
 	 * @return the created node
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	ElementNode createElementNode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey,
-			@Nonnegative final long pRightSibKey, final long pHash,
-			@Nonnull final QName pName, @Nonnegative final long pPathNodeKey)
-			throws SirixIOException;
-
-	/**
-	 * Create a {@link TextNode}.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	TextNode createTextNode() throws SirixIOException;
+	ElementNode createElementNode(final @Nonnegative long pParentKey,
+			final @Nonnegative long pLeftSibKey,
+			final @Nonnegative long pRightSibKey, final long pHash,
+			final @Nonnull QName pName, final @Nonnegative long pPathNodeKey) throws SirixIOException;
 
 	/**
 	 * Create a {@link TextNode}.
@@ -159,22 +142,17 @@ public interface INodeFactory {
 	 *          value of the node
 	 * @param pIsCompressed
 	 *          determines if the value should be compressed or not
+	 * @param pSiblingPos
+	 *          sibling position
 	 * @return the created node
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	TextNode createTextNode(@Nonnegative final long pParentKey,
-			@Nonnegative final long pLeftSibKey,
-			@Nonnegative final long pRightSibKey, @Nonnull final byte[] pValue,
-			final boolean pIsCompressed) throws SirixIOException;
-
-	/**
-	 * Create an {@link AttributeNode}.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	AttributeNode createAttributeNode() throws SirixIOException;
+	TextNode createTextNode(final @Nonnegative long pParentKey,
+			final @Nonnegative long pLeftSibKey,
+			final @Nonnegative long pRightSibKey, final @Nonnull byte[] pValue,
+			final boolean pIsCompressed)
+			throws SirixIOException;
 
 	/**
 	 * Create an {@link AttributeNode}.
@@ -189,17 +167,9 @@ public interface INodeFactory {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	AttributeNode createAttributeNode(@Nonnegative final long pParentKey,
-			@Nonnull final QName pName, @Nonnull final byte[] pValue,
-			@Nonnegative final long pPathNodeKey) throws SirixIOException;
-
-	/**
-	 * Create an {@link NamespaceNode}.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	NamespaceNode createNamespaceNode() throws SirixIOException;
+	AttributeNode createAttributeNode(final @Nonnegative long pParentKey,
+			final @Nonnull QName pName, final @Nonnull byte[] pValue,
+			final @Nonnegative long pPathNodeKey) throws SirixIOException;
 
 	/**
 	 * Create a {@link NamespaceNode}.
@@ -216,15 +186,7 @@ public interface INodeFactory {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	NamespaceNode createNamespaceNode(@Nonnegative final long pParentKey,
+	NamespaceNode createNamespaceNode(final @Nonnegative long pParentKey,
 			final int pUriKey, final int pPrefixKey,
-			@Nonnegative final long pPathNodeKey) throws SirixIOException;
-
-	/**
-	 * Create a {@link DocumentRootNode}.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	DocumentRootNode createDocumentNode() throws SirixIOException;
+			final @Nonnegative long pPathNodeKey) throws SirixIOException;
 }

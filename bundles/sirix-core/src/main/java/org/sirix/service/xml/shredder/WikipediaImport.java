@@ -54,7 +54,6 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.access.Database;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -62,14 +61,14 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.IAxis;
 import org.sirix.api.IDatabase;
 import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
 import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.ISession;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.node.EKind;
-import org.sirix.node.ElementNode;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>WikipediaImport</h1>

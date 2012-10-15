@@ -30,6 +30,10 @@ import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
+import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.FollowingAxis;
+import org.sirix.axis.NonStructuralWrapperAxis;
+import org.sirix.axis.PrecedingAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.interfaces.INode;
@@ -38,6 +42,8 @@ import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.stream.SirixStream;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Objects;
 
 /**
  * A node which is used to provide all XDM functionality as well as temporal
@@ -96,6 +102,7 @@ public class DBNode extends AbsTemporalNode {
 	 * @return underlying node
 	 */
 	public INode getUnderlyingNode() {
+		moveRtx();
 		return mNodeReadTrx.getNode();
 	}
 
@@ -226,26 +233,62 @@ public class DBNode extends AbsTemporalNode {
 	}
 
 	@Override
-	public boolean isPrecedingSiblingOf(Node<?> pNode) {
-		// TODO Auto-generated method stub
+	public boolean isPrecedingSiblingOf(final @Nonnull Node<?> pNode) {
+		if (pNode instanceof DBNode) {
+			final DBNode other = (DBNode) pNode;
+			moveRtx();
+			while (mNodeReadTrx.hasRightSibling()) {
+				mNodeReadTrx.moveToRightSibling();
+				if (mNodeReadTrx.getNodeKey() == other.getNodeKey()) {
+					return true;
+				}
+			}
+		}
 		return false;
 	}
 
 	@Override
-	public boolean isFollowingSiblingOf(Node<?> pNode) {
-		// TODO Auto-generated method stub
+	public boolean isFollowingSiblingOf(final @Nonnull Node<?> pNode) {
+		if (pNode instanceof DBNode) {
+			final DBNode other = (DBNode) pNode;
+			moveRtx();
+			while (mNodeReadTrx.hasLeftSibling()) {
+				mNodeReadTrx.moveToLeftSibling();
+				if (mNodeReadTrx.getNodeKey() == other.getNodeKey()) {
+					return true;
+				}
+			}
+		}
 		return false;
 	}
 
 	@Override
-	public boolean isPrecedingOf(Node<?> pNode) {
-		// TODO Auto-generated method stub
+	public boolean isPrecedingOf(final @Nonnull Node<?> pNode) {
+		if (pNode instanceof DBNode) {
+			final DBNode node = (DBNode) pNode;
+			moveRtx();
+			for (final IAxis axis = new FollowingAxis(mNodeReadTrx); axis.hasNext();) {
+				axis.next();
+				if (mNodeReadTrx.getNodeKey() == node.getNodeKey()) {
+					return true;
+				}
+			}
+		}
 		return false;
 	}
 
 	@Override
-	public boolean isFollowingOf(Node<?> pNode) {
-		// TODO Auto-generated method stub
+	public boolean isFollowingOf(final @Nonnull Node<?> pNode) {
+		if (pNode instanceof DBNode) {
+			final DBNode node = (DBNode) pNode;
+			moveRtx();
+			for (final IAxis axis = new PrecedingAxis(mNodeReadTrx); axis.hasNext();) {
+				axis.next();
+				if (mNodeReadTrx.getNodeKey() == node.getNodeKey()) {
+					return true;
+				}
+			}
+		}
 		return false;
 	}
 
@@ -293,7 +336,8 @@ public class DBNode extends AbsTemporalNode {
 	public boolean isRoot() {
 		moveRtx();
 		boolean retVal = false;
-		if (mNodeReadTrx.getNode().getParentKey() == EFixed.DOCUMENT_NODE_KEY
+		// TODO: Actually it seems it must check if it's the document root node.
+		if (mNodeReadTrx.getNode().getParentKey() == EFixed.NULL_NODE_KEY
 				.getStandardProperty()) {
 			retVal = true;
 		}
@@ -399,19 +443,22 @@ public class DBNode extends AbsTemporalNode {
 	@Override
 	public AbsTemporalNode getParent() throws DocumentException {
 		moveRtx();
-		return new DBNode(mNodeReadTrx.moveToParent().get(), mCollection);
+		return mNodeReadTrx.hasParent() ? new DBNode(mNodeReadTrx.moveToParent()
+				.get(), mCollection) : null;
 	}
 
 	@Override
 	public AbsTemporalNode getFirstChild() throws DocumentException {
 		moveRtx();
-		return new DBNode(mNodeReadTrx.moveToFirstChild().get(), mCollection);
+		return mNodeReadTrx.hasFirstChild() ? new DBNode(mNodeReadTrx
+				.moveToFirstChild().get(), mCollection) : null;
 	}
 
 	@Override
 	public AbsTemporalNode getLastChild() throws DocumentException {
 		moveRtx();
-		return new DBNode(mNodeReadTrx.moveToLastChild().get(), mCollection);
+		return mNodeReadTrx.hasLastChild() ? new DBNode(mNodeReadTrx
+				.moveToLastChild().get(), mCollection) : null;
 	}
 
 	@Override
@@ -421,11 +468,13 @@ public class DBNode extends AbsTemporalNode {
 		return new SirixStream(new ChildAxis(mNodeReadTrx), mCollection);
 	}
 
+	// Returns all nodes in the subtree _including_ the subtree root.
 	@Override
 	public Stream<? extends AbsTemporalNode> getSubtree()
 			throws DocumentException {
 		moveRtx();
-		return new SirixStream(new DescendantAxis(mNodeReadTrx), mCollection);
+		return new SirixStream(new NonStructuralWrapperAxis(new DescendantAxis(
+				mNodeReadTrx, EIncludeSelf.YES)), mCollection);
 	}
 
 	@Override
@@ -436,13 +485,15 @@ public class DBNode extends AbsTemporalNode {
 	@Override
 	public AbsTemporalNode getNextSibling() throws DocumentException {
 		moveRtx();
-		return new DBNode(mNodeReadTrx.moveToRightSibling().get(), mCollection);
+		return mNodeReadTrx.hasRightSibling() ? new DBNode(mNodeReadTrx
+				.moveToRightSibling().get(), mCollection) : null;
 	}
 
 	@Override
 	public AbsTemporalNode getPreviousSibling() throws DocumentException {
 		moveRtx();
-		return new DBNode(mNodeReadTrx.moveToLeftSibling().get(), mCollection);
+		return mNodeReadTrx.hasLeftSibling() ? new DBNode(mNodeReadTrx
+				.moveToLeftSibling().get(), mCollection) : null;
 	}
 
 	@Override
@@ -944,7 +995,8 @@ public class DBNode extends AbsTemporalNode {
 	}
 
 	@Override
-	public void parse(final @Nonnull SubtreeHandler pHandler) throws DocumentException {
+	public void parse(final @Nonnull SubtreeHandler pHandler)
+			throws DocumentException {
 		final SubtreeParser parser = new NavigationalSubtreeParser(this);
 		parser.parse(pHandler);
 	}
@@ -972,7 +1024,15 @@ public class DBNode extends AbsTemporalNode {
 		if (firstDocumentID != secondDocumentID) {
 			return firstDocumentID < secondDocumentID ? -1 : 1;
 		}
+
+		if (this.mNodeKey == ((DBNode) pOther).getNodeKey()) {
+			return 0;
+		}
 		
+		if (mNodeKey == 4 && ((DBNode) pOther).getNodeKey() == 5) {
+			System.out.println();
+		}
+
 		try {
 			final DBNode firstParent = (DBNode) this.getParent();
 			if (firstParent == null) {
@@ -991,6 +1051,33 @@ public class DBNode extends AbsTemporalNode {
 				int cat1 = nodeCategories(this.getKind());
 				int cat2 = nodeCategories(pOther.getKind());
 				if (cat1 == cat2) {
+					final DBNode other = (DBNode) pOther;
+					if (cat1 == 1) {
+						mNodeReadTrx.moveToParent();
+						for (int i = 0, nspCount = mNodeReadTrx.getNamespaceCount(); i < nspCount; i++) {
+							mNodeReadTrx.moveToNamespace(i);
+							if (mNodeReadTrx.getNodeKey() == other.mNodeKey) {
+								return +1;
+							}
+							if (mNodeReadTrx.getNodeKey() == this.mNodeKey) {
+								return -1;
+							}
+							mNodeReadTrx.moveToParent();
+						}
+					}
+					if (cat1 == 2) {
+						mNodeReadTrx.moveToParent();
+						for (int i = 0, attCount = mNodeReadTrx.getAttributeCount(); i < attCount; i++) {
+							mNodeReadTrx.moveToAttribute(i);
+							if (mNodeReadTrx.getNodeKey() == other.mNodeKey) {
+								return +1;
+							}
+							if (mNodeReadTrx.getNodeKey() == this.mNodeKey) {
+								return -1;
+							}
+							mNodeReadTrx.moveToParent();
+						}
+					}
 					return this.getSiblingPosition()
 							- ((DBNode) pOther).getSiblingPosition();
 				} else {
@@ -1082,6 +1169,18 @@ public class DBNode extends AbsTemporalNode {
 		default:
 			throw new IllegalStateException("Node kind not known!");
 		}
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mNodeReadTrx.getNodeKey(), mNodeReadTrx.getValue(),
+				mNodeReadTrx.getName());
+	}
+
+	@Override
+	public String toString() {
+		moveRtx();
+		return Objects.toStringHelper(this).add("rtx", mNodeReadTrx).toString();
 	}
 
 	@Override

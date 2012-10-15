@@ -32,78 +32,76 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.IAxis;
+import org.sirix.api.INodeReadTrx;
 
 /**
- * <h1>NestedAxis</h1>
+ * <h1>NonStructuralWrapperAxis</h1>
  * 
  * <p>
- * Chains two axis operations.
+ * Adds non-structural nodes to an axis.
  * </p>
  */
-public final class NestedAxis extends AbsAxis {
+public final class NonStructuralWrapperAxis extends AbsAxis {
 
-  /** Parent axis. */
-  private final IAxis mParentAxis;
+	/** Parent axis. */
+	private final IAxis mParentAxis;
 
-  /** Child axis to apply to each node found with parent axis. */
-  private final IAxis mChildAxis;
+	/** Namespace index. */
+	private int mNspIndex;
 
-  /** Is it the first run of parent axis? */
-  private boolean mIsFirst;
+	/** Attribute index. */
+	private int mAttIndex;
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param pParentAxis
-   *          inner nested axis
-   * @param pChildAxis
-   *          outer nested axis
-   */
-  public NestedAxis(@Nonnull final IAxis pParentAxis,
-    @Nonnull final IAxis pChildAxis) {
-    super(pParentAxis.getTrx());
-    mParentAxis = checkNotNull(pParentAxis);
-    mChildAxis = checkNotNull(pChildAxis);
-    mIsFirst = true;
-  }
+	/** First run. */
+	private boolean mFirst;
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    if (mParentAxis != null) {
-      mParentAxis.reset(pNodeKey);
-    }
-    if (mChildAxis != null) {
-      mChildAxis.reset(pNodeKey);
-    }
-    mIsFirst = true;
-  }
-  
-  @Override
-  protected long nextKey() {
-    // Make sure that parent axis is moved for the first time.
-    if (mIsFirst) {
-      mIsFirst = false;
-      if (mParentAxis.hasNext()) {
-        mChildAxis.reset(mParentAxis.next());
-      } else {
-        return done();
-      }
-    }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param pParentAxis
+	 *          inner nested axis
+	 * @param pChildAxis
+	 *          outer nested axis
+	 */
+	public NonStructuralWrapperAxis(@Nonnull final IAxis pParentAxis) {
+		super(pParentAxis.getTrx());
+		mParentAxis = checkNotNull(pParentAxis);
+	}
 
-    // Execute child axis for each node found with parent axis.
-    boolean hasNext = false;
-    while (!(hasNext = mChildAxis.hasNext())) {
-      if (mParentAxis.hasNext()) {
-        mChildAxis.reset(mParentAxis.next());
-      } else {
-        break;
-      }
-    }
-    if (hasNext) {
-      return mChildAxis.next();
-    }
-    
-    return done();
-  }
+	@Override
+	public void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		if (mParentAxis != null) {
+			mParentAxis.reset(pNodeKey);
+		}
+	}
+
+	@Override
+	protected long nextKey() {
+		final INodeReadTrx trx = mParentAxis.getTrx();
+		if (trx.isNamespace()) {
+			trx.moveToParent();
+		}
+		if (trx.isElement() && mNspIndex < trx.getNamespaceCount()) {
+			trx.moveToNamespace(mNspIndex++);
+			return trx.getNodeKey();
+		}
+		if (trx.isAttribute()) {
+			trx.moveToParent();
+		}
+		if (trx.isElement() && mAttIndex < trx.getAttributeCount()) {
+			trx.moveToAttribute(mAttIndex++);
+			return trx.getNodeKey();
+		}
+
+		if (mParentAxis.hasNext()) {
+			long key = mParentAxis.next();
+			if (!trx.isElement()) {
+				mNspIndex = 0;
+				mAttIndex = 0;
+			}
+			return key;
+		}
+		return done();
+	}
 }

@@ -224,5 +224,4 @@ public class ImmutablePI implements IValNode, INameNode, IStructNode {
 	public void setValue(@Nonnull byte[] pValue) {
 		throw new UnsupportedOperationException();
 	}
-
 }

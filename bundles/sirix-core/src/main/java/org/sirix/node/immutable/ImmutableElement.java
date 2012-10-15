@@ -214,5 +214,4 @@ public class ImmutableElement implements INameNode, IStructNode, INode {
 	public long getPathNodeKey() {
 		return mNode.getPathNodeKey();
 	}
-
 }

@@ -56,12 +56,12 @@
 			<scope>test</scope>
 		</dependency>
 		<dependency>
-			<groupId>org.brackit</groupId>
+			<groupId>com.github.johanneslichtenberger.brackit</groupId>
 			<artifactId>brackit</artifactId>
 			<version>0.1.2</version>
 		</dependency>
 		<dependency>
-			<groupId>org.brackit</groupId>
+			<groupId>com.github.johanneslichtenberger.brackit</groupId>
 			<artifactId>brackit</artifactId>
 			<version>0.1.2</version>
 			<type>test-jar</type>

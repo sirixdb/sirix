@@ -2,6 +2,8 @@ package org.sirix.xquery.stream;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import javax.annotation.Nonnull;
+
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.IAxis;
@@ -37,7 +39,8 @@ public class SirixStream implements Stream<DBNode> {
 	 * @param pCollection
 	 *          {@link DBCollection} the nodes belong to
 	 */
-	public SirixStream(final IAxis pAxis, final DBCollection<? extends AbsTemporalNode> pCollection) {
+	public SirixStream(final @Nonnull IAxis pAxis,
+			final @Nonnull DBCollection<? extends AbsTemporalNode> pCollection) {
 		mAxis = checkNotNull(pAxis);
 		mRtx = mAxis.getTrx();
 		mCollection = checkNotNull(pCollection);

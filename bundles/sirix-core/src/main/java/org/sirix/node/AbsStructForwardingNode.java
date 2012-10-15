@@ -109,7 +109,7 @@ public abstract class AbsStructForwardingNode extends AbsForwardingNode implemen
   }
 
   @Override
-  public void setDescendantCount(@Nonnegative final long pDescendantCount) {
+  public void setDescendantCount(final @Nonnegative long pDescendantCount) {
     structDelegate().setDescendantCount(pDescendantCount);
   }
 

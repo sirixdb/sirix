@@ -27,7 +27,6 @@
 package org.sirix.node.delegates;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -37,9 +36,10 @@ import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.INodeBase;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
+
+import com.google.common.base.Objects;
 
 /**
  * Delegate method for all nodes. That means that all nodes stored in Sirix are

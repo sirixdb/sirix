@@ -58,7 +58,7 @@ public class Main {
 		QueryContext ctx2 = new QueryContext(store);
 		System.out.println();
 		System.out.println("Query loaded document:");
-		String xq2 = "doc('mydoc.xml')/log/@severity/string()";
+		String xq2 = "doc('mydoc.xml')//msg";
 		System.out.println(xq2);
 		new XQuery(xq2).serialize(ctx2, System.out);
 		System.out.println();

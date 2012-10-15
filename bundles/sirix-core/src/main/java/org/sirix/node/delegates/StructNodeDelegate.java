@@ -28,29 +28,29 @@ package org.sirix.node.delegates;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.custommonkey.xmlunit.AbstractNodeTester;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.EKind;
 import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.INodeBase;
 import org.sirix.node.interfaces.IStructNode;
 import org.sirix.settings.EFixed;
 
+import com.google.common.base.Objects;
+
 /**
  * Delegate method for all nodes building up the structure. That means that all
- * nodes representing trees in sirix are represented by an instance of the
+ * nodes representing trees in Sirix are represented by an instance of the
  * interface {@link IStructNode} namely containing the position of all related
  * siblings, the first-child and all nodes defined by the {@link NodeDelegate} as well.
  * 
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public class StructNodeDelegate extends AbsForwardingNode implements IStructNode {
@@ -69,7 +69,7 @@ public class StructNodeDelegate extends AbsForwardingNode implements IStructNode
 
   /** Number of descendants. */
   private long mDescendantCount;
-
+  
   /** Delegate for common node information. */
   private final NodeDelegate mDelegate;
 
@@ -88,11 +88,13 @@ public class StructNodeDelegate extends AbsForwardingNode implements IStructNode
    *          number of children of the node
    * @param pDescendantCount
    *          number of descendants of the node
+   * @param pSiblingPos
+   * 					sibling position
    */
-  public StructNodeDelegate(@Nonnull final NodeDelegate pDel,
+  public StructNodeDelegate(final @Nonnull NodeDelegate pDel,
     final long pFirstChild, final long pRightSib, final long pLeftSib,
-    @Nonnegative final long pChildCount,
-    @Nonnegative final long pDescendantCount) {
+    final @Nonnegative long pChildCount,
+    final @Nonnegative long pDescendantCount) {
     checkArgument(pChildCount >= 0, "pChildCount must be >= 0!");
     checkArgument(pDescendantCount >= 0, "pDescendantCount must be >= 0!");
     mDelegate = checkNotNull(pDel);
@@ -169,7 +171,7 @@ public class StructNodeDelegate extends AbsForwardingNode implements IStructNode
   }
 
   @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
+  public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 
@@ -218,7 +220,7 @@ public class StructNodeDelegate extends AbsForwardingNode implements IStructNode
   }
 
   @Override
-  public void setDescendantCount(@Nonnegative final long pDescendantCount) {
+  public void setDescendantCount(final @Nonnegative long pDescendantCount) {
     checkArgument(pDescendantCount >= 0, "pDescendantCount must be >= 0!");
     mDescendantCount = pDescendantCount;
   }

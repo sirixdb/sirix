@@ -29,117 +29,118 @@ package org.sirix.node.interfaces;
 
 /**
  * Class to denote that an {@link INode} has structural attributes. That means
- * that a class can have pointers to neighbors as well as a first child pointer and various other
- * structural measures as the {@code childCount} and {@code descendantCount}.
+ * that a class can have pointers to neighbors as well as a first child pointer
+ * and various other structural measures as the {@code childCount} and
+ * {@code descendantCount}.
  */
 public interface IStructNode extends INode {
 
-  /**
-   * Declares, whether the item has a first child.
-   * 
-   * @return true, if item has a first child, otherwise false
-   */
-  boolean hasFirstChild();
+	/**
+	 * Declares, whether the item has a first child.
+	 * 
+	 * @return true, if item has a first child, otherwise false
+	 */
+	boolean hasFirstChild();
 
-  /**
-   * Declares, whether the item has a left sibling.
-   * 
-   * @return true, if item has a left sibling, otherwise false
-   */
-  boolean hasLeftSibling();
+	/**
+	 * Declares, whether the item has a left sibling.
+	 * 
+	 * @return true, if item has a left sibling, otherwise false
+	 */
+	boolean hasLeftSibling();
 
-  /**
-   * Declares, whether the item has a right sibling.
-   * 
-   * @return true, if item has a right sibling, otherwise false
-   */
-  boolean hasRightSibling();
+	/**
+	 * Declares, whether the item has a right sibling.
+	 * 
+	 * @return true, if item has a right sibling, otherwise false
+	 */
+	boolean hasRightSibling();
 
-  /**
-   * Get the number of children of the node.
-   * 
-   * @return node's number of children
-   */
-  long getChildCount();
+	/**
+	 * Get the number of children of the node.
+	 * 
+	 * @return node's number of children
+	 */
+	long getChildCount();
 
-  /**
-   * Get the number of descendants of the node.
-   * 
-   * @return node's number of descendants
-   */
-  long getDescendantCount();
+	/**
+	 * Get the number of descendants of the node.
+	 * 
+	 * @return node's number of descendants
+	 */
+	long getDescendantCount();
 
-  /**
-   * Gets key of the context item's first child.
-   * 
-   * @return first child's key
-   */
-  long getFirstChildKey();
+	/**
+	 * Gets key of the context item's first child.
+	 * 
+	 * @return first child's key
+	 */
+	long getFirstChildKey();
 
-  /**
-   * Gets key of the context item's left sibling.
-   * 
-   * @return left sibling key
-   */
-  long getLeftSiblingKey();
+	/**
+	 * Gets key of the context item's left sibling.
+	 * 
+	 * @return left sibling key
+	 */
+	long getLeftSiblingKey();
 
-  /**
-   * Gets key of the context item's right sibling.
-   * 
-   * @return right sibling key
-   */
-  long getRightSiblingKey();
+	/**
+	 * Gets key of the context item's right sibling.
+	 * 
+	 * @return right sibling key
+	 */
+	long getRightSiblingKey();
 
-  /**
-   * Setting the right sibling key to this node.
-   * 
-   * @param pNodeKey
-   *          the new key to be set.
-   */
-  void setRightSiblingKey(long pNodeKey);
+	/**
+	 * Setting the right sibling key to this node.
+	 * 
+	 * @param pNodeKey
+	 *          the new key to be set.
+	 */
+	void setRightSiblingKey(long pNodeKey);
 
-  /**
-   * Setting the left sibling key to this node.
-   * 
-   * @param pNodeKey
-   *          the new key to be set.
-   */
-  void setLeftSiblingKey(long pNodeKey);
+	/**
+	 * Setting the left sibling key to this node.
+	 * 
+	 * @param pNodeKey
+	 *          the new key to be set.
+	 */
+	void setLeftSiblingKey(long pNodeKey);
 
-  /**
-   * Setting the first child sibling key to this node.
-   * 
-   * @param pNodeKey
-   *          the new key to be set.
-   */
-  void setFirstChildKey(long pNodeKey);
+	/**
+	 * Setting the first child sibling key to this node.
+	 * 
+	 * @param pNodeKey
+	 *          the new key to be set.
+	 */
+	void setFirstChildKey(long pNodeKey);
 
-  /**
-   * Decrementing the child count.
-   * 
-   */
-  void decrementChildCount();
+	/**
+	 * Decrementing the child count.
+	 * 
+	 */
+	void decrementChildCount();
 
-  /**
-   * Incrementing the child count.
-   */
-  void incrementChildCount();
+	/**
+	 * Incrementing the child count.
+	 */
+	void incrementChildCount();
 
-  /**
-   * Decrementing the descendant count.
-   */
-  void decrementDescendantCount();
+	/**
+	 * Decrementing the descendant count.
+	 */
+	void decrementDescendantCount();
 
-  /**
-   * Incrementing the descendant count.
-   */
-  void incrementDescendantCount();
+	/**
+	 * Incrementing the descendant count.
+	 */
+	void incrementDescendantCount();
 
-  /**
-   * Set the descendant count.
-   * 
-   * @param pDescendantCount
-   *          new descendant count
-   */
-  void setDescendantCount(long pDescendantCount);
+	/**
+	 * Set the descendant count.
+	 * 
+	 * @param pDescendantCount
+	 *          new descendant count
+	 */
+	void setDescendantCount(long pDescendantCount);
 }

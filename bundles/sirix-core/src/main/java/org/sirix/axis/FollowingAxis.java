@@ -53,7 +53,7 @@ public final class FollowingAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param paramRtx
+   * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
   public FollowingAxis(@Nonnull final INodeCursor pRtx) {
@@ -71,7 +71,7 @@ public final class FollowingAxis extends AbsAxis {
   
   @Override
   protected long nextKey() {
-    // Assure, that preceding is not evaluated on an attribute or a
+    // Assure, that following is not evaluated on an attribute or a
     // namespace.
     if (mIsFirst) {
       switch (getTrx().getKind()) {
