@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.interfaces.NodeKind;
 import org.sirix.node.interfaces.Node;
@@ -85,7 +85,7 @@ public final class NullNode implements StructNode {
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(@Nonnull final IVisitor paramVisitor) {
+	public VisitResultType acceptVisitor(@Nonnull final IVisitor paramVisitor) {
 		throw new UnsupportedOperationException();
 	}
 

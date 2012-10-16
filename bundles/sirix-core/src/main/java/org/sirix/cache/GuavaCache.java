@@ -18,7 +18,7 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.page.EPage;
+import org.sirix.page.PageKind;
 
 /**
  * Cache utilizing the Guava cache functionality.
@@ -83,7 +83,7 @@ public class GuavaCache implements Cache<Tuple, PageContainer> {
           return PageContainer.EMPTY_INSTANCE;
         }
         final long nodePageKey = key.getKey();
-        final EPage pageType = key.getPage();
+        final PageKind pageType = key.getPage();
         if (pageType == null) {
           return PageContainer.EMPTY_INSTANCE;
         } else {

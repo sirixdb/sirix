@@ -48,56 +48,56 @@ public interface IVisitor {
   /**
    * Do something when visiting a {@link ImmutablePI}.
    * 
-   * @param pNode
+   * @param node
    *          the {@link ImmutablePI}
    */
-  IVisitResult visit(@Nonnull final ImmutablePI pNode);
+  VisitResult visit(@Nonnull final ImmutablePI node);
   
   /**
    * Do something when visiting a {@link ImmutableComment}.
    * 
-   * @param pNode
+   * @param node
    *          the {@link ImmutableComment}
    */
-  IVisitResult visit(@Nonnull final ImmutableComment pNode);
+  VisitResult visit(@Nonnull final ImmutableComment node);
 	
   /**
    * Do something when visiting an {@link ImmutableElement}.
    * 
-   * @param pNode
+   * @param node
    *          the {@link ImmutableElement}
    */
-  IVisitResult visit(@Nonnull final ImmutableElement pNode);
+  VisitResult visit(@Nonnull final ImmutableElement node);
 
   /**
    * Do something when visiting a {@link ImmutableAttribute}.
    * 
-   * @param pNode
+   * @param node
    *          the {@link ImmutableAttribute}
    */
-  IVisitResult visit(@Nonnull final ImmutableAttribute pNode);
+  VisitResult visit(@Nonnull final ImmutableAttribute node);
 
   /**ImmutableDocumentRoot
    * Do something when visiting a {@link ImmutableNamespace}.
    * 
-   * @param pNode
+   * @param node
    *          the {@link ImmutableNamespace}
    */
-  IVisitResult visit(@Nonnull final ImmutableNamespace pNode);
+  VisitResult visit(@Nonnull final ImmutableNamespace node);
 
   /**
    * Do something when visiting a {@link ImmutableText}.
    * 
-   * @param pNode
+   * @param node
    *          the {@link ImmutableText}
    */
-  IVisitResult visit(@Nonnull final ImmutableText pNode);
+  VisitResult visit(@Nonnull final ImmutableText node);
 
   /**
    * Do something when visiting the {@link ImmutableDocument}.
    * 
-   * @param pNode
+   * @param node
    *          the {@link ImmutableDocument}
    */
-  IVisitResult visit(@Nonnull final ImmutableDocument pNode);
+  VisitResult visit(@Nonnull final ImmutableDocument node);
 }

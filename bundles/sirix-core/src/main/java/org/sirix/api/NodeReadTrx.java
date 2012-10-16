@@ -40,7 +40,7 @@ import org.sirix.node.Kind;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 /**
- * <h1>IReadTransaction</h1>
+ * <h1>NodeReadTrx</h1>
  * 
  * <h2>Description</h2>
  * 
@@ -169,32 +169,32 @@ public interface NodeReadTrx extends NodeCursor {
 	/**
 	 * Move cursor to attribute by its index.
 	 * 
-	 * @param pIndex
+	 * @param index
 	 *          index of attribute to move to
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
 	 */
-	Move<? extends NodeReadTrx> moveToAttribute(@Nonnegative int pIndex);
+	Move<? extends NodeReadTrx> moveToAttribute(@Nonnegative int index);
 
 	/**
 	 * Move cursor to attribute by its name key.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          {@link QName} of attribute
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
 	 */
-	Move<? extends NodeReadTrx> moveToAttributeByName(@Nonnull QName pName);
+	Move<? extends NodeReadTrx> moveToAttributeByName(@Nonnull QName name);
 
 	/**
 	 * Move cursor to namespace declaration by its index.
 	 * 
-	 * @param pIndex
+	 * @param index
 	 *          index of attribute to move to
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
 	 */
-	Move<? extends NodeReadTrx> moveToNamespace(@Nonnegative int pIndex);
+	Move<? extends NodeReadTrx> moveToNamespace(@Nonnegative int index);
 
 	/**
 	 * Move to the next following node, that is the next node on the XPath
@@ -233,29 +233,29 @@ public interface NodeReadTrx extends NodeCursor {
 	/**
 	 * Get key for given name. This is used for efficient name testing.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          name, i.e., local part, URI, or prefix
 	 * @return internal key assigned to given name
 	 */
-	int keyForName(@Nonnull String pName);
+	int keyForName(@Nonnull String name);
 
 	/**
 	 * Get name for key. This is used for efficient key testing.
 	 * 
-	 * @param pKey
+	 * @param key
 	 *          key, i.e., local part key, URI key, or prefix key.
 	 * @return String containing name for given key
 	 */
-	String nameForKey(int pKey);
+	String nameForKey(int key);
 
 	/**
 	 * Get raw name for key. This is used for efficient key testing.
 	 * 
-	 * @param pKey
+	 * @param key
 	 *          key, i.e., local part key, URI key, or prefix key.
 	 * @return byte array containing name for given key
 	 */
-	byte[] rawNameForKey(int pKey);
+	byte[] rawNameForKey(int key);
 
 	/**
 	 * Get item list containing volatile items such as atoms or fragments.
@@ -375,11 +375,11 @@ public interface NodeReadTrx extends NodeCursor {
 	/**
 	 * Get the number of nodes which reference to the name.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          name to lookup
 	 * @return number of nodes with the same name and node kind
 	 */
-	int getNameCount(@Nonnull String pName, @Nonnull Kind pKind);
+	int getNameCount(@Nonnull String name, @Nonnull Kind kind);
 
 	/**
 	 * Get the type key of the node.
@@ -394,7 +394,7 @@ public interface NodeReadTrx extends NodeCursor {
 	 * @return attribute key for index or {@code -1} if no attribute with the
 	 *         given index is available
 	 */
-	long getAttributeKey(@Nonnegative int pIndex);
+	long getAttributeKey(@Nonnegative int index);
 	
 	/**
 	 * Determines if current node has children.

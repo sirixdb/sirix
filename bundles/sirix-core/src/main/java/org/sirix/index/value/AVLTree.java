@@ -9,7 +9,7 @@ import org.sirix.access.Move;
 import org.sirix.access.Moved;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.DocumentRootNode;
@@ -19,7 +19,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.page.EPage;
+import org.sirix.page.PageKind;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
@@ -70,7 +70,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 
 		try {
 			Optional<? extends NodeBase> node = mPageWriteTrx.getNode(
-					EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
+					EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.VALUEPAGE);
 			if (node.isPresent()) {
 				mCurrentNode = (Node) node.get();
 			} else {
@@ -114,13 +114,13 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 			mRoot = (AVLNode<K, V>) mPageWriteTrx.createNode(new AVLNode<>(pKey,
 					pValue, new NodeDelegate(root.getMaxValueNodeKey() + 1,
 							EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0)),
-					EPage.VALUEPAGE);
+					PageKind.VALUEPAGE);
 			final DocumentRootNode document = (DocumentRootNode) mPageWriteTrx
 					.prepareNodeForModification(
-							EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
+							EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.VALUEPAGE);
 			document.setFirstChildKey(mRoot.getNodeKey());
 			mPageWriteTrx.finishNodeModification(document.getNodeKey(),
-					EPage.VALUEPAGE);
+					PageKind.VALUEPAGE);
 			mSize++;
 			return pValue;
 		}
@@ -143,9 +143,9 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 					new AVLNode<>(pKey, pValue, new NodeDelegate(root
 							.getMaxValueNodeKey(),
 							EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0)),
-					EPage.VALUEPAGE);
+					PageKind.VALUEPAGE);
 			node = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
-					node.getNodeKey(), EPage.VALUEPAGE);
+					node.getNodeKey(), PageKind.VALUEPAGE);
 			if (c < 0) {
 				node.setLeftChildKey(child.getNodeKey());
 				adjust(child);
@@ -153,7 +153,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 				node.setRightChildKey(child.getNodeKey());
 				adjust(child);
 			}
-			mPageWriteTrx.finishNodeModification(node.getNodeKey(), EPage.VALUEPAGE);
+			mPageWriteTrx.finishNodeModification(node.getNodeKey(), PageKind.VALUEPAGE);
 			mSize++;
 			return pValue;
 		}
@@ -275,9 +275,9 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 			final boolean pChanged) throws SirixIOException {
 		@SuppressWarnings("unchecked")
 		final AVLNode<K, V> node = (AVLNode<K, V>) mPageWriteTrx
-				.prepareNodeForModification(pNode.getNodeKey(), EPage.VALUEPAGE);
+				.prepareNodeForModification(pNode.getNodeKey(), PageKind.VALUEPAGE);
 		node.setChanged(pChanged);
-		mPageWriteTrx.finishNodeModification(node.getNodeKey(), EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(node.getNodeKey(), PageKind.VALUEPAGE);
 	}
 
 	/**
@@ -333,22 +333,22 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 		AVLNode<K, V> right = (AVLNode<K, V>) moveToLastChild().get().getAVLNode();
 
 		pNode = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
-				pNode.getNodeKey(), EPage.VALUEPAGE);
+				pNode.getNodeKey(), PageKind.VALUEPAGE);
 		pNode.setRightChildKey(right.getLeftChildKey());
-		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), PageKind.VALUEPAGE);
 
 		if (right.hasLeftChild()) {
 			final AVLNode<K, V> rightLeftChild = (AVLNode<K, V>) mPageWriteTrx
-					.prepareNodeForModification(right.getLeftChildKey(), EPage.VALUEPAGE);
+					.prepareNodeForModification(right.getLeftChildKey(), PageKind.VALUEPAGE);
 			rightLeftChild.setParentKey(pNode.getNodeKey());
 			mPageWriteTrx.finishNodeModification(rightLeftChild.getNodeKey(),
-					EPage.VALUEPAGE);
+					PageKind.VALUEPAGE);
 		}
 
 		right = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
-				right.getNodeKey(), EPage.VALUEPAGE);
+				right.getNodeKey(), PageKind.VALUEPAGE);
 		right.setParentKey(pNode.getParentKey());
-		mPageWriteTrx.finishNodeModification(right.getNodeKey(), EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(right.getNodeKey(), PageKind.VALUEPAGE);
 
 		if (pNode.getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
 			mRoot = right;
@@ -356,28 +356,28 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 				&& getAVLNode().getLeftChildKey() == pNode.getNodeKey()) {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
 					.prepareNodeForModification(mCurrentNode.getNodeKey(),
-							EPage.VALUEPAGE);
+							PageKind.VALUEPAGE);
 			parent.setLeftChildKey(right.getNodeKey());
 			mPageWriteTrx
-					.finishNodeModification(parent.getNodeKey(), EPage.VALUEPAGE);
+					.finishNodeModification(parent.getNodeKey(), PageKind.VALUEPAGE);
 		} else {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
 					.prepareNodeForModification(mCurrentNode.getNodeKey(),
-							EPage.VALUEPAGE);
+							PageKind.VALUEPAGE);
 			parent.setRightChildKey(right.getNodeKey());
 			mPageWriteTrx
-					.finishNodeModification(parent.getNodeKey(), EPage.VALUEPAGE);
+					.finishNodeModification(parent.getNodeKey(), PageKind.VALUEPAGE);
 		}
 
 		right = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
-				right.getNodeKey(), EPage.VALUEPAGE);
+				right.getNodeKey(), PageKind.VALUEPAGE);
 		right.setLeftChildKey(pNode.getNodeKey());
-		mPageWriteTrx.finishNodeModification(right.getNodeKey(), EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(right.getNodeKey(), PageKind.VALUEPAGE);
 
 		pNode = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
-				pNode.getNodeKey(), EPage.VALUEPAGE);
+				pNode.getNodeKey(), PageKind.VALUEPAGE);
 		pNode.setParentKey(right.getNodeKey());
-		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), PageKind.VALUEPAGE);
 	}
 
 	/**
@@ -396,24 +396,24 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 		AVLNode<K, V> leftChild = (AVLNode<K, V>) moveToFirstChild().get()
 				.getAVLNode();
 		pNode = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
-				pNode.getNodeKey(), EPage.VALUEPAGE);
+				pNode.getNodeKey(), PageKind.VALUEPAGE);
 		pNode.setLeftChildKey(leftChild.getRightChildKey());
-		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), PageKind.VALUEPAGE);
 
 		if (leftChild.hasRightChild()) {
 			final Node leftRightChild = (Node) mPageWriteTrx
 					.prepareNodeForModification(leftChild.getRightChildKey(),
-							EPage.VALUEPAGE);
+							PageKind.VALUEPAGE);
 			leftRightChild.setParentKey(pNode.getNodeKey());
 			mPageWriteTrx.finishNodeModification(leftRightChild.getNodeKey(),
-					EPage.VALUEPAGE);
+					PageKind.VALUEPAGE);
 		}
 
 		leftChild = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
-				leftChild.getNodeKey(), EPage.VALUEPAGE);
+				leftChild.getNodeKey(), PageKind.VALUEPAGE);
 		leftChild.setParentKey(pNode.getParentKey());
 		mPageWriteTrx.finishNodeModification(leftChild.getNodeKey(),
-				EPage.VALUEPAGE);
+				PageKind.VALUEPAGE);
 
 		if (pNode.getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
 			mRoot = leftChild;
@@ -421,29 +421,29 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 				&& getAVLNode().getRightChildKey() == pNode.getNodeKey()) {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
 					.prepareNodeForModification(mCurrentNode.getNodeKey(),
-							EPage.VALUEPAGE);
+							PageKind.VALUEPAGE);
 			parent.setRightChildKey(leftChild.getNodeKey());
 			mPageWriteTrx
-					.finishNodeModification(parent.getNodeKey(), EPage.VALUEPAGE);
+					.finishNodeModification(parent.getNodeKey(), PageKind.VALUEPAGE);
 		} else {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
 					.prepareNodeForModification(mCurrentNode.getNodeKey(),
-							EPage.VALUEPAGE);
+							PageKind.VALUEPAGE);
 			parent.setLeftChildKey(leftChild.getNodeKey());
 			mPageWriteTrx
-					.finishNodeModification(parent.getNodeKey(), EPage.VALUEPAGE);
+					.finishNodeModification(parent.getNodeKey(), PageKind.VALUEPAGE);
 		}
 
 		leftChild = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
-				leftChild.getNodeKey(), EPage.VALUEPAGE);
+				leftChild.getNodeKey(), PageKind.VALUEPAGE);
 		leftChild.setRightChildKey(pNode.getNodeKey());
 		mPageWriteTrx.finishNodeModification(leftChild.getNodeKey(),
-				EPage.VALUEPAGE);
+				PageKind.VALUEPAGE);
 
 		pNode = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
-				pNode.getNodeKey(), EPage.VALUEPAGE);
+				pNode.getNodeKey(), PageKind.VALUEPAGE);
 		pNode.setParentKey(leftChild.getNodeKey());
-		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), EPage.VALUEPAGE);
+		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), PageKind.VALUEPAGE);
 	}
 
 	@Override
@@ -512,7 +512,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+	public VisitResultType acceptVisitor(@Nonnull IVisitor pVisitor) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -527,7 +527,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 			// Immediately return node from item list if node key negative.
 			@SuppressWarnings("unchecked")
 			final Optional<? extends Node> node = (Optional<? extends Node>) mPageWriteTrx
-					.getNode(pNodeKey, EPage.PATHSUMMARYPAGE);
+					.getNode(pNodeKey, PageKind.PATHSUMMARYPAGE);
 			newNode = node;
 		} catch (final SirixIOException e) {
 			newNode = Optional.absent();

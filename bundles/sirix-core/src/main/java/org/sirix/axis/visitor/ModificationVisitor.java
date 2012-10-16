@@ -12,8 +12,8 @@ import javax.xml.stream.XMLStreamException;
 
 import org.sirix.access.AbsVisitor;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.visitor.EVisitResult;
-import org.sirix.api.visitor.IVisitResult;
+import org.sirix.api.visitor.VisitResultType;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -67,7 +67,7 @@ public final class ModificationVisitor extends AbsVisitor {
 	}
 
 	@Override
-	public IVisitResult visit(final @Nonnull ImmutableElement pNode) {
+	public VisitResult visit(final @Nonnull ImmutableElement pNode) {
 		return processNode(pNode);
 	}
 
@@ -77,19 +77,19 @@ public final class ModificationVisitor extends AbsVisitor {
 	 * 
 	 * @param pNode
 	 *          the node to check
-	 * @return the appropriate {@link EVisitResult} value
+	 * @return the appropriate {@link VisitResultType} value
 	 */
-	private IVisitResult processNode(final StructNode pNode) {
+	private VisitResult processNode(final StructNode pNode) {
 		assert pNode != null;
-		final IVisitResult result = modify(pNode);
+		final VisitResult result = modify(pNode);
 		if (pNode.getNodeKey() == mStartKey) {
-			return EVisitResult.TERMINATE;
+			return VisitResultType.TERMINATE;
 		}
 		return result;
 	}
 
 	@Override
-	public IVisitResult visit(final @Nonnull ImmutableText pNode) {
+	public VisitResult visit(final @Nonnull ImmutableText pNode) {
 		return processNode(pNode);
 	}
 
@@ -104,7 +104,7 @@ public final class ModificationVisitor extends AbsVisitor {
 	 *          the node to check and possibly delete
 	 * @return {@code true} if node has been deleted, {@code false} otherwise
 	 */
-	private IVisitResult modify(final StructNode pNode) {
+	private VisitResult modify(final StructNode pNode) {
 		assert pNode != null;
 		if (mNodeIndex % MODIFY_EVERY == 0) {
 			mNodeIndex = 1;
@@ -117,33 +117,33 @@ public final class ModificationVisitor extends AbsVisitor {
 					mWtx.insertElementAsLeftSibling(insert);
 					boolean moved = mWtx.moveTo(key).hasMoved();
 					assert moved;
-					return EVisitResult.CONTINUE;
+					return VisitResultType.CONTINUE;
 				case 1:
 					if (mWtx.getKind() == Kind.TEXT) {
 						mWtx.setValue("testUpdate");
 					} else if (mWtx.getKind() == Kind.ELEMENT) {
 						mWtx.setQName(new QName("testUpdate"));
 					}
-					return EVisitResult.CONTINUE;
+					return VisitResultType.CONTINUE;
 				case 2:
 					return delete();
 				case 3:
 					mWtx.replaceNode("<foo/>");
-					return EVisitResult.CONTINUE;
+					return VisitResultType.CONTINUE;
 				}
 			} catch (final SirixException | IOException | XMLStreamException e) {
 				LOGWRAPPER.error(e.getMessage(), e);
-				return EVisitResult.TERMINATE;
+				return VisitResultType.TERMINATE;
 			}
 		} else {
 			mNodeIndex++;
-			return EVisitResult.CONTINUE;
+			return VisitResultType.CONTINUE;
 		}
-		return EVisitResult.CONTINUE;
+		return VisitResultType.CONTINUE;
 	}
 
 	/** Delete a subtree and determine movement. */
-	private IVisitResult delete() throws SirixException {
+	private VisitResult delete() throws SirixException {
 		try {
 			final long nodeKey = mWtx.getNodeKey();
 			boolean removeTextNode = false;
@@ -172,7 +172,7 @@ public final class ModificationVisitor extends AbsVisitor {
 				final long leftSiblKey = mWtx.getLeftSiblingKey();
 				mWtx.remove();
 				assert mWtx.getNodeKey() == leftSiblKey;
-				return EVisitResult.SKIPSUBTREE;
+				return VisitResultType.SKIPSUBTREE;
 			}
 
 			// Case: Has right sibl. and left sibl.
@@ -185,12 +185,12 @@ public final class ModificationVisitor extends AbsVisitor {
 				if (removeTextNode) {
 					assert mWtx.getKind() == Kind.TEXT;
 					assert mWtx.getRightSiblingKey() == rightRightSiblKey;
-					return EVisitResult.CONTINUE;
+					return VisitResultType.CONTINUE;
 				} else {
 					final boolean moved = mWtx.moveToLeftSibling().hasMoved();
 					assert moved;
 					assert mWtx.getRightSiblingKey() == rightSiblKey;
-					return EVisitResult.SKIPSUBTREE;
+					return VisitResultType.SKIPSUBTREE;
 				}
 			}
 
@@ -200,7 +200,7 @@ public final class ModificationVisitor extends AbsVisitor {
 				mWtx.remove();
 				mWtx.moveToParent();
 				assert mWtx.getFirstChildKey() == rightSiblKey;
-				return EVisitResult.CONTINUE;
+				return VisitResultType.CONTINUE;
 			}
 
 			// Case: Has no right and no left sibl.
@@ -210,6 +210,6 @@ public final class ModificationVisitor extends AbsVisitor {
 		} catch (final SirixException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
-		return EVisitResult.CONTINUE;
+		return VisitResultType.CONTINUE;
 	}
 }

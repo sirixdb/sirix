@@ -53,18 +53,18 @@ public final class FollowingAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param pRtx
+   * @param rtx
    *          exclusive (immutable) trx to iterate with
    */
-  public FollowingAxis(@Nonnull final NodeCursor pRtx) {
-    super(pRtx);
+  public FollowingAxis(@Nonnull final NodeCursor rtx) {
+    super(rtx);
     mIsFirst = true;
     mRightSiblingStack = new ArrayDeque<>();
   }
 
   @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
     mIsFirst = true;
     mRightSiblingStack = new ArrayDeque<>();
   }

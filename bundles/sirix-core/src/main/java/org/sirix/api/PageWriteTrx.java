@@ -12,7 +12,7 @@ import org.sirix.exception.SirixThreadedException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
-import org.sirix.page.EPage;
+import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
@@ -35,13 +35,15 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * Create fresh node and prepare node nodePageReference for modifications
 	 * (COW).
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          node to add
 	 * @return unmodified node for convenience
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
+	 * @throws NullPointerException
+	 *           if {@code node} or {@code page} is {@code null}
 	 */
-	NodeBase createNode(@Nonnull NodeBase pNode, @Nonnull EPage pPage)
+	NodeBase createNode(@Nonnull NodeBase node, @Nonnull PageKind page)
 			throws SirixIOException;
 
 	/**
@@ -49,70 +51,91 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * (persistence) layer, storing the page in the cache and setting up the node
 	 * for upcoming modification. Note that this only occurs for {@link Node}s.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          key of the node to be modified
 	 * @return an {@link Node} instance
 	 * @throws SirixIOException
 	 *           if an I/O-error occurs
+	 * @throws IllegalArgumentException
+	 *           if {@code nodeKey < 0}
+	 * @throws NullPointerException
+	 *           if {@code page} is {@code null}
 	 */
-	NodeBase prepareNodeForModification(@Nonnegative long pNodeKey,
-			@Nonnull EPage pPage) throws SirixIOException;
+	NodeBase prepareNodeForModification(@Nonnegative long nodeKey,
+			@Nonnull PageKind page) throws SirixIOException;
 
 	/**
 	 * Finishing the node modification. That is storing the node including the
 	 * page in the cache.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          node key from node to be removed
-	 * @param pPage
-	 * 					denoting the kind of node page
+	 * @param page
+	 *          denoting the kind of node page
+	 * @throws IllegalArgumentException
+	 *           if {@code nodeKey < 0}
+	 * @throws NullPointerException
+	 *           if {@code page} is {@code null}
 	 */
-	void finishNodeModification(@Nonnull long pNodeKey, @Nonnull EPage pPage);
+	void finishNodeModification(@Nonnull long nodeKey, @Nonnull PageKind page);
 
 	/**
 	 * Removing a node from the storage.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          node key from node to be removed
-	 * @param pPage
-	 * 					denoting the kind of node page
+	 * @param page
+	 *          denoting the kind of node page
 	 * @throws SirixIOException
 	 *           if the removal fails
+	 * @throws IllegalArgumentException
+	 *           if {@code nodeKey < 0}
+	 * @throws NullPointerException
+	 *           if {@code page} is {@code null}
 	 */
-	void removeNode(@Nonnull long pNodeKey, @Nonnull EPage pPage)
+	void removeNode(@Nonnull long nodeKey, @Nonnull PageKind page)
 			throws SirixIOException;
 
 	/**
 	 * Creating a namekey for a given name.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          for which the key should be created
-	 * @param pKind
+	 * @param kind
 	 *          kind of node
 	 * @return an int, representing the namekey
 	 * @throws SirixIOException
 	 *           if something odd happens while storing the new key
+	 * @throws NullPointerException
+	 *           if {@code name} or {@code kind} is {@code null}
 	 */
-	int createNameKey(@Nonnull String pName, @Nonnull Kind pKind)
+	int createNameKey(@Nonnull String name, @Nonnull Kind kind)
 			throws SirixIOException;
 
 	/**
 	 * Commit the transaction, that is persist changes if any and create a new
 	 * revision.
+	 * 
+	 * @throws SirixException
+	 *           if Sirix fails to commit
+	 * @throws NullPointerException
+	 * 					 if {@code multipleWriteTrx} is {@code null}
 	 */
-	UberPage commit(@Nonnull MultipleWriteTrx pMultipleWriteTrx)
+	UberPage commit(@Nonnull MultipleWriteTrx multipleWriteTrx)
 			throws SirixException;
 
 	/**
 	 * Update log.
 	 * 
-	 * @param pNodePageCont
+	 * @param nodePageCont
 	 *          {@link PageContainer} reference to synchronize
-	 * @param pPage
+	 * @param page
 	 *          type of page
+	 * @throws NullPointerException
+	 * 					if {@code nodePageCont} or {@code page} is {@code null}
 	 */
-	void updateDateContainer(@Nonnull PageContainer pNodePageCont,
-			@Nonnull EPage pPage);
+	void updateDateContainer(@Nonnull PageContainer nodePageCont,
+			@Nonnull PageKind page);
 
 	/**
 	 * Committing a {@link NodeWriteTrx}. This method is recursively invoked by
@@ -120,18 +143,21 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * 
 	 * @param reference
 	 *          to be commited
-	 * @throws SirixThreadedException
 	 * @throws SirixException
 	 *           if the write fails
+	 * @throws NullPointerException
+	 * 					 if {@code reference} is {@code null}
 	 */
-	void commit(@Nonnull PageReference pReference) throws SirixException;
+	void commit(@Nonnull PageReference reference) throws SirixException;
 
 	/**
 	 * Determines if this page write trx must restore a previous failed trx.
 	 * 
-	 * @param pRestore
+	 * @param restore
 	 *          determines if this page write trx must restore a previous failed
 	 *          trx
+	 * @throws NullPointerException
+	 * 				  if {@code restore} is {@code null}
 	 */
-	void restore(@Nonnull Restore pRestore);
+	void restore(@Nonnull Restore restore);
 }

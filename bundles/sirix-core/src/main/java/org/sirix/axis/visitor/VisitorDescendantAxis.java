@@ -37,8 +37,8 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.visitor.EVisitResult;
-import org.sirix.api.visitor.IVisitResult;
+import org.sirix.api.visitor.VisitResultType;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.axis.AbsAxis;
 import org.sirix.axis.DescendantAxis;
@@ -85,11 +85,11 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		/**
 		 * Constructor.
 		 * 
-		 * @param pRtx
+		 * @param rtx
 		 *          Sirix {@link NodeCursor}
 		 */
-		public Builder(final NodeCursor pRtx) {
-			mRtx = checkNotNull(pRtx);
+		public Builder(final @Nonnull NodeCursor rtx) {
+			mRtx = checkNotNull(rtx);
 		}
 
 		/**
@@ -107,12 +107,12 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		/**
 		 * Set visitor.
 		 * 
-		 * @param pVisitor
+		 * @param visitor
 		 *          the visitor
 		 * @return this builder instance
 		 */
-		public Builder visitor(final Optional<? extends IVisitor> pVisitor) {
-			mVisitor = checkNotNull(pVisitor);
+		public Builder visitor(final Optional<? extends IVisitor> visitor) {
+			mVisitor = checkNotNull(visitor);
 			return this;
 		}
 
@@ -129,17 +129,17 @@ public final class VisitorDescendantAxis extends AbsAxis {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pBuilder
+	 * @param builder
 	 *          the builder to construct a new instance
 	 */
-	private VisitorDescendantAxis(@Nonnull final Builder pBuilder) {
-		super(pBuilder.mRtx, pBuilder.mIncludeSelf);
-		mVisitor = pBuilder.mVisitor;
+	private VisitorDescendantAxis(final @Nonnull Builder builder) {
+		super(builder.mRtx, builder.mIncludeSelf);
+		mVisitor = builder.mVisitor;
 	}
 
 	@Override
-	public void reset(final long pNodeKey) {
-		super.reset(pNodeKey);
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
 		mFirst = true;
 		mRightSiblingKeyStack = new ArrayDeque<>();
 	}
@@ -147,14 +147,14 @@ public final class VisitorDescendantAxis extends AbsAxis {
 	@Override
 	protected long nextKey() {
 		// Visitor.
-		Optional<IVisitResult> result = Optional.absent();
+		Optional<VisitResult> result = Optional.absent();
 		if (mVisitor.isPresent()) {
 			result = Optional.fromNullable(getTrx().acceptVisitor(mVisitor.get()));
 		}
 
 		// If visitor is present and the return value is EVisitResult.TERMINATE than
 		// return false.
-		if (result.isPresent() && result.get() == EVisitResult.TERMINATE) {
+		if (result.isPresent() && result.get() == VisitResultType.TERMINATE) {
 			return EFixed.NULL_NODE_KEY.getStandardProperty();
 		}
 
@@ -176,7 +176,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		// If visitor is present and result is not
 		// EVisitResult.SKIPSUBTREE/EVisitResult.SKIPSUBTREEPOPSTACK or visitor is
 		// not present.
-		if ((result.isPresent() && result.get() != EVisitResult.SKIPSUBTREE && result
+		if ((result.isPresent() && result.get() != VisitResultType.SKIPSUBTREE && result
 				.get() != LocalVisitResult.SKIPSUBTREEPOPSTACK) || !result.isPresent()) {
 			// Always follow first child if there is one.
 			if (rtx.hasFirstChild()) {
@@ -193,7 +193,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 
 		// If visitor is present and result is not EVisitResult.SKIPSIBLINGS or
 		// visitor is not present.
-		if ((result.isPresent() && result.get() != EVisitResult.SKIPSIBLINGS)
+		if ((result.isPresent() && result.get() != VisitResultType.SKIPSIBLINGS)
 				|| !result.isPresent()) {
 			// Then follow right sibling if there is one.
 			if (rtx.hasRightSibling()) {
@@ -214,19 +214,19 @@ public final class VisitorDescendantAxis extends AbsAxis {
 	/**
 	 * Determines if next node is not a right sibling of the current node.
 	 * 
-	 * @param pCurrKey
+	 * @param currKey
 	 *          node key of current node
 	 */
-	private long hasNextNode(final @Nonnegative long pNextKey,
-			final @Nonnegative long pCurrKey) {
+	private long hasNextNode(final @Nonnegative long nextKey,
+			final @Nonnegative long currKey) {
 		// Fail if the subtree is finished.
 		final NodeReadTrx rtx = getTrx();
-		rtx.moveTo(pNextKey);
+		rtx.moveTo(nextKey);
 		if (rtx.getLeftSiblingKey() == getStartKey()) {
 			return EFixed.NULL_NODE_KEY.getStandardProperty();
 		} else {
-			rtx.moveTo(pCurrKey);
-			return pNextKey;
+			rtx.moveTo(currKey);
+			return nextKey;
 		}
 	}
 }

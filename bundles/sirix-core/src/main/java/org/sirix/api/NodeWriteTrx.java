@@ -47,7 +47,7 @@ import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
- * <h1>IWriteTransaction</h1>
+ * <h1>NodeWriteTrx</h1>
  * 
  * <h2>Description</h2>
  * 
@@ -57,14 +57,6 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * /RightSiblingKey/ChildCount/DescendantCount encoding. This encoding keeps the
  * children ordered but has no knowledge of the global node ordering. The
  * underlying tree is accessed in a cursor-like fashion.
- * </p>
- * 
- * <p>
- * Each commit at least adds <code>10kB</code> to the sirix file. It is thus
- * recommended to work with the auto commit mode only committing after a given
- * amount of node modifications or elapsed time. For very update-intensive data,
- * a value of one million modifications and ten seconds is recommended. Note
- * that this might require to increment the available heap.
  * </p>
  * 
  * <h2>Convention</h2>
@@ -146,7 +138,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * rooted at the provided transaction) and insert as right sibling of the
 	 * current node.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          read transaction reference which implements the
 	 *          {@link NodeReadTrx} interface
 	 * @return the transaction instance
@@ -155,7 +147,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullpointerException
 	 *           if {@code pRtx} is {@code null}
 	 */
-	NodeWriteTrx copySubtreeAsFirstChild(@Nonnull NodeReadTrx pRtx)
+	NodeWriteTrx copySubtreeAsFirstChild(@Nonnull NodeReadTrx rtx)
 			throws SirixException;
 
 	/**
@@ -163,7 +155,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * rooted at the provided transaction) and insert as left sibling of the
 	 * current node.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          read transaction reference which implements the
 	 *          {@link NodeReadTrx} interface
 	 * @return the transaction instance
@@ -172,7 +164,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullpointerException
 	 *           if {@code pRtx} is {@code null}
 	 */
-	NodeWriteTrx copySubtreeAsLeftSibling(@Nonnull NodeReadTrx pRtx)
+	NodeWriteTrx copySubtreeAsLeftSibling(@Nonnull NodeReadTrx rtx)
 			throws SirixException;
 
 	/**
@@ -180,7 +172,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * rooted at the provided transaction) and insert as right sibling of the
 	 * current node.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          read transaction reference which implements the
 	 *          {@link NodeReadTrx} interface
 	 * @return the transaction instance
@@ -189,14 +181,14 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullpointerException
 	 *           if {@code pRtx} is {@code null}
 	 */
-	NodeWriteTrx copySubtreeAsRightSibling(@Nonnull NodeReadTrx pRtx)
+	NodeWriteTrx copySubtreeAsRightSibling(@Nonnull NodeReadTrx rtx)
 			throws SirixException;
 
 	/**
 	 * Replace a node with another node or subtree, depending on whether the
 	 * replaced node is an {@code element}- or a {@code text-}node.
 	 * 
-	 * @param pXML
+	 * @param xml
 	 *          an XML representation
 	 * @return the transaction instance
 	 * @throws IOException
@@ -208,7 +200,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws SirixException
 	 *           if anything in Sirix fails
 	 */
-	NodeWriteTrx replaceNode(@Nonnull String pXML) throws SirixException,
+	NodeWriteTrx replaceNode(@Nonnull String xml) throws SirixException,
 			IOException, XMLStreamException;
 
 	/**
@@ -222,177 +214,177 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	NodeWriteTrx replaceNode(@Nonnull NodeReadTrx pRtx) throws SirixException;
+	NodeWriteTrx replaceNode(@Nonnull NodeReadTrx rtx) throws SirixException;
 
 	/**
 	 * Move a subtree rooted at {@code pToKey} to the first child of the current
 	 * node.
 	 * 
-	 * @param pFromKey
+	 * @param fromKey
 	 *          root node key of the subtree to move
 	 * @return the transaction instance
 	 * @throws SirixException
 	 *           if move adaption fails
 	 * @throws IllegalArgumentException
-	 *           if {@code pFromKey < 0}, {@code pFromKey > maxNodeKey} or
-	 *           {@code pFromKey == currentNodeKey}
+	 *           if {@code fromKey < 0}, {@code fromKey > maxNodeKey} or
+	 *           {@code fromKey == currentNodeKey}
 	 * @throws NullPointerException
 	 *           if {@code nodeToMove} does not exist, that is the node which is
-	 *           denoted by it's node key {@code pFromKey}
+	 *           denoted by it's node key {@code fromKey}
 	 */
-	NodeWriteTrx moveSubtreeToFirstChild(@Nonnegative long pFromKey)
+	NodeWriteTrx moveSubtreeToFirstChild(@Nonnegative long fromKey)
 			throws SirixException;
 
 	/**
-	 * Move a subtree rooted at {@code pFromKey} to the right sibling of the
+	 * Move a subtree rooted at {@code fromKey} to the right sibling of the
 	 * current node. In case of the moved node is a text-node the value of the
 	 * current node is prepended to the moved node and deleted afterwards. In this
 	 * case the transaction is moved to the moved node.
 	 * 
-	 * @param pFromKey
+	 * @param fromKey
 	 *          root node key of the subtree to move
 	 * @return the transaction instance
 	 * @throws SirixException
 	 *           if move adaption fails
 	 * @throws IllegalArgumentException
-	 *           if {@code pFromKey < 0}, {@code pFromKey > maxNodeKey} or
-	 *           {@code pFromKey == currentNodeKey}
+	 *           if {@code fromKey < 0}, {@code fromKey > maxNodeKey} or
+	 *           {@code fromKey == currentNodeKey}
 	 * @throws NullPointerException
 	 *           if {@code nodeToMove} does not exist, that is the node which is
-	 *           denoted by it's node key {@code pFromKey}
+	 *           denoted by it's node key {@code fromKey}
 	 */
-	NodeWriteTrx moveSubtreeToRightSibling(long pFromKey) throws SirixException;
+	NodeWriteTrx moveSubtreeToRightSibling(long fromKey) throws SirixException;
 
 	/**
-	 * Move a subtree rooted at {@code pFromKey} to the left sibling of the
-	 * current node. In case of the moved node is a text-node the value of the
-	 * current node is prepended to the moved node and deleted afterwards. In this
-	 * case the transaction is moved to the moved node.
+	 * Move a subtree rooted at {@code fromKey} to the left sibling of the current
+	 * node. In case of the moved node is a text-node the value of the current
+	 * node is prepended to the moved node and deleted afterwards. In this case
+	 * the transaction is moved to the moved node.
 	 * 
-	 * @param pFromKey
+	 * @param fromKey
 	 *          root node key of the subtree to move
 	 * @return the transaction instance
 	 * @throws SirixException
 	 *           if move adaption fails
 	 * @throws IllegalArgumentException
-	 *           if {@code pFromKey < 0}, {@code pFromKey > maxNodeKey} or
-	 *           {@code pFromKey == currentNodeKey}
+	 *           if {@code fromKey < 0}, {@code fromKey > maxNodeKey} or
+	 *           {@code fromKey == currentNodeKey}
 	 * @throws NullPointerException
 	 *           if {@code nodeToMove} does not exist, that is the node which is
-	 *           denoted by it's node key {@code pFromKey}
+	 *           denoted by it's node key {@code fromKey}
 	 */
-	NodeWriteTrx moveSubtreeToLeftSibling(@Nonnegative long pFromKey)
+	NodeWriteTrx moveSubtreeToLeftSibling(@Nonnegative long fromKey)
 			throws SirixException;
 
 	/**
 	 * Insert new comment node as left sibling of currently selected node. The
 	 * cursor is moved to the inserted node.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
-	 *           if {@code pQName} is {@code null}
+	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertCommentAsLeftSibling(@Nonnull String pValue)
+	NodeWriteTrx insertCommentAsLeftSibling(@Nonnull String value)
 			throws SirixException;
 
 	/**
 	 * Insert new comment node as right sibling of currently selected node. The
 	 * cursor is moved to the inserted node.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
-	 *           if {@code pQName} is {@code null}
+	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertCommentAsRightSibling(@Nonnull String pValue)
+	NodeWriteTrx insertCommentAsRightSibling(@Nonnull String value)
 			throws SirixException;
 
 	/**
 	 * Insert new comment node as first child of currently selected node. The
 	 * cursor is moved to the inserted node.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
-	 *           if {@code pQName} is {@code null}
+	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertCommentAsFirstChild(@Nonnull String pValue)
+	NodeWriteTrx insertCommentAsFirstChild(@Nonnull String value)
 			throws SirixException;
 
 	/**
 	 * Insert new Processing Instruction node as left sibling of currently
 	 * selected node. The cursor is moved to the inserted node.
 	 * 
-	 * @param pContent
+	 * @param content
 	 *          content of processing instruction
-	 * @param pTarget
+	 * @param target
 	 *          target of processing instruction
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
-	 *           if {@code pQName} is {@code null}
+	 *           if {@code content} or {@code target} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertPIAsLeftSibling(@Nonnull String pContent,
-			@Nonnull String pTarget) throws SirixException;
+	NodeWriteTrx insertPIAsLeftSibling(@Nonnull String content,
+			@Nonnull String target) throws SirixException;
 
 	/**
 	 * Insert new Processing Instruction node as right sibling of currently
 	 * selected node. The cursor is moved to the inserted node.
 	 * 
-	 * @param pContent
+	 * @param content
 	 *          content of processing instruction
-	 * @param pTarget
+	 * @param target
 	 *          target of processing instruction
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
-	 *           if {@code pQName} is {@code null}
+	 *           if {@code content} or {@code target} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertPIAsRightSibling(@Nonnull String pContent,
-			@Nonnull String pTarget) throws SirixException;
+	NodeWriteTrx insertPIAsRightSibling(@Nonnull String content,
+			@Nonnull String target) throws SirixException;
 
 	/**
 	 * Insert new Processing Instruction node as first child of currently selected
 	 * node. The cursor is moved to the inserted node.
 	 * 
-	 * @param pContent
+	 * @param content
 	 *          content of processing instruction
-	 * @param pTarget
+	 * @param target
 	 *          target of processing instruction
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
-	 *           if {@code pQName} is {@code null}
+	 *           if {@code content} or {@code target} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertPIAsFirstChild(@Nonnull String pContent,
-			@Nonnull String pTarget) throws SirixException;
+	NodeWriteTrx insertPIAsFirstChild(@Nonnull String content,
+			@Nonnull String target) throws SirixException;
 
 	/**
 	 * Insert new element node as first child of currently selected node. The
 	 * cursor is moved to the inserted node.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          {@link QName} of node to insert
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
-	 *           if {@code pQName} is {@code null}
+	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsFirstChild(@Nonnull QName pName)
+	NodeWriteTrx insertElementAsFirstChild(@Nonnull QName name)
 			throws SirixException;
 
 	/**
@@ -404,23 +396,25 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
-	 *           if {@code pQName} is {@code null}
+	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsLeftSibling(@Nonnull QName pQName)
+	NodeWriteTrx insertElementAsLeftSibling(@Nonnull QName name)
 			throws SirixException;
 
 	/**
 	 * Insert new element node as right sibling of currently selected node. The
 	 * transaction is moved to the inserted node.
 	 * 
-	 * @param pQName
+	 * @param name
 	 *          {@link QName} of the new node
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as right sibling
+	 * @throws NullPointerException
+	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsRightSibling(@Nonnull QName pQName)
+	NodeWriteTrx insertElementAsRightSibling(@Nonnull QName name)
 			throws SirixException;
 
 	/**
@@ -429,88 +423,94 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * {@link TextNode}s the value is appended with a single whitespace character
 	 * prepended at first.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
 	 *           if text node couldn't be inserted as first child
 	 * @throws NullPointerException
-	 *           if {@code pValue} is {@code null}
+	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertTextAsFirstChild(@Nonnull String pValue)
+	NodeWriteTrx insertTextAsFirstChild(@Nonnull String value)
 			throws SirixException;
 
 	/**
 	 * Insert new text node as left sibling of currently selected node. The
 	 * transaction is moved to the inserted node.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
 	 *           if text node couldn't be inserted as right sibling
 	 * @throws NullPointerException
-	 *           if {@code pValue} is {@code null}
+	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertTextAsLeftSibling(@Nonnull String pValue)
+	NodeWriteTrx insertTextAsLeftSibling(@Nonnull String value)
 			throws SirixException;
 
 	/**
 	 * Insert new text node as right sibling of currently selected node. The
 	 * transaction is moved to the inserted node.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          value of node to insert
 	 * @throws SirixException
 	 *           if text node couldn't be inserted as right sibling
 	 * @throws NullPointerException
-	 *           if {@code pValue} is {@code null}
+	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertTextAsRightSibling(@Nonnull String pValue)
+	NodeWriteTrx insertTextAsRightSibling(@Nonnull String value)
 			throws SirixException;
 
 	/**
 	 * Insert attribute in currently selected node. The cursor is moved to the
 	 * inserted node.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          {@link QName} reference
-	 * @param pValue
+	 * @param value
 	 *          value of inserted node
 	 * @throws SirixException
-	 *           if attribute couldn't be inserted.
+	 *           if attribute couldn't be inserted
+	 * @throws NullPointerException
+	 *           if {@code name} or {@code value} is null
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertAttribute(@Nonnull QName pName, @Nonnull String pValue)
+	NodeWriteTrx insertAttribute(@Nonnull QName name, @Nonnull String value)
 			throws SirixException;
 
 	/**
 	 * Insert attribute in currently selected node. The cursor is moved depending
 	 * on the value of {@code pMove}.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          {@link QName} reference
-	 * @param pValue
+	 * @param value
 	 *          value of inserted node
 	 * @throws SirixException
-	 *           if attribute couldn't be inserted.
+	 *           if attribute couldn't be inserted
+	 * @throws NullPointerException
+	 *           if {@code name} or {@code value} is null
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertAttribute(@Nonnull QName pName, @Nonnull String pValue,
-			@Nonnull Movement pMove) throws SirixException;
+	NodeWriteTrx insertAttribute(@Nonnull QName name, @Nonnull String value,
+			@Nonnull Movement move) throws SirixException;
 
 	/**
 	 * Insert namespace declaration in currently selected node. The cursor is
 	 * moved to the inserted node.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          {@link QName} reference
 	 * @throws SirixException
-	 *           if attribute couldn't be inserted.
+	 *           if attribute couldn't be inserted
+	 * @throws NullPointerException
+	 *           if {@code name} is null
 	 * @return the current transaction
 	 */
-	NodeWriteTrx insertNamespace(@Nonnull QName pName) throws SirixException;
+	NodeWriteTrx insertNamespace(@Nonnull QName name) throws SirixException;
 
 	/**
 	 * Insert namespace declaration in currently selected node. The cursor is
@@ -520,17 +520,19 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *          {@link QName} reference
 	 * @return the current transaction
 	 * @throws SirixException
-	 *           if attribute couldn't be inserted.
+	 *           if attribute couldn't be inserted
+	 * @throws NullPointerException
+	 * 					 if {@code name} or {@code move} is null
 	 */
-	NodeWriteTrx insertNamespace(@Nonnull QName pQName, @Nonnull Movement pMove)
+	NodeWriteTrx insertNamespace(@Nonnull QName name, @Nonnull Movement move)
 			throws SirixException;
 
 /**
    * Insert a subtree.
    * 
-   * @param pReader
+   * @param reader
    *            {@link XMLEventReader} instance maybe derived from {@link XMLShredder#createStringReader(String)}, {@link XMLShredder#createFileReader(java.io.File)} or {@link XMLShredder#createQueueReader(java.util.Queue).
-   * @param pInsert
+   * @param insert
    *            insert position
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException
@@ -538,10 +540,10 @@ public interface NodeWriteTrx extends NodeReadTrx {
    * @throws IllegalStateException
    *          if subtree is inserted as right sibling of a root-node or document-node
    * @throws NullPointerException
-   *          if {@code pReader} or {@code pInsert} is {@code null}
+   *          if {@code reader} or {@code insert} is {@code null}
    */
-	NodeWriteTrx insertSubtree(@Nonnull XMLEventReader pReader,
-			@Nonnull Insert pInsert) throws SirixException;
+	NodeWriteTrx insertSubtree(@Nonnull XMLEventReader reader,
+			@Nonnull Insert insert) throws SirixException;
 
 	/**
 	 * Remove currently selected node. This does automatically remove descendants.
@@ -564,26 +566,26 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Set QName of node.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          new qualified name of node
 	 * @throws SirixIOException
 	 *           if can't set Name in node
 	 * @throws NullPointerException
 	 *           if {@code pName} is {@code null}
 	 */
-	void setQName(@Nonnull QName pName) throws SirixException;
+	void setQName(@Nonnull QName name) throws SirixException;
 
 	/**
 	 * Set value of node.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          new value of node
 	 * @throws SirixIOException
 	 *           if value couldn't be set
 	 * @throws NullPointerException
-	 *           if {@code pUri} is {@code null}
+	 *           if {@code value} is {@code null}
 	 */
-	void setValue(@Nonnull String pValue) throws SirixException;
+	void setValue(@Nonnull String value) throws SirixException;
 
 	/**
 	 * Commit all modifications of the exclusive write transaction. Even commit if
@@ -607,12 +609,12 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * finalized with a commit. A revert is always bound to a
 	 * {@link NodeReadTrx#moveToDocumentRoot()}.
 	 * 
-	 * @param pRev
+	 * @param revision
 	 *          revert to the revision
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	void revertTo(@Nonnegative int pRev) throws SirixException;
+	void revertTo(@Nonnegative int revision) throws SirixException;
 
 	/**
 	 * Closing current WriteTransaction.
@@ -626,30 +628,30 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	/**
 	 * Add pre commit hook.
 	 * 
-	 * @param pHook
+	 * @param hook
 	 *          pre commit hook
 	 */
-	void addPreCommitHook(@Nonnull PreCommitHook pHook);
+	void addPreCommitHook(@Nonnull PreCommitHook hook);
 
 	/**
 	 * Add a post commit hook.
 	 * 
-	 * @param pHook
+	 * @param hook
 	 *          post commit hook
 	 */
-	void addPostCommitHook(@Nonnull PostCommitHook pHook);
+	void addPostCommitHook(@Nonnull PostCommitHook hook);
 
 	/**
-	 * Get the {@link PathSummary} associated with the current write transaction --
-	 * might be {@code null} if no path summary index is used.
+	 * Get the {@link PathSummary} associated with the current write transaction
+	 * -- might be {@code null} if no path summary index is used.
 	 * 
 	 * @return {@link PathSummary} instance
 	 */
 	PathSummary getPathSummary();
 
 	/**
-	 * Get the value index associated with the current write transaction -- might be
-	 * {@code null} if no value index is used.
+	 * Get the value index associated with the current write transaction -- might
+	 * be {@code null} if no value index is used.
 	 * 
 	 * @return {@link AVLTree} instance
 	 */

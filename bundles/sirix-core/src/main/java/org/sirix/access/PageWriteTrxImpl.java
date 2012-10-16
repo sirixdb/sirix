@@ -52,7 +52,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
-import org.sirix.page.EPage;
+import org.sirix.page.PageKind;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.NodePage;
@@ -175,7 +175,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 
 	@Override
 	public NodeBase prepareNodeForModification(final @Nonnegative long pNodeKey,
-			final @Nonnull EPage pPage) throws SirixIOException {
+			final @Nonnull PageKind pPage) throws SirixIOException {
 		if (pNodeKey < 0) {
 			throw new IllegalArgumentException("pNodeKey must be >= 0!");
 		}
@@ -203,7 +203,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 
 	@Override
 	public void finishNodeModification(final @Nonnull long pNodeKey,
-			final @Nonnull EPage pPage) {
+			final @Nonnull PageKind pPage) {
 		final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
 		if (mNodePageCon == null
 				|| (mNodeLog.get(nodePageKey).equals(PageContainer.EMPTY_INSTANCE)
@@ -231,7 +231,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 
 	@Override
 	public NodeBase createNode(final @Nonnull NodeBase pNode,
-			final @Nonnull EPage pPage) throws SirixIOException {
+			final @Nonnull PageKind pPage) throws SirixIOException {
 		// Allocate node key and increment node count.
 		long nodeKey;
 		switch (pPage) {
@@ -261,7 +261,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 	}
 
 	@Override
-	public void removeNode(@Nonnull final long pNodeKey, @Nonnull final EPage pPage)
+	public void removeNode(@Nonnull final long pNodeKey, @Nonnull final PageKind pPage)
 			throws SirixIOException {
 		final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
 		prepareNodePage(nodePageKey, pPage);
@@ -281,7 +281,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 
 	@Override
 	public Optional<NodeBase> getNode(final @Nonnegative long pNodeKey,
-			final @Nonnull EPage pPage) throws SirixIOException {
+			final @Nonnull PageKind pPage) throws SirixIOException {
 		checkArgument(pNodeKey >= EFixed.NULL_NODE_KEY.getStandardProperty());
 		checkNotNull(pPage);
 		// Calculate page.
@@ -309,7 +309,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 	 *          the node page key
 	 * @return the {@link PageContainer} instance from the write ahead log
 	 */
-	private PageContainer getPageContainer(final @Nullable EPage pPage,
+	private PageContainer getPageContainer(final @Nullable PageKind pPage,
 			final @Nonnegative long pNodePageKey) {
 		if (pPage != null) {
 			switch (pPage) {
@@ -334,7 +334,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 	 * @param pNodePageKey
 	 *          the node page key
 	 */
-	private void removePageContainer(final @Nonnull EPage pPage,
+	private void removePageContainer(final @Nonnull PageKind pPage,
 			final @Nonnegative long pNodePageKey) {
 		switch (pPage) {
 		case NODEPAGE:
@@ -411,7 +411,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 				if (page instanceof NodePage) {
 					throw new IllegalStateException();
 				} else {
-					pReference.setPageKind(EPage.INDIRECTPAGE);
+					pReference.setPageKind(PageKind.INDIRECTPAGE);
 				}
 			}
 
@@ -455,7 +455,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 			final PageReference uberPageReference = new PageReference();
 			final UberPage uberPage = getUberPage();
 			uberPageReference.setPage(uberPage);
-			uberPageReference.setPageKind(EPage.UBERPAGE);
+			uberPageReference.setPageKind(PageKind.UBERPAGE);
 
 			// Recursively write indirectely referenced pages.
 			uberPage.commit(this);
@@ -510,7 +510,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 			}
 			pReference.setPage(page);
 		}
-		pReference.setPageKind(EPage.INDIRECTPAGE);
+		pReference.setPageKind(PageKind.INDIRECTPAGE);
 		return page;
 	}
 
@@ -523,7 +523,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 	 *           if an I/O error occurs
 	 */
 	private void prepareNodePage(final @Nonnegative long pNodePageKey,
-			final @Nonnull EPage pPage) throws SirixIOException {
+			final @Nonnull PageKind pPage) throws SirixIOException {
 		// Last level points to node nodePageReference.
 		PageContainer cont = getPageContainer(pPage, pNodePageKey);
 		if (cont.equals(PageContainer.EMPTY_INSTANCE)) {
@@ -589,12 +589,12 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 			// nodePageReference.
 			final PageReference revisionRootPageReference = prepareLeafOfTree(
 					getUberPage().getIndirectPageReference(), getUberPage()
-							.getRevisionNumber(), EPage.UBERPAGE);
+							.getRevisionNumber(), PageKind.UBERPAGE);
 
 			// Link the prepared revision root nodePageReference with the
 			// prepared indirect tree.
 			revisionRootPageReference.setPage(revisionRootPage);
-			revisionRootPageReference.setPageKind(EPage.REVISIONROOTPAGE);
+			revisionRootPageReference.setPageKind(PageKind.REVISIONROOTPAGE);
 
 			// Return prepared revision root nodePageReference.
 			return revisionRootPage;
@@ -615,7 +615,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 	 */
 	private PageReference prepareLeafOfTree(
 			final @Nonnull PageReference pStartReference,
-			final @Nonnegative long pKey, final @Nonnull EPage pPage)
+			final @Nonnegative long pKey, final @Nonnull PageKind pPage)
 			throws SirixIOException {
 		// Initial state pointing to the indirect nodePageReference of level 0.
 		PageReference reference = pStartReference;
@@ -646,7 +646,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 	 *           if an I/O error occurs
 	 */
 	private PageContainer dereferenceNodePageForModification(
-			final @Nonnegative long pNodePageKey, final @Nonnull EPage pPage)
+			final @Nonnegative long pNodePageKey, final @Nonnull PageKind pPage)
 			throws SirixIOException {
 		final NodePage[] revs = mPageRtx.getSnapshotPages(pNodePageKey, pPage);
 		final ERevisioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
@@ -668,7 +668,7 @@ final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
 	 *          page for which the
 	 */
 	public void updateDateContainer(final @Nonnull PageContainer pContainer,
-			final @Nonnull EPage pPage) {
+			final @Nonnull PageKind pPage) {
 		final long nodePageKey = pContainer.getComplete().getNodePageKey();
 		PageContainer container;
 		switch (pPage) {

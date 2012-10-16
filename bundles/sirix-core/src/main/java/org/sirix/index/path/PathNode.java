@@ -7,7 +7,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AbsStructForwardingNode;
 import org.sirix.node.Kind;
@@ -99,7 +99,7 @@ public class PathNode extends AbsStructForwardingNode implements NameNode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
+  public VisitResultType acceptVisitor(final @Nonnull IVisitor pVisitor) {
     throw new UnsupportedOperationException();
   }
 

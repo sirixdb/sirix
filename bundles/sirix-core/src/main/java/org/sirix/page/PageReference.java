@@ -47,7 +47,7 @@ import org.sirix.settings.IConstants;
 public final class PageReference {
 
   /** Page kind. */
-  private EPage mPageKind;
+  private PageKind mPageKind;
 
   /** In-memory deserialized page instance. */
   private Page mPage;
@@ -146,7 +146,7 @@ public final class PageReference {
    * @param pPageKind
    *          the page kind
    */
-  public void setPageKind(final @Nonnull EPage pPageKind) {
+  public void setPageKind(final @Nonnull PageKind pPageKind) {
     mPageKind = pPageKind;
   }
 
@@ -155,7 +155,7 @@ public final class PageReference {
    * 
    * @return the page kind
    */
-  public EPage getPageKind() {
+  public PageKind getPageKind() {
     return mPageKind;
   }
 

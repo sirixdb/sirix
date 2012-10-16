@@ -37,9 +37,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
-import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.StructNode;
-import org.sirix.settings.EFixed;
 
 /**
  * Iterates over {@link IStructuralNode}s in a breath first traversal.
@@ -53,7 +50,7 @@ public final class LevelOrderAxis extends AbsAxis {
 	 * Determines if structural or structural and non structural nodes should be
 	 * included.
 	 */
-	public enum EIncludeNodes {
+	private enum IncludeNodes {
 		/** Only structural nodes. */
 		STRUCTURAL,
 
@@ -68,7 +65,7 @@ public final class LevelOrderAxis extends AbsAxis {
 	 * Determines if {@code attribute-} and {@code namespace-} nodes should be
 	 * included or not.
 	 */
-	private EIncludeNodes mIncludeNodes;
+	private IncludeNodes mIncludeNodes;
 
 	/** Determines if {@code hasNext()} is called for the first time. */
 	private boolean mFirst;
@@ -86,7 +83,7 @@ public final class LevelOrderAxis extends AbsAxis {
 		 * Determines if {@code attribute-} and {@code namespace-} nodes should be
 		 * included or not.
 		 */
-		private EIncludeNodes mIncludeNodes = EIncludeNodes.STRUCTURAL;
+		private IncludeNodes mIncludeNodes = IncludeNodes.STRUCTURAL;
 
 		/** Filter by level. */
 		private int mFilterLevel = Integer.MAX_VALUE;
@@ -100,49 +97,44 @@ public final class LevelOrderAxis extends AbsAxis {
 		/**
 		 * Constructor.
 		 * 
-		 * @param pRtx
+		 * @param rtx
 		 *          Sirix {@link NodeReadTrx}
 		 */
-		public Builder(final @Nonnull NodeReadTrx pRtx) {
-			mRtx = checkNotNull(pRtx);
+		public Builder(final @Nonnull NodeReadTrx rtx) {
+			mRtx = checkNotNull(rtx);
 		}
 
 		/**
-		 * Determines the types of nodes to include in the traversal (structural or
-		 * structural and non-structural).
+		 * Determines that non-structural nodes (attributes, namespaces) should be
+		 * taken into account.
 		 * 
-		 * @param pIncludeNodes
-		 *          type of nodes to include
 		 * @return this builder instance
 		 */
-		public Builder includeNodes(final @Nonnull EIncludeNodes pIncludeNodes) {
-			mIncludeNodes = checkNotNull(pIncludeNodes);
+		public Builder includeNonStructuralNodes() {
+			mIncludeNodes = IncludeNodes.NONSTRUCTURAL;
 			return this;
 		}
 
 		/**
-		 * Determines the types of nodes to include in the traversal (structural or
-		 * structural and non-structural).
+		 * Determines that the current node should also be considered.
 		 * 
-		 * @param pIncludeSelf
-		 *          include current node or not
 		 * @return this builder instance
 		 */
-		public Builder includeSelf(final @Nonnull IncludeSelf pIncludeSelf) {
-			mIncludeSelf = checkNotNull(pIncludeSelf);
+		public Builder includeSelf() {
+			mIncludeSelf = IncludeSelf.YES;
 			return this;
 		}
 
 		/**
 		 * Determines the maximum level to filter.
 		 * 
-		 * @param pFilterLevel
+		 * @param filterLevel
 		 *          maximum level to filter nodes
 		 * @return this builder instance
 		 */
-		public Builder filterLevel(final @Nonnegative int pFilterLevel) {
-			checkArgument(pFilterLevel >= 0, "pFilterLevel must be >= 0!");
-			mFilterLevel = pFilterLevel;
+		public Builder filterLevel(final @Nonnegative int filterLevel) {
+			checkArgument(filterLevel >= 0, "pFilterLevel must be >= 0!");
+			mFilterLevel = filterLevel;
 			return this;
 		}
 
@@ -169,29 +161,10 @@ public final class LevelOrderAxis extends AbsAxis {
 	 * @param pFilterLevel
 	 *          filter level
 	 */
-	private LevelOrderAxis(final @Nonnull Builder pBuilder) {
-		super(pBuilder.mRtx, pBuilder.mIncludeSelf);
-		mIncludeNodes = pBuilder.mIncludeNodes;
-		mFilterLevel = pBuilder.mFilterLevel;
-	}
-
-	/**
-	 * Constructor initializing internal state.
-	 * 
-	 * @param pRtx
-	 *          exclusive (immutable) trx to iterate with
-	 * @param pIncludeNodes
-	 *          determines if only structural or also non-structural nodes should
-	 *          be included
-	 * @param pIncludeSelf
-	 *          determines if self included
-	 */
-	@Deprecated
-	public LevelOrderAxis(@Nonnull final NodeReadTrx pRtx,
-			@Nonnull final EIncludeNodes pIncludeNodes,
-			final IncludeSelf pIncludeSelf) {
-		super(pRtx, pIncludeSelf);
-		mIncludeNodes = checkNotNull(pIncludeNodes);
+	private LevelOrderAxis(final @Nonnull Builder builder) {
+		super(builder.mRtx, builder.mIncludeSelf);
+		mIncludeNodes = builder.mIncludeNodes;
+		mFilterLevel = builder.mFilterLevel;
 	}
 
 	@Override
@@ -271,7 +244,7 @@ public final class LevelOrderAxis extends AbsAxis {
 	private void processElement() {
 		final NodeReadTrx rtx = (NodeReadTrx) getTrx();
 		if (rtx.getKind() == Kind.ELEMENT
-				&& mIncludeNodes == EIncludeNodes.NONSTRUCTURAL) {
+				&& mIncludeNodes == IncludeNodes.NONSTRUCTURAL) {
 			for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
 				rtx.moveToNamespace(i);
 				mFirstChilds.add(rtx.getNodeKey());

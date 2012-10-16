@@ -15,7 +15,7 @@ import org.sirix.api.ItemList;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.Session;
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -25,7 +25,7 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.page.EPage;
+import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.EFixed;
 import org.sirix.settings.IConstants;
@@ -78,7 +78,7 @@ public final class PathSummary implements NodeReadTrx {
 		try {
 			final Optional<? extends NodeBase> node = mPageReadTrx
 					.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-							EPage.PATHSUMMARYPAGE);
+							PageKind.PATHSUMMARYPAGE);
 			if (node.isPresent()) {
 				mCurrentNode = (Node) node.get();
 			} else {
@@ -149,7 +149,7 @@ public final class PathSummary implements NodeReadTrx {
 			// Immediately return node from item list if node key negative.
 			@SuppressWarnings("unchecked")
 			final Optional<? extends Node> node = (Optional<? extends Node>) mPageReadTrx
-					.getNode(pNodeKey, EPage.PATHSUMMARYPAGE);
+					.getNode(pNodeKey, PageKind.PATHSUMMARYPAGE);
 			newNode = node;
 		} catch (final SirixIOException e) {
 			newNode = Optional.absent();
@@ -436,7 +436,7 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
+	public VisitResultType acceptVisitor(final @Nonnull IVisitor pVisitor) {
 		throw new UnsupportedOperationException();
 	}
 

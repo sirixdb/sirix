@@ -5,7 +5,7 @@ package org.sirix.api.visitor;
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public enum EVisitResult implements IVisitResult {
+public enum VisitResultType implements VisitResult {
   /** Continue without visiting the siblings of this node. */
   SKIPSIBLINGS,
 

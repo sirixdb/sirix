@@ -47,17 +47,17 @@ public final class FollowingSiblingAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param pRtx
+   * @param rtx
    *          exclusive (immutable) trx to iterate with
    */
-  public FollowingSiblingAxis(@Nonnull final NodeCursor pRtx) {
-    super(pRtx);
+  public FollowingSiblingAxis(@Nonnull final NodeCursor rtx) {
+    super(rtx);
     mIsFirst = true;
   }
 
   @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
     mIsFirst = true;
   }
   

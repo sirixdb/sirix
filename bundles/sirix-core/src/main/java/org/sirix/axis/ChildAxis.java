@@ -47,16 +47,16 @@ public final class ChildAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param pRtx
+   * @param rtx
    *          exclusive (immutable) trx to iterate with
    */
-  public ChildAxis(final @Nonnull NodeCursor pRtx) {
-    super(pRtx);
+  public ChildAxis(final @Nonnull NodeCursor rtx) {
+    super(rtx);
   }
 
   @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
     mFirst = true;
   }
   

@@ -34,7 +34,6 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
-import org.sirix.settings.EFixed;
 
 /**
  * <h1>ConcurrentUnionAxis</h1>
@@ -45,7 +44,7 @@ import org.sirix.settings.EFixed;
  * Additionally this guarantees the document order.
  * </p>
  */
-public class ConcurrentUnionAxis extends AbsAxis {
+public final class ConcurrentUnionAxis extends AbsAxis {
 
   /** First operand sequence. */
   private final ConcurrentAxis mOp1;
@@ -53,25 +52,33 @@ public class ConcurrentUnionAxis extends AbsAxis {
   /** Second operand sequence. */
   private final ConcurrentAxis mOp2;
 
+  /** First run. */
   private boolean mFirst;
 
+  /** Result from first axis. */
   private long mCurrentResult1;
 
+  /** Result from second axis. */
   private long mCurrentResult2;
 
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param pOperand1
+	 * @param rtx
+	 *          exclusive (immutable) trx to iterate with  
+   * @param operand1
    *          first operand
-   * @param pOperand2
+   * @param operand2
    *          second operand
+   * @throws NullPointerException
+	 *           if {@code rtx}, {@code operand1} or {@code operand2} is
+	 *           {@code null}
    */
-  public ConcurrentUnionAxis(final NodeReadTrx pRtx, final Axis pOperand1,
-    final Axis pOperand2) {
-    super(pRtx);
-    mOp1 = new ConcurrentAxis(pRtx, pOperand1);
-    mOp2 = new ConcurrentAxis(pRtx, pOperand2);
+  public ConcurrentUnionAxis(final @Nonnull NodeReadTrx rtx, final @Nonnull Axis operand1,
+    final @Nonnull Axis operand2) {
+    super(rtx);
+    mOp1 = new ConcurrentAxis(rtx, operand1);
+    mOp2 = new ConcurrentAxis(rtx, operand2);
     mFirst = true;
   }
 

@@ -29,8 +29,8 @@ package org.sirix.access;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.visitor.EVisitResult;
-import org.sirix.api.visitor.IVisitResult;
+import org.sirix.api.visitor.VisitResultType;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.immutable.ImmutableAttribute;
 import org.sirix.node.immutable.ImmutableComment;
@@ -80,37 +80,37 @@ import org.sirix.node.immutable.ImmutableText;
  */
 public abstract class AbsVisitor implements IVisitor {
   @Override
-  public IVisitResult visit(@Nonnull final ImmutablePI pNode) {
-    return EVisitResult.CONTINUE;
+  public VisitResult visit(@Nonnull final ImmutablePI node) {
+    return VisitResultType.CONTINUE;
   }
   
   @Override
-  public IVisitResult visit(@Nonnull final ImmutableComment pNode) {
-    return EVisitResult.CONTINUE;
+  public VisitResult visit(@Nonnull final ImmutableComment node) {
+    return VisitResultType.CONTINUE;
   }
   
   @Override
-  public IVisitResult visit(@Nonnull final ImmutableElement pNode) {
-    return EVisitResult.CONTINUE;
+  public VisitResult visit(@Nonnull final ImmutableElement node) {
+    return VisitResultType.CONTINUE;
   }
 
   @Override
-  public IVisitResult visit(@Nonnull final ImmutableText pNode) {
-    return EVisitResult.CONTINUE;
+  public VisitResult visit(@Nonnull final ImmutableText node) {
+    return VisitResultType.CONTINUE;
   }
 
   @Override
-  public IVisitResult visit(@Nonnull final ImmutableDocument pNode) {
-    return EVisitResult.CONTINUE;
+  public VisitResult visit(@Nonnull final ImmutableDocument node) {
+    return VisitResultType.CONTINUE;
   }
 
   @Override
-  public IVisitResult visit(@Nonnull final ImmutableAttribute pNode) {
-    return EVisitResult.CONTINUE;
+  public VisitResult visit(@Nonnull final ImmutableAttribute node) {
+    return VisitResultType.CONTINUE;
   }
 
   @Override
-  public IVisitResult visit(@Nonnull final ImmutableNamespace pNode) {
-    return EVisitResult.CONTINUE;
+  public VisitResult visit(@Nonnull final ImmutableNamespace node) {
+    return VisitResultType.CONTINUE;
   }
 }

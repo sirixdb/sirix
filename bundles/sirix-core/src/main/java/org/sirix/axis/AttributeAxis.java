@@ -51,13 +51,13 @@ public final class AttributeAxis extends AbsAxis {
    * @param paramRtx
    *          exclusive (immutable) mTrx to iterate with
    */
-  public AttributeAxis(final @Nonnull NodeReadTrx pRtx) {
-    super(pRtx);
+  public AttributeAxis(final @Nonnull NodeReadTrx rtx) {
+    super(rtx);
   }
 
   @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
     mNextIndex = 0;
   }
   

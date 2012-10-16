@@ -38,7 +38,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.AbsVisitor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.node.immutable.ImmutableElement;
@@ -77,7 +77,7 @@ public final class LabelFMSEVisitor extends AbsVisitor {
 	}
 
 	@Override
-  public EVisitResult visit(@Nonnull final ImmutableElement pNode) {
+  public VisitResultType visit(@Nonnull final ImmutableElement pNode) {
     final long nodeKey = pNode.getNodeKey();
     mRtx.moveTo(nodeKey);
     for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
@@ -94,14 +94,14 @@ public final class LabelFMSEVisitor extends AbsVisitor {
       mLabels.put(pNode.getKind(), new ArrayList<Long>());
     }
     mLabels.get(pNode.getKind()).add(pNode.getNodeKey());
-    return EVisitResult.CONTINUE;
+    return VisitResultType.CONTINUE;
   }
 
 	@Override
-	public EVisitResult visit(@Nonnull final ImmutableText pNode) {
+	public VisitResultType visit(@Nonnull final ImmutableText pNode) {
 		mRtx.moveTo(pNode.getNodeKey());
 		addLeafLabel();
-		return EVisitResult.CONTINUE;
+		return VisitResultType.CONTINUE;
 	}
 
 	/**

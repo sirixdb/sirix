@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.IVisitResult;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -76,7 +76,7 @@ public class CommentNode extends AbsStructForwardingNode implements ValNode {
 	}
 
 	@Override
-	public IVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
+	public VisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
 		return pVisitor.visit(ImmutableComment.of(this));
 	}
 

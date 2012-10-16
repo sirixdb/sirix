@@ -90,30 +90,32 @@ public abstract class AbsAxis implements Axis {
 	/**
 	 * Bind axis step to transaction.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          transaction to operate with
 	 * @throws NullPointerException
 	 *           if {@code paramRtx} is {@code null}
 	 */
-	public AbsAxis(final @Nonnull NodeCursor pRtx) {
-		mRtx = checkNotNull(pRtx);
+	public AbsAxis(final @Nonnull NodeCursor rtx) {
+		mRtx = checkNotNull(rtx);
 		mIncludeSelf = IncludeSelf.NO;
-		reset(pRtx.getNodeKey());
+		reset(rtx.getNodeKey());
 	}
 
 	/**
 	 * Bind axis step to transaction.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          transaction to operate with
-	 * @param pIncludeSelf
+	 * @param includeSelf
 	 *          determines if self is included
+	 * @throws NullPointerException
+	 *           if {@code rtx} or {@code includeSelf} is {@code null}
 	 */
-	public AbsAxis(final @Nonnull NodeCursor pRtx,
-			final @Nonnull IncludeSelf pIncludeSelf) {
-		mRtx = checkNotNull(pRtx);
-		mIncludeSelf = checkNotNull(pIncludeSelf);
-		reset(pRtx.getNodeKey());
+	public AbsAxis(final @Nonnull NodeCursor rtx,
+			final @Nonnull IncludeSelf includeSelf) {
+		mRtx = checkNotNull(rtx);
+		mIncludeSelf = checkNotNull(includeSelf);
+		reset(rtx.getNodeKey());
 	}
 
 	@Override
@@ -127,7 +129,7 @@ public abstract class AbsAxis implements Axis {
 	 * signal that the axis-traversal is done and {@link #hasNext()} must return
 	 * false.
 	 * 
-	 * @return null node key
+	 * @return null node key to indicate that the travesal is finished
 	 */
 	protected final long done() {
 		return EFixed.NULL_NODE_KEY.getStandardProperty();
@@ -259,13 +261,13 @@ public abstract class AbsAxis implements Axis {
 	/**
 	 * Resetting the nodekey of this axis to a given nodekey.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          the nodekey where the reset should occur to
 	 */
 	@Override
-	public void reset(@Nonnegative final long pNodeKey) {
-		mStartKey = pNodeKey;
-		mKey = pNodeKey;
+	public void reset(final @Nonnegative long nodeKey) {
+		mStartKey = nodeKey;
+		mKey = nodeKey;
 		mState = EState.NOT_READY;
 	}
 
@@ -330,15 +332,15 @@ public abstract class AbsAxis implements Axis {
 	/**
 	 * Implements a simple foreach-method.
 	 * 
-	 * @param pVisitor
+	 * @param visitor
 	 *          {@link IVisitor} implementation
 	 */
 	@Override
-	public final void foreach(@Nonnull final IVisitor pVisitor) {
-		checkNotNull(pVisitor);
+	public final void foreach(final @Nonnull IVisitor visitor) {
+		checkNotNull(visitor);
 		while (hasNext()) {
 			next();
-			mRtx.acceptVisitor(pVisitor);
+			mRtx.acceptVisitor(visitor);
 		}
 	}
 

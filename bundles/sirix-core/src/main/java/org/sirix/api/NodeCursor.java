@@ -4,8 +4,8 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
-import org.sirix.api.visitor.EVisitResult;
-import org.sirix.api.visitor.IVisitResult;
+import org.sirix.api.visitor.VisitResultType;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
@@ -24,12 +24,12 @@ public interface NodeCursor extends AutoCloseable {
 	 * with{Moved#get()}. In case the node does not exist {@code Moved#hasMoved()}
 	 * returns false and the cursor has not been moved.
 	 * 
-	 * @param pKey
+	 * @param key
 	 *          key of node to select
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
 	 */
-	Move<? extends NodeCursor> moveTo(long pKey);
+	Move<? extends NodeCursor> moveTo(long key);
 
 	/**
 	 * Move cursor to document root node. Check the postcondition with
@@ -100,12 +100,12 @@ public interface NodeCursor extends AutoCloseable {
 	/**
 	 * Determines if a node with the given key exists.
 	 * 
-	 * @param pKey
+	 * @param key
 	 *          unique key of node
 	 * @return {@code true} if the node with the key {@code pKey} exists,
 	 *         {@code false} otherwise
 	 */
-	boolean hasNode(long pKey);
+	boolean hasNode(long key);
 
 	/**
 	 * Determines if the node located at the current cursor position has a parent.
@@ -150,11 +150,11 @@ public interface NodeCursor extends AutoCloseable {
 	/**
 	 * Accept a visitor.
 	 * 
-	 * @param pVisitor
+	 * @param visitor
 	 *          {@link IVisitor} implementation
-	 * @return {@link EVisitResult} value
+	 * @return {@link VisitResultType} value
 	 */
-	IVisitResult acceptVisitor(@Nonnull IVisitor pVisitor);
+	VisitResult acceptVisitor(@Nonnull IVisitor visitor);
 	
 	/**
 	 * Get the node where the cursor currently is located.

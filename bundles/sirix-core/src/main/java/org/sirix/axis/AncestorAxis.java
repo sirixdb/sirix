@@ -55,26 +55,26 @@ public final class AncestorAxis extends AbsAxis {
 	 * @param paramRtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public AncestorAxis(final @Nonnull NodeCursor pRtx) {
-		super(pRtx);
+	public AncestorAxis(final @Nonnull NodeCursor rtx) {
+		super(rtx);
 	}
 
 	/**
 	 * Constructor initializing internal state.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
-	 * @param pIncludeSelf
+	 * @param includeSelf
 	 *          Is self included?
 	 */
-	public AncestorAxis(final @Nonnull NodeCursor pRtx,
-			final @Nonnull IncludeSelf pIncludeSelf) {
-		super(pRtx, pIncludeSelf);
+	public AncestorAxis(final @Nonnull NodeCursor rtx,
+			final @Nonnull IncludeSelf includeSelf) {
+		super(rtx, includeSelf);
 	}
 
 	@Override
-	public void reset(final @Nonnegative long pNodeKey) {
-		super.reset(pNodeKey);
+	public void reset(final @Nonnegative long nodeKey) {
+		super.reset(nodeKey);
 		mFirst = true;
 	}
 

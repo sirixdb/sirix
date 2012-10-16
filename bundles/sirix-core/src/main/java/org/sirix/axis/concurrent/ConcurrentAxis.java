@@ -92,17 +92,17 @@ public class ConcurrentAxis extends AbsAxis {
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param pRtx
+   * @param rtx
    *          exclusive (immutable) trx to iterate with
-   * @param pChildAxis
+   * @param childAxis
    *          producer axis
    */
-  public ConcurrentAxis(final @Nonnull NodeReadTrx pRtx,
-    final @Nonnull Axis pChildAxis) {
-    super(pRtx);
+  public ConcurrentAxis(final @Nonnull NodeReadTrx rtx,
+    final @Nonnull Axis childAxis) {
+    super(rtx);
     mResults = new ArrayBlockingQueue<>(M_CAPACITY);
     mFirst = true;
-    mProducer = checkNotNull(pChildAxis);
+    mProducer = checkNotNull(childAxis);
     task = new ConcurrentAxisHelper(mProducer, mResults);
     mFinished = false;
   }

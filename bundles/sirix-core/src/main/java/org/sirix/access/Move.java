@@ -28,8 +28,8 @@ public abstract class Move<T extends NodeCursor> {
 	/**
 	 * Returns a {@code Moved} instance containing the given non-null reference.
 	 */
-	public static <T extends NodeCursor> Moved<T> moved(final @Nonnull T pMoved) {
-		return new Moved<T>(checkNotNull(pMoved));
+	public static <T extends NodeCursor> Moved<T> moved(final @Nonnull T moved) {
+		return new Moved<T>(checkNotNull(moved));
 	}
 
 	/**

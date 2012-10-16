@@ -39,17 +39,20 @@ import org.sirix.index.path.PathSummary;
 import com.google.common.base.Optional;
 
 /**
- * <h1>ISession</h1>
+ * <h1>Session</h1>
  * 
  * <h2>Description</h2>
  * 
  * <p>
- * Each <code>IDatabase</code> is bound to multiple instances implementing
+ * Each <code>Database</code> is bound to multiple instances implementing
  * <code>ISession</code>. Transactions can then be started from this instance.
  * There can only be one <code>IWriteTransaction</code> at the time. However,
  * multiple <code>IReadTransactions</code> can coexist concurrently.
  * </p>
  * 
+ * @author Sebastian Graf, University of Konstanz
+ * @author Marc Kramis, Seabix GmbH
+ * @author Johannes Lichtenberger
  */
 public interface Session extends AutoCloseable {
 
@@ -72,14 +75,15 @@ public interface Session extends AutoCloseable {
 	/**
 	 * Begin a new {@link PageReadTrx}.
 	 * 
-	 * @param pRevision
+	 * @param revision
 	 *          revision number
 	 * @return new {@link PageReadTrx} instance
+	 * @throws IllegalArgumentException
+	 *           if {@code revision < 0}
 	 * @throws SirixException
 	 *           if Sirix fails to create a new instance
 	 */
-	PageReadTrx beginPageReadTrx(@Nonnegative int pRevision)
-			throws SirixException;
+	PageReadTrx beginPageReadTrx(@Nonnegative int revision) throws SirixException;
 
 	/**
 	 * Begin a new {@link PageWriteTrx}.
@@ -95,13 +99,15 @@ public interface Session extends AutoCloseable {
 	/**
 	 * Begin a new {@link PageWriteTrx}.
 	 * 
-	 * @param pRevision
+	 * @param revision
 	 *          revision number
 	 * @return new {@link PageWriteTrx} instance
 	 * @throws SirixException
 	 *           if Sirix fails to create a new instance
+	 * @throws IllegalArgumentException
+	 *           if {@code revision < 0}
 	 */
-	PageWriteTrx beginPageWriteTrx(@Nonnegative int pRevision)
+	PageWriteTrx beginPageWriteTrx(@Nonnegative int revision)
 			throws SirixException;
 
 	/**
@@ -116,13 +122,15 @@ public interface Session extends AutoCloseable {
 	/**
 	 * Begin a read-only transaction on the given revision number.
 	 * 
-	 * @param pRev
+	 * @param revision
 	 *          revision to read from denoted by the revision number.
 	 * @throws SirixException
 	 *           if can't begin Read Transaction
+	 * @throws IllegalArgumentException
+	 *           if {@code revision < 0}
 	 * @return {@link NodeReadTrx} instance
 	 */
-	NodeReadTrx beginNodeReadTrx(@Nonnegative int pRev) throws SirixException;
+	NodeReadTrx beginNodeReadTrx(@Nonnegative int revision) throws SirixException;
 
 	/**
 	 * Begin exclusive read/write transaction without auto commit.
@@ -132,22 +140,26 @@ public interface Session extends AutoCloseable {
 	 * @return {@link NodeWriteTrx} instance
 	 */
 	NodeWriteTrx beginNodeWriteTrx() throws SirixException;
-	
+
 	/**
 	 * Begin exclusive read/write transaction with auto commit.
 	 * 
-	 * @param pMaxNodes
+	 * @param maxNodes
 	 *          count of node modifications after which a commit is issued
-	 * @param pTimeUnit
+	 * @param timeUnit
 	 *          unit used for time
-	 * @param pMaxTime
+	 * @param maxTime
 	 *          time after which a commit is issued
 	 * @throws SirixException
 	 *           if can't begin Write Transaction
+	 * @throws IllegalArgumentException
+	 *           if {@code maxNodes < 0}
+	 * @throws NullPointerException
+	 *           if {@code timeUnit} is {@code null}
 	 * @return {@link NodeWriteTrx} instance
 	 */
-	NodeWriteTrx beginNodeWriteTrx(@Nonnegative final int pMaxNodes,
-			@Nonnull final TimeUnit pTimeUnit, final int pMaxTime)
+	NodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes,
+			final @Nonnull TimeUnit timeUnit, final int maxTime)
 			throws SirixException;
 
 	/**
@@ -156,7 +168,7 @@ public interface Session extends AutoCloseable {
 	 * @return optional write-transaction
 	 */
 	Optional<NodeWriteTrx> getNodeWriteTrx();
-	
+
 	/**
 	 * Commit all running {@link NodeWriteTrx}s.
 	 * 
@@ -170,13 +182,15 @@ public interface Session extends AutoCloseable {
 	 * Open the path summary to allow iteration (basically implementation of
 	 * {@link NodeReadTrx}.
 	 * 
-	 * @param pRev
+	 * @param revision
 	 *          revision key to read from
 	 * @return {@link PathSummary} instance
 	 * @throws SirixException
 	 *           if can't open path summary
+	 * @throws IllegalArgumentException
+	 *           if {@code revision < 0}
 	 */
-	PathSummary openPathSummary(@Nonnegative int pRev) throws SirixException;
+	PathSummary openPathSummary(@Nonnegative int revision) throws SirixException;
 
 	/**
 	 * Open the path summary to allow iteration (basically implementation of
@@ -187,7 +201,7 @@ public interface Session extends AutoCloseable {
 	 *           if can't open path summary
 	 */
 	PathSummary openPathSummary() throws SirixException;
-	
+
 	/**
 	 * Safely close session and immediately release all resources. If there are
 	 * running transactions, they will automatically be closed.

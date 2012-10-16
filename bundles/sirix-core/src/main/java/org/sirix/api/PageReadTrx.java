@@ -8,7 +8,7 @@ import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NodeBase;
-import org.sirix.page.EPage;
+import org.sirix.page.PageKind;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
@@ -33,16 +33,16 @@ public interface PageReadTrx extends AutoCloseable {
   /**
    * Get a node from persistent storage.
    * 
-   * @param pKey
+   * @param key
    *          the unique node-ID
-   * @param pPage
+   * @param page
    *          the page from which to fetch the node
    * @return an {@link Optional} reference usually containing the node reference
    * @throws SirixIOException
    *           if an I/O error occured
    */
-  Optional<? extends NodeBase> getNode(@Nonnegative final long pKey,
-    @Nonnull final EPage pPage) throws SirixIOException;
+  Optional<? extends NodeBase> getNode(final @Nonnegative long key,
+    final @Nonnull PageKind page) throws SirixIOException;
 
   /**
    * Current reference to actual rev-root page.
@@ -57,39 +57,39 @@ public interface PageReadTrx extends AutoCloseable {
   /**
    * Getting the name corresponding to the given key.
    * 
-   * @param pNameKey
+   * @param nameKey
    *          name key for the term to search
-   * @param pKind
+   * @param kind
    *          kind of node
    * @return the name
    * @throws NullPointerException
    *           if {@code pKind} is {@code null}
    */
-  String getName(int pNameKey, @Nonnull Kind pKind);
+  String getName(int nameKey, @Nonnull Kind kind);
 
   /**
    * Get the number of references for a name.
    * 
-   * @param pNameKey
+   * @param nameKey
    *          name key for the term to search
-   * @param pKind
+   * @param kind
    *          node type
    * @return the number of references for a given keyy.
    */
-  int getNameCount(int pNameKey, @Nonnull Kind pKind);
+  int getNameCount(int nameKey, @Nonnull Kind kind);
 
   /**
    * Getting the raw name related to the name key and the node kind.
    * 
-   * @param pNameKey
+   * @param nameKey
    *          name key for the term to search
-   * @param pKind
+   * @param kind
    *          kind of node
    * @return a byte array containing the raw name
    * @throws NullPointerException
-   *           if {@code pKind} is {@code null}
+   *           if {@code kind} is {@code null}
    */
-  byte[] getRawName(int pNameKey, @Nonnull Kind pKind);
+  byte[] getRawName(int nameKey, @Nonnull Kind kind);
 
   /**
    * Close transaction.
@@ -103,7 +103,7 @@ public interface PageReadTrx extends AutoCloseable {
   /**
    * Get a node from the page layer.
    * 
-   * @param pKey
+   * @param key
    *          {@code nodeKey} of node
    * @return {@code the node} or {@code null} if it's not available
    * @throws SirixIOException
@@ -113,7 +113,7 @@ public interface PageReadTrx extends AutoCloseable {
    * @throws IllegalArgumentException
    *           if {@code pKey} is negative
    */
-  PageContainer getNodeFromPage(@Nonnegative long pKey, @Nonnull EPage pPage)
+  PageContainer getNodeFromPage(@Nonnegative long key, @Nonnull PageKind page)
     throws SirixIOException;
 
   /**
@@ -136,13 +136,13 @@ public interface PageReadTrx extends AutoCloseable {
   /**
    * Get page from cache.
    * 
-   * @param pKey
+   * @param key
    *          key of persistent storage
    * @return page instance
    * @throws SirixIOException
    *           if an I/O error occurs
    */
-  Page getFromPageCache(@Nonnegative long pKey) throws SirixIOException;
+  Page getFromPageCache(@Nonnegative long key) throws SirixIOException;
   
   /**
    * Clear the caches.
@@ -152,8 +152,8 @@ public interface PageReadTrx extends AutoCloseable {
   /**
    * Put content from page cache into persistent storage.
    * 
-   * @param pPageLog
+   * @param pageLog
    *            persistent page log
    */
-  void putPageCache(@Nonnull TransactionLogPageCache pPageLog);
+  void putPageCache(@Nonnull TransactionLogPageCache pageLog);
 }

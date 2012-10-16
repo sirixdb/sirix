@@ -1,6 +1,6 @@
 package org.sirix.axis.visitor;
 
-import org.sirix.api.visitor.IVisitResult;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.IVisitor;
 
 /**
@@ -8,7 +8,7 @@ import org.sirix.api.visitor.IVisitor;
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */
-enum LocalVisitResult implements IVisitResult {
+enum LocalVisitResult implements VisitResult {
   /** Pop from the right sibling stack. */
   SKIPSUBTREEPOPSTACK
 }

@@ -1,13 +1,13 @@
 package org.sirix.cache;
 
 import com.google.common.base.Objects;
-import org.sirix.page.EPage;
+import org.sirix.page.PageKind;
 
 public class Tuple {
   private long mKey;
-  private EPage mPage;
+  private PageKind mPage;
 
-  public Tuple(final long pKey, final EPage pPage) {
+  public Tuple(final long pKey, final PageKind pPage) {
     mKey = pKey;
     mPage = pPage;
   }
@@ -31,7 +31,7 @@ public class Tuple {
     return mKey;
   }
   
-  public EPage getPage() {
+  public PageKind getPage() {
     return mPage;
   }
 }

@@ -1,7 +1,20 @@
 package org.sirix.api;
 
-
+/**
+ * Post commit hook.
+ * 
+ * @author Johannes Lichtenberger
+ * 
+ */
 public interface PostCommitHook {
 
-  void postCommit(final NodeReadTrx pRtx);
+	/**
+	 * Post commit hook. Called after a revision has been commited.
+	 * 
+	 * @param rtx
+	 *          Sirix {@link NodeReadTrx}
+	 * @throws NullPointerException
+	 *           if {@code rtx} is {@code null}
+	 */
+	void postCommit(final NodeReadTrx rtx);
 }

@@ -10,7 +10,7 @@ import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NodeBase;
-import org.sirix.page.EPage;
+import org.sirix.page.PageKind;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
@@ -37,9 +37,9 @@ public abstract class AbsForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Optional<? extends NodeBase> getNode(@Nonnegative long pKey,
-			@Nonnull EPage pPage) throws SirixIOException {
-		return delegate().getNode(pKey, pPage);
+	public Optional<? extends NodeBase> getNode(@Nonnegative long key,
+			@Nonnull PageKind page) throws SirixIOException {
+		return delegate().getNode(key, page);
 	}
 
 	@Override
@@ -48,18 +48,18 @@ public abstract class AbsForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public String getName(int pNameKey, @Nonnull Kind pKind) {
-		return delegate().getName(pNameKey, pKind);
+	public String getName(int nameKey, @Nonnull Kind kind) {
+		return delegate().getName(nameKey, kind);
 	}
 
 	@Override
-	public int getNameCount(int pNameKey, @Nonnull Kind pKind) {
-		return delegate().getNameCount(pNameKey, pKind);
+	public int getNameCount(int nameKey, @Nonnull Kind kind) {
+		return delegate().getNameCount(nameKey, kind);
 	}
 
 	@Override
-	public byte[] getRawName(int pNameKey, @Nonnull Kind pKind) {
-		return delegate().getRawName(pNameKey, pKind);
+	public byte[] getRawName(int nameKey, @Nonnull Kind kind) {
+		return delegate().getRawName(nameKey, kind);
 	}
 
 	@Override
@@ -68,9 +68,9 @@ public abstract class AbsForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public PageContainer getNodeFromPage(@Nonnegative long pKey,
-			@Nonnull EPage pPage) throws SirixIOException {
-		return delegate().getNodeFromPage(pKey, pPage);
+	public PageContainer getNodeFromPage(@Nonnegative long key,
+			@Nonnull PageKind page) throws SirixIOException {
+		return delegate().getNodeFromPage(key, page);
 	}
 
 	@Override
@@ -89,13 +89,13 @@ public abstract class AbsForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Page getFromPageCache(@Nonnegative long pKey) throws SirixIOException {
-		return delegate().getFromPageCache(pKey);
+	public Page getFromPageCache(@Nonnegative long key) throws SirixIOException {
+		return delegate().getFromPageCache(key);
 	}
 
 	@Override
-	public void putPageCache(@Nonnull TransactionLogPageCache pPageLog) {
-		delegate().putPageCache(pPageLog);
+	public void putPageCache(@Nonnull TransactionLogPageCache pageLog) {
+		delegate().putPageCache(pageLog);
 	}
 
 	@Override

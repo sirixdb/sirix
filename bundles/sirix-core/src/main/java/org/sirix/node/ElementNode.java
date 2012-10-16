@@ -37,7 +37,7 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.sirix.access.Utils;
-import org.sirix.api.visitor.IVisitResult;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -250,7 +250,7 @@ public final class ElementNode extends AbsStructForwardingNode implements
 	}
 
 	@Override
-	public IVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
+	public VisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
 		return pVisitor.visit(ImmutableElement.of(this));
 	}
 

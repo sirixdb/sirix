@@ -51,7 +51,7 @@ public final class PagePersistenter {
    */
   public static @Nonnull
   Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
-    return EPage.getKind(pSource.readByte()).deserializePage(pSource);
+    return PageKind.getKind(pSource.readByte()).deserializePage(pSource);
   }
 
   /**
@@ -64,7 +64,7 @@ public final class PagePersistenter {
    */
   public static void serializePage(@Nonnull final ByteArrayDataOutput pSink,
     @Nonnull final Page pPage) {
-    EPage.getKind(pPage.getClass()).serializePage(pSink, pPage);
+    PageKind.getKind(pPage.getClass()).serializePage(pSink, pPage);
   }
 
 }

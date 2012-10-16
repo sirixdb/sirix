@@ -25,11 +25,11 @@ public class Moved<T extends NodeCursor> extends Move<T> {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pNodeCursor
+	 * @param nodeCursor
 	 *          the cursor which has been moved
 	 */
-	public Moved(final @Nonnull T pNodeCursor) {
-		mNodeCursor = checkNotNull(pNodeCursor);
+	public Moved(final @Nonnull T nodeCursor) {
+		mNodeCursor = checkNotNull(nodeCursor);
 	}
 
 	@Override

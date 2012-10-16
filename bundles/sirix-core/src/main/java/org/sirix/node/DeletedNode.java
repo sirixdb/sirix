@@ -33,7 +33,7 @@ import com.google.common.base.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
@@ -99,7 +99,7 @@ public final class DeletedNode extends AbsForwardingNode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+  public VisitResultType acceptVisitor(@Nonnull IVisitor pVisitor) {
     throw new UnsupportedOperationException();
   }
 

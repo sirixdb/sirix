@@ -61,23 +61,23 @@ public interface Database extends AutoCloseable {
 	 * creation of a suitable folder structure as well as the serialization of the
 	 * configuration of this resource.
 	 * 
-	 * @param pResConf
+	 * @param config
 	 *          the config of the resource
 	 * @return {@code true} if successful, {@code false} otherwise
 	 * @throws SirixIOException
 	 *           if anything happens while creating the resource
 	 */
-	boolean createResource(@Nonnull ResourceConfiguration pResConf)
+	boolean createResource(@Nonnull ResourceConfiguration config)
 			throws SirixIOException;
 
 	/**
 	 * Is the resource within this database existing?
 	 * 
-	 * @param pResourceName
+	 * @param name
 	 *          resource to be checked
 	 * @return {@code true}, if existing, {@code false} otherwise
 	 */
-	boolean existsResource(@Nonnull String pResourceName);
+	boolean existsResource(@Nonnull String name);
 
 	/**
 	 * Listing all resources within this database.
@@ -89,23 +89,23 @@ public interface Database extends AutoCloseable {
 	/**
 	 * Getting the session associated within this database.
 	 * 
-	 * @param pSessionConf
+	 * @param config
 	 *          {@link SessionConfiguration.Builder} reference
 	 * @return the session
 	 * @throws SirixException
 	 *           if can't get session
 	 */
-	Session getSession(@Nonnull SessionConfiguration pSessionConf)
+	Session getSession(@Nonnull SessionConfiguration config)
 			throws SirixException;
 
 	/**
 	 * Truncating a resource. This includes the removal of all data stored within
 	 * this resource.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          resource name
 	 */
-	Database truncateResource(@Nonnull String pName);
+	Database truncateResource(@Nonnull String name);
 
 	/**
 	 * Closing the database for further access.
@@ -136,22 +136,22 @@ public interface Database extends AutoCloseable {
 	/**
 	 * Get the resource name associated with the given ID.
 	 * 
-	 * @param pID
+	 * @param id
 	 *          unique ID of resource
 	 * @return resource name
 	 * @throws IllegalArgumentException
 	 *           if {@code pID} is negative
 	 */
-	String getResourceName(@Nonnegative long pID);
+	String getResourceName(@Nonnegative long id);
 
 	/**
 	 * Get the resource-ID associated with the given resource name.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          name of resource
 	 * @return ID of resource with the given name
 	 * @throws NullPointerException
 	 *           if {@code pName} is {@code null}
 	 */
-	long getResourceID(@Nonnull String pName);
+	long getResourceID(@Nonnull String name);
 }

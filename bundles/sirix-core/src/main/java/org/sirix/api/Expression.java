@@ -29,6 +29,12 @@ package org.sirix.api;
 
 import org.sirix.exception.SirixXPathException;
 
+/**
+ * XPath expression.
+ * 
+ * @author Johannes Lichtenberger
+ *
+ */
 public interface Expression {
 
   /**
@@ -36,8 +42,7 @@ public interface Expression {
    * method)
    * 
    * @throws SirixXPathException
-   *           if evaluation fails.
+   *           if evaluation fails
    */
   void evaluate() throws SirixXPathException;
-
 }

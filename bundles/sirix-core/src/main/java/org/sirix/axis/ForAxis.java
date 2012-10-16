@@ -66,24 +66,24 @@ public final class ForAxis extends AbsAxis {
   /**
    * Constructor. Initializes the internal state.
    * 
-   * @param pRange
+   * @param range
    *          the range variable that holds the binding sequence
-   * @param pReturnExpr
+   * @param returnExpr
    *          the return expression of the for expression
    */
-  public ForAxis(@Nonnull final Axis pRange, @Nonnull final Axis pReturnExpr) {
-    super(pRange.getTrx());
-    mRange = pRange;
-    mReturn = pReturnExpr;
+  public ForAxis(@Nonnull final Axis range, @Nonnull final Axis returnExpr) {
+    super(range.getTrx());
+    mRange = range;
+    mReturn = returnExpr;
     mIsFirst = true;
   }
 
   @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
     mIsFirst = true;
     if (mRange != null) {
-      mRange.reset(pNodeKey);
+      mRange.reset(nodeKey);
     }
   }
   

@@ -47,7 +47,6 @@ import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.LevelOrderAxis;
-import org.sirix.axis.LevelOrderAxis.EIncludeNodes;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.axis.visitor.DeleteFMSEVisitor;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
@@ -231,9 +230,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 		pRtx.moveTo(mNewStartKey);
 
 		// 2. Iterate over new shreddered file
-		for (final Axis axis = new LevelOrderAxis.Builder(pRtx)
-				.includeSelf(IncludeSelf.YES)
-				.includeNodes(EIncludeNodes.NONSTRUCTURAL).build(); axis.hasNext();) {
+		for (final Axis axis = new LevelOrderAxis.Builder(pRtx).includeSelf()
+				.includeNonStructuralNodes().build(); axis.hasNext();) {
 			axis.next();
 			final long nodeKey = axis.getTrx().getNodeKey();
 			doFirstFSMEStep(pWtx, pRtx);
@@ -1124,8 +1122,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 * @param pVisitor
 	 *          {@link LabelFMSEVisitor} used to save node type/list
 	 */
-	private void getLabels(final NodeReadTrx pRtx,
-			final LabelFMSEVisitor pVisitor) {
+	private void getLabels(final NodeReadTrx pRtx, final LabelFMSEVisitor pVisitor) {
 		assert pRtx != null;
 		assert pVisitor != null;
 
@@ -1225,8 +1222,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 			assert mWtx.getKind() == mRtx.getKind();
 			double ratio = 0;
 
-			if (mWtx.getKind() == Kind.ATTRIBUTE
-					|| mWtx.getKind() == Kind.NAMESPACE
+			if (mWtx.getKind() == Kind.ATTRIBUTE || mWtx.getKind() == Kind.NAMESPACE
 					|| mWtx.getKind() == Kind.PROCESSING) {
 				if (mWtx.getName().equals(mRtx.getName())) {
 					ratio = 1;

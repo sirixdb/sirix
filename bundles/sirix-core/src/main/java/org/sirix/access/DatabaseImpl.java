@@ -89,15 +89,15 @@ public final class DatabaseImpl implements Database {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pDBConf
+	 * @param dbConfig
 	 *          {@link ResourceConfiguration} reference to configure the
 	 *          {@link Database}
 	 * @throws SirixException
 	 *           if something weird happens
 	 */
-	private DatabaseImpl(final @Nonnull DatabaseConfiguration pDBConf)
+	private DatabaseImpl(final @Nonnull DatabaseConfiguration dbConfig)
 			throws SirixException {
-		mDBConfig = checkNotNull(pDBConf);
+		mDBConfig = checkNotNull(dbConfig);
 		mSessions = new ConcurrentHashMap<>();
 		mResources = Maps.synchronizedBiMap(HashBiMap.<Long, String> create());
 	}
@@ -109,25 +109,25 @@ public final class DatabaseImpl implements Database {
 	 * Creating a database. This includes loading the database configuration,
 	 * building up the structure and preparing everything for login.
 	 * 
-	 * @param pDBConfig
+	 * @param dbConfig
 	 *          config which is used for the database, including storage location
 	 * @return true if creation is valid, false otherwise
 	 * @throws SirixIOException
 	 *           if something odd happens within the creation process.
 	 */
 	public static synchronized boolean createDatabase(
-			final @Nonnull DatabaseConfiguration pDBConfig) throws SirixIOException {
+			final @Nonnull DatabaseConfiguration dbConfig) throws SirixIOException {
 		boolean returnVal = true;
 		// if file is existing, skipping
-		if (pDBConfig.getFile().exists()) {
+		if (dbConfig.getFile().exists()) {
 			return false;
 		} else {
-			returnVal = pDBConfig.getFile().mkdirs();
+			returnVal = dbConfig.getFile().mkdirs();
 			if (returnVal) {
 				// creation of folder structure
 				for (DatabaseConfiguration.Paths paths : DatabaseConfiguration.Paths
 						.values()) {
-					final File toCreate = new File(pDBConfig.getFile(), paths.getFile()
+					final File toCreate = new File(dbConfig.getFile(), paths.getFile()
 							.getName());
 					if (paths.isFolder()) {
 						returnVal = toCreate.mkdir();
@@ -137,7 +137,7 @@ public final class DatabaseImpl implements Database {
 									DatabaseConfiguration.Paths.LOCK.getFile().getName()) ? true
 									: toCreate.createNewFile();
 						} catch (final IOException e) {
-							Files.recursiveRemove(pDBConfig.getFile().toPath());
+							Files.recursiveRemove(dbConfig.getFile().toPath());
 							throw new SirixIOException(e);
 						}
 					}
@@ -147,12 +147,12 @@ public final class DatabaseImpl implements Database {
 				}
 			}
 			// serialization of the config
-			DatabaseConfiguration.serialize(pDBConfig);
+			DatabaseConfiguration.serialize(dbConfig);
 
 			// if something was not correct, delete the partly created
 			// substructure
 			if (!returnVal) {
-				Files.recursiveRemove(pDBConfig.getFile().toPath());
+				Files.recursiveRemove(dbConfig.getFile().toPath());
 			}
 			return returnVal;
 		}
@@ -162,20 +162,20 @@ public final class DatabaseImpl implements Database {
 	 * Truncate a database. This deletes all relevant data. All running sessions
 	 * must be closed beforehand.
 	 * 
-	 * @param pConf
+	 * @param dbConfig
 	 *          the database at this path should be deleted
 	 * @throws SirixException
 	 *           if Sirix fails to delete the database
 	 */
 	public static synchronized void truncateDatabase(
-			final @Nonnull DatabaseConfiguration pConf) throws SirixIOException {
+			final @Nonnull DatabaseConfiguration dbConfig) throws SirixIOException {
 		// check that database must be closed beforehand
-		if (!DATABASEMAP.containsKey(pConf.getFile())) {
+		if (!DATABASEMAP.containsKey(dbConfig.getFile())) {
 			// if file is existing and folder is a tt-dataplace, delete it
-			if (pConf.getFile().exists()) {
+			if (dbConfig.getFile().exists()) {
 //					&& DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
 				// instantiate the database for deletion
-				Files.recursiveRemove(pConf.getFile().toPath());
+				Files.recursiveRemove(dbConfig.getFile().toPath());
 			}
 		}
 	}
@@ -190,11 +190,11 @@ public final class DatabaseImpl implements Database {
 
 	@Override
 	public synchronized boolean createResource(
-			final @Nonnull ResourceConfiguration pResConf) throws SirixIOException {
+			final @Nonnull ResourceConfiguration resConfig) throws SirixIOException {
 		boolean returnVal = true;
 		final File path = new File(new File(mDBConfig.getFile().getAbsoluteFile(),
 				DatabaseConfiguration.Paths.Data.getFile().getName()),
-				pResConf.mPath.getName());
+				resConfig.mPath.getName());
 		// If file is existing, skip.
 		if (path.exists()) {
 			return false;
@@ -222,36 +222,36 @@ public final class DatabaseImpl implements Database {
 			}
 			// Serialization of the config.
 			mResourceID.set(mDBConfig.getMaxResourceID());
-			ResourceConfiguration.serialize(pResConf.setID(mResourceID
+			ResourceConfiguration.serialize(resConfig.setID(mResourceID
 					.getAndIncrement()));
 			mDBConfig.setMaximumResourceID(mResourceID.get());
-			mResources.forcePut(mResourceID.get(), pResConf.getResource()
+			mResources.forcePut(mResourceID.get(), resConfig.getResource()
 					.getName());
 
 			// If something was not correct, delete the partly created
 			// substructure.
 			if (!returnVal) {
-				Files.recursiveRemove(pResConf.mPath.toPath());
+				Files.recursiveRemove(resConfig.mPath.toPath());
 			}
 			return returnVal;
 		}
 	}
 
 	@Override
-	public synchronized String getResourceName(final @Nonnegative long pID) {
-		checkArgument(pID >= 0, "pID must be >= 0!");
-		return mResources.get(pID);
+	public synchronized String getResourceName(final @Nonnegative long id) {
+		checkArgument(id >= 0, "pID must be >= 0!");
+		return mResources.get(id);
 	}
 
 	@Override
-	public synchronized long getResourceID(final @Nonnull String pName) {
-		return mResources.inverse().get(checkNotNull(pName));
+	public synchronized long getResourceID(final @Nonnull String name) {
+		return mResources.inverse().get(checkNotNull(name));
 	}
 
 	@Override
-	public synchronized Database truncateResource(final @Nonnull String pName) {
+	public synchronized Database truncateResource(final @Nonnull String name) {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.Data.getFile().getName()), pName);
+				DatabaseConfiguration.Paths.Data.getFile().getName()), name);
 		// Check that database must be closed beforehand.
 		if (!mSessions.containsKey(resourceFile)) {
 			// If file is existing and folder is a tt-dataplace, delete it.
@@ -280,7 +280,7 @@ public final class DatabaseImpl implements Database {
 	 * Open database. A database can be opened only once (even across JVMs).
 	 * Afterwards a singleton instance bound to the {@link File} is returned.
 	 * 
-	 * @param pFile
+	 * @param file
 	 *          determines where the database is located sessionConf a
 	 *          {@link SessionConfiguration} object to set up the session
 	 * @return {@link Database} instance.
@@ -289,25 +289,25 @@ public final class DatabaseImpl implements Database {
 	 * @throws NullPointerException
 	 *           if {@code pFile} is {@code null}
 	 */
-	public static synchronized Database openDatabase(final @Nonnull File pFile)
+	public static synchronized Database openDatabase(final @Nonnull File file)
 			throws SirixException {
-		if (!pFile.exists()) {
+		if (!file.exists()) {
 			throw new SirixUsageException(
 					"DB could not be opened (since it was not created?) at location",
-					pFile.toString());
+					file.toString());
 		}
 		final DatabaseConfiguration config = DatabaseConfiguration
-				.deserialize(pFile);
+				.deserialize(file);
 		if (config == null) {
 			throw new IllegalStateException("Configuration may not be null!");
 		}
-		final File lock = new File(pFile, DatabaseConfiguration.Paths.LOCK
+		final File lock = new File(file, DatabaseConfiguration.Paths.LOCK
 				.getFile().getName());
 		final DatabaseImpl database = new DatabaseImpl(config);
-		if (lock.exists() && DATABASEMAP.get(pFile) == null) {
+		if (lock.exists() && DATABASEMAP.get(file) == null) {
 			throw new SirixUsageException(
 					"DB could not be opened (since it is in use by another JVM)",
-					pFile.toString());
+					file.toString());
 		} else {
 			try {
 				lock.createNewFile();
@@ -315,7 +315,7 @@ public final class DatabaseImpl implements Database {
 				throw new SirixIOException(e.getCause());
 			}
 		}
-		final Database returnVal = DATABASEMAP.putIfAbsent(pFile, database);
+		final Database returnVal = DATABASEMAP.putIfAbsent(file, database);
 		if (returnVal == null) {
 			return database;
 		} else {
@@ -390,9 +390,9 @@ public final class DatabaseImpl implements Database {
 	}
 
 	@Override
-	public boolean equals(final @Nullable Object pObj) {
-		if (pObj instanceof DatabaseImpl) {
-			final DatabaseImpl other = (DatabaseImpl) pObj;
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof DatabaseImpl) {
+			final DatabaseImpl other = (DatabaseImpl) obj;
 			return other.mDBConfig.equals(mDBConfig);
 		}
 		return false;
@@ -402,12 +402,12 @@ public final class DatabaseImpl implements Database {
 	 * Closing a resource. This callback is necessary due to centralized handling
 	 * of all sessions within a database.
 	 * 
-	 * @param pFile
+	 * @param file
 	 *          {@link File} to be closed
 	 * @return {@code true} if close successful, {@code false} otherwise
 	 */
-	protected boolean removeSession(final @Nonnull File pFile) {
-		return mSessions.remove(pFile) == null ? false : true;
+	protected boolean removeSession(final @Nonnull File file) {
+		return mSessions.remove(file) == null ? false : true;
 	}
 
 	@Override
@@ -418,15 +418,15 @@ public final class DatabaseImpl implements Database {
 	/**
 	 * Determines if a database already exists.
 	 * 
-	 * @param pConfiguration
+	 * @param dbConfig
 	 *          database configuration
 	 * @return {@code true}, if database exists, {@code false} otherwise
 	 */
 	public synchronized static boolean existsDatabase(
-			final @Nonnull DatabaseConfiguration pConfiguration) {
-		boolean retVal = pConfiguration.getFile().exists() ? true : false;
+			final @Nonnull DatabaseConfiguration dbConfig) {
+		boolean retVal = dbConfig.getFile().exists() ? true : false;
 		if (retVal
-				&& DatabaseConfiguration.Paths.compareStructure(pConfiguration
+				&& DatabaseConfiguration.Paths.compareStructure(dbConfig
 						.getFile()) == 0) {
 			retVal = true;
 		}

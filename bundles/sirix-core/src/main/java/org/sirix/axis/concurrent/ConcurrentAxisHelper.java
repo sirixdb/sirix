@@ -35,6 +35,8 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.settings.EFixed;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /**
  * <h1>ConcurrentAxisHelper</h1>
@@ -49,6 +51,9 @@ import org.sirix.settings.EFixed;
  * </p>
  */
 public class ConcurrentAxisHelper implements Runnable {
+	
+	/** Logger. */
+	public static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxisHelper.class));
 
   /** {@link Axis} that computes the results. */
   private final Axis mAxis;
@@ -68,9 +73,10 @@ public class ConcurrentAxisHelper implements Runnable {
    * @param rtx
    *          Transaction to operate with.
    */
-  public ConcurrentAxisHelper(@Nonnull final Axis pAxis, @Nonnull final BlockingQueue<Long> pResults) {
-    mAxis = checkNotNull(pAxis);
-    mResults = checkNotNull(pResults);
+	public ConcurrentAxisHelper(@Nonnull final Axis axis,
+			@Nonnull final BlockingQueue<Long> results) {
+    mAxis = checkNotNull(axis);
+    mResults = checkNotNull(results);
   }
 
   @Override
@@ -83,16 +89,16 @@ public class ConcurrentAxisHelper implements Runnable {
         // Store result in queue as soon as there is space left.
         mResults.put(nodeKey);
         // Wait until next thread arrives and exchange blocking queue.
-      } catch (final InterruptedException mExp) {
-        mExp.printStackTrace();
+      } catch (final InterruptedException e) {
+      	LOGWRAPPER.error(e.getMessage(), e);
       }
     }
 
     try {
       // Mark end of result sequence by the NULL_NODE_KEY.
       mResults.put(EFixed.NULL_NODE_KEY.getStandardProperty());
-    } catch (final InterruptedException mExp) {
-      mExp.printStackTrace();
+    } catch (final InterruptedException e) {
+    	LOGWRAPPER.error(e.getMessage(), e);
     }
 
   }

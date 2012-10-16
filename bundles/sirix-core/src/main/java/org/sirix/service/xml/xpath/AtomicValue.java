@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
@@ -251,8 +251,8 @@ public class AtomicValue implements Node, ValNode {
 	}
 
 	@Override
-	public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-		return EVisitResult.CONTINUE;
+	public VisitResultType acceptVisitor(@Nonnull final IVisitor pVisitor) {
+		return VisitResultType.CONTINUE;
 	}
 
 	@Override

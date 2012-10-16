@@ -32,11 +32,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.visitor.EVisitResult;
-import org.sirix.exception.SirixException;
-import org.sirix.node.CommentNode;
-import org.sirix.node.ElementNode;
-import org.sirix.node.TextNode;
 
 /**
  * Allows insertion of subtrees.

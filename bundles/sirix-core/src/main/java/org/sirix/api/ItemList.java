@@ -31,7 +31,7 @@ import com.google.common.base.Optional;
 import org.sirix.node.interfaces.Node;
 
 /**
- * <h1>INodeList</h1>
+ * <h1>ItemList</h1>
  * <p>
  * Data structure to store <a href="http://www.w3.org/TR/xpath-datamodel/#dt-item"> XDM items</a>.
  * </p>

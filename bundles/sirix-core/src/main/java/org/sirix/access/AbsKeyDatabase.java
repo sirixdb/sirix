@@ -26,13 +26,13 @@ public abstract class AbsKeyDatabase {
   /**
    * Constructor with the place to store the data.
    * 
-   * @param paramFile
+   * @param file
    *          {@link File} which holds the place to store
    *          the data.
    */
-  protected AbsKeyDatabase(final File paramFile) {
+  protected AbsKeyDatabase(final File file) {
     place =
-      new File(paramFile, new StringBuilder(DatabaseConfiguration.Paths.KEYSELECTOR.getFile().getName()).append(
+      new File(file, new StringBuilder(DatabaseConfiguration.Paths.KEYSELECTOR.getFile().getName()).append(
         File.separator).append(counter).toString());
     place.mkdirs();
     counter++;

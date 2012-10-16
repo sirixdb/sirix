@@ -18,78 +18,72 @@ import org.sirix.node.TextNode;
  * Node factory for creating nodes.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
 public interface NodeFactory {
 	/**
 	 * Create a {@link PathNode}.
 	 * 
-	 * @param pParentKey
+	 * @param parentKey
 	 *          parent node key
-	 * @param pLeftSibKey
+	 * @param leftSibKey
 	 *          left sibling key
-	 * @param pRightSibKey
+	 * @param rightSibKey
 	 *          right sibling key
-	 * @param pHash
+	 * @param hash
 	 *          hash value associated with the node
-	 * @param pName
+	 * @param name
 	 *          {@link QName} of the node
-	 * @param pPCR
-	 *          path class record of node
-	 * @param pSiblingPos
-	 *          sibling position
+	 * @param pathNodeKey
+	 *          path node key of node
 	 * @return the created node
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	PathNode createPathNode(final @Nonnegative long pParentKey,
-			final @Nonnegative long pLeftSibKey, final long pRightSibKey,
-			final long pHash, final @Nonnull QName pName, final @Nonnull Kind pKind,
-			final @Nonnegative int pLevel)
-			throws SirixIOException;
+	PathNode createPathNode(final @Nonnegative long parentKey,
+			final @Nonnegative long leftSibKey, final long rightSibKey,
+			final long hash, final @Nonnull QName name, final @Nonnull Kind kind,
+			final @Nonnegative int level) throws SirixIOException;
 
 	/**
 	 * Create a {@link PINode}.
 	 * 
-	 * @param pParentKey
+	 * @param parentKey
 	 *          parent node key
-	 * @param pLeftSibKey
+	 * @param leftSibKey
 	 *          left sibling key
-	 * @param pRightSibKey
+	 * @param rightSibKey
 	 *          right sibling key
-	 * @param pTarget
+	 * @param target
 	 *          target of the processing instruction
-	 * @param pContent
+	 * @param content
 	 *          content of the processing instruction
-	 * @param pIsCompressed
+	 * @param isCompressed
 	 *          determines if the value is compressed or not
-	 * @param pPCR
-	 *          path class record of node
-	 * @param pSiblingPos
-	 *          sibling position
+	 * @param pathNodeKey
+	 *          path node key of node
 	 * @return the created node
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	PINode createPINode(final @Nonnegative long pParentKey,
-			final @Nonnegative long pLeftSibKey,
-			final @Nonnegative long pRightSibKey, final @Nonnull QName pTarget,
-			final @Nonnull byte[] pContent, final boolean pIsCompressed,
-			final @Nonnegative long pPathNodeKey)
+	PINode createPINode(final @Nonnegative long parentKey,
+			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
+			final @Nonnull QName target, final @Nonnull byte[] content,
+			final boolean isCompressed, final @Nonnegative long pathNodeKey)
 			throws SirixIOException;
 
 	/**
 	 * Create a {@link CommentNode}.
 	 * 
-	 * @param pParentKey
+	 * @param parentKey
 	 *          parent node key
-	 * @param pLeftSibKey
+	 * @param leftSibKey
 	 *          left sibling key
-	 * @param pRightSibKey
+	 * @param rightSibKey
 	 *          right sibling key
-	 * @param pValue
+	 * @param value
 	 *          value of the node
-	 * @param pIsCompressed
+	 * @param isCompressed
 	 *          determines if the value is compressed or not
 	 * @param pSiblingPos
 	 *          sibling position
@@ -97,24 +91,23 @@ public interface NodeFactory {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	CommentNode createCommentNode(final @Nonnegative long pParentKey,
-			final @Nonnegative long pLeftSibKey,
-			final @Nonnegative long pRightSibKey, @Nonnull byte[] pValue,
-			final boolean pIsCompressed)
+	CommentNode createCommentNode(final @Nonnegative long parentKey,
+			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
+			@Nonnull byte[] value, final boolean isCompressed)
 			throws SirixIOException;
 
 	/**
 	 * Create an {@link ElementNode}.
 	 * 
-	 * @param pParentKey
+	 * @param parentKey
 	 *          parent node key
-	 * @param pLeftSibKey
+	 * @param leftSibKey
 	 *          left sibling key
-	 * @param pRightSibKey
+	 * @param rightSibKey
 	 *          right sibling key
-	 * @param pHash
+	 * @param hash
 	 *          hash value associated with the node
-	 * @param pName
+	 * @param name
 	 *          {@link QName} of the node
 	 * @param pPCR
 	 *          path class record of node
@@ -124,23 +117,23 @@ public interface NodeFactory {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	ElementNode createElementNode(final @Nonnegative long pParentKey,
-			final @Nonnegative long pLeftSibKey,
-			final @Nonnegative long pRightSibKey, final long pHash,
-			final @Nonnull QName pName, final @Nonnegative long pPathNodeKey) throws SirixIOException;
+	ElementNode createElementNode(final @Nonnegative long parentKey,
+			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
+			final long hash, final @Nonnull QName name,
+			final @Nonnegative long pathNodeKey) throws SirixIOException;
 
 	/**
 	 * Create a {@link TextNode}.
 	 * 
-	 * @param pParentKey
+	 * @param parentKey
 	 *          parent node key
-	 * @param pLeftSibKey
+	 * @param leftSibKey
 	 *          left sibling key
-	 * @param pRightSibKey
+	 * @param rightSibKey
 	 *          right sibling key
-	 * @param pValue
+	 * @param value
 	 *          value of the node
-	 * @param pIsCompressed
+	 * @param isCompressed
 	 *          determines if the value should be compressed or not
 	 * @param pSiblingPos
 	 *          sibling position
@@ -148,18 +141,17 @@ public interface NodeFactory {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	TextNode createTextNode(final @Nonnegative long pParentKey,
-			final @Nonnegative long pLeftSibKey,
-			final @Nonnegative long pRightSibKey, final @Nonnull byte[] pValue,
-			final boolean pIsCompressed)
+	TextNode createTextNode(final @Nonnegative long parentKey,
+			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
+			final @Nonnull byte[] value, final boolean isCompressed)
 			throws SirixIOException;
 
 	/**
 	 * Create an {@link AttributeNode}.
 	 * 
-	 * @param pParentKey
+	 * @param parentKey
 	 *          parent node key
-	 * @param pName
+	 * @param name
 	 *          the {@link QName} of the attribute
 	 * @param pPCR
 	 *          the path class record
@@ -167,26 +159,26 @@ public interface NodeFactory {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	AttributeNode createAttributeNode(final @Nonnegative long pParentKey,
-			final @Nonnull QName pName, final @Nonnull byte[] pValue,
-			final @Nonnegative long pPathNodeKey) throws SirixIOException;
+	AttributeNode createAttributeNode(final @Nonnegative long parentKey,
+			final @Nonnull QName name, final @Nonnull byte[] value,
+			final @Nonnegative long pathNodeKey) throws SirixIOException;
 
 	/**
 	 * Create a {@link NamespaceNode}.
 	 * 
-	 * @param pParentKey
+	 * @param parentKey
 	 *          parent node key
-	 * @param pUriKey
+	 * @param uriKey
 	 *          the URI key
-	 * @param pPrefixKey
+	 * @param prefixKey
 	 *          the prefix key
-	 * @param pPCR
+	 * @param pathNodeKey
 	 *          the path class record
 	 * @return the created node
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	NamespaceNode createNamespaceNode(final @Nonnegative long pParentKey,
-			final int pUriKey, final int pPrefixKey,
-			final @Nonnegative long pPathNodeKey) throws SirixIOException;
+	NamespaceNode createNamespaceNode(final @Nonnegative long parentKey,
+			final int uriKey, final int prefixKey, final @Nonnegative long pathNodeKey)
+			throws SirixIOException;
 }

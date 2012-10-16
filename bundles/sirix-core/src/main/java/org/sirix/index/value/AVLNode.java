@@ -5,7 +5,7 @@ import com.google.common.base.Objects;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.Kind;
@@ -144,8 +144,8 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
   }
 
   @Override
-  public EVisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
-    return EVisitResult.CONTINUE;
+  public VisitResultType acceptVisitor(final @Nonnull IVisitor pVisitor) {
+    return VisitResultType.CONTINUE;
   }
 
   @Override

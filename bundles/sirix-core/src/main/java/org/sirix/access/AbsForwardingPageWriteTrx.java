@@ -9,7 +9,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NodeBase;
-import org.sirix.page.EPage;
+import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
@@ -27,55 +27,55 @@ public abstract class AbsForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public NodeBase createNode(@Nonnull NodeBase pNode, @Nonnull EPage pPage)
+	public NodeBase createNode(@Nonnull NodeBase node, @Nonnull PageKind page)
 			throws SirixIOException {
-		return delegate().createNode(pNode, pPage);
+		return delegate().createNode(node, page);
 	}
 
 	@Override
-	public NodeBase prepareNodeForModification(@Nonnegative long pNodeKey,
-			@Nonnull EPage pPage) throws SirixIOException {
-		return delegate().prepareNodeForModification(pNodeKey, pPage);
+	public NodeBase prepareNodeForModification(@Nonnegative long nodeKey,
+			@Nonnull PageKind page) throws SirixIOException {
+		return delegate().prepareNodeForModification(nodeKey, page);
 	}
 
 	@Override
-	public void finishNodeModification(@Nonnegative long pNode,
-			@Nonnull EPage pPage) {
-		delegate().finishNodeModification(pNode, pPage);
+	public void finishNodeModification(@Nonnegative long nodeKey,
+			@Nonnull PageKind page) {
+		delegate().finishNodeModification(nodeKey, page);
 	}
 
 	@Override
-	public void removeNode(@Nonnegative long pNode, @Nonnull EPage pPage)
+	public void removeNode(@Nonnegative long nodeKey, @Nonnull PageKind page)
 			throws SirixIOException {
-		delegate().removeNode(pNode, pPage);
+		delegate().removeNode(nodeKey, page);
 	}
 
 	@Override
-	public int createNameKey(@Nonnull String pName, @Nonnull Kind pKind)
+	public int createNameKey(@Nonnull String name, @Nonnull Kind kind)
 			throws SirixIOException {
-		return delegate().createNameKey(pName, pKind);
+		return delegate().createNameKey(name, kind);
 	}
 
 	@Override
-	public UberPage commit(@Nonnull MultipleWriteTrx pMultipleWriteTrx)
+	public UberPage commit(@Nonnull MultipleWriteTrx multipleWriteTrx)
 			throws SirixException {
-		return delegate().commit(pMultipleWriteTrx);
+		return delegate().commit(multipleWriteTrx);
 	}
 
 	@Override
-	public void updateDateContainer(@Nonnull PageContainer pNodePageCont,
-			@Nonnull EPage pPage) {
-		delegate().updateDateContainer(pNodePageCont, pPage);
+	public void updateDateContainer(@Nonnull PageContainer nodePageContainer,
+			@Nonnull PageKind page) {
+		delegate().updateDateContainer(nodePageContainer, page);
 	}
 
 	@Override
-	public void commit(@Nonnull PageReference pReference) throws SirixException {
-		delegate().commit(pReference);
+	public void commit(@Nonnull PageReference reference) throws SirixException {
+		delegate().commit(reference);
 	}
 
 	@Override
-	public void restore(@Nonnull Restore pRestore) {
-		delegate().restore(pRestore);
+	public void restore(@Nonnull Restore restore) {
+		delegate().restore(restore);
 	}
 
 	@Override

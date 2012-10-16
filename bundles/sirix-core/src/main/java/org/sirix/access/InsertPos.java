@@ -35,7 +35,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.page.EPage;
+import org.sirix.page.PageKind;
 import org.sirix.settings.EFixed;
 
 /**
@@ -49,110 +49,110 @@ enum InsertPos {
 	/** Insert as first child. */
 	ASFIRSTCHILD {
 		@Override
-		void processMove(final @Nonnull StructNode pFromNode,
-				final @Nonnull StructNode pToNode, final @Nonnull NodeWriteTrxImpl pWtx)
+		void processMove(final @Nonnull StructNode fromNode,
+				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrxImpl wtx)
 				throws SirixException {
-			assert pFromNode != null;
-			assert pToNode != null;
-			assert pWtx != null;
+			assert fromNode != null;
+			assert toNode != null;
+			assert wtx != null;
 
 			// Adapt childCount of parent where the subtree has to be inserted.
-			StructNode newParent = (StructNode) pWtx.getPageTransaction()
-					.prepareNodeForModification(pToNode.getNodeKey(), EPage.NODEPAGE);
-			if (pFromNode.getParentKey() != pToNode.getNodeKey()) {
+			StructNode newParent = (StructNode) wtx.getPageTransaction()
+					.prepareNodeForModification(toNode.getNodeKey(), PageKind.NODEPAGE);
+			if (fromNode.getParentKey() != toNode.getNodeKey()) {
 				newParent.incrementChildCount();
 			}
-			pWtx.getPageTransaction().finishNodeModification(newParent.getNodeKey(),
-					EPage.NODEPAGE);
+			wtx.getPageTransaction().finishNodeModification(newParent.getNodeKey(),
+					PageKind.NODEPAGE);
 
-			if (pToNode.hasFirstChild()) {
-				pWtx.moveTo(pToNode.getFirstChildKey());
+			if (toNode.hasFirstChild()) {
+				wtx.moveTo(toNode.getFirstChildKey());
 
-				if (pWtx.getKind() == Kind.TEXT && pFromNode.getKind() == Kind.TEXT) {
-					final StringBuilder builder = new StringBuilder(pWtx.getValue());
+				if (wtx.getKind() == Kind.TEXT && fromNode.getKind() == Kind.TEXT) {
+					final StringBuilder builder = new StringBuilder(wtx.getValue());
 
 					// Adapt right sibling key of moved node.
-					pWtx.moveTo(pWtx.getRightSiblingKey());
-					final TextNode moved = (TextNode) pWtx.getPageTransaction()
-							.prepareNodeForModification(pFromNode.getNodeKey(),
-									EPage.NODEPAGE);
-					moved.setRightSiblingKey(pWtx.getNodeKey());
-					pWtx.getPageTransaction().finishNodeModification(moved.getNodeKey(),
-							EPage.NODEPAGE);
+					wtx.moveTo(wtx.getRightSiblingKey());
+					final TextNode moved = (TextNode) wtx.getPageTransaction()
+							.prepareNodeForModification(fromNode.getNodeKey(),
+									PageKind.NODEPAGE);
+					moved.setRightSiblingKey(wtx.getNodeKey());
+					wtx.getPageTransaction().finishNodeModification(moved.getNodeKey(),
+							PageKind.NODEPAGE);
 
 					// Merge text nodes.
-					pWtx.moveTo(moved.getNodeKey());
-					builder.insert(0, pWtx.getValue());
-					pWtx.setValue(builder.toString());
+					wtx.moveTo(moved.getNodeKey());
+					builder.insert(0, wtx.getValue());
+					wtx.setValue(builder.toString());
 
 					// Remove first child.
-					pWtx.moveTo(pToNode.getFirstChildKey());
-					pWtx.remove();
+					wtx.moveTo(toNode.getFirstChildKey());
+					wtx.remove();
 
 					// Adapt left sibling key of former right sibling of first child.
-					pWtx.moveTo(moved.getRightSiblingKey());
-					final StructNode rightSibling = (StructNode) pWtx
+					wtx.moveTo(moved.getRightSiblingKey());
+					final StructNode rightSibling = (StructNode) wtx
 							.getPageTransaction().prepareNodeForModification(
-									pWtx.getNodeKey(), EPage.NODEPAGE);
-					rightSibling.setLeftSiblingKey(pFromNode.getNodeKey());
-					pWtx.getPageTransaction().finishNodeModification(
-							rightSibling.getNodeKey(), EPage.NODEPAGE);
+									wtx.getNodeKey(), PageKind.NODEPAGE);
+					rightSibling.setLeftSiblingKey(fromNode.getNodeKey());
+					wtx.getPageTransaction().finishNodeModification(
+							rightSibling.getNodeKey(), PageKind.NODEPAGE);
 				} else {
 					// Adapt left sibling key of former first child.
-					final StructNode oldFirstChild = (StructNode) pWtx
+					final StructNode oldFirstChild = (StructNode) wtx
 							.getPageTransaction().prepareNodeForModification(
-									pToNode.getFirstChildKey(), EPage.NODEPAGE);
-					oldFirstChild.setLeftSiblingKey(pFromNode.getNodeKey());
-					pWtx.getPageTransaction().finishNodeModification(
-							oldFirstChild.getNodeKey(), EPage.NODEPAGE);
+									toNode.getFirstChildKey(), PageKind.NODEPAGE);
+					oldFirstChild.setLeftSiblingKey(fromNode.getNodeKey());
+					wtx.getPageTransaction().finishNodeModification(
+							oldFirstChild.getNodeKey(), PageKind.NODEPAGE);
 
 					// Adapt right sibling key of moved node.
-					final StructNode moved = (StructNode) pWtx.getPageTransaction()
-							.prepareNodeForModification(pFromNode.getNodeKey(),
-									EPage.NODEPAGE);
+					final StructNode moved = (StructNode) wtx.getPageTransaction()
+							.prepareNodeForModification(fromNode.getNodeKey(),
+									PageKind.NODEPAGE);
 					moved.setRightSiblingKey(oldFirstChild.getNodeKey());
-					pWtx.getPageTransaction().finishNodeModification(moved.getNodeKey(),
-							EPage.NODEPAGE);
+					wtx.getPageTransaction().finishNodeModification(moved.getNodeKey(),
+							PageKind.NODEPAGE);
 				}
 			} else {
 				// Adapt right sibling key of moved node.
-				final StructNode moved = (StructNode) pWtx.getPageTransaction()
-						.prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
+				final StructNode moved = (StructNode) wtx.getPageTransaction()
+						.prepareNodeForModification(fromNode.getNodeKey(), PageKind.NODEPAGE);
 				moved.setRightSiblingKey(EFixed.NULL_NODE_KEY.getStandardProperty());
-				pWtx.getPageTransaction().finishNodeModification(moved.getNodeKey(),
-						EPage.NODEPAGE);
+				wtx.getPageTransaction().finishNodeModification(moved.getNodeKey(),
+						PageKind.NODEPAGE);
 			}
 
 			// Adapt first child key of parent where the subtree has to be inserted.
-			newParent = (StructNode) pWtx.getPageTransaction()
-					.prepareNodeForModification(pToNode.getNodeKey(), EPage.NODEPAGE);
-			newParent.setFirstChildKey(pFromNode.getNodeKey());
-			pWtx.getPageTransaction().finishNodeModification(newParent.getNodeKey(),
-					EPage.NODEPAGE);
+			newParent = (StructNode) wtx.getPageTransaction()
+					.prepareNodeForModification(toNode.getNodeKey(), PageKind.NODEPAGE);
+			newParent.setFirstChildKey(fromNode.getNodeKey());
+			wtx.getPageTransaction().finishNodeModification(newParent.getNodeKey(),
+					PageKind.NODEPAGE);
 
 			// Adapt left sibling key and parent key of moved node.
-			final StructNode moved = (StructNode) pWtx.getPageTransaction()
-					.prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
+			final StructNode moved = (StructNode) wtx.getPageTransaction()
+					.prepareNodeForModification(fromNode.getNodeKey(), PageKind.NODEPAGE);
 			moved.setLeftSiblingKey(EFixed.NULL_NODE_KEY.getStandardProperty());
-			moved.setParentKey(pToNode.getNodeKey());
-			pWtx.getPageTransaction().finishNodeModification(moved.getNodeKey(),
-					EPage.NODEPAGE);
+			moved.setParentKey(toNode.getNodeKey());
+			wtx.getPageTransaction().finishNodeModification(moved.getNodeKey(),
+					PageKind.NODEPAGE);
 		}
 
 		@Override
-		void insertNode(final @Nonnull NodeWriteTrx pWtx,
-				final @Nonnull NodeReadTrx pRtx) throws SirixException {
-			assert pWtx != null;
-			assert pRtx != null;
-			assert pWtx.getKind() == Kind.ELEMENT
-					|| pWtx.getKind() == Kind.DOCUMENT_ROOT;
-			switch (pRtx.getKind()) {
+		void insertNode(final @Nonnull NodeWriteTrx wtx,
+				final @Nonnull NodeReadTrx rtx) throws SirixException {
+			assert wtx != null;
+			assert rtx != null;
+			assert wtx.getKind() == Kind.ELEMENT
+					|| wtx.getKind() == Kind.DOCUMENT_ROOT;
+			switch (rtx.getKind()) {
 			case ELEMENT:
-				pWtx.insertElementAsFirstChild(pRtx.getName());
+				wtx.insertElementAsFirstChild(rtx.getName());
 				break;
 			case TEXT:
-				assert pWtx.getKind() == Kind.ELEMENT;
-				pWtx.insertTextAsFirstChild(pRtx.getValue());
+				assert wtx.getKind() == Kind.ELEMENT;
+				wtx.insertTextAsFirstChild(rtx.getValue());
 				break;
 			default:
 				throw new IllegalStateException("Node type not known!");
@@ -163,152 +163,152 @@ enum InsertPos {
 	/** Insert as right sibling. */
 	ASRIGHTSIBLING {
 		@Override
-		void processMove(final @Nonnull StructNode pFromNode,
-				final @Nonnull StructNode pToNode, final @Nonnull NodeWriteTrxImpl pWtx)
+		void processMove(final @Nonnull StructNode fromNode,
+				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrxImpl wtx)
 				throws SirixException {
-			assert pFromNode != null;
-			assert pToNode != null;
-			assert pWtx != null;
+			assert fromNode != null;
+			assert toNode != null;
+			assert wtx != null;
 
 			// Increment child count of parent node if moved node was not a child
 			// before.
-			if (pFromNode.getParentKey() != pToNode.getParentKey()) {
-				final StructNode parentNode = (StructNode) pWtx.getPageTransaction()
-						.prepareNodeForModification(pToNode.getParentKey(), EPage.NODEPAGE);
+			if (fromNode.getParentKey() != toNode.getParentKey()) {
+				final StructNode parentNode = (StructNode) wtx.getPageTransaction()
+						.prepareNodeForModification(toNode.getParentKey(), PageKind.NODEPAGE);
 				parentNode.incrementChildCount();
-				pWtx.getPageTransaction().finishNodeModification(
-						parentNode.getNodeKey(), EPage.NODEPAGE);
+				wtx.getPageTransaction().finishNodeModification(
+						parentNode.getNodeKey(), PageKind.NODEPAGE);
 			}
 
-			final boolean hasMoved = pWtx.moveTo(pToNode.getRightSiblingKey())
+			final boolean hasMoved = wtx.moveTo(toNode.getRightSiblingKey())
 					.hasMoved();
 
-			if (pFromNode.getKind() == Kind.TEXT && pToNode.getKind() == Kind.TEXT) {
+			if (fromNode.getKind() == Kind.TEXT && toNode.getKind() == Kind.TEXT) {
 				// Merge text: FROM and TO are of TEXT_KIND.
-				pWtx.moveTo(pToNode.getNodeKey());
-				final StringBuilder builder = new StringBuilder(pWtx.getValue());
+				wtx.moveTo(toNode.getNodeKey());
+				final StringBuilder builder = new StringBuilder(wtx.getValue());
 
 				// Adapt left sibling key of former right sibling of first child.
-				if (pToNode.hasRightSibling()) {
-					final StructNode rightSibling = (StructNode) pWtx
+				if (toNode.hasRightSibling()) {
+					final StructNode rightSibling = (StructNode) wtx
 							.getPageTransaction().prepareNodeForModification(
-									pWtx.getRightSiblingKey(), EPage.NODEPAGE);
-					rightSibling.setLeftSiblingKey(pFromNode.getNodeKey());
-					pWtx.getPageTransaction().finishNodeModification(
-							rightSibling.getNodeKey(), EPage.NODEPAGE);
+									wtx.getRightSiblingKey(), PageKind.NODEPAGE);
+					rightSibling.setLeftSiblingKey(fromNode.getNodeKey());
+					wtx.getPageTransaction().finishNodeModification(
+							rightSibling.getNodeKey(), PageKind.NODEPAGE);
 				}
 
 				// Adapt sibling keys of moved node.
-				final TextNode movedNode = (TextNode) pWtx.getPageTransaction()
-						.prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
-				movedNode.setRightSiblingKey(pToNode.getRightSiblingKey());
+				final TextNode movedNode = (TextNode) wtx.getPageTransaction()
+						.prepareNodeForModification(fromNode.getNodeKey(), PageKind.NODEPAGE);
+				movedNode.setRightSiblingKey(toNode.getRightSiblingKey());
 				// Adapt left sibling key of moved node.
-				movedNode.setLeftSiblingKey(pWtx.getLeftSiblingKey());
-				pWtx.getPageTransaction().finishNodeModification(
-						movedNode.getNodeKey(), EPage.NODEPAGE);
+				movedNode.setLeftSiblingKey(wtx.getLeftSiblingKey());
+				wtx.getPageTransaction().finishNodeModification(
+						movedNode.getNodeKey(), PageKind.NODEPAGE);
 
 				// Merge text nodes.
-				pWtx.moveTo(movedNode.getNodeKey());
-				builder.append(pWtx.getValue());
-				pWtx.setValue(builder.toString());
+				wtx.moveTo(movedNode.getNodeKey());
+				builder.append(wtx.getValue());
+				wtx.setValue(builder.toString());
 
-				final StructNode insertAnchor = (StructNode) pWtx
+				final StructNode insertAnchor = (StructNode) wtx
 						.getPageTransaction().prepareNodeForModification(
-								pToNode.getNodeKey(), EPage.NODEPAGE);
+								toNode.getNodeKey(), PageKind.NODEPAGE);
 				// Adapt right sibling key of node where the subtree has to be inserted.
-				insertAnchor.setRightSiblingKey(pFromNode.getNodeKey());
-				pWtx.getPageTransaction().finishNodeModification(
-						insertAnchor.getNodeKey(), EPage.NODEPAGE);
+				insertAnchor.setRightSiblingKey(fromNode.getNodeKey());
+				wtx.getPageTransaction().finishNodeModification(
+						insertAnchor.getNodeKey(), PageKind.NODEPAGE);
 
 				// Remove first child.
-				pWtx.moveTo(pToNode.getNodeKey());
-				pWtx.remove();
-			} else if (hasMoved && pFromNode.getKind() == Kind.TEXT
-					&& pWtx.getKind() == Kind.TEXT) {
+				wtx.moveTo(toNode.getNodeKey());
+				wtx.remove();
+			} else if (hasMoved && fromNode.getKind() == Kind.TEXT
+					&& wtx.getKind() == Kind.TEXT) {
 				// Merge text: RIGHT and FROM are of TEXT_KIND.
-				final StringBuilder builder = new StringBuilder(pWtx.getValue());
+				final StringBuilder builder = new StringBuilder(wtx.getValue());
 
 				// Adapt left sibling key of former right sibling of first child.
-				final StructNode rightSibling = (StructNode) pWtx
-						.getPageTransaction().prepareNodeForModification(pWtx.getNodeKey(),
-								EPage.NODEPAGE);
-				rightSibling.setLeftSiblingKey(pFromNode.getNodeKey());
-				pWtx.getPageTransaction().finishNodeModification(
-						rightSibling.getNodeKey(), EPage.NODEPAGE);
+				final StructNode rightSibling = (StructNode) wtx
+						.getPageTransaction().prepareNodeForModification(wtx.getNodeKey(),
+								PageKind.NODEPAGE);
+				rightSibling.setLeftSiblingKey(fromNode.getNodeKey());
+				wtx.getPageTransaction().finishNodeModification(
+						rightSibling.getNodeKey(), PageKind.NODEPAGE);
 
 				// Adapt sibling keys of moved node.
-				final TextNode movedNode = (TextNode) pWtx.getPageTransaction()
-						.prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
+				final TextNode movedNode = (TextNode) wtx.getPageTransaction()
+						.prepareNodeForModification(fromNode.getNodeKey(), PageKind.NODEPAGE);
 				movedNode.setRightSiblingKey(rightSibling.getNodeKey());
-				movedNode.setLeftSiblingKey(pToNode.getNodeKey());
-				pWtx.getPageTransaction().finishNodeModification(
-						movedNode.getNodeKey(), EPage.NODEPAGE);
+				movedNode.setLeftSiblingKey(toNode.getNodeKey());
+				wtx.getPageTransaction().finishNodeModification(
+						movedNode.getNodeKey(), PageKind.NODEPAGE);
 
 				// Merge text nodes.
-				pWtx.moveTo(movedNode.getNodeKey());
-				builder.insert(0, pWtx.getValue());
-				pWtx.setValue(builder.toString());
+				wtx.moveTo(movedNode.getNodeKey());
+				builder.insert(0, wtx.getValue());
+				wtx.setValue(builder.toString());
 
 				// Remove right sibling.
-				pWtx.moveTo(pToNode.getRightSiblingKey());
-				pWtx.remove();
+				wtx.moveTo(toNode.getRightSiblingKey());
+				wtx.remove();
 
-				final StructNode insertAnchor = (StructNode) pWtx
+				final StructNode insertAnchor = (StructNode) wtx
 						.getPageTransaction().prepareNodeForModification(
-								pToNode.getNodeKey(), EPage.NODEPAGE);
+								toNode.getNodeKey(), PageKind.NODEPAGE);
 				// Adapt right sibling key of node where the subtree has to be inserted.
-				insertAnchor.setRightSiblingKey(pFromNode.getNodeKey());
-				pWtx.getPageTransaction().finishNodeModification(
-						insertAnchor.getNodeKey(), EPage.NODEPAGE);
+				insertAnchor.setRightSiblingKey(fromNode.getNodeKey());
+				wtx.getPageTransaction().finishNodeModification(
+						insertAnchor.getNodeKey(), PageKind.NODEPAGE);
 			} else {
 				// No text merging involved.
-				final StructNode insertAnchor = (StructNode) pWtx
+				final StructNode insertAnchor = (StructNode) wtx
 						.getPageTransaction().prepareNodeForModification(
-								pToNode.getNodeKey(), EPage.NODEPAGE);
+								toNode.getNodeKey(), PageKind.NODEPAGE);
 				final long rightSiblKey = insertAnchor.getRightSiblingKey();
 				// Adapt right sibling key of node where the subtree has to be inserted.
-				insertAnchor.setRightSiblingKey(pFromNode.getNodeKey());
-				pWtx.getPageTransaction().finishNodeModification(
-						insertAnchor.getNodeKey(), EPage.NODEPAGE);
+				insertAnchor.setRightSiblingKey(fromNode.getNodeKey());
+				wtx.getPageTransaction().finishNodeModification(
+						insertAnchor.getNodeKey(), PageKind.NODEPAGE);
 
 				if (rightSiblKey > -1) {
 					// Adapt left sibling key of former right sibling.
-					final StructNode oldRightSibling = (StructNode) pWtx
+					final StructNode oldRightSibling = (StructNode) wtx
 							.getPageTransaction().prepareNodeForModification(rightSiblKey,
-									EPage.NODEPAGE);
-					oldRightSibling.setLeftSiblingKey(pFromNode.getNodeKey());
-					pWtx.getPageTransaction().finishNodeModification(
-							oldRightSibling.getNodeKey(), EPage.NODEPAGE);
+									PageKind.NODEPAGE);
+					oldRightSibling.setLeftSiblingKey(fromNode.getNodeKey());
+					wtx.getPageTransaction().finishNodeModification(
+							oldRightSibling.getNodeKey(), PageKind.NODEPAGE);
 				}
 				// Adapt right- and left-sibling key of moved node.
-				final StructNode movedNode = (StructNode) pWtx.getPageTransaction()
-						.prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
+				final StructNode movedNode = (StructNode) wtx.getPageTransaction()
+						.prepareNodeForModification(fromNode.getNodeKey(), PageKind.NODEPAGE);
 				movedNode.setRightSiblingKey(rightSiblKey);
 				movedNode.setLeftSiblingKey(insertAnchor.getNodeKey());
-				pWtx.getPageTransaction().finishNodeModification(
-						movedNode.getNodeKey(), EPage.NODEPAGE);
+				wtx.getPageTransaction().finishNodeModification(
+						movedNode.getNodeKey(), PageKind.NODEPAGE);
 			}
 
 			// Adapt parent key of moved node.
-			final StructNode movedNode = (StructNode) pWtx.getPageTransaction()
-					.prepareNodeForModification(pFromNode.getNodeKey(), EPage.NODEPAGE);
-			movedNode.setParentKey(pToNode.getParentKey());
-			pWtx.getPageTransaction().finishNodeModification(movedNode.getNodeKey(),
-					EPage.NODEPAGE);
+			final StructNode movedNode = (StructNode) wtx.getPageTransaction()
+					.prepareNodeForModification(fromNode.getNodeKey(), PageKind.NODEPAGE);
+			movedNode.setParentKey(toNode.getParentKey());
+			wtx.getPageTransaction().finishNodeModification(movedNode.getNodeKey(),
+					PageKind.NODEPAGE);
 		}
 
 		@Override
-		void insertNode(final @Nonnull NodeWriteTrx pWtx,
-				final @Nonnull NodeReadTrx pRtx) throws SirixException {
-			assert pWtx != null;
-			assert pRtx != null;
-			assert pWtx.getKind() == Kind.ELEMENT || pWtx.getKind() == Kind.TEXT;
-			switch (pRtx.getKind()) {
+		void insertNode(final @Nonnull NodeWriteTrx wtx,
+				final @Nonnull NodeReadTrx rtx) throws SirixException {
+			assert wtx != null;
+			assert rtx != null;
+			assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.TEXT;
+			switch (rtx.getKind()) {
 			case ELEMENT:
-				pWtx.insertElementAsRightSibling(pRtx.getName());
+				wtx.insertElementAsRightSibling(rtx.getName());
 				break;
 			case TEXT:
-				pWtx.insertTextAsRightSibling(pRtx.getValue());
+				wtx.insertTextAsRightSibling(rtx.getValue());
 				break;
 			default:
 				throw new IllegalStateException("Node type not known!");
@@ -318,29 +318,29 @@ enum InsertPos {
 	/** Insert as a non structural node. */
 	ASNONSTRUCTURAL {
 		@Override
-		void processMove(final @Nonnull StructNode pFromNode,
-				final @Nonnull StructNode pToNode, final @Nonnull NodeWriteTrxImpl pWtx)
+		void processMove(final @Nonnull StructNode fromNode,
+				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrxImpl wtx)
 				throws SirixException {
 			// Not allowed.
 			throw new AssertionError("May never be invoked!");
 		}
 
 		@Override
-		void insertNode(final @Nonnull NodeWriteTrx pWtx,
-				final @Nonnull NodeReadTrx pRtx) throws SirixException {
-			assert pWtx != null;
-			assert pRtx != null;
-			assert pWtx.getKind() == Kind.ELEMENT;
-			switch (pRtx.getKind()) {
+		void insertNode(final @Nonnull NodeWriteTrx wtx,
+				final @Nonnull NodeReadTrx rtx) throws SirixException {
+			assert wtx != null;
+			assert rtx != null;
+			assert wtx.getKind() == Kind.ELEMENT;
+			switch (rtx.getKind()) {
 			case NAMESPACE:
-				final QName name = pRtx.getName();
-				pWtx.insertNamespace(new QName(name.getNamespaceURI(), "", name
+				final QName name = rtx.getName();
+				wtx.insertNamespace(new QName(name.getNamespaceURI(), "", name
 						.getLocalPart()));
-				pWtx.moveToParent();
+				wtx.moveToParent();
 				break;
 			case ATTRIBUTE:
-				pWtx.insertAttribute(pRtx.getName(), pRtx.getValue());
-				pWtx.moveToParent();
+				wtx.insertAttribute(rtx.getName(), rtx.getValue());
+				wtx.moveToParent();
 				break;
 			default:
 				throw new IllegalStateException(
@@ -358,8 +358,8 @@ enum InsertPos {
 		}
 
 		@Override
-		void insertNode(@Nonnull final NodeWriteTrx pWtx,
-				@Nonnull final NodeReadTrx pRtx) throws SirixException {
+		void insertNode(final @Nonnull NodeWriteTrx pWtx,
+				final @Nonnull NodeReadTrx pRtx) throws SirixException {
 			assert pWtx != null;
 			assert pRtx != null;
 			assert pWtx.getKind() == Kind.ELEMENT || pWtx.getKind() == Kind.TEXT;
@@ -379,32 +379,32 @@ enum InsertPos {
 	/**
 	 * Process movement of a subtree.
 	 * 
-	 * @param pFromNode
+	 * @param fromNode
 	 *          root of subtree to move
-	 * @param pToNode
+	 * @param toNode
 	 *          determines where the subtree has to be inserted
-	 * @param pWtx
+	 * @param wtx
 	 *          write-transaction which implements the {@link NodeWriteTrx}
 	 *          interface
 	 * @throws SirixException
 	 *           if an I/O error occurs
 	 */
-	abstract void processMove(@Nonnull final StructNode pFromNode,
-			@Nonnull final StructNode pToNode, @Nonnull final NodeWriteTrxImpl pWtx)
+	abstract void processMove(final @Nonnull StructNode fromNode,
+			final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrxImpl wtx)
 			throws SirixException;
 
 	/**
 	 * Insert a node (copy operation).
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          read-transaction which implements the {@link NodeReadTrx}
 	 *          interface
-	 * @param pWtx
+	 * @param wtx
 	 *          write-transaction which implements the {@link NodeWriteTrx}
 	 *          interface
 	 * @throws SirixException
 	 *           if insertion of node fails
 	 */
-	abstract void insertNode(@Nonnull final NodeWriteTrx pWtx,
-			@Nonnull final NodeReadTrx pRtx) throws SirixException;
+	abstract void insertNode(final @Nonnull NodeWriteTrx wtx,
+			final @Nonnull NodeReadTrx rtx) throws SirixException;
 }

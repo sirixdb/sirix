@@ -93,13 +93,13 @@ public final class UberPage extends AbsForwardingPage {
 		for (int i = 0, l = IConstants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
 			page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
 			reference.setPage(page);
-			reference.setPageKind(EPage.INDIRECTPAGE);
+			reference.setPageKind(PageKind.INDIRECTPAGE);
 			reference = page.getReference(0);
 		}
 
 		mRootPage = new RevisionRootPage();
 		reference.setPage(mRootPage);
-		reference.setPageKind(EPage.REVISIONROOTPAGE);
+		reference.setPageKind(PageKind.REVISIONROOTPAGE);
 
 		// --- Create node tree
 		// ----------------------------------------------------
@@ -107,7 +107,7 @@ public final class UberPage extends AbsForwardingPage {
 		// Initialize revision tree to guarantee that there is a revision root
 		// page.
 		reference = mRootPage.getIndirectPageReference();
-		createTree(reference, EPage.NODEPAGE);
+		createTree(reference, PageKind.NODEPAGE);
 		mRootPage.incrementMaxNodeKey();
 	}
 
@@ -117,7 +117,7 @@ public final class UberPage extends AbsForwardingPage {
 	public void createValueTree() {
 		final PageReference reference = mRootPage.getValuePageReference().getPage()
 				.getReference(INDIRECT_REFERENCE_OFFSET);
-		createTree(reference, EPage.VALUEPAGE);
+		createTree(reference, PageKind.VALUEPAGE);
 		mRootPage.incrementMaxValueNodeKey();
 	}
 
@@ -127,7 +127,7 @@ public final class UberPage extends AbsForwardingPage {
 	public void createPathSummaryTree() {
 		final PageReference reference = mRootPage.getPathSummaryPageReference()
 				.getPage().getReference(INDIRECT_REFERENCE_OFFSET);
-		createTree(reference, EPage.PATHSUMMARYPAGE);
+		createTree(reference, PageKind.PATHSUMMARYPAGE);
 		mRootPage.incrementMaxPathNodeKey();
 	}
 
@@ -155,7 +155,7 @@ public final class UberPage extends AbsForwardingPage {
 	 *          reference from revision root
 	 */
 	private void createTree(@Nonnull PageReference pReference,
-			final @Nonnull EPage pPage) {
+			final @Nonnull PageKind pPage) {
 		Page page = null;
 //		assert pReference.getPage() instanceof IndirectPage : "page is of type: "
 //				+ pReference.getPage();
@@ -168,7 +168,7 @@ public final class UberPage extends AbsForwardingPage {
 		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
 			page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
 			pReference.setPage(page);
-			pReference.setPageKind(EPage.INDIRECTPAGE);
+			pReference.setPageKind(PageKind.INDIRECTPAGE);
 			pReference = page.getReference(0);
 		}
 
@@ -307,7 +307,7 @@ public final class UberPage extends AbsForwardingPage {
 	 *          page to lookup the exponent in the constant definition
 	 * @return page count exponent
 	 */
-	public int[] getPageCountExp(final @Nonnull EPage pPage) {
+	public int[] getPageCountExp(final @Nonnull PageKind pPage) {
 		int[] inpLevelPageCountExp = new int[0];
 		switch (pPage) {
 		case PATHSUMMARYPAGE:

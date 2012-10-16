@@ -124,17 +124,17 @@ public final class ResourceConfiguration {
 		/**
 		 * Checking a structure in a folder to be equal with the data in this enum.
 		 * 
-		 * @param pFile
+		 * @param file
 		 *          to be checked
 		 * @return -1 if less folders are there, 0 if the structure is equal to the
 		 *         one expected, 1 if the structure has more folders
 		 * @throws NullPointerException
 		 *           if {@code pFile} is {@code null}
 		 */
-		public static int compareStructure(final @Nonnull File pFile) {
+		public static int compareStructure(final @Nonnull File file) {
 			int existing = 0;
 			for (final Paths paths : values()) {
-				final File currentFile = new File(pFile, paths.getFile().getName());
+				final File currentFile = new File(file, paths.getFile().getName());
 				if (currentFile.exists()) {
 					existing++;
 				}
@@ -208,34 +208,34 @@ public final class ResourceConfiguration {
 	/**
 	 * Convenience constructor using the standard settings.
 	 * 
-	 * @param pBuilder
+	 * @param builder
 	 *          {@link Builder} reference
 	 */
 	private ResourceConfiguration(
-			final @Nonnull ResourceConfiguration.Builder pBuilder) {
-		mStorage = pBuilder.mType;
-		mByteHandler = pBuilder.mByteHandler;
-		mRevisionKind = pBuilder.mRevisionKind;
-		mHashKind = pBuilder.mHashKind;
-		mRevisionsToRestore = pBuilder.mRevisionsToRestore;
-		mDBConfig = pBuilder.mDBConfig;
-		mCompression = pBuilder.mCompression;
-		mIndexes = pBuilder.mIndexes;
+			final @Nonnull ResourceConfiguration.Builder builder) {
+		mStorage = builder.mType;
+		mByteHandler = builder.mByteHandler;
+		mRevisionKind = builder.mRevisionKind;
+		mHashKind = builder.mHashKind;
+		mRevisionsToRestore = builder.mRevisionsToRestore;
+		mDBConfig = builder.mDBConfig;
+		mCompression = builder.mCompression;
+		mIndexes = builder.mIndexes;
 		mPath = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.Data.getFile().getName()),
-				pBuilder.mResource);
+				builder.mResource);
 	}
 
 	/**
 	 * Set a unique ID.
 	 * 
-	 * @param pID
+	 * @param id
 	 *          the ID to set
 	 * @return this instance
 	 */
-	public ResourceConfiguration setID(final @Nonnegative long pID) {
-		checkArgument(pID >= 0, "pID must be >= 0!");
-		mID = pID;
+	public ResourceConfiguration setID(final @Nonnegative long id) {
+		checkArgument(id >= 0, "pID must be >= 0!");
+		mID = id;
 		return this;
 	}
 	
@@ -255,12 +255,9 @@ public final class ResourceConfiguration {
 	}
 
 	@Override
-	public final boolean equals(final Object pObj) {
-		if (this == pObj) {
-			return true;
-		}
-		if (pObj instanceof ResourceConfiguration) {
-			final ResourceConfiguration other = (ResourceConfiguration) pObj;
+	public final boolean equals(final Object obj) {
+		if (obj instanceof ResourceConfiguration) {
+			final ResourceConfiguration other = (ResourceConfiguration) obj;
 			return Objects.equal(mStorage, other.mStorage)
 					&& Objects.equal(mRevisionKind, other.mRevisionKind)
 					&& Objects.equal(mHashKind, other.mHashKind)

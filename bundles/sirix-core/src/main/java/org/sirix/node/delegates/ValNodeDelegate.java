@@ -34,7 +34,7 @@ import java.util.zip.Deflater;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.EVisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.Kind;
@@ -79,7 +79,7 @@ public class ValNodeDelegate extends AbsForwardingNode implements ValNode {
   }
 
   @Override
-  public EVisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
+  public VisitResultType acceptVisitor(@Nonnull final IVisitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 

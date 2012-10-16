@@ -39,7 +39,7 @@ import org.sirix.page.interfaces.Page;
 /**
  * All Page types.
  */
-public enum EPage {
+public enum PageKind {
   /**
    * {@link NodePage}.
    */
@@ -211,14 +211,14 @@ public enum EPage {
   };
 
   /** Mapping of keys -> page */
-  private static final Map<Byte, EPage> INSTANCEFORID = new HashMap<>();
+  private static final Map<Byte, PageKind> INSTANCEFORID = new HashMap<>();
 
   /** Mapping of class -> page. */
-  private static final Map<Class<? extends Page>, EPage> INSTANCEFORCLASS =
+  private static final Map<Class<? extends Page>, PageKind> INSTANCEFORCLASS =
     new HashMap<>();
 
   static {
-    for (final EPage node : values()) {
+    for (final PageKind node : values()) {
       INSTANCEFORID.put(node.mId, node);
       INSTANCEFORCLASS.put(node.mClass, node);
     }
@@ -238,7 +238,7 @@ public enum EPage {
    * @param pClass
    *          class
    */
-  EPage(final byte pId, final Class<? extends Page> pClass) {
+  PageKind(final byte pId, final Class<? extends Page> pClass) {
     mId = pId;
     mClass = pClass;
   }
@@ -270,8 +270,8 @@ public enum EPage {
    *          the identifier for the page
    * @return the related page
    */
-  public static EPage getKind(final byte pId) {
-    final EPage page = INSTANCEFORID.get(pId);
+  public static PageKind getKind(final byte pId) {
+    final PageKind page = INSTANCEFORID.get(pId);
     if (page == null) {
       throw new IllegalStateException();
     }
@@ -286,8 +286,8 @@ public enum EPage {
    * @return the related page
    */
   public static @Nonnull
-  EPage getKind(@Nonnull final Class<? extends Page> pClass) {
-    final EPage page = INSTANCEFORCLASS.get(pClass);
+  PageKind getKind(@Nonnull final Class<? extends Page> pClass) {
+    final PageKind page = INSTANCEFORCLASS.get(pClass);
     if (page == null) {
       throw new IllegalStateException();
     }

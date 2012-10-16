@@ -47,7 +47,7 @@ public class IPageTest {
 			final ByteArrayDataInput input = ByteStreams.newDataInput(pageBytes);
 
 			final ByteArrayDataOutput serializedOutput = ByteStreams.newDataOutput();
-			final Page serializedPage = EPage.getKind(handler.getClass())
+			final Page serializedPage = PageKind.getKind(handler.getClass())
 					.deserializePage(input);
 			serializedPage.serialize(serializedOutput);
 			assertTrue(new StringBuilder("Check for ").append(handler.getClass())

@@ -24,10 +24,10 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long> {
 	/**
 	 * Foreach-iterator calling a {@link IVistor} for each iteration.
 	 * 
-	 * @param pVisitor
+	 * @param visitor
 	 *          {@link IVisitor} implementation
 	 */
-	void foreach(@Nonnull IVisitor pVisitor);
+	void foreach(@Nonnull IVisitor visitor);
 
 	/**
 	 * Thread safe node iterator.
@@ -40,10 +40,10 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long> {
 	/**
 	 * Resetting the nodekey of this axis to a given nodekey.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          the nodekey where the reset should occur to
 	 */
-	void reset(@Nonnegative long pNodeKey);
+	void reset(@Nonnegative long nodeKey);
 
 	/**
 	 * Is self included?

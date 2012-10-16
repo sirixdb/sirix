@@ -54,24 +54,24 @@ public final class DescendantAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param pRtx
+   * @param rtx
    *          exclusive (immutable) trx to iterate with
    */
-  public DescendantAxis(final @Nonnull NodeCursor pRtx) {
-    super(pRtx);
+  public DescendantAxis(final @Nonnull NodeCursor rtx) {
+    super(rtx);
   }
 
   /**
    * Constructor initializing internal state.
    * 
-   * @param pRtx
+   * @param rtx
    *          Exclusive (immutable) trx to iterate with.
-   * @param pIncludeSelf
+   * @param includeSelf
    *          Is self included?
    */
-  public DescendantAxis(final @Nonnull NodeCursor pRtx,
-    final @Nonnull IncludeSelf pIncludeSelf) {
-    super(pRtx, pIncludeSelf);
+  public DescendantAxis(final @Nonnull NodeCursor rtx,
+    final @Nonnull IncludeSelf includeSelf) {
+    super(rtx, includeSelf);
   }
 
   @Override

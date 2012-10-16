@@ -81,14 +81,14 @@ public final class DatabaseConfiguration {
 		/**
 		 * Constructor.
 		 * 
-		 * @param pFile
+		 * @param file
 		 *          to be set
-		 * @param pIsFolder
+		 * @param isFolder
 		 *          determines if the file is a folder instead
 		 */
-		private Paths(final @Nonnull File pFile, final boolean pIsFolder) {
-			mFile = checkNotNull(pFile);
-			mIsFolder = pIsFolder;
+		private Paths(final @Nonnull File file, final boolean isFolder) {
+			mFile = checkNotNull(file);
+			mIsFolder = isFolder;
 		}
 
 		/**
@@ -112,16 +112,16 @@ public final class DatabaseConfiguration {
 		/**
 		 * Checking a structure in a folder to be equal with the data in this enum.
 		 * 
-		 * @param pFile
+		 * @param file
 		 *          to be checked
 		 * @return -1 if less folders are there, 0 if the structure is equal to the
 		 *         one expected, 1 if the structure has more folders
 		 */
-		public static int compareStructure(final @Nonnull File pFile) {
-			checkNotNull(pFile);
+		public static int compareStructure(final @Nonnull File file) {
+			checkNotNull(file);
 			int existing = 0;
 			for (final Paths paths : values()) {
-				final File currentFile = new File(pFile, paths.getFile().getName());
+				final File currentFile = new File(file, paths.getFile().getName());
 				if (currentFile.exists()
 						&& !Paths.LOCK.getFile().getName().equals(currentFile.getName())) {
 					existing++;
@@ -195,9 +195,9 @@ public final class DatabaseConfiguration {
 	}
 
 	@Override
-	public boolean equals(final @Nullable Object pObj) {
-		if (pObj instanceof DatabaseConfiguration) {
-			final DatabaseConfiguration other = (DatabaseConfiguration) pObj;
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof DatabaseConfiguration) {
+			final DatabaseConfiguration other = (DatabaseConfiguration) obj;
 			return Objects.equal(mFile, other.mFile)
 					&& Objects.equal(mBinaryVersion, other.mBinaryVersion);
 		}
@@ -221,19 +221,19 @@ public final class DatabaseConfiguration {
 	/**
 	 * Serializing a {@link DatabaseConfiguration} to a json file.
 	 * 
-	 * @param pConfig
+	 * @param config
 	 *          to be serialized
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public static void serialize(final @Nonnull DatabaseConfiguration pConfig)
+	public static void serialize(final @Nonnull DatabaseConfiguration config)
 			throws SirixIOException {
-		try (final FileWriter fileWriter = new FileWriter(pConfig.getConfigFile());
+		try (final FileWriter fileWriter = new FileWriter(config.getConfigFile());
 				final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
 			jsonWriter.beginObject();
-			final String filePath = pConfig.mFile.getAbsolutePath();
+			final String filePath = config.mFile.getAbsolutePath();
 			jsonWriter.name("file").value(filePath);
-			jsonWriter.name("ID").value(pConfig.mMaxResourceID);
+			jsonWriter.name("ID").value(config.mMaxResourceID);
 			jsonWriter.endObject();
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
@@ -243,26 +243,26 @@ public final class DatabaseConfiguration {
 	/**
 	 * Generate a DatabaseConfiguration out of a file.
 	 * 
-	 * @param pFile
+	 * @param file
 	 *          where the DatabaseConfiguration lies in as json
 	 * @return a new {@link DatabaseConfiguration} class
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public static DatabaseConfiguration deserialize(final @Nonnull File pFile)
+	public static DatabaseConfiguration deserialize(final @Nonnull File file)
 			throws SirixIOException {
-		try (final FileReader fileReader = new FileReader(new File(pFile,
+		try (final FileReader fileReader = new FileReader(new File(file,
 				Paths.ConfigBinary.getFile().getName()));
 				final JsonReader jsonReader = new JsonReader(fileReader);) {
 			jsonReader.beginObject();
 			final String fileName = jsonReader.nextName();
 			assert fileName.equals("file");
-			final File file = new File(jsonReader.nextString());
+			final File dbFile = new File(jsonReader.nextString());
 			final String IDName = jsonReader.nextName();
 			assert IDName.equals("ID");
 			final int ID = jsonReader.nextInt();
 			jsonReader.endObject();
-			return new DatabaseConfiguration(file).setMaximumResourceID(ID);
+			return new DatabaseConfiguration(dbFile).setMaximumResourceID(ID);
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}

@@ -32,11 +32,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.settings.EFixed;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 
 /**
  * <h1>ConcurrentExceptAxis</h1>
@@ -48,7 +44,7 @@ import org.slf4j.LoggerFactory;
  * </p>
  */
 public final class ConcurrentExceptAxis extends AbsAxis {
-	
+
 	/** First operand sequence. */
 	private final ConcurrentAxis mOp1;
 
@@ -67,18 +63,21 @@ public final class ConcurrentExceptAxis extends AbsAxis {
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
-	 * @param pOperand1
+	 * @param operand1
 	 *          first operand
-	 * @param pOperand2
+	 * @param operand2
 	 *          second operand
+	 * @throws NullPointerException
+	 *           if {@code rtx}, {@code operand1} or {@code operand2} is
+	 *           {@code null}
 	 */
-	public ConcurrentExceptAxis(final NodeReadTrx pRtx, final Axis pOperand1,
-			final Axis pOperand2) {
-		super(pRtx);
-		mOp1 = new ConcurrentAxis(pRtx, pOperand1);
-		mOp2 = new ConcurrentAxis(pRtx, pOperand2);
+	public ConcurrentExceptAxis(final @Nonnull NodeReadTrx rtx,
+			final @Nonnull Axis operand1, final @Nonnull Axis operand2) {
+		super(rtx);
+		mOp1 = new ConcurrentAxis(rtx, operand1);
+		mOp2 = new ConcurrentAxis(rtx, operand2);
 		mFirst = true;
 		mCurrentResult1 = EFixed.NULL_NODE_KEY.getStandardProperty();
 		mCurrentResult2 = EFixed.NULL_NODE_KEY.getStandardProperty();
@@ -99,7 +98,7 @@ public final class ConcurrentExceptAxis extends AbsAxis {
 		mCurrentResult1 = EFixed.NULL_NODE_KEY.getStandardProperty();
 		mCurrentResult2 = EFixed.NULL_NODE_KEY.getStandardProperty();
 	}
-	
+
 	@Override
 	protected long nextKey() {
 		if (mFirst) {
@@ -114,8 +113,7 @@ public final class ConcurrentExceptAxis extends AbsAxis {
 		// returned
 		while (!mOp1.isFinished()) {
 			while (!mOp2.isFinished()) {
-				if (mOp1.isFinished())
-					break;
+				if (mOp1.isFinished()) break;
 
 				while (mCurrentResult1 >= mCurrentResult2 && !mOp1.isFinished()
 						&& !mOp2.isFinished()) {
@@ -158,7 +156,7 @@ public final class ConcurrentExceptAxis extends AbsAxis {
 				throw new IllegalStateException(nodeKey + " is not valid!");
 			}
 		}
-		
+
 		return done();
 	}
 }

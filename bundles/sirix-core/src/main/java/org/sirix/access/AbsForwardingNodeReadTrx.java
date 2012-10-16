@@ -9,7 +9,7 @@ import javax.xml.namespace.QName;
 import org.sirix.api.ItemList;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
-import org.sirix.api.visitor.IVisitResult;
+import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -96,25 +96,25 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public int keyForName(final @Nonnull String pName) {
-		return delegate().keyForName(pName);
+	public int keyForName(@Nonnull String name) {
+		return delegate().keyForName(name);
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveTo(long pKey) {
-		return delegate().moveTo(pKey);
+	public Move<? extends NodeReadTrx> moveTo(long key) {
+		return delegate().moveTo(key);
 	}
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToAttribute(
-			final @Nonnegative int pIndex) {
-		return delegate().moveToAttribute(pIndex);
+			final @Nonnegative int index) {
+		return delegate().moveToAttribute(index);
 	}
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToAttributeByName(
-			final @Nonnull QName pQName) {
-		return delegate().moveToAttributeByName(pQName);
+			final @Nonnull QName name) {
+		return delegate().moveToAttributeByName(name);
 	}
 
 	@Override
@@ -134,8 +134,8 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToNamespace(
-			final @Nonnegative int pIndex) {
-		return delegate().moveToNamespace(pIndex);
+			@Nonnegative int index) {
+		return delegate().moveToNamespace(index);
 	}
 
 	@Override
@@ -174,9 +174,9 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public int getNameCount(final @Nonnull String pName,
-			final @Nonnull Kind pKind) {
-		return delegate().getNameCount(pName, pKind);
+	public int getNameCount(@Nonnull String name,
+			@Nonnull Kind kind) {
+		return delegate().getNameCount(name, kind);
 	}
 
 	@Override
@@ -230,8 +230,8 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public long getAttributeKey(@Nonnegative int pIndex) {
-		return delegate().getAttributeKey(pIndex);
+	public long getAttributeKey(@Nonnegative int index) {
+		return delegate().getAttributeKey(index);
 	}
 
 	@Override
@@ -285,8 +285,8 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public IVisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
-		return delegate().acceptVisitor(pVisitor);
+	public VisitResult acceptVisitor(@Nonnull IVisitor visitor) {
+		return delegate().acceptVisitor(visitor);
 	}
 	
 	@Override
