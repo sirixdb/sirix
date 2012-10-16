@@ -2,15 +2,15 @@ package org.sirix.access;
 
 import javax.annotation.Nullable;
 
-import org.sirix.api.INodeCursor;
+import org.sirix.api.NodeCursor;
 
 /**
- * Determines that a {@link INodeCursor} hasn't moved to the node.
+ * Determines that a {@link NodeCursor} hasn't moved to the node.
  * 
  * @author Johannes Lichtenberger
  *
  */
-public class NotMoved extends Move<INodeCursor> {
+public class NotMoved extends Move<NodeCursor> {
 	/** Singleton instance. */
 	static final NotMoved INSTANCE = new NotMoved();
 
@@ -24,7 +24,7 @@ public class NotMoved extends Move<INodeCursor> {
 	}
 
 	@Override
-	public INodeCursor get() {
+	public NodeCursor get() {
 		throw new IllegalStateException(
 				"Optional.get() cannot be called on an absent value");
 	}

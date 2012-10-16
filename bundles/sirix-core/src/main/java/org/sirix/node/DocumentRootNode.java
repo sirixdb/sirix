@@ -37,7 +37,7 @@ import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.ImmutableDocument;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.StructNode;
 
 import com.google.common.base.Objects;
 
@@ -50,7 +50,7 @@ import com.google.common.base.Objects;
  * </p>
  */
 public final class DocumentRootNode extends AbsStructForwardingNode implements
-  IStructNode {
+  StructNode {
 
   /** {@link NodeDelegate} reference. */
   private final NodeDelegate mNodeDel;
@@ -73,8 +73,8 @@ public final class DocumentRootNode extends AbsStructForwardingNode implements
   }
 
   @Override
-  public EKind getKind() {
-    return EKind.DOCUMENT_ROOT;
+  public Kind getKind() {
+    return Kind.DOCUMENT_ROOT;
   }
 
   @Override

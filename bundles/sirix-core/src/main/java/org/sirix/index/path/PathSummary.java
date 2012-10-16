@@ -11,20 +11,20 @@ import javax.xml.namespace.QName;
 
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
-import org.sirix.api.IItemList;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.IPageReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.ItemList;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.PageReadTrx;
+import org.sirix.api.Session;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
-import org.sirix.node.interfaces.INameNode;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.INodeBase;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.page.EPage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.EFixed;
@@ -44,20 +44,20 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class PathSummary implements INodeReadTrx {
+public final class PathSummary implements NodeReadTrx {
 
 	/** Logger. */
 	private final LogWrapper LOGWRAPPER = new LogWrapper(
 			LoggerFactory.getLogger(PathSummary.class));
 
 	/** Strong reference to currently selected node. */
-	private INode mCurrentNode;
+	private Node mCurrentNode;
 
 	/** Page reader. */
-	private final IPageReadTrx mPageReadTrx;
+	private final PageReadTrx mPageReadTrx;
 
-	/** {@link ISession} reference. */
-	private final ISession mSession;
+	/** {@link Session} reference. */
+	private final Session mSession;
 
 	/** Determines if path summary is closed or not. */
 	private boolean mClosed;
@@ -68,19 +68,19 @@ public final class PathSummary implements INodeReadTrx {
 	 * @param pPageReadTrx
 	 *          page reader
 	 * @param pSession
-	 *          {@link ISession} reference
+	 *          {@link Session} reference
 	 */
-	private PathSummary(final @Nonnull IPageReadTrx pPageReadTrx,
-			final @Nonnull ISession pSession) {
+	private PathSummary(final @Nonnull PageReadTrx pPageReadTrx,
+			final @Nonnull Session pSession) {
 		mPageReadTrx = pPageReadTrx;
 		mClosed = false;
 		mSession = pSession;
 		try {
-			final Optional<? extends INodeBase> node = mPageReadTrx
+			final Optional<? extends NodeBase> node = mPageReadTrx
 					.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
 							EPage.PATHSUMMARYPAGE);
 			if (node.isPresent()) {
-				mCurrentNode = (INode) node.get();
+				mCurrentNode = (Node) node.get();
 			} else {
 				throw new IllegalStateException(
 						"Node couldn't be fetched from persistent storage!");
@@ -103,12 +103,12 @@ public final class PathSummary implements INodeReadTrx {
 	 * @return new path summary instance
 	 */
 	public static final PathSummary getInstance(
-			final @Nonnull IPageReadTrx pPageReadTrx, final @Nonnull ISession pSession) {
+			final @Nonnull PageReadTrx pPageReadTrx, final @Nonnull Session pSession) {
 		return new PathSummary(checkNotNull(pPageReadTrx), checkNotNull(pSession));
 	}
 
 	@Override
-	public INode getNode() {
+	public Node getNode() {
 		assertNotClosed();
 		// FIXME: Do not expose a mutable node.
 		return mCurrentNode;
@@ -143,12 +143,12 @@ public final class PathSummary implements INodeReadTrx {
 		assertNotClosed();
 
 		// Remember old node and fetch new one.
-		final INode oldNode = mCurrentNode;
-		Optional<? extends INode> newNode;
+		final Node oldNode = mCurrentNode;
+		Optional<? extends Node> newNode;
 		try {
 			// Immediately return node from item list if node key negative.
 			@SuppressWarnings("unchecked")
-			final Optional<? extends INode> node = (Optional<? extends INode>) mPageReadTrx
+			final Optional<? extends Node> node = (Optional<? extends Node>) mPageReadTrx
 					.getNode(pNodeKey, EPage.PATHSUMMARYPAGE);
 			newNode = node;
 		} catch (final SirixIOException e) {
@@ -228,9 +228,9 @@ public final class PathSummary implements INodeReadTrx {
 		return moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
 	}
 
-	private IStructNode getStructuralNode() {
-		if (mCurrentNode instanceof IStructNode) {
-			return (IStructNode) mCurrentNode;
+	private StructNode getStructuralNode() {
+		if (mCurrentNode instanceof StructNode) {
+			return (StructNode) mCurrentNode;
 		} else {
 			return new NullNode(mCurrentNode);
 		}
@@ -284,12 +284,12 @@ public final class PathSummary implements INodeReadTrx {
 	@Override
 	public QName getName() {
 		assertNotClosed();
-		if (mCurrentNode instanceof INameNode) {
+		if (mCurrentNode instanceof NameNode) {
 			final String name = mPageReadTrx.getName(
-					((INameNode) mCurrentNode).getNameKey(),
+					((NameNode) mCurrentNode).getNameKey(),
 					((PathNode) mCurrentNode).getPathKind());
 			final String uri = mPageReadTrx.getName(
-					((INameNode) mCurrentNode).getURIKey(), EKind.NAMESPACE);
+					((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
 			return Util.buildQName(uri, name);
 		} else {
 			return null;
@@ -332,7 +332,7 @@ public final class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public IItemList<AtomicValue> getItemList() {
+	public ItemList<AtomicValue> getItemList() {
 		throw new UnsupportedOperationException();
 	}
 
@@ -342,13 +342,13 @@ public final class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public ISession getSession() {
+	public Session getSession() {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public synchronized INodeReadTrx cloneInstance() throws SirixException {
-		final INodeReadTrx rtx = getInstance(
+	public synchronized NodeReadTrx cloneInstance() throws SirixException {
+		final NodeReadTrx rtx = getInstance(
 				mSession.beginPageReadTrx(mPageReadTrx.getRevisionNumber()), mSession);
 		rtx.moveTo(mCurrentNode.getNodeKey());
 		return rtx;
@@ -370,7 +370,7 @@ public final class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public int getNameCount(@Nonnull String pName, @Nonnull EKind pKind) {
+	public int getNameCount(@Nonnull String pName, @Nonnull Kind pKind) {
 		return mPageReadTrx.getNameCount(NamePageHash.generateHashForString(pName),
 				pKind);
 	}
@@ -481,13 +481,13 @@ public final class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public EKind getKind() {
-		return EKind.PATH;
+	public Kind getKind() {
+		return Kind.PATH;
 	}
 
 	@Override
 	public boolean isNameNode() {
-		if (mCurrentNode instanceof INameNode) {
+		if (mCurrentNode instanceof NameNode) {
 			return true;
 		}
 		return false;
@@ -495,8 +495,8 @@ public final class PathSummary implements INodeReadTrx {
 
 	@Override
 	public int getNameKey() {
-		if (mCurrentNode instanceof INameNode) {
-			return ((INameNode) mCurrentNode).getNameKey();
+		if (mCurrentNode instanceof NameNode) {
+			return ((NameNode) mCurrentNode).getNameKey();
 		}
 		return -1;
 	}
@@ -517,11 +517,11 @@ public final class PathSummary implements INodeReadTrx {
 	}
 
 	@Override
-	public EKind getPathKind() {
+	public Kind getPathKind() {
 		if (mCurrentNode instanceof PathNode) {
 			return ((PathNode) mCurrentNode).getPathKind();
 		}
-		return EKind.NULL;
+		return Kind.NULL;
 	}
 
 	@Override
@@ -531,8 +531,8 @@ public final class PathSummary implements INodeReadTrx {
 
 	@Override
 	public int getURIKey() {
-		if (mCurrentNode instanceof INameNode) {
-			return ((INameNode) mCurrentNode).getURIKey();
+		if (mCurrentNode instanceof NameNode) {
+			return ((NameNode) mCurrentNode).getURIKey();
 		}
 		return -1;
 	}
@@ -573,31 +573,31 @@ public final class PathSummary implements INodeReadTrx {
 	}
 	
 	@Override
-	public EKind getFirstChildKind() {
-		return EKind.PATH;
+	public Kind getFirstChildKind() {
+		return Kind.PATH;
 	}
 	
 	@Override
-	public EKind getLastChildKind() {
-		return EKind.PATH;
+	public Kind getLastChildKind() {
+		return Kind.PATH;
 	}
 	
 	@Override
-	public EKind getLeftSiblingKind() {
-		return EKind.PATH;
+	public Kind getLeftSiblingKind() {
+		return Kind.PATH;
 	}
 	
 	@Override
-	public EKind getParentKind() {
-		if (mCurrentNode.getKind() == EKind.DOCUMENT_ROOT) {
-			return EKind.DOCUMENT_ROOT;
+	public Kind getParentKind() {
+		if (mCurrentNode.getKind() == Kind.DOCUMENT_ROOT) {
+			return Kind.DOCUMENT_ROOT;
 		}
-		return EKind.PATH;
+		return Kind.PATH;
 	}
 	
 	@Override
-	public EKind getRightSiblingKind() {
-		return EKind.PATH;
+	public Kind getRightSiblingKind() {
+		return Kind.PATH;
 	}
 
 	/**
@@ -606,7 +606,7 @@ public final class PathSummary implements INodeReadTrx {
 	 * @return number of references of a node
 	 */
 	public int getReferences() {
-		if (mCurrentNode.getKind() == EKind.DOCUMENT_ROOT) {
+		if (mCurrentNode.getKind() == Kind.DOCUMENT_ROOT) {
 			return 1;
 		} else {
 			return getPathNode().getReferences();

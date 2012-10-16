@@ -42,15 +42,15 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.implementation.DatabaseRepresentation;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 
 /**
  * This class is responsible to test the {@link WorkerHelper} class.
@@ -121,12 +121,12 @@ public class WorkerHelperTest {
     }
 
     /**
-     * This method tests {@link WorkerHelper#serializeXML(ISession, OutputStream, boolean, boolean,Long)}
+     * This method tests {@link WorkerHelper#serializeXML(Session, OutputStream, boolean, boolean,Long)}
      */
     @Test
     public void testSerializeXML() throws SirixException, IOException {
-        final IDatabase database = Database.openDatabase(DBFILE.getParentFile());
-        final ISession session =
+        final Database database = DatabaseImpl.openDatabase(DBFILE.getParentFile());
+        final Session session =
             database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
         final OutputStream out = new ByteArrayOutputStream();
 
@@ -137,18 +137,18 @@ public class WorkerHelperTest {
     }
 
     /**
-     * This method tests {@link WorkerHelper#shredInputStream(INodeWriteTrx, InputStream, EInsert)}
+     * This method tests {@link WorkerHelper#shredInputStream(NodeWriteTrx, InputStream, Insert)}
      */
     @Test
     public void testShredInputStream() throws SirixException, IOException {
         long lastRevision = sirix.getLastRevision(RESOURCENAME);
-        final IDatabase database = Database.openDatabase(DBFILE.getParentFile());
-        final ISession session =
+        final Database database = DatabaseImpl.openDatabase(DBFILE.getParentFile());
+        final Session session =
             database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
-        final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+        final NodeWriteTrx wtx = session.beginNodeWriteTrx();
         wtx.moveToFirstChild();
         final InputStream inputStream = new ByteArrayInputStream("<testNode/>".getBytes());
-        WorkerHelper.shredInputStream(wtx, inputStream, EInsert.ASFIRSTCHILD);
+        WorkerHelper.shredInputStream(wtx, inputStream, Insert.ASFIRSTCHILD);
         assertEquals("test shred input stream", sirix.getLastRevision(RESOURCENAME), ++lastRevision);
         wtx.close();
         session.close();
@@ -157,21 +157,21 @@ public class WorkerHelperTest {
     }
 
     /**
-     * This method tests {@link WorkerHelper#closeWTX(boolean, INodeWriteTrx, ISession, IDatabase)}
+     * This method tests {@link WorkerHelper#closeWTX(boolean, NodeWriteTrx, Session, Database)}
      */
     @Test(expected = IllegalStateException.class)
     public void testClose() throws SirixException {
-        IDatabase database = Database.openDatabase(DBFILE.getParentFile());
-        ISession session = database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
-        final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+        Database database = DatabaseImpl.openDatabase(DBFILE.getParentFile());
+        Session session = database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
+        final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 
         WorkerHelper.closeWTX(false, wtx, session, database);
 
         wtx.commit();
 
-        database = Database.openDatabase(DBFILE.getParentFile());
+        database = DatabaseImpl.openDatabase(DBFILE.getParentFile());
         session = database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
-        final INodeReadTrx rtx = session.beginNodeReadTrx();
+        final NodeReadTrx rtx = session.beginNodeReadTrx();
         WorkerHelper.closeRTX(rtx, session, database);
 
         rtx.moveTo(11);

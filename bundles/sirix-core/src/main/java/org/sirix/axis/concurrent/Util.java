@@ -2,7 +2,7 @@ package org.sirix.axis.concurrent;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
+import org.sirix.api.Axis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.settings.EFixed;
@@ -18,11 +18,11 @@ public final class Util {
 	 * Get next key.
 	 * 
 	 * @param pAxis
-	 * 					the {@link IAxis}
+	 * 					the {@link Axis}
 	 * @return the next result of the axis. If the axis has no next result, the
 	 *         null node key is returned.
 	 */
-	public static long getNext(@Nonnull final IAxis pAxis) {
+	public static long getNext(@Nonnull final Axis pAxis) {
 		return (pAxis.hasNext()) ? pAxis.next() : EFixed.NULL_NODE_KEY
 				.getStandardProperty();
 	}

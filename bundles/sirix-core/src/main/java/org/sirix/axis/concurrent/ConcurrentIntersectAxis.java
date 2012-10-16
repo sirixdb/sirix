@@ -27,8 +27,8 @@
 
 package org.sirix.axis.concurrent;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.settings.EFixed;
 
@@ -67,7 +67,7 @@ public class ConcurrentIntersectAxis extends AbsAxis {
    * @param operand2
    *          Second operand
    */
-  public ConcurrentIntersectAxis(final INodeReadTrx pRtx, final IAxis pOperand1, final IAxis operand2) {
+  public ConcurrentIntersectAxis(final NodeReadTrx pRtx, final Axis pOperand1, final Axis operand2) {
     super(pRtx);
     mOp1 = new ConcurrentAxis(pRtx, pOperand1);
     mOp2 = new ConcurrentAxis(pRtx, operand2);

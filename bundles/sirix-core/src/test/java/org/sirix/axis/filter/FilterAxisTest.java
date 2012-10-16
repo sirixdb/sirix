@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.DescendantAxis;
@@ -57,7 +57,7 @@ public class FilterAxisTest {
 
   @Test
   public void testNameAxisTest() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new FilterAxis(new DescendantAxis(rtx), new NameFilter(rtx, "b")),
@@ -68,7 +68,7 @@ public class FilterAxisTest {
 
   @Test
   public void testValueAxisTest() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new FilterAxis(new DescendantAxis(rtx), new ValueFilter(rtx, "foo")),
@@ -79,7 +79,7 @@ public class FilterAxisTest {
 
   @Test
   public void testValueAndNameAxisTest() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(1L);
     AbsAxisTest.testIAxisConventions(new FilterAxis(new AttributeAxis(rtx), new NameFilter(rtx, "i"),

@@ -42,7 +42,7 @@ import javax.xml.namespace.QName;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ProgressGlassPane;
 import org.sirix.gui.ReadDB;
-import org.sirix.gui.view.model.interfaces.IModel;
+import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.smallmultiple.SmallmultipleModel;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI.GlassPaneListener;
@@ -178,7 +178,7 @@ public final class ViewUtilities {
    *          Processing {@link applet} reference
    */
   public static void legend(@Nonnull final AbsSunburstGUI pGUI,
-    final IModel<SunburstContainer, SunburstItem> pModel) {
+    final Model<SunburstContainer, SunburstItem> pModel) {
     final PApplet applet = pGUI.getApplet();
     // applet.translate(0, 0);
     applet.textAlign(PConstants.LEFT, PConstants.TOP);
@@ -275,7 +275,7 @@ public final class ViewUtilities {
    * @param pListener
    *          {@link GlassPaneListener} to add
    * @param pView
-   *          {@link IView} which "owns" the {@link ProgressGlassPane}
+   *          {@link View} which "owns" the {@link ProgressGlassPane}
    * @param progress
    *          progress between 0 and 100
    * @throws NullPointerException
@@ -284,7 +284,7 @@ public final class ViewUtilities {
    *           if the progress peter is invalid
    */
   public static void processGlassPaneEvents(@Nonnull final GlassPaneListener pListener,
-    @Nonnull final IProcessingView pView, @Nonnegative final int progress) {
+    @Nonnull final ProcessingView pView, @Nonnegative final int progress) {
     assert pView instanceof PApplet;
     if (pView == null || pListener == null) {
       throw new NullPointerException("Reference parameters may not be null!");

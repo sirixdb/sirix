@@ -34,10 +34,10 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.INodeBase;
-import org.sirix.node.interfaces.IValNode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.ValNode;
 import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
@@ -52,7 +52,7 @@ import org.sirix.utils.TypedValue;
  * Atomic types are anyAtomicType and all types derived from it.)
  * </p>
  */
-public class AtomicValue implements INode, IValNode {
+public class AtomicValue implements Node, ValNode {
 
 	/** Value of the item as byte array. */
 	private byte[] mValue;
@@ -143,8 +143,8 @@ public class AtomicValue implements INode, IValNode {
 	}
 
 	@Override
-	public EKind getKind() {
-		return EKind.ATOMIC;
+	public Kind getKind() {
+		return Kind.ATOMIC;
 	}
 
 	/**
@@ -281,7 +281,7 @@ public class AtomicValue implements INode, IValNode {
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable final INode pOther) {
+	public boolean isSameItem(@Nullable final Node pOther) {
 		return false;
 	}
 

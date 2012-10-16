@@ -14,10 +14,10 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.xdm.DocumentException;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbsShredder;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 
 /**
  * Subtree builder to build a new tree.
@@ -33,8 +33,8 @@ public final class SubtreeBuilder<E extends AbsTemporalNode> extends
 	/** {@link SubtreeProcessor} for listeners. */
 	private final SubtreeProcessor<AbsTemporalNode> mSubtreeProcessor;
 
-	/** Sirix {@link INodeWriteTrx}. */
-	private final INodeWriteTrx mWtx;
+	/** Sirix {@link NodeWriteTrx}. */
+	private final NodeWriteTrx mWtx;
 
 	/** Stack for saving the parent nodes. */
 	private final Deque<DBNode> mParents;
@@ -64,7 +64,7 @@ public final class SubtreeBuilder<E extends AbsTemporalNode> extends
 	 */
 	public SubtreeBuilder(
 			final @Nonnull DBCollection<? extends AbsTemporalNode> pCollection,
-			final @Nonnull INodeWriteTrx pWtx, final @Nonnull EInsert pInsert,
+			final @Nonnull NodeWriteTrx pWtx, final @Nonnull Insert pInsert,
 			final @Nonnull List<SubtreeListener<? super AbsTemporalNode>> pListeners)
 			throws SirixException {
 		super(pWtx, pInsert);

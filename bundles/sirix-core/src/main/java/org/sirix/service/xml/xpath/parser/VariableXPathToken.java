@@ -33,7 +33,7 @@ package org.sirix.service.xml.xpath.parser;
  * Categorized block of text.
  * </p>
  */
-public final class VariableXPathToken implements IXPathToken {
+public final class VariableXPathToken implements XPathToken {
 
   /**
    * The content of the token, a text sequence that represents a text, a

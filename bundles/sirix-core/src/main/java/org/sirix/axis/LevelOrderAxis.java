@@ -35,10 +35,10 @@ import java.util.Deque;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.settings.EFixed;
 
 /**
@@ -91,19 +91,19 @@ public final class LevelOrderAxis extends AbsAxis {
 		/** Filter by level. */
 		private int mFilterLevel = Integer.MAX_VALUE;
 
-		/** Sirix {@link INodeReadTrx}. */
-		private INodeReadTrx mRtx;
+		/** Sirix {@link NodeReadTrx}. */
+		private NodeReadTrx mRtx;
 
 		/** Determines if current start node to traversal should be included or not. */
-		private EIncludeSelf mIncludeSelf = EIncludeSelf.NO;
+		private IncludeSelf mIncludeSelf = IncludeSelf.NO;
 
 		/**
 		 * Constructor.
 		 * 
 		 * @param pRtx
-		 *          Sirix {@link INodeReadTrx}
+		 *          Sirix {@link NodeReadTrx}
 		 */
-		public Builder(final @Nonnull INodeReadTrx pRtx) {
+		public Builder(final @Nonnull NodeReadTrx pRtx) {
 			mRtx = checkNotNull(pRtx);
 		}
 
@@ -128,7 +128,7 @@ public final class LevelOrderAxis extends AbsAxis {
 		 *          include current node or not
 		 * @return this builder instance
 		 */
-		public Builder includeSelf(final @Nonnull EIncludeSelf pIncludeSelf) {
+		public Builder includeSelf(final @Nonnull IncludeSelf pIncludeSelf) {
 			mIncludeSelf = checkNotNull(pIncludeSelf);
 			return this;
 		}
@@ -187,9 +187,9 @@ public final class LevelOrderAxis extends AbsAxis {
 	 *          determines if self included
 	 */
 	@Deprecated
-	public LevelOrderAxis(@Nonnull final INodeReadTrx pRtx,
+	public LevelOrderAxis(@Nonnull final NodeReadTrx pRtx,
 			@Nonnull final EIncludeNodes pIncludeNodes,
-			final EIncludeSelf pIncludeSelf) {
+			final IncludeSelf pIncludeSelf) {
 		super(pRtx, pIncludeSelf);
 		mIncludeNodes = checkNotNull(pIncludeNodes);
 	}
@@ -203,16 +203,16 @@ public final class LevelOrderAxis extends AbsAxis {
 
 	@Override
 	protected long nextKey() {
-		final INodeReadTrx rtx = getTrx();
+		final NodeReadTrx rtx = getTrx();
 		// Determines if it's the first call to hasNext().
 		if (mFirst) {
 			mFirst = false;
 
-			if (rtx.getKind() == EKind.ATTRIBUTE || rtx.getKind() == EKind.NAMESPACE) {
+			if (rtx.getKind() == Kind.ATTRIBUTE || rtx.getKind() == Kind.NAMESPACE) {
 				return done();
 			}
 
-			if (isSelfIncluded() == EIncludeSelf.YES) {
+			if (isSelfIncluded() == IncludeSelf.YES) {
 				return rtx.getNodeKey();
 			} else {
 				if (rtx.hasRightSibling()) {
@@ -269,8 +269,8 @@ public final class LevelOrderAxis extends AbsAxis {
 
 	/** Process an element node. */
 	private void processElement() {
-		final INodeReadTrx rtx = (INodeReadTrx) getTrx();
-		if (rtx.getKind() == EKind.ELEMENT
+		final NodeReadTrx rtx = (NodeReadTrx) getTrx();
+		if (rtx.getKind() == Kind.ELEMENT
 				&& mIncludeNodes == EIncludeNodes.NONSTRUCTURAL) {
 			for (int i = 0, nspCount = rtx.getNamespaceCount(); i < nspCount; i++) {
 				rtx.moveToNamespace(i);

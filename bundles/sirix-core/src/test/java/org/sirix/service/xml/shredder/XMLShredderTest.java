@@ -44,15 +44,15 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.utils.DocumentCreater;
 
 public class XMLShredderTest extends XMLTestCase {
@@ -87,16 +87,16 @@ public class XMLShredderTest extends XMLTestCase {
 
 		// Setup parsed session.
 		XMLShredder.main(XML, PATHS.PATH2.getFile().getAbsolutePath());
-		final INodeReadTrx expectedTrx = holder.getWtx();
+		final NodeReadTrx expectedTrx = holder.getWtx();
 
 		// Verify.
-		final IDatabase database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
+		final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
 		database2.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, PATHS.PATH2.getConfig()).build());
-		final ISession session = database2
+		final Session session = database2
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
-		final INodeReadTrx rtx = session.beginNodeReadTrx();
+		final NodeReadTrx rtx = session.beginNodeReadTrx();
 		rtx.moveToDocumentRoot();
 		final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
 		final Iterator<Long> descendants = new DescendantAxis(rtx);
@@ -108,8 +108,8 @@ public class XMLShredderTest extends XMLTestCase {
 			assertEquals(expectedTrx.getLeftSiblingKey(), rtx.getLeftSiblingKey());
 			assertEquals(expectedTrx.getRightSiblingKey(), rtx.getRightSiblingKey());
 			assertEquals(expectedTrx.getChildCount(), rtx.getChildCount());
-			if (expectedTrx.getKind() == EKind.ELEMENT
-					|| rtx.getKind() == EKind.ELEMENT) {
+			if (expectedTrx.getKind() == Kind.ELEMENT
+					|| rtx.getKind() == Kind.ELEMENT) {
 
 				assertEquals(expectedTrx.getAttributeCount(), rtx.getAttributeCount());
 				assertEquals(expectedTrx.getNamespaceCount(), rtx.getNamespaceCount());
@@ -127,9 +127,9 @@ public class XMLShredderTest extends XMLTestCase {
 
 	@Test
 	public void testShredIntoExisting() throws Exception {
-		final INodeWriteTrx wtx = holder.getWtx();
+		final NodeWriteTrx wtx = holder.getWtx();
 		final XMLShredder shredder = new XMLShredder.Builder(wtx,
-				XMLShredder.createFileReader(new File(XML)), EInsert.ASFIRSTCHILD)
+				XMLShredder.createFileReader(new File(XML)), Insert.ASFIRSTCHILD)
 				.includeComments(true).commitAfterwards().build();
 		shredder.call();
 		assertEquals(1, wtx.getRevisionNumber());
@@ -137,25 +137,25 @@ public class XMLShredderTest extends XMLTestCase {
 		wtx.moveToFirstChild();
 		wtx.remove();
 		final XMLShredder shredder2 = new XMLShredder.Builder(wtx,
-				XMLShredder.createFileReader(new File(XML)), EInsert.ASFIRSTCHILD)
+				XMLShredder.createFileReader(new File(XML)), Insert.ASFIRSTCHILD)
 				.includeComments(true).commitAfterwards().build();
 		shredder2.call();
 		assertEquals(2, wtx.getRevisionNumber());
 		wtx.close();
 
 		// Setup expected session.
-		final IDatabase database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
-		final ISession expectedSession = database2
+		final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
+		final Session expectedSession = database2
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
 
-		final INodeWriteTrx expectedTrx = expectedSession.beginNodeWriteTrx();
+		final NodeWriteTrx expectedTrx = expectedSession.beginNodeWriteTrx();
 		DocumentCreater.create(expectedTrx);
 		expectedTrx.commit();
 		expectedTrx.moveToDocumentRoot();
 
 		// Verify.
-		final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+		final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
 
 		final Iterator<Long> descendants = new DescendantAxis(rtx);
 		final Iterator<Long> expectedDescendants = new DescendantAxis(expectedTrx);
@@ -187,25 +187,25 @@ public class XMLShredderTest extends XMLTestCase {
 	@Test
 	public void testAttributesNSPrefix() throws Exception {
 		// Setup expected session.
-		final INodeWriteTrx expectedTrx2 = holder.getWtx();
+		final NodeWriteTrx expectedTrx2 = holder.getWtx();
 		DocumentCreater.createWithoutNamespace(expectedTrx2);
 		expectedTrx2.commit();
 
 		// Setup parsed session.
-		final IDatabase database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
-		final ISession session2 = database2
+		final Database database2 = TestHelper.getDatabase(PATHS.PATH2.getFile());
+		final Session session2 = database2
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
-		final INodeWriteTrx wtx = session2.beginNodeWriteTrx();
+		final NodeWriteTrx wtx = session2.beginNodeWriteTrx();
 		final XMLShredder shredder = new XMLShredder.Builder(wtx,
-				XMLShredder.createFileReader(new File(XML2)), EInsert.ASFIRSTCHILD)
+				XMLShredder.createFileReader(new File(XML2)), Insert.ASFIRSTCHILD)
 				.commitAfterwards().build();
 		shredder.call();
 		wtx.commit();
 		wtx.close();
 
 		// Verify.
-		final INodeReadTrx rtx = session2.beginNodeReadTrx();
+		final NodeReadTrx rtx = session2.beginNodeReadTrx();
 		rtx.moveToDocumentRoot();
 		final Iterator<Long> expectedAttributes = new DescendantAxis(expectedTrx2);
 		final Iterator<Long> attributes = new DescendantAxis(rtx);
@@ -213,8 +213,8 @@ public class XMLShredderTest extends XMLTestCase {
 		while (expectedAttributes.hasNext() && attributes.hasNext()) {
 			expectedAttributes.next();
 			attributes.next();
-			if (expectedTrx2.getKind() == EKind.ELEMENT
-					|| rtx.getKind() == EKind.ELEMENT) {
+			if (expectedTrx2.getKind() == Kind.ELEMENT
+					|| rtx.getKind() == Kind.ELEMENT) {
 				assertEquals(expectedTrx2.getNamespaceCount(), rtx.getNamespaceCount());
 				assertEquals(expectedTrx2.getAttributeCount(), rtx.getAttributeCount());
 				for (int i = 0; i < expectedTrx2.getAttributeCount(); i++) {
@@ -233,18 +233,18 @@ public class XMLShredderTest extends XMLTestCase {
 
 	@Test
 	public void testShreddingLargeText() throws Exception {
-		final IDatabase database = TestHelper.getDatabase(PATHS.PATH2.getFile());
-		final ISession session = database
+		final Database database = TestHelper.getDatabase(PATHS.PATH2.getFile());
+		final Session session = database
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
-		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 		final XMLShredder shredder = new XMLShredder.Builder(wtx,
-				XMLShredder.createFileReader(new File(XML3)), EInsert.ASFIRSTCHILD)
+				XMLShredder.createFileReader(new File(XML3)), Insert.ASFIRSTCHILD)
 				.commitAfterwards().build();
 		shredder.call();
 		wtx.close();
 
-		final INodeReadTrx rtx = session.beginNodeReadTrx();
+		final NodeReadTrx rtx = session.beginNodeReadTrx();
 		assertTrue(rtx.moveToFirstChild().hasMoved());
 		assertTrue(rtx.moveToFirstChild().hasMoved());
 

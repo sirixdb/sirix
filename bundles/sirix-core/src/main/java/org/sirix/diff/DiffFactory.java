@@ -35,9 +35,9 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.access.EHashKind;
-import org.sirix.api.IDatabase;
-import org.sirix.api.ISession;
+import org.sirix.access.HashKind;
+import org.sirix.api.Database;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 
 /**
@@ -126,8 +126,8 @@ public final class DiffFactory {
   /** Builder to simplify static methods. */
   public static final class Builder {
 
-    /** {@link ISession} reference. */
-    final ISession mSession;
+    /** {@link Session} reference. */
+    final Session mSession;
 
     /** Start key of new revision. */
     transient long mNewStartKey;
@@ -150,14 +150,14 @@ public final class DiffFactory {
     /** Diff kind. */
     final EDiffOptimized mKind;
 
-    /** {@link Set} of {@link IDiffObserver}s. */
-    final Set<IDiffObserver> mObservers;
+    /** {@link Set} of {@link DiffObserver}s. */
+    final Set<DiffObserver> mObservers;
 
     /** Kind of diff to invoke. */
     transient EDiffKind mDiffKind;
 
     /** Kind of hash. */
-    transient EHashKind mHashKind = EHashKind.Rolling;
+    transient HashKind mHashKind = HashKind.Rolling;
 
     /** Set if the GUI is used. */
     transient boolean mIsGUI = true;
@@ -166,7 +166,7 @@ public final class DiffFactory {
      * Constructor.
      * 
      * @param pDb
-     *          {@link IDatabase} instance
+     *          {@link Database} instance
      * @param pNewRev
      *          new revision to compare
      * @param pOldRev
@@ -176,8 +176,8 @@ public final class DiffFactory {
      * @param pObservers
      *          {@link Set} of observers
      */
-    public Builder(final @Nonnull ISession pSession, final @Nonnegative int pNewRev, final @Nonnegative int pOldRev,
-      final @Nonnull EDiffOptimized pDiffKind, final @Nonnull Set<IDiffObserver> pObservers) {
+    public Builder(final @Nonnull Session pSession, final @Nonnegative int pNewRev, final @Nonnegative int pOldRev,
+      final @Nonnull EDiffOptimized pDiffKind, final @Nonnull Set<DiffObserver> pObservers) {
       mSession = checkNotNull(pSession);
       checkArgument(pNewRev >= 0, "paramNewRev must be >= 0!");
       mNewRev = pNewRev;
@@ -268,11 +268,11 @@ public final class DiffFactory {
      * Set kind of hash. <strong>Must be the same as used for the database creation</strong>.
      * 
      * @param pDiffKind
-     *          {@link EHashKind} instance
+     *          {@link HashKind} instance
      * 
      * @return this builder
      */
-    public Builder setHashKind(final EHashKind pHashKind) {
+    public Builder setHashKind(final HashKind pHashKind) {
       mHashKind = checkNotNull(pHashKind);
       return this;
     }

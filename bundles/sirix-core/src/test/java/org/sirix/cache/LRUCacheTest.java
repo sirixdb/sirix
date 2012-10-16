@@ -41,7 +41,7 @@ import org.sirix.page.NodePage;
  */
 public class LRUCacheTest {
 
-  private ICache<Long, PageContainer> cache;
+  private Cache<Long, PageContainer> cache;
 
   @Before
   public void setUp() throws SirixException {

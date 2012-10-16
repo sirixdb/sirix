@@ -29,9 +29,9 @@ package org.sirix.gui.view.sunburst;
 
 import javax.swing.JPopupMenu;
 
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.gui.view.model.AbsModel;
-import org.sirix.gui.view.model.interfaces.IModel;
+import org.sirix.gui.view.model.interfaces.Model;
 
 import controlP5.ControlGroup;
 
@@ -48,11 +48,11 @@ public final class SunburstPopupMenu extends JPopupMenu {
    */
   private static final long serialVersionUID = -3346902332490335444L;
 
-  /** Model which implements {@link IModel}. */
+  /** Model which implements {@link Model}. */
   private final AbsModel<?, ?> mModel;
 
-  /** sirix {@link INodeWriteTrx}. */
-  private static INodeWriteTrx mWtx;
+  /** sirix {@link NodeWriteTrx}. */
+  private static NodeWriteTrx mWtx;
 
   /** Textarea for XML fragment input. */
   private final ControlGroup<?> mCtrl;
@@ -64,13 +64,13 @@ public final class SunburstPopupMenu extends JPopupMenu {
    * Private constructor.
    * 
    * @param paramModel
-   *          model which implements {@link IModel}
+   *          model which implements {@link Model}
    * @param paramWtx
-   *          sirix {@link INodeWriteTrx}
+   *          sirix {@link NodeWriteTrx}
    * @param paramCtrl
    *          control group for XML input
    */
-  private SunburstPopupMenu(final AbsModel<?, ?> paramModel, final INodeWriteTrx paramWtx,
+  private SunburstPopupMenu(final AbsModel<?, ?> paramModel, final NodeWriteTrx paramWtx,
     final ControlGroup<?> paramCtrl) {
     mModel = paramModel;
     mWtx = paramWtx;
@@ -81,8 +81,8 @@ public final class SunburstPopupMenu extends JPopupMenu {
       createMenu();
       break;
     case TEXT:
-      EMenu.INSERT_FRAGMENT_AS_RIGHT_SIBLING.createMenuItem(mModel, this, mWtx, mCtrl);
-      EMenu.DELETE.createMenuItem(mModel, this, mWtx, mCtrl);
+      Menu.INSERT_FRAGMENT_AS_RIGHT_SIBLING.createMenuItem(mModel, this, mWtx, mCtrl);
+      Menu.DELETE.createMenuItem(mModel, this, mWtx, mCtrl);
       break;
     }
   }
@@ -95,13 +95,13 @@ public final class SunburstPopupMenu extends JPopupMenu {
    * @param paramGUI
    *          {@link SunburstGUI} instance
    * @param paramWtx
-   *          sirix {@link INodeWriteTrx}
+   *          sirix {@link NodeWriteTrx}
    * @param paramCtrl
    *          control group for XML input
    * @return singleton {@link SunburstPopupMenu} instance
    */
   public static synchronized SunburstPopupMenu getInstance(final AbsModel<?, ?> paramModel,
-    final INodeWriteTrx paramWtx, final ControlGroup<?> paramCtrl) {
+    final NodeWriteTrx paramWtx, final ControlGroup<?> paramCtrl) {
     if (mSunburstPopupMenu == null || !paramWtx.equals(mWtx)) {
       mSunburstPopupMenu = new SunburstPopupMenu(paramModel, paramWtx, paramCtrl);
     }
@@ -112,7 +112,7 @@ public final class SunburstPopupMenu extends JPopupMenu {
    * Create all menu items.
    */
   private void createMenu() {
-    for (EMenu menu : EMenu.values()) {
+    for (Menu menu : Menu.values()) {
       // Create and add a menu item
       menu.createMenuItem(mModel, this, mWtx, mCtrl);
     }

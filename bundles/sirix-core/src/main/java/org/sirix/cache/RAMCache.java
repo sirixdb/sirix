@@ -43,7 +43,7 @@ import org.sirix.utils.FastWeakHashMap;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class RAMCache<K, V> implements ICache<K, V> {
+public final class RAMCache<K, V> implements Cache<K, V> {
 
   /**
    * Local instance.

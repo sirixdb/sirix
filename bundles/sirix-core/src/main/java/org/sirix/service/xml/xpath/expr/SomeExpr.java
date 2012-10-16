@@ -33,8 +33,8 @@ import java.util.List;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.utils.TypedValue;
 
@@ -51,9 +51,9 @@ import org.sirix.utils.TypedValue;
  */
 public class SomeExpr extends AbsExpression {
 
-  private final List<IAxis> mVars;
+  private final List<Axis> mVars;
 
-  private final IAxis mSatisfy;
+  private final Axis mSatisfy;
 
   /**
    * Constructor. Initializes the internal state.
@@ -66,8 +66,8 @@ public class SomeExpr extends AbsExpression {
    *          condition that must be satisfied by at least one item of the
    *          variable results in order to evaluate expression to true
    */
-  public SomeExpr(@Nonnull final INodeReadTrx pRtx,
-    @Nonnull final List<IAxis> pVars, @Nonnull final IAxis pSatisfy) {
+  public SomeExpr(@Nonnull final NodeReadTrx pRtx,
+    @Nonnull final List<Axis> pVars, @Nonnull final Axis pSatisfy) {
     super(pRtx);
     mVars = checkNotNull(pVars);
     mSatisfy = checkNotNull(pSatisfy);
@@ -77,7 +77,7 @@ public class SomeExpr extends AbsExpression {
   public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
     if (mVars != null) {
-      for (final IAxis var : mVars) {
+      for (final Axis var : mVars) {
         var.reset(pNodeKey);
       }
     }
@@ -91,7 +91,7 @@ public class SomeExpr extends AbsExpression {
   public void evaluate() {
     boolean satisfiesCond = false;
 
-    for (final IAxis axis : mVars) {
+    for (final Axis axis : mVars) {
       while (axis.hasNext()) {
         mKey = axis.next();
         mSatisfy.reset(mKey);

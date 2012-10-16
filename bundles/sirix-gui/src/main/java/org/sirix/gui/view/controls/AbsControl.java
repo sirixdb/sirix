@@ -30,16 +30,16 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 
-import org.sirix.gui.view.IVisualItem;
+import org.sirix.gui.view.VisualItem;
 
 /**
- * Abstract class to simplify {@link IControl} implementation. Only necessary methods
+ * Abstract class to simplify {@link Control} implementation. Only necessary methods
  * have to be overriden.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbsControl implements IControl {
+public abstract class AbsControl implements Control {
 
   /** {@inheritDoc} */
   @Override
@@ -54,57 +54,57 @@ public abstract class AbsControl implements IControl {
 
   /** {@inheritDoc} */
   @Override
-  public void itemDragged(IVisualItem paramItem, MouseEvent paramEvent) {
+  public void itemDragged(VisualItem paramItem, MouseEvent paramEvent) {
   }
 
   /** {@inheritDoc} */
   @Override
-  public void itemMoved(IVisualItem paramItem, MouseEvent paramEvent) {
+  public void itemMoved(VisualItem paramItem, MouseEvent paramEvent) {
   }
 
   /** {@inheritDoc} */
   @Override
-  public void itemWheelMoved(IVisualItem paramItem, MouseWheelEvent paramEvent) {
+  public void itemWheelMoved(VisualItem paramItem, MouseWheelEvent paramEvent) {
   }
 
   /** {@inheritDoc} */
   @Override
-  public void itemClicked(IVisualItem paramItem, MouseEvent paramEvent) {
+  public void itemClicked(VisualItem paramItem, MouseEvent paramEvent) {
   }
 
   /** {@inheritDoc} */
   @Override
-  public void itemPressed(IVisualItem paramItem, MouseEvent paramEvent) {
+  public void itemPressed(VisualItem paramItem, MouseEvent paramEvent) {
   }
 
   /** {@inheritDoc} */
   @Override
-  public void itemReleased(IVisualItem paramItem, MouseEvent paramEvent) {
+  public void itemReleased(VisualItem paramItem, MouseEvent paramEvent) {
   }
 
   /** {@inheritDoc} */
   @Override
-  public void itemEntered(IVisualItem paramItem, MouseEvent paramEvent) {
+  public void itemEntered(VisualItem paramItem, MouseEvent paramEvent) {
   }
 
   /** {@inheritDoc} */
   @Override
-  public void itemExited(IVisualItem paramItem, MouseEvent paramEvent) {
+  public void itemExited(VisualItem paramItem, MouseEvent paramEvent) {
   }
 
   /** {@inheritDoc} */
   @Override
-  public void itemKeyPressed(IVisualItem paramItem, KeyEvent paramEvent) {
+  public void itemKeyPressed(VisualItem paramItem, KeyEvent paramEvent) {
   }
 
   /** {@inheritDoc} */
   @Override
-  public void itemKeyReleased(IVisualItem paramItem, KeyEvent paramEvent) {
+  public void itemKeyReleased(VisualItem paramItem, KeyEvent paramEvent) {
   }
 
   /** {@inheritDoc} */
   @Override
-  public void itemKeyTyped(IVisualItem paramItem, KeyEvent paramEvent) {
+  public void itemKeyTyped(VisualItem paramItem, KeyEvent paramEvent) {
   }
 
   /** {@inheritDoc} */

@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 
 public class SelfAxisTest {
@@ -54,7 +54,7 @@ public class SelfAxisTest {
 
   @Test
   public void testIterate() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
     rtx.moveTo(4L);
     AbsAxisTest.testIAxisConventions(new SelfAxis(rtx), new long[] {
       4L

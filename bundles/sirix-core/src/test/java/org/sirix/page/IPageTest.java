@@ -12,15 +12,15 @@ import java.util.Arrays;
 
 import org.sirix.TestHelper;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.bytepipe.IByteHandler;
-import org.sirix.node.EKind;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.node.Kind;
+import org.sirix.page.interfaces.Page;
 import org.sirix.settings.IConstants;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 /**
- * Test class for all classes implementing the {@link IPage} interface.
+ * Test class for all classes implementing the {@link Page} interface.
  * 
  * @author Sebastian Graf, University of Konstanz
  * @auhtor Johannes Lichtenberger, University of Konstanz
@@ -29,8 +29,8 @@ import org.testng.annotations.Test;
 public class IPageTest {
 
 	/**
-	 * Test method for {@link org.treetank.page.IPage#IPage(long)} and
-	 * {@link org.treetank.page.IPage#getByteRepresentation()}.
+	 * Test method for {@link org.Page.page.IPage#IPage(long)} and
+	 * {@link org.Page.page.IPage#getByteRepresentation()}.
 	 * 
 	 * @param pClass
 	 *          IPage as class
@@ -38,16 +38,16 @@ public class IPageTest {
 	 *          different pages
 	 */
 	@Test(dataProvider = "instantiatePages")
-	public void testByteRepresentation(final Class<IPage> pClass,
-			final IPage[] pHandlers) {
-		for (final IPage handler : pHandlers) {
+	public void testByteRepresentation(final Class<Page> pClass,
+			final Page[] pHandlers) {
+		for (final Page handler : pHandlers) {
 			final ByteArrayDataOutput output = ByteStreams.newDataOutput();
 			handler.serialize(output);
 			final byte[] pageBytes = output.toByteArray();
 			final ByteArrayDataInput input = ByteStreams.newDataInput(pageBytes);
 
 			final ByteArrayDataOutput serializedOutput = ByteStreams.newDataOutput();
-			final IPage serializedPage = EPage.getKind(handler.getClass())
+			final Page serializedPage = EPage.getKind(handler.getClass())
 					.deserializePage(input);
 			serializedPage.serialize(serializedOutput);
 			assertTrue(new StringBuilder("Check for ").append(handler.getClass())
@@ -57,10 +57,10 @@ public class IPageTest {
 	}
 
 	/**
-	 * Providing different implementations of the {@link IPage} as Dataprovider to
+	 * Providing different implementations of the {@link Page} as Dataprovider to
 	 * the test class.
 	 * 
-	 * @return different classes of the {@link IByteHandler}
+	 * @return different classes of the {@link ByteHandler}
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
@@ -80,7 +80,7 @@ public class IPageTest {
 		// NamePage setup.
 		final NamePage namePage = new NamePage(0);
 		namePage.setName(TestHelper.random.nextInt(),
-				new String(TestHelper.generateRandomBytes(256)), EKind.ELEMENT);
+				new String(TestHelper.generateRandomBytes(256)), Kind.ELEMENT);
 
 		// ValuePage setup.
 		final ValuePage valuePage = new ValuePage(0);
@@ -88,8 +88,8 @@ public class IPageTest {
 		// PathSummaryPage setup.
 		final PathSummaryPage pathSummaryPage = new PathSummaryPage(0);
 
-		Object[][] returnVal = { { IPage.class,
-				new IPage[] { indirectPage, namePage, valuePage, pathSummaryPage } } };
+		Object[][] returnVal = { { Page.class,
+				new Page[] { indirectPage, namePage, valuePage, pathSummaryPage } } };
 		return returnVal;
 	}
 }

@@ -29,8 +29,8 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeCursor;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeCursor;
+import org.sirix.node.Kind;
 
 /**
  * <h1>FollowingSiblingAxis</h1>
@@ -50,7 +50,7 @@ public final class FollowingSiblingAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public FollowingSiblingAxis(@Nonnull final INodeCursor pRtx) {
+  public FollowingSiblingAxis(@Nonnull final NodeCursor pRtx) {
     super(pRtx);
     mIsFirst = true;
   }
@@ -69,8 +69,8 @@ public final class FollowingSiblingAxis extends AbsAxis {
        * If the context node is an attribute or namespace node,
        * the following-sibling axis is empty
        */
-      if (getTrx().getKind() == EKind.ATTRIBUTE
-        || getTrx().getKind() == EKind.NAMESPACE) {
+      if (getTrx().getKind() == Kind.ATTRIBUTE
+        || getTrx().getKind() == Kind.NAMESPACE) {
         return done();
       }
     }

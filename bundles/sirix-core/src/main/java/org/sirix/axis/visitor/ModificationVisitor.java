@@ -10,16 +10,16 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLStreamException;
 
-import org.sirix.access.AbsVisitorSupport;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.access.AbsVisitor;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.immutable.ImmutableElement;
 import org.sirix.node.immutable.ImmutableText;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class ModificationVisitor extends AbsVisitorSupport {
+public final class ModificationVisitor extends AbsVisitor {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
@@ -39,8 +39,8 @@ public final class ModificationVisitor extends AbsVisitorSupport {
 	/** Determines the modify rate. */
 	private static final int MODIFY_EVERY = 1111;
 
-	/** Sirix {@link INodeWriteTrx}. */
-	private final INodeWriteTrx mWtx;
+	/** Sirix {@link NodeWriteTrx}. */
+	private final NodeWriteTrx mWtx;
 
 	/** Random number generator. */
 	private final Random mRandom = new Random();
@@ -55,11 +55,11 @@ public final class ModificationVisitor extends AbsVisitorSupport {
 	 * Constructor.
 	 * 
 	 * @param pWtx
-	 *          sirix {@link INodeWriteTrx}
+	 *          sirix {@link NodeWriteTrx}
 	 * @param pStartKey
 	 *          start key
 	 */
-	public ModificationVisitor(final INodeWriteTrx pWtx, final long pStartKey) {
+	public ModificationVisitor(final NodeWriteTrx pWtx, final long pStartKey) {
 		mWtx = checkNotNull(pWtx);
 		checkArgument(pStartKey >= 0, "start key must be >= 0!");
 		mStartKey = pStartKey;
@@ -79,7 +79,7 @@ public final class ModificationVisitor extends AbsVisitorSupport {
 	 *          the node to check
 	 * @return the appropriate {@link EVisitResult} value
 	 */
-	private IVisitResult processNode(final IStructNode pNode) {
+	private IVisitResult processNode(final StructNode pNode) {
 		assert pNode != null;
 		final IVisitResult result = modify(pNode);
 		if (pNode.getNodeKey() == mStartKey) {
@@ -104,7 +104,7 @@ public final class ModificationVisitor extends AbsVisitorSupport {
 	 *          the node to check and possibly delete
 	 * @return {@code true} if node has been deleted, {@code false} otherwise
 	 */
-	private IVisitResult modify(final IStructNode pNode) {
+	private IVisitResult modify(final StructNode pNode) {
 		assert pNode != null;
 		if (mNodeIndex % MODIFY_EVERY == 0) {
 			mNodeIndex = 1;
@@ -119,9 +119,9 @@ public final class ModificationVisitor extends AbsVisitorSupport {
 					assert moved;
 					return EVisitResult.CONTINUE;
 				case 1:
-					if (mWtx.getKind() == EKind.TEXT) {
+					if (mWtx.getKind() == Kind.TEXT) {
 						mWtx.setValue("testUpdate");
-					} else if (mWtx.getKind() == EKind.ELEMENT) {
+					} else if (mWtx.getKind() == Kind.ELEMENT) {
 						mWtx.setQName(new QName("testUpdate"));
 					}
 					return EVisitResult.CONTINUE;
@@ -147,8 +147,8 @@ public final class ModificationVisitor extends AbsVisitorSupport {
 		try {
 			final long nodeKey = mWtx.getNodeKey();
 			boolean removeTextNode = false;
-			if (mWtx.getLeftSiblingKind() == EKind.TEXT &&
-					mWtx.getRightSiblingKind() == EKind.TEXT) {
+			if (mWtx.getLeftSiblingKind() == Kind.TEXT &&
+					mWtx.getRightSiblingKind() == Kind.TEXT) {
 				removeTextNode = true;
 			}
 			mWtx.moveTo(nodeKey);
@@ -162,7 +162,7 @@ public final class ModificationVisitor extends AbsVisitorSupport {
 					mWtx.moveTo(nodeKey);
 					mWtx.remove();
 					assert mWtx.getNodeKey() == parentNodeKey;
-					return ELocalVisitResult.SKIPSUBTREEPOPSTACK;
+					return LocalVisitResult.SKIPSUBTREEPOPSTACK;
 				}
 			}
 			mWtx.moveTo(nodeKey);
@@ -183,7 +183,7 @@ public final class ModificationVisitor extends AbsVisitorSupport {
 				mWtx.moveTo(nodeKey);
 				mWtx.remove();
 				if (removeTextNode) {
-					assert mWtx.getKind() == EKind.TEXT;
+					assert mWtx.getKind() == Kind.TEXT;
 					assert mWtx.getRightSiblingKey() == rightRightSiblKey;
 					return EVisitResult.CONTINUE;
 				} else {

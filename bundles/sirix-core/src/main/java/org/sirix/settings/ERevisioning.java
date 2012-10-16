@@ -33,7 +33,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.cache.PageContainer;
-import org.sirix.node.interfaces.INodeBase;
+import org.sirix.node.interfaces.NodeBase;
 import org.sirix.page.NodePage;
 
 /**
@@ -68,7 +68,7 @@ public enum ERevisioning {
           new NodePage(nodePageKey, pPages[0].getRevision() + 1)
         };
 
-      for (final INodeBase nodes : pPages[0].values()) {
+      for (final NodeBase nodes : pPages[0].values()) {
         returnVal[0].setNode(nodes);
         returnVal[1].setNode(nodes);
       }
@@ -96,11 +96,11 @@ public enum ERevisioning {
       assert latest.getNodePageKey() == nodePageKey;
       assert fullDump.getNodePageKey() == nodePageKey;
 
-      for (final INodeBase node : fullDump.values()) {
+      for (final NodeBase node : fullDump.values()) {
         returnVal.setNode(node);
       }
 
-      for (final INodeBase node : latest.values()) {
+      for (final NodeBase node : latest.values()) {
         returnVal.setNode(node);
       }
       return returnVal;
@@ -120,7 +120,7 @@ public enum ERevisioning {
       final NodePage latest = pPages[0];
       NodePage fullDump = pPages.length == 1 ? pPages[0] : pPages[1];
       
-      for (final INodeBase node : fullDump.values()) {
+      for (final NodeBase node : fullDump.values()) {
         returnVal[0].setNode(node);
 
         if ((latest.getRevision() + 1) % pRevToRestore == 0) {
@@ -130,7 +130,7 @@ public enum ERevisioning {
       }
 
       // iterate through all nodes
-      for (final INodeBase node : latest.values()) {
+      for (final NodeBase node : latest.values()) {
         returnVal[0].setNode(node);
         returnVal[1].setNode(node);
       }
@@ -155,7 +155,7 @@ public enum ERevisioning {
 
       for (final NodePage page : pPages) {
         assert page.getNodePageKey() == nodePageKey;
-        for (final Entry<Long, INodeBase> node : page.entrySet()) {
+        for (final Entry<Long, NodeBase> node : page.entrySet()) {
           final long nodeKey = node.getKey();
           if (returnVal.getNode(nodeKey) == null) {
             returnVal.setNode(node.getValue());
@@ -183,7 +183,7 @@ public enum ERevisioning {
       for (final NodePage page : pPages) {
         assert page.getNodePageKey() == nodePageKey;
 
-        for (final Entry<Long, INodeBase> node : page.entrySet()) {
+        for (final Entry<Long, NodeBase> node : page.entrySet()) {
           // Caching the complete page.
           final long nodeKey = node.getKey();
           if (node != null && returnVal[0].getNode(nodeKey) == null) {

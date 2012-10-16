@@ -6,15 +6,15 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.api.IItemList;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.ItemList;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Node;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 import com.google.common.collect.ForwardingObject;
@@ -26,17 +26,17 @@ import com.google.common.collect.ForwardingObject;
  * 
  */
 public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
-		implements INodeReadTrx {
+		implements NodeReadTrx {
 
 	/** Constructor for use by subclasses. */
 	protected AbsForwardingNodeReadTrx() {
 	}
 
 	@Override
-	protected abstract INodeReadTrx delegate();
+	protected abstract NodeReadTrx delegate();
 
 	@Override
-	public IItemList<AtomicValue> getItemList() {
+	public ItemList<AtomicValue> getItemList() {
 		return delegate().getItemList();
 	}
 
@@ -71,7 +71,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public ISession getSession() {
+	public Session getSession() {
 		return delegate().getSession();
 	}
 
@@ -101,60 +101,60 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveTo(long pKey) {
+	public Move<? extends NodeReadTrx> moveTo(long pKey) {
 		return delegate().moveTo(pKey);
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveToAttribute(
+	public Move<? extends NodeReadTrx> moveToAttribute(
 			final @Nonnegative int pIndex) {
 		return delegate().moveToAttribute(pIndex);
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveToAttributeByName(
+	public Move<? extends NodeReadTrx> moveToAttributeByName(
 			final @Nonnull QName pQName) {
 		return delegate().moveToAttributeByName(pQName);
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveToDocumentRoot() {
+	public Move<? extends NodeReadTrx> moveToDocumentRoot() {
 		return delegate().moveToDocumentRoot();
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveToFirstChild() {
+	public Move<? extends NodeReadTrx> moveToFirstChild() {
 		return delegate().moveToFirstChild();
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveToLeftSibling() {
+	public Move<? extends NodeReadTrx> moveToLeftSibling() {
 		return delegate().moveToLeftSibling();
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveToNamespace(
+	public Move<? extends NodeReadTrx> moveToNamespace(
 			final @Nonnegative int pIndex) {
 		return delegate().moveToNamespace(pIndex);
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveToNextFollowing() {
+	public Move<? extends NodeReadTrx> moveToNextFollowing() {
 		return delegate().moveToNextFollowing();
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveToParent() {
+	public Move<? extends NodeReadTrx> moveToParent() {
 		return delegate().moveToParent();
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveToRightSibling() {
+	public Move<? extends NodeReadTrx> moveToRightSibling() {
 		return delegate().moveToRightSibling();
 	}
 
 	@Override
-	public Move<? extends INodeReadTrx> moveToLastChild() {
+	public Move<? extends NodeReadTrx> moveToLastChild() {
 		return delegate().moveToLastChild();
 	}
 
@@ -169,13 +169,13 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public INodeReadTrx cloneInstance() throws SirixException {
+	public NodeReadTrx cloneInstance() throws SirixException {
 		return delegate().cloneInstance();
 	}
 
 	@Override
 	public int getNameCount(final @Nonnull String pName,
-			final @Nonnull EKind pKind) {
+			final @Nonnull Kind pKind) {
 		return delegate().getNameCount(pName, pKind);
 	}
 
@@ -195,7 +195,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public EKind getKind() {
+	public Kind getKind() {
 		return delegate().getKind();
 	}
 
@@ -265,7 +265,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public EKind getPathKind() {
+	public Kind getPathKind() {
 		return delegate().getPathKind();
 	}
 
@@ -305,7 +305,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 	
 	@Override
-	public INode getNode() {
+	public Node getNode() {
 		return delegate().getNode();
 	}
 
@@ -350,27 +350,27 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 	
 	@Override
-	public EKind getFirstChildKind() {
+	public Kind getFirstChildKind() {
 		return delegate().getFirstChildKind();
 	}
 	
 	@Override
-	public EKind getLastChildKind() {
+	public Kind getLastChildKind() {
 		return delegate().getLastChildKind();
 	}
 	
 	@Override
-	public EKind getLeftSiblingKind() {
+	public Kind getLeftSiblingKind() {
 		return delegate().getLeftSiblingKind();
 	}
 	
 	@Override
-	public EKind getRightSiblingKind() {
+	public Kind getRightSiblingKind() {
 		return delegate().getRightSiblingKind();
 	}
 	
 	@Override
-	public EKind getParentKind() {
+	public Kind getParentKind() {
 		return delegate().getParentKind();
 	}
 	

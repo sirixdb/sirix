@@ -34,8 +34,8 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Node;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
 
@@ -43,7 +43,7 @@ import com.google.common.base.Objects;
 
 /**
  * Delegate method for all nodes. That means that all nodes stored in Sirix are
- * represented by an instance of the interface {@link INode} namely containing
+ * represented by an instance of the interface {@link Node} namely containing
  * the position in the tree related to a parent-node, the related type and the
  * corresponding hash recursively computed.
  * 
@@ -51,7 +51,7 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class NodeDelegate implements INode {
+public class NodeDelegate implements Node {
 
 	/** Untyped type. */
 	private static final int TYPE_KEY = NamePageHash
@@ -99,8 +99,8 @@ public class NodeDelegate implements INode {
 	}
 
 	@Override
-	public EKind getKind() {
-		return EKind.UNKNOWN;
+	public Kind getKind() {
+		return Kind.UNKNOWN;
 	}
 
 	@Override
@@ -173,7 +173,7 @@ public class NodeDelegate implements INode {
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable final INode pOther) {
+	public boolean isSameItem(@Nullable final Node pOther) {
 		if (pOther == null) {
 			return false;
 		}

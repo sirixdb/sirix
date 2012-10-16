@@ -37,17 +37,17 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 
 import org.slf4j.LoggerFactory;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
@@ -87,17 +87,17 @@ public final class FMSEImport {
 		assert pResNewRev != null;
 		assert pNewRev != null;
 		final DatabaseConfiguration conf = new DatabaseConfiguration(pNewRev);
-		Database.truncateDatabase(conf);
-		Database.createDatabase(conf);
-		final IDatabase db = Database.openDatabase(pNewRev);
+		DatabaseImpl.truncateDatabase(conf);
+		DatabaseImpl.createDatabase(conf);
+		final Database db = DatabaseImpl.openDatabase(pNewRev);
 		db.createResource(new ResourceConfiguration.Builder("shredded", conf)
 				.build());
-		final ISession session = db.getSession(new SessionConfiguration.Builder(
+		final Session session = db.getSession(new SessionConfiguration.Builder(
 				"shredded").build());
-		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 		final XMLEventReader reader = XMLShredder.createFileReader(pResNewRev);
 		final XMLShredder shredder = new XMLShredder.Builder(wtx, reader,
-				EInsert.ASFIRSTCHILD).commitAfterwards().build();
+				Insert.ASFIRSTCHILD).commitAfterwards().build();
 		shredder.call();
 		wtx.close();
 		session.close();
@@ -124,15 +124,15 @@ public final class FMSEImport {
 			}
 			shredder(checkNotNull(pResNewRev), newRevTarget);
 
-			final IDatabase databaseOld = Database.openDatabase(pResOldRev);
-			final ISession sessionOld = databaseOld
+			final Database databaseOld = DatabaseImpl.openDatabase(pResOldRev);
+			final Session sessionOld = databaseOld
 					.getSession(new SessionConfiguration.Builder("shredded").build());
-			final INodeWriteTrx wtx = sessionOld.beginNodeWriteTrx();
+			final NodeWriteTrx wtx = sessionOld.beginNodeWriteTrx();
 
-			final IDatabase databaseNew = Database.openDatabase(newRevTarget);
-			final ISession sessionNew = databaseNew
+			final Database databaseNew = DatabaseImpl.openDatabase(newRevTarget);
+			final Session sessionNew = databaseNew
 					.getSession(new SessionConfiguration.Builder("shredded").build());
-			final INodeReadTrx rtx = sessionNew.beginNodeReadTrx();
+			final NodeReadTrx rtx = sessionNew.beginNodeReadTrx();
 			try (final FMSE fmes = new FMSE()) {
 				fmes.diff(wtx, rtx);
 			}

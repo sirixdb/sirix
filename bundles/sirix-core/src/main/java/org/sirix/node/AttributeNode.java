@@ -40,8 +40,8 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.immutable.ImmutableAttribute;
-import org.sirix.node.interfaces.INameNode;
-import org.sirix.node.interfaces.IValNode;
+import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.ValNode;
 
 import com.google.common.base.Objects;
 
@@ -52,8 +52,8 @@ import com.google.common.base.Objects;
  * Node representing an attribute.
  * </p>
  */
-public final class AttributeNode extends AbsForwardingNode implements IValNode,
-  INameNode {
+public final class AttributeNode extends AbsForwardingNode implements ValNode,
+  NameNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
@@ -84,8 +84,8 @@ public final class AttributeNode extends AbsForwardingNode implements IValNode,
   }
 
   @Override
-  public EKind getKind() {
-    return EKind.ATTRIBUTE;
+  public Kind getKind() {
+    return Kind.ATTRIBUTE;
   }
 
   @Override

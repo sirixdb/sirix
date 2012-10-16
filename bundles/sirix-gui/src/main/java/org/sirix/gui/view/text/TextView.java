@@ -59,16 +59,16 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.GUI;
 import org.sirix.gui.GUIProp;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.DiffAxis;
-import org.sirix.gui.view.IView;
-import org.sirix.gui.view.IVisualItem;
+import org.sirix.gui.view.View;
+import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.ViewNotifier;
 import org.sirix.gui.view.ViewUtilities;
 import org.sirix.gui.view.VisualItemAxis;
@@ -88,7 +88,7 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TextView extends JScrollPane implements IView {
+public final class TextView extends JScrollPane implements View {
 
 	/**
 	 * SerialUID.
@@ -143,8 +143,8 @@ public final class TextView extends JScrollPane implements IView {
 		CHILD,
 	}
 
-	/** {@link INodeReadTrx} reference. */
-	private transient INodeReadTrx mRtx;
+	/** {@link NodeReadTrx} reference. */
+	private transient NodeReadTrx mRtx;
 
 	/** Temporary level after initial filling of the text area. */
 	private transient int mTempLevel;
@@ -329,7 +329,7 @@ public final class TextView extends JScrollPane implements IView {
 	 * Serialize a tree.
 	 */
 	private void serialize() {
-		final INodeReadTrx rtx = mRtx;
+		final NodeReadTrx rtx = mRtx;
 
 		// Style document.
 		final StyledDocument doc = (StyledDocument) mText.getDocument();
@@ -353,7 +353,7 @@ public final class TextView extends JScrollPane implements IView {
 					mSerializer = new StAXSerializer(rtx);
 				} else {
 					mSerializer = new StAXDiffSerializer(
-							new DiffAxis(EIncludeSelf.YES, mDb.getSession().beginNodeReadTrx(
+							new DiffAxis(IncludeSelf.YES, mDb.getSession().beginNodeReadTrx(
 									mDb.getCompareRevisionNumber()), rtx, mAxis));
 				}
 				processStAX(State.INITIAL);
@@ -881,7 +881,7 @@ public final class TextView extends JScrollPane implements IView {
 	}
 
 	@Override
-	public void hover(final IVisualItem pItem) {
+	public void hover(final VisualItem pItem) {
 	}
 
 	@Override

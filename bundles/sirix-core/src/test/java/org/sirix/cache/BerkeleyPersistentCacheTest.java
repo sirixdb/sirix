@@ -42,7 +42,7 @@ import org.sirix.page.NodePage;
 
 public class BerkeleyPersistentCacheTest {
 
-  private ICache<Long, PageContainer> cache;
+  private Cache<Long, PageContainer> cache;
   
   private Holder holder;
 

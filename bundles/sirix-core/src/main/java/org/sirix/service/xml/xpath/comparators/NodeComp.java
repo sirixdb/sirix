@@ -27,8 +27,8 @@
 
 package org.sirix.service.xml.xpath.comparators;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
@@ -55,15 +55,15 @@ public class NodeComp extends AbsComparator {
    * @param mComp
    *          comparison kind
    */
-  public NodeComp(final INodeReadTrx rtx, final IAxis mOperand1, final IAxis mOperand2, final CompKind mComp) {
+  public NodeComp(final NodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2, final CompKind mComp) {
 
     super(rtx, mOperand1, mOperand2, mComp);
   }
 
   @Override
-  protected AtomicValue[] atomize(final IAxis mOperand) throws SirixXPathException {
+  protected AtomicValue[] atomize(final Axis mOperand) throws SirixXPathException {
 
-    final INodeReadTrx rtx = getTrx();
+    final NodeReadTrx rtx = getTrx();
     // store item key as atomic value
     final AtomicValue mAtomized =
       new AtomicValue(TypedValue.getBytes(((Long)rtx.getNodeKey()).toString()), rtx

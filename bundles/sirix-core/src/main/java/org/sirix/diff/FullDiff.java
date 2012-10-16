@@ -29,7 +29,7 @@ package org.sirix.diff;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.exception.SirixException;
 
@@ -55,8 +55,8 @@ final class FullDiff extends AbsDiff {
 	}
 
 	@Override
-	boolean checkNodes(@Nonnull final INodeReadTrx pFirstRtx,
-			@Nonnull final INodeReadTrx pSecondRtx) {
+	boolean checkNodes(@Nonnull final NodeReadTrx pFirstRtx,
+			@Nonnull final NodeReadTrx pSecondRtx) {
 		assert pFirstRtx != null;
 		assert pSecondRtx != null;
 

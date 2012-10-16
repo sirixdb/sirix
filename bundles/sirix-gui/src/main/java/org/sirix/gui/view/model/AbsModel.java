@@ -47,26 +47,26 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.slf4j.LoggerFactory;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.AbsObservableComponent;
-import org.sirix.gui.view.IVisualItem;
-import org.sirix.gui.view.model.interfaces.IContainer;
-import org.sirix.gui.view.model.interfaces.IModel;
-import org.sirix.gui.view.sunburst.EXPathState;
+import org.sirix.gui.view.VisualItem;
+import org.sirix.gui.view.model.interfaces.Container;
+import org.sirix.gui.view.model.interfaces.Model;
+import org.sirix.gui.view.sunburst.XPathState;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
-import org.sirix.node.EKind;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.node.Kind;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
 import processing.core.PApplet;
 
 /**
- * Abstract model, to simplify implementation of the {@link IModel} interface
+ * Abstract model, to simplify implementation of the {@link Model} interface
  * and share common methods among implementations.
  * 
  * Note that all methods fail fast and either throw a {@link NullPointerException} if a reference peter is
@@ -77,12 +77,12 @@ import processing.core.PApplet;
  * @param <S>
  *          type of generic argument for {@link SunburstContainer}
  * @param <T>
- *          type of {@link IVisualItem}s
+ *          type of {@link VisualItem}s
  * 
  */
 @Nonnull
-public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableComponent implements
-  IModel<S, T> {
+public abstract class AbsModel<S, T extends VisualItem> extends AbsObservableComponent implements
+  Model<S, T> {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(AbsModel.class));
@@ -90,14 +90,14 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
   /** {@link List} of items. */
   protected volatile List<T> mItems;
 
-  /** sirix {@link INodeReadTrx}. */
-  protected transient INodeReadTrx mRtx;
+  /** sirix {@link NodeReadTrx}. */
+  protected transient NodeReadTrx mRtx;
 
-  /** sirix {@link ISession}. */
-  protected transient ISession mSession;
+  /** sirix {@link Session}. */
+  protected transient Session mSession;
 
   /**
-   * {@link Deque} with {@link List}s of a {@link IVisualItem} implementation
+   * {@link Deque} with {@link List}s of a {@link VisualItem} implementation
    * for undo operation.
    */
   protected transient Deque<List<T>> mLastItems;
@@ -120,7 +120,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
    * Determines if XML fragments should be inserted as first child or as right
    * sibling of the current node.
    */
-  protected transient EInsert mInsert;
+  protected transient Insert mInsert;
 
   /** The processing {@link PApplet} core library. */
   protected final PApplet mParent;
@@ -168,7 +168,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
   }
 
   @Override
-  public final void updateDb(@Nonnull final ReadDB pDb, @Nonnull final IContainer<S> pContainer) {
+  public final void updateDb(@Nonnull final ReadDB pDb, @Nonnull final Container<S> pContainer) {
     checkNotNull(pDb);
     checkNotNull(pContainer);
     setDb(pDb);
@@ -191,7 +191,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
 
     // Initialize all items to ISNOTFOUND.
     for (final T item : mItems) {
-      ((SunburstItem)item).setXPathState(EXPathState.ISNOTFOUND);
+      ((SunburstItem)item).setXPathState(XPathState.ISNOTFOUND);
     }
 
     if (!pXPathExpression.isEmpty()) {
@@ -352,8 +352,8 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
 
   /** Traverse a tree (single revision). */
   private final class XPathEvaluation implements Runnable {
-    /** sirix {@link INodeReadTrx}. */
-    private transient INodeReadTrx mRTX;
+    /** sirix {@link NodeReadTrx}. */
+    private transient NodeReadTrx mRTX;
 
     /** Key from which to start traversal. */
     private final long mKey;
@@ -387,7 +387,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
       try {
         mRTX = mSession.beginNodeReadTrx(mRtx.getRevisionNumber());
         mRTX.moveTo(mKey);
-        if (mRTX.getKind() == EKind.DOCUMENT_ROOT) {
+        if (mRTX.getKind() == Kind.DOCUMENT_ROOT) {
           mRTX.moveToFirstChild();
         }
       } catch (final SirixException exc) {
@@ -435,10 +435,10 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
   /** XPath sublist evaluation. */
   private final class XPathSublistEvaluation implements Runnable {
 
-    /** sirix {@link INodeReadTrx}. */
-    private transient INodeReadTrx mRTX;
+    /** sirix {@link NodeReadTrx}. */
+    private transient NodeReadTrx mRTX;
 
-    /** {@link List} of a {@link IVisualItem} implementation. */
+    /** {@link List} of a {@link VisualItem} implementation. */
     private final List<T> mItems;
 
     /** {@link List} of node keys which are in the result. */
@@ -469,7 +469,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
       for (final T item : mItems) {
         for (final long key : mKeys) {
           if (item.getKey() == key) {
-            item.setXPathState(EXPathState.ISFOUND);
+            item.setXPathState(XPathState.ISFOUND);
           }
         }
       }
@@ -483,7 +483,7 @@ public abstract class AbsModel<S, T extends IVisualItem> extends AbsObservableCo
    *          determines how to insert an XML fragment
    */
   @Override
-  public void setInsert(@Nonnull final EInsert pInsert) {
+  public void setInsert(@Nonnull final Insert pInsert) {
     mInsert = checkNotNull(pInsert);
   }
 

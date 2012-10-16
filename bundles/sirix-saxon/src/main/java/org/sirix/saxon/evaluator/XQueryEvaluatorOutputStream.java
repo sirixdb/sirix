@@ -42,7 +42,7 @@ import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.Serializer;
 import net.sf.saxon.s9api.XQueryCompiler;
 import net.sf.saxon.s9api.XQueryExecutable;
-import org.sirix.api.ISession;
+import org.sirix.api.Session;
 import org.sirix.saxon.wrapper.DocumentWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,8 +66,8 @@ public final class XQueryEvaluatorOutputStream implements Callable<Void> {
   /** XQuery expression. */
   private final String mExpression;
 
-  /** Sirix {@link ISession}. */
-  private final ISession mSession;
+  /** Sirix {@link Session}. */
+  private final Session mSession;
 
   /** Output Stream. */
   private final OutputStream mOut;
@@ -81,11 +81,11 @@ public final class XQueryEvaluatorOutputStream implements Callable<Void> {
    * @param pExpression
    *          XQuery expression
    * @param pSession
-   *          Sirix {@link ISession}.
+   *          Sirix {@link Session}.
    * @param paramOut
    *          output Stream
    */
-  public XQueryEvaluatorOutputStream(@Nonnull final String pExpression, @Nonnull final ISession pSession,
+  public XQueryEvaluatorOutputStream(@Nonnull final String pExpression, @Nonnull final Session pSession,
     final OutputStream pOut) {
     this(pExpression, pSession, pOut, null);
   }
@@ -96,13 +96,13 @@ public final class XQueryEvaluatorOutputStream implements Callable<Void> {
    * @param pExpression
    *          XQuery expression
    * @param pSession
-   *          Sirix {@link ISession}
+   *          Sirix {@link Session}
    * @param pOut
    *          output Stream
    * @param pSerializer
    *          Serializer, for which one can specify output properties
    */
-  public XQueryEvaluatorOutputStream(@Nonnull final String pExpression, @Nonnull final ISession pSession,
+  public XQueryEvaluatorOutputStream(@Nonnull final String pExpression, @Nonnull final Session pSession,
     @Nonnull final OutputStream pOut, @Nullable final Serializer pSerializer) {
     mExpression = checkNotNull(pExpression);
     mSession = checkNotNull(pSession);

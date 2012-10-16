@@ -40,7 +40,7 @@ import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.XQueryCompiler;
 import net.sf.saxon.s9api.XQueryExecutable;
 import net.sf.saxon.s9api.XdmValue;
-import org.sirix.api.ISession;
+import org.sirix.api.Session;
 import org.sirix.saxon.wrapper.DocumentWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,8 +66,8 @@ public final class XQueryEvaluator implements Callable<XdmValue> {
   /** XQuery expression. */
   private final String mExpression;
 
-  /** Sirix {@link ISession}. */
-  private final ISession mSession;
+  /** Sirix {@link Session}. */
+  private final Session mSession;
 
   /**
    * Constructor.
@@ -77,7 +77,7 @@ public final class XQueryEvaluator implements Callable<XdmValue> {
    * @param paramSession
    *          sirix database.
    */
-  public XQueryEvaluator(@Nonnull final String pExpression, @Nonnull final ISession pSession) {
+  public XQueryEvaluator(@Nonnull final String pExpression, @Nonnull final Session pSession) {
     mExpression = checkNotNull(pExpression);
     mSession = checkNotNull(pSession);
   }

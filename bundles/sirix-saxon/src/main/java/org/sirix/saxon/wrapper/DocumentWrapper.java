@@ -47,13 +47,13 @@ import net.sf.saxon.tree.iter.AxisIterator;
 import net.sf.saxon.tree.util.FastStringBuffer;
 import net.sf.saxon.value.Value;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -77,7 +77,7 @@ public final class DocumentWrapper implements DocumentInfo {
     .getLogger(DocumentWrapper.class));
 
   /** sirix database. */
-  final ISession mSession;
+  final Session mSession;
 
   /** The revision. */
   final int mRevision;
@@ -100,7 +100,7 @@ public final class DocumentWrapper implements DocumentInfo {
    * Wrap a sirix document.
    * 
    * @param pSession
-   *          sirix {@link ISession}
+   *          sirix {@link Session}
    * @param pRevision
    *          the revision to open
    * @param pConfig
@@ -108,7 +108,7 @@ public final class DocumentWrapper implements DocumentInfo {
    * @throws SirixException
    *           if sirix encounters an error
    */
-  public DocumentWrapper(@Nonnull final ISession pSession,
+  public DocumentWrapper(@Nonnull final Session pSession,
     @Nonnegative final int pRevision, @Nonnull final Configuration pConfig)
     throws SirixException {
     mSession = checkNotNull(pSession);
@@ -122,13 +122,13 @@ public final class DocumentWrapper implements DocumentInfo {
    * Wrap a sirix document.
    * 
    * @param pSession
-   *          Sirix {@link ISession}
+   *          Sirix {@link Session}
    * @param pConfig
    *          Saxon {@link Configuration} instance
    * @throws SirixException
    *           if Sirix encounters an error
    */
-  public DocumentWrapper(final ISession pSession, final Configuration pConfig)
+  public DocumentWrapper(final Session pSession, final Configuration pConfig)
     throws SirixException {
     this(pSession, pSession.beginNodeReadTrx().getRevisionNumber(), pConfig);
   }
@@ -151,10 +151,10 @@ public final class DocumentWrapper implements DocumentInfo {
   @Override
   public NodeInfo selectID(final String ID, final boolean getParent) {
     try {
-      final INodeReadTrx rtx = mSession.beginNodeReadTrx();
-      final IAxis axis = new DescendantAxis(rtx, EIncludeSelf.YES);
+      final NodeReadTrx rtx = mSession.beginNodeReadTrx();
+      final Axis axis = new DescendantAxis(rtx, IncludeSelf.YES);
       while (axis.hasNext()) {
-        if (rtx.getKind() == EKind.ELEMENT) {
+        if (rtx.getKind() == Kind.ELEMENT) {
           final int attCount = rtx.getAttributeCount();
 
           if (attCount > 0) {

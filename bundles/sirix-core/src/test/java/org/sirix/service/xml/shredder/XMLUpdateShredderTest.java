@@ -45,9 +45,9 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.ISession;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Database;
+import org.sirix.api.Session;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
@@ -213,10 +213,10 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
   // }
 
   private void test(final String FOLDER) throws Exception {
-    final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE, PATHS.PATH1.getConfig())
       .build());
-    final ISession session =
+    final Session session =
       database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
     final File folder = new File(FOLDER);
     int i = 1;
@@ -253,16 +253,16 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
     // Shredder files.
     for (final File file : list) {
       if (file.getName().endsWith(".xml")) {
-        final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+        final NodeWriteTrx wtx = session.beginNodeWriteTrx();
         if (first) {
           final XMLShredder shredder =
-            new XMLShredder.Builder(wtx, XMLShredder.createFileReader(file), EInsert.ASFIRSTCHILD).commitAfterwards().build();
+            new XMLShredder.Builder(wtx, XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD).commitAfterwards().build();
           shredder.call();
           first = false;
         } else {
           final XMLUpdateShredder shredder =
-            new XMLUpdateShredder(wtx, XMLShredder.createFileReader(file), EInsert.ASFIRSTCHILD,
-              file, EShredderCommit.COMMIT);
+            new XMLUpdateShredder(wtx, XMLShredder.createFileReader(file), Insert.ASFIRSTCHILD,
+              file, ShredderCommit.COMMIT);
           shredder.call();
         }
         assertEquals(i, wtx.getRevisionNumber());

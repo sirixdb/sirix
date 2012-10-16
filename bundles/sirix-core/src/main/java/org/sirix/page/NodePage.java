@@ -43,12 +43,12 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IPageWriteTrx;
+import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INodeBase;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.NodeBase;
 import org.sirix.page.delegates.PageDelegate;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 /**
  * <h1>NodePage</h1>
@@ -57,13 +57,13 @@ import org.sirix.page.interfaces.IPage;
  * A node page stores a set of nodes.
  * </p>
  */
-public class NodePage implements IPage {
+public class NodePage implements Page {
 
 	/** Key of node page. This is the base key of all contained nodes. */
 	private final long mNodePageKey;
 
 	/** Nodes. */
-	private final Map<Long, INodeBase> mNodes;
+	private final Map<Long, NodeBase> mNodes;
 
 	/** {@link PageDelegate} reference. */
 	private final int mRevision;
@@ -102,8 +102,8 @@ public class NodePage implements IPage {
 		mNodes = new HashMap<>(size);
 		for (int offset = 0; offset < size; offset++) {
 			final byte id = pIn.readByte();
-			final EKind enumKind = EKind.getKind(id);
-			final INodeBase node = enumKind.deserialize(pIn);
+			final Kind enumKind = Kind.getKind(id);
+			final NodeBase node = enumKind.deserialize(pIn);
 			mNodes.put(node.getNodeKey(), node);
 		}
 	}
@@ -124,7 +124,7 @@ public class NodePage implements IPage {
 	 *          node key
 	 * @return node with given node key, or {@code null} if not present
 	 */
-	public INodeBase getNode(final @Nonnegative long pKey) {
+	public NodeBase getNode(final @Nonnegative long pKey) {
 		checkArgument(pKey >= 0, "pKey must not be negative!");
 		return mNodes.get(pKey);
 	}
@@ -137,7 +137,7 @@ public class NodePage implements IPage {
 	 * @param pNode
 	 *          node to store at given nodeOffset
 	 */
-	public void setNode(final @Nonnull INodeBase pNode) {
+	public void setNode(final @Nonnull NodeBase pNode) {
 		mNodes.put(pNode.getNodeKey(), checkNotNull(pNode));
 	}
 
@@ -146,10 +146,10 @@ public class NodePage implements IPage {
 		pOut.writeInt(mRevision);
 		pOut.writeLong(mNodePageKey);
 		pOut.writeInt(mNodes.size());
-		for (final INodeBase node : mNodes.values()) {
+		for (final NodeBase node : mNodes.values()) {
 			final byte id = node.getKind().getId();
 			pOut.writeByte(id);
-			EKind.getKind(node.getClass()).serialize(pOut, node);
+			Kind.getKind(node.getClass()).serialize(pOut, node);
 		}
 	}
 
@@ -158,7 +158,7 @@ public class NodePage implements IPage {
 		final ToStringHelper helper = Objects.toStringHelper(this)
 				.add("revision", mRevision).add("pagekey", mNodePageKey)
 				.add("nodes", mNodes.toString());
-		for (final INodeBase node : mNodes.values()) {
+		for (final NodeBase node : mNodes.values()) {
 			helper.add("node", node);
 		}
 		return helper.toString();
@@ -169,7 +169,7 @@ public class NodePage implements IPage {
 	 * 
 	 * @return an entry set
 	 */
-	public final Set<Entry<Long, INodeBase>> entrySet() {
+	public final Set<Entry<Long, NodeBase>> entrySet() {
 		return Collections.unmodifiableSet(mNodes.entrySet());
 	}
 
@@ -199,7 +199,7 @@ public class NodePage implements IPage {
 	}
 
 	@Override
-	public void commit(@Nonnull final IPageWriteTrx pPageWriteTrx)
+	public void commit(@Nonnull final PageWriteTrx pPageWriteTrx)
 			throws SirixException {
 	}
 
@@ -208,7 +208,7 @@ public class NodePage implements IPage {
 	 * 
 	 * @return a collection view of all nodes
 	 */
-	public Collection<INodeBase> values() {
+	public Collection<NodeBase> values() {
 		return Collections.unmodifiableCollection(mNodes.values());
 	}
 
@@ -223,7 +223,7 @@ public class NodePage implements IPage {
 	}
 
 	@Override
-	public IPage setDirty(final boolean pDirty) {
+	public Page setDirty(final boolean pDirty) {
 		mIsDirty = pDirty;
 		return this;
 	}

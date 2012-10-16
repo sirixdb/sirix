@@ -36,9 +36,9 @@ import java.util.NoSuchElementException;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeCursor;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.settings.EFixed;
 
@@ -55,10 +55,10 @@ import org.sirix.settings.EFixed;
  * 
  * @author Johannes Lichtenberger
  */
-public abstract class AbsAxis implements IAxis {
+public abstract class AbsAxis implements Axis {
 
 	/** Iterate over transaction exclusive to this step. */
-	private final INodeCursor mRtx;
+	private final NodeCursor mRtx;
 
 	/** Key of next node. */
 	private long mKey;
@@ -67,7 +67,7 @@ public abstract class AbsAxis implements IAxis {
 	private long mStartKey;
 
 	/** Include self? */
-	private final EIncludeSelf mIncludeSelf;
+	private final IncludeSelf mIncludeSelf;
 
 	/** Current state. */
 	private EState mState = EState.NOT_READY;
@@ -95,9 +95,9 @@ public abstract class AbsAxis implements IAxis {
 	 * @throws NullPointerException
 	 *           if {@code paramRtx} is {@code null}
 	 */
-	public AbsAxis(final @Nonnull INodeCursor pRtx) {
+	public AbsAxis(final @Nonnull NodeCursor pRtx) {
 		mRtx = checkNotNull(pRtx);
-		mIncludeSelf = EIncludeSelf.NO;
+		mIncludeSelf = IncludeSelf.NO;
 		reset(pRtx.getNodeKey());
 	}
 
@@ -109,8 +109,8 @@ public abstract class AbsAxis implements IAxis {
 	 * @param pIncludeSelf
 	 *          determines if self is included
 	 */
-	public AbsAxis(final @Nonnull INodeCursor pRtx,
-			final @Nonnull EIncludeSelf pIncludeSelf) {
+	public AbsAxis(final @Nonnull NodeCursor pRtx,
+			final @Nonnull IncludeSelf pIncludeSelf) {
 		mRtx = checkNotNull(pRtx);
 		mIncludeSelf = checkNotNull(pIncludeSelf);
 		reset(pRtx.getNodeKey());
@@ -270,14 +270,14 @@ public abstract class AbsAxis implements IAxis {
 	}
 
 	/**
-	 * Get current {@link INodeReadTrx}.
+	 * Get current {@link NodeReadTrx}.
 	 * 
-	 * @return the {@link INodeReadTrx} used
+	 * @return the {@link NodeReadTrx} used
 	 */
 	@Override
-	public INodeReadTrx getTrx() {
-		if (mRtx instanceof INodeReadTrx) {
-			return (INodeReadTrx) mRtx;
+	public NodeReadTrx getTrx() {
+		if (mRtx instanceof NodeReadTrx) {
+			return (NodeReadTrx) mRtx;
 		} else {
 			return null;
 		}
@@ -323,7 +323,7 @@ public abstract class AbsAxis implements IAxis {
 	}
 
 	@Override
-	public final EIncludeSelf isSelfIncluded() {
+	public final IncludeSelf isSelfIncluded() {
 		return mIncludeSelf;
 	}
 

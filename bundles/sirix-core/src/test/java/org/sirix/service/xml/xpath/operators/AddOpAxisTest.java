@@ -39,7 +39,7 @@ import org.sirix.TestHelper;
 import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.expr.LiteralExpr;
 import org.sirix.service.xml.xpath.expr.SequenceAxis;

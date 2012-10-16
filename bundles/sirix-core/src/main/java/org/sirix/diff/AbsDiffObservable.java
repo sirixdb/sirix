@@ -34,19 +34,19 @@ import javax.annotation.Nonnull;
 
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.exception.SirixException;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.StructNode;
 
 /**
- * Implements {@link IDiffObservable}, which can be used for all classes, which implement the {@link IDiff}
+ * Implements {@link DiffObservable}, which can be used for all classes, which implement the {@link IDiff}
  * interface.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-abstract class AbsDiffObservable implements IDiffObservable {
+abstract class AbsDiffObservable implements DiffObservable {
 
   /** {@link Set} of observers, which want to be notified of the encountered differences. */
-  private final Set<IDiffObserver> mDiffObservers;
+  private final Set<DiffObserver> mDiffObservers;
 
   /**
    * Default constructor.
@@ -59,25 +59,25 @@ abstract class AbsDiffObservable implements IDiffObservable {
   public final void fireDiff(@Nonnull final EDiff pDiff,
     @Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
     @Nonnull final DiffDepth pDepth) {
-    for (final IDiffObserver observer : mDiffObservers) {
+    for (final DiffObserver observer : mDiffObservers) {
       observer.diffListener(pDiff, pNewNodeKey, pOldNodeKey, pDepth);
     }
   }
 
   @Override
   public final void done() throws SirixException {
-    for (final IDiffObserver observer : mDiffObservers) {
+    for (final DiffObserver observer : mDiffObservers) {
       observer.diffDone();
     }
   }
 
   @Override
-  public final void addObserver(@Nonnull final IDiffObserver pObserver) {
+  public final void addObserver(@Nonnull final DiffObserver pObserver) {
     mDiffObservers.add(pObserver);
   }
 
   @Override
-  public final void removeObserver(@Nonnull final IDiffObserver pObserver) {
+  public final void removeObserver(@Nonnull final DiffObserver pObserver) {
     mDiffObservers.remove(pObserver);
   }
 }

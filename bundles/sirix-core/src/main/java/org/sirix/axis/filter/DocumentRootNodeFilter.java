@@ -27,8 +27,8 @@
 
 package org.sirix.axis.filter;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.Kind;
 
 /**
  * <h1>NodeAxisTest</h1>
@@ -45,13 +45,13 @@ public class DocumentRootNodeFilter extends AbsFilter {
    * @param rtx
    *          Transaction this filter is bound to.
    */
-  public DocumentRootNodeFilter(final INodeReadTrx rtx) {
+  public DocumentRootNodeFilter(final NodeReadTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == EKind.DOCUMENT_ROOT;
+    return getTrx().getKind() == Kind.DOCUMENT_ROOT;
   }
 
 }

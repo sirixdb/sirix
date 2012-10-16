@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.AbsAxis;
@@ -64,7 +64,7 @@ public class ForAxisTest {
 
   @Test
   public void testFor() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(1L);
 

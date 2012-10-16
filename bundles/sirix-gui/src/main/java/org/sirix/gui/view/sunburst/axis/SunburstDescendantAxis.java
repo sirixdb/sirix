@@ -38,12 +38,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import org.slf4j.LoggerFactory;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.axis.EIncludeSelf;
-import org.sirix.gui.view.model.interfaces.ITraverseModel;
-import org.sirix.gui.view.sunburst.EMoved;
-import org.sirix.gui.view.sunburst.EPruning;
+import org.sirix.axis.IncludeSelf;
+import org.sirix.gui.view.model.interfaces.TraverseModel;
+import org.sirix.gui.view.sunburst.Moved;
+import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.Item;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
@@ -74,7 +74,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
   private transient Deque<Integer> mDescendantsStack;
 
   /** Determines movement of transaction. */
-  private transient EMoved mMoved;
+  private transient Moved mMoved;
 
   /** Index to parent node. */
   private transient int mIndexToParent;
@@ -109,14 +109,14 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
   /** The nodeKey of the next node to visit. */
   private transient long mNextKey;
 
-  /** {@link ITraverseModel} which observes axis changes through a callback method. */
-  private transient ITraverseModel mModel;
+  /** {@link TraverseModel} which observes axis changes through a callback method. */
+  private transient TraverseModel mModel;
 
   /** {@link BlockingQueue} of {@link Future}s which hold the number of descendants. */
   private transient BlockingQueue<Future<Integer>> mDescendants;
 
   /** Determines if tree should be pruned or not. */
-  private transient EPruning mPruning;
+  private transient Pruning mPruning;
 
   /**
    * Constructor initializing internal state.
@@ -131,8 +131,8 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
    *          model
    * @param paramPruning
    */
-  public SunburstDescendantAxis(final INodeReadTrx paramRtx, final EIncludeSelf paramIncludeSelf,
-    final ITraverseModel paramTraverseModel, final EPruning paramPruning) {
+  public SunburstDescendantAxis(final NodeReadTrx paramRtx, final IncludeSelf paramIncludeSelf,
+    final TraverseModel paramTraverseModel, final Pruning paramPruning) {
     super(paramRtx, paramIncludeSelf);
     assert paramRtx != null;
     assert paramTraverseModel != null;
@@ -146,7 +146,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
   public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
     mRightSiblingKeyStack = new ArrayDeque<Long>();
-    if (isSelfIncluded() == EIncludeSelf.YES) {
+    if (isSelfIncluded() == IncludeSelf.YES) {
       mNextKey = getTrx().getNodeKey();
     } else {
       mNextKey = getTrx().getFirstChildKey();
@@ -158,7 +158,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     mDescendants = new LinkedBlockingQueue<Future<Integer>>();
     mAngle = 0F;
     mDepth = 0;
-    mMoved = EMoved.STARTRIGHTSIBL;
+    mMoved = Moved.STARTRIGHTSIBL;
     mIndexToParent = -1;
     mExtension = PConstants.TWO_PI;
     mChildExtension = PConstants.TWO_PI;
@@ -184,13 +184,13 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     // Always follow first child if there is one.
     if (getTrx().hasFirstChild()) {
       mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
-      if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
+      if (mDescendantCount == TraverseModel.DESCENDANTS_DONE) {
       	return done();
       } else {
         processMove();
         mChildExtension = mModel.createSunburstItem(mItem, mDepth, mIndex);
 
-        if (mPruning == EPruning.DEPTH && mDepth + 1 >= ITraverseModel.DEPTH_TO_PRUNE) {
+        if (mPruning == Pruning.DEPTH && mDepth + 1 >= TraverseModel.DEPTH_TO_PRUNE) {
           return processPruned();
         } else {
           mNextKey = getTrx().getFirstChildKey();
@@ -202,7 +202,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
           mParentStack.push(mIndex);
           mDescendantsStack.push(mDescendantCount);
           mDepth++;
-          mMoved = EMoved.CHILD;
+          mMoved = Moved.CHILD;
         }
         return mNextKey;
       }
@@ -211,7 +211,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     // Then follow right sibling if there is one.
     if (getTrx().hasRightSibling()) {
       mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
-      if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
+      if (mDescendantCount == TraverseModel.DESCENDANTS_DONE) {
       	return done();
       } else {
         processMove();
@@ -226,7 +226,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     // Then follow right sibling on Deque.
     if (!mRightSiblingKeyStack.isEmpty()) {
       mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
-      if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
+      if (mDescendantCount == TraverseModel.DESCENDANTS_DONE) {
       	return done();
       } else {
         processMove();
@@ -240,7 +240,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
 
     // Then end.
     mDescendantCount = (int)(getTrx().getDescendantCount() + 1);// mDescendants.take().get();
-    if (mDescendantCount == ITraverseModel.DESCENDANTS_DONE) {
+    if (mDescendantCount == TraverseModel.DESCENDANTS_DONE) {
     	return done();
     } else {
       processMove();
@@ -256,7 +256,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
   private void nextRightSibling() {
     mNextKey = getTrx().getRightSiblingKey();
     mAngle += mChildExtension;
-    mMoved = EMoved.STARTRIGHTSIBL;
+    mMoved = Moved.STARTRIGHTSIBL;
   }
 
   /**
@@ -265,7 +265,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
   private void nextFollowing() {
     assert !mRightSiblingKeyStack.isEmpty();
     mNextKey = mRightSiblingKeyStack.pop();
-    mMoved = EMoved.ANCHESTSIBL;
+    mMoved = Moved.ANCHESTSIBL;
     final long currNodeKey = getTrx().getNodeKey();
     boolean first = true;
     while (!getTrx().hasRightSibling()

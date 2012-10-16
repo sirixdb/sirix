@@ -35,12 +35,12 @@ import java.util.Map;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.AbsVisitorSupport;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.access.AbsVisitor;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.immutable.ImmutableElement;
 import org.sirix.node.immutable.ImmutableText;
 
@@ -50,26 +50,26 @@ import org.sirix.node.immutable.ImmutableText;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class LabelFMSEVisitor extends AbsVisitorSupport {
+public final class LabelFMSEVisitor extends AbsVisitor {
 
-	/** {@link INodeReadTrx} implementation. */
-	private final INodeReadTrx mRtx;
+	/** {@link NodeReadTrx} implementation. */
+	private final NodeReadTrx mRtx;
 
 	/** For each node type: list of inner nodes. */
-	private final Map<EKind, List<Long>> mLabels;
+	private final Map<Kind, List<Long>> mLabels;
 
 	/** For each node type: list of leaf nodes. */
-	private final Map<EKind, List<Long>> mLeafLabels;
+	private final Map<Kind, List<Long>> mLeafLabels;
 
 	/**
 	 * Constructor.
 	 * 
 	 * @param pSession
-	 *          {@link ISession} implementation
+	 *          {@link Session} implementation
 	 * @throws SirixException
 	 *           if setting up sirix fails
 	 */
-	public LabelFMSEVisitor(@Nonnull final INodeReadTrx pReadTrx)
+	public LabelFMSEVisitor(@Nonnull final NodeReadTrx pReadTrx)
 			throws SirixException {
 		mRtx = checkNotNull(pReadTrx);
 		mLabels = new HashMap<>();
@@ -108,7 +108,7 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
 	 * Add leaf node label.
 	 */
 	private void addLeafLabel() {
-		final EKind nodeKind = mRtx.getKind();
+		final Kind nodeKind = mRtx.getKind();
 		if (!mLeafLabels.containsKey(nodeKind)) {
 			mLeafLabels.put(nodeKind, new ArrayList<Long>());
 		}
@@ -120,7 +120,7 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
 	 * 
 	 * @return the Labels
 	 */
-	public Map<EKind, List<Long>> getLabels() {
+	public Map<Kind, List<Long>> getLabels() {
 		return mLabels;
 	}
 
@@ -129,7 +129,7 @@ public final class LabelFMSEVisitor extends AbsVisitorSupport {
 	 * 
 	 * @return the leaf labels
 	 */
-	public Map<EKind, List<Long>> getLeafLabels() {
+	public Map<Kind, List<Long>> getLeafLabels() {
 		return mLeafLabels;
 	}
 }

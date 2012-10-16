@@ -30,13 +30,13 @@
  * <p>
  * The access semantics is as follows:
  * <ul>
- * <li>There can only be a single {@link org.sirix.api.IDatabase} instance per Database-Folder</li>
- * <li>There can only be multiple {@link org.sirix.api.ISession} instances per
- * {@link org.sirix.api.IDatabase} linked uniquely to resources representing concrete data-storages.</li>
- * <li>There can only be a single {@link org.sirix.api.INodeWriteTrx} instance per
- * {@link org.sirix.api.ISession}</li>
- * <li>There can be multiple {@link org.sirix.api.INodeReadTrx} instances per
- * {@link org.sirix.api.ISession}.</li>
+ * <li>There can only be a single {@link org.sirix.api.Database} instance per Database-Folder</li>
+ * <li>There can only be multiple {@link org.sirix.api.Session} instances per
+ * {@link org.sirix.api.Database} linked uniquely to resources representing concrete data-storages.</li>
+ * <li>There can only be a single {@link org.sirix.api.NodeWriteTrx} instance per
+ * {@link org.sirix.api.Session}</li>
+ * <li>There can be multiple {@link org.sirix.api.NodeReadTrx} instances per
+ * {@link org.sirix.api.Session}.</li>
  * </ul>
  * </p>
  * <p>

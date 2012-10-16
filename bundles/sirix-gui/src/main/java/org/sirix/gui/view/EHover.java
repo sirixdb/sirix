@@ -27,7 +27,7 @@
 package org.sirix.gui.view;
 
 /**
- * Determines if a {@link IVisualItem} currently is hovered or not.
+ * Determines if a {@link VisualItem} currently is hovered or not.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 

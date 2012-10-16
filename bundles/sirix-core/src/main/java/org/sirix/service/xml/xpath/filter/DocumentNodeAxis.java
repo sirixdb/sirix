@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.filter;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.settings.EFixed;
 
@@ -50,7 +50,7 @@ public class DocumentNodeAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) transaction to iterate with
    */
-  public DocumentNodeAxis(@Nonnull final INodeReadTrx pRtx) {
+  public DocumentNodeAxis(@Nonnull final NodeReadTrx pRtx) {
     super(pRtx);
   }
 

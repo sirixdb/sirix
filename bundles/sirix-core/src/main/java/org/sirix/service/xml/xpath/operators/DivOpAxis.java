@@ -27,10 +27,10 @@
 
 package org.sirix.service.xml.xpath.operators;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
@@ -55,7 +55,7 @@ public class DivOpAxis extends AbsObAxis {
    * @param mOp2
    *          Second value of the operation
    */
-  public DivOpAxis(final INodeReadTrx rtx, final IAxis mOp1, final IAxis mOp2) {
+  public DivOpAxis(final NodeReadTrx rtx, final Axis mOp1, final Axis mOp2) {
 
     super(rtx, mOp1, mOp2);
   }
@@ -64,7 +64,7 @@ public class DivOpAxis extends AbsObAxis {
    * {@inheritDoc}
    */
   @Override
-  public INode operate(final AtomicValue mOperand1, final AtomicValue mOperand2) throws SirixXPathException {
+  public Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2) throws SirixXPathException {
 
     final Type returnType = getReturnType(mOperand1.getTypeKey(), mOperand2.getTypeKey());
     final int typeKey = getTrx().keyForName(returnType.getStringRepr());

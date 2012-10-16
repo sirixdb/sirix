@@ -8,10 +8,10 @@ import javax.annotation.Nullable;
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AttributeNode;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INameNode;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IValNode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.ValNode;
 
 /**
  * Immutable attribute node instance.
@@ -19,7 +19,7 @@ import org.sirix.node.interfaces.IValNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutableAttribute implements IValNode, INameNode {
+public class ImmutableAttribute implements ValNode, NameNode {
 
 	/** Mutable {@link AttributeNode}. */
 	private final AttributeNode mNode;
@@ -56,7 +56,7 @@ public class ImmutableAttribute implements IValNode, INameNode {
 	}
 
 	@Override
-	public boolean isSameItem(final @Nullable INode pOther) {
+	public boolean isSameItem(final @Nullable Node pOther) {
 		return mNode.isSameItem(pOther);
 	}
 
@@ -96,7 +96,7 @@ public class ImmutableAttribute implements IValNode, INameNode {
 	}
 
 	@Override
-	public EKind getKind() {
+	public Kind getKind() {
 		return mNode.getKind();
 	}
 

@@ -52,23 +52,23 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.diff.DiffFactory.EDiffOptimized;
 import org.sirix.diff.DiffTuple;
-import org.sirix.diff.IDiffObserver;
+import org.sirix.diff.DiffObserver;
 import org.sirix.diff.algorithm.fmse.Levenshtein;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.DiffDatabase;
-import org.sirix.gui.view.model.interfaces.IModel;
-import org.sirix.gui.view.model.interfaces.ITraverseModel;
+import org.sirix.gui.view.model.interfaces.Model;
+import org.sirix.gui.view.model.interfaces.TraverseModel;
 import org.sirix.gui.view.smallmultiple.ECompare;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI;
-import org.sirix.gui.view.sunburst.EPruning;
+import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.NodeRelations;
 import org.sirix.gui.view.sunburst.SunburstContainer;
@@ -78,7 +78,7 @@ import org.sirix.gui.view.sunburst.axis.AbsSunburstAxis;
 import org.sirix.gui.view.sunburst.axis.DiffSunburstAxis;
 import org.sirix.gui.view.sunburst.model.Modification;
 import org.sirix.gui.view.sunburst.model.Modifications;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -101,7 +101,7 @@ import com.sleepycat.je.DatabaseException;
  * 
  */
 public final class TraverseCompareTree extends AbsTraverseModel implements
-		Callable<Void>, IDiffObserver, ITraverseModel {
+		Callable<Void>, DiffObserver, TraverseModel {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
@@ -155,8 +155,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	/** Key in old revision from which to start traversal. */
 	private final long mOldStartKey;
 
-	/** {@link IModel} implementation. */
-	private final IModel<?, ?> mModel;
+	/** {@link Model} implementation. */
+	private final Model<?, ?> mModel;
 
 	/** {@link List} of {@link SunburstItem}s. */
 	private final List<SunburstItem> mItems;
@@ -176,8 +176,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	/** Parent processing frame. */
 	private final PApplet mParent;
 
-	/** {@link INodeReadTrx} instance. */
-	private INodeReadTrx mOldRtx;
+	/** {@link NodeReadTrx} instance. */
+	private NodeReadTrx mOldRtx;
 
 	/** Weighting of modifications. */
 	private float mModWeight;
@@ -185,8 +185,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	/** Maximum depth in new revision. */
 	private int mNewDepthMax;
 
-	/** {@link INodeReadTrx} on the revision to compare. */
-	private INodeReadTrx mNewRtx;
+	/** {@link NodeReadTrx} on the revision to compare. */
+	private NodeReadTrx mNewRtx;
 
 	/** {@link Map} of {@link DiffTuple}s. */
 	private Map<Integer, DiffTuple> mDiffs;
@@ -198,7 +198,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	private int mDepth;
 
 	/** Determines if tree should be pruned or not. */
-	private EPruning mPrune;
+	private Pruning mPrune;
 
 	/** Determines if current item is pruned or not. */
 	private boolean mIsPruned;
@@ -234,7 +234,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	private final Map<Long, Integer> mNewKeys;
 
 	/** The observer. */
-	private final IDiffObserver mObserver;
+	private final DiffObserver mObserver;
 
 	/** Determines if UPDATES have been fired. */
 	private boolean mHasUpdatedNodes;
@@ -297,13 +297,13 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 		mParent = ((AbsModel<?, ?>) mModel).getParent();
 		mDepth = pContainer.getDepth();
 		mOldRtx.moveTo(pContainer.getNewStartKey());
-		if (mOldRtx.getKind() == EKind.DOCUMENT_ROOT) {
+		if (mOldRtx.getKind() == Kind.DOCUMENT_ROOT) {
 			mOldRtx.moveToFirstChild();
 		}
 		mOldStartKey = pContainer.getNewStartKey() == 0 ? mOldRtx.getNodeKey()
 				: pContainer.getNewStartKey();
 		mNewRtx.moveTo(pContainer.getNewStartKey());
-		if (mNewRtx.getKind() == EKind.DOCUMENT_ROOT) {
+		if (mNewRtx.getKind() == Kind.DOCUMENT_ROOT) {
 			mNewRtx.moveToFirstChild();
 		}
 		mNewStartKey = pContainer.getNewStartKey() == 0 ? mNewRtx.getNodeKey()
@@ -313,7 +313,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 		mCompare = pContainer.getCompare();
 		mDiffQueue = new LinkedBlockingQueue<>();
 		mModificationQueue = new LinkedBlockingQueue<>();
-		mHasUpdatedNodes = (mPrune == EPruning.ITEMSIZE ? true : false);
+		mHasUpdatedNodes = (mPrune == Pruning.ITEMSIZE ? true : false);
 		mLastNodeUpdated = false;
 		mMoveDetection = pContainer.getMoveDetection();
 	}
@@ -333,8 +333,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 				@Override
 				public Void call() throws SirixException {
 					EDiffOptimized optimized = EDiffOptimized.NO;
-					if (mPrune == EPruning.DIFF
-							|| mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES) {
+					if (mPrune == Pruning.DIFF
+							|| mPrune == Pruning.DIFF_WITHOUT_SAMEHASHES) {
 						optimized = EDiffOptimized.HASHED;
 					}
 					DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(mDb
@@ -390,7 +390,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 					.getMap() : mDiffs;
 			firePropertyChange("diffs", null, diffs);
 
-			for (mAxis = new DiffSunburstAxis(EIncludeSelf.YES, this, mNewRtx,
+			for (mAxis = new DiffSunburstAxis(IncludeSelf.YES, this, mNewRtx,
 					mOldRtx, diffs, mDepthMax, mDepth, mPrune); mAxis.hasNext(); i++) {
 				mAxis.next();
 				if (mCompare == ECompare.SINGLEINCREMENTAL) {
@@ -465,8 +465,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			@Nonnull final DiffDepth pDepth) {
 		LOGWRAPPER.debug("kind of diff: " + pDiff);
 
-		if (mPrune != EPruning.DIFF_WITHOUT_SAMEHASHES
-				|| (mPrune == EPruning.DIFF_WITHOUT_SAMEHASHES && pDiff != EDiff.SAMEHASH)
+		if (mPrune != Pruning.DIFF_WITHOUT_SAMEHASHES
+				|| (mPrune == Pruning.DIFF_WITHOUT_SAMEHASHES && pDiff != EDiff.SAMEHASH)
 				|| mEntries == 0) {
 			final DiffTuple diffCont = new DiffTuple(pDiff, pNewNodeKey, pOldNodeKey,
 					pDepth);
@@ -669,19 +669,19 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 		LOGWRAPPER.debug("next Depth: " + nextDepth);
 		LOGWRAPPER.debug("angle: " + angle);
 
-		if (mPrune == EPruning.ITEMSIZE
-				&& extension < ITraverseModel.ANGLE_TO_PRUNE
+		if (mPrune == Pruning.ITEMSIZE
+				&& extension < TraverseModel.ANGLE_TO_PRUNE
 				&& modificationCount <= descendantCount) {
 			nodePruned();
 		} else {
 			// Add a sunburst item.
-			if (mPrune == EPruning.DIFF && diffCont.getDiff() == EDiff.SAMEHASH) {
+			if (mPrune == Pruning.DIFF && diffCont.getDiff() == EDiff.SAMEHASH) {
 				mIsPruned = true;
 			} else {
 				mIsPruned = false;
 			}
 
-			final INodeReadTrx rtx = (diffCont.getDiff() == EDiff.DELETED
+			final NodeReadTrx rtx = (diffCont.getDiff() == EDiff.DELETED
 					|| diffCont.getDiff() == EDiff.MOVEDFROM || diffCont.getDiff() == EDiff.REPLACEDOLD) ? mOldRtx
 					: mNewRtx;
 
@@ -692,7 +692,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			String text = "";
 			NodeRelations relations = null;
 			final EDiff currDiff = diffCont.getDiff();
-			if (rtx.getKind() == EKind.TEXT) {
+			if (rtx.getKind() == Kind.TEXT) {
 				if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM
 						|| currDiff == EDiff.REPLACEDOLD) {
 					text = mOldRtx.getValue();
@@ -724,7 +724,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 				}
 			} else {
 				if (mMaxDescendantCount == 0) {
-					if (mPrune == EPruning.NO) {
+					if (mPrune == Pruning.NO) {
 						try {
 							mMaxDescendantCount = mMaxDescendantCountFuture.get()
 									.getDescendants();
@@ -747,7 +747,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 
 			if (modificationCount > descendantCount) {
 				final int diffCounts = (modificationCount - descendantCount)
-						/ ITraverseModel.FACTOR;
+						/ TraverseModel.FACTOR;
 				LOGWRAPPER.debug("modCount: " + diffCounts);
 				builder.setModifications(diffCounts);
 			}
@@ -819,7 +819,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			@Nonnull final SunburstItem.Builder pBuilder) {
 		assert pBuilder != null;
 		if (pDiff == EDiff.UPDATED) {
-			if (mOldRtx.getKind() == EKind.TEXT) {
+			if (mOldRtx.getKind() == Kind.TEXT) {
 				pBuilder.setOldText(mOldRtx.getValue());
 			} else {
 				pBuilder.setOldQName(mOldRtx.getName());
@@ -833,7 +833,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	}
 
 	@Override
-	public void descendants(@Nonnull final Optional<INodeReadTrx> pRtx)
+	public void descendants(@Nonnull final Optional<NodeReadTrx> pRtx)
 			throws InterruptedException, ExecutionException {
 		try {
 			final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -865,7 +865,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			boolean first = true;
 			if (diffs.size() == 1) {
 				final Future<Modification> modifications = SAME_THREAD_EXECUTOR
-						.submit(Callables.returning(new Modification(ITraverseModel.FACTOR
+						.submit(Callables.returning(new Modification(TraverseModel.FACTOR
 								* mModifications, diffs.size(), subtract)));
 				mMaxDescendantCountFuture = modifications;
 				mModificationQueue.put(modifications);
@@ -880,7 +880,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 					if (first) {
 						first = false;
 						modifications = SAME_THREAD_EXECUTOR.submit(Callables
-								.returning(new Modification(ITraverseModel.FACTOR
+								.returning(new Modification(TraverseModel.FACTOR
 										* mModifications, diffs.size(), subtract)));
 						mMaxDescendantCountFuture = modifications;
 					} else {

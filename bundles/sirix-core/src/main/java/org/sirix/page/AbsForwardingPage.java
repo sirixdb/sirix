@@ -33,29 +33,29 @@ import com.google.common.io.ByteArrayDataOutput;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IPageWriteTrx;
+import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 /**
- * Forwarding the implementation of all methods in the {@link IPage} interface
+ * Forwarding the implementation of all methods in the {@link Page} interface
  * to a delegate.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public abstract class AbsForwardingPage extends ForwardingObject implements
-		IPage {
+		Page {
 
 	/** Constructor for use by subclasses. */
 	protected AbsForwardingPage() {
 	}
 
 	@Override
-	protected abstract IPage delegate();
+	protected abstract Page delegate();
 
 	@Override
-	public void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
+	public void commit(final @Nonnull PageWriteTrx pPageWriteTrx)
 			throws SirixException {
 		delegate().commit(checkNotNull(pPageWriteTrx));
 	}

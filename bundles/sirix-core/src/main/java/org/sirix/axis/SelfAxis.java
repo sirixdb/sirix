@@ -29,7 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.settings.EFixed;
 
 /**
@@ -50,7 +50,7 @@ public final class SelfAxis extends AbsAxis {
 	 * @param pRtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public SelfAxis(final @Nonnull INodeReadTrx pRtx) {
+	public SelfAxis(final @Nonnull NodeReadTrx pRtx) {
 		super(pRtx);
 	}
 

@@ -29,8 +29,8 @@ package org.sirix.service.xml.xpath.functions;
 
 import java.util.List;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.utils.TypedValue;
 
@@ -65,7 +65,7 @@ public class FNNot extends AbsFunction {
    * @throws SirixXPathException
    *           if function check fails
    */
-  public FNNot(final INodeReadTrx rtx, final List<IAxis> args, final int min, final int max,
+  public FNNot(final NodeReadTrx rtx, final List<Axis> args, final int min, final int max,
     final int returnType) throws SirixXPathException {
 
     super(rtx, args, min, max, returnType);
@@ -78,7 +78,7 @@ public class FNNot extends AbsFunction {
    */
   @Override
   protected byte[] computeResult() throws SirixXPathException {
-    final IAxis axis = getArgs().get(0);
+    final Axis axis = getArgs().get(0);
     final boolean value = !Function.ebv(axis);
 
     return TypedValue.getBytes(Boolean.toString(value));

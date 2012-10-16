@@ -7,14 +7,14 @@ import javax.xml.stream.XMLEventReader;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.ISession;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.api.Database;
+import org.sirix.api.Session;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 public final class BookShredding {
@@ -44,18 +44,18 @@ public final class BookShredding {
 	private static void shredder(final File pBooks) throws Exception {
 		final DatabaseConfiguration config = new DatabaseConfiguration(
 				TestHelper.PATHS.PATH1.getFile());
-		Database.truncateDatabase(config);
-		Database.createDatabase(config);
-		final IDatabase database = Database.openDatabase(config.getFile());
+		DatabaseImpl.truncateDatabase(config);
+		DatabaseImpl.createDatabase(config);
+		final Database database = DatabaseImpl.openDatabase(config.getFile());
 		database.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-		final ISession session = database
+		final Session session = database
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
-		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 		final XMLEventReader reader = XMLShredder.createFileReader(pBooks);
 		final XMLShredder shredder = new XMLShredder.Builder(wtx, reader,
-				EInsert.ASFIRSTCHILD).commitAfterwards().build();
+				Insert.ASFIRSTCHILD).commitAfterwards().build();
 		shredder.call();
 		wtx.close();
 		session.close();

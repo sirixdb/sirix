@@ -37,8 +37,8 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.diff.DiffFactory.EDiff;
-import org.sirix.gui.view.model.interfaces.IContainer;
-import org.sirix.gui.view.model.interfaces.IModel;
+import org.sirix.gui.view.model.interfaces.Container;
+import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.smallmultiple.ECompare;
 import org.sirix.gui.view.sunburst.SunburstItem;
 
@@ -48,7 +48,7 @@ import org.sirix.gui.view.sunburst.SunburstItem;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SunburstContainer implements IContainer<SunburstContainer> {
+public final class SunburstContainer implements Container<SunburstContainer> {
 
 	/** Index of currently clicked {@link SunburstItem}. */
 	private transient int mHitTestIndex;
@@ -72,7 +72,7 @@ public final class SunburstContainer implements IContainer<SunburstContainer> {
 	private transient long mNewStartKey;
 
 	/** Determines if pruning should be enabled or not. */
-	private transient EPruning mPruning = EPruning.NO;
+	private transient Pruning mPruning = Pruning.NO;
 
 	/** GUI which extends {@link AbsSunburstGUI}. */
 	private transient AbsSunburstGUI mGUI;
@@ -86,8 +86,8 @@ public final class SunburstContainer implements IContainer<SunburstContainer> {
 	/** Determines how to compare trees. */
 	private transient ECompare mCompare = ECompare.SINGLEINCREMENTAL;
 
-	/** {@link IModel} implementation. */
-	private final IModel<SunburstContainer, SunburstItem> mModel;
+	/** {@link Model} implementation. */
+	private final Model<SunburstContainer, SunburstItem> mModel;
 
 	/** {@link EDiff} of root node of subtree to compare. */
 	private transient EDiff mDiff = EDiff.SAME;
@@ -104,10 +104,10 @@ public final class SunburstContainer implements IContainer<SunburstContainer> {
 	 * @param paramGUI
 	 *          GUI which extends {@link AbsSunburstGUI}
 	 * @param paramModel
-	 *          {@link IModel} implementation
+	 *          {@link Model} implementation
 	 */
 	public SunburstContainer(final AbsSunburstGUI paramGUI,
-			final IModel<SunburstContainer, SunburstItem> paramModel) {
+			final Model<SunburstContainer, SunburstItem> paramModel) {
 		mGUI = checkNotNull(paramGUI);
 		mModel = checkNotNull(paramModel);
 	}
@@ -281,7 +281,7 @@ public final class SunburstContainer implements IContainer<SunburstContainer> {
 	}
 
 	@Override
-	public SunburstContainer setPruning(@Nonnull final EPruning pPruning) {
+	public SunburstContainer setPruning(@Nonnull final Pruning pPruning) {
 		mPruning = checkNotNull(pPruning);
 		return this;
 	}
@@ -292,7 +292,7 @@ public final class SunburstContainer implements IContainer<SunburstContainer> {
 	 * @return pruning method
 	 */
 	public @Nonnull
-	EPruning getPruning() {
+	Pruning getPruning() {
 		return mPruning;
 	}
 
@@ -412,9 +412,9 @@ public final class SunburstContainer implements IContainer<SunburstContainer> {
 	/**
 	 * Get model.
 	 * 
-	 * @return {@link IModel} implementation
+	 * @return {@link Model} implementation
 	 */
-	public IModel<SunburstContainer, SunburstItem> getModel() {
+	public Model<SunburstContainer, SunburstItem> getModel() {
 		return mModel;
 	}
 

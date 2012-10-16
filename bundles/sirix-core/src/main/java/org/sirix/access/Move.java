@@ -4,10 +4,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeCursor;
+import org.sirix.api.NodeCursor;
 
 /**
- * Determines if the {@link INodeCursor} moved to a node or not. Based on the
+ * Determines if the {@link NodeCursor} moved to a node or not. Based on the
  * idea of providing a wrapper just like in Google Guava's {@link Optional}
  * class.
  * 
@@ -16,19 +16,19 @@ import org.sirix.api.INodeCursor;
  * @param <T>
  *          type parameter, the cursor
  */
-public abstract class Move<T extends INodeCursor> {
+public abstract class Move<T extends NodeCursor> {
 	/**
 	 * Returns a {@link Moved} instance with no contained reference.
 	 */
 	@SuppressWarnings("unchecked")
-	public static <T extends INodeCursor> Move<T> notMoved() {
+	public static <T extends NodeCursor> Move<T> notMoved() {
 		return (Move<T>) NotMoved.INSTANCE;
 	}
 
 	/**
 	 * Returns a {@code Moved} instance containing the given non-null reference.
 	 */
-	public static <T extends INodeCursor> Moved<T> moved(final @Nonnull T pMoved) {
+	public static <T extends NodeCursor> Moved<T> moved(final @Nonnull T pMoved) {
 		return new Moved<T>(checkNotNull(pMoved));
 	}
 

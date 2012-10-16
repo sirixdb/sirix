@@ -29,8 +29,8 @@ package org.sirix.service.xml.xpath;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.parser.XPathParser;
 import org.sirix.settings.EFixed;
@@ -87,7 +87,7 @@ public final class XPathAxis extends AbsAxis {
 	public static final boolean XPATH_10_COMP = true;
 
 	/** Axis holding the consecutive query execution plans of the query. */
-	private IAxis mPipeline;
+	private Axis mPipeline;
 
 	/**
 	 * <p>
@@ -110,7 +110,7 @@ public final class XPathAxis extends AbsAxis {
 	 *           throw a sirix xpath exception.
 	 */
 	@Deprecated
-	public XPathAxis(final INodeReadTrx pRtx, final String pQuery)
+	public XPathAxis(final NodeReadTrx pRtx, final String pQuery)
 			throws SirixXPathException {
 		super(pRtx);
 

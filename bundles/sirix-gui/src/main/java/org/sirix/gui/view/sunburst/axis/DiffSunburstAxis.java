@@ -41,21 +41,21 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.slf4j.LoggerFactory;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.diff.DiffTuple;
 import org.sirix.exception.SirixException;
-import org.sirix.gui.view.model.interfaces.IModel;
-import org.sirix.gui.view.model.interfaces.ITraverseModel;
-import org.sirix.gui.view.sunburst.EMoved;
-import org.sirix.gui.view.sunburst.EPruning;
+import org.sirix.gui.view.model.interfaces.Model;
+import org.sirix.gui.view.model.interfaces.TraverseModel;
+import org.sirix.gui.view.sunburst.Moved;
+import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.model.Modification;
 import org.sirix.gui.view.sunburst.model.Modifications;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.utils.LogWrapper;
 import processing.core.PConstants;
 
@@ -87,7 +87,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
   private transient Deque<Integer> mDiffStack;
 
   /** Determines movement of transaction. */
-  private transient EMoved mMoved;
+  private transient Moved mMoved;
 
   /** Index to parent node. */
   private transient int mIndexToParent;
@@ -110,8 +110,8 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
   /** Current item. */
   private transient Item mItem;
 
-  /** Model which implements the method createSunburstItem(...) defined by {@link IModel}. */
-  private final ITraverseModel mModel;
+  /** Model which implements the method createSunburstItem(...) defined by {@link Model}. */
+  private final TraverseModel mModel;
 
   /** {@link Map} of {@link DiffTuple}s. */
   private final Map<Integer, DiffTuple> mDiffs;
@@ -128,11 +128,11 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
   /** Parent descendant count. */
   private transient int mParentDescendantCount;
 
-  /** {@link INodeReadTrx} on new revision. */
-  private transient INodeReadTrx mNewRtx;
+  /** {@link NodeReadTrx} on new revision. */
+  private transient NodeReadTrx mNewRtx;
 
-  /** {@link INodeReadTrx} on old revision. */
-  private transient INodeReadTrx mOldRtx;
+  /** {@link NodeReadTrx} on old revision. */
+  private transient NodeReadTrx mOldRtx;
 
   /** Maximum depth in old revision. */
   private transient int mMaxDepth;
@@ -153,7 +153,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
   private final BlockingQueue<Future<Modification>> mModificationsQueue;
 
   /** Determines if pruning is enabled or disabled. */
-  private final EPruning mPrune;
+  private final Pruning mPrune;
   
   /** Size of data. */
   private final int mSize;
@@ -173,11 +173,11 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
    * @param pIncludeSelf
    *          determines if self is included
    * @param pCallableModel
-   *          model which implements {@link ITraverseModel} interface and "observes" axis changes
+   *          model which implements {@link TraverseModel} interface and "observes" axis changes
    * @param pNewRtx
-   *          {@link INodeReadTrx} on new revision
+   *          {@link NodeReadTrx} on new revision
    * @param pOldRtx
-   *          {@link INodeReadTrx} on old revision
+   *          {@link NodeReadTrx} on old revision
    * @param pDiffs
    *          {@link List} of {@link EDiff}s
    * @param pMaxDepth
@@ -185,9 +185,9 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
    * @param pInitDepth
    *          initial depth
    */
-  public DiffSunburstAxis(final EIncludeSelf pIncludeSelf, final ITraverseModel pCallableModel,
-    final INodeReadTrx pNewRtx, final INodeReadTrx pOldRtx, final Map<Integer, DiffTuple> pDiffs,
-    final int pMaxDepth, final int pInitDepth, final EPruning pPrune) {
+  public DiffSunburstAxis(final IncludeSelf pIncludeSelf, final TraverseModel pCallableModel,
+    final NodeReadTrx pNewRtx, final NodeReadTrx pOldRtx, final Map<Integer, DiffTuple> pDiffs,
+    final int pMaxDepth, final int pInitDepth, final Pruning pPrune) {
     super(pNewRtx, pIncludeSelf);
     mModel = pCallableModel;
     mDiffs = pDiffs;
@@ -196,9 +196,9 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
     mOldRtx = pOldRtx;
     mModificationsQueue = mModel.getModificationQueue();
     mPrune = pPrune;
-    if (mPrune != EPruning.ITEMSIZE) {
+    if (mPrune != Pruning.ITEMSIZE) {
       try {
-        mModel.descendants(Optional.<INodeReadTrx> absent());
+        mModel.descendants(Optional.<NodeReadTrx> absent());
       } catch (final InterruptedException | ExecutionException e) {
         LOGWRAPPER.error(e.getMessage(), e);
       }
@@ -224,7 +224,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
     mDepth = 0;
     mDescendantCount = 0;
     mParentDescendantCount = 0;
-    mMoved = EMoved.STARTRIGHTSIBL;
+    mMoved = Moved.STARTRIGHTSIBL;
     mIndexToParent = -1;
     mParExtension = PConstants.TWO_PI;
     mExtension = PConstants.TWO_PI;
@@ -333,13 +333,13 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
 
         if (depth == nextDepth) {
           mAngle += mExtension;
-          mMoved = EMoved.STARTRIGHTSIBL;
+          mMoved = Moved.STARTRIGHTSIBL;
 
           determineIfHasNext();
           return true;
         } else {
           processStacks(depth, nextDepth);
-          mMoved = EMoved.ANCHESTSIBL;
+          mMoved = Moved.ANCHESTSIBL;
           determineIfHasNext();
           return true;
         }
@@ -352,7 +352,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
       mDescendantsStack.push(mDescendantCount);
 
       mDepth++;
-      mMoved = EMoved.CHILD;
+      mMoved = Moved.CHILD;
     }
 
     determineIfHasNext();
@@ -370,7 +370,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
     processLastItem(pNextDepth);
 
     mAngle += mExtension;
-    mMoved = EMoved.STARTRIGHTSIBL;
+    mMoved = Moved.STARTRIGHTSIBL;
 
     determineIfHasNext();
     return true;
@@ -391,7 +391,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
 
     processLastItem(pNextDepth);
     processStacks(pDepth, pNextDepth);
-    mMoved = EMoved.ANCHESTSIBL;
+    mMoved = Moved.ANCHESTSIBL;
     determineIfHasNext();
     return true;
   }
@@ -517,7 +517,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
   private Optional<Modification> getModification() {
     Modification modification = null;
     try {
-      if (mPrune == EPruning.ITEMSIZE) {
+      if (mPrune == Pruning.ITEMSIZE) {
         modification = Modifications.getInstance(mIndex + 1 + mPrunedNodes, mDiffs).countDiffs();
       } else {
         modification = mModificationsQueue.take().get();

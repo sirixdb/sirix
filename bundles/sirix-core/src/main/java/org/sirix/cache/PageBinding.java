@@ -37,15 +37,15 @@ import com.sleepycat.bind.tuple.TupleOutput;
 import javax.annotation.Nullable;
 
 import org.sirix.page.PagePersistenter;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 /**
  * Binding for {@link PageContainer} reference.
  */
-public class PageBinding extends TupleBinding<IPage> {
+public class PageBinding extends TupleBinding<Page> {
 
   @Override
-  public IPage entryToObject(final @Nullable TupleInput pInput) {
+  public Page entryToObject(final @Nullable TupleInput pInput) {
     if (pInput == null) {
       return null;
     }
@@ -55,7 +55,7 @@ public class PageBinding extends TupleBinding<IPage> {
   }
 
   @Override
-  public void objectToEntry(final @Nullable IPage pPage,
+  public void objectToEntry(final @Nullable Page pPage,
     final @Nullable TupleOutput pOutput) {
     if (pPage != null && pOutput != null) {
       final ByteArrayDataOutput target = ByteStreams.newDataOutput();

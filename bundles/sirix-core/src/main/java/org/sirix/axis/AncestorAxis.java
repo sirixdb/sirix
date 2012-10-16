@@ -30,8 +30,8 @@ package org.sirix.axis;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeCursor;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeCursor;
+import org.sirix.node.Kind;
 import org.sirix.settings.EFixed;
 
 /**
@@ -55,7 +55,7 @@ public final class AncestorAxis extends AbsAxis {
 	 * @param paramRtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public AncestorAxis(final @Nonnull INodeCursor pRtx) {
+	public AncestorAxis(final @Nonnull NodeCursor pRtx) {
 		super(pRtx);
 	}
 
@@ -67,8 +67,8 @@ public final class AncestorAxis extends AbsAxis {
 	 * @param pIncludeSelf
 	 *          Is self included?
 	 */
-	public AncestorAxis(final @Nonnull INodeCursor pRtx,
-			final @Nonnull EIncludeSelf pIncludeSelf) {
+	public AncestorAxis(final @Nonnull NodeCursor pRtx,
+			final @Nonnull IncludeSelf pIncludeSelf) {
 		super(pRtx, pIncludeSelf);
 	}
 
@@ -81,12 +81,12 @@ public final class AncestorAxis extends AbsAxis {
 	@Override
 	protected long nextKey() {
 		// Self
-		if (mFirst && isSelfIncluded() == EIncludeSelf.YES) {
+		if (mFirst && isSelfIncluded() == IncludeSelf.YES) {
 			mFirst = false;
 			return getTrx().getNodeKey();
 		}
 
-		if (getTrx().getKind() != EKind.DOCUMENT_ROOT
+		if (getTrx().getKind() != Kind.DOCUMENT_ROOT
 				&& getTrx().hasParent()
 				&& getTrx().getParentKey() != EFixed.DOCUMENT_NODE_KEY
 						.getStandardProperty()) {

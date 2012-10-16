@@ -45,15 +45,15 @@ import javax.ws.rs.core.StreamingOutput;
 
 import org.jaxrx.core.JaxRxException;
 import org.jaxrx.core.QueryParameter;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
-import org.sirix.api.IAxis;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
+import org.sirix.api.Axis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.util.RESTResponseHelper;
 import org.sirix.service.jaxrx.util.RESTXMLShredder;
@@ -61,7 +61,7 @@ import org.sirix.service.jaxrx.util.RestXPathProcessor;
 import org.sirix.service.jaxrx.util.WorkerHelper;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.settings.EFixed;
@@ -283,7 +283,7 @@ public class DatabaseRepresentation {
 			throws WebApplicationException {
 		synchronized (resourceName) {
 			try {
-				final IDatabase database = Database.openDatabase(mStoragePath);
+				final Database database = DatabaseImpl.openDatabase(mStoragePath);
 				database.truncateResource(resourceName);
 			} catch (final SirixException exc) {
 				throw new JaxRxException(500, "Deletion could not be performed");
@@ -307,16 +307,16 @@ public class DatabaseRepresentation {
 	public final boolean shred(final InputStream xmlInput, final String resource)
 			throws SirixException {
 		boolean allOk = false;
-		INodeWriteTrx wtx = null;
-		IDatabase database = null;
-		ISession session = null;
+		NodeWriteTrx wtx = null;
+		Database database = null;
+		Session session = null;
 		boolean abort = false;
 		try {
 
 			final DatabaseConfiguration dbConf = new DatabaseConfiguration(
 					mStoragePath);
-			Database.createDatabase(dbConf);
-			database = Database.openDatabase(dbConf.getFile());
+			DatabaseImpl.createDatabase(dbConf);
+			database = DatabaseImpl.openDatabase(dbConf.getFile());
 			// Shredding the database to the file as XML
 			final ResourceConfiguration resConf = new ResourceConfiguration.Builder(
 					resource, dbConf).setRevisionsToRestore(1).build();
@@ -325,7 +325,7 @@ public class DatabaseRepresentation {
 						.getSession(new SessionConfiguration.Builder(resource).build());
 				wtx = session.beginNodeWriteTrx();
 				final XMLShredder shredder = new XMLShredder.Builder(wtx,
-						RESTXMLShredder.createReader(xmlInput), EInsert.ASFIRSTCHILD).commitAfterwards().build();
+						RESTXMLShredder.createReader(xmlInput), Insert.ASFIRSTCHILD).commitAfterwards().build();
 				shredder.call();
 				allOk = true;
 			}
@@ -394,9 +394,9 @@ public class DatabaseRepresentation {
 			SirixException {
 		long lastRevision;
 		if (WorkerHelper.checkExistingResource(mStoragePath, resourceName)) {
-			IDatabase database = Database.openDatabase(mStoragePath);
-			INodeReadTrx rtx = null;
-			ISession session = null;
+			Database database = DatabaseImpl.openDatabase(mStoragePath);
+			NodeReadTrx rtx = null;
+			Session session = null;
 			try {
 				session = database.getSession(new SessionConfiguration.Builder(
 						resourceName).build());
@@ -452,10 +452,10 @@ public class DatabaseRepresentation {
 			long maxRestidRev2 = 0;
 
 			// Connection to sirix, creating a session
-			IDatabase database = null;
-			IAxis axis = null;
-			INodeReadTrx rtx = null;
-			ISession session = null;
+			Database database = null;
+			Axis axis = null;
+			NodeReadTrx rtx = null;
+			Session session = null;
 			// List for all restIds of modifications
 			final List<Long> modificRestids = new LinkedList<Long>();
 
@@ -463,7 +463,7 @@ public class DatabaseRepresentation {
 			final List<Long> restIdsRev1 = new LinkedList<Long>();
 
 			try {
-				database = Database.openDatabase(mStoragePath);
+				database = DatabaseImpl.openDatabase(mStoragePath);
 				session = database.getSession(new SessionConfiguration.Builder(
 						resourceName).build());
 
@@ -593,11 +593,11 @@ public class DatabaseRepresentation {
 			final OutputStream output, final boolean nodeid) throws JaxRxException,
 			SirixException {
 		// Connection to sirix, creating a session
-		IDatabase database = null;
-		ISession session = null;
+		Database database = null;
+		Session session = null;
 		// INodeReadTrx rtx = null;
 		try {
-			database = Database.openDatabase(mStoragePath);
+			database = DatabaseImpl.openDatabase(mStoragePath);
 			session = database.getSession(new SessionConfiguration.Builder(resource)
 					.build());
 			// and creating a transaction
@@ -636,12 +636,12 @@ public class DatabaseRepresentation {
 	 */
 	public void revertToRevision(final String resourceName,
 			final int backToRevision) throws JaxRxException, SirixException {
-		IDatabase database = null;
-		ISession session = null;
-		INodeWriteTrx wtx = null;
+		Database database = null;
+		Session session = null;
+		NodeWriteTrx wtx = null;
 		boolean abort = false;
 		try {
-			database = Database.openDatabase(mStoragePath);
+			database = DatabaseImpl.openDatabase(mStoragePath);
 			session = database.getSession(new SessionConfiguration.Builder(
 					resourceName).build());
 			wtx = session.beginNodeWriteTrx();

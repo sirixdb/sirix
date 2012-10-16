@@ -13,7 +13,7 @@ import org.xerial.snappy.Snappy;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class SnappyCompressor implements IByteHandler {
+public class SnappyCompressor implements ByteHandler {
 
   @Override
   public byte[] serialize(final @Nonnull byte[] pToSerialize)
@@ -40,7 +40,7 @@ public class SnappyCompressor implements IByteHandler {
   }
 
   @Override
-  public IByteHandler getInstance() {
+  public ByteHandler getInstance() {
     return new SnappyCompressor();
   }
 }

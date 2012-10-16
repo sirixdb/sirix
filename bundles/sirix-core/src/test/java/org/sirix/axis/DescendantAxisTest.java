@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.EFixed;
@@ -56,7 +56,7 @@ public class DescendantAxisTest {
 
   @Test
   public void testIterate() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] {
@@ -79,24 +79,24 @@ public class DescendantAxisTest {
 
   @Test
   public void testIterateIncludingSelf() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
     rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, EIncludeSelf.YES), new long[] {
+    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES), new long[] {
       EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
     });
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, EIncludeSelf.YES), new long[] {
+    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES), new long[] {
       1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
     });
 
     rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, EIncludeSelf.YES), new long[] {
+    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES), new long[] {
       9L, 11L, 12L
     });
 
     rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, EIncludeSelf.YES), new long[] {
+    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES), new long[] {
       13L
     });
 
@@ -104,7 +104,7 @@ public class DescendantAxisTest {
 
   @Test
   public void testIterateVisitor() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).build(), new long[] {
@@ -127,7 +127,7 @@ public class DescendantAxisTest {
 
   @Test
   public void testIterateIncludingSelfVisitor() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
       new long[] {

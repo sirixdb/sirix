@@ -48,9 +48,9 @@ import org.sirix.access.Utils;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.EHover;
-import org.sirix.gui.view.IVisualItem;
+import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.splines.BSpline;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 
 import processing.core.PApplet;
 import processing.core.PConstants;
@@ -69,7 +69,7 @@ import com.google.common.base.Equivalence;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SunburstItem implements IVisualItem {
+public final class SunburstItem implements VisualItem {
 	// Relations. ============================================
 	/** Index to parent node. */
 	private transient int mIndexToParent;
@@ -156,7 +156,7 @@ public final class SunburstItem implements IVisualItem {
 	 * State which determines if current item is found by an XPath expression or
 	 * not.
 	 */
-	private transient EXPathState mXPathState = EXPathState.ISNOTFOUND;
+	private transient XPathState mXPathState = XPathState.ISNOTFOUND;
 
 	/** Singleton {@link SunburstGUI} instance. */
 	private transient AbsSunburstGUI mGUI;
@@ -222,7 +222,7 @@ public final class SunburstItem implements IVisualItem {
 
 	private long mNodeKey;
 
-	private EKind mKind;
+	private Kind mKind;
 
 	/** Builder to setup the Items. */
 	public static final class Builder {
@@ -270,7 +270,7 @@ public final class SunburstItem implements IVisualItem {
 
 		private long mNodeKey;
 
-		private EKind mKind;
+		private Kind mKind;
 
 		/**
 		 * Constructor.
@@ -370,7 +370,7 @@ public final class SunburstItem implements IVisualItem {
 		 *          node kind
 		 * @return this builder
 		 */
-		public Builder setKind(final @Nonnegative EKind pKind) {
+		public Builder setKind(final @Nonnegative Kind pKind) {
 			mKind = checkNotNull(pKind);
 			return this;
 		}
@@ -599,7 +599,7 @@ public final class SunburstItem implements IVisualItem {
 	 *           if {@code pGraphic} is null
 	 */
 	@Override
-	public void update(final @Nonnull EDraw pDraw,
+	public void update(final @Nonnull Draw pDraw,
 			@Nonnegative final int pMappingMode, @Nonnull final PGraphics pGraphic) {
 		checkArgument(pMappingMode == 1 || pMappingMode == 2 || pMappingMode == 3);
 		checkNotNull(pGraphic);
@@ -607,7 +607,7 @@ public final class SunburstItem implements IVisualItem {
 		if (mIndexToParent > -1 || mDepth > 0) {
 			final int depthMax = mGUI.mDepthMax;
 
-			if (pDraw == EDraw.DRAW && !mGUI.isZoomingPanning() && mTmpDepth < mDepth) {
+			if (pDraw == Draw.DRAW && !mGUI.isZoomingPanning() && mTmpDepth < mDepth) {
 				mRadius = mGUI.calcEqualAreaRadius(mTmpDepth, depthMax);
 				mDepthWeight = mGUI.calcEqualAreaRadius(mTmpDepth + 1, depthMax)
 						- mRadius;
@@ -631,8 +631,8 @@ public final class SunburstItem implements IVisualItem {
 			float minValue = mMinValue;
 			float maxValue = mMaxValue;
 
-			if (mGUI.mUseDiffView == EView.DIFF && mGUI.mUseDiffView.getValue()
-					&& mKind == EKind.ELEMENT) {
+			if (mGUI.mUseDiffView == ViewType.DIFF && mGUI.mUseDiffView.getValue()
+					&& mKind == Kind.ELEMENT) {
 				value = (mValue - (float) mModifications) / mValue;
 				minValue = 0;
 				maxValue = 1;
@@ -687,7 +687,7 @@ public final class SunburstItem implements IVisualItem {
 			}
 
 			// Calculate stroke weight for relations line.
-			if (pDraw == EDraw.DRAW && !mGUI.isZoomingPanning() && mTmpDepth < mDepth) {
+			if (pDraw == Draw.DRAW && !mGUI.isZoomingPanning() && mTmpDepth < mDepth) {
 				mLineWeight = PApplet.map(mTmpDepth, 0, depthMax,
 						mGUI.getStrokeWeightStart(), mGUI.getStrokeWeightEnd());
 			} else {
@@ -700,7 +700,7 @@ public final class SunburstItem implements IVisualItem {
 
 			// Calculate bezier controlpoints.
 			if (mIndexToParent > -1) {
-				if (pDraw == EDraw.DRAW && !mGUI.isZoomingPanning()
+				if (pDraw == Draw.DRAW && !mGUI.isZoomingPanning()
 						&& mTmpDepth < mDepth) {
 					mC1X = PApplet.cos(mAngleCenter)
 							* mGUI.calcEqualAreaRadius(mTmpDepth - 1, depthMax);
@@ -721,7 +721,7 @@ public final class SunburstItem implements IVisualItem {
 				if (parent.getDepth() == 0) {
 					mC2X = 0;
 				} else {
-					if (pDraw == EDraw.DRAW && !mGUI.isZoomingPanning()
+					if (pDraw == Draw.DRAW && !mGUI.isZoomingPanning()
 							&& mTmpDepth < mDepth) {
 						mC2X = PApplet.cos(parentAngleCenter)
 								* mGUI.calcEqualAreaRadius(mTmpDepth, depthMax);
@@ -735,7 +735,7 @@ public final class SunburstItem implements IVisualItem {
 						mC2X *= -1;
 					}
 				}
-				if (pDraw == EDraw.DRAW && !mGUI.isZoomingPanning()
+				if (pDraw == Draw.DRAW && !mGUI.isZoomingPanning()
 						&& mTmpDepth < mDepth) {
 					mC2Y = PApplet.sin(parentAngleCenter)
 							* mGUI.calcEqualAreaRadius(mTmpDepth, depthMax);
@@ -940,7 +940,7 @@ public final class SunburstItem implements IVisualItem {
 			mGUI.mParent.recorder.noStroke();
 		}
 		mGraphic.noStroke();
-		if (mGUI.mUseDiffView == EView.DIFF && EView.DIFF.getValue()
+		if (mGUI.mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()
 				&& mGUI.mSelectedRev != 0 && mGreyState != EGreyState.YES) {
 			// Must be the same as in SmallMultiplesModel (Refactoring required!).
 			final float factor = 25f;
@@ -1465,7 +1465,7 @@ public final class SunburstItem implements IVisualItem {
 	 *           if {@code pItem} is {@code null}
 	 */
 	@Override
-	public int compareTo(final IVisualItem pItem) {
+	public int compareTo(final VisualItem pItem) {
 		checkNotNull(pItem);
 		return this.getKey() > pItem.getKey() ? 1
 				: this.getKey() == pItem.getKey() ? 0 : -1;
@@ -1484,7 +1484,7 @@ public final class SunburstItem implements IVisualItem {
 	 *          set state to this value
 	 */
 	@Override
-	public void setXPathState(@Nonnull final EXPathState pState) {
+	public void setXPathState(@Nonnull final XPathState pState) {
 		mXPathState = checkNotNull(pState);
 	}
 
@@ -1598,7 +1598,7 @@ public final class SunburstItem implements IVisualItem {
 	 * 
 	 * @return kind of item
 	 */
-	public EKind getKind() {
+	public Kind getKind() {
 		return mKind;
 	}
 

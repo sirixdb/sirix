@@ -18,7 +18,7 @@ import org.sirix.exception.SirixIOException;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class DeflateCompressor implements IByteHandler {
+public class DeflateCompressor implements ByteHandler {
 
   private final Deflater mCompressor;
 
@@ -74,7 +74,7 @@ public class DeflateCompressor implements IByteHandler {
   }
   
   @Override
-  public IByteHandler getInstance() {
+  public ByteHandler getInstance() {
     return new DeflateCompressor();
   }
 }

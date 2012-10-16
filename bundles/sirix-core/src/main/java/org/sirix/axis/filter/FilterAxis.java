@@ -29,8 +29,8 @@ package org.sirix.axis.filter;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.IFilter;
+import org.sirix.api.Axis;
+import org.sirix.api.Filter;
 import org.sirix.axis.AbsAxis;
 
 /**
@@ -43,10 +43,10 @@ import org.sirix.axis.AbsAxis;
 public final class FilterAxis extends AbsAxis {
 
 	/** Axis to test. */
-	private final IAxis mAxis;
+	private final Axis mAxis;
 
 	/** Test to apply to axis. */
-	private final IFilter[] mAxisFilter;
+	private final Filter[] mAxisFilter;
 
 	/**
 	 * Constructor initializing internal state.
@@ -58,13 +58,13 @@ public final class FilterAxis extends AbsAxis {
 	 * @param pAxisTest
 	 *          tests to perform for each node found with axis
 	 */
-	public FilterAxis(final @Nonnull IAxis pAxis,
-			final @Nonnull IFilter pFirstAxisTest,
-			final @Nonnull IFilter... pAxisTest) {
+	public FilterAxis(final @Nonnull Axis pAxis,
+			final @Nonnull Filter pFirstAxisTest,
+			final @Nonnull Filter... pAxisTest) {
 		super(pAxis.getTrx());
 		mAxis = pAxis;
 		final int length = pAxisTest.length == 0 ? 1 : pAxisTest.length + 1;
-		mAxisFilter = new IFilter[length];
+		mAxisFilter = new Filter[length];
 		mAxisFilter[0] = pFirstAxisTest;
 		if (!mAxis.getTrx().equals(mAxisFilter[0].getTrx())) {
 			throw new IllegalStateException(
@@ -92,7 +92,7 @@ public final class FilterAxis extends AbsAxis {
 		while (mAxis.hasNext()) {
 			final long nodeKey = mAxis.next();
 			boolean filterResult = true;
-			for (final IFilter filter : mAxisFilter) {
+			for (final Filter filter : mAxisFilter) {
 				filterResult = filterResult && filter.filter();
 			}
 			if (filterResult) {
@@ -107,7 +107,7 @@ public final class FilterAxis extends AbsAxis {
 	 * 
 	 * @return the axis
 	 */
-	public IAxis getAxis() {
+	public Axis getAxis() {
 		return mAxis;
 	}
 }

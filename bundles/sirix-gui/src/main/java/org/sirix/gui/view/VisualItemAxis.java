@@ -13,10 +13,10 @@ import java.util.NoSuchElementException;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class VisualItemAxis implements Iterator<IVisualItem>, Iterable<IVisualItem> {
+public class VisualItemAxis implements Iterator<VisualItem>, Iterable<VisualItem> {
 
   /** Diff list. */
-  private final List<? extends IVisualItem> mItems;
+  private final List<? extends VisualItem> mItems;
 
   /** Index in diff list. */
   private int mIndex;
@@ -30,7 +30,7 @@ public class VisualItemAxis implements Iterator<IVisualItem>, Iterable<IVisualIt
    * @param pItems
    *          visual items
    */
-  public VisualItemAxis(final List<? extends IVisualItem> pItems) {
+  public VisualItemAxis(final List<? extends VisualItem> pItems) {
     this(pItems, -1);
   }
 
@@ -42,7 +42,7 @@ public class VisualItemAxis implements Iterator<IVisualItem>, Iterable<IVisualIt
    * @param pIndex
    *          start index
    */
-  public VisualItemAxis(final List<? extends IVisualItem> pItems, final int pIndex) {
+  public VisualItemAxis(final List<? extends VisualItem> pItems, final int pIndex) {
     checkArgument(pIndex >= -1 && pIndex < pItems.size(), "pIndex must be >= 0 and < item size!");
     mItems = checkNotNull(pItems);
     mIndex = pIndex;
@@ -50,7 +50,7 @@ public class VisualItemAxis implements Iterator<IVisualItem>, Iterable<IVisualIt
   }
 
   @Override
-  public Iterator<IVisualItem> iterator() {
+  public Iterator<VisualItem> iterator() {
     return this;
   }
 
@@ -64,8 +64,8 @@ public class VisualItemAxis implements Iterator<IVisualItem>, Iterable<IVisualIt
   }
 
   @Override
-  public IVisualItem next() {
-    IVisualItem item = null;
+  public VisualItem next() {
+    VisualItem item = null;
     try {
       item = mItems.get(++mIndex);
     } catch (final IndexOutOfBoundsException e) {

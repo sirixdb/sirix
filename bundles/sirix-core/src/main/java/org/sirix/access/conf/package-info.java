@@ -31,19 +31,19 @@
  * All configuration of sirix takes place of the classes in this package.
  * <ul>
  * <li>The {@link org.sirix.access.conf.DatabaseConfiguration} defines the settings within a
- * {@link org.sirix.access.Database} (e.g. path to the database and the version where the data was
- * created). This configuration is only needed within the creation of a {@link org.sirix.access.Database}
+ * {@link org.sirix.access.DatabaseImpl} (e.g. path to the database and the version where the data was
+ * created). This configuration is only needed within the creation of a {@link org.sirix.access.DatabaseImpl}
  * and serialized.</li>
  * <li>The {@link org.sirix.access.conf.ResourceConfiguration} defines the persisted settings within a
- * {@link org.sirix.access.Session} (e.g. versioning-kind of the resource, hashing-kind, ...). This
+ * {@link org.sirix.access.SessionImpl} (e.g. versioning-kind of the resource, hashing-kind, ...). This
  * configuration is only needed within the creation of a resource and serialized.</li>
  * <li>The {@link org.sirix.access.conf.SessionConfiguration} defines the runtime settings within a
- * {@link org.sirix.access.Session} (e.g. numbers of transactions, ...). This configuration is needed
- * within each instantiation of a {@link org.sirix.access.Session}.</li>
+ * {@link org.sirix.access.SessionImpl} (e.g. numbers of transactions, ...). This configuration is needed
+ * within each instantiation of a {@link org.sirix.access.SessionImpl}.</li>
  * </ul>
  * </p>
  * <p>
- * All configurations are set within the {@link org.sirix.access.Database} only.
+ * All configurations are set within the {@link org.sirix.access.DatabaseImpl} only.
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz

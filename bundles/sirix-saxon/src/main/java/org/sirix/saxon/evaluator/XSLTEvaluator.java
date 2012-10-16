@@ -46,7 +46,7 @@ import net.sf.saxon.s9api.XdmNode;
 import net.sf.saxon.s9api.XsltCompiler;
 import net.sf.saxon.s9api.XsltExecutable;
 import net.sf.saxon.s9api.XsltTransformer;
-import org.sirix.api.ISession;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.saxon.wrapper.DocumentWrapper;
 import org.slf4j.Logger;
@@ -82,19 +82,19 @@ public final class XSLTEvaluator implements Callable<OutputStream> {
   private transient Serializer mSerializer;
 
   /** sirix database. */
-  private final ISession mSession;
+  private final Session mSession;
 
   /**
    * Constructor.
    * 
    * @param pSession
-   *          Sirix {@link ISession}
+   *          Sirix {@link Session}
    * @param pStylesheet
    *          path to stylesheet
    * @param pOut
    *          resulting stream of the transformation
    */
-  public XSLTEvaluator(@Nonnull final ISession pSession, @Nonnull final File pStylesheet, @Nonnull final OutputStream pOut) {
+  public XSLTEvaluator(@Nonnull final Session pSession, @Nonnull final File pStylesheet, @Nonnull final OutputStream pOut) {
     this(pSession, pStylesheet, pOut, null);
   }
 
@@ -102,7 +102,7 @@ public final class XSLTEvaluator implements Callable<OutputStream> {
    * Constructor.
    * 
    * @param pSession
-   *          Sirix {@link ISession}
+   *          Sirix {@link Session}
    * @param pStyle
    *          path to stylesheet
    * @param pOut
@@ -110,7 +110,7 @@ public final class XSLTEvaluator implements Callable<OutputStream> {
    * @param pSerializer
    *          serializer, for which one can specify output properties
    */
-  public XSLTEvaluator(@Nonnull final ISession pSession, @Nonnull final File pStyle, @Nonnull final OutputStream pOut,
+  public XSLTEvaluator(@Nonnull final Session pSession, @Nonnull final File pStyle, @Nonnull final OutputStream pOut,
     @Nullable final Serializer pSerializer) {
     mSession = checkNotNull(pSession);
     mStylesheet = checkNotNull(pStyle);

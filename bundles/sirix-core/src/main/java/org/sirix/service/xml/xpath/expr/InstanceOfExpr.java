@@ -27,8 +27,8 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.SequenceType;
 import org.sirix.utils.TypedValue;
@@ -43,7 +43,7 @@ import org.sirix.utils.TypedValue;
 public class InstanceOfExpr extends AbsExpression {
 
   /** The sequence to test. */
-  private final IAxis mInputExpr;
+  private final Axis mInputExpr;
 
   /** The sequence type that the sequence needs to have to be an instance of. */
   private final SequenceType mSequenceType;
@@ -58,7 +58,7 @@ public class InstanceOfExpr extends AbsExpression {
    * @param mSequenceType
    *          sequence type to test whether the input sequence matches to.
    */
-  public InstanceOfExpr(final INodeReadTrx mRtx, final IAxis mInputExpr, final SequenceType mSequenceType) {
+  public InstanceOfExpr(final NodeReadTrx mRtx, final Axis mInputExpr, final SequenceType mSequenceType) {
 
     super(mRtx);
     this.mInputExpr = mInputExpr;

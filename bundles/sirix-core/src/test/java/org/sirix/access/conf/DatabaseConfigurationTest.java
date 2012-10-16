@@ -7,7 +7,7 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 import org.sirix.TestHelper;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 
@@ -43,7 +43,7 @@ public class DatabaseConfigurationTest {
 	public void testDeSerialize() throws SirixIOException {
 		DatabaseConfiguration conf = new DatabaseConfiguration(
 				TestHelper.PATHS.PATH1.getFile());
-		assertTrue(Database.createDatabase(conf));
+		assertTrue(DatabaseImpl.createDatabase(conf));
 		DatabaseConfiguration serializedConf = DatabaseConfiguration
 				.deserialize(TestHelper.PATHS.PATH1.getFile());
 		assertEquals(conf.toString(), serializedConf.toString());

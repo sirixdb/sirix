@@ -7,11 +7,11 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.INameNode;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
 
 /**
  * Immutable element wrapper.
@@ -19,7 +19,7 @@ import org.sirix.node.interfaces.IStructNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutableElement implements INameNode, IStructNode, INode {
+public class ImmutableElement implements NameNode, StructNode, Node {
 
 	/** Mutable {@link ElementNode}. */
 	private final ElementNode mNode;
@@ -136,7 +136,7 @@ public class ImmutableElement implements INameNode, IStructNode, INode {
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable INode pOther) {
+	public boolean isSameItem(@Nullable Node pOther) {
 		return mNode.isSameItem(pOther);
 	}
 
@@ -176,7 +176,7 @@ public class ImmutableElement implements INameNode, IStructNode, INode {
 	}
 
 	@Override
-	public EKind getKind() {
+	public Kind getKind() {
 		return mNode.getKind();
 	}
 

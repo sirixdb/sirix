@@ -36,14 +36,14 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
@@ -83,7 +83,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	 * Constructor.
 	 * 
 	 * @param pSession
-	 *          Sirix {@link ISession}
+	 *          Sirix {@link Session}
 	 * @param pHandler
 	 *          SAX {@link ContentHandler}
 	 * @param pRevision
@@ -91,7 +91,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	 * @param pRevisions
 	 *          further revisions to serialize
 	 */
-	public SAXSerializer(@Nonnull final ISession pSession,
+	public SAXSerializer(@Nonnull final Session pSession,
 			@Nonnull final ContentHandler pHandler, @Nonnegative final int pRevision,
 			final int... pRevisions) {
 		super(pSession, pRevision, pRevisions);
@@ -99,7 +99,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	}
 
 	@Override
-	protected void emitStartElement(@Nonnull final INodeReadTrx pRtx) {
+	protected void emitStartElement(@Nonnull final NodeReadTrx pRtx) {
 		switch (pRtx.getKind()) {
 		case DOCUMENT_ROOT:
 			break;
@@ -122,7 +122,7 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	}
 
 	@Override
-	protected void emitEndElement(@Nonnull final INodeReadTrx pRtx) {
+	protected void emitEndElement(@Nonnull final NodeReadTrx pRtx) {
 		final QName qName = pRtx.getName();
 		final String mURI = qName.getNamespaceURI();
 		try {
@@ -159,9 +159,9 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	 * Generates a comment event.
 	 * 
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation
+	 *          {@link NodeReadTrx} implementation
 	 */
-	private void generateComment(final @Nonnull INodeReadTrx pRtx) {
+	private void generateComment(final @Nonnull NodeReadTrx pRtx) {
 		try {
 			final char[] content = pRtx.getValue().toCharArray();
 			mContHandler.characters(content, 0, content.length);
@@ -174,9 +174,9 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	 * Generate a processing instruction event.
 	 * 
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation
+	 *          {@link NodeReadTrx} implementation
 	 */
-	private void generatePI(final @Nonnull INodeReadTrx pRtx) {
+	private void generatePI(final @Nonnull NodeReadTrx pRtx) {
 		try {
 			mContHandler.processingInstruction(pRtx.getName().getLocalPart(),
 					pRtx.getValue());
@@ -189,9 +189,9 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	 * Generate a start element event.
 	 * 
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation
+	 *          {@link NodeReadTrx} implementation
 	 */
-	private void generateElement(@Nonnull final INodeReadTrx pRtx) {
+	private void generateElement(@Nonnull final NodeReadTrx pRtx) {
 		final AttributesImpl atts = new AttributesImpl();
 		final long key = pRtx.getNodeKey();
 
@@ -242,9 +242,9 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	 * Generate a text event.
 	 * 
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation
+	 *          {@link NodeReadTrx} implementation
 	 */
-	private void generateText(@Nonnull final INodeReadTrx pRtx) {
+	private void generateText(@Nonnull final NodeReadTrx pRtx) {
 		try {
 			mContHandler.characters(XMLToken.escapeContent(pRtx.getValue())
 					.toCharArray(), 0, pRtx.getValue().length());
@@ -265,11 +265,11 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	public static void main(final String... args) throws Exception {
 		final DatabaseConfiguration config = new DatabaseConfiguration(new File(
 				args[0]));
-		Database.createDatabase(config);
-		final IDatabase database = Database.openDatabase(new File(args[0]));
+		DatabaseImpl.createDatabase(config);
+		final Database database = DatabaseImpl.openDatabase(new File(args[0]));
 		database.createResource(new ResourceConfiguration.Builder("shredded",
 				config).build());
-		try (final ISession session = database
+		try (final Session session = database
 				.getSession(new SessionConfiguration.Builder("shredded").build())) {
 			final DefaultHandler defHandler = new DefaultHandler();
 			final SAXSerializer serializer = new SAXSerializer(session, defHandler,

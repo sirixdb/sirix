@@ -38,9 +38,9 @@ import javax.xml.stream.XMLStreamException;
 
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewUtilities;
-import org.sirix.gui.view.model.interfaces.IModel;
+import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.sunburst.SunburstView.Embedded;
-import org.sirix.gui.view.sunburst.control.ISunburstControl;
+import org.sirix.gui.view.sunburst.control.SunburstControl;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -110,7 +110,7 @@ public class SunburstGUI extends AbsSunburstGUI {
    * @param pReadDB
    *          read database
    */
-	private SunburstGUI(final PApplet pApplet, final ISunburstControl pControl,
+	private SunburstGUI(final PApplet pApplet, final SunburstControl pControl,
 			final ReadDB pReadDB) {
     super(pApplet, pControl, pReadDB);
     mDb = pReadDB;
@@ -128,7 +128,7 @@ public class SunburstGUI extends AbsSunburstGUI {
    *          read database
    * @return a {@link SunburstGUI} singleton
    */
-  public static SunburstGUI getInstance(final PApplet pParentApplet, final ISunburstControl pControl,
+  public static SunburstGUI getInstance(final PApplet pParentApplet, final SunburstControl pControl,
     final ReadDB pReadDB) {
     if (mGUI == null) {
       synchronized (SunburstGUI.class) {
@@ -232,7 +232,7 @@ public class SunburstGUI extends AbsSunburstGUI {
           mParent.translate((float)mParent.width / 2f, (float)mParent.height / 2f);
           mParent.rotate(PApplet.radians(mRad));
           if (mDone) {
-            drawItems(EDraw.DRAW);
+            drawItems(Draw.DRAW);
           }
           mParent.stroke(0);
           mParent.strokeWeight(2f);
@@ -255,19 +255,19 @@ public class SunburstGUI extends AbsSunburstGUI {
         mParent.popMatrix();
         mParent.pushMatrix();
         mParent.strokeWeight(0);
-        if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()) {
+        if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()) {
           ViewUtilities.compareLegend(this);
         } else {
           ViewUtilities.color(this);
-          if (mUseDiffView == EView.NODIFF && !mUseDiffView.getValue()) {
+          if (mUseDiffView == ViewType.NODIFF && !mUseDiffView.getValue()) {
             mParent.text("Press 'o' to get a list of revisions to compare!", mParent.width - 300f,
               mParent.height - 50f);
           }
         }
 
         @SuppressWarnings("unchecked")
-        final IModel<SunburstContainer, SunburstItem> model =
-          (IModel<SunburstContainer, SunburstItem>)mControl.getModel();
+        final Model<SunburstContainer, SunburstItem> model =
+          (Model<SunburstContainer, SunburstItem>)mControl.getModel();
         ViewUtilities.legend(this, model);
 
         mParent.popMatrix();
@@ -293,7 +293,7 @@ public class SunburstGUI extends AbsSunburstGUI {
               ((Embedded)mParent).getView().hover(mControl.getModel().getItem(mHitTestIndex));
               mParent.pushMatrix();
               mParent.rotate(PApplet.radians(mRad));
-              EDraw.DRAW.drawHover(this, mHitItem);
+              Draw.DRAW.drawHover(this, mHitItem);
               mParent.popMatrix();
             }
 
@@ -442,7 +442,7 @@ public class SunburstGUI extends AbsSunburstGUI {
       try {
       	mLock.acquireUninterruptibly();
         resetZoom();
-        if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()
+        if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()
           && mControl.getModel().getItemsSize() < ANIMATION_THRESHOLD) {
           mInit = true;
           EXECUTOR_SERVICE.submit(new Callable<Void>() {
@@ -502,7 +502,7 @@ public class SunburstGUI extends AbsSunburstGUI {
    * @param pViewKind
    *          the kind of view
    */
-  public void setViewKind(final EView pViewKind) {
+  public void setViewKind(final ViewType pViewKind) {
     mUseDiffView = checkNotNull(pViewKind);
   }
 }

@@ -46,13 +46,13 @@ import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.settings.ECharsForSerializing;
 import org.sirix.settings.IConstants;
 import org.sirix.utils.Files;
@@ -119,7 +119,7 @@ public final class XMLSerializer extends AbsSerializer {
 	 * @param pRevisions
 	 *          further revisions to serialize
 	 */
-	private XMLSerializer(final @Nonnull ISession pSession,
+	private XMLSerializer(final @Nonnull Session pSession,
 			final @Nonnegative long pNodeKey,
 			final @Nonnull XMLSerializerBuilder pBuilder,
 			final @Nonnegative int pRevision, final @Nonnull int... pRevisions) {
@@ -136,7 +136,7 @@ public final class XMLSerializer extends AbsSerializer {
 	 * Emit node (start element or characters).
 	 */
 	@Override
-	protected void emitStartElement(final @Nonnull INodeReadTrx pRtx) {
+	protected void emitStartElement(final @Nonnull NodeReadTrx pRtx) {
 		try {
 			switch (pRtx.getKind()) {
 			case DOCUMENT_ROOT:
@@ -245,7 +245,7 @@ public final class XMLSerializer extends AbsSerializer {
 	 *          Read Transaction
 	 */
 	@Override
-	protected void emitEndElement(final @Nonnull INodeReadTrx pRtx) {
+	protected void emitEndElement(final @Nonnull NodeReadTrx pRtx) {
 		try {
 			indent();
 			mOut.write(ECharsForSerializing.OPEN_SLASH.getBytes());
@@ -379,11 +379,11 @@ public final class XMLSerializer extends AbsSerializer {
 		try (final FileOutputStream outputStream = new FileOutputStream(target)) {
 			final DatabaseConfiguration config = new DatabaseConfiguration(new File(
 					args[0]));
-			Database.createDatabase(config);
-			try (final IDatabase db = Database.openDatabase(new File(args[0]))) {
+			DatabaseImpl.createDatabase(config);
+			try (final Database db = DatabaseImpl.openDatabase(new File(args[0]))) {
 				db.createResource(new ResourceConfiguration.Builder("shredded", config)
 						.build());
-				final ISession session = db
+				final Session session = db
 						.getSession(new SessionConfiguration.Builder("shredded").build());
 
 				final XMLSerializer serializer = new XMLSerializerBuilder(session,
@@ -429,7 +429,7 @@ public final class XMLSerializer extends AbsSerializer {
 		private final OutputStream mStream;
 
 		/** Session to use. */
-		private final ISession mSession;
+		private final Session mSession;
 
 		/** Further revisions to serialize. */
 		private int[] mVersions;
@@ -444,13 +444,13 @@ public final class XMLSerializer extends AbsSerializer {
 		 * Constructor, setting the necessary stuff.
 		 * 
 		 * @param pSession
-		 *          Sirix {@link ISession}
+		 *          Sirix {@link Session}
 		 * @param pStream
 		 *          {@link OutputStream} to write to
 		 * @param pRevisions
 		 *          revisions to serialize
 		 */
-		public XMLSerializerBuilder(final @Nonnull ISession pSession,
+		public XMLSerializerBuilder(final @Nonnull Session pSession,
 				final @Nonnull OutputStream pStream, final int... pRevisions) {
 			mNodeKey = 0;
 			mSession = checkNotNull(pSession);
@@ -470,7 +470,7 @@ public final class XMLSerializer extends AbsSerializer {
 		 * Constructor.
 		 * 
 		 * @param pSession
-		 *          Sirix {@link ISession}
+		 *          Sirix {@link Session}
 		 * @param pNodeKey
 		 *          root node key of subtree to shredder
 		 * @param pStream
@@ -480,7 +480,7 @@ public final class XMLSerializer extends AbsSerializer {
 		 * @param paramVersions
 		 *          version(s) to serialize
 		 */
-		public XMLSerializerBuilder(final @Nonnull ISession pSession,
+		public XMLSerializerBuilder(final @Nonnull Session pSession,
 				final @Nonnegative long pNodeKey, final @Nonnull OutputStream pStream,
 				final @Nonnull XMLSerializerProperties pProperties,
 				final int... pRevisions) {

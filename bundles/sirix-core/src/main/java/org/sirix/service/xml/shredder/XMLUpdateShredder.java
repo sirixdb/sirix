@@ -47,17 +47,17 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.TypedValue;
@@ -124,7 +124,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
   private transient long mMaxNodeKey;
 
   /** Determines if changes should be commited. */
-  private transient EShredderCommit mCommit;
+  private transient ShredderCommit mCommit;
 
   /** {@link XMLEventParser} used to check descendants. */
   private transient XMLEventReader mParser;
@@ -210,17 +210,17 @@ public final class XMLUpdateShredder implements Callable<Long> {
   /** Determines if it's an empty element before an insert at the top of a subtree. */
   private transient boolean mEmptyElement;
   
-  private final INodeWriteTrx mWtx;
+  private final NodeWriteTrx mWtx;
   
   private final XMLEventReader mReader;
 
-	private EInsert mInsert;
+	private Insert mInsert;
 
   /**
-   * Normal constructor to invoke a shredding process on a existing {@link INodeWriteTrx}.
+   * Normal constructor to invoke a shredding process on a existing {@link NodeWriteTrx}.
    * 
    * @param paramWtx
-   *          {@link INodeWriteTrx} where the new XML Fragment should be
+   *          {@link NodeWriteTrx} where the new XML Fragment should be
    *          placed
    * @param paramReader
    *          {@link XMLEventReader} (StAX parser) of the XML Fragment
@@ -240,8 +240,8 @@ public final class XMLUpdateShredder implements Callable<Long> {
    * 
    */
   @SuppressWarnings("unchecked")
-  public XMLUpdateShredder(final INodeWriteTrx paramWtx, final XMLEventReader paramReader,
-    final EInsert paramAddAsFirstChild, final Object paramData, final EShredderCommit paramCommit)
+  public XMLUpdateShredder(final NodeWriteTrx paramWtx, final XMLEventReader paramReader,
+    final Insert paramAddAsFirstChild, final Object paramData, final ShredderCommit paramCommit)
     throws SirixIOException {
   	mInsert = paramAddAsFirstChild;
   	mWtx = paramWtx;
@@ -270,7 +270,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
   public Long call() throws SirixException {
     final long revision = mWtx.getRevisionNumber();
     updateOnly();
-    if (mCommit == EShredderCommit.COMMIT) {
+    if (mCommit == ShredderCommit.COMMIT) {
       mWtx.commit();
     }
     return revision;
@@ -297,7 +297,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
         // If no content is in the XML, a normal insertNewContent is executed.
         new XMLShredder.Builder(mWtx, mReader, mInsert).build().call();
       } else {
-        if (mWtx.getKind() == EKind.DOCUMENT_ROOT) {
+        if (mWtx.getKind() == Kind.DOCUMENT_ROOT) {
           // Find the start key for the update operation.
           long startkey = EFixed.DOCUMENT_NODE_KEY.getStandardProperty() + 1;
           while (!mWtx.moveTo(startkey).hasMoved()) {
@@ -513,10 +513,10 @@ public final class XMLUpdateShredder implements Callable<Long> {
          * An end tag must have been parsed immediately before and it must have been an empty element
          * at the end of a subtree, thus move this time to parent node.
          */
-        assert mWtx.hasParent() && mWtx.getKind() == EKind.ELEMENT;
+        assert mWtx.hasParent() && mWtx.getKind() == Kind.ELEMENT;
         mWtx.moveToParent();
       } else {
-        if (mWtx.getKind() == EKind.ELEMENT) {
+        if (mWtx.getKind() == Kind.ELEMENT) {
           if (mWtx.hasFirstChild() && mWtx.hasParent()) {
             // It's not an empty element, thus move to parent.
             mWtx.moveToParent();
@@ -627,7 +627,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
   private boolean checkText(final Characters paramEvent) {
     assert paramEvent != null;
     final String text = paramEvent.getData().trim();
-    return mWtx.getKind() == EKind.TEXT && mWtx.getValue().equals(text);
+    return mWtx.getKind() == Kind.TEXT && mWtx.getValue().equals(text);
   }
 
   /**
@@ -838,7 +838,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
       }
 
       // Make sure if transaction is on a text node the node is inserted as a right sibling.
-      if (mWtx.getKind() == EKind.TEXT) {
+      if (mWtx.getKind() == Kind.TEXT) {
         insertNode = EAdd.ASRIGHTSIBLING;
       }
 
@@ -1103,7 +1103,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     final QName name = paramStartElement.getName();
     long key;
 
-    if (mInsert == EInsert.ASRIGHTSIBLING) {
+    if (mInsert == Insert.ASRIGHTSIBLING) {
       key = mWtx.insertElementAsRightSibling(name).getNodeKey();
     } else {
       if (paramAdd == EAdd.ASFIRSTCHILD) {
@@ -1214,7 +1214,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
           break;
         case XMLStreamConstants.END_ELEMENT:
           mMoved = EMoved.TOPARENT;
-          if (mWtx.getKind() == EKind.ELEMENT) {
+          if (mWtx.getKind() == Kind.ELEMENT) {
             // Move cursor to parent.
             if (mWtx.getNodeKey() == mLastDescCheckNodeKey) {
               /*
@@ -1222,7 +1222,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
                * empty element
                * at the end of a subtree, thus move this time to parent node.
                */
-              assert mWtx.hasParent() && mWtx.getKind() == EKind.ELEMENT;
+              assert mWtx.hasParent() && mWtx.getKind() == Kind.ELEMENT;
               found = mWtx.moveToParent().hasMoved();
               mDescendantLevel--;
             } else {
@@ -1234,12 +1234,12 @@ public final class XMLUpdateShredder implements Callable<Long> {
                 mLastDescCheckNodeKey = mWtx.getNodeKey();
               }
             }
-          } else if (mWtx.getKind() == EKind.TEXT) {
+          } else if (mWtx.getKind() == Kind.TEXT) {
             found = mWtx.moveToParent().hasMoved();
             mDescendantLevel--;
           }
 
-          if (mWtx.getKind() == EKind.ELEMENT
+          if (mWtx.getKind() == Kind.ELEMENT
             && mWtx.getName().equals(paramElem.getName()) && mDescendantLevel == 0) {
             found = true;
             lastToCheck = true;
@@ -1276,7 +1276,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
     boolean retVal = false;
 
     // Matching element names?
-    if (mWtx.getKind() == EKind.ELEMENT
+    if (mWtx.getKind() == Kind.ELEMENT
       && mWtx.getName().equals(mEvent.getName())) {
       // Check if atts and namespaces are the same.
       final long nodeKey = mWtx.getNodeKey();
@@ -1359,15 +1359,15 @@ public final class XMLUpdateShredder implements Callable<Long> {
 
     try {
       final DatabaseConfiguration config = new DatabaseConfiguration(target);
-      Database.createDatabase(config);
-      final IDatabase db = Database.openDatabase(target);
+      DatabaseImpl.createDatabase(config);
+      final Database db = DatabaseImpl.openDatabase(target);
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
-      final ISession session = db.getSession(new SessionConfiguration.Builder("shredded").build());
-      final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+      final Session session = db.getSession(new SessionConfiguration.Builder("shredded").build());
+      final NodeWriteTrx wtx = session.beginNodeWriteTrx();
       final XMLEventReader reader = XMLShredder.createFileReader(new File(args[0]));
       final XMLUpdateShredder shredder =
-        new XMLUpdateShredder(wtx, reader, EInsert.ASFIRSTCHILD, new File(args[0]),
-          EShredderCommit.COMMIT);
+        new XMLUpdateShredder(wtx, reader, Insert.ASFIRSTCHILD, new File(args[0]),
+          ShredderCommit.COMMIT);
       shredder.call();
 
       wtx.close();

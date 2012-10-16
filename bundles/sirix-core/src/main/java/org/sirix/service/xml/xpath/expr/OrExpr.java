@@ -27,8 +27,8 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
@@ -73,10 +73,10 @@ import org.sirix.utils.TypedValue;
 public class OrExpr extends AbsExpression {
 
   /** First operand of the logical expression. */
-  private final IAxis mOp1;
+  private final Axis mOp1;
 
   /** Second operand of the logical expression. */
-  private final IAxis mOp2;
+  private final Axis mOp2;
 
   /**
    * Constructor. Initializes the internal state.
@@ -88,7 +88,7 @@ public class OrExpr extends AbsExpression {
    * @param mOperand2
    *          Second operand
    */
-  public OrExpr(final INodeReadTrx rtx, final IAxis mOperand1, final IAxis mOperand2) {
+  public OrExpr(final NodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2) {
 
     super(rtx);
     mOp1 = mOperand1;

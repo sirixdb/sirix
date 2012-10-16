@@ -13,8 +13,8 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.immutable.ImmutablePI;
-import org.sirix.node.interfaces.INameNode;
-import org.sirix.node.interfaces.IValNode;
+import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.ValNode;
 
 import com.google.common.base.Objects;
 
@@ -25,8 +25,8 @@ import com.google.common.base.Objects;
  * Node representing a processing instruction.
  * </p>
  */
-public final class PINode extends AbsStructForwardingNode implements IValNode,
-		INameNode {
+public final class PINode extends AbsStructForwardingNode implements ValNode,
+		NameNode {
 
 	/** Delegate for name node information. */
 	private final NameNodeDelegate mNameDel;
@@ -57,8 +57,8 @@ public final class PINode extends AbsStructForwardingNode implements IValNode,
 	}
 
 	@Override
-	public EKind getKind() {
-		return EKind.PROCESSING;
+	public Kind getKind() {
+		return Kind.PROCESSING;
 	}
 
 	@Override

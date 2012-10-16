@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 
 public class NonStructuralWrapperAxisTest {
@@ -54,7 +54,7 @@ public class NonStructuralWrapperAxisTest {
 
 	@Test
 	public void testAxisConventions() throws SirixException {
-		final INodeReadTrx rtx = holder.getRtx();
+		final NodeReadTrx rtx = holder.getRtx();
 
 		AbsAxisTest.testIAxisConventions(new NonStructuralWrapperAxis(
 				new DescendantAxis(rtx)), new long[] { 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L,

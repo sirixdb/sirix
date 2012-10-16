@@ -29,8 +29,8 @@ package org.sirix.axis.filter;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IFilter;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Filter;
+import org.sirix.api.NodeReadTrx;
 
 /**
  * <h1>NestedFilter</h1>
@@ -41,17 +41,17 @@ import org.sirix.api.INodeReadTrx;
 public class NestedFilter extends AbsFilter {
 
   /** Tests to apply. */
-  private final IFilter[] mFilter;
+  private final Filter[] mFilter;
 
   /**
    * Default constructor.
    * 
    * @param rtx
-   *          {@link INodeReadTrx} this filter is bound to
+   *          {@link NodeReadTrx} this filter is bound to
    * @param axisTest
    *          test to perform for each node found with axis
    */
-  public NestedFilter(@Nonnull final INodeReadTrx pRtx, @Nonnull final IFilter... pAxisTest) {
+  public NestedFilter(@Nonnull final NodeReadTrx pRtx, @Nonnull final Filter... pAxisTest) {
     super(pRtx);
     mFilter = pAxisTest;
   }
@@ -60,7 +60,7 @@ public class NestedFilter extends AbsFilter {
   public final boolean filter() {
     boolean filterResult = true;
 
-    for (final IFilter filter : mFilter) {
+    for (final Filter filter : mFilter) {
       filterResult = filterResult && filter.filter();
     }
 

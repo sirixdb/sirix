@@ -38,25 +38,25 @@ import java.util.Set;
 import javax.xml.namespace.QName;
 
 import org.sirix.access.Utils;
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.axis.AbsAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.LevelOrderAxis;
 import org.sirix.axis.LevelOrderAxis.EIncludeNodes;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.axis.visitor.DeleteFMSEVisitor;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
-import org.sirix.diff.algorithm.IImportDiff;
+import org.sirix.diff.algorithm.ImportDiff;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.TextNode;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.Pair;
 import org.slf4j.LoggerFactory;
@@ -76,7 +76,7 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class FMSE implements IImportDiff, AutoCloseable {
+public final class FMSE implements ImportDiff, AutoCloseable {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
@@ -166,11 +166,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	/** {@link IVisitor} implementation to collect label/nodes on new revision. */
 	private transient LabelFMSEVisitor mLabelNewRevVisitor;
 
-	/** sirix {@link INodeWriteTrx}. */
-	private transient INodeWriteTrx mWtx;
+	/** sirix {@link NodeWriteTrx}. */
+	private transient NodeWriteTrx mWtx;
 
-	/** sirix {@link INodeReadTrx}. */
-	private transient INodeReadTrx mRtx;
+	/** sirix {@link NodeReadTrx}. */
+	private transient NodeReadTrx mRtx;
 
 	/** Start key of old revision. */
 	private transient long mOldStartKey;
@@ -185,7 +185,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	private static final Levenshtein mLevenshtein = new Levenshtein();
 
 	@Override
-	public void diff(final INodeWriteTrx pWtx, final INodeReadTrx pRtx)
+	public void diff(final NodeWriteTrx pWtx, final NodeReadTrx pRtx)
 			throws SirixException {
 		mWtx = checkNotNull(pWtx);
 		mRtx = checkNotNull(pRtx);
@@ -219,11 +219,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * and move phases.
 	 * 
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} implementation reference on old revisionso
+	 *          {@link NodeWriteTrx} implementation reference on old revisionso
 	 * @param pRtxn
-	 *          {@link INodeReadTrx} implementation reference o new revision
+	 *          {@link NodeReadTrx} implementation reference o new revision
 	 */
-	private void firstFMESStep(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
+	private void firstFMESStep(final NodeWriteTrx pWtx, final NodeReadTrx pRtx) {
 		assert pWtx != null;
 		assert pRtx != null;
 
@@ -231,8 +231,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 		pRtx.moveTo(mNewStartKey);
 
 		// 2. Iterate over new shreddered file
-		for (final IAxis axis = new LevelOrderAxis.Builder(pRtx)
-				.includeSelf(EIncludeSelf.YES)
+		for (final Axis axis = new LevelOrderAxis.Builder(pRtx)
+				.includeSelf(IncludeSelf.YES)
 				.includeNodes(EIncludeNodes.NONSTRUCTURAL).build(); axis.hasNext();) {
 			axis.next();
 			final long nodeKey = axis.getTrx().getNodeKey();
@@ -245,13 +245,13 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * Do the actual first step of FSME.
 	 * 
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} implementation reference on old revision
+	 *          {@link NodeWriteTrx} implementation reference on old revision
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation reference on new revision
+	 *          {@link NodeReadTrx} implementation reference on new revision
 	 * @throws SirixException
 	 *           if anything in sirix fails
 	 */
-	private void doFirstFSMEStep(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
+	private void doFirstFSMEStep(final NodeWriteTrx pWtx, final NodeReadTrx pRtx) {
 		assert pWtx != null;
 		assert pRtx != null;
 		// 2(a) - Parent of x.
@@ -277,7 +277,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			if (pWtx.moveTo(w).hasMoved()
 					&& pRtx.moveTo(x).hasMoved()
 					&& pWtx.getKind() == pRtx.getKind()
-					&& (!nodeValuesEqual(w, x, pWtx, pRtx) || (pRtx.getKind() == EKind.ATTRIBUTE && !pRtx
+					&& (!nodeValuesEqual(w, x, pWtx, pRtx) || (pRtx.getKind() == Kind.ATTRIBUTE && !pRtx
 							.getValue().equals(pWtx.getValue())))) {
 				// Either QNames differ or the values in case of attribute nodes.
 				emitUpdate(w, x, pWtx, pRtx);
@@ -290,8 +290,8 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 				assert z != null;
 				mInOrderNewRev.put(x, true);
 				pRtx.moveTo(x);
-				if (pRtx.getKind() == EKind.NAMESPACE
-						|| pRtx.getKind() == EKind.ATTRIBUTE) {
+				if (pRtx.getKind() == Kind.NAMESPACE
+						|| pRtx.getKind() == Kind.ATTRIBUTE) {
 					pWtx.moveTo(w);
 					try {
 						mTotalMatching.remove(w);
@@ -316,16 +316,16 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * Second step of the edit script algorithm. This is the delete phase.
 	 * 
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} implementation reference on old revision
+	 *          {@link NodeWriteTrx} implementation reference on old revision
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation reference on new revision
+	 *          {@link NodeReadTrx} implementation reference on new revision
 	 */
-	private void secondFMESStep(final INodeWriteTrx pWtx, final INodeReadTrx pRtx)
+	private void secondFMESStep(final NodeWriteTrx pWtx, final NodeReadTrx pRtx)
 			throws SirixException {
 		assert pWtx != null;
 		assert pRtx != null;
 		pWtx.moveTo(mOldStartKey);
-		for (final IAxis axis = new VisitorDescendantAxis.Builder(pWtx)
+		for (final Axis axis = new VisitorDescendantAxis.Builder(pWtx)
 				.includeSelf()
 				.visitor(
 						Optional.<DeleteFMSEVisitor> of(new DeleteFMSEVisitor(pWtx,
@@ -342,12 +342,12 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * @param pX
 	 *          node in the second document
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} implementation reference on old revision
+	 *          {@link NodeWriteTrx} implementation reference on old revision
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation reference on new revision
+	 *          {@link NodeReadTrx} implementation reference on new revision
 	 */
 	private void alignChildren(final long pW, final long pX,
-			final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
+			final NodeWriteTrx pWtx, final NodeReadTrx pRtx) {
 		assert pW >= 0;
 		assert pX >= 0;
 		assert pWtx != null;
@@ -367,7 +367,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 				EReverseMap.TRUE);
 		// 3 && 4
 		final List<Pair<Long, Long>> s = Util.longestCommonSubsequence(first,
-				second, new IComparator<Long>() {
+				second, new Comparator<Long>() {
 					@Override
 					public boolean isEqual(final Long pX, final Long pY) {
 						return mTotalMatching.contains(pX, pY);
@@ -407,11 +407,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * Mark children out of order.
 	 * 
 	 * @param pRtx
-	 *          {@link INodeReadTrx} reference
+	 *          {@link NodeReadTrx} reference
 	 * @param pInOrder
 	 *          {@link Map} to put all children out of order
 	 */
-	private void markOutOfOrder(final INodeReadTrx pRtx,
+	private void markOutOfOrder(final NodeReadTrx pRtx,
 			final Map<Long, Boolean> pInOrder) {
 		for (final AbsAxis axis = new ChildAxis(pRtx); axis.hasNext();) {
 			axis.next();
@@ -428,15 +428,15 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * @param pO
 	 *          corresponding parent node in the other tree
 	 * @param pFirstRtx
-	 *          {@link INodeReadTrx} on pN node
+	 *          {@link NodeReadTrx} on pN node
 	 * @param pSecondRtx
-	 *          {@link INodeReadTrx} on pO node
+	 *          {@link NodeReadTrx} on pO node
 	 * @param pReverse
 	 *          determines if reverse partners need to be found
 	 * @return {@link List} of common child nodes
 	 */
 	private List<Long> commonChildren(final long pN, final long pO,
-			final INodeReadTrx pFirstRtx, final INodeReadTrx pSecondRtx,
+			final NodeReadTrx pFirstRtx, final NodeReadTrx pSecondRtx,
 			final EReverseMap pReverse) {
 		assert pN >= 0;
 		assert pO >= 0;
@@ -478,12 +478,12 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * @param pPos
 	 *          position among the childs to move to
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} implementation reference on old revision
+	 *          {@link NodeWriteTrx} implementation reference on old revision
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation reference on new revision
+	 *          {@link NodeReadTrx} implementation reference on new revision
 	 */
 	private long emitMove(final long pChild, final long pParent, int pPos,
-			final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
+			final NodeWriteTrx pWtx, final NodeReadTrx pRtx) {
 		assert pChild >= 0;
 		assert pParent >= 0;
 		assert pWtx != null;
@@ -492,7 +492,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 		boolean moved = pWtx.moveTo(pChild).hasMoved();
 		assert moved;
 
-		if (pWtx.getKind() == EKind.ATTRIBUTE || pWtx.getKind() == EKind.NAMESPACE) {
+		if (pWtx.getKind() == Kind.ATTRIBUTE || pWtx.getKind() == Kind.NAMESPACE) {
 			// Attribute- and namespace-nodes can't be moved.
 			return -1;
 		}
@@ -503,15 +503,15 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 
 		try {
 			if (pPos == 0) {
-				assert pWtx.getKind() == EKind.ELEMENT
-						|| pWtx.getKind() == EKind.DOCUMENT_ROOT;
+				assert pWtx.getKind() == Kind.ELEMENT
+						|| pWtx.getKind() == Kind.DOCUMENT_ROOT;
 				if (pWtx.getFirstChildKey() == pChild) {
 					LOGWRAPPER
 							.error("Something went wrong: First child and child may never be the same!");
 				} else {
 					if (pWtx.moveTo(pChild).hasMoved()) {
 						boolean isTextKind = false;
-						if (pWtx.getKind() == EKind.TEXT) {
+						if (pWtx.getKind() == Kind.TEXT) {
 							isTextKind = true;
 						}
 
@@ -520,7 +520,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 						if (isTextKind && pWtx.getFirstChildKey() != pChild) {
 							if (pWtx.hasFirstChild()) {
 								pWtx.moveToFirstChild();
-								if (pWtx.getKind() == EKind.TEXT) {
+								if (pWtx.getKind() == Kind.TEXT) {
 									mTotalMatching.remove(pWtx.getNodeKey());
 									pWtx.remove();
 								}
@@ -528,7 +528,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 							}
 						}
 
-						if (pWtx.getKind() == EKind.DOCUMENT_ROOT) {
+						if (pWtx.getKind() == Kind.DOCUMENT_ROOT) {
 							pRtx.moveTo(pChild);
 							pWtx.moveTo(pWtx.copySubtreeAsFirstChild(pRtx).getNodeKey());
 						} else {
@@ -551,16 +551,16 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 				final long nodeKey = pWtx.getNodeKey();
 				checkFromNodeForTextRemoval(pWtx, pChild);
 				pWtx.moveTo(nodeKey);
-				if (pWtx.getKind() == EKind.TEXT && pWtx.moveTo(pChild).hasMoved()
-						&& pWtx.getKind() == EKind.TEXT) {
+				if (pWtx.getKind() == Kind.TEXT && pWtx.moveTo(pChild).hasMoved()
+						&& pWtx.getKind() == Kind.TEXT) {
 					pWtx.moveTo(nodeKey);
 					mTotalMatching.remove(pWtx.getNodeKey());
 				}
 				pWtx.moveTo(nodeKey);
 				if (pWtx.moveToRightSibling().hasMoved()) {
 					final long rightNodeKey = pWtx.getNodeKey();
-					if (pWtx.getKind() == EKind.TEXT && pWtx.moveTo(pChild).hasMoved()
-							&& pWtx.getKind() == EKind.TEXT) {
+					if (pWtx.getKind() == Kind.TEXT && pWtx.moveTo(pChild).hasMoved()
+							&& pWtx.getKind() == Kind.TEXT) {
 						pWtx.moveTo(rightNodeKey);
 						mTotalMatching.remove(pWtx.getNodeKey());
 					}
@@ -581,7 +581,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 		return pWtx.getNodeKey();
 	}
 
-	private void checkFromNodeForTextRemoval(final INodeWriteTrx pWtx,
+	private void checkFromNodeForTextRemoval(final NodeWriteTrx pWtx,
 			final long pChild) {
 		boolean maybeRemoveLeftSibling = pWtx.getLeftSiblingKey() == pChild ? true
 				: false;
@@ -589,14 +589,14 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			boolean isText = false;
 			if (pWtx.hasLeftSibling()) {
 				pWtx.moveToLeftSibling();
-				if (pWtx.getKind() == EKind.TEXT) {
+				if (pWtx.getKind() == Kind.TEXT) {
 					isText = true;
 				}
 				pWtx.moveToRightSibling();
 			}
 			if (isText && pWtx.hasRightSibling()) {
 				pWtx.moveToRightSibling();
-				if (pWtx.getKind() == EKind.TEXT && isText) {
+				if (pWtx.getKind() == Kind.TEXT && isText) {
 					if (maybeRemoveLeftSibling) {
 						boolean moved = pWtx.moveToLeftSibling().hasMoved();
 						assert moved;
@@ -620,13 +620,13 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * @param pToNode
 	 *          the new node
 	 * @param pWtxnull
-	 *          {@link INodeWriteTrx} implementation reference on old revision
+	 *          {@link NodeWriteTrx} implementation reference on old revision
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation reference on new revision
-	 * @return updated {@link INode}
+	 *          {@link NodeReadTrx} implementation reference on new revision
+	 * @return updated {@link Node}
 	 */
 	private long emitUpdate(final long pFromNode, final long pToNode,
-			final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
+			final NodeWriteTrx pWtx, final NodeReadTrx pRtx) {
 		assert pFromNode >= 0;
 		assert pToNode >= 0;
 		assert pWtx != null;
@@ -640,17 +640,17 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			case ELEMENT:
 			case ATTRIBUTE:
 			case NAMESPACE:
-				assert pRtx.getKind() == EKind.ELEMENT
-						|| pRtx.getKind() == EKind.ATTRIBUTE
-						|| pRtx.getKind() == EKind.NAMESPACE;
+				assert pRtx.getKind() == Kind.ELEMENT
+						|| pRtx.getKind() == Kind.ATTRIBUTE
+						|| pRtx.getKind() == Kind.NAMESPACE;
 				pWtx.setQName(pRtx.getName());
 
-				if (pWtx.getKind() == EKind.ATTRIBUTE) {
+				if (pWtx.getKind() == Kind.ATTRIBUTE) {
 					pWtx.setValue(pRtx.getValue());
 				}
 				break;
 			case TEXT:
-				assert pWtx.getKind() == EKind.TEXT;
+				assert pWtx.getKind() == Kind.TEXT;
 				pWtx.setValue(pRtx.getValue());
 				break;
 			default:
@@ -666,22 +666,22 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * Emit an insert operation.
 	 * 
 	 * @param pParent
-	 *          parent of the current {@link INode} implementation reference to
+	 *          parent of the current {@link Node} implementation reference to
 	 *          insert
 	 * @param pChild
 	 *          the current node to insert
 	 * @param pPos
 	 *          position of the insert
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} implementation reference on old revision
+	 *          {@link NodeWriteTrx} implementation reference on old revision
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation reference on new revision
-	 * @return inserted {@link INode} implementation reference
+	 *          {@link NodeReadTrx} implementation reference on new revision
+	 * @return inserted {@link Node} implementation reference
 	 * @throws SirixException
 	 *           if anything in sirix fails
 	 */
 	private long emitInsert(final long pChild, final long pParent,
-			final int pPos, final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
+			final int pPos, final NodeWriteTrx pWtx, final NodeReadTrx pRtx) {
 		assert pChild >= 0;
 		assert pParent >= 0;
 		assert pWtx != null;
@@ -729,7 +729,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 						// is inserted.
 						if (pWtx.hasFirstChild()) {
 							pWtx.moveToFirstChild();
-							if (pWtx.getKind() == EKind.TEXT) {
+							if (pWtx.getKind() == Kind.TEXT) {
 								mTotalMatching.remove(pWtx.getNodeKey());
 								pWtx.remove();
 							}
@@ -768,16 +768,16 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 				// Mark all nodes in subtree as inserted.
 				pWtx.moveTo(oldKey);
 				pRtx.moveTo(pChild);
-				for (final IAxis oldAxis = new DescendantAxis(pWtx, EIncludeSelf.YES), newAxis = new DescendantAxis(
-						pRtx, EIncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext();) {
+				for (final Axis oldAxis = new DescendantAxis(pWtx, IncludeSelf.YES), newAxis = new DescendantAxis(
+						pRtx, IncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext();) {
 					oldAxis.next();
 					newAxis.next();
-					final INodeReadTrx oldRtx = oldAxis.getTrx();
-					final INodeReadTrx newRtx = newAxis.getTrx();
+					final NodeReadTrx oldRtx = oldAxis.getTrx();
+					final NodeReadTrx newRtx = newAxis.getTrx();
 					process(oldRtx.getNodeKey(), newRtx.getNodeKey());
 					final long newNodeKey = newRtx.getNodeKey();
 					final long oldNodeKey = oldRtx.getNodeKey();
-					if (newRtx.getKind() == EKind.ELEMENT) {
+					if (newRtx.getKind() == Kind.ELEMENT) {
 						assert newRtx.getKind() == oldRtx.getKind();
 						if (newRtx.getAttributeCount() > 0) {
 							for (int i = 0, attCount = newRtx.getAttributeCount(); i < attCount; i++) {
@@ -828,17 +828,17 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * matching.
 	 * 
 	 * @param pWtx
-	 *          sirix {@link INodeWriteTrx}
+	 *          sirix {@link NodeWriteTrx}
 	 * @throws SirixException
 	 *           if removing of node in the storage fails
 	 */
-	private void removeRightSiblingTextNode(final INodeWriteTrx pWtx)
+	private void removeRightSiblingTextNode(final NodeWriteTrx pWtx)
 			throws SirixException {
 		assert pWtx != null;
 		if (pWtx.hasRightSibling()) {
 			final long nodeKey = pWtx.getNodeKey();
 			pWtx.moveToRightSibling();
-			if (pWtx.getKind() == EKind.TEXT) {
+			if (pWtx.getKind() == Kind.TEXT) {
 				mTotalMatching.remove(pWtx.getNodeKey());
 				pWtx.remove();
 			}
@@ -850,9 +850,9 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * Process nodes and add update data structures.
 	 * 
 	 * @param pOldKey
-	 *          {@link INode} in old revision
+	 *          {@link Node} in old revision
 	 * @param pNewKey
-	 *          {@link INode} in new revision
+	 *          {@link Node} in new revision
 	 */
 	private void process(final long pOldKey, final long pNewKey) {
 		mAlreadyInserted.put(pNewKey, true);
@@ -876,19 +876,19 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * @param pX
 	 *          a node in the second (new) document
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} implementation reference on old revision
+	 *          {@link NodeWriteTrx} implementation reference on old revision
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation reference on new revision
+	 *          {@link NodeReadTrx} implementation reference on new revision
 	 * @return it's position, with respect to already inserted/deleted nodes
 	 */
-	private int findPos(final long pX, final INodeWriteTrx pWtx,
-			final INodeReadTrx pRtx) {
+	private int findPos(final long pX, final NodeWriteTrx pWtx,
+			final NodeReadTrx pRtx) {
 		assert pX > 0;
 		assert pWtx != null;
 		assert pRtx != null;
 		pRtx.moveTo(pX);
 
-		if (pRtx.getKind() == EKind.ATTRIBUTE || pRtx.getKind() == EKind.NAMESPACE) {
+		if (pRtx.getKind() == Kind.ATTRIBUTE || pRtx.getKind() == Kind.NAMESPACE) {
 			return 0;
 		} else {
 			final long nodeKey = pRtx.getNodeKey();
@@ -960,14 +960,14 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * The fast match algorithm. Try to resolve the "good matching problem".
 	 * 
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} implementation reference on old revision
+	 *          {@link NodeWriteTrx} implementation reference on old revision
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation reference on new revision
+	 *          {@link NodeReadTrx} implementation reference on new revision
 	 * @return {@link Matching} reference with matched nodes
 	 * @throws SirixException
 	 *           if anything in sirix fails
 	 */
-	private Matching fastMatch(final INodeWriteTrx pWtx, final INodeReadTrx pRtx) {
+	private Matching fastMatch(final NodeWriteTrx pWtx, final NodeReadTrx pRtx) {
 		assert pWtx != null;
 		assert pRtx != null;
 
@@ -982,10 +982,10 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 				mLabelNewRevVisitor.getLeafLabels(), matching, new LeafEqual());
 
 		// Remove roots ('/') from labels and append them to mapping.
-		final Map<EKind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
-		final Map<EKind, List<Long>> newLabels = mLabelNewRevVisitor.getLabels();
-		oldLabels.remove(EKind.DOCUMENT_ROOT);
-		newLabels.remove(EKind.DOCUMENT_ROOT);
+		final Map<Kind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
+		final Map<Kind, List<Long>> newLabels = mLabelNewRevVisitor.getLabels();
+		oldLabels.remove(Kind.DOCUMENT_ROOT);
+		newLabels.remove(Kind.DOCUMENT_ROOT);
 
 		pWtx.moveTo(mOldStartKey);
 		pRtx.moveTo(mNewStartKey);
@@ -1012,14 +1012,14 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * @param pCmp
 	 *          functional class
 	 */
-	private void match(final Map<EKind, List<Long>> pOldLabels,
-			final Map<EKind, List<Long>> pNewLabels, final Matching pMatching,
-			final IComparator<Long> pCmp) {
-		final Set<EKind> labels = pOldLabels.keySet();
+	private void match(final Map<Kind, List<Long>> pOldLabels,
+			final Map<Kind, List<Long>> pNewLabels, final Matching pMatching,
+			final Comparator<Long> pCmp) {
+		final Set<Kind> labels = pOldLabels.keySet();
 		labels.retainAll(pNewLabels.keySet()); // intersection
 
 		// 2 - for each label do
-		for (final EKind label : labels) {
+		for (final Kind label : labels) {
 			final List<Long> first = pOldLabels.get(label); // 2(a)
 			final List<Long> second = pNewLabels.get(label); // 2(b)
 
@@ -1071,9 +1071,9 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * Remove nodes in common.
 	 * 
 	 * @param pList
-	 *          {@link List} of {@link INode}s
+	 *          {@link List} of {@link Node}s
 	 * @param pSeen
-	 *          {@link Map} of {@link INode}s
+	 *          {@link Map} of {@link Node}s
 	 */
 	private void removeCommonNodes(final List<Long> pList,
 			final Map<Long, Boolean> pSeen) {
@@ -1099,11 +1099,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * @throws SirixException
 	 *           if anything in sirix fails
 	 */
-	private void init(final INodeReadTrx pRtx, final IVisitor pVisitor) {
+	private void init(final NodeReadTrx pRtx, final IVisitor pVisitor) {
 		assert pVisitor != null;
 
 		final long nodeKey = pRtx.getNodeKey();
-		for (final IAxis axis = new PostOrderAxis(pRtx); axis.hasNext();) {
+		for (final Axis axis = new PostOrderAxis(pRtx); axis.hasNext();) {
 			axis.next();
 			if (axis.getTrx().getNodeKey() == nodeKey) {
 				break;
@@ -1120,11 +1120,11 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * is a separate list.
 	 * 
 	 * @param pRtx
-	 *          {@link INodeReadTrx} reference
+	 *          {@link NodeReadTrx} reference
 	 * @param pVisitor
 	 *          {@link LabelFMSEVisitor} used to save node type/list
 	 */
-	private void getLabels(final INodeReadTrx pRtx,
+	private void getLabels(final NodeReadTrx pRtx,
 			final LabelFMSEVisitor pVisitor) {
 		assert pRtx != null;
 		assert pVisitor != null;
@@ -1150,13 +1150,13 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * @param pY
 	 *          second node
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation reference
+	 *          {@link NodeReadTrx} implementation reference
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} implementation reference
+	 *          {@link NodeWriteTrx} implementation reference
 	 * @return true iff the values of the nodes are equal
 	 */
 	private boolean nodeValuesEqual(final long pX, final long pY,
-			final INodeReadTrx pRtxOld, final INodeReadTrx pRtxNew) {
+			final NodeReadTrx pRtxOld, final NodeReadTrx pRtxNew) {
 		assert pX >= 0;
 		assert pY >= 0;
 		assert pRtxOld != null;
@@ -1176,10 +1176,10 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * @param pNodeKey
 	 *          node from which to get the value
 	 * @param pRtx
-	 *          {@link INodeReadTrx} implementation reference
+	 *          {@link NodeReadTrx} implementation reference
 	 * @return string value of current node
 	 */
-	private String getNodeValue(final long pNodeKey, final INodeReadTrx pRtx) {
+	private String getNodeValue(final long pNodeKey, final NodeReadTrx pRtx) {
 		assert pNodeKey >= 0;
 		assert pRtx != null;
 		pRtx.moveTo(pNodeKey);
@@ -1209,7 +1209,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * by comparing the (characteristic) string for two nodes. If the strings are
 	 * sufficient similar, the nodes are considered to be equal.
 	 */
-	private class LeafEqual implements IComparator<Long> {
+	private class LeafEqual implements Comparator<Long> {
 
 		@Override
 		public boolean isEqual(final Long pFirstNode, final Long pSecondNode) {
@@ -1225,13 +1225,13 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 			assert mWtx.getKind() == mRtx.getKind();
 			double ratio = 0;
 
-			if (mWtx.getKind() == EKind.ATTRIBUTE
-					|| mWtx.getKind() == EKind.NAMESPACE
-					|| mWtx.getKind() == EKind.PROCESSING) {
+			if (mWtx.getKind() == Kind.ATTRIBUTE
+					|| mWtx.getKind() == Kind.NAMESPACE
+					|| mWtx.getKind() == Kind.PROCESSING) {
 				if (mWtx.getName().equals(mRtx.getName())) {
 					ratio = 1;
-					if (mWtx.getKind() == EKind.ATTRIBUTE
-							|| mWtx.getKind() == EKind.PROCESSING) {
+					if (mWtx.getKind() == Kind.ATTRIBUTE
+							|| mWtx.getKind() == Kind.PROCESSING) {
 						ratio = calculateRatio(mWtx.getValue(), mRtx.getValue());
 					}
 
@@ -1279,7 +1279,7 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 	 * nodes by calculating the number of common children (i.e. children contained
 	 * in the matching) in relation to the total number of children.
 	 */
-	private class InnerNodeEqual implements IComparator<Long> {
+	private class InnerNodeEqual implements Comparator<Long> {
 
 		/** {@link Matching} reference. */
 		private final Matching mMatching;
@@ -1290,9 +1290,9 @@ public final class FMSE implements IImportDiff, AutoCloseable {
 		 * @param pMatching
 		 *          {@link Matching} reference
 		 * @param pWtx
-		 *          {@link INodeWriteTrx} implementation reference on old revision
+		 *          {@link NodeWriteTrx} implementation reference on old revision
 		 * @param pRtx
-		 *          {@link INodeReadTrx} implementation reference on new revision
+		 *          {@link NodeReadTrx} implementation reference on new revision
 		 */
 		public InnerNodeEqual(final Matching pMatching) {
 			assert pMatching != null;

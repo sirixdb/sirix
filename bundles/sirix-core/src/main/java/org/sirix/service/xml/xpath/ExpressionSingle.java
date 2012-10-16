@@ -27,7 +27,7 @@
 
 package org.sirix.service.xml.xpath;
 
-import org.sirix.api.IAxis;
+import org.sirix.api.Axis;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
@@ -56,10 +56,10 @@ public class ExpressionSingle {
   private int mNumber;
 
   /** The first added axis has to be stored till a second one is added. */
-  private IAxis mFirstAxis;
+  private Axis mFirstAxis;
 
   /** Contains the execution chain consisting of nested NestedAxis. */
-  private IAxis mExpr;
+  private Axis mExpr;
 
   /** Current ordering state. */
   private OrdState mOrd;
@@ -88,8 +88,8 @@ public class ExpressionSingle {
    * @param pAx
    *          the axis to add
    */
-  public void add(final IAxis pAx) {
-    IAxis axis = pAx;
+  public void add(final Axis pAx) {
+    Axis axis = pAx;
       if (isDupOrd(axis)) {
         axis = new DupFilterAxis(axis.getTrx(), axis);
         DupState.nodup = true;
@@ -105,7 +105,7 @@ public class ExpressionSingle {
         mNumber++;
         break;
       default:
-        final IAxis cache = mExpr;
+        final Axis cache = mExpr;
         mExpr = new NestedAxis(cache, axis);
       }
   }
@@ -116,7 +116,7 @@ public class ExpressionSingle {
    * 
    * @return The query execution chain
    */
-  public IAxis getExpr() {
+  public Axis getExpr() {
 
     return (mNumber == 1) ? mFirstAxis : mExpr;
   }
@@ -143,9 +143,9 @@ public class ExpressionSingle {
    *          name of the current axis
    * @return true, if expression is still duplicate free
    */
-  public boolean isDupOrd(final IAxis ax) {
+  public boolean isDupOrd(final Axis ax) {
 
-    IAxis axis = ax;
+    Axis axis = ax;
 
     while (axis instanceof FilterAxis) {
       axis = ((FilterAxis)axis).getAxis();

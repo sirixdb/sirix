@@ -42,19 +42,19 @@ import javax.annotation.Nonnull;
 
 import org.junit.Ignore;
 import org.junit.Test;
-import org.sirix.access.Database;
-import org.sirix.access.Session;
+import org.sirix.access.DatabaseImpl;
+import org.sirix.access.SessionImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.DocumentRootNode;
-import org.sirix.node.EKind.DumbNode;
+import org.sirix.node.Kind.DumbNode;
 import org.sirix.node.ElementNode;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.TextNode;
@@ -62,7 +62,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
-import org.sirix.node.interfaces.INodeBase;
+import org.sirix.node.interfaces.NodeBase;
 import org.sirix.page.NodePage;
 import org.sirix.settings.ECharsForSerializing;
 import org.sirix.utils.DocumentCreater;
@@ -71,7 +71,7 @@ import com.google.common.collect.HashBiMap;
 
 /**
  * 
- * Helper class for offering convenient usage of {@link Session}s for test
+ * Helper class for offering convenient usage of {@link SessionImpl}s for test
  * cases.
  * 
  * This includes instantiation of databases plus resources.
@@ -125,7 +125,7 @@ public final class TestHelper {
 	public final static Random random = new Random();
 
 	/** File <=> Database instances. */
-	private final static Map<File, IDatabase> INSTANCES = new Hashtable<>();
+	private final static Map<File, Database> INSTANCES = new Hashtable<>();
 
 	@Test
 	public void testDummy() {
@@ -141,16 +141,16 @@ public final class TestHelper {
 	 * @return a database-obj
 	 */
 	@Ignore
-	public static final IDatabase getDatabase(final File file) {
+	public static final Database getDatabase(final File file) {
 		if (INSTANCES.containsKey(file)) {
 			return INSTANCES.get(file);
 		} else {
 			try {
 				final DatabaseConfiguration config = new DatabaseConfiguration(file);
 				if (!file.exists()) {
-					Database.createDatabase(config);
+					DatabaseImpl.createDatabase(config);
 				}
-				final IDatabase database = Database.openDatabase(file);
+				final Database database = DatabaseImpl.openDatabase(file);
 				database.createResource(new ResourceConfiguration.Builder(RESOURCE,
 						config).build());
 				INSTANCES.put(file, database);
@@ -170,8 +170,8 @@ public final class TestHelper {
 	@Ignore
 	public static final void deleteEverything() throws SirixException {
 		closeEverything();
-		Database.truncateDatabase(PATHS.PATH1.config);
-		Database.truncateDatabase(PATHS.PATH2.config);
+		DatabaseImpl.truncateDatabase(PATHS.PATH1.config);
+		DatabaseImpl.truncateDatabase(PATHS.PATH2.config);
 	}
 
 	/**
@@ -182,11 +182,11 @@ public final class TestHelper {
 	@Ignore
 	public static final void closeEverything() throws SirixException {
 		if (INSTANCES.containsKey(PATHS.PATH1.getFile())) {
-			final IDatabase database = INSTANCES.remove(PATHS.PATH1.getFile());
+			final Database database = INSTANCES.remove(PATHS.PATH1.getFile());
 			database.close();
 		}
 		if (INSTANCES.containsKey(PATHS.PATH2.getFile())) {
-			final IDatabase database = INSTANCES.remove(PATHS.PATH2.getFile());
+			final Database database = INSTANCES.remove(PATHS.PATH2.getFile());
 			database.close();
 		}
 	}
@@ -297,12 +297,12 @@ public final class TestHelper {
 	 * @throws SirixException
 	 */
 	public static void createTestDocument() throws SirixException {
-		final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		database.createResource(new ResourceConfiguration.Builder(RESOURCE,
 				PATHS.PATH1.config).build());
-		final ISession session = database
+		final Session session = database
 				.getSession(new SessionConfiguration.Builder(RESOURCE).build());
-		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 		DocumentCreater.create(wtx);
 		wtx.commit();
 		wtx.close();
@@ -315,12 +315,12 @@ public final class TestHelper {
 	 * @throws SirixException
 	 */
 	public static void createPICommentTestDocument() throws SirixException {
-		final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		database.createResource(new ResourceConfiguration.Builder(RESOURCE,
 				PATHS.PATH1.config).build());
-		final ISession session = database
+		final Session session = database
 				.getSession(new SessionConfiguration.Builder(RESOURCE).build());
-		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 		DocumentCreater.createCommentPI(wtx);
 		wtx.commit();
 		wtx.close();
@@ -344,7 +344,7 @@ public final class TestHelper {
 	 * 
 	 * @return a {@link DumbNode} with random values
 	 */
-	public static final INodeBase generateOne() {
+	public static final NodeBase generateOne() {
 		return new DumbNode(TestHelper.random.nextInt(Integer.MAX_VALUE));
 	}
 }

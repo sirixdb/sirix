@@ -50,7 +50,7 @@ public final class StructuralDiffTest {
 
   private Holder mHolder;
 
-  private IDiffObserver mObserver;
+  private DiffObserver mObserver;
 
   @Before
   public void setUp() throws SirixException {

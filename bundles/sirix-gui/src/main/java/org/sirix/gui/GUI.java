@@ -48,7 +48,7 @@ import javax.swing.UnsupportedLookAndFeelException;
 import javax.swing.WindowConstants;
 
 import org.sirix.exception.SirixException;
-import org.sirix.gui.view.IView;
+import org.sirix.gui.view.View;
 import org.sirix.gui.view.ViewContainer;
 import org.sirix.gui.view.ViewNotifier;
 import org.sirix.gui.view.smallmultiple.SmallmultipleView;
@@ -97,7 +97,7 @@ public final class GUI extends JFrame {
 	private final ViewNotifier mNotifier;
 
 	/**
-	 * {@link ViewContainer} which contains all {@link IView} implementations
+	 * {@link ViewContainer} which contains all {@link View} implementations
 	 * available.
 	 */
 	private final ViewContainer mContainer;

@@ -58,7 +58,7 @@ import com.google.gson.stream.JsonWriter;
 public final class DatabaseConfiguration {
 
 	/**
-	 * Paths for a {@link org.access.Database}. Each {@link org.access.Database}
+	 * Paths for a {@link org.DatabaseImpl.Database}. Each {@link org.DatabaseImpl.Database}
 	 * has the same folder layout.
 	 */
 	public enum Paths {

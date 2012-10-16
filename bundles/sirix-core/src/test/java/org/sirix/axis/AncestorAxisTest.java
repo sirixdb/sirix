@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 
 public class AncestorAxisTest {
@@ -54,7 +54,7 @@ public class AncestorAxisTest {
 
   @Test
   public void testAxisConventions() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(12L);
     AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx), new long[] {
@@ -77,25 +77,25 @@ public class AncestorAxisTest {
 
   @Test
   public void testAxisConventionsIncludingSelf() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(11L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, EIncludeSelf.YES), new long[] {
+    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {
       11L, 9L, 1L
     });
 
     rtx.moveTo(5L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, EIncludeSelf.YES), new long[] {
+    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {
       5L, 1L
     });
 
     rtx.moveTo(4L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, EIncludeSelf.YES), new long[] {
+    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {
       4L, 1L
     });
 
     rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, EIncludeSelf.YES), new long[] {
+    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {
       1L
     });
   }

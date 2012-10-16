@@ -38,13 +38,13 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.DocumentCreater;
 
@@ -84,7 +84,7 @@ public class MultipleCommitTest {
     DocumentCreater.create(holder.getWtx());
     holder.getWtx().commit();
 
-    final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+    final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
     rtx.close();
   }
 
@@ -110,7 +110,7 @@ public class MultipleCommitTest {
     final AbsAxis postorderAxis = new PostOrderAxis(holder.getWtx());
     while (postorderAxis.hasNext()) {
       postorderAxis.next();
-      if (holder.getWtx().getKind() == EKind.ELEMENT
+      if (holder.getWtx().getKind() == Kind.ELEMENT
         && holder.getWtx().getAttributeCount() > 0) {
         for (int i = 0, attrCount = holder.getWtx().getAttributeCount(); i < attrCount; i++) {
           holder.getWtx().moveToAttribute(i);
@@ -122,10 +122,10 @@ public class MultipleCommitTest {
     holder.getWtx().moveToDocumentRoot();
 
     int attrTouch = 0;
-    final IAxis descAxis = new DescendantAxis(holder.getWtx());
+    final Axis descAxis = new DescendantAxis(holder.getWtx());
     while (descAxis.hasNext()) {
       descAxis.next();
-      if (holder.getWtx().getKind() == EKind.ELEMENT) {
+      if (holder.getWtx().getKind() == Kind.ELEMENT) {
         for (int i = 0, attrCount = holder.getWtx().getAttributeCount(); i < attrCount; i++) {
           if (holder.getWtx().moveToAttribute(i).hasMoved()) {
             attrTouch++;

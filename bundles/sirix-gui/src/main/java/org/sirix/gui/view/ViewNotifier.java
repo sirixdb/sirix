@@ -56,7 +56,7 @@ public final class ViewNotifier implements Serializable {
   private final GUI mGUI;
 
   /** Attached views. */
-  private final Set<IView> mViews;
+  private final Set<View> mViews;
 
   /**
    * Constructor.
@@ -66,7 +66,7 @@ public final class ViewNotifier implements Serializable {
    */
   public ViewNotifier(final GUI paramGUI) {
     mGUI = paramGUI;
-    mViews = new HashSet<IView>();
+    mViews = new HashSet<View>();
   }
 
   /**
@@ -75,7 +75,7 @@ public final class ViewNotifier implements Serializable {
    * @param paramView
    *          view to be added
    */
-  public void add(final IView paramView) {
+  public void add(final View paramView) {
     mViews.add(paramView);
   }
 
@@ -83,10 +83,10 @@ public final class ViewNotifier implements Serializable {
    * Notifies all views of a data reference change.
    * 
    * @param paramView
-   *          the calling {@link IView}
+   *          the calling {@link View}
    */
-  public void init(final IView pView) {
-    for (final IView view : mViews) {
+  public void init(final View pView) {
+    for (final View view : mViews) {
       if (view.isVisible()) {
         if (pView != null) {
           if (view != pView) {
@@ -103,12 +103,12 @@ public final class ViewNotifier implements Serializable {
    * Notifies all views of updates in the data structure.
    * 
    * @param paramView
-   *          the calling {@link IView}
+   *          the calling {@link View}
    */
-  public void update(final IView pView, Optional<VisualItemAxis> pItems) {
+  public void update(final View pView, Optional<VisualItemAxis> pItems) {
     checkNotNull(pView);
     checkNotNull(pItems);
-    for (final IView view : mViews) {
+    for (final View view : mViews) {
       if (view.isVisible() && view != pView) {
         view.refreshUpdate(pItems);
       }
@@ -119,7 +119,7 @@ public final class ViewNotifier implements Serializable {
    * Dispose all views.
    */
   public void dispose() {
-    for (final IView view : mViews) {
+    for (final View view : mViews) {
       if (view.isVisible()) {
         view.dispose();
       }
@@ -136,13 +136,13 @@ public final class ViewNotifier implements Serializable {
   }
 
   /**
-   * Hover current {@link IVisualItem} implementation.
+   * Hover current {@link VisualItem} implementation.
    * 
    * @param paramItem
-   *          {@link IVisualItem} implementation
+   *          {@link VisualItem} implementation
    */
-  public void hover(final IVisualItem paramItem) {
-    for (final IView view : mViews) {
+  public void hover(final VisualItem paramItem) {
+    for (final View view : mViews) {
       if (view.isVisible()) {
         view.hover(paramItem);
       }

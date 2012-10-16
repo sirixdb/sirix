@@ -27,8 +27,8 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.types.Type;
@@ -52,10 +52,10 @@ import org.sirix.utils.TypedValue;
 public class RangeAxis extends AbsAxis {
 
   /** The expression the range starts from. */
-  private final IAxis mFrom;
+  private final Axis mFrom;
 
   /** The expression the range ends. */
-  private final IAxis mTo;
+  private final Axis mTo;
 
   /** Is it the first run of range axis? */
   private boolean mFirst;
@@ -76,7 +76,7 @@ public class RangeAxis extends AbsAxis {
    * @param mTo
    *          the end of the range
    */
-  public RangeAxis(final INodeReadTrx rtx, final IAxis mFrom, final IAxis mTo) {
+  public RangeAxis(final NodeReadTrx rtx, final Axis mFrom, final Axis mTo) {
 
     super(rtx);
     this.mFrom = mFrom;

@@ -31,8 +31,8 @@ import javax.annotation.Nonnull;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
@@ -49,10 +49,10 @@ import org.sirix.service.xml.xpath.XPathError.ErrorType;
 public class UnionAxis extends AbsAxis {
 
   /** First operand sequence. */
-  private final IAxis mOp1;
+  private final Axis mOp1;
 
   /** Second operand sequence. */
-  private final IAxis mOp2;
+  private final Axis mOp2;
 
   /**
    * Constructor. Initializes the internal state.
@@ -64,8 +64,8 @@ public class UnionAxis extends AbsAxis {
    * @param pOperand2
    *          second operand
    */
-  public UnionAxis(@Nonnull final INodeReadTrx pRtx,
-    @Nonnull final IAxis pOperand1, @Nonnull final IAxis pOperand2) {
+  public UnionAxis(@Nonnull final NodeReadTrx pRtx,
+    @Nonnull final Axis pOperand1, @Nonnull final Axis pOperand2) {
     super(pRtx);
     mOp1 = checkNotNull(pOperand1);
     mOp2 = checkNotNull(pOperand2);

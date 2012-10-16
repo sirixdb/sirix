@@ -42,7 +42,7 @@ import net.sf.saxon.s9api.Processor;
 import net.sf.saxon.s9api.XPathCompiler;
 import net.sf.saxon.s9api.XPathSelector;
 import net.sf.saxon.s9api.XdmItem;
-import org.sirix.api.ISession;
+import org.sirix.api.Session;
 import org.sirix.saxon.wrapper.DocumentWrapper;
 
 /**
@@ -61,8 +61,8 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
   /** An XPath expression. */
   private final String mExpression;
 
-  /** Sirix {@link ISession}. */
-  private final ISession mSession;
+  /** Sirix {@link Session}. */
+  private final Session mSession;
 
   /** The revision to open. */
   private int mRevision;
@@ -74,8 +74,8 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
     /** An XPath expression. */
     private final String mExpression;
 
-    /** Sirix {@link ISession}. */
-    private final ISession mSession;
+    /** Sirix {@link Session}. */
+    private final Session mSession;
 
     /** The revision to open. */
     private int mRevision;
@@ -86,9 +86,9 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
      * @param pExpression
      *          XPath expression
      * @param pSession
-     *          sirix {@link ISession} instance
+     *          sirix {@link Session} instance
      */
-    public Builder(@Nonnull final String pExpression, @Nonnull final ISession pSession) {
+    public Builder(@Nonnull final String pExpression, @Nonnull final Session pSession) {
       mExpression = checkNotNull(pExpression);
       mSession = checkNotNull(pSession);
       mRevision = pSession.getLastRevisionNumber();
@@ -123,7 +123,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
    * @param pBuilder
    *          {@link Builder} instance
    * @param pSession
-   *          sirix {@link ISession} instance
+   *          sirix {@link Session} instance
    * @param pRevision
    *          the revision to open
    */

@@ -54,20 +54,20 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamException;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.model.AbsModel;
 import org.sirix.gui.view.model.AbsTraverseModel;
-import org.sirix.gui.view.model.interfaces.IChangeModel;
-import org.sirix.gui.view.model.interfaces.IContainer;
+import org.sirix.gui.view.model.interfaces.ChangeModel;
+import org.sirix.gui.view.model.interfaces.Container;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI;
-import org.sirix.gui.view.sunburst.EPruning;
+import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.NodeRelations;
 import org.sirix.gui.view.sunburst.SunburstContainer;
@@ -76,9 +76,9 @@ import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.SunburstItem.EStructType;
 import org.sirix.gui.view.sunburst.SunburstPopupMenu;
 import org.sirix.gui.view.sunburst.axis.SunburstDescendantAxis;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.IStructNode;
-import org.sirix.service.xml.shredder.EShredderCommit;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.StructNode;
+import org.sirix.service.xml.shredder.ShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
@@ -97,14 +97,14 @@ import processing.core.PConstants;
  * 
  */
 public final class SunburstModel extends
-		AbsModel<SunburstContainer, SunburstItem> implements IChangeModel {
+		AbsModel<SunburstContainer, SunburstItem> implements ChangeModel {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
 			LoggerFactory.getLogger(SunburstModel.class));
 
-	/** {@link INodeWriteTrx} instance. */
-	private INodeWriteTrx mWtx;
+	/** {@link NodeWriteTrx} instance. */
+	private NodeWriteTrx mWtx;
 
 	/**
 	 * Constructor.
@@ -119,7 +119,7 @@ public final class SunburstModel extends
 	}
 
 	@Override
-	public void update(@Nonnull final IContainer<SunburstContainer> pContainer) {
+	public void update(@Nonnull final Container<SunburstContainer> pContainer) {
 		mLastItems.push(new ArrayList<>(mItems));
 		mLastDepths.push(mLastMaxDepth);
 //		traverseTree(pContainer);
@@ -127,7 +127,7 @@ public final class SunburstModel extends
 
 	@Override
 	public void traverseTree(
-			@Nonnull final IContainer<SunburstContainer> pContainer) {
+			@Nonnull final Container<SunburstContainer> pContainer) {
 		final SunburstContainer container = (SunburstContainer) checkNotNull(pContainer);
 		checkArgument(container.getNewStartKey() >= 0);
 		checkArgument(container.getOldStartKey() >= 0);
@@ -151,8 +151,8 @@ public final class SunburstModel extends
 		/** {@link SunburstModel} instance. */
 		private final SunburstModel mModel;
 
-		/** {@link INodeReadTrx} instance. */
-		private final INodeReadTrx mRtx;
+		/** {@link NodeReadTrx} instance. */
+		private final NodeReadTrx mRtx;
 
 		/** {@link List} of {@link SunburstItem}s. */
 		private final List<SunburstItem> mItems;
@@ -179,7 +179,7 @@ public final class SunburstModel extends
 		private transient int mDepth;
 
 		/** Determines if tree should be pruned or not. */
-		private transient EPruning mPruning;
+		private transient Pruning mPruning;
 
 		/** Determines if current item has been pruned or not. */
 		private transient boolean mPruned;
@@ -200,7 +200,7 @@ public final class SunburstModel extends
 		 *          GUI which extends the {@link SunburstGUI}
 		 */
 		private TraverseTree(@Nonnegative final long pKey,
-				@Nonnull final EPruning pPruning, @Nonnull final AbsSunburstGUI pGUI,
+				@Nonnull final Pruning pPruning, @Nonnull final AbsSunburstGUI pGUI,
 				@Nonnull final SunburstModel pModel) throws SirixException {
 			assert pKey >= 0;
 			assert pModel != null;
@@ -228,7 +228,7 @@ public final class SunburstModel extends
 			firePropertyChange("progress", null, 0);
 
 			// Get min and max textLength.
-			if (mPruning == EPruning.NO) {
+			if (mPruning == Pruning.NO) {
 				getMinMaxTextLength();
 			}
 
@@ -236,7 +236,7 @@ public final class SunburstModel extends
 				// Iterate over nodes and perform appropriate stack actions internally.
 				int i = 0;
 				for (final SunburstDescendantAxis axis = new SunburstDescendantAxis(
-						mRtx, EIncludeSelf.YES, this, mPruning); axis.hasNext(); i++) {
+						mRtx, IncludeSelf.YES, this, mPruning); axis.hasNext(); i++) {
 					axis.next();
 					final int progress = (int) ((float) i / (float) mMaxDescendantCount * (float) 100);
 					if (progress > 0 && progress < 100) {
@@ -299,7 +299,7 @@ public final class SunburstModel extends
 			// Set node relations.
 			String text = null;
 			NodeRelations relations = null;
-			if (mRtx.getKind() == EKind.TEXT) {
+			if (mRtx.getKind() == Kind.TEXT) {
 				relations = new NodeRelations(depth, depth, structKind, mRtx.getValue()
 						.length(), mMinTextLength, mMaxTextLength, indexToParent);
 				text = mRtx.getValue();
@@ -344,10 +344,10 @@ public final class SunburstModel extends
 		void getMinMaxTextLength() {
 			mMinTextLength = Integer.MAX_VALUE;
 			mMaxTextLength = Integer.MIN_VALUE;
-			for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
+			for (final Axis axis = new DescendantAxis(mRtx, IncludeSelf.YES); axis
 					.hasNext();) {
 				axis.next();
-				if (axis.getTrx().getKind() == EKind.TEXT) {
+				if (axis.getTrx().getKind() == Kind.TEXT) {
 					final int length = axis.getTrx().getValue().length();
 					if (length < mMinTextLength) {
 						mMinTextLength = length;
@@ -370,7 +370,7 @@ public final class SunburstModel extends
 		}
 
 		@Override
-		public void descendants(@Nonnull final Optional<INodeReadTrx> pRtx)
+		public void descendants(@Nonnull final Optional<NodeReadTrx> pRtx)
 				throws InterruptedException, ExecutionException {
 			checkNotNull(pRtx);
 
@@ -388,18 +388,18 @@ public final class SunburstModel extends
 		 */
 		private final class GetDescendants implements Callable<Void> {
 
-			/** {@link INodeReadTrx} implementation. */
-			private final INodeReadTrx mRtx;
+			/** {@link NodeReadTrx} implementation. */
+			private final NodeReadTrx mRtx;
 
 			/**
 			 * Get descendants.
 			 * 
 			 * @param pRtx
-			 *          {@link INodeReadTrx} implementation
+			 *          {@link NodeReadTrx} implementation
 			 * @throws SirixException
 			 *           if traversing a sirix resource fails
 			 */
-			GetDescendants(final INodeReadTrx pRtx) throws SirixException {
+			GetDescendants(final NodeReadTrx pRtx) throws SirixException {
 				mRtx = mDb.getSession().beginNodeReadTrx(mDb.getRevisionNumber());
 				mRtx.moveTo(pRtx.getNodeKey());
 			}
@@ -415,7 +415,7 @@ public final class SunburstModel extends
 					mDepth = 0;
 					boolean first = true;
 
-					if (mRtx.getKind() == EKind.DOCUMENT_ROOT) {
+					if (mRtx.getKind() == Kind.DOCUMENT_ROOT) {
 						mRtx.moveToFirstChild();
 					}
 					final long key = mRtx.getNodeKey();
@@ -493,9 +493,9 @@ public final class SunburstModel extends
 				case NO:
 					// Get descendants for every node and save it to a list.
 					boolean firstNode = true;
-					for (final IAxis axis = new DescendantAxis(mRtx, EIncludeSelf.YES); axis
+					for (final Axis axis = new DescendantAxis(mRtx, IncludeSelf.YES); axis
 							.hasNext(); axis.next()) {
-						if (axis.getTrx().getKind() != EKind.DOCUMENT_ROOT) {
+						if (axis.getTrx().getKind() != Kind.DOCUMENT_ROOT) {
 							// try {
 							final Future<Integer> futureSubmitted = executor.submit(Callables
 									.returning((int) mRtx.getDescendantCount() + 1));// */new
@@ -528,9 +528,9 @@ public final class SunburstModel extends
 		 * Count descendants.
 		 * 
 		 * @param pRtx
-		 *          {@link INodeReadTrx} instance
+		 *          {@link NodeReadTrx} instance
 		 */
-		Future<Integer> countDescendants(final INodeReadTrx pRtx,
+		Future<Integer> countDescendants(final NodeReadTrx pRtx,
 				final ExecutorService pExecutor) throws SirixException {
 			assert pRtx != null;
 			assert pExecutor != null;
@@ -547,8 +547,8 @@ public final class SunburstModel extends
 		/** Counts descendants but pruned after a specified level. */
 		private final static class PrunedDescendants implements Callable<Integer> {
 
-			/** sirix {@link INodeReadTrx}. */
-			private final INodeReadTrx mRtx;
+			/** sirix {@link NodeReadTrx}. */
+			private final NodeReadTrx mRtx;
 
 			/** Current depth in the tree. */
 			private transient int mDepth;
@@ -557,9 +557,9 @@ public final class SunburstModel extends
 			 * Constructor.
 			 * 
 			 * @param pRtx
-			 *          {@link INodeReadTrx} over which to iterate
+			 *          {@link NodeReadTrx} over which to iterate
 			 */
-			PrunedDescendants(final ISession pSession, final int pRevision,
+			PrunedDescendants(final Session pSession, final int pRevision,
 					final long pNodeKey, final int pDepth) throws SirixException {
 				assert pSession != null;
 				assert !pSession.isClosed();
@@ -604,11 +604,11 @@ public final class SunburstModel extends
 			 * Move transaction to the next following node.
 			 * 
 			 * @param pRtx
-			 *          {@link INodeReadTrx} implementation
+			 *          {@link NodeReadTrx} implementation
 			 * @param pKey
 			 *          root key
 			 */
-			private int nextFollowingNode(final INodeReadTrx pRtx, final long pKey) {
+			private int nextFollowingNode(final NodeReadTrx pRtx, final long pKey) {
 				checkNotNull(pRtx);
 				int retVal = 0;
 				while (!pRtx.hasRightSibling() && pRtx.getNodeKey() != pKey) {

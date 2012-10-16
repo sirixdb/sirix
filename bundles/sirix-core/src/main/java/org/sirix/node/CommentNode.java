@@ -11,9 +11,9 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.immutable.ImmutableComment;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
-import org.sirix.node.interfaces.IValNode;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.ValNode;
 import org.sirix.settings.EFixed;
 
 import com.google.common.base.Objects;
@@ -24,7 +24,7 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger
  *
  */
-public class CommentNode extends AbsStructForwardingNode implements IValNode {
+public class CommentNode extends AbsStructForwardingNode implements ValNode {
 
 	/** {@link StructNodeDelegate} reference. */
 	private final StructNodeDelegate mStructNodeDel;
@@ -39,11 +39,11 @@ public class CommentNode extends AbsStructForwardingNode implements IValNode {
 	 * Constructor for TextNode.
 	 * 
 	 * @param pDel
-	 *          delegate for {@link INode} implementation
+	 *          delegate for {@link Node} implementation
 	 * @param pValDel
-	 *          delegate for {@link IValNode} implementation
+	 *          delegate for {@link ValNode} implementation
 	 * @param pStructDel
-	 *          delegate for {@link IStructNode} implementation
+	 *          delegate for {@link StructNode} implementation
 	 */
 	public CommentNode(final @Nonnull ValNodeDelegate pValDel,
 			final @Nonnull StructNodeDelegate pStructDel) {
@@ -52,8 +52,8 @@ public class CommentNode extends AbsStructForwardingNode implements IValNode {
 	}
 
 	@Override
-	public EKind getKind() {
-		return EKind.COMMENT;
+	public Kind getKind() {
+		return Kind.COMMENT;
 	}
 
 	@Override

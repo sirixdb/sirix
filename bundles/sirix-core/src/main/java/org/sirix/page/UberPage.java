@@ -39,7 +39,7 @@ import org.sirix.node.DocumentRootNode;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.page.delegates.PageDelegate;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 import org.sirix.settings.EFixed;
 import org.sirix.settings.IConstants;
 
@@ -86,7 +86,7 @@ public final class UberPage extends AbsForwardingPage {
 
 		// Initialize revision tree to guarantee that there is a revision root
 		// page.
-		IPage page = null;
+		Page page = null;
 		PageReference reference = getReference(INDIRECT_REFERENCE_OFFSET);
 
 		// Remaining levels.
@@ -156,7 +156,7 @@ public final class UberPage extends AbsForwardingPage {
 	 */
 	private void createTree(@Nonnull PageReference pReference,
 			final @Nonnull EPage pPage) {
-		IPage page = null;
+		Page page = null;
 //		assert pReference.getPage() instanceof IndirectPage : "page is of type: "
 //				+ pReference.getPage();
 //		pReference.setPageKind(EPage.INDIRECTPAGE);
@@ -290,12 +290,12 @@ public final class UberPage extends AbsForwardingPage {
 	}
 
 	@Override
-	protected IPage delegate() {
+	protected Page delegate() {
 		return mDelegate;
 	}
 
 	@Override
-	public IPage setDirty(final boolean pDirty) {
+	public Page setDirty(final boolean pDirty) {
 		mDelegate.setDirty(pDirty);
 		return this;
 	}

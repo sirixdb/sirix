@@ -32,7 +32,7 @@ import com.google.common.base.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 import org.sirix.settings.IConstants;
 
 /**
@@ -50,7 +50,7 @@ public final class PageReference {
   private EPage mPageKind;
 
   /** In-memory deserialized page instance. */
-  private IPage mPage;
+  private Page mPage;
 
   /** Corresponding mKey of the related node page. */
   private long mNodePageKey = -1;
@@ -82,7 +82,7 @@ public final class PageReference {
    * 
    * @return in-memory instance of deserialized page
    */
-  public IPage getPage() {
+  public Page getPage() {
     return mPage;
   }
 
@@ -92,7 +92,7 @@ public final class PageReference {
    * @param pPage
    *          deserialized page
    */
-  public void setPage(final @Nullable IPage pPage) {
+  public void setPage(final @Nullable Page pPage) {
     mPage = pPage;
   }
 

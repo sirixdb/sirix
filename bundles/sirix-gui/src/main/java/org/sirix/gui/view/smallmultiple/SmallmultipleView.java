@@ -39,13 +39,13 @@ import javax.swing.JComponent;
 import org.sirix.gui.GUIProp;
 import org.sirix.gui.ProgressGlassPane;
 import org.sirix.gui.view.AbsView;
-import org.sirix.gui.view.IProcessingView;
-import org.sirix.gui.view.IView;
-import org.sirix.gui.view.IVisualItem;
+import org.sirix.gui.view.ProcessingView;
+import org.sirix.gui.view.View;
+import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.ProcessingEmbeddedView;
 import org.sirix.gui.view.ViewNotifier;
 import org.sirix.gui.view.VisualItemAxis;
-import org.sirix.gui.view.model.interfaces.IModel;
+import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI;
 import org.sirix.gui.view.sunburst.SunburstView;
 import org.sirix.gui.view.sunburst.model.SunburstModel;
@@ -58,7 +58,7 @@ import processing.core.PConstants;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class SmallmultipleView extends AbsView implements IView {
+public class SmallmultipleView extends AbsView implements View {
 
   /**
    * SerialUID.
@@ -144,7 +144,7 @@ public class SmallmultipleView extends AbsView implements IView {
   }
 
   /** Embedded processing view. */
-  final class Embedded extends PApplet implements IProcessingView {
+  final class Embedded extends PApplet implements ProcessingView {
 
     /**
      * Serial UID.
@@ -274,7 +274,7 @@ public class SmallmultipleView extends AbsView implements IView {
     }
 
     @Override
-    public IView getView() {
+    public View getView() {
       assert mView != null;
       return mView;
     }
@@ -310,13 +310,13 @@ public class SmallmultipleView extends AbsView implements IView {
     }
 
     @Override
-    public IModel<?, ?> getModel() {
+    public Model<?, ?> getModel() {
       return mModel;
     }
   }
 
   @Override
-  public void hover(final IVisualItem paramItem) {
+  public void hover(final VisualItem paramItem) {
   }
 
   @Override
@@ -324,7 +324,7 @@ public class SmallmultipleView extends AbsView implements IView {
   }
 
   @Override
-  protected IProcessingView getEmbeddedInstance() {
+  protected ProcessingView getEmbeddedInstance() {
     return new Embedded(this);
   }
 }

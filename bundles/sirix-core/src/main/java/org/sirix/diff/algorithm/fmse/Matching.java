@@ -34,11 +34,11 @@ import java.util.Map;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
-import org.sirix.node.EKind;
+import org.sirix.axis.IncludeSelf;
+import org.sirix.node.Kind;
 
 /**
  * Keeps track of nodes in a matching.
@@ -61,21 +61,21 @@ public final class Matching {
    */
   private final ConnectionMap<Long> mIsInSubtree;
 
-  /** {@link INodeReadTrx} reference on old revision. */
-  private final INodeReadTrx mRtxOld;
+  /** {@link NodeReadTrx} reference on old revision. */
+  private final NodeReadTrx mRtxOld;
 
-  /** {@link INodeReadTrx} reference on new revision. */
-  private final INodeReadTrx mRtxNew;
+  /** {@link NodeReadTrx} reference on new revision. */
+  private final NodeReadTrx mRtxNew;
 
   /**
    * Creates a new matching.
    * 
    * @param pRtxOld
-   *          {@link INodeReadTrx} reference on old revision
+   *          {@link NodeReadTrx} reference on old revision
    * @param pRtxNew
-   *          {@link INodeReadTrx} reference on new revision.
+   *          {@link NodeReadTrx} reference on new revision.
    */
-  public Matching(final INodeReadTrx pRtxOld, final INodeReadTrx pRtxNew) {
+  public Matching(final NodeReadTrx pRtxOld, final NodeReadTrx pRtxNew) {
     mMapping = new HashMap<>();
     mReverseMapping = new HashMap<>();
     mIsInSubtree = new ConnectionMap<>();
@@ -135,9 +135,9 @@ public final class Matching {
    * @param pKey
    *          key of node in subtree
    * @param pRtx
-   *          {@link INodeReadTrx} reference
+   *          {@link NodeReadTrx} reference
    */
-  private void updateSubtreeMap(@Nonnegative final long pKey, @Nonnull final INodeReadTrx pRtx) {
+  private void updateSubtreeMap(@Nonnegative final long pKey, @Nonnull final NodeReadTrx pRtx) {
     assert pKey >= 0;
     assert pRtx != null;
 
@@ -179,10 +179,10 @@ public final class Matching {
     long retVal = 0;
 
     mRtxOld.moveTo(pNodeX);
-    for (final IAxis axis = new DescendantAxis(mRtxOld, EIncludeSelf.YES); axis.hasNext();) {
+    for (final Axis axis = new DescendantAxis(mRtxOld, IncludeSelf.YES); axis.hasNext();) {
       axis.next();
       retVal += mIsInSubtree.get(pNodeY, partner(mRtxOld.getNodeKey())) ? 1 : 0;
-      if (mRtxOld.getKind() == EKind.ELEMENT) {
+      if (mRtxOld.getKind() == Kind.ELEMENT) {
         for (int i = 0, nspCount = mRtxOld.getNamespaceCount(); i < nspCount; i++) {
           mRtxOld.moveToNamespace(i);
           retVal +=

@@ -27,8 +27,8 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.SingleType;
 import org.sirix.service.xml.xpath.XPathError;
@@ -52,7 +52,7 @@ import org.sirix.service.xml.xpath.types.Type;
 public class CastExpr extends AbsExpression {
 
   /** The input expression to cast to a specified target expression. */
-  private final IAxis mSourceExpr;
+  private final Axis mSourceExpr;
 
   /** The type, to which the input expression will be casted to. */
   private final Type mTargetType;
@@ -70,7 +70,7 @@ public class CastExpr extends AbsExpression {
    * @param mTarget
    *          Type the input expression will be casted to.
    */
-  public CastExpr(final INodeReadTrx rtx, final IAxis mInputExpr, final SingleType mTarget) {
+  public CastExpr(final NodeReadTrx rtx, final Axis mInputExpr, final SingleType mTarget) {
 
     super(rtx);
     mSourceExpr = mInputExpr;

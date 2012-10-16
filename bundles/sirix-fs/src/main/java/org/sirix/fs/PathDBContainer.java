@@ -7,12 +7,12 @@ import java.nio.file.Path;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IDatabase;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.Session;
 
 /**
- * Container for {@code {@link Path}/{@link IDatabase} combinations. Note that it may be refined to {@code {
- * @link IDatabase}/{@link ISession}/{@link IResource} later on.
+ * Container for {@code {@link Path}/{@link Database} combinations. Note that it may be refined to {@code {
+ * @link IDatabase}/{@link Session}/{@link IResource} later on.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -23,8 +23,8 @@ public final class PathDBContainer {
   /** {@link Path} to watch for modifications. */
   final Path mPath;
 
-  /** sirix {@link IDatabase}. */
-  final IDatabase mDatabase;
+  /** sirix {@link Database}. */
+  final Database mDatabase;
 
   /**
    * Constructor.
@@ -32,9 +32,9 @@ public final class PathDBContainer {
    * @param pPath
    *          {@link Path} reference
    * @param pDatabase
-   *          sirix {@link IDatabase} reference
+   *          sirix {@link Database} reference
    */
-  public PathDBContainer(final Path pPath, final IDatabase pDatabase) {
+  public PathDBContainer(final Path pPath, final Database pDatabase) {
     mPath = checkNotNull(pPath);
     mDatabase = checkNotNull(pDatabase);
   }

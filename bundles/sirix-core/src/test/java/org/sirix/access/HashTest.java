@@ -40,9 +40,9 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.EFixed;
 
@@ -59,37 +59,37 @@ public class HashTest {
 
 	@Test
 	public void testPostorderInsertRemove() throws SirixException {
-		final INodeWriteTrx wtx = createWtx(EHashKind.Postorder);
+		final NodeWriteTrx wtx = createWtx(HashKind.Postorder);
 		testHashTreeWithInsertAndRemove(wtx);
 	}
 
 	@Test
 	public void testPostorderDeep() throws SirixException {
-		final INodeWriteTrx wtx = createWtx(EHashKind.Postorder);
+		final NodeWriteTrx wtx = createWtx(HashKind.Postorder);
 		testDeepTree(wtx);
 	}
 
 	@Test
 	public void testPostorderSetter() throws SirixException {
-		final INodeWriteTrx wtx = createWtx(EHashKind.Postorder);
+		final NodeWriteTrx wtx = createWtx(HashKind.Postorder);
 		testSetter(wtx);
 	}
 
 	@Test
 	public void testRollingInsertRemove() throws SirixException {
-		final INodeWriteTrx wtx = createWtx(EHashKind.Rolling);
+		final NodeWriteTrx wtx = createWtx(HashKind.Rolling);
 		testHashTreeWithInsertAndRemove(wtx);
 	}
 
 	@Test
 	public void testRollingDeep() throws SirixException {
-		final INodeWriteTrx wtx = createWtx(EHashKind.Rolling);
+		final NodeWriteTrx wtx = createWtx(HashKind.Rolling);
 		testDeepTree(wtx);
 	}
 
 	@Test
 	public void testRollingSetter() throws SirixException {
-		final INodeWriteTrx wtx = createWtx(EHashKind.Rolling);
+		final NodeWriteTrx wtx = createWtx(HashKind.Rolling);
 		testSetter(wtx);
 	}
 
@@ -112,7 +112,7 @@ public class HashTest {
 	 * @throws TTException
 	 */
 	@Ignore
-	private void testHashTreeWithInsertAndRemove(final INodeWriteTrx wtx)
+	private void testHashTreeWithInsertAndRemove(final NodeWriteTrx wtx)
 			throws SirixException {
 
 		// inserting a element as root
@@ -164,7 +164,7 @@ public class HashTest {
 	}
 
 	@Ignore
-	private void testDeepTree(final INodeWriteTrx wtx) throws SirixException {
+	private void testDeepTree(final NodeWriteTrx wtx) throws SirixException {
 
 		wtx.insertElementAsFirstChild(new QName(NAME1));
 		final long oldHash = wtx.getHash();
@@ -186,7 +186,7 @@ public class HashTest {
 	}
 
 	@Ignore
-	private void testSetter(final INodeWriteTrx wtx) throws SirixException {
+	private void testSetter(final NodeWriteTrx wtx) throws SirixException {
 
 		// Testing node inheritance
 		wtx.insertElementAsFirstChild(new QName(NAME1));
@@ -228,15 +228,15 @@ public class HashTest {
 		assertFalse(hashRoot4 == hashLeaf3);
 	}
 
-	private INodeWriteTrx createWtx(final EHashKind kind) throws SirixException {
-		final IDatabase database = TestHelper.getDatabase(TestHelper.PATHS.PATH1
+	private NodeWriteTrx createWtx(final HashKind kind) throws SirixException {
+		final Database database = TestHelper.getDatabase(TestHelper.PATHS.PATH1
 				.getFile());
 		database.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-		final ISession session = database
+		final Session session = database
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
-		final INodeWriteTrx wTrx = session.beginNodeWriteTrx();
+		final NodeWriteTrx wTrx = session.beginNodeWriteTrx();
 		return wTrx;
 	}
 

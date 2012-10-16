@@ -27,7 +27,7 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import org.sirix.api.IExpression;
+import org.sirix.api.Expression;
 
 /**
  * <h1>IObserver</h1>
@@ -35,7 +35,7 @@ import org.sirix.api.IExpression;
  * Interface for all axis that observe another axis' state.
  * </p>
  */
-public interface IObserver extends IExpression {
+public interface IObserver extends Expression {
 
   /**
    * This method is called whenever the observed axis is changed.

@@ -45,16 +45,16 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.IReader;
-import org.sirix.io.IStorage;
-import org.sirix.io.IWriter;
+import org.sirix.io.Reader;
+import org.sirix.io.Storage;
+import org.sirix.io.Writer;
 import org.sirix.io.berkeley.binding.PageBinding;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.bytepipe.IByteHandler;
+import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.delegates.PageDelegate;
 
 /**
- * Factory class to build up {@link IReader}/{@link IWriter} instances for Sirix.
+ * Factory class to build up {@link Reader}/{@link Writer} instances for Sirix.
  * 
  * After all this class is implemented as a Singleton to hold one {@link BerkeleyStorage} per
  * {@link SessionConfiguration}.
@@ -62,7 +62,7 @@ import org.sirix.page.delegates.PageDelegate;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class BerkeleyStorage implements IStorage {
+public final class BerkeleyStorage implements Storage {
 
   /** Binding for {@link PageDelegate}. */
   public final PageBinding mPageBinding;
@@ -135,7 +135,7 @@ public final class BerkeleyStorage implements IStorage {
   }
 
   @Override
-  public IReader getReader() throws SirixIOException {
+  public Reader getReader() throws SirixIOException {
     try {
       return new BerkeleyReader(mEnv, mDatabase, new PageBinding(mPageBinding));
     } catch (final DatabaseException exc) {
@@ -144,7 +144,7 @@ public final class BerkeleyStorage implements IStorage {
   }
 
   @Override
-  public IWriter getWriter() throws SirixIOException {
+  public Writer getWriter() throws SirixIOException {
     return new BerkeleyWriter(mEnv, mDatabase, new PageBinding(mPageBinding));
   }
 
@@ -164,7 +164,7 @@ public final class BerkeleyStorage implements IStorage {
     final DatabaseEntry keyEntry = new DatabaseEntry();
     boolean returnVal = false;
     try {
-      final IReader reader = new BerkeleyReader(mEnv, mDatabase, mPageBinding);
+      final Reader reader = new BerkeleyReader(mEnv, mDatabase, mPageBinding);
       TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
 
       final OperationStatus status =
@@ -205,7 +205,7 @@ public final class BerkeleyStorage implements IStorage {
   }
 
   @Override
-  public IByteHandler getByteHandler() {
+  public ByteHandler getByteHandler() {
     return mByteHandler;
   }
 

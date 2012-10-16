@@ -5,21 +5,21 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.INodeCursor;
+import org.sirix.api.NodeCursor;
 
 import com.google.common.base.Objects;
 
 /**
- * Determines that a {@link INodeCursor} has been moved.
+ * Determines that a {@link NodeCursor} has been moved.
  * 
  * @author Johannes Lichtenberger
  * 
  * @param <T>
  *          the cursor instance
  */
-public class Moved<T extends INodeCursor> extends Move<T> {
+public class Moved<T extends NodeCursor> extends Move<T> {
 
-	/** {@link INodeCursor} implementation. */
+	/** {@link NodeCursor} implementation. */
 	private final T mNodeCursor;
 
 	/**

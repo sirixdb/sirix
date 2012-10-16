@@ -32,12 +32,12 @@ import java.util.Map;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.AbsVisitorSupport;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.access.AbsVisitor;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.immutable.ImmutableElement;
 import org.sirix.node.immutable.ImmutableText;
 
@@ -47,10 +47,10 @@ import org.sirix.node.immutable.ImmutableText;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class FMSEVisitor extends AbsVisitorSupport {
+public final class FMSEVisitor extends AbsVisitor {
 
-	/** {@link INodeReadTrx} reference. */
-	private final INodeReadTrx mRtx;
+	/** {@link NodeReadTrx} reference. */
+	private final NodeReadTrx mRtx;
 
 	/** Determines if nodes are in order. */
 	private final Map<Long, Boolean> mInOrder;
@@ -62,7 +62,7 @@ public final class FMSEVisitor extends AbsVisitorSupport {
 	 * Constructor.
 	 * 
 	 * @param pSession
-	 *          {@link ISession} implementation
+	 *          {@link Session} implementation
 	 * @param pInOrder
 	 *          {@link Map} reference to track ordered nodes
 	 * @param pDescendants
@@ -72,7 +72,7 @@ public final class FMSEVisitor extends AbsVisitorSupport {
 	 * @throws NullPointerException
 	 *           if one of the arguments is {@code null}
 	 */
-	public FMSEVisitor(@Nonnull final INodeReadTrx pReadTransaction,
+	public FMSEVisitor(@Nonnull final NodeReadTrx pReadTransaction,
 			@Nonnull final Map<Long, Boolean> pInOrder,
 			@Nonnull final Map<Long, Long> pDescendants) throws SirixException {
 		mRtx = checkNotNull(pReadTransaction);
@@ -118,7 +118,7 @@ public final class FMSEVisitor extends AbsVisitorSupport {
 			mRtx.moveToFirstChild();
 			do {
 				descendants += mDescendants.get(mRtx.getNodeKey());
-				if (mRtx.getKind() == EKind.ELEMENT) {
+				if (mRtx.getKind() == Kind.ELEMENT) {
 					descendants += 1;
 				}
 			} while (mRtx.hasRightSibling() && mRtx.moveToRightSibling().hasMoved());

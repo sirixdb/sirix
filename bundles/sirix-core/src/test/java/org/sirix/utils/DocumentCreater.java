@@ -39,10 +39,10 @@ import javax.xml.stream.XMLStreamException;
 
 import org.sirix.TestHelper;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Database;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
@@ -169,11 +169,11 @@ public final class DocumentCreater {
 	 * Create simple test document containing all supported node kinds.
 	 * 
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} to write to
+	 *          {@link NodeWriteTrx} to write to
 	 * @throws SirixException
 	 *           if anything weird happens
 	 */
-	public static void createCommentPI(final @Nonnull INodeWriteTrx pWtx)
+	public static void createCommentPI(final @Nonnull NodeWriteTrx pWtx)
 			throws SirixException {
 		assertNotNull(pWtx);
 		assertTrue(pWtx.moveToDocumentRoot().hasMoved());
@@ -215,11 +215,11 @@ public final class DocumentCreater {
 	 * comment- and processing instructions.
 	 * 
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} to write to
+	 *          {@link NodeWriteTrx} to write to
 	 * @throws SirixException
 	 *           if anything weird happens
 	 */
-	public static void create(final @Nonnull INodeWriteTrx pWtx)
+	public static void create(final @Nonnull NodeWriteTrx pWtx)
 			throws SirixException {
 		assertNotNull(pWtx);
 		assertTrue(pWtx.moveToDocumentRoot().hasMoved());
@@ -258,11 +258,11 @@ public final class DocumentCreater {
 	 * Create simple revision test in current database.
 	 * 
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} to write to
+	 *          {@link NodeWriteTrx} to write to
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public static void createVersioned(final @Nonnull INodeWriteTrx pWtx)
+	public static void createVersioned(final @Nonnull NodeWriteTrx pWtx)
 			throws SirixException {
 		assertNotNull(pWtx);
 		create(pWtx);
@@ -281,11 +281,11 @@ public final class DocumentCreater {
 	 * attributes.
 	 * 
 	 * @param paramWtx
-	 *          {@link INodeWriteTrx} to write to
+	 *          {@link NodeWriteTrx} to write to
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public static void createWithoutAttributes(final @Nonnull INodeWriteTrx pWtx)
+	public static void createWithoutAttributes(final @Nonnull NodeWriteTrx pWtx)
 			throws SirixException {
 		assertNotNull(pWtx);
 		pWtx.moveToDocumentRoot();
@@ -309,11 +309,11 @@ public final class DocumentCreater {
 	 * ignoring their namespace prefixes.
 	 * 
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} to write to
+	 *          {@link NodeWriteTrx} to write to
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public static void createWithoutNamespace(final @Nonnull INodeWriteTrx pWtx)
+	public static void createWithoutNamespace(final @Nonnull NodeWriteTrx pWtx)
 			throws SirixException {
 		assertNotNull(pWtx);
 		pWtx.moveToDocumentRoot();
@@ -346,18 +346,18 @@ public final class DocumentCreater {
 	 * @throws IOException
 	 *           if reading XML string fails
 	 */
-	public static void createRevisioned(final IDatabase pDB)
+	public static void createRevisioned(final Database pDB)
 			throws SirixException, IOException, XMLStreamException {
 
-		final INodeWriteTrx firstWtx = pDB.getSession(
+		final NodeWriteTrx firstWtx = pDB.getSession(
 				new SessionConfiguration.Builder(TestHelper.RESOURCE).build())
 				.beginNodeWriteTrx();
 		final XMLShredder shredder = new XMLShredder.Builder(firstWtx,
-				XMLShredder.createStringReader(REVXML), EInsert.ASFIRSTCHILD)
+				XMLShredder.createStringReader(REVXML), Insert.ASFIRSTCHILD)
 				.commitAfterwards().build();
 		shredder.call();
 		firstWtx.close();
-		final INodeWriteTrx secondWtx = pDB.getSession(
+		final NodeWriteTrx secondWtx = pDB.getSession(
 				new SessionConfiguration.Builder(TestHelper.RESOURCE).build())
 				.beginNodeWriteTrx();
 		secondWtx.moveToFirstChild();

@@ -40,13 +40,13 @@ import org.slf4j.LoggerFactory;
 import org.sirix.gui.GUIProp;
 import org.sirix.gui.ProgressGlassPane;
 import org.sirix.gui.view.AbsView;
-import org.sirix.gui.view.IProcessingView;
-import org.sirix.gui.view.IView;
-import org.sirix.gui.view.IVisualItem;
+import org.sirix.gui.view.ProcessingView;
+import org.sirix.gui.view.View;
+import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.ProcessingEmbeddedView;
 import org.sirix.gui.view.ViewNotifier;
 import org.sirix.gui.view.VisualItemAxis;
-import org.sirix.gui.view.model.interfaces.IModel;
+import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.sunburst.model.SunburstModel;
 import org.sirix.utils.LogWrapper;
 import processing.core.PApplet;
@@ -61,7 +61,7 @@ import processing.core.PApplet;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SunburstView extends AbsView implements IView {
+public final class SunburstView extends AbsView implements View {
 
   /**
    * SerialUID.
@@ -86,8 +86,8 @@ public final class SunburstView extends AbsView implements IView {
   // /** Processing {@link PApplet} reference. */
   // private transient Embedded mEmbed;
 
-  /** {@link IVisualItem} implementation. */
-  private transient IVisualItem mItem;
+  /** {@link VisualItem} implementation. */
+  private transient VisualItem mItem;
 
   /**
    * Constructor.
@@ -209,7 +209,7 @@ public final class SunburstView extends AbsView implements IView {
   }
 
   /** Embedded processing view. */
-  public final class Embedded extends PApplet implements IProcessingView {
+  public final class Embedded extends PApplet implements ProcessingView {
 
     /** Serial UID. */
     private static final long serialVersionUID = 1L;
@@ -233,7 +233,7 @@ public final class SunburstView extends AbsView implements IView {
      * Constructor.
      * 
      * @param paramView
-     *          reference of class which implements the {@link IView} interface
+     *          reference of class which implements the {@link View} interface
      */
     public Embedded(final SunburstView paramView) {
       mView = checkNotNull(paramView);
@@ -334,7 +334,7 @@ public final class SunburstView extends AbsView implements IView {
     }
 
     @Override
-    public IView getView() {
+    public View getView() {
       assert mView != null;
       return mView;
     }
@@ -376,13 +376,13 @@ public final class SunburstView extends AbsView implements IView {
     }
 
     @Override
-    public IModel<?, ?> getModel() {
+    public Model<?, ?> getModel() {
       return mModel;
     }
   }
 
   @Override
-  public void hover(final IVisualItem paramItem) {
+  public void hover(final VisualItem paramItem) {
     checkNotNull(paramItem);
     if (mItem == null || mItem != paramItem) {
       mItem = paramItem;
@@ -391,7 +391,7 @@ public final class SunburstView extends AbsView implements IView {
   }
 
   @Override
-  protected IProcessingView getEmbeddedInstance() {
+  protected ProcessingView getEmbeddedInstance() {
     return new Embedded(this);
   }
 }

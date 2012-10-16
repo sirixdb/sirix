@@ -9,17 +9,17 @@ import java.util.List;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.access.AbsVisitorSupport;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.access.AbsVisitor;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.diff.algorithm.fmse.Matching;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.immutable.ImmutableElement;
 import org.sirix.node.immutable.ImmutableText;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class DeleteFMSEVisitor extends AbsVisitorSupport {
+public class DeleteFMSEVisitor extends AbsVisitor {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
@@ -39,8 +39,8 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
   /** {@link Matching} reference. */
   private final Matching mMatching;
 
-  /** sirix {@link INodeWriteTrx}. */
-  private final INodeWriteTrx mWtx;
+  /** sirix {@link NodeWriteTrx}. */
+  private final NodeWriteTrx mWtx;
 
   /** Start key. */
   private final long mStartKey;
@@ -50,13 +50,13 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
    * pStartKey
    * 
    * @param pWtx
-   *          sirix {@link INodeWriteTrx}
+   *          sirix {@link NodeWriteTrx}
    * @param pMatching
    *          {@link Matching} reference
    * @param pStartKey
    *          start key
    */
-  public DeleteFMSEVisitor(@Nonnull final INodeWriteTrx pWtx,
+  public DeleteFMSEVisitor(@Nonnull final NodeWriteTrx pWtx,
     @Nonnull final Matching pMatching, @Nonnegative final long pStartKey) {
     mWtx = checkNotNull(pWtx);
     mMatching = checkNotNull(pMatching);
@@ -134,17 +134,17 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
    *          the node to check and possibly delete
    * @return {@code EVisitResult} how to move the transaction subsequently
    */
-  private IVisitResult delete(@Nonnull final INode pNode) {
+  private IVisitResult delete(@Nonnull final Node pNode) {
     try {
       mWtx.moveTo(pNode.getNodeKey());
 			final long nodeKey = mWtx.getNodeKey();
 			boolean removeTextNode = false;
 			if (mWtx.hasLeftSibling() && mWtx.moveToLeftSibling().hasMoved()
-					&& mWtx.getKind() == EKind.TEXT
+					&& mWtx.getKind() == Kind.TEXT
 					&& mWtx.moveToRightSibling().hasMoved()
 					&& mWtx.hasRightSibling()
 					&& mWtx.moveToRightSibling().hasMoved()
-					&& mWtx.getKind() == EKind.TEXT) {
+					&& mWtx.getKind() == Kind.TEXT) {
 				removeTextNode = true;
 			}
 			mWtx.moveTo(nodeKey);
@@ -158,7 +158,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
 					mWtx.moveTo(nodeKey);
 					mWtx.remove();
 					assert mWtx.getNodeKey() == parentNodeKey;
-					return ELocalVisitResult.SKIPSUBTREEPOPSTACK;
+					return LocalVisitResult.SKIPSUBTREEPOPSTACK;
 				}
 			}
 			mWtx.moveTo(nodeKey);
@@ -179,7 +179,7 @@ public class DeleteFMSEVisitor extends AbsVisitorSupport {
 				mWtx.moveTo(nodeKey);
 				mWtx.remove();
 				if (removeTextNode) {
-					assert mWtx.getKind() == EKind.TEXT;
+					assert mWtx.getKind() == Kind.TEXT;
 					assert mWtx.getRightSiblingKey() == rightRightSiblKey;
 					return EVisitResult.CONTINUE;
 				} else {

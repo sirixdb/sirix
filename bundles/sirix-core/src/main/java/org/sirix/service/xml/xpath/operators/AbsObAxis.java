@@ -29,11 +29,11 @@ package org.sirix.service.xml.xpath.operators;
 
 import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.Node;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
 import org.sirix.service.xml.xpath.types.Type;
@@ -47,10 +47,10 @@ import org.sirix.service.xml.xpath.types.Type;
 public abstract class AbsObAxis extends AbsAxis {
 
   /** First arithmetic operand. */
-  private final IAxis mOperand1;
+  private final Axis mOperand1;
 
   /** Second arithmetic operand. */
-  private final IAxis mOperand2;
+  private final Axis mOperand2;
 
   /** True, if axis has not been evaluated yet. */
   private boolean mIsFirst;
@@ -65,7 +65,7 @@ public abstract class AbsObAxis extends AbsAxis {
    * @param mOp2
    *          Second value of the operation
    */
-  public AbsObAxis(final INodeReadTrx rtx, final IAxis mOp1, final IAxis mOp2) {
+  public AbsObAxis(final NodeReadTrx rtx, final Axis mOp1, final Axis mOp2) {
 
     super(rtx);
     mOperand1 = mOp1;
@@ -146,9 +146,9 @@ public abstract class AbsObAxis extends AbsAxis {
    *          the operand to atomize
    * @return the atomized operand. (always an atomic value)
    */
-  private AtomicValue atomize(final IAxis mOperand) {
+  private AtomicValue atomize(final Axis mOperand) {
 
-    final INodeReadTrx rtx = getTrx();
+    final NodeReadTrx rtx = getTrx();
     int type = rtx.getTypeKey();
     AtomicValue atom;
 
@@ -191,7 +191,7 @@ public abstract class AbsObAxis extends AbsAxis {
    * @throws SirixXPathException
    *           if the operations fails
    */
-  protected abstract INode operate(final AtomicValue mOperand1, final AtomicValue mOperand2)
+  protected abstract Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2)
     throws SirixXPathException;
 
   /**

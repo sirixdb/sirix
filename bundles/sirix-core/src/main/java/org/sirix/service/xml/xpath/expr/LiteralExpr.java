@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.expr;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 
 /**
  * <h1>LiteralExpr</h1>
@@ -49,7 +49,7 @@ public class LiteralExpr extends AbsExpression {
    * @param mItemKey
    *          itemKey of the literal
    */
-  public LiteralExpr(@Nonnull final INodeReadTrx pRtx, final long pItemKey) {
+  public LiteralExpr(@Nonnull final NodeReadTrx pRtx, final long pItemKey) {
     super(pRtx);
     mLiteralKey = pItemKey;
   }

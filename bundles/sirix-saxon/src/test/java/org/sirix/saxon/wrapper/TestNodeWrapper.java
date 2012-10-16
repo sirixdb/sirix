@@ -53,15 +53,15 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.ISession;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Database;
+import org.sirix.api.Session;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
@@ -75,7 +75,7 @@ public class TestNodeWrapper {
 	private static final DatabaseConfiguration DB_CONFIG = new DatabaseConfiguration(
 			TestHelper.PATHS.PATH1.getFile());
 
-	private IDatabase mDatabase;
+	private Database mDatabase;
 
 	/** sirix session on sirix test document. */
 	private Holder mHolder;
@@ -85,8 +85,8 @@ public class TestNodeWrapper {
 
 	@Before
 	public void beforeMethod() throws SirixException {
-		Database.truncateDatabase(DB_CONFIG);
-		Database.createDatabase(DB_CONFIG);
+		DatabaseImpl.truncateDatabase(DB_CONFIG);
+		DatabaseImpl.createDatabase(DB_CONFIG);
 		TestHelper.createTestDocument();
 		mHolder = Holder.generateRtx();
 
@@ -113,7 +113,7 @@ public class TestNodeWrapper {
 		final Processor proc = new Processor(false);
 		final Configuration config = proc.getUnderlyingConfiguration();
 
-		final ISession session = generateSession();
+		final Session session = generateSession();
 
 		// Not the same document.
 		NodeInfo node = new DocumentWrapper(session, config);
@@ -172,11 +172,11 @@ public class TestNodeWrapper {
 				+ File.separator + "resources" + File.separator + "data"
 				+ File.separator + "testBaseURI.xml");
 
-		final ISession session = generateSession();
-		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final Session session = generateSession();
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 		final XMLEventReader reader = XMLShredder.createFileReader(source);
 		final XMLShredder shredder = new XMLShredder.Builder(wtx, reader,
-				EInsert.ASFIRSTCHILD).commitAfterwards().build();
+				Insert.ASFIRSTCHILD).commitAfterwards().build();
 		shredder.call();
 		wtx.close();
 
@@ -292,12 +292,12 @@ public class TestNodeWrapper {
 	}
 
 	@Ignore
-	public ISession generateSession() throws SirixException {
+	public Session generateSession() throws SirixException {
 		final DatabaseConfiguration dbConfig = new DatabaseConfiguration(
 				TestHelper.PATHS.PATH2.getFile());
-		Database.truncateDatabase(dbConfig);
-		Database.createDatabase(dbConfig);
-		mDatabase = Database.openDatabase(dbConfig.getFile());
+		DatabaseImpl.truncateDatabase(dbConfig);
+		DatabaseImpl.createDatabase(dbConfig);
+		mDatabase = DatabaseImpl.openDatabase(dbConfig.getFile());
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, dbConfig).build());
 		return mDatabase.getSession(new SessionConfiguration.Builder(

@@ -11,7 +11,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.node.interfaces.INodeBase;
+import org.sirix.node.interfaces.NodeBase;
 
 /**
  * TextValue which saves the value of a text node.
@@ -19,7 +19,7 @@ import org.sirix.node.interfaces.INodeBase;
  * @author Johannes Lichtenberger
  * 
  */
-public class TextValue implements Comparable<INodeBase>, INodeBase {
+public class TextValue implements Comparable<NodeBase>, NodeBase {
 	/** Value in bytes. */
 	private final byte[] mValue;
 
@@ -57,7 +57,7 @@ public class TextValue implements Comparable<INodeBase>, INodeBase {
 	}
 
 	@Override
-	public int compareTo(final @Nullable INodeBase pOther) {
+	public int compareTo(final @Nullable NodeBase pOther) {
 		final TextValue value = (TextValue) pOther;
 		return new String(mValue).compareTo(new String(value.mValue));
 	}
@@ -91,8 +91,8 @@ public class TextValue implements Comparable<INodeBase>, INodeBase {
 	}
 
 	@Override
-	public EKind getKind() {
-		return EKind.TEXT_VALUE;
+	public Kind getKind() {
+		return Kind.TEXT_VALUE;
 	}
 
 	@Override

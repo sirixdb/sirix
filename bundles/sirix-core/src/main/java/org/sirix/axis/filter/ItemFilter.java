@@ -27,7 +27,7 @@
 
 package org.sirix.axis.filter;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 
 /**
  * <h1>ItemFilter</h1>
@@ -44,7 +44,7 @@ public class ItemFilter extends AbsFilter {
    * @param rtx
    *          Transaction this filter is bound to.
    */
-  public ItemFilter(final INodeReadTrx rtx) {
+  public ItemFilter(final NodeReadTrx rtx) {
     super(rtx);
   }
 

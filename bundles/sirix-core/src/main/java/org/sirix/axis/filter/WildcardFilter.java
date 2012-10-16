@@ -29,9 +29,9 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INameNode;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.NameNode;
 
 /**
  * <h1>WildcardFilter</h1>
@@ -69,7 +69,7 @@ public class WildcardFilter extends AbsFilter {
 	 *          defines, if the specified part is the prefix, or the local name
 	 *          (true, if it is the local name)
 	 */
-	public WildcardFilter(final INodeReadTrx pRtx, final String pKnownPart,
+	public WildcardFilter(final NodeReadTrx pRtx, final String pKnownPart,
 			final EType pType) {
 		super(pRtx);
 		mType = checkNotNull(pType);
@@ -78,7 +78,7 @@ public class WildcardFilter extends AbsFilter {
 
 	@Override
 	public final boolean filter() {
-		final EKind kind = getTrx().getKind();
+		final Kind kind = getTrx().getKind();
 		switch (kind) {
 		case ELEMENT:
 			if (mType == EType.LOCALNAME) { // local name is given

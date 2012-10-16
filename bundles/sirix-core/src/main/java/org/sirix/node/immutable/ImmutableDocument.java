@@ -8,9 +8,9 @@ import javax.annotation.Nullable;
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.DocumentRootNode;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.settings.EFixed;
 
 /**
@@ -18,7 +18,7 @@ import org.sirix.settings.EFixed;
  * 
  * @author Johannes Lichtenberger
  */
-public class ImmutableDocument implements IStructNode {
+public class ImmutableDocument implements StructNode {
 
 	/** Mutable {@link DocumentRootNode} instance. */
 	private final DocumentRootNode mNode;
@@ -55,7 +55,7 @@ public class ImmutableDocument implements IStructNode {
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable INode pOther) {
+	public boolean isSameItem(@Nullable Node pOther) {
 		return false;
 	}
 
@@ -95,7 +95,7 @@ public class ImmutableDocument implements IStructNode {
 	}
 
 	@Override
-	public EKind getKind() {
+	public Kind getKind() {
 		return mNode.getKind();
 	}
 

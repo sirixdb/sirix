@@ -42,14 +42,14 @@ import javax.xml.stream.XMLStreamException;
 import org.mockito.InOrder;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.diff.DiffFactory.EDiffOptimized;
 import org.sirix.exception.SirixException;
-import org.sirix.node.interfaces.IStructNode;
-import org.sirix.service.xml.shredder.EShredderCommit;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.node.interfaces.StructNode;
+import org.sirix.service.xml.shredder.ShredderCommit;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.service.xml.shredder.XMLUpdateShredder;
 import org.sirix.utils.DocumentCreater;
@@ -74,8 +74,8 @@ public final class DiffTestHelper {
 
   static void setUpThird(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
     new XMLShredder.Builder(pHolder.getWtx(), XMLShredder.createFileReader(new File(RESOURCES + File.separator
-      + "revXMLsDelete1" + File.separator + "1.xml")), EInsert.ASFIRSTCHILD).commitAfterwards().build().call();
-    final INodeWriteTrx wtx = pHolder.getWtx();
+      + "revXMLsDelete1" + File.separator + "1.xml")), Insert.ASFIRSTCHILD).commitAfterwards().build().call();
+    final NodeWriteTrx wtx = pHolder.getWtx();
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
     wtx.moveToFirstChild();
@@ -105,10 +105,10 @@ public final class DiffTestHelper {
   }
 
   static void setUpSeventh(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
-    final INodeWriteTrx wtx = pHolder.getWtx();
+    final NodeWriteTrx wtx = pHolder.getWtx();
     DocumentCreater.create(wtx);
     wtx.commit();
-    final INodeReadTrx rtx = pHolder.getSession().beginNodeReadTrx(0);
+    final NodeReadTrx rtx = pHolder.getSession().beginNodeReadTrx(0);
     rtx.moveTo(1);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -117,10 +117,10 @@ public final class DiffTestHelper {
   }
 
   static void setUpEighth(final Holder pHolder) throws SirixException, IOException, XMLStreamException {
-    final INodeWriteTrx wtx = pHolder.getWtx();
+    final NodeWriteTrx wtx = pHolder.getWtx();
     DocumentCreater.create(wtx);
     wtx.commit();
-    final INodeReadTrx rtx = pHolder.getSession().beginNodeReadTrx(0);
+    final NodeReadTrx rtx = pHolder.getSession().beginNodeReadTrx(0);
     rtx.moveTo(11);
     wtx.moveTo(5);
     wtx.replaceNode(rtx);
@@ -136,12 +136,12 @@ public final class DiffTestHelper {
       if (i == 0) {
       	final XMLShredder init =
           new XMLShredder.Builder(pHolder.getWtx(), XMLShredder.createFileReader(file),
-            EInsert.ASFIRSTCHILD).commitAfterwards().build();
+            Insert.ASFIRSTCHILD).commitAfterwards().build();
         init.call();
       } else {
         final XMLUpdateShredder init =
           new XMLUpdateShredder(pHolder.getWtx(), XMLShredder.createFileReader(file),
-            EInsert.ASFIRSTCHILD, file, EShredderCommit.COMMIT);
+            Insert.ASFIRSTCHILD, file, ShredderCommit.COMMIT);
         init.call();
       }
       i++;
@@ -149,11 +149,11 @@ public final class DiffTestHelper {
 
   }
 
-  static IDiffObserver createMock() {
-    return mock(IDiffObserver.class);
+  static DiffObserver createMock() {
+    return mock(DiffObserver.class);
   }
 
-  static void verifyDiffFirst(final IDiffObserver pListener) {
+  static void verifyDiffFirst(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -164,7 +164,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyOptimizedFirst(final IDiffObserver pListener) {
+  static void verifyOptimizedFirst(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -175,7 +175,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffSecond(final IDiffObserver pListener) {
+  static void verifyDiffSecond(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -186,7 +186,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyOptimizedSecond(final IDiffObserver pListener) {
+  static void verifyOptimizedSecond(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -197,7 +197,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffThird(final IDiffObserver pListener) {
+  static void verifyDiffThird(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -216,7 +216,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyOptimizedThird(final IDiffObserver pListener) {
+  static void verifyOptimizedThird(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -235,7 +235,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffFourth(final IDiffObserver pListener) {
+  static void verifyDiffFourth(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -246,7 +246,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyOptimizedFourth(final IDiffObserver pListener) {
+  static void verifyOptimizedFourth(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(3)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -257,7 +257,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffFifth(final IDiffObserver pListener) {
+  static void verifyDiffFifth(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(1)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -266,7 +266,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffSixth(final IDiffObserver pListener) {
+  static void verifyDiffSixth(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -279,7 +279,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffSeventh(final IDiffObserver pListener) {
+  static void verifyDiffSeventh(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -290,7 +290,7 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void verifyDiffEighth(final IDiffObserver pListener) {
+  static void verifyDiffEighth(final DiffObserver pListener) {
     final InOrder inOrder = inOrder(pListener);
     inOrder.verify(pListener, times(2)).diffListener(eq(EDiff.SAME), isA(Long.class),
       isA(Long.class), isA(DiffDepth.class));
@@ -301,17 +301,17 @@ public final class DiffTestHelper {
     inOrder.verify(pListener, times(1)).diffDone();
   }
 
-  static void checkFullDiff(final Holder pHolder, final IDiffObserver pObserver,
+  static void checkFullDiff(final Holder pHolder, final DiffObserver pObserver,
     final EDiffOptimized pOptimized) throws SirixException, InterruptedException {
-    final Set<IDiffObserver> observers = new HashSet<IDiffObserver>();
+    final Set<DiffObserver> observers = new HashSet<DiffObserver>();
     observers.add(pObserver);
     DiffFactory.invokeFullDiff(new DiffFactory.Builder(pHolder.getSession(), 1, 0, pOptimized,
       observers));
   }
 
-  static void checkStructuralDiff(final Holder pHolder, final IDiffObserver pObserver,
+  static void checkStructuralDiff(final Holder pHolder, final DiffObserver pObserver,
     final EDiffOptimized pOptimized) throws SirixException, InterruptedException {
-    final Set<IDiffObserver> observers = new HashSet<IDiffObserver>();
+    final Set<DiffObserver> observers = new HashSet<DiffObserver>();
     observers.add(pObserver);
     DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(pHolder.getSession(), 1, 0, pOptimized,
       observers));

@@ -31,7 +31,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.LevelOrderAxis.EIncludeNodes;
 import org.sirix.exception.SirixException;
 
@@ -60,84 +60,84 @@ public class LevelOrderAxisTest {
 
   @Test
   public void testAxisConventions() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(11L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.NO),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.NO),
       new long[] {
         12L
       });
     rtx.moveTo(11L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.YES),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.YES),
       new long[] {
         11L, 12L
       });
     rtx.moveTo(0L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.YES),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.YES),
       new long[] {
         0L, 1L, 4L, 5L, 8L, 9L, 13L, 6L, 7L, 11L, 12L
       });
 
     rtx.moveTo(4L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.YES),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.YES),
       new long[] {
         4L, 5L, 8L, 9L, 13L, 6L, 7L, 11L, 12L
       });
 
     rtx.moveTo(4L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.NO),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.NO),
       new long[] {
         5L, 8L, 9L, 13L, 6L, 7L, 11L, 12L
       });
 
     rtx.moveTo(6L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.NO),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.NO),
       new long[] {
         7L
       });
 
     rtx.moveTo(6L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.YES),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.YES),
       new long[] {
         6L, 7L
       });
 
     rtx.moveTo(2L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.YES),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.YES),
       new long[] {});
 
     rtx.moveTo(3L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.YES),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.YES),
       new long[] {});
 
     rtx.moveTo(2L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.NO),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.NO),
       new long[] {});
 
     rtx.moveTo(3L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.NO),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.NO),
       new long[] {});
 
     rtx.moveTo(6L);
-    AbsAxisTest.testIAxisConventionsNext(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.YES),
+    AbsAxisTest.testIAxisConventionsNext(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.YES),
       new long[] {
         6L, 7L
       });
 
     rtx.moveTo(0L);
-    AbsAxisTest.testIAxisConventionsNext(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, EIncludeSelf.YES),
+    AbsAxisTest.testIAxisConventionsNext(new LevelOrderAxis(rtx, EIncludeNodes.STRUCTURAL, IncludeSelf.YES),
       new long[] {
         0L, 1L, 4L, 5L, 8L, 9L, 13L, 6L, 7L, 11L, 12L
       });
 
     rtx.moveTo(0L);
     AbsAxisTest.testIAxisConventionsNext(new LevelOrderAxis(rtx, EIncludeNodes.NONSTRUCTURAL,
-      EIncludeSelf.YES), new long[] {
+      IncludeSelf.YES), new long[] {
       0L, 1L, 2L, 3L, 4L, 5L, 8L, 9L, 13L, 6L, 7L, 10L, 11L, 12L
     });
 
     rtx.moveTo(0L);
-    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.NONSTRUCTURAL, EIncludeSelf.YES),
+    AbsAxisTest.testIAxisConventions(new LevelOrderAxis(rtx, EIncludeNodes.NONSTRUCTURAL, IncludeSelf.YES),
       new long[] {
         0L, 1L, 2L, 3L, 4L, 5L, 8L, 9L, 13L, 6L, 7L, 10L, 11L, 12L
       });

@@ -37,7 +37,7 @@ import javax.xml.stream.XMLStreamException;
 
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.controls.AbsControl;
-import org.sirix.gui.view.model.interfaces.IModel;
+import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI.EResetZoomer;
 import org.sirix.gui.view.sunburst.SunburstContainer;
@@ -50,18 +50,18 @@ import controlP5.Slider;
 import controlP5.Toggle;
 
 /**
- * Abstract class to simplify the implementation of {@link ISunburstControl}.
+ * Abstract class to simplify the implementation of {@link SunburstControl}.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbsSunburstControl extends AbsControl implements ISunburstControl {
+public abstract class AbsSunburstControl extends AbsControl implements SunburstControl {
 
   /** Used for the hybrid comparsion. */
   private transient CountDownLatch mLatch = new CountDownLatch(1);
 
-  /** {@link IModel} implementation. */
-  protected transient IModel<SunburstContainer, SunburstItem> mModel;
+  /** {@link Model} implementation. */
+  protected transient Model<SunburstContainer, SunburstItem> mModel;
 
   /** {@link ReadDB} reference. */
   protected transient ReadDB mDb;
@@ -78,12 +78,12 @@ public abstract class AbsSunburstControl extends AbsControl implements ISunburst
    * @param paramParent
    *          {@link PApplet} reference
    * @param paramModel
-   *          {@link IModel} implementation
+   *          {@link Model} implementation
    * @param paramDb
    *          {@link ReadDB} reference
    */
   public AbsSunburstControl(final PApplet paramParent,
-    final IModel<SunburstContainer, SunburstItem> paramModel, final ReadDB paramDb) {
+    final Model<SunburstContainer, SunburstItem> paramModel, final ReadDB paramDb) {
     mParent = checkNotNull(paramParent);
     mDb = checkNotNull(paramDb);
     mModel = checkNotNull(paramModel);
@@ -244,7 +244,7 @@ public abstract class AbsSunburstControl extends AbsControl implements ISunburst
   }
 
   @Override
-  public final IModel<SunburstContainer, SunburstItem> getModel() {
+  public final Model<SunburstContainer, SunburstItem> getModel() {
     return mModel;
   }
 

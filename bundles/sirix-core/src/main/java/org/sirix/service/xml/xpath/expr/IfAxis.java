@@ -27,8 +27,8 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.functions.Function;
@@ -48,11 +48,11 @@ import org.sirix.service.xml.xpath.functions.Function;
  */
 public class IfAxis extends AbsAxis {
 
-  private final IAxis mIf;
-  private final IAxis mThen;
-  private final IAxis mElse;
+  private final Axis mIf;
+  private final Axis mThen;
+  private final Axis mElse;
   private boolean mFirst;
-  private IAxis mResult;
+  private Axis mResult;
 
   /**
    * 
@@ -67,7 +67,7 @@ public class IfAxis extends AbsAxis {
    * @param mElseAxis
    *          Will be evaluated if test expression evaluates to false.
    */
-  public IfAxis(final INodeReadTrx rtx, final IAxis mIfAxis, final IAxis mThenAxis, final IAxis mElseAxis) {
+  public IfAxis(final NodeReadTrx rtx, final Axis mIfAxis, final Axis mThenAxis, final Axis mElseAxis) {
 
     super(rtx);
     mIf = mIfAxis;

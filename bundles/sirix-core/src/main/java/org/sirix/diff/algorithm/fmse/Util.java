@@ -62,7 +62,7 @@ public final class Util {
    */
   public static <T> List<Pair<T, T>> longestCommonSubsequence(
     @Nonnull final List<T> pX, @Nonnull final List<T> pY,
-    @Nonnull final IComparator<T> pCmp) {
+    @Nonnull final Comparator<T> pCmp) {
     final List<T> x = checkNotNull(pX);
     final List<T> y = checkNotNull(pY);
     final int n = x.size();

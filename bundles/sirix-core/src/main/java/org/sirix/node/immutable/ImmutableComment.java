@@ -9,10 +9,10 @@ import javax.annotation.Nullable;
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.CommentNode;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
-import org.sirix.node.interfaces.IValNode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.ValNode;
 
 /**
  * Immutable comment node wrapper.
@@ -20,7 +20,7 @@ import org.sirix.node.interfaces.IValNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutableComment implements IValNode, IStructNode {
+public class ImmutableComment implements ValNode, StructNode {
 
 	/** Mutable {@link CommentNode}. */
 	private final CommentNode mNode;
@@ -57,7 +57,7 @@ public class ImmutableComment implements IValNode, IStructNode {
 	}
 
 	@Override
-	public boolean isSameItem(final @Nullable INode pOther) {
+	public boolean isSameItem(final @Nullable Node pOther) {
 		return mNode.isSameItem(pOther);
 	}
 
@@ -97,7 +97,7 @@ public class ImmutableComment implements IValNode, IStructNode {
 	}
 
 	@Override
-	public EKind getKind() {
+	public Kind getKind() {
 		return mNode.getKind();
 	}
 

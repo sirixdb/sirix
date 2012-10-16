@@ -124,7 +124,7 @@ public final class XPathScanner {
    * 
    * @return token the new token
    */
-  public IXPathToken nextToken() {
+  public XPathToken nextToken() {
     // some tokens start in another state than the START state
     mState = mStartState;
     // reset startState
@@ -466,12 +466,12 @@ public final class XPathScanner {
    *          number of next tokens to be read
    * @return token that will be read after calling nextToken()
    */
-  public IXPathToken lookUpTokens(final int paramNext) {
+  public XPathToken lookUpTokens(final int paramNext) {
     int nextCount = paramNext;
 
     // save current position of the scanner, to restore it later
     final int lastPos = mPos;
-    IXPathToken token = nextToken();
+    XPathToken token = nextToken();
 
     while (--nextCount > 0) {
       token = nextToken();

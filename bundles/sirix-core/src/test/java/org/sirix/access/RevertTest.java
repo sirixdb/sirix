@@ -36,7 +36,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreater;
 
@@ -58,7 +58,7 @@ public final class RevertTest {
 
   @Test
   public void test() throws SirixException {
-    INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
+    NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
     assertEquals(0L, wtx.getRevisionNumber());
     DocumentCreater.create(wtx);
     assertEquals(0L, wtx.getRevisionNumber());

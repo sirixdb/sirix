@@ -39,7 +39,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
 import org.sirix.settings.EFixed;
 
@@ -97,7 +97,7 @@ public final class OverallTest extends TestCase {
         default:
         }
       } else {
-        if (holder.getWtx().getKind() == EKind.ELEMENT) {
+        if (holder.getWtx().getKind() == Kind.ELEMENT) {
           if (holder.getWtx().getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
             assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
             assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
@@ -137,7 +137,7 @@ public final class OverallTest extends TestCase {
             }
           }
         } while (holder.getWtx() == null);
-        if (holder.getWtx().getKind() != EKind.ELEMENT) {
+        if (holder.getWtx().getKind() != Kind.ELEMENT) {
           holder.getWtx().moveToParent();
         }
       }

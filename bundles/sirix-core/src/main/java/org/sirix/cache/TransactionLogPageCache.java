@@ -38,7 +38,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.exception.SirixIOException;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
@@ -51,10 +51,10 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TransactionLogPageCache implements ICache<Long, IPage> {
+public final class TransactionLogPageCache implements Cache<Long, Page> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<Long, IPage> mFirstCache;
+	private final LRUCache<Long, Page> mFirstCache;
 
 	/** Persistend second cache. */
 	private final BerkeleyPersistencePageCache mSecondCache;
@@ -97,9 +97,9 @@ public final class TransactionLogPageCache implements ICache<Long, IPage> {
 	}
 
 	@Override
-	public ImmutableMap<Long, IPage> getAll(
+	public ImmutableMap<Long, Page> getAll(
 			final @Nonnull Iterable<? extends Long> pKeys) {
-		final ImmutableMap.Builder<Long, IPage> builder = new ImmutableMap.Builder<>();
+		final ImmutableMap.Builder<Long, Page> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
 			for (final Long key : pKeys) {
@@ -124,8 +124,8 @@ public final class TransactionLogPageCache implements ICache<Long, IPage> {
 	}
 
 	@Override
-	public IPage get(final @Nonnull Long pKey) {
-		IPage container = null;
+	public Page get(final @Nonnull Long pKey) {
+		Page container = null;
 		try {
 			mReadLock.lock();
 			container = mFirstCache.get(pKey);
@@ -136,7 +136,7 @@ public final class TransactionLogPageCache implements ICache<Long, IPage> {
 	}
 
 	@Override
-	public void put(final @Nonnull Long pKey, final @Nonnull IPage pValue) {
+	public void put(final @Nonnull Long pKey, final @Nonnull Page pValue) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(pKey, pValue);
@@ -146,7 +146,7 @@ public final class TransactionLogPageCache implements ICache<Long, IPage> {
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, IPage> pMap) {
+	public void putAll(final @Nonnull Map<Long, Page> pMap) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.putAll(pMap);

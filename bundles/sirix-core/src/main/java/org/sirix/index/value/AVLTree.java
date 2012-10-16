@@ -7,18 +7,18 @@ import javax.annotation.Nullable;
 
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
-import org.sirix.api.INodeCursor;
-import org.sirix.api.IPageWriteTrx;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.PageWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.DocumentRootNode;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
 import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.INodeBase;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.page.EPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.settings.EFixed;
@@ -37,7 +37,7 @@ import com.google.common.base.Optional;
  * @param <V>
  *          the value
  */
-public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor {
+public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
@@ -53,26 +53,26 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	private boolean mClosed;
 
 	/** Strong reference to currently selected node. */
-	private INode mCurrentNode;
+	private Node mCurrentNode;
 
-	/** {@link IPageWriteTrx} for persistent storage. */
-	private final IPageWriteTrx mPageWriteTrx;
+	/** {@link PageWriteTrx} for persistent storage. */
+	private final PageWriteTrx mPageWriteTrx;
 
 	/**
 	 * Private constructor.
 	 * 
 	 * @param pPageWriteTrx
-	 *          {@link IPageWriteTrx} for persistent storage
+	 *          {@link PageWriteTrx} for persistent storage
 	 */
-	private AVLTree(final @Nonnull IPageWriteTrx pPageWriteTrx) {
+	private AVLTree(final @Nonnull PageWriteTrx pPageWriteTrx) {
 		mPageWriteTrx = pPageWriteTrx;
 		mClosed = false;
 
 		try {
-			Optional<? extends INodeBase> node = mPageWriteTrx.getNode(
+			Optional<? extends NodeBase> node = mPageWriteTrx.getNode(
 					EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EPage.VALUEPAGE);
 			if (node.isPresent()) {
-				mCurrentNode = (INode) node.get();
+				mCurrentNode = (Node) node.get();
 			} else {
 				throw new IllegalStateException(
 						"Node couldn't be fetched from persistent storage!");
@@ -86,11 +86,11 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	 * Get a new instance.
 	 * 
 	 * @param pPageWriteTrx
-	 *          {@link IPageWriteTrx} for persistent storage
+	 *          {@link PageWriteTrx} for persistent storage
 	 * @return new tree instance
 	 */
 	public static <KE extends Comparable<? super KE>, VA> AVLTree<KE, VA> getInstance(
-			final @Nonnull IPageWriteTrx pPageWriteTrx) {
+			final @Nonnull PageWriteTrx pPageWriteTrx) {
 		return new AVLTree<KE, VA>(checkNotNull(pPageWriteTrx));
 	}
 
@@ -165,7 +165,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	 * @return {@link AVLNode} instance
 	 */
 	private AVLNode<K, V> getAVLNode() {
-		if (mCurrentNode.getKind() == EKind.AVL) {
+		if (mCurrentNode.getKind() == Kind.AVL) {
 			@SuppressWarnings("unchecked")
 			final AVLNode<K, V> node = (AVLNode<K, V>) mCurrentNode;
 			return node;
@@ -401,7 +401,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 		mPageWriteTrx.finishNodeModification(pNode.getNodeKey(), EPage.VALUEPAGE);
 
 		if (leftChild.hasRightChild()) {
-			final INode leftRightChild = (INode) mPageWriteTrx
+			final Node leftRightChild = (Node) mPageWriteTrx
 					.prepareNodeForModification(leftChild.getRightChildKey(),
 							EPage.VALUEPAGE);
 			leftRightChild.setParentKey(pNode.getNodeKey());
@@ -469,9 +469,9 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 		mCurrentNode = checkNotNull(pNode);
 	}
 
-	private IStructNode getStructuralNode() {
-		if (mCurrentNode instanceof IStructNode) {
-			return (IStructNode) mCurrentNode;
+	private StructNode getStructuralNode() {
+		if (mCurrentNode instanceof StructNode) {
+			return (StructNode) mCurrentNode;
 		} else {
 			return new NullNode(mCurrentNode);
 		}
@@ -521,12 +521,12 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 		assertNotClosed();
 
 		// Remember old node and fetch new one.
-		final INode oldNode = mCurrentNode;
-		Optional<? extends INode> newNode;
+		final Node oldNode = mCurrentNode;
+		Optional<? extends Node> newNode;
 		try {
 			// Immediately return node from item list if node key negative.
 			@SuppressWarnings("unchecked")
-			final Optional<? extends INode> node = (Optional<? extends INode>) mPageWriteTrx
+			final Optional<? extends Node> node = (Optional<? extends Node>) mPageWriteTrx
 					.getNode(pNodeKey, EPage.PATHSUMMARYPAGE);
 			newNode = node;
 		} catch (final SirixIOException e) {
@@ -555,7 +555,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	@Override
 	public Move<AVLTree<K, V>> moveToFirstChild() {
 		assertNotClosed();
-		final IStructNode node = getStructuralNode();
+		final StructNode node = getStructuralNode();
 		if (!node.hasFirstChild()) {
 			return Moved.notMoved();
 		}
@@ -590,40 +590,40 @@ public class AVLTree<K extends Comparable<? super K>, V> implements INodeCursor 
 	}
 
 	@Override
-	public EKind getRightSiblingKind() {
-		return EKind.UNKNOWN;
+	public Kind getRightSiblingKind() {
+		return Kind.UNKNOWN;
 	}
 
 	@Override
-	public EKind getLeftSiblingKind() {
-		return EKind.UNKNOWN;
+	public Kind getLeftSiblingKind() {
+		return Kind.UNKNOWN;
 	}
 
 	@Override
-	public EKind getFirstChildKind() {
-		return EKind.AVL;
+	public Kind getFirstChildKind() {
+		return Kind.AVL;
 	}
 
 	@Override
-	public EKind getLastChildKind() {
-		return EKind.AVL;
+	public Kind getLastChildKind() {
+		return Kind.AVL;
 	}
 
 	@Override
-	public EKind getParentKind() {
-		if (mCurrentNode.getKind() == EKind.DOCUMENT_ROOT) {
-			return EKind.DOCUMENT_ROOT;
+	public Kind getParentKind() {
+		if (mCurrentNode.getKind() == Kind.DOCUMENT_ROOT) {
+			return Kind.DOCUMENT_ROOT;
 		}
-		return EKind.AVL;
+		return Kind.AVL;
 	}
 	
 	@Override
-	public EKind getKind() {
-		return EKind.AVL;
+	public Kind getKind() {
+		return Kind.AVL;
 	}
 
 	@Override
-	public INode getNode() {
+	public Node getNode() {
 		return mCurrentNode;
 	}
 }

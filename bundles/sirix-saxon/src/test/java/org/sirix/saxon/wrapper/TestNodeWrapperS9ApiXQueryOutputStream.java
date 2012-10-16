@@ -33,7 +33,7 @@ import java.io.OutputStream;
 
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.exception.SirixException;
 import org.sirix.saxon.evaluator.XQueryEvaluatorOutputStream;
 

@@ -38,12 +38,12 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.StructNode;
 
 public class ReadTransactionTest {
 
@@ -65,13 +65,13 @@ public class ReadTransactionTest {
 	@Test
 	public void testEmptyRtx() throws SirixException {
 		assertFalse(PATHS.PATH2.getFile().exists());
-		Database.createDatabase(PATHS.PATH2.getConfig());
-		final IDatabase db = Database.openDatabase(PATHS.PATH2.getFile());
+		DatabaseImpl.createDatabase(PATHS.PATH2.getConfig());
+		final Database db = DatabaseImpl.openDatabase(PATHS.PATH2.getFile());
 		db.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE,
 				PATHS.PATH2.getConfig()).build());
-		final ISession session = db.getSession(new SessionConfiguration.Builder(
+		final Session session = db.getSession(new SessionConfiguration.Builder(
 				TestHelper.RESOURCE).build());
-		final INodeReadTrx rtx = session.beginNodeReadTrx();
+		final NodeReadTrx rtx = session.beginNodeReadTrx();
 		rtx.getRevisionNumber();
 		rtx.close();
 		session.close();
@@ -81,7 +81,7 @@ public class ReadTransactionTest {
 	@Test
 	public void testDocumentRoot() throws SirixException {
 		assertEquals(true, holder.getRtx().moveToDocumentRoot().hasMoved());
-		assertEquals(EKind.DOCUMENT_ROOT, holder.getRtx().getKind());
+		assertEquals(Kind.DOCUMENT_ROOT, holder.getRtx().getKind());
 		assertEquals(false, holder.getRtx().hasParent());
 		assertEquals(false, holder.getRtx().hasLeftSibling());
 		assertEquals(false, holder.getRtx().hasRightSibling());

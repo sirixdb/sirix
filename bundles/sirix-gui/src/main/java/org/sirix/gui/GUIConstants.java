@@ -29,7 +29,7 @@ package org.sirix.gui;
 
 import java.awt.Color;
 
-import static org.sirix.gui.EGUICommands.*;
+import static org.sirix.gui.GUICommands.*;
 
 /**
  * <h1>GUIConstants</h1>

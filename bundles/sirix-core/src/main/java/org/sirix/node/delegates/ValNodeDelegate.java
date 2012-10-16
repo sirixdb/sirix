@@ -37,9 +37,9 @@ import javax.annotation.Nullable;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AbsForwardingNode;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IValNode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.ValNode;
 import org.sirix.utils.Compression;
 
 import com.google.common.base.Objects;
@@ -47,12 +47,12 @@ import com.google.common.base.Objects;
 /**
  * Delegate method for all nodes containing \"value\"-data. That means that
  * independent values are stored by the nodes delegating the calls of the
- * interface {@link IValNode} to this class.
+ * interface {@link ValNode} to this class.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class ValNodeDelegate extends AbsForwardingNode implements IValNode {
+public class ValNodeDelegate extends AbsForwardingNode implements ValNode {
 
   /** Delegate for common node information. */
   private NodeDelegate mDelegate;
@@ -145,13 +145,13 @@ public class ValNodeDelegate extends AbsForwardingNode implements IValNode {
   }
 
   @Override
-  public boolean isSameItem(@Nullable final INode pOther) {
+  public boolean isSameItem(@Nullable final Node pOther) {
     return mDelegate.isSameItem(pOther);
   }
 
   @Override
-  public EKind getKind() {
-    return EKind.UNKNOWN;
+  public Kind getKind() {
+    return Kind.UNKNOWN;
   }
 
   @Override

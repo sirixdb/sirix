@@ -36,7 +36,7 @@ import javax.annotation.Nullable;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.Node;
 
 /**
  * If a node is deleted, it will be encapsulated over this class.
@@ -64,8 +64,8 @@ public final class DeletedNode extends AbsForwardingNode {
   }
   
   @Override
-  public EKind getKind() {
-    return EKind.DELETE;
+  public Kind getKind() {
+    return Kind.DELETE;
   }
 
   @Override
@@ -89,7 +89,7 @@ public final class DeletedNode extends AbsForwardingNode {
   }
   
   @Override
-  public boolean isSameItem(@Nullable final INode pOther) {
+  public boolean isSameItem(@Nullable final Node pOther) {
     return mDel.isSameItem(pOther);
   }
 

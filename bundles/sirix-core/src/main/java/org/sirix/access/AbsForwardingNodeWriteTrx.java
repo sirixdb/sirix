@@ -4,10 +4,10 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 
 /**
  * Forwards all methods to the delegate.
@@ -16,14 +16,14 @@ import org.sirix.service.xml.shredder.EInsert;
  * 
  */
 public abstract class AbsForwardingNodeWriteTrx extends
-  AbsForwardingNodeReadTrx implements INodeWriteTrx {
+  AbsForwardingNodeReadTrx implements NodeWriteTrx {
 
   /** Constructor for use by subclasses. */
   protected AbsForwardingNodeWriteTrx() {
   }
 
   @Override
-  protected abstract INodeWriteTrx delegate();
+  protected abstract NodeWriteTrx delegate();
 
   @Override
   public void abort() throws SirixException {
@@ -41,103 +41,103 @@ public abstract class AbsForwardingNodeWriteTrx extends
   }
 
   @Override
-  public INodeWriteTrx moveSubtreeToLeftSibling(long pFromKey)
+  public NodeWriteTrx moveSubtreeToLeftSibling(long pFromKey)
     throws SirixException {
     return delegate().moveSubtreeToLeftSibling(pFromKey);
   }
 
   @Override
-  public INodeWriteTrx moveSubtreeToRightSibling(long pFromKey)
+  public NodeWriteTrx moveSubtreeToRightSibling(long pFromKey)
     throws SirixException {
     return delegate().moveSubtreeToRightSibling(pFromKey);
   }
 
   @Override
-  public INodeWriteTrx moveSubtreeToFirstChild(long pFromKey)
+  public NodeWriteTrx moveSubtreeToFirstChild(long pFromKey)
     throws SirixException {
     return delegate().moveSubtreeToFirstChild(pFromKey);
   }
 
   @Override
-  public INodeWriteTrx copySubtreeAsFirstChild(@Nonnull INodeReadTrx pRtx)
+  public NodeWriteTrx copySubtreeAsFirstChild(@Nonnull NodeReadTrx pRtx)
     throws SirixException {
     return delegate().copySubtreeAsFirstChild(pRtx);
   }
 
   @Override
-  public INodeWriteTrx copySubtreeAsLeftSibling(@Nonnull INodeReadTrx pRtx)
+  public NodeWriteTrx copySubtreeAsLeftSibling(@Nonnull NodeReadTrx pRtx)
     throws SirixException {
     return delegate().copySubtreeAsLeftSibling(pRtx);
   }
 
   @Override
-  public INodeWriteTrx copySubtreeAsRightSibling(@Nonnull INodeReadTrx pRtx)
+  public NodeWriteTrx copySubtreeAsRightSibling(@Nonnull NodeReadTrx pRtx)
     throws SirixException {
     return delegate().copySubtreeAsRightSibling(pRtx);
   }
 
   @Override
-  public INodeWriteTrx insertAttribute(@Nonnull QName pName,
+  public NodeWriteTrx insertAttribute(@Nonnull QName pName,
     @Nonnull String pValue) throws SirixException {
     return delegate().insertAttribute(pName, pValue);
   }
 
   @Override
-  public INodeWriteTrx insertAttribute(@Nonnull QName pName,
-    @Nonnull String pValue, @Nonnull EMove pMove) throws SirixException {
+  public NodeWriteTrx insertAttribute(@Nonnull QName pName,
+    @Nonnull String pValue, @Nonnull Movement pMove) throws SirixException {
     return delegate().insertAttribute(pName, pValue, pMove);
   }
 
   @Override
-  public INodeWriteTrx insertElementAsFirstChild(@Nonnull QName pName)
+  public NodeWriteTrx insertElementAsFirstChild(@Nonnull QName pName)
     throws SirixException {
     return delegate().insertElementAsFirstChild(pName);
   }
 
   @Override
-  public INodeWriteTrx insertElementAsLeftSibling(@Nonnull QName pQName)
+  public NodeWriteTrx insertElementAsLeftSibling(@Nonnull QName pQName)
     throws SirixException {
     return delegate().insertElementAsLeftSibling(pQName);
   }
 
   @Override
-  public INodeWriteTrx insertElementAsRightSibling(@Nonnull QName pQName)
+  public NodeWriteTrx insertElementAsRightSibling(@Nonnull QName pQName)
     throws SirixException {
     return delegate().insertElementAsRightSibling(pQName);
   }
 
   @Override
-  public INodeWriteTrx insertNamespace(@Nonnull QName pName)
+  public NodeWriteTrx insertNamespace(@Nonnull QName pName)
     throws SirixException {
     return delegate().insertNamespace(pName);
   }
 
   @Override
-  public INodeWriteTrx insertNamespace(@Nonnull QName pQName,
-    @Nonnull EMove pMove) throws SirixException {
+  public NodeWriteTrx insertNamespace(@Nonnull QName pQName,
+    @Nonnull Movement pMove) throws SirixException {
     return delegate().insertNamespace(pQName, pMove);
   }
 
   @Override
-  public INodeWriteTrx insertSubtree(@Nonnull XMLEventReader pReader,
-    @Nonnull EInsert pInsert) throws SirixException {
+  public NodeWriteTrx insertSubtree(@Nonnull XMLEventReader pReader,
+    @Nonnull Insert pInsert) throws SirixException {
     return delegate().insertSubtree(pReader, pInsert);
   }
 
   @Override
-  public INodeWriteTrx insertTextAsFirstChild(@Nonnull String pValue)
+  public NodeWriteTrx insertTextAsFirstChild(@Nonnull String pValue)
     throws SirixException {
     return delegate().insertTextAsFirstChild(pValue);
   }
 
   @Override
-  public INodeWriteTrx insertTextAsLeftSibling(@Nonnull String pValue)
+  public NodeWriteTrx insertTextAsLeftSibling(@Nonnull String pValue)
     throws SirixException {
     return delegate().insertTextAsLeftSibling(pValue);
   }
 
   @Override
-  public INodeWriteTrx insertTextAsRightSibling(@Nonnull String pValue)
+  public NodeWriteTrx insertTextAsRightSibling(@Nonnull String pValue)
     throws SirixException {
     return delegate().insertTextAsRightSibling(pValue);
   }

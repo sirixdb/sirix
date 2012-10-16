@@ -31,8 +31,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
 
 /**
@@ -50,7 +50,7 @@ public class PredicateFilterAxis extends AbsAxis {
   private boolean mIsFirst;
 
   /** Predicate axis. */
-  private final IAxis mPredicate;
+  private final Axis mPredicate;
 
   /**
    * Constructor. Initializes the internal state.
@@ -60,7 +60,7 @@ public class PredicateFilterAxis extends AbsAxis {
    * @param pPredicate
    *          predicate expression
    */
-  public PredicateFilterAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final IAxis pPredicate) {
+  public PredicateFilterAxis(@Nonnull final NodeReadTrx pRtx, @Nonnull final Axis pPredicate) {
     super(pRtx);
     mIsFirst = true;
     mPredicate = checkNotNull(pPredicate);

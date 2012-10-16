@@ -30,15 +30,15 @@ package org.sirix.service.xml.xpath.parser;
 import java.util.Arrays;
 import java.util.NoSuchElementException;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.IFilter;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.Filter;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.FollowingAxis;
 import org.sirix.axis.FollowingSiblingAxis;
 import org.sirix.axis.ParentAxis;
@@ -60,8 +60,8 @@ import org.sirix.axis.filter.TypeFilter;
 import org.sirix.axis.filter.WildcardFilter;
 import org.sirix.axis.filter.WildcardFilter.EType;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IValNode;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.ValNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.PipelineBuilder;
@@ -84,13 +84,13 @@ import org.sirix.utils.TypedValue;
 public final class XPathParser {
 
   /** IReadTransaction to access the nodes. Is needed for filters and axes. */
-  private final INodeReadTrx mRTX;
+  private final NodeReadTrx mRTX;
 
   /** Scanner that scans the symbols of the query and returns them as tokens. */
   private final XPathScanner mScanner;
 
   /** Represents the current read token. */
-  private IXPathToken mToken;
+  private XPathToken mToken;
 
   /**
    * Builds the chain of nested IAxis that evaluate the query in a pipeline
@@ -106,7 +106,7 @@ public final class XPathParser {
    * @param mQuery
    *          The query to process.
    */
-  public XPathParser(final INodeReadTrx rtx, final String mQuery) {
+  public XPathParser(final NodeReadTrx rtx, final String mQuery) {
 
     mRTX = rtx;
     mScanner = new XPathScanner(mQuery);
@@ -709,7 +709,7 @@ public final class XPathParser {
       // step
       mPipeBuilder.addStep(new DocumentNodeAxis(getTransaction()));
 
-      final IAxis mAxis = new DescendantAxis(getTransaction(), EIncludeSelf.YES);
+      final Axis mAxis = new DescendantAxis(getTransaction(), IncludeSelf.YES);
 
       mPipeBuilder.addStep(mAxis);
 
@@ -733,7 +733,7 @@ public final class XPathParser {
 
     while (mToken.getType() == TokenType.SLASH || mToken.getType() == TokenType.DESC_STEP) {
       if (is(TokenType.DESC_STEP, true)) {
-        final IAxis axis = new DescendantAxis(getTransaction(), EIncludeSelf.YES);
+        final Axis axis = new DescendantAxis(getTransaction(), IncludeSelf.YES);
         mPipeBuilder.addStep(axis);
       } else {
         // in this case the slash is just a separator
@@ -828,8 +828,8 @@ public final class XPathParser {
    */
   private void parseForwardStep() throws SirixXPathException {
 
-    IAxis axis;
-    IFilter filter;
+    Axis axis;
+    Filter filter;
     if (isForwardAxis()) {
       axis = parseForwardAxis();
       filter = parseNodeTest(axis.getClass() == AttributeAxis.class);
@@ -853,14 +853,14 @@ public final class XPathParser {
    * @return axis
    * @throws SirixXPathException
    */
-  private IAxis parseForwardAxis() throws SirixXPathException {
-    final IAxis axis;
+  private Axis parseForwardAxis() throws SirixXPathException {
+    final Axis axis;
     if (is("child", true)) {
       axis = new ChildAxis(getTransaction());
     } else if (is("descendant", true)) {
       axis = new DescendantAxis(getTransaction());
     } else if (is("descendant-or-self", true)) {
-      axis = new DescendantAxis(getTransaction(), EIncludeSelf.YES);
+      axis = new DescendantAxis(getTransaction(), IncludeSelf.YES);
     } else if (is("attribute", true)) {
       axis = new AttributeAxis(getTransaction());
     } else if (is("self", true)) {
@@ -921,7 +921,7 @@ public final class XPathParser {
       isAttribute = false;
     }
 
-    final IFilter filter = parseNodeTest(isAttribute);
+    final Filter filter = parseNodeTest(isAttribute);
 
     return new FilterAxis(axis, filter);
   }
@@ -942,7 +942,7 @@ public final class XPathParser {
       mPipeBuilder.addStep(axis);
     } else {
       axis = parseReverceAxis();
-      final IFilter filter = parseNodeTest(axis.getClass() == AttributeAxis.class);
+      final Filter filter = parseNodeTest(axis.getClass() == AttributeAxis.class);
       mPipeBuilder.addStep(axis, filter);
     }
   }
@@ -967,7 +967,7 @@ public final class XPathParser {
 
     } else if (is("ancestor-or-self", true)) {
 
-      axis = new AncestorAxis(getTransaction(), EIncludeSelf.YES);
+      axis = new AncestorAxis(getTransaction(), IncludeSelf.YES);
 
     } else if (is("preceding", true)) {
 
@@ -1022,9 +1022,9 @@ public final class XPathParser {
    * 
    * @return filter
    */
-  private IFilter parseNodeTest(final boolean mIsAtt) {
+  private Filter parseNodeTest(final boolean mIsAtt) {
 
-    IFilter filter;
+    Filter filter;
     if (isKindTest()) {
       filter = parseKindTest();
     } else {
@@ -1043,9 +1043,9 @@ public final class XPathParser {
    *          Attribute
    * @return filter
    */
-  private IFilter parseNameTest(final boolean mIsAtt) {
+  private Filter parseNameTest(final boolean mIsAtt) {
 
-    IFilter filter;
+    Filter filter;
     if (isWildcardNameTest()) {
 
       filter = parseWildcard(mIsAtt);
@@ -1076,8 +1076,8 @@ public final class XPathParser {
    *          Attribute
    * @return filter
    */
-  private IFilter parseWildcard(final boolean pIsAtt) {
-    IFilter filter;
+  private Filter parseWildcard(final boolean pIsAtt) {
+    Filter filter;
     EType isName = EType.PREFIX;
 
     if (is(TokenType.STAR, true)) {
@@ -1338,7 +1338,7 @@ public final class XPathParser {
       return new SequenceType();
 
     } else {
-      final IFilter filter = parseItemType();
+      final Filter filter = parseItemType();
       if (isWildcard()) {
         final char wildcard = parseOccuranceIndicator();
         return new SequenceType(filter, wildcard);
@@ -1390,9 +1390,9 @@ public final class XPathParser {
    * 
    * @return filter
    */
-  private IFilter parseItemType() {
+  private Filter parseItemType() {
 
-    IFilter filter;
+    Filter filter;
     if (isKindTest()) {
       filter = parseKindTest();
     } else if (is("item", true)) {
@@ -1430,9 +1430,9 @@ public final class XPathParser {
    * 
    * @return filter
    */
-  private IFilter parseKindTest() {
+  private Filter parseKindTest() {
 
-    IFilter filter;
+    Filter filter;
     final String test = mToken.getContent();
 
     if ("document-node".equals(test)) {
@@ -1466,7 +1466,7 @@ public final class XPathParser {
    * 
    * @return NodeFilter
    */
-  private IFilter parseAnyKindTest() {
+  private Filter parseAnyKindTest() {
 
     consume("node", true);
     consume(TokenType.OPEN_BR, true);
@@ -1502,13 +1502,13 @@ public final class XPathParser {
    * 
    * @return filter
    */
-  private IFilter parseDocumentTest() {
+  private Filter parseDocumentTest() {
 
     consume("document-node", true);
     consume(TokenType.OPEN_BR, true);
-    IFilter filter = new DocumentRootNodeFilter(getTransaction());
+    Filter filter = new DocumentRootNodeFilter(getTransaction());
 
-    IFilter innerFilter;
+    Filter innerFilter;
     if (mToken.getContent().equals("element")) {
       innerFilter = parseElementTest();
       filter = new NestedFilter(getTransaction(), filter, innerFilter);
@@ -1530,7 +1530,7 @@ public final class XPathParser {
    * 
    * @return TextFilter
    */
-  private IFilter parseTextTest() {
+  private Filter parseTextTest() {
 
     consume("text", true);
     consume(TokenType.OPEN_BR, true);
@@ -1548,7 +1548,7 @@ public final class XPathParser {
    * 
    * @return CommonFilter
    */
-  private IFilter parseCommentTest() {
+  private Filter parseCommentTest() {
 
     consume("comment", true);
     consume(TokenType.OPEN_BR, true);
@@ -1565,18 +1565,18 @@ public final class XPathParser {
    * 
    * @return filter
    */
-  private IFilter parsePITest() {
+  private Filter parsePITest() {
 
     consume("processing-instruction", true);
     consume(TokenType.OPEN_BR, true);
 
-    IFilter filter = new PIFilter(getTransaction());
+    Filter filter = new PIFilter(getTransaction());
 
     if (!is(TokenType.CLOSE_BR, true)) {
       String stringLiteral;
       if (isQuote()) {
         final byte[] param =
-          ((IValNode)getTransaction().getItemList().getItem(parseStringLiteral()).get()).getRawValue();
+          ((ValNode)getTransaction().getItemList().getItem(parseStringLiteral()).get()).getRawValue();
         stringLiteral = Arrays.toString(param);
       } else {
         stringLiteral = parseNCName();
@@ -1608,12 +1608,12 @@ public final class XPathParser {
    * 
    * @return filter
    */
-  private IFilter parseAttributeTest() {
+  private Filter parseAttributeTest() {
 
     consume("attribute", true);
     consume(TokenType.OPEN_BR, true);
 
-    IFilter filter = new AttributeFilter(getTransaction());
+    Filter filter = new AttributeFilter(getTransaction());
 
     if (!(mToken.getType() == TokenType.CLOSE_BR)) {
       // add name filter
@@ -1667,12 +1667,12 @@ public final class XPathParser {
    * 
    * @return filter
    */
-  private IFilter parseSchemaAttributeTest() {
+  private Filter parseSchemaAttributeTest() {
 
     consume("schema-attribute", true);
     consume(TokenType.OPEN_BR, true);
 
-    final IFilter filter = new SchemaAttributeFilter(getTransaction()/*
+    final Filter filter = new SchemaAttributeFilter(getTransaction()/*
                                                                       * ,
                                                                       * parseAttributeDeclaration
                                                                       * ()
@@ -1704,12 +1704,12 @@ public final class XPathParser {
    * 
    * @return filter
    */
-  private IFilter parseElementTest() {
+  private Filter parseElementTest() {
 
     consume("element", true);
     consume(TokenType.OPEN_BR, true);
 
-    IFilter filter = new ElementFilter(getTransaction());
+    Filter filter = new ElementFilter(getTransaction());
 
     if (!(mToken.getType() == TokenType.CLOSE_BR)) {
 
@@ -1769,7 +1769,7 @@ public final class XPathParser {
    * 
    * @return SchemaElementFilter
    */
-  private IFilter parseSchemaElementTest() {
+  private Filter parseSchemaElementTest() {
 
     consume("schema-element", true);
     consume(TokenType.OPEN_BR, true);
@@ -2179,7 +2179,7 @@ public final class XPathParser {
    * 
    * @return the query pipelines
    */
-  public IAxis getQueryPipeline() {
+  public Axis getQueryPipeline() {
     return mPipeBuilder.getPipeline();
   }
 
@@ -2188,7 +2188,7 @@ public final class XPathParser {
    * 
    * @return the current transaction
    */
-  private INodeReadTrx getTransaction() {
+  private NodeReadTrx getTransaction() {
     return mRTX;
   }
 }

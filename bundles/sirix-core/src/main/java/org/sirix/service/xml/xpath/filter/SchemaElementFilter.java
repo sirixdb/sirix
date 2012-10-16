@@ -27,7 +27,7 @@
 
 package org.sirix.service.xml.xpath.filter;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.filter.AbsFilter;
 
 /**
@@ -63,7 +63,7 @@ public class SchemaElementFilter extends AbsFilter {
    * @param rtx
    *          Transaction this filter is bound to..
    */
-  public SchemaElementFilter(final INodeReadTrx rtx) {
+  public SchemaElementFilter(final NodeReadTrx rtx) {
 
     super(rtx);
     // elementName = declaration;

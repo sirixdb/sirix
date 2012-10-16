@@ -47,7 +47,7 @@ import com.sleepycat.je.Environment;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public abstract class AbsPersistenceCache<K, V> implements ICache<K, V> {
+public abstract class AbsPersistenceCache<K, V> implements Cache<K, V> {
 
 	/**
 	 * Place to store the data.

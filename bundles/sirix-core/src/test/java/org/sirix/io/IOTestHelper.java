@@ -82,13 +82,13 @@ public final class IOTestHelper {
 	 */
 	public static void testReadWriteFirstRef(
 			final ResourceConfiguration resourceConf) throws SirixException {
-		final IStorage fac = EStorage.getStorage(resourceConf);
+		final Storage fac = EStorage.getStorage(resourceConf);
 		final PageReference pageRef1 = new PageReference();
 		final UberPage page1 = new UberPage();
 		pageRef1.setPage(page1);
 
 		// same instance check
-		final IWriter writer = fac.getWriter();
+		final Writer writer = fac.getWriter();
 		writer.writeFirstReference(pageRef1);
 		final PageReference pageRef2 = writer.readFirstReference();
 		assertEquals(pageRef1.getNodePageKey(), pageRef2.getNodePageKey());
@@ -97,7 +97,7 @@ public final class IOTestHelper {
 		writer.close();
 
 		// new instance check
-		final IReader reader = fac.getReader();
+		final Reader reader = fac.getReader();
 		final PageReference pageRef3 = reader.readFirstReference();
 		assertEquals(pageRef1.getNodePageKey(), pageRef3.getNodePageKey());
 		assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),

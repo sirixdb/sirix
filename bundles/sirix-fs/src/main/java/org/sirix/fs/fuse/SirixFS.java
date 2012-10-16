@@ -37,17 +37,17 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import org.slf4j.LoggerFactory;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.IFilter;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Database;
+import org.sirix.api.Filter;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
 import org.sirix.utils.LogWrapper;
 

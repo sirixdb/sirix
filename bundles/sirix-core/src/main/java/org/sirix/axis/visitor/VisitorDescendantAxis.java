@@ -35,14 +35,14 @@ import java.util.Deque;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeCursor;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.axis.AbsAxis;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.settings.EFixed;
 
 import com.google.common.base.Optional;
@@ -76,19 +76,19 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		/** Optional visitor. */
 		private Optional<? extends IVisitor> mVisitor = Optional.absent();
 
-		/** Sirix {@link INodeCursor}. */
-		private final INodeCursor mRtx;
+		/** Sirix {@link NodeCursor}. */
+		private final NodeCursor mRtx;
 
 		/** Determines if current node should be included or not. */
-		private EIncludeSelf mIncludeSelf = EIncludeSelf.NO;
+		private IncludeSelf mIncludeSelf = IncludeSelf.NO;
 
 		/**
 		 * Constructor.
 		 * 
 		 * @param pRtx
-		 *          Sirix {@link INodeCursor}
+		 *          Sirix {@link NodeCursor}
 		 */
-		public Builder(final INodeCursor pRtx) {
+		public Builder(final NodeCursor pRtx) {
 			mRtx = checkNotNull(pRtx);
 		}
 
@@ -100,7 +100,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		 * @return this builder instance
 		 */
 		public Builder includeSelf() {
-			mIncludeSelf = EIncludeSelf.YES;
+			mIncludeSelf = IncludeSelf.YES;
 			return this;
 		}
 
@@ -158,18 +158,18 @@ public final class VisitorDescendantAxis extends AbsAxis {
 			return EFixed.NULL_NODE_KEY.getStandardProperty();
 		}
 
-		final INodeReadTrx rtx = getTrx();
+		final NodeReadTrx rtx = getTrx();
 
 		// Determines if first call to hasNext().
 		if (mFirst) {
 			mFirst = false;
-			return isSelfIncluded() == EIncludeSelf.YES ? rtx.getNodeKey() : rtx
+			return isSelfIncluded() == IncludeSelf.YES ? rtx.getNodeKey() : rtx
 					.getFirstChildKey();
 		}
 
 		// If visitor is present and the the righ sibling stack must be adapted.
 		if (result.isPresent()
-				&& result.get() == ELocalVisitResult.SKIPSUBTREEPOPSTACK) {
+				&& result.get() == LocalVisitResult.SKIPSUBTREEPOPSTACK) {
 			mRightSiblingKeyStack.pop();
 		}
 
@@ -177,7 +177,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		// EVisitResult.SKIPSUBTREE/EVisitResult.SKIPSUBTREEPOPSTACK or visitor is
 		// not present.
 		if ((result.isPresent() && result.get() != EVisitResult.SKIPSUBTREE && result
-				.get() != ELocalVisitResult.SKIPSUBTREEPOPSTACK) || !result.isPresent()) {
+				.get() != LocalVisitResult.SKIPSUBTREEPOPSTACK) || !result.isPresent()) {
 			// Always follow first child if there is one.
 			if (rtx.hasFirstChild()) {
 				final long key = rtx.getFirstChildKey();
@@ -220,7 +220,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 	private long hasNextNode(final @Nonnegative long pNextKey,
 			final @Nonnegative long pCurrKey) {
 		// Fail if the subtree is finished.
-		final INodeReadTrx rtx = getTrx();
+		final NodeReadTrx rtx = getTrx();
 		rtx.moveTo(pNextKey);
 		if (rtx.getLeftSiblingKey() == getStartKey()) {
 			return EFixed.NULL_NODE_KEY.getStandardProperty();

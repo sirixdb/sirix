@@ -29,8 +29,8 @@ package org.sirix.axis.filter;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.Kind;
 
 /**
  * <h1>NodeAxisTest</h1>
@@ -45,14 +45,14 @@ public class ElementFilter extends AbsFilter {
    * Default constructor.
    * 
    * @param rtx
-   *          {@link INodeReadTrx} this filter is bound to
+   *          {@link NodeReadTrx} this filter is bound to
    */
-  public ElementFilter(@Nonnull final INodeReadTrx pRtx) {
+  public ElementFilter(@Nonnull final NodeReadTrx pRtx) {
     super(pRtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == EKind.ELEMENT;
+    return getTrx().getKind() == Kind.ELEMENT;
   }
 }

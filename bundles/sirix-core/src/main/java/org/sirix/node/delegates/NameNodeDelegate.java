@@ -40,20 +40,20 @@ import javax.annotation.Nullable;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AbsForwardingNode;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INameNode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.NameNode;
 
 /**
  * Delegate method for all nodes containing naming-data. That means that
  * different fixed defined names are represented by the nodes delegating the
- * calls of the interface {@link INameNode} to this class. Mainly, keys are
+ * calls of the interface {@link NameNode} to this class. Mainly, keys are
  * stored referencing later on to the string stored in dedicated pages.
  * 
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  * 
  */
-public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
+public class NameNodeDelegate extends AbsForwardingNode implements NameNode {
 
   /** Node delegate, containing basic node information. */
   private final NodeDelegate mDelegate;
@@ -100,8 +100,8 @@ public class NameNodeDelegate extends AbsForwardingNode implements INameNode {
   }
 
   @Override
-  public EKind getKind() {
-    return EKind.UNKNOWN;
+  public Kind getKind() {
+    return Kind.UNKNOWN;
   }
 
   @Override

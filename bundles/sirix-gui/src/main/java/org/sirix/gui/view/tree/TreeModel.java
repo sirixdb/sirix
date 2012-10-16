@@ -27,11 +27,11 @@
 
 package org.sirix.gui.view.tree;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Node;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -52,8 +52,8 @@ public final class TreeModel extends AbsTreeModel {
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
 			LoggerFactory.getLogger(TreeModel.class));
 
-	/** sirix {@link INodeReadTrx}. */
-	private transient INodeReadTrx mRtx;
+	/** sirix {@link NodeReadTrx}. */
+	private transient NodeReadTrx mRtx;
 
 	/**
 	 * Constructor.
@@ -72,7 +72,7 @@ public final class TreeModel extends AbsTreeModel {
 
 	@Override
 	public Object getChild(final Object pParent, final int pIndex) {
-		final INode parentNode = (INode) pParent;
+		final Node parentNode = (Node) pParent;
 		final long parentNodeKey = parentNode.getNodeKey();
 		mRtx.moveTo(parentNodeKey);
 
@@ -129,7 +129,7 @@ public final class TreeModel extends AbsTreeModel {
 
 	@Override
 	public int getChildCount(final Object parent) {
-		mRtx.moveTo(((INode) parent).getNodeKey());
+		mRtx.moveTo(((Node) parent).getNodeKey());
 
 		switch (mRtx.getKind()) {
 		case DOCUMENT_ROOT:
@@ -154,11 +154,11 @@ public final class TreeModel extends AbsTreeModel {
 		}
 
 		// Parent node.
-		mRtx.moveTo(((INode) pParent).getNodeKey());
-		final INode parentNode = (INode) pParent;
+		mRtx.moveTo(((Node) pParent).getNodeKey());
+		final Node parentNode = (Node) pParent;
 
 		// Child node.
-		final INode childNode = (INode) pChild;
+		final Node childNode = (Node) pChild;
 
 		// Return value.
 		int index = -1;
@@ -198,7 +198,7 @@ public final class TreeModel extends AbsTreeModel {
 		case COMMENT:
 		case PROCESSING:
 		case TEXT:
-			if (parentNode.getKind() == EKind.ELEMENT) {
+			if (parentNode.getKind() == Kind.ELEMENT) {
 				namespCount = mRtx.getNamespaceCount();
 				attCount = mRtx.getAttributeCount();
 			}
@@ -236,7 +236,7 @@ public final class TreeModel extends AbsTreeModel {
 
 	@Override
 	public boolean isLeaf(final Object pNode) {
-		mRtx.moveTo(((INode) pNode).getNodeKey());
+		mRtx.moveTo(((Node) pNode).getNodeKey());
 
 		switch (mRtx.getKind()) {
 		case DOCUMENT_ROOT:

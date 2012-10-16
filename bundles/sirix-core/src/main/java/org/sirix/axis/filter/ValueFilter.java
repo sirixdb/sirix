@@ -29,8 +29,8 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.Kind;
 import org.sirix.utils.TypedValue;
 
 /**
@@ -53,7 +53,7 @@ public class ValueFilter extends AbsFilter {
 	 * @param pValue
 	 *          value to find
 	 */
-	public ValueFilter(final INodeReadTrx pRtx, final byte[] pValue) {
+	public ValueFilter(final NodeReadTrx pRtx, final byte[] pValue) {
 		super(pRtx);
 		mValue = checkNotNull(pValue);
 	}
@@ -66,7 +66,7 @@ public class ValueFilter extends AbsFilter {
 	 * @param mValue
 	 *          Value to find.
 	 */
-	public ValueFilter(final INodeReadTrx rtx, final String mValue) {
+	public ValueFilter(final NodeReadTrx rtx, final String mValue) {
 		this(rtx, TypedValue.getBytes(mValue));
 	}
 
@@ -78,7 +78,7 @@ public class ValueFilter extends AbsFilter {
 	 * @param mValue
 	 *          Value to find.
 	 */
-	public ValueFilter(final INodeReadTrx rtx, final int mValue) {
+	public ValueFilter(final NodeReadTrx rtx, final int mValue) {
 		this(rtx, TypedValue.getBytes(mValue));
 	}
 
@@ -90,14 +90,14 @@ public class ValueFilter extends AbsFilter {
 	 * @param mValue
 	 *          Value to find.
 	 */
-	public ValueFilter(final INodeReadTrx rtx, final long mValue) {
+	public ValueFilter(final NodeReadTrx rtx, final long mValue) {
 		this(rtx, TypedValue.getBytes(mValue));
 	}
 
 	@Override
 	public final boolean filter() {
-		return (getTrx().getKind() == EKind.TEXT || getTrx()
-				.getKind() == EKind.ATTRIBUTE)
+		return (getTrx().getKind() == Kind.TEXT || getTrx()
+				.getKind() == Kind.ATTRIBUTE)
 				&& (TypedValue.equals(getTrx().getValue(), mValue));
 	}
 

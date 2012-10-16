@@ -35,7 +35,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.DocumentCreater;
 
@@ -81,7 +81,7 @@ public class MinimumCommitTest {
     assertEquals(0L, holder.getWtx().getRevisionTimestamp());
     holder.getWtx().commit();
 
-    final INodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+    final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
     assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
     rtx.close();
   }

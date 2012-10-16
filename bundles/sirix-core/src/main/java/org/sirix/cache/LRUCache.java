@@ -47,7 +47,7 @@ import javax.annotation.Nullable;
  * 
  * @author Sebastian Graf, University of Konstanz
  */
-public final class LRUCache<K, V> implements ICache<K, V> {
+public final class LRUCache<K, V> implements Cache<K, V> {
 
   /**
    * Capacity of the cache. Number of stored pages.
@@ -62,16 +62,16 @@ public final class LRUCache<K, V> implements ICache<K, V> {
   /**
    * The reference to the second cache.
    */
-  private final ICache<K, V> mSecondCache;
+  private final Cache<K, V> mSecondCache;
 
   /**
    * Creates a new LRU cache.
    * 
    * @param pSecondCache
-   *          the reference to the second {@link ICache} where the data is stored
+   *          the reference to the second {@link Cache} where the data is stored
    *          when it gets removed from the first one.
    */
-  public LRUCache(@Nonnull final ICache<K, V> pSecondCache) {
+  public LRUCache(@Nonnull final Cache<K, V> pSecondCache) {
     mSecondCache = checkNotNull(pSecondCache);
     mMap = new LinkedHashMap<K, V>(CACHE_CAPACITY) {
       private static final long serialVersionUID = 1;

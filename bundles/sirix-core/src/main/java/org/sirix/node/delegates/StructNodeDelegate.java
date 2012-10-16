@@ -36,9 +36,9 @@ import javax.annotation.Nullable;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AbsForwardingNode;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.settings.EFixed;
 
 import com.google.common.base.Objects;
@@ -46,14 +46,14 @@ import com.google.common.base.Objects;
 /**
  * Delegate method for all nodes building up the structure. That means that all
  * nodes representing trees in Sirix are represented by an instance of the
- * interface {@link IStructNode} namely containing the position of all related
+ * interface {@link StructNode} namely containing the position of all related
  * siblings, the first-child and all nodes defined by the {@link NodeDelegate} as well.
  * 
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class StructNodeDelegate extends AbsForwardingNode implements IStructNode {
+public class StructNodeDelegate extends AbsForwardingNode implements StructNode {
 
   /** Pointer to the first child of the current node. */
   private long mFirstChild;
@@ -106,7 +106,7 @@ public class StructNodeDelegate extends AbsForwardingNode implements IStructNode
   }
 
   @Override
-  public EKind getKind() {
+  public Kind getKind() {
     return mDelegate.getKind();
   }
 
@@ -226,7 +226,7 @@ public class StructNodeDelegate extends AbsForwardingNode implements IStructNode
   }
 
   @Override
-  public boolean isSameItem(@Nullable final INode pOther) {
+  public boolean isSameItem(@Nullable final Node pOther) {
     return mDelegate.isSameItem(pOther);
   }
 

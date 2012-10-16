@@ -30,8 +30,8 @@ package org.sirix.service.xml.xpath.filter;
 import java.util.HashSet;
 import java.util.Set;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.FilterAxis;
@@ -51,7 +51,7 @@ import org.sirix.service.xml.xpath.expr.UnionAxis;
 public class DupFilterAxis extends AbsAxis {
 
   /** Sequence that may contain duplicates. */
-  private final IAxis mAxis;
+  private final Axis mAxis;
 
   /** Set that stores all already returned item keys. */
   private final Set<Long> mDupSet;
@@ -70,7 +70,7 @@ public class DupFilterAxis extends AbsAxis {
    * @param mDupAxis
    *          Sequence that may return duplicates.
    */
-  public DupFilterAxis(final INodeReadTrx rtx, final IAxis pDupAxis) {
+  public DupFilterAxis(final NodeReadTrx rtx, final Axis pDupAxis) {
 
     super(rtx);
     mAxis = pDupAxis;

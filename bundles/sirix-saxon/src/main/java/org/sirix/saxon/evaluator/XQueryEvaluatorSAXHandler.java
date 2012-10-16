@@ -40,7 +40,7 @@ import net.sf.saxon.s9api.SAXDestination;
 import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.XQueryCompiler;
 import net.sf.saxon.s9api.XQueryExecutable;
-import org.sirix.api.ISession;
+import org.sirix.api.Session;
 import org.sirix.saxon.wrapper.DocumentWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,7 +68,7 @@ public final class XQueryEvaluatorSAXHandler implements Callable<Void> {
   private final String mExpression;
 
   /** sirix database. */
-  private final ISession mSession;
+  private final Session mSession;
 
   /** SAX receiver. */
   private final ContentHandler mHandler;
@@ -79,12 +79,12 @@ public final class XQueryEvaluatorSAXHandler implements Callable<Void> {
    * @param pExpression
    *          XQuery expression
    * @param pSession
-   *          Sirix {@link ISession}
+   *          Sirix {@link Session}
    * @param pHandler
    *          SAX content handler
    */
   public XQueryEvaluatorSAXHandler(@Nonnull final String pExpression,
-    @Nonnull final ISession pSession, @Nonnull final ContentHandler pHandler) {
+    @Nonnull final Session pSession, @Nonnull final ContentHandler pHandler) {
     mExpression = checkNotNull(pExpression);
     mSession = checkNotNull(pSession);
     mHandler = checkNotNull(pHandler);

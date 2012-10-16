@@ -1,7 +1,7 @@
 package org.sirix.gui.view;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffFactory.EDiff;
 
 public class DiffAxis extends AbsDiffAxis {
@@ -9,11 +9,11 @@ public class DiffAxis extends AbsDiffAxis {
   /** {@link VisualItemAxis} reference. */
   private final VisualItemAxis mAxis;
 
-  /** {@link INodeReadTrx} on new revision. */
-  private INodeReadTrx mNewRtx;
+  /** {@link NodeReadTrx} on new revision. */
+  private NodeReadTrx mNewRtx;
 
-  /** {@link INodeReadTrx} on old revision. */
-  private INodeReadTrx mOldRtx;
+  /** {@link NodeReadTrx} on old revision. */
+  private NodeReadTrx mOldRtx;
 
   /** Determines if element has been peeked. */
   private boolean mHasPeeked;
@@ -40,13 +40,13 @@ public class DiffAxis extends AbsDiffAxis {
    * @param pIncludeSelf
    *          determines if self is included
    * @param pNewRtx
-   *          {@link INodeReadTrx} on new revision
+   *          {@link NodeReadTrx} on new revision
    * @param pOldRtx
-   *          {@link INodeReadTrx} on old revision
+   *          {@link NodeReadTrx} on old revision
    * @param pAxis
    *          {@link VisualItemAxis} reference
    */
-  public DiffAxis(final EIncludeSelf pIncludeSelf, final INodeReadTrx pNewRtx, final INodeReadTrx pOldRtx,
+  public DiffAxis(final IncludeSelf pIncludeSelf, final NodeReadTrx pNewRtx, final NodeReadTrx pOldRtx,
     final VisualItemAxis pAxis) {
     super(pNewRtx, pIncludeSelf);
     mAxis = pAxis;
@@ -70,7 +70,7 @@ public class DiffAxis extends AbsDiffAxis {
 
   @Override
   public boolean hasNext() {
-    if (mFirst && isSelfIncluded() == EIncludeSelf.NO) {
+    if (mFirst && isSelfIncluded() == IncludeSelf.NO) {
       mFirst = false;
       resetToLastKey();
       if (mAxis.hasNext()) {
@@ -90,7 +90,7 @@ public class DiffAxis extends AbsDiffAxis {
 
     // Setup everything.
     if (mAxis.hasNext()) {
-      final IVisualItem item = mAxis.next();
+      final VisualItem item = mAxis.next();
       mDiff = item.getDiff();
       final boolean isOldTransaction =
         (mDiff == EDiff.DELETED || mDiff == EDiff.MOVEDFROM || mDiff == EDiff.REPLACEDOLD);
@@ -157,11 +157,11 @@ public class DiffAxis extends AbsDiffAxis {
     return mDepth;
   }
   
-  public INodeReadTrx getOldRtx() {
+  public NodeReadTrx getOldRtx() {
     return mOldRtx;
   }
   
-  public INodeReadTrx getNewRtx() {
+  public NodeReadTrx getNewRtx() {
     return mNewRtx;
   }
 

@@ -34,8 +34,8 @@ import java.util.List;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 
 /**
@@ -49,7 +49,7 @@ import org.sirix.service.xml.xpath.AbsAxis;
 public class VariableAxis extends AbsAxis {
 
   /** Sequence that defines the values, the variable is bound to. */
-  private final IAxis mBindingSeq;
+  private final Axis mBindingSeq;
 
   private final List<VarRefExpr> mVarRefs;
 
@@ -61,7 +61,7 @@ public class VariableAxis extends AbsAxis {
    * @param pInSeq
    *          sequence, the variable is bound to
    */
-  public VariableAxis(@Nonnull final INodeReadTrx pRtx, @Nonnull final IAxis pInSeq) {
+  public VariableAxis(@Nonnull final NodeReadTrx pRtx, @Nonnull final Axis pInSeq) {
     super(pRtx);
     mBindingSeq = checkNotNull(pInSeq);
     mVarRefs = new ArrayList<VarRefExpr>();

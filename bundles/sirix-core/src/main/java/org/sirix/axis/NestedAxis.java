@@ -31,7 +31,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
+import org.sirix.api.Axis;
 
 /**
  * <h1>NestedAxis</h1>
@@ -43,10 +43,10 @@ import org.sirix.api.IAxis;
 public final class NestedAxis extends AbsAxis {
 
   /** Parent axis. */
-  private final IAxis mParentAxis;
+  private final Axis mParentAxis;
 
   /** Child axis to apply to each node found with parent axis. */
-  private final IAxis mChildAxis;
+  private final Axis mChildAxis;
 
   /** Is it the first run of parent axis? */
   private boolean mIsFirst;
@@ -59,8 +59,8 @@ public final class NestedAxis extends AbsAxis {
    * @param pChildAxis
    *          outer nested axis
    */
-  public NestedAxis(@Nonnull final IAxis pParentAxis,
-    @Nonnull final IAxis pChildAxis) {
+  public NestedAxis(@Nonnull final Axis pParentAxis,
+    @Nonnull final Axis pChildAxis) {
     super(pParentAxis.getTrx());
     mParentAxis = checkNotNull(pParentAxis);
     mChildAxis = checkNotNull(pChildAxis);

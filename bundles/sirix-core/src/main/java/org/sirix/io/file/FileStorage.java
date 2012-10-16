@@ -35,11 +35,11 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.IReader;
-import org.sirix.io.IStorage;
-import org.sirix.io.IWriter;
+import org.sirix.io.Reader;
+import org.sirix.io.Storage;
+import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.bytepipe.IByteHandler;
+import org.sirix.io.bytepipe.ByteHandler;
 
 /**
  * Factory to provide File access as a backend.
@@ -47,7 +47,7 @@ import org.sirix.io.bytepipe.IByteHandler;
  * @author Sebastian Graf, University of Konstanz.
  * 
  */
-public final class FileStorage implements IStorage {
+public final class FileStorage implements Storage {
 
   /** File name. */
   private static final String FILENAME = "tt.tnk";
@@ -71,13 +71,13 @@ public final class FileStorage implements IStorage {
   }
 
   @Override
-  public IReader getReader() throws SirixIOException {
+  public Reader getReader() throws SirixIOException {
     return new FileReader(getConcreteStorage(), new ByteHandlePipeline(
       mByteHandler));
   }
 
   @Override
-  public IWriter getWriter() throws SirixIOException {
+  public Writer getWriter() throws SirixIOException {
     return new FileWriter(getConcreteStorage(), new ByteHandlePipeline(
       mByteHandler));
   }
@@ -105,7 +105,7 @@ public final class FileStorage implements IStorage {
   }
 
   @Override
-  public IByteHandler getByteHandler() {
+  public ByteHandler getByteHandler() {
     return mByteHandler;
   }
 }

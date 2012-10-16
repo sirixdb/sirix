@@ -30,8 +30,8 @@ package org.sirix.service.xml.xpath.expr;
 import java.util.Arrays;
 import java.util.List;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 
 /**
@@ -46,8 +46,8 @@ import org.sirix.service.xml.xpath.AbsAxis;
  */
 public class SequenceAxis extends AbsAxis {
 
-  private final List<IAxis> mSeq;
-  private IAxis mCurrent;
+  private final List<Axis> mSeq;
+  private Axis mCurrent;
   private int mNum;
 
   /**
@@ -59,7 +59,7 @@ public class SequenceAxis extends AbsAxis {
    * @param axis
    *          The singleExpressions contained by the sequence
    */
-  public SequenceAxis(final INodeReadTrx rtx, final IAxis... axis) {
+  public SequenceAxis(final NodeReadTrx rtx, final Axis... axis) {
 
     super(rtx);
     mSeq = Arrays.asList(axis);
@@ -73,7 +73,7 @@ public class SequenceAxis extends AbsAxis {
   public void reset(final long mNodeKey) {
     super.reset(mNodeKey);
     if (mSeq != null) {
-      for (IAxis ax : mSeq) {
+      for (Axis ax : mSeq) {
         ax.reset(mNodeKey);
       }
     }

@@ -29,8 +29,8 @@ package org.sirix.service.xml.xpath.expr;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IExpression;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Expression;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.exception.SirixXPathException;
 
@@ -45,7 +45,7 @@ import org.sirix.exception.SirixXPathException;
  * evaluated once. Therefore the axis returns true only for the first call and false for all others.
  * </p>
  */
-public abstract class AbsExpression extends AbsAxis implements IExpression {
+public abstract class AbsExpression extends AbsAxis implements Expression {
 
   /** Defines, whether {@code hasNext()} has already been called. */
   private boolean mIsFirst;
@@ -56,7 +56,7 @@ public abstract class AbsExpression extends AbsAxis implements IExpression {
    * @param rtx
    *          exclusive (immutable) trx to iterate with
    */
-  public AbsExpression(@Nonnull final INodeReadTrx pRtx) {
+  public AbsExpression(@Nonnull final NodeReadTrx pRtx) {
     super(pRtx);
     mIsFirst = true;
   }

@@ -43,13 +43,13 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.access.EHashKind;
-import org.sirix.access.Session;
+import org.sirix.access.HashKind;
+import org.sirix.access.SessionImpl;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.EStorage;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.DeflateCompressor;
-import org.sirix.io.bytepipe.IByteHandler;
+import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.settings.ERevisioning;
 
 import com.google.common.base.Objects;
@@ -71,7 +71,7 @@ import com.google.gson.stream.JsonWriter;
 public final class ResourceConfiguration {
 	
 	/**
-	 * Paths for a {@link Session}. Each resource has the same folder layout.
+	 * Paths for a {@link SessionImpl}. Each resource has the same folder layout.
 	 */
 	public enum Paths {
 
@@ -163,7 +163,7 @@ public final class ResourceConfiguration {
 	public static final ERevisioning VERSIONING = ERevisioning.INCREMENTAL;
 
 	/** Type of hashing. */
-	public static final EHashKind HASHKIND = EHashKind.Rolling;
+	public static final HashKind HASHKIND = HashKind.Rolling;
 
 	/** Versions to restore. */
 	public static final int VERSIONSTORESTORE = 3;
@@ -180,7 +180,7 @@ public final class ResourceConfiguration {
 	public final ERevisioning mRevisionKind;
 
 	/** Kind of integrity hash (rolling, postorder). */
-	public final EHashKind mHashKind;
+	public final HashKind mHashKind;
 
 	/** Number of revisions to restore a complete set of data. */
 	public final int mRevisionsToRestore;
@@ -327,7 +327,7 @@ public final class ResourceConfiguration {
 			final ByteHandlePipeline byteHandler = pConfig.mByteHandler;
 			jsonWriter.name(JSONNAMES[3]);
 			jsonWriter.beginArray();
-			for (final IByteHandler handler : byteHandler.getComponents()) {
+			for (final ByteHandler handler : byteHandler.getComponents()) {
 				jsonWriter.value(handler.getClass().getName());
 			}
 			jsonWriter.endArray();
@@ -387,18 +387,18 @@ public final class ResourceConfiguration {
 			final int revisionToRestore = jsonReader.nextInt();
 			jsonReader.endObject();
 			// ByteHandlers.
-			final List<IByteHandler> handlerList = new ArrayList<>();
+			final List<ByteHandler> handlerList = new ArrayList<>();
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[3]);
 			jsonReader.beginArray();
 			while (jsonReader.hasNext()) {
 				final Class<?> handlerClazz = Class.forName(jsonReader.nextString());
 				final Constructor<?> handlerCons = handlerClazz.getConstructors()[0];
-				handlerList.add((IByteHandler) handlerCons.newInstance());
+				handlerList.add((ByteHandler) handlerCons.newInstance());
 			}
 			jsonReader.endArray();
 			final ByteHandlePipeline pipeline = new ByteHandlePipeline(
-					handlerList.toArray(new IByteHandler[handlerList.size()]));
+					handlerList.toArray(new ByteHandler[handlerList.size()]));
 			// Storage type.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[4]);
@@ -406,7 +406,7 @@ public final class ResourceConfiguration {
 			// Hashing type.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[5]);
-			final EHashKind hashing = EHashKind.valueOf(jsonReader.nextString());
+			final HashKind hashing = HashKind.valueOf(jsonReader.nextString());
 			// Text compression.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[6]);
@@ -466,7 +466,7 @@ public final class ResourceConfiguration {
 		private ERevisioning mRevisionKind = VERSIONING;
 
 		/** Kind of integrity hash (rolling, postorder). */
-		private EHashKind mHashKind = HASHKIND;
+		private HashKind mHashKind = HASHKIND;
 
 		/** Number of revisions to restore a complete set of data. */
 		private int mRevisionsToRestore = VERSIONSTORESTORE;
@@ -544,7 +544,7 @@ public final class ResourceConfiguration {
 		 *          hash kind to use
 		 * @return reference to the builder object
 		 */
-		public Builder setHashKind(final @Nonnull EHashKind pHash) {
+		public Builder setHashKind(final @Nonnull HashKind pHash) {
 			mHashKind = checkNotNull(pHash);
 			return this;
 		}

@@ -35,11 +35,11 @@ import com.google.common.io.ByteArrayDataOutput;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IPageWriteTrx;
+import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.index.name.Names;
-import org.sirix.node.EKind;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.node.Kind;
+import org.sirix.page.interfaces.Page;
 
 /**
  * <h1>NamePage</h1>
@@ -48,7 +48,7 @@ import org.sirix.page.interfaces.IPage;
  * Name page holds all names and their keys for a revision.
  * </p>
  */
-public final class NamePage implements IPage {
+public final class NamePage implements Page {
 
   /** Attribute names. */
   private final Names mAttributes;
@@ -105,7 +105,7 @@ public final class NamePage implements IPage {
    *          name key identifying name
    * @return raw name of name key
    */
-  public byte[] getRawName(final int pKey, final @Nonnull EKind pNodeKind) {
+  public byte[] getRawName(final int pKey, final @Nonnull Kind pNodeKind) {
     byte[] rawName = new byte[] {};
     switch (pNodeKind) {
     case ELEMENT:
@@ -133,7 +133,7 @@ public final class NamePage implements IPage {
    *          name key identifying name
    * @return raw name of name key, or {@code null} if not present
    */
-  public String getName(final int pKey, @Nonnull final EKind pNodeKind) {
+  public String getName(final int pKey, @Nonnull final Kind pNodeKind) {
     String name;
     switch (pNodeKind) {
     case ELEMENT:
@@ -161,7 +161,7 @@ public final class NamePage implements IPage {
    *          name key identifying name
    * @return number of nodes with the given name key
    */
-  public int getCount(final int pKey, @Nonnull final EKind pNodeKind) {
+  public int getCount(final int pKey, @Nonnull final Kind pNodeKind) {
     int count;
     switch (pNodeKind) {
     case ELEMENT:
@@ -193,7 +193,7 @@ public final class NamePage implements IPage {
    * 					kind of node
    */
   public void setName(final int pKey, final @Nonnull String pName,
-    final @Nonnull EKind pNodeKind) {
+    final @Nonnull Kind pNodeKind) {
     switch (pNodeKind) {
     case ELEMENT:
       mElements.setName(pKey, pName);
@@ -234,7 +234,7 @@ public final class NamePage implements IPage {
    * @param pKey
    *          the key to remove
    */
-  public void removeName(final int pKey, final @Nonnull EKind pNodeKind) {
+  public void removeName(final int pKey, final @Nonnull Kind pNodeKind) {
     switch (pNodeKind) {
     case ELEMENT:
       mElements.removeName(pKey);
@@ -264,7 +264,7 @@ public final class NamePage implements IPage {
   }
 
   @Override
-  public void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
+  public void commit(final @Nonnull PageWriteTrx pPageWriteTrx)
     throws SirixException {
   }
 
@@ -279,7 +279,7 @@ public final class NamePage implements IPage {
 	}
 
 	@Override
-	public IPage setDirty(final boolean pDirty) {
+	public Page setDirty(final boolean pDirty) {
 		mIsDirty = pDirty;
 		return this;
 	}

@@ -27,9 +27,9 @@
 
 package org.sirix.axis;
 
-import org.sirix.api.INodeCursor;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.Kind;
 import org.sirix.settings.EFixed;
 
 /**
@@ -53,7 +53,7 @@ public final class PrecedingSiblingAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PrecedingSiblingAxis(final INodeCursor pRtx) {
+  public PrecedingSiblingAxis(final NodeCursor pRtx) {
     super(pRtx);
   }
 
@@ -65,15 +65,15 @@ public final class PrecedingSiblingAxis extends AbsAxis {
   
   @Override
   protected long nextKey() {
-    final INodeReadTrx rtx = getTrx();
+    final NodeReadTrx rtx = getTrx();
     if (mIsFirst) {
       mIsFirst = false;
       /*
        * If the context node is an attribute or namespace node,
        * the following-sibling axis is empty.
        */
-      final EKind kind = rtx.getKind();
-      if (kind == EKind.ATTRIBUTE || kind == EKind.NAMESPACE) {
+      final Kind kind = rtx.getKind();
+      if (kind == Kind.ATTRIBUTE || kind == Kind.NAMESPACE) {
         return done();
       } else {
         if (rtx.hasParent()) {

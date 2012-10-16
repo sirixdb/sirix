@@ -36,10 +36,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.DocumentCreater;
 
@@ -68,7 +68,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateWhole() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {
@@ -78,7 +78,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateFirstSubtree() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(5);
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {
@@ -88,7 +88,7 @@ public class PostOrderTest {
 
   @Test
   public void testIterateZero() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
 
     rtx.moveTo(8);
     AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {});
@@ -97,18 +97,18 @@ public class PostOrderTest {
   @Test
   public void testIterateDocumentFirst() throws SirixException, IOException,
     XMLStreamException {
-    try (final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
+    try (final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
       wtx.moveTo(9);
       wtx.insertSubtree(XMLShredder
         .createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
-        EInsert.ASFIRSTCHILD);
+        Insert.ASFIRSTCHILD);
       wtx.commit();
       AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] {
         17, 19, 20, 18, 21, 24, 25, 22, 26
       });
       wtx.moveTo(14);
       AbsAxisTest.testIAxisConventions(
-        new PostOrderAxis(wtx, EIncludeSelf.YES), new long[] {
+        new PostOrderAxis(wtx, IncludeSelf.YES), new long[] {
           17, 19, 20, 18, 21, 24, 25, 22, 26, 14
         });
       wtx.moveToDocumentRoot();
@@ -118,7 +118,7 @@ public class PostOrderTest {
       });
       wtx.moveToDocumentRoot();
       AbsAxisTest.testIAxisConventions(
-        new PostOrderAxis(wtx, EIncludeSelf.YES), new long[] {
+        new PostOrderAxis(wtx, IncludeSelf.YES), new long[] {
           4L, 6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26, 14, 11L, 12L,
           9L, 13L, 1L, 0L
         });
@@ -128,16 +128,16 @@ public class PostOrderTest {
   @Test
   public void testIterateDocumentSecond() throws SirixException, IOException,
     XMLStreamException {
-    try (final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
+    try (final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
       wtx.moveTo(11);
       wtx.insertSubtree(XMLShredder
         .createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
-        EInsert.ASFIRSTCHILD);
+        Insert.ASFIRSTCHILD);
       wtx.commit();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       AbsAxisTest.testIAxisConventions(
-        new PostOrderAxis(wtx, EIncludeSelf.YES), new long[] {
+        new PostOrderAxis(wtx, IncludeSelf.YES), new long[] {
           4L, 6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26, 14, 11L, 12L,
           9L, 13L, 1L
         });

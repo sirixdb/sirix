@@ -32,10 +32,10 @@ import static com.google.common.base.Preconditions.checkArgument;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IPageWriteTrx;
+import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.page.PageReference;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.Objects;
 import com.google.common.io.ByteArrayDataInput;
@@ -48,7 +48,7 @@ import com.google.common.io.ByteArrayDataOutput;
  * Class to provide basic reference handling functionality.
  * </p>
  */
-public class PageDelegate implements IPage {
+public class PageDelegate implements Page {
 
 	/** Page references. */
 	private PageReference[] mReferences;
@@ -107,7 +107,7 @@ public class PageDelegate implements IPage {
 	 * @param pRevision
 	 *          revision number
 	 */
-	public PageDelegate(final @Nonnull IPage pCommitedPage,
+	public PageDelegate(final @Nonnull Page pCommitedPage,
 			final @Nonnegative int pRevision) {
 		checkArgument(pRevision >= 0);
 		mReferences = pCommitedPage.getReferences();
@@ -138,7 +138,7 @@ public class PageDelegate implements IPage {
 	 *           if a write-error occured
 	 */
 	@Override
-	public final void commit(final @Nonnull IPageWriteTrx pPageWriteTrx)
+	public final void commit(final @Nonnull PageWriteTrx pPageWriteTrx)
 			throws SirixException {
 		for (final PageReference reference : mReferences) {
 			pPageWriteTrx.commit(reference);
@@ -197,7 +197,7 @@ public class PageDelegate implements IPage {
 	}
 	
 	@Override
-	public IPage setDirty(final boolean pDirty) {
+	public Page setDirty(final boolean pDirty) {
 		mIsDirty = pDirty;
 		return this;
 	}

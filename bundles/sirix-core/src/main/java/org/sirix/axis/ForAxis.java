@@ -29,7 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
+import org.sirix.api.Axis;
 import org.sirix.settings.EFixed;
 
 /**
@@ -55,10 +55,10 @@ import org.sirix.settings.EFixed;
 public final class ForAxis extends AbsAxis {
 
   /** The range expression. */
-  private final IAxis mRange;
+  private final Axis mRange;
 
   /** The result expression. */
-  private final IAxis mReturn;
+  private final Axis mReturn;
 
   /** Defines, whether is first call of hasNext(). */
   private boolean mIsFirst;
@@ -71,7 +71,7 @@ public final class ForAxis extends AbsAxis {
    * @param pReturnExpr
    *          the return expression of the for expression
    */
-  public ForAxis(@Nonnull final IAxis pRange, @Nonnull final IAxis pReturnExpr) {
+  public ForAxis(@Nonnull final Axis pRange, @Nonnull final Axis pReturnExpr) {
     super(pRange.getTrx());
     mRange = pRange;
     mReturn = pReturnExpr;

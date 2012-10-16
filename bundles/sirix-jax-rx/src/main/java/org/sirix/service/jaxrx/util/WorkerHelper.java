@@ -40,16 +40,16 @@ import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamException;
 
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.enums.EIdAccessType;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.service.xml.serialize.XMLSerializerProperties;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
@@ -91,8 +91,8 @@ public final class WorkerHelper {
 	 * @param value
 	 *          InputStream to be shred
 	 */
-	public static void shredInputStream(final INodeWriteTrx wtx,
-			final InputStream value, final EInsert child) {
+	public static void shredInputStream(final NodeWriteTrx wtx,
+			final InputStream value, final Insert child) {
 		final XMLInputFactory factory = XMLInputFactory.newInstance();
 		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
 		XMLEventReader parser;
@@ -150,7 +150,7 @@ public final class WorkerHelper {
 	 * 
 	 * @return new XMLSerializer reference
 	 */
-	public static XMLSerializer serializeXML(final ISession session,
+	public static XMLSerializer serializeXML(final Session session,
 			final OutputStream out, final boolean serializeXMLDec,
 			final boolean serializeRest, final Integer revision) {
 		final XMLSerializerBuilder builder;
@@ -180,7 +180,7 @@ public final class WorkerHelper {
 	 * 
 	 * @return new XMLSerializer reference
 	 */
-	public static XMLSerializer serializeXML(final ISession session,
+	public static XMLSerializer serializeXML(final Session session,
 			final OutputStream out, final boolean serializeXMLDec,
 			final boolean serializeRest, final Long nodekey, final Integer revision) {
 		final XMLSerializerProperties props = new XMLSerializerProperties();
@@ -225,7 +225,7 @@ public final class WorkerHelper {
 	 * @throws sirixException
 	 */
 	public static void closeWTX(final boolean abortTransaction,
-			final INodeWriteTrx wtx, final ISession ses, final IDatabase dbase)
+			final NodeWriteTrx wtx, final Session ses, final Database dbase)
 			throws SirixException {
 		synchronized (dbase) {
 			if (abortTransaction) {
@@ -246,8 +246,8 @@ public final class WorkerHelper {
 	 *          IDatabase to be closed
 	 * @throws SirixException
 	 */
-	public static void closeRTX(final INodeReadTrx rtx, final ISession ses,
-			final IDatabase dbase) throws SirixException {
+	public static void closeRTX(final NodeReadTrx rtx, final Session ses,
+			final Database dbase) throws SirixException {
 		synchronized (dbase) {
 			dbase.close();
 		}

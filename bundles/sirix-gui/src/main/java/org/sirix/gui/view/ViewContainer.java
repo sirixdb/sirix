@@ -64,8 +64,8 @@ public final class ViewContainer extends JPanel {
   /** Main {@link GUI} reference. */
   private final GUI mGUI;
 
-  /** All implementations of the {@link IView} instance. */
-  private final List<IView> mViews;
+  /** All implementations of the {@link View} instance. */
+  private final List<View> mViews;
 
   /**
    * Private constructor.
@@ -73,13 +73,13 @@ public final class ViewContainer extends JPanel {
    * @param paramGUI
    *          the main {@link GUI} reference
    * @param paramView
-   *          first {@link IView} implementation
+   *          first {@link View} implementation
    * @param paramViews
-   *          {@link IView}s to layout
+   *          {@link View}s to layout
    */
-  private ViewContainer(final GUI paramGUI, final IView paramView, final IView... paramViews) {
+  private ViewContainer(final GUI paramGUI, final View paramView, final View... paramViews) {
     mGUI = paramGUI;
-    mViews = new LinkedList<IView>();
+    mViews = new LinkedList<View>();
     mViews.add(paramView);
     mViews.addAll(Arrays.asList(paramViews));
     setLayout(new BorderLayout());
@@ -93,13 +93,13 @@ public final class ViewContainer extends JPanel {
    * @param paramGUI
    *          the main {@link GUI} reference
    * @param paramView
-   *          {@link IView} implementation
+   *          {@link View} implementation
    * @param paramViews
-   *          {@link IView} implementations to layout
+   *          {@link View} implementations to layout
    * @return {@link ViewContainer} singleton instance
    */
-  public synchronized static ViewContainer getInstance(final GUI paramGUI, final IView paramView,
-    final IView... paramViews) {
+  public synchronized static ViewContainer getInstance(final GUI paramGUI, final View paramView,
+    final View... paramViews) {
     if (mContainer == null) {
       mContainer = new ViewContainer(paramGUI, paramView, paramViews);
     }
@@ -119,9 +119,9 @@ public final class ViewContainer extends JPanel {
   public void layoutViews() {
     removeAll();
 
-    final List<IView> views = visibleViews();
+    final List<View> views = visibleViews();
 
-    for (final IView view : views) {
+    for (final View view : views) {
       if (mGUI.getReadDB() != null) {
         view.refreshInit();
       }
@@ -131,7 +131,7 @@ public final class ViewContainer extends JPanel {
     int width = 0;
     int i = 0;
     JSplitPane pane;
-    for (final IView view : views) {
+    for (final View view : views) {
       if (views.size() == 1) {
         add(view.component(), BorderLayout.PAGE_START);
         tmpView = view.component();
@@ -139,8 +139,8 @@ public final class ViewContainer extends JPanel {
       } else if (i % 2 != 0 && width < mGUI.getSize().width) {
         assert tmpView != null;
         pane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        if (tmpView instanceof IView) {
-          tmpView = ((IView)tmpView).component();
+        if (tmpView instanceof View) {
+          tmpView = ((View)tmpView).component();
         }
         setupPane(pane, tmpView, view.component());
         add(pane);
@@ -201,10 +201,10 @@ public final class ViewContainer extends JPanel {
    * 
    * @return list of visible views
    */
-  private List<IView> visibleViews() {
-    final List<IView> views = new LinkedList<IView>();
+  private List<View> visibleViews() {
+    final List<View> views = new LinkedList<View>();
 
-    for (final IView view : mViews) {
+    for (final View view : mViews) {
       if (view.isVisible()) {
         views.add(view);
       }
@@ -234,8 +234,8 @@ public final class ViewContainer extends JPanel {
     public void propertyChange(final PropertyChangeEvent paramEvent) {
       if (JSplitPane.DIVIDER_LOCATION_PROPERTY.equals(paramEvent.getPropertyName())) {
         for (final Component component : mPane.getComponents()) {
-          if (component instanceof IView) {
-            ((IView)component).resize();
+          if (component instanceof View) {
+            ((View)component).resize();
           }
         }
       }

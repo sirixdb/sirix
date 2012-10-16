@@ -45,7 +45,7 @@ import org.sirix.io.file.FileStorage;
 public enum EStorage {
   File {
     @Override
-    public IStorage getInstance(
+    public Storage getInstance(
       final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {
       return new FileStorage(pResourceConf.mPath, new ByteHandlePipeline(
         pResourceConf.mByteHandler));
@@ -54,7 +54,7 @@ public enum EStorage {
 
   BerkeleyDB {
     @Override
-    public IStorage getInstance(
+    public Storage getInstance(
       final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {
       return new BerkeleyStorage(pResourceConf.mPath, new ByteHandlePipeline(
         pResourceConf.mByteHandler));
@@ -70,22 +70,22 @@ public enum EStorage {
    * @throws SirixIOException
    *           if an IO-error occured
    */
-  public abstract IStorage getInstance(
+  public abstract Storage getInstance(
     final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException;
 
   /**
-   * Factory method to retrieve suitable {@link IStorage} instances based upon
+   * Factory method to retrieve suitable {@link Storage} instances based upon
    * the suitable {@link ResourceConfiguration}.
    * 
    * @param pResourceConf
    *          determining the storage
-   * @return an implementation of the {@link IStorage} interface
+   * @return an implementation of the {@link Storage} interface
    * @throws SirixIOException
    *           if an IO-error occurs
    * @throws NullPointerException
    *           if {@code pResourceConf} is {@code null}
    */
-  public static final IStorage getStorage(
+  public static final Storage getStorage(
     final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {
     return pResourceConf.mStorage.getInstance(pResourceConf);
   }

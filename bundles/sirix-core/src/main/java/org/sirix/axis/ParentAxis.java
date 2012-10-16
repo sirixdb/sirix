@@ -29,9 +29,9 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeCursor;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.Kind;
 import org.sirix.settings.EFixed;
 
 /**
@@ -51,7 +51,7 @@ public final class ParentAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with.
    */
-  public ParentAxis(@Nonnull final INodeCursor pRtx) {
+  public ParentAxis(@Nonnull final NodeCursor pRtx) {
     super(pRtx);
   }
 
@@ -63,8 +63,8 @@ public final class ParentAxis extends AbsAxis {
   
   @Override
   protected long nextKey() {
-    final INodeReadTrx rtx = getTrx();
-    if (rtx.getKind() != EKind.DOCUMENT_ROOT && mFirst && rtx.hasParent()
+    final NodeReadTrx rtx = getTrx();
+    if (rtx.getKind() != Kind.DOCUMENT_ROOT && mFirst && rtx.hasParent()
       && rtx.getParentKey() != EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       mFirst = false;
       return rtx.getParentKey();

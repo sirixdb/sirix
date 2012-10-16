@@ -39,9 +39,9 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 
@@ -70,7 +70,7 @@ public class ThreadTest {
     long newKey = 10L;
     for (int i = 0; i < WORKER_COUNT; i++) {
       taskExecutor.submit(new Task(holder.getSession().beginNodeReadTrx(i)));
-      final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
+      final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
       wtx.moveTo(newKey);
       wtx.setValue("value" + i);
       newKey = wtx.getNodeKey();
@@ -83,15 +83,15 @@ public class ThreadTest {
 
   private class Task implements Callable<Void> {
 
-    private INodeReadTrx mRTX;
+    private NodeReadTrx mRTX;
 
-    public Task(final INodeReadTrx rtx) {
+    public Task(final NodeReadTrx rtx) {
       mRTX = rtx;
     }
 
     @Override
     public Void call() throws Exception {
-      final IAxis axis = new DescendantAxis(mRTX);
+      final Axis axis = new DescendantAxis(mRTX);
       while (axis.hasNext()) {
         axis.next();
       }

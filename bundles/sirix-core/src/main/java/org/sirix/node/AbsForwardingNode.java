@@ -4,18 +4,18 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.Node;
 
 import com.google.common.collect.ForwardingObject;
 
 /**
- * Skeletal implementation of {@link INode} interface.
+ * Skeletal implementation of {@link Node} interface.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public abstract class AbsForwardingNode extends ForwardingObject implements
-		INode {
+		Node {
 
 	/** Constructor for use by subclasses. */
 	protected AbsForwardingNode() {
@@ -85,7 +85,7 @@ public abstract class AbsForwardingNode extends ForwardingObject implements
 	}
 
 	@Override
-	public boolean isSameItem(final @Nullable INode pOther) {
+	public boolean isSameItem(final @Nullable Node pOther) {
 		return delegate().isSameItem(pOther);
 	}
 }

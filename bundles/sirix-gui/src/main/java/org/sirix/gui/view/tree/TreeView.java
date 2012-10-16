@@ -46,10 +46,10 @@ import org.sirix.gui.GUI;
 import org.sirix.gui.GUIProp;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.VisualItemAxis;
-import org.sirix.gui.view.IView;
-import org.sirix.gui.view.IVisualItem;
+import org.sirix.gui.view.View;
+import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.ViewNotifier;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.Node;
 
 /**
  * <h1>TreeView</h1>
@@ -61,7 +61,7 @@ import org.sirix.node.interfaces.INode;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TreeView extends JScrollPane implements IView {
+public final class TreeView extends JScrollPane implements View {
 
   /**
    * SerialUID.
@@ -179,7 +179,7 @@ public final class TreeView extends JScrollPane implements IView {
              * method is useful only when the selection model allows
              * a single selection.
              */
-            final INode node = (INode)paramE.getNewLeadSelectionPath().getLastPathComponent();
+            final Node node = (Node)paramE.getNewLeadSelectionPath().getLastPathComponent();
             db.setKey(node.getNodeKey());
             mNotifier.update(mView, Optional.<VisualItemAxis> absent());
           }
@@ -220,7 +220,7 @@ public final class TreeView extends JScrollPane implements IView {
   }
 
   @Override
-  public void hover(final IVisualItem pItem) {
+  public void hover(final VisualItem pItem) {
   }
 
   @Override

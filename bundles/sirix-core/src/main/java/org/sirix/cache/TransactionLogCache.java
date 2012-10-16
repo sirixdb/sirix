@@ -50,7 +50,7 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TransactionLogCache implements ICache<Long, PageContainer> {
+public final class TransactionLogCache implements Cache<Long, PageContainer> {
 
 	/** RAM-Based first cache. */
 	private final LRUCache<Long, PageContainer> mFirstCache;

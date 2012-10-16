@@ -29,14 +29,14 @@ package org.sirix.service.xml.xpath.functions;
 
 import java.util.List;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Node;
 import org.sirix.utils.TypedValue;
 
 /**
@@ -68,7 +68,7 @@ public class FNString extends AbsFunction {
    * @throws SirixXPathException
    *           if function check fails
    */
-  public FNString(final INodeReadTrx rtx, final List<IAxis> args, final int min, final int max,
+  public FNString(final NodeReadTrx rtx, final List<Axis> args, final int min, final int max,
     final int returnType) throws SirixXPathException {
 
     super(rtx, args, min, max, returnType);
@@ -85,7 +85,7 @@ public class FNString extends AbsFunction {
     if (getArgs().size() == 0) {
       value = getStrValue();
     } else {
-      final IAxis axis = getArgs().get(0);
+      final Axis axis = getArgs().get(0);
       final StringBuilder val = new StringBuilder();
       while (axis.hasNext()) {
         axis.next();
@@ -120,10 +120,10 @@ public class FNString extends AbsFunction {
     final StringBuilder value = new StringBuilder();
 
     if (getTrx().getNodeKey() >= 0) { // is node
-      if (getTrx().getKind() == EKind.ATTRIBUTE || getTrx().getKind() == EKind.TEXT) {
+      if (getTrx().getKind() == Kind.ATTRIBUTE || getTrx().getKind() == Kind.TEXT) {
         value.append(getTrx().getValue());
-      } else if (getTrx().getKind() == EKind.DOCUMENT_ROOT || getTrx().getKind() == EKind.ELEMENT) {
-        final IAxis axis =
+      } else if (getTrx().getKind() == Kind.DOCUMENT_ROOT || getTrx().getKind() == Kind.ELEMENT) {
+        final Axis axis =
           new FilterAxis(new DescendantAxis(getTrx()), new TextFilter(getTrx()));
         while (axis.hasNext()) {
           axis.next();

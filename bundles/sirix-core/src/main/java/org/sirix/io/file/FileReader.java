@@ -39,15 +39,15 @@ import java.io.RandomAccessFile;
 import javax.annotation.Nonnull;
 
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.IReader;
+import org.sirix.io.Reader;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.Encryptor;
-import org.sirix.io.bytepipe.IByteHandler;
+import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 /**
  * File Reader. Used for ReadTransaction to provide read only access on a
@@ -57,7 +57,7 @@ import org.sirix.page.interfaces.IPage;
  * @author Sebastian Graf, University of Konstanz.
  * 
  */
-public final class FileReader implements IReader {
+public final class FileReader implements Reader {
 
   /** Beacon of first references. */
   final static int FIRST_BEACON = 12;
@@ -69,7 +69,7 @@ public final class FileReader implements IReader {
   private final RandomAccessFile mFile;
 
   /** Inflater to decompress. */
-  final IByteHandler mByteHandler;
+  final ByteHandler mByteHandler;
 
   /**
    * Constructor.
@@ -79,7 +79,7 @@ public final class FileReader implements IReader {
    * @throws SirixIOException
    *           if something bad happens
    */
-  public FileReader(final @Nonnull File pConcreteStorage, final @Nonnull IByteHandler pHandler) throws SirixIOException {
+  public FileReader(final @Nonnull File pConcreteStorage, final @Nonnull ByteHandler pHandler) throws SirixIOException {
     try {
       if (!pConcreteStorage.exists()) {
         pConcreteStorage.getParentFile().mkdirs();
@@ -103,7 +103,7 @@ public final class FileReader implements IReader {
    *           if there was an error during reading.
    */
   @Override
-  public IPage read(final long pKey) throws SirixIOException {
+  public Page read(final long pKey) throws SirixIOException {
     try {
       // Read page from file.
       mFile.seek(pKey);

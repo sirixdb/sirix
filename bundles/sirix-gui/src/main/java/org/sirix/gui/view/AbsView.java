@@ -20,7 +20,7 @@ import processing.core.PApplet;
 
 import com.google.common.base.Optional;
 
-public abstract class AbsView extends JPanel implements IView {
+public abstract class AbsView extends JPanel implements View {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(AbsView.class));
@@ -37,7 +37,7 @@ public abstract class AbsView extends JPanel implements IView {
   private final ViewNotifier mNotifier;
 
   /** Processing {@link PApplet} reference. */
-  private transient IProcessingView mEmbed;
+  private transient ProcessingView mEmbed;
 
   /** {@link ReadDB} instance to interact with sirix. */
   private transient ReadDB mDB;
@@ -161,8 +161,8 @@ public abstract class AbsView extends JPanel implements IView {
     applet.init();
   }
 
-  /** Create a concrete {@link IProcessingView} implementation instance. */
-  protected abstract IProcessingView getEmbeddedInstance();
+  /** Create a concrete {@link ProcessingView} implementation instance. */
+  protected abstract ProcessingView getEmbeddedInstance();
 
   @Override
   public void refreshUpdate(final Optional<VisualItemAxis> pAxis) {

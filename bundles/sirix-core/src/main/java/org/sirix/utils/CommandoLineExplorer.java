@@ -31,14 +31,14 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 
 /**
@@ -83,9 +83,9 @@ public final class CommandoLineExplorer {
 	 *           of any kind
 	 */
 	public static void main(final String[] args) throws Exception {
-		IDatabase database = null;
-		ISession session = null;
-		INodeReadTrx rtx = null;
+		Database database = null;
+		Session session = null;
+		NodeReadTrx rtx = null;
 		if (args.length > 0) {
 			int revision = 0;
 			if (args.length > 1) {
@@ -94,8 +94,8 @@ public final class CommandoLineExplorer {
 
 			final File file = new File(args[0]);
 			final DatabaseConfiguration config = new DatabaseConfiguration(file);
-			Database.createDatabase(config);
-			database = Database.openDatabase(file);
+			DatabaseImpl.createDatabase(config);
+			database = DatabaseImpl.openDatabase(file);
 			database.createResource(new ResourceConfiguration.Builder("TMP", config)
 					.build());
 			session = database.getSession(new SessionConfiguration.Builder("TMP")
@@ -134,7 +134,7 @@ public final class CommandoLineExplorer {
 					}
 					final File file = findFile(line);
 					if (file != null) {
-						database = Database.openDatabase(file);
+						database = DatabaseImpl.openDatabase(file);
 						session = database.getSession(new SessionConfiguration.Builder(
 								"TMP").build());
 						rtx = session.beginNodeReadTrx();
@@ -196,7 +196,7 @@ public final class CommandoLineExplorer {
 	private enum Command {
 		HELP("help") {
 			@Override
-			String executeCommand(final INodeReadTrx mCurrentRtx,
+			String executeCommand(final NodeReadTrx mCurrentRtx,
 					final String mParameter) {
 				final StringBuilder builder = new StringBuilder("Help for ");
 				if (mParameter.equals(INFO.mCommand)) {
@@ -248,7 +248,7 @@ public final class CommandoLineExplorer {
 		},
 		CONTENT("content") {
 			@Override
-			String executeCommand(final INodeReadTrx mCurrentRtx,
+			String executeCommand(final NodeReadTrx mCurrentRtx,
 					final String mParameter) {
 				final StringBuilder builder = new StringBuilder("Kind: ");
 				switch (mCurrentRtx.getKind()) {
@@ -287,7 +287,7 @@ public final class CommandoLineExplorer {
 		},
 		INFO("info") {
 			@Override
-			String executeCommand(final INodeReadTrx mCurrentRtx,
+			String executeCommand(final NodeReadTrx mCurrentRtx,
 					final String mParameter) {
 				final StringBuilder builder = new StringBuilder();
 				builder.append(mCurrentRtx.toString());
@@ -296,7 +296,7 @@ public final class CommandoLineExplorer {
 		},
 		LOGIN("login") {
 			@Override
-			String executeCommand(final INodeReadTrx mCurrentRtx,
+			String executeCommand(final NodeReadTrx mCurrentRtx,
 					final String mParameter) {
 				return new StringBuilder("Loggin into database ").append(mParameter)
 						.append("\n").toString();
@@ -304,21 +304,21 @@ public final class CommandoLineExplorer {
 		},
 		LOGOUT("logout") {
 			@Override
-			String executeCommand(final INodeReadTrx mCurrentRtx,
+			String executeCommand(final NodeReadTrx mCurrentRtx,
 					final String mParameter) {
 				return new StringBuilder("Logout from database.").toString();
 			}
 		},
 		EXIT("exit") {
 			@Override
-			String executeCommand(final INodeReadTrx mCurrentRtx,
+			String executeCommand(final NodeReadTrx mCurrentRtx,
 					final String mParameter) {
 				return new StringBuilder("Exiting the program.").toString();
 			}
 		},
 		MOVE("move") {
 			@Override
-			String executeCommand(final INodeReadTrx mCurrentRtx,
+			String executeCommand(final NodeReadTrx mCurrentRtx,
 					final String mParameter) {
 				boolean succeed = false;
 				final StringBuilder builder = new StringBuilder("Move to ");
@@ -358,12 +358,12 @@ public final class CommandoLineExplorer {
 		},
 		MODIFICATION("modification") {
 			@Override
-			String executeCommand(final INodeReadTrx mCurrentRtx,
+			String executeCommand(final NodeReadTrx mCurrentRtx,
 					final String mParameter) {
 				final StringBuilder builder = new StringBuilder("Insert ");
 				try {
-					if (mCurrentRtx instanceof INodeWriteTrx) {
-						final INodeWriteTrx wtx = (INodeWriteTrx) mCurrentRtx;
+					if (mCurrentRtx instanceof NodeWriteTrx) {
+						final NodeWriteTrx wtx = (NodeWriteTrx) mCurrentRtx;
 
 						if (mParameter.equals("commit")) {
 							wtx.commit();
@@ -389,7 +389,7 @@ public final class CommandoLineExplorer {
 		},
 		NOVALUE("") {
 			@Override
-			String executeCommand(final INodeReadTrx mCurrentRtx,
+			String executeCommand(final NodeReadTrx mCurrentRtx,
 					final String mParameter) {
 				return new StringBuilder("Command not known. Try ")
 						.append(Command.HELP.getCommand()).append(" for known commands!")
@@ -419,7 +419,7 @@ public final class CommandoLineExplorer {
 			}
 		}
 
-		private String executeCommand(final INodeReadTrx read) {
+		private String executeCommand(final NodeReadTrx read) {
 			return executeCommand(read, mParameter);
 		}
 
@@ -432,7 +432,7 @@ public final class CommandoLineExplorer {
 		 *          Parameter to executed
 		 * @return a String as a result
 		 */
-		abstract String executeCommand(final INodeReadTrx mCurrentRtx,
+		abstract String executeCommand(final NodeReadTrx mCurrentRtx,
 				final String parameter);
 
 		/**

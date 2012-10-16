@@ -1,15 +1,15 @@
 package org.sirix.gui.view;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.diff.DiffFactory.EDiff;
 
 public class TransactionTuple {
   private long mKey;
-  private INodeReadTrx mRtx;
+  private NodeReadTrx mRtx;
   private EDiff mDiff;
   private int mDepth;
   
-  public TransactionTuple(final long pKey, final INodeReadTrx pRtx, final EDiff pDiff, final int pDepth) {
+  public TransactionTuple(final long pKey, final NodeReadTrx pRtx, final EDiff pDiff, final int pDepth) {
     mKey = pKey;
     mRtx = pRtx;
     mDiff = pDiff;
@@ -20,7 +20,7 @@ public class TransactionTuple {
     return mKey;
   }
   
-  public INodeReadTrx getRtx() {
+  public NodeReadTrx getRtx() {
     return mRtx;
   }
   

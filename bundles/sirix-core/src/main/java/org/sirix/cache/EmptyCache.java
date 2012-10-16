@@ -6,7 +6,7 @@ import com.google.common.collect.ImmutableMap;
 
 import javax.annotation.Nonnull;
 
-public class EmptyCache<K, V> implements ICache<K, V> {
+public class EmptyCache<K, V> implements Cache<K, V> {
   
   public EmptyCache() {
   }

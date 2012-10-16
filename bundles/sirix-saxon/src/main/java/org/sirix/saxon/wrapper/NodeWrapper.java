@@ -58,13 +58,12 @@ import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.UntypedAtomicValue;
 import net.sf.saxon.value.Value;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.FollowingAxis;
 import org.sirix.axis.FollowingSiblingAxis;
 import org.sirix.axis.ParentAxis;
@@ -73,7 +72,7 @@ import org.sirix.axis.PrecedingSiblingAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -105,7 +104,7 @@ import org.slf4j.LoggerFactory;
 public final class NodeWrapper implements SiblingCountingNode {
 
 	/** Kind of current node. */
-	private final EKind mNodeKind;
+	private final Kind mNodeKind;
 
 	/** Document wrapper. */
 	private final DocumentWrapper mDocWrapper;
@@ -138,14 +137,14 @@ public final class NodeWrapper implements SiblingCountingNode {
 			throws SirixException {
 		mDocWrapper = checkNotNull(pDocWrapper);
 		checkArgument(pNodeKeyToStart >= 0, "pNodeKeyToStart must be >= 0!");
-		final INodeReadTrx rtx = mDocWrapper.mSession
+		final NodeReadTrx rtx = mDocWrapper.mSession
 				.beginNodeReadTrx(pDocWrapper.mRevision);
 		rtx.moveTo(pNodeKeyToStart);
 		mNodeKind = rtx.getKind();
 		mKey = rtx.getNodeKey();
 		mRevision = pDocWrapper.mRevision;
 
-		if (mNodeKind == EKind.ELEMENT || mNodeKind == EKind.ATTRIBUTE) {
+		if (mNodeKind == Kind.ELEMENT || mNodeKind == Kind.ATTRIBUTE) {
 			mQName = rtx.getName();
 		} else {
 			mQName = null;
@@ -251,9 +250,9 @@ public final class NodeWrapper implements SiblingCountingNode {
 	@Override
 	public int[] getDeclaredNamespaces(final int[] buffer) {
 		int[] retVal = null;
-		if (mNodeKind == EKind.ELEMENT) {
+		if (mNodeKind == Kind.ELEMENT) {
 			try {
-				final INodeReadTrx rtx = createRtxAndMove();
+				final NodeReadTrx rtx = createRtxAndMove();
 				final int count = rtx.getNamespaceCount();
 
 				if (count == 0) {
@@ -391,7 +390,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 	public NodeInfo getParent() {
 		try {
 			NodeInfo parent = null;
-			final INodeReadTrx rtx = createRtxAndMove();
+			final NodeReadTrx rtx = createRtxAndMove();
 			if (rtx.hasParent()) {
 				// Parent transaction.
 				parent = new NodeWrapper(mDocWrapper, rtx.getParentKey());
@@ -442,7 +441,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 	public final CharSequence getStringValueCS() {
 		String mValue = "";
 		try {
-			final INodeReadTrx rtx = createRtxAndMove();
+			final NodeReadTrx rtx = createRtxAndMove();
 
 			switch (mNodeKind) {
 			case DOCUMENT_ROOT:
@@ -479,12 +478,12 @@ public final class NodeWrapper implements SiblingCountingNode {
 	private String expandString() {
 		final FastStringBuffer fsb = new FastStringBuffer(FastStringBuffer.SMALL);
 		try {
-			final INodeReadTrx rtx = createRtxAndMove();
+			final NodeReadTrx rtx = createRtxAndMove();
 			final FilterAxis axis = new FilterAxis(new DescendantAxis(rtx),
 					new TextFilter(rtx));
 
 			while (axis.hasNext()) {
-				if (rtx.getKind() == EKind.TEXT) {
+				if (rtx.getKind() == Kind.TEXT) {
 					fsb.append(rtx.getValue());
 				}
 				axis.next();
@@ -508,7 +507,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 	 */
 	public int getTypeAnnotation() {
 		int type = 0;
-		if (mNodeKind == EKind.ATTRIBUTE) {
+		if (mNodeKind == Kind.ATTRIBUTE) {
 			type = StandardNames.XS_UNTYPED_ATOMIC;
 		} else {
 			type = StandardNames.XS_UNTYPED;
@@ -540,7 +539,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 	public boolean hasChildNodes() {
 		boolean hasChildNodes = false;
 		try {
-			final INodeReadTrx rtx = createRtxAndMove();
+			final NodeReadTrx rtx = createRtxAndMove();
 			if (rtx.getChildCount() > 0) {
 				hasChildNodes = true;
 			}
@@ -590,7 +589,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 	public AxisIterator iterateAxis(final byte axisNumber, final NodeTest nodeTest) {
 		AxisIterator returnVal = null;
 		try {
-			final INodeReadTrx rtx = createRtxAndMove();
+			final NodeReadTrx rtx = createRtxAndMove();
 
 			if (LOGGER.isDebugEnabled()) {
 				LOGGER.debug("NODE TEST: " + nodeTest);
@@ -598,7 +597,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 
 			switch (axisNumber) {
 			case Axis.ANCESTOR:
-				if (getNodeKind() == EKind.DOCUMENT_ROOT.getId()) {
+				if (getNodeKind() == Kind.DOCUMENT_ROOT.getId()) {
 					returnVal = EmptyIterator.getInstance();
 				} else {
 					returnVal = new Navigator.AxisFilter(new SaxonEnumeration(
@@ -606,15 +605,15 @@ public final class NodeWrapper implements SiblingCountingNode {
 				}
 				break;
 			case Axis.ANCESTOR_OR_SELF:
-				if (getNodeKind() == EKind.DOCUMENT_ROOT.getId()) {
+				if (getNodeKind() == Kind.DOCUMENT_ROOT.getId()) {
 					returnVal = Navigator.filteredSingleton(this, nodeTest);
 				} else {
 					returnVal = new Navigator.AxisFilter(new SaxonEnumeration(
-							new AncestorAxis(rtx, EIncludeSelf.YES)), nodeTest);
+							new AncestorAxis(rtx, IncludeSelf.YES)), nodeTest);
 				}
 				break;
 			case Axis.ATTRIBUTE:
-				if (getNodeKind() != EKind.ELEMENT.getId()) {
+				if (getNodeKind() != Kind.ELEMENT.getId()) {
 					returnVal = EmptyIterator.getInstance();
 				} else {
 					returnVal = new Navigator.AxisFilter(new SaxonEnumeration(
@@ -639,7 +638,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 				break;
 			case Axis.DESCENDANT_OR_SELF:
 				returnVal = new Navigator.AxisFilter(new SaxonEnumeration(
-						new DescendantAxis(rtx, EIncludeSelf.YES)), nodeTest);
+						new DescendantAxis(rtx, IncludeSelf.YES)), nodeTest);
 				break;
 			case Axis.FOLLOWING:
 				returnVal = new Navigator.AxisFilter(new SaxonEnumeration(
@@ -659,14 +658,14 @@ public final class NodeWrapper implements SiblingCountingNode {
 				}
 
 			case Axis.NAMESPACE:
-				if (getNodeKind() != EKind.ELEMENT.getId()) {
+				if (getNodeKind() != Kind.ELEMENT.getId()) {
 					returnVal = EmptyIterator.getInstance();
 				} else {
 					returnVal = NamespaceIterator.makeIterator(this, nodeTest);
 				}
 				break;
 			case Axis.PARENT:
-				if (rtx.getParentKey() == EKind.DOCUMENT_ROOT.getId()) {
+				if (rtx.getParentKey() == Kind.DOCUMENT_ROOT.getId()) {
 					returnVal = EmptyIterator.getInstance();
 				} else {
 					returnVal = new Navigator.AxisFilter(new SaxonEnumeration(
@@ -720,7 +719,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 	public int getSiblingPosition() {
 		int index = 0;
 		try {
-			final INodeReadTrx rtx = createRtxAndMove();
+			final NodeReadTrx rtx = createRtxAndMove();
 			while (rtx.hasLeftSibling()) {
 				rtx.moveToLeftSibling();
 				index++;
@@ -739,8 +738,8 @@ public final class NodeWrapper implements SiblingCountingNode {
 	 * @throws SirixException
 	 *           if sirix fails to setup new transaction
 	 */
-	private final INodeReadTrx createRtxAndMove() throws SirixException {
-		final INodeReadTrx rtx = mDocWrapper.mSession.beginNodeReadTrx(mRevision);
+	private final NodeReadTrx createRtxAndMove() throws SirixException {
+		final NodeReadTrx rtx = mDocWrapper.mSession.beginNodeReadTrx(mRevision);
 		rtx.moveTo(mKey);
 		return rtx;
 	}
@@ -765,16 +764,16 @@ public final class NodeWrapper implements SiblingCountingNode {
 	 */
 	public final class SaxonEnumeration extends Navigator.BaseEnumeration {
 
-		/** Sirix {@link IAxis} iterator. */
-		private final IAxis mAxis;
+		/** Sirix {@link Axis} iterator. */
+		private final org.sirix.api.Axis mAxis;
 
 		/**
 		 * Constructor.
 		 * 
 		 * @param pAxis
-		 *          Sirix {@link IAxis}
+		 *          Sirix {@link Axis}
 		 */
-		public SaxonEnumeration(@Nonnull final IAxis pAxis) {
+		public SaxonEnumeration(@Nonnull final org.sirix.api.Axis pAxis) {
 			mAxis = checkNotNull(pAxis);
 		}
 

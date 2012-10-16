@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import org.sirix.diff.DiffTuple;
 
 /**
- * Item container to simplify {@link EMoved} enum.
+ * Item container to simplify {@link Moved} enum.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 

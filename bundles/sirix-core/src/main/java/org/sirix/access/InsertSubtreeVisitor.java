@@ -30,8 +30,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.exception.SirixException;
 import org.sirix.node.CommentNode;
@@ -45,16 +45,16 @@ import org.sirix.node.TextNode;
  * 
  * Currently not used because of tail recursion which isn't optimized in Java.
  */
-class InsertSubtreeVisitor extends AbsVisitorSupport {
+class InsertSubtreeVisitor extends AbsVisitor {
 
-	/** Read-transaction which implements the {@link INodeReadTrx} interface. */
-	private final INodeReadTrx mRtx;
+	/** Read-transaction which implements the {@link NodeReadTrx} interface. */
+	private final NodeReadTrx mRtx;
 
-	/** Write-transaction which implements the {@link INodeWriteTrx} interface. */
-	private final INodeWriteTrx mWtx;
+	/** Write-transaction which implements the {@link NodeWriteTrx} interface. */
+	private final NodeWriteTrx mWtx;
 
 	/** Determines how to insert a node. */
-	private EInsertPos mInsert;
+	private InsertPos mInsert;
 
 	/** First visitor step. */
 	private boolean mFirst;
@@ -66,16 +66,16 @@ class InsertSubtreeVisitor extends AbsVisitorSupport {
 	 * Constructor.
 	 * 
 	 * @param pRtx
-	 *          read-transaction which implements the {@link INodeReadTrx}
+	 *          read-transaction which implements the {@link NodeReadTrx}
 	 *          interface
 	 * @param pWtx
-	 *          write-transaction which implements the {@link INodeWriteTrx}
+	 *          write-transaction which implements the {@link NodeWriteTrx}
 	 *          interface
 	 * @param pInsert
 	 *          determines how to insert a node
 	 */
-	InsertSubtreeVisitor(final @Nonnull INodeReadTrx pRtx,
-			final @Nonnull INodeWriteTrx pWtx, final @Nonnull EInsertPos pInsert) {
+	InsertSubtreeVisitor(final @Nonnull NodeReadTrx pRtx,
+			final @Nonnull NodeWriteTrx pWtx, final @Nonnull InsertPos pInsert) {
 		mRtx = checkNotNull(pRtx);
 		mWtx = checkNotNull(pWtx);
 		mInsert = checkNotNull(pInsert);

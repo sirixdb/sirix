@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 
 public class FollowingSiblingAxisTest {
@@ -54,7 +54,7 @@ public class FollowingSiblingAxisTest {
 
   @Test
   public void testAxisConventions() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
     rtx.moveTo(9L);
     AbsAxisTest.testIAxisConventions(new FollowingSiblingAxis(rtx), new long[] {
       13L

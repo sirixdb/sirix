@@ -38,9 +38,9 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.ISession;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Database;
+import org.sirix.api.Session;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -58,11 +58,11 @@ public final class XPathWriteTransactionTest {
 
   private static final String RESOURCE = "bla";
 
-  private ISession session;
+  private Session session;
 
-  private INodeWriteTrx wtx;
+  private NodeWriteTrx wtx;
 
-  private IDatabase database;
+  private Database database;
 
   @Before
   public void setUp() throws Exception {

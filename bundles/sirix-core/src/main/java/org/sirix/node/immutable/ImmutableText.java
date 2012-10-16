@@ -7,11 +7,11 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.TextNode;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
-import org.sirix.node.interfaces.IValNode;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.ValNode;
 
 /**
  * Immutable text wrapper.
@@ -19,7 +19,7 @@ import org.sirix.node.interfaces.IValNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutableText implements IValNode, IStructNode {
+public class ImmutableText implements ValNode, StructNode {
 	/** Mutable {@link TextNode}. */
 	private final TextNode mNode;
 
@@ -55,7 +55,7 @@ public class ImmutableText implements IValNode, IStructNode {
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable INode pOther) {
+	public boolean isSameItem(@Nullable Node pOther) {
 		return mNode.isSameItem(pOther);
 	}
 
@@ -95,7 +95,7 @@ public class ImmutableText implements IValNode, IStructNode {
 	}
 
 	@Override
-	public EKind getKind() {
+	public Kind getKind() {
 		return mNode.getKind();
 	}
 

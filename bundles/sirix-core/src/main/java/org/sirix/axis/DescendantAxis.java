@@ -33,7 +33,7 @@ import java.util.Deque;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeCursor;
+import org.sirix.api.NodeCursor;
 import org.sirix.settings.EFixed;
 
 /**
@@ -57,7 +57,7 @@ public final class DescendantAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public DescendantAxis(final @Nonnull INodeCursor pRtx) {
+  public DescendantAxis(final @Nonnull NodeCursor pRtx) {
     super(pRtx);
   }
 
@@ -69,8 +69,8 @@ public final class DescendantAxis extends AbsAxis {
    * @param pIncludeSelf
    *          Is self included?
    */
-  public DescendantAxis(final @Nonnull INodeCursor pRtx,
-    final @Nonnull EIncludeSelf pIncludeSelf) {
+  public DescendantAxis(final @Nonnull NodeCursor pRtx,
+    final @Nonnull IncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
   }
 
@@ -89,7 +89,7 @@ public final class DescendantAxis extends AbsAxis {
     if (mFirst) {
       mFirst = false;
 
-      if (isSelfIncluded() == EIncludeSelf.YES) {
+      if (isSelfIncluded() == IncludeSelf.YES) {
       	key = getTrx().getNodeKey();
       } else {
       	key = getTrx().getFirstChildKey();

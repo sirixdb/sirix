@@ -27,8 +27,8 @@
 
 package org.sirix.service.xml.xpath.comparators;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -47,10 +47,10 @@ public abstract class AbsComparator extends AbsAxis {
   private final CompKind mComp;
 
   /** First value of the comparison. */
-  private final IAxis mOperand1;
+  private final Axis mOperand1;
 
   /** Second value of the comparison. */
-  private final IAxis mOperand2;
+  private final Axis mOperand2;
 
   /** Is first evaluation? */
   private boolean mIsFirst;
@@ -67,7 +67,7 @@ public abstract class AbsComparator extends AbsAxis {
    * @param mComp
    *          comparison kind
    */
-  public AbsComparator(final INodeReadTrx mRtx, final IAxis mOperand1, final IAxis mOperand2,
+  public AbsComparator(final NodeReadTrx mRtx, final Axis mOperand1, final Axis mOperand2,
     final CompKind mComp) {
     super(mRtx);
     this.mComp = mComp;
@@ -179,7 +179,7 @@ public abstract class AbsComparator extends AbsAxis {
    * @throws SirixXPathException
    *           if any goes wrong.
    */
-  protected abstract AtomicValue[] atomize(final IAxis paramOperand) throws SirixXPathException;
+  protected abstract AtomicValue[] atomize(final Axis paramOperand) throws SirixXPathException;
 
   /**
    * Returns the common comparable type of the two operands, or an error, if
@@ -218,8 +218,8 @@ public abstract class AbsComparator extends AbsAxis {
    *          string value to estimate
    * @return AbsComparator the comparator of two axis
    */
-  public static final AbsComparator getComparator(final INodeReadTrx paramRtx, final IAxis paramOperandOne,
-    final IAxis paramOperandTwo, final CompKind paramKind, final String paramVal) {
+  public static final AbsComparator getComparator(final NodeReadTrx paramRtx, final Axis paramOperandOne,
+    final Axis paramOperandTwo, final CompKind paramKind, final String paramVal) {
     if ("eq".equals(paramVal) || "lt".equals(paramVal) || "le".equals(paramVal) || "gt".equals(paramVal)
       || "ge".equals(paramVal)) {
       return new ValueComp(paramRtx, paramOperandOne, paramOperandTwo, paramKind);

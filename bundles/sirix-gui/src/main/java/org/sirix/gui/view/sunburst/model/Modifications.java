@@ -13,7 +13,7 @@ import org.sirix.diff.DiffTuple;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.exception.SirixException;
-import org.sirix.gui.view.model.interfaces.ITraverseModel;
+import org.sirix.gui.view.model.interfaces.TraverseModel;
 import org.sirix.utils.LogWrapper;
 
 /** Counts modifications. */
@@ -148,7 +148,7 @@ public final class Modifications extends RecursiveTask<Modification> implements 
     }
 
     // Add a factor to add some weighting to the diffCounts.
-    return new Modification(ITraverseModel.FACTOR * diffCounts, descendantCounts, subtract);
+    return new Modification(TraverseModel.FACTOR * diffCounts, descendantCounts, subtract);
   }
 
   @Override

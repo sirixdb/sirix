@@ -21,7 +21,7 @@ import org.sirix.exception.SirixIOException;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class Encryptor implements IByteHandler {
+public class Encryptor implements ByteHandler {
 
   /** Algorithm to use. */
   private static final String ALGORITHM = "AES";
@@ -96,7 +96,7 @@ public class Encryptor implements IByteHandler {
   }
   
   @Override
-  public IByteHandler getInstance() {
+  public ByteHandler getInstance() {
     return new Encryptor();
   }
 }

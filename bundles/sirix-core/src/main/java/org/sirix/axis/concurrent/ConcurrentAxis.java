@@ -37,8 +37,8 @@ import java.util.concurrent.Executors;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
@@ -66,7 +66,7 @@ public class ConcurrentAxis extends AbsAxis {
 	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxis.class));
 	
   /** Axis that is running in an own thread and produces results for this axis. */
-  private final IAxis mProducer;
+  private final Axis mProducer;
 
   /**
    * Queue that stores result keys already computed by the producer. End of
@@ -97,8 +97,8 @@ public class ConcurrentAxis extends AbsAxis {
    * @param pChildAxis
    *          producer axis
    */
-  public ConcurrentAxis(final @Nonnull INodeReadTrx pRtx,
-    final @Nonnull IAxis pChildAxis) {
+  public ConcurrentAxis(final @Nonnull NodeReadTrx pRtx,
+    final @Nonnull Axis pChildAxis) {
     super(pRtx);
     mResults = new ArrayBlockingQueue<>(M_CAPACITY);
     mFirst = true;

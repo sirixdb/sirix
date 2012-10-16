@@ -41,7 +41,7 @@ public class CacheTestHelper {
 
   protected static NodePage[][] PAGES;
 
-  public static void setUp(final ICache<Long, PageContainer> cache) throws SirixException {
+  public static void setUp(final Cache<Long, PageContainer> cache) throws SirixException {
     PAGES = new NodePage[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
       final NodePage page = new NodePage(i, 0);

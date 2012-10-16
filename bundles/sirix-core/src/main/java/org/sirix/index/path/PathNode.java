@@ -2,7 +2,6 @@ package org.sirix.index.path;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -11,24 +10,26 @@ import javax.annotation.Nullable;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AbsStructForwardingNode;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.INameNode;
+import org.sirix.node.interfaces.NameNode;
 
-public class PathNode extends AbsStructForwardingNode implements INameNode {
+import com.google.common.base.Objects;
+
+public class PathNode extends AbsStructForwardingNode implements NameNode {
 
   private final NodeDelegate mNodeDel;
   private final StructNodeDelegate mStructNodeDel;
   private final NameNodeDelegate mNameNodeDel;
-  private final EKind mKind;
+  private final Kind mKind;
   private int mReferences;
   private int mLevel;
 
   public PathNode(@Nonnull final NodeDelegate pNodeDel,
     @Nonnull final StructNodeDelegate pStructNodeDel,
-    @Nonnull final NameNodeDelegate pNameNodeDel, @Nonnull final EKind pKind,
+    @Nonnull final NameNodeDelegate pNameNodeDel, @Nonnull final Kind pKind,
     @Nonnegative final int pReferences, @Nonnegative final int pLevel) {
     mNodeDel = checkNotNull(pNodeDel);
     mStructNodeDel = checkNotNull(pStructNodeDel);
@@ -68,13 +69,13 @@ public class PathNode extends AbsStructForwardingNode implements INameNode {
    * 
    * @return path kind
    */
-  public EKind getPathKind() {
+  public Kind getPathKind() {
     return mKind;
   }
 
   @Override
-  public EKind getKind() {
-    return EKind.PATH;
+  public Kind getKind() {
+    return Kind.PATH;
   }
 
   @Override

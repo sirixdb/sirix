@@ -40,7 +40,7 @@ import org.sirix.node.ElementNode;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.INameNode;
+import org.sirix.node.interfaces.NameNode;
 import org.sirix.utils.NamePageHash;
 
 public class NodePageTest {
@@ -82,8 +82,8 @@ public class NodePageTest {
 		assertEquals(87L, ((ElementNode) page2.getNode(0)).getAttributeKey(1));
 		assertEquals(99L, ((ElementNode) page2.getNode(0)).getNamespaceKey(0));
 		assertEquals(98L, ((ElementNode) page2.getNode(0)).getNamespaceKey(1));
-		assertEquals(6, ((INameNode) page2.getNode(0)).getNameKey());
-		assertEquals(7, ((INameNode) page2.getNode(0)).getURIKey());
+		assertEquals(6, ((NameNode) page2.getNode(0)).getNameKey());
+		assertEquals(7, ((NameNode) page2.getNode(0)).getURIKey());
 		assertEquals(NamePageHash.generateHashForString("xs:untyped"),
 				((ElementNode) page2.getNode(0)).getTypeKey());
 

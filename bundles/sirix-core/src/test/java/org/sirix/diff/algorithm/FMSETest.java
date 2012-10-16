@@ -22,15 +22,15 @@ import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
-import org.sirix.service.xml.shredder.EInsert;
-import org.sirix.service.xml.shredder.EShredderCommit;
+import org.sirix.service.xml.shredder.Insert;
+import org.sirix.service.xml.shredder.ShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
@@ -237,8 +237,8 @@ public final class FMSETest extends XMLTestCase {
    *           if any exception occurs
    */
   private void test(@Nonnull final String FOLDER) throws Exception {
-    IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    ISession session =
+    Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    Session session =
       database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
         .build());
     final File folder = new File(FOLDER);
@@ -277,10 +277,10 @@ public final class FMSETest extends XMLTestCase {
       if (file.getName().endsWith(".xml")) {
         if (first) {
           first = false;
-          try (final INodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+          try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
             final XMLShredder shredder =
               new XMLShredder.Builder(wtx, XMLShredder.createFileReader(file),
-                EInsert.ASFIRSTCHILD).commitAfterwards().build();
+                Insert.ASFIRSTCHILD).commitAfterwards().build();
             shredder.call();
           }
         } else {

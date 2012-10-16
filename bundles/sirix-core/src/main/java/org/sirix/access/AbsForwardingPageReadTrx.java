@@ -3,17 +3,17 @@ package org.sirix.access;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IPageReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.PageReadTrx;
+import org.sirix.api.Session;
 import org.sirix.cache.PageContainer;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INodeBase;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.NodeBase;
 import org.sirix.page.EPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.Optional;
 import com.google.common.collect.ForwardingObject;
@@ -25,19 +25,19 @@ import com.google.common.collect.ForwardingObject;
  * 
  */
 public abstract class AbsForwardingPageReadTrx extends ForwardingObject
-		implements IPageReadTrx {
+		implements PageReadTrx {
 
 	/** Constructor for use by subclasses. */
 	protected AbsForwardingPageReadTrx() {
 	}
 
 	@Override
-	public ISession getSession() {
+	public Session getSession() {
 		return delegate().getSession();
 	}
 
 	@Override
-	public Optional<? extends INodeBase> getNode(@Nonnegative long pKey,
+	public Optional<? extends NodeBase> getNode(@Nonnegative long pKey,
 			@Nonnull EPage pPage) throws SirixIOException {
 		return delegate().getNode(pKey, pPage);
 	}
@@ -48,17 +48,17 @@ public abstract class AbsForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public String getName(int pNameKey, @Nonnull EKind pKind) {
+	public String getName(int pNameKey, @Nonnull Kind pKind) {
 		return delegate().getName(pNameKey, pKind);
 	}
 
 	@Override
-	public int getNameCount(int pNameKey, @Nonnull EKind pKind) {
+	public int getNameCount(int pNameKey, @Nonnull Kind pKind) {
 		return delegate().getNameCount(pNameKey, pKind);
 	}
 
 	@Override
-	public byte[] getRawName(int pNameKey, @Nonnull EKind pKind) {
+	public byte[] getRawName(int pNameKey, @Nonnull Kind pKind) {
 		return delegate().getRawName(pNameKey, pKind);
 	}
 
@@ -89,7 +89,7 @@ public abstract class AbsForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public IPage getFromPageCache(@Nonnegative long pKey) throws SirixIOException {
+	public Page getFromPageCache(@Nonnegative long pKey) throws SirixIOException {
 		return delegate().getFromPageCache(pKey);
 	}
 
@@ -99,5 +99,5 @@ public abstract class AbsForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	protected abstract IPageReadTrx delegate();
+	protected abstract PageReadTrx delegate();
 }

@@ -40,7 +40,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.delegates.PageDelegate;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,7 +51,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class PageBinding extends TupleBinding<IPage> {
+public final class PageBinding extends TupleBinding<Page> {
 
   /** Logger. */
   private static final Logger LOGGER = LoggerFactory
@@ -81,7 +81,7 @@ public final class PageBinding extends TupleBinding<IPage> {
   }
 
   @Override
-  public IPage entryToObject(final TupleInput pInput) {
+  public Page entryToObject(final TupleInput pInput) {
     byte[] deserialized = new byte[0];
     try {
       deserialized = mByteHandler.deserialize(pInput.getBufferBytes());
@@ -93,7 +93,7 @@ public final class PageBinding extends TupleBinding<IPage> {
   }
 
   @Override
-  public void objectToEntry(final IPage pPage, final TupleOutput pOutput) {
+  public void objectToEntry(final Page pPage, final TupleOutput pOutput) {
     final ByteArrayDataOutput output = ByteStreams.newDataOutput();
     PagePersistenter.serializePage(output, pPage);
     try {

@@ -32,7 +32,7 @@ import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 /**
  * Persists pages on secondary storage.
@@ -47,10 +47,10 @@ public final class PagePersistenter {
    * 
    * @param pSource
    *          source to read from
-   * @return the created {@link IPage}
+   * @return the created {@link Page}
    */
   public static @Nonnull
-  IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
+  Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
     return EPage.getKind(pSource.readByte()).deserializePage(pSource);
   }
 
@@ -60,10 +60,10 @@ public final class PagePersistenter {
    * @param pSink
    *          output sink
    * @param pPage
-   *          the {@link IPage} to serialize
+   *          the {@link Page} to serialize
    */
   public static void serializePage(@Nonnull final ByteArrayDataOutput pSink,
-    @Nonnull final IPage pPage) {
+    @Nonnull final Page pPage) {
     EPage.getKind(pPage.getClass()).serializePage(pSink, pPage);
   }
 

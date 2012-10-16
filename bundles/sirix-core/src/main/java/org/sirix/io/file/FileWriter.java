@@ -39,11 +39,11 @@ import java.nio.ByteBuffer;
 import javax.annotation.Nonnull;
 
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.IWriter;
-import org.sirix.io.bytepipe.IByteHandler;
+import org.sirix.io.Writer;
+import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 /**
  * File Writer for providing read/write access for file as a Sirix backend.
@@ -52,7 +52,7 @@ import org.sirix.page.interfaces.IPage;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class FileWriter implements IWriter {
+public final class FileWriter implements Writer {
 
   /** Random access to work on. */
   private final RandomAccessFile mFile;
@@ -69,7 +69,7 @@ public final class FileWriter implements IWriter {
    * @throws SirixIOException
    *           if an I/O error occurs
    */
-  public FileWriter(final @Nonnull File pStorage, final @Nonnull IByteHandler pHandler) throws SirixIOException {
+  public FileWriter(final @Nonnull File pStorage, final @Nonnull ByteHandler pHandler) throws SirixIOException {
     try {
       mFile = new RandomAccessFile(pStorage, "rw");
     } catch (final FileNotFoundException fileExc) {
@@ -90,7 +90,7 @@ public final class FileWriter implements IWriter {
   public long write(@Nonnull final PageReference pPageReference)
     throws SirixIOException {
     // Serialise page.
-    final IPage page = pPageReference.getPage();
+    final Page page = pPageReference.getPage();
     assert page != null;
     final ByteArrayDataOutput output = ByteStreams.newDataOutput();
     PagePersistenter.serializePage(output, page);
@@ -150,7 +150,7 @@ public final class FileWriter implements IWriter {
   }
 
   @Override
-  public IPage read(final long pKey) throws SirixIOException {
+  public Page read(final long pKey) throws SirixIOException {
     return mReader.read(pKey);
   }
 

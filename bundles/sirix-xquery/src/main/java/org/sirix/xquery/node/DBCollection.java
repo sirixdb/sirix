@@ -14,12 +14,12 @@ import org.brackit.xquery.node.stream.ArrayStream;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.OperationNotSupportedException;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 
@@ -38,7 +38,7 @@ public class DBCollection<E extends AbsTemporalNode> extends
 	private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
 
 	/** {@link Sirix} database. */
-	private final IDatabase mDatabase;
+	private final Database mDatabase;
 
 	/** Determines if collection needs to be updatable. */
 	private final boolean mUpdating;
@@ -52,10 +52,10 @@ public class DBCollection<E extends AbsTemporalNode> extends
 	 * @param pName
 	 *          collection name
 	 * @param pDatabase
-	 *          Sirix {@link IDatabase} reference
+	 *          Sirix {@link Database} reference
 	 */
 	public DBCollection(final @Nonnull String pName,
-			final @Nonnull IDatabase pDatabase, final boolean pUpdating) {
+			final @Nonnull Database pDatabase, final boolean pUpdating) {
 		super(checkNotNull(pName));
 		mDatabase = checkNotNull(pDatabase);
 		mUpdating = pUpdating;
@@ -74,7 +74,7 @@ public class DBCollection<E extends AbsTemporalNode> extends
 	@Override
 	public void delete() throws DocumentException {
 		try {
-			Database.truncateDatabase(new DatabaseConfiguration(mDatabase
+			DatabaseImpl.truncateDatabase(new DatabaseConfiguration(mDatabase
 					.getDatabaseConfig().getFile()));
 		} catch (final SirixIOException e) {
 			throw new DocumentException(e.getCause());
@@ -99,9 +99,9 @@ public class DBCollection<E extends AbsTemporalNode> extends
 			throw new DocumentException("More than one document stored!");
 		}
 		try {
-			final ISession session = mDatabase
+			final Session session = mDatabase
 					.getSession(new SessionConfiguration.Builder(resources[0]).build());
-			final INodeReadTrx rtx = mUpdating ? session.beginNodeWriteTrx()
+			final NodeReadTrx rtx = mUpdating ? session.beginNodeWriteTrx()
 					: session.beginNodeReadTrx();
 			return new DBNode(rtx, this);
 		} catch (final SirixException e) {
@@ -116,9 +116,9 @@ public class DBCollection<E extends AbsTemporalNode> extends
 		final List<DBNode> documents = new ArrayList<>(resources.length);
 		for (final String resource : resources) {
 			try {
-				final ISession session = mDatabase
+				final Session session = mDatabase
 						.getSession(new SessionConfiguration.Builder(resource).build());
-				final INodeReadTrx rtx = mUpdating ? session.beginNodeWriteTrx()
+				final NodeReadTrx rtx = mUpdating ? session.beginNodeWriteTrx()
 						: session.beginNodeReadTrx();
 				documents.add(new DBNode(rtx, this));
 			} catch (final SirixException e) {

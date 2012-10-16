@@ -29,8 +29,8 @@ package org.sirix.service.xml.xpath.functions.sequences;
 
 import java.util.List;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.functions.AbsFunction;
 import org.sirix.utils.TypedValue;
@@ -66,7 +66,7 @@ public class FNSum extends AbsFunction {
    * @throws SirixXPathException
    *           if function check fails
    */
-  public FNSum(final INodeReadTrx rtx, final List<IAxis> args, final int min, final int max,
+  public FNSum(final NodeReadTrx rtx, final List<Axis> args, final int min, final int max,
     final int returnType) throws SirixXPathException {
 
     super(rtx, args, min, max, returnType);
@@ -78,7 +78,7 @@ public class FNSum extends AbsFunction {
   @Override
   protected byte[] computeResult() {
 
-    final IAxis axis = getArgs().get(0);
+    final Axis axis = getArgs().get(0);
 
     Integer count = 0;
     while (axis.hasNext()) {

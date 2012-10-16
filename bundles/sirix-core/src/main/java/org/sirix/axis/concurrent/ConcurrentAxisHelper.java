@@ -33,7 +33,7 @@ import java.util.concurrent.BlockingQueue;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
+import org.sirix.api.Axis;
 import org.sirix.settings.EFixed;
 
 /**
@@ -50,8 +50,8 @@ import org.sirix.settings.EFixed;
  */
 public class ConcurrentAxisHelper implements Runnable {
 
-  /** {@link IAxis} that computes the results. */
-  private final IAxis mAxis;
+  /** {@link Axis} that computes the results. */
+  private final Axis mAxis;
 
   /**
    * Queue that stores result keys already computed by this axis. End of the
@@ -68,7 +68,7 @@ public class ConcurrentAxisHelper implements Runnable {
    * @param rtx
    *          Transaction to operate with.
    */
-  public ConcurrentAxisHelper(@Nonnull final IAxis pAxis, @Nonnull final BlockingQueue<Long> pResults) {
+  public ConcurrentAxisHelper(@Nonnull final Axis pAxis, @Nonnull final BlockingQueue<Long> pResults) {
     mAxis = checkNotNull(pAxis);
     mResults = checkNotNull(pResults);
   }

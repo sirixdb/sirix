@@ -27,8 +27,8 @@
 
 package org.sirix.gui.view.sunburst.axis;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.gui.view.AbsDiffAxis;
 
 /**
@@ -50,7 +50,7 @@ public abstract class AbsSunburstAxis extends AbsDiffAxis {
    * @param pRtx
    *          transaction to operate with
    */
-  public AbsSunburstAxis(final INodeReadTrx pRtx) {
+  public AbsSunburstAxis(final NodeReadTrx pRtx) {
     super(pRtx);
   }
 
@@ -62,7 +62,7 @@ public abstract class AbsSunburstAxis extends AbsDiffAxis {
    * @param pIncludeSelf
    *          determines if self is included
    */
-  public AbsSunburstAxis(final INodeReadTrx pRtx, final EIncludeSelf pIncludeSelf) {
+  public AbsSunburstAxis(final NodeReadTrx pRtx, final IncludeSelf pIncludeSelf) {
     super(pRtx, pIncludeSelf);
   }
 

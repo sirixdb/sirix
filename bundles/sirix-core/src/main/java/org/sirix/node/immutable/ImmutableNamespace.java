@@ -7,10 +7,10 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.NamespaceNode;
-import org.sirix.node.interfaces.INameNode;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
 
 /**
  * Immutable namespace node wrapper.
@@ -18,7 +18,7 @@ import org.sirix.node.interfaces.INode;
  * @author Johannes Lichtenberger
  *
  */
-public class ImmutableNamespace implements INameNode {
+public class ImmutableNamespace implements NameNode {
 
 	/** Mutable {@link NamespaceNode}. */
 	private final NamespaceNode mNode;
@@ -55,7 +55,7 @@ public class ImmutableNamespace implements INameNode {
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable INode pOther) {
+	public boolean isSameItem(@Nullable Node pOther) {
 		return mNode.isSameItem(pOther);
 	}
 
@@ -95,7 +95,7 @@ public class ImmutableNamespace implements INameNode {
 	}
 
 	@Override
-	public EKind getKind() {
+	public Kind getKind() {
 		return mNode.getKind();
 	}
 

@@ -44,9 +44,9 @@ import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.XMLEvent;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
 import org.sirix.diff.DiffFactory.EDiff;
@@ -54,7 +54,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.gui.view.DiffAxis;
 import org.sirix.gui.view.TransactionTuple;
 import org.sirix.gui.view.VisualItemAxis;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.XMLToken;
 
@@ -109,7 +109,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	 */
 	private transient long mLastKey;
 
-	/** Determines if {@link INodeReadTrx} should be closed afterwards. */
+	/** Determines if {@link NodeReadTrx} should be closed afterwards. */
 	private transient boolean mCloseRtx;
 
 	/** First call. */
@@ -173,9 +173,9 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	 * Emit end tag.
 	 * 
 	 * @param pRTX
-	 *          sirix reading transaction {@link INodeReadTrx}.
+	 *          sirix reading transaction {@link NodeReadTrx}.
 	 */
-	private void emitEndTag(final INodeReadTrx pRTX) {
+	private void emitEndTag(final NodeReadTrx pRTX) {
 		assert pRTX != null;
 		final long nodeKey = pRTX.getNodeKey();
 		mEvent = mFac.createEndElement(pRTX.getName(),
@@ -187,9 +187,9 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	 * Emit a node.
 	 * 
 	 * @param pRTX
-	 *          sirix reading transaction {@link INodeReadTrx}.
+	 *          sirix reading transaction {@link NodeReadTrx}.
 	 */
-	private void emitNode(final INodeReadTrx pRTX) {
+	private void emitNode(final NodeReadTrx pRTX) {
 		assert pRTX != null;
 		switch (pRTX.getKind()) {
 		case DOCUMENT_ROOT:
@@ -224,7 +224,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 
 	@Override
 	public String getElementText() throws XMLStreamException {
-		final INodeReadTrx rtx = mAxis.getTransaction();
+		final NodeReadTrx rtx = mAxis.getTransaction();
 		final long nodeKey = rtx.getNodeKey();
 
 		/*
@@ -295,7 +295,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 					mAxis.next();
 
 					if (mNextTag) {
-						if (mAxis.getTransaction().getKind() != EKind.ELEMENT) {
+						if (mAxis.getTransaction().getKind() != Kind.ELEMENT) {
 							throw new XMLStreamException(
 									"The next tag isn't a start- or end-tag!");
 						}
@@ -325,7 +325,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	@Override
 	public XMLEvent peek() throws XMLStreamException {
 		final long currNodeKey = mAxis.getTransaction().getNodeKey();
-		final INodeReadTrx rtx = mAxis.getTransaction();
+		final NodeReadTrx rtx = mAxis.getTransaction();
 		try {
 			if (!mHasNext && mEmitEndDocument) {
 				mEvent = mFac.createEndDocument();
@@ -334,13 +334,13 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			} else {
 				if (mCloseElements && !mCloseElementsEmitted) {
 					final TransactionTuple trxTuple = mStack.peek();
-					final INodeReadTrx trx = trxTuple.getRtx();
+					final NodeReadTrx trx = trxTuple.getRtx();
 					final long nodeKey = trx.getNodeKey();
 					trx.moveTo(trxTuple.getKey());
 					emitEndTag(trxTuple.getRtx());
 					trx.moveTo(nodeKey);
 				} else {
-					if (mFirst && mAxis.isSelfIncluded() == EIncludeSelf.YES) {
+					if (mFirst && mAxis.isSelfIncluded() == IncludeSelf.YES) {
 						emitNode(rtx);
 					} else {
 						if (rtx.hasFirstChild()) {
@@ -348,7 +348,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 							emitNode(rtx);
 						} else if (rtx.hasRightSibling()) {
 							rtx.moveToRightSibling();
-							final EKind nodeKind = rtx.getKind();
+							final Kind nodeKind = rtx.getKind();
 							processNode(nodeKind);
 						} else if (rtx.hasParent()) {
 							rtx.moveToParent();
@@ -403,7 +403,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	 * @throws IOException
 	 *           if any I/O error occurred
 	 */
-	private void processNode(@Nonnull final EKind pNodeKind) throws IOException {
+	private void processNode(@Nonnull final Kind pNodeKind) throws IOException {
 		assert pNodeKind != null;
 		switch (pNodeKind) {
 		case ELEMENT:
@@ -425,24 +425,24 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	 * @throws IOException
 	 *           if any I/O error occurred
 	 */
-	private void emit(@Nonnull final INodeReadTrx pRtx) throws IOException {
+	private void emit(@Nonnull final NodeReadTrx pRtx) throws IOException {
 		assert pRtx != null;
 		// Emit pending update elements.
 		if (!mUpdatedStack.isEmpty()) {
 			mDiff = EDiff.UPDATED;
 			final TransactionTuple tuple = mUpdatedStack.peek();
-			final INodeReadTrx trx = tuple.getRtx();
+			final NodeReadTrx trx = tuple.getRtx();
 			final long nodeKey = trx.getNodeKey();
 			trx.moveTo(tuple.getKey());
 			if (mFirstUpdate && mDepth <= tuple.getDepth()
-					&& trx.getKind() == EKind.ELEMENT) {
+					&& trx.getKind() == Kind.ELEMENT) {
 				mFirstUpdate = false;
 				mStack.pop();
 				emitEndTag(trx);
 			} else {
 				mUpdatedStack.pop();
 				emitNode(trx);
-				if (trx.getKind() == EKind.ELEMENT) {
+				if (trx.getKind() == Kind.ELEMENT) {
 					mStack.push(tuple);
 				}
 				trx.moveTo(nodeKey);
@@ -452,7 +452,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 		if (mCloseElements) {
 			final long pNodeKey = pRtx.getNodeKey();
 			final TransactionTuple tuple = mStack.peek();
-			INodeReadTrx rtx = tuple.getRtx();
+			NodeReadTrx rtx = tuple.getRtx();
 			final long nodeKey = rtx.getNodeKey();
 			int depth = tuple.getDepth();
 			mDiff = tuple.getDiff();
@@ -493,12 +493,12 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			}
 
 			// Push end element to stack if we are a start element.
-			if (pRtx.getKind() == EKind.ELEMENT) {
+			if (pRtx.getKind() == Kind.ELEMENT) {
 				mStack.push(new TransactionTuple(mLastKey, pRtx, mAxis.getDiff(), mAxis
 						.getDepth()));
 			}
 
-			final EKind nodeKind = pRtx.getKind();
+			final Kind nodeKind = pRtx.getKind();
 
 			// Remember to emit all pending end elements from stack if
 			// required.
@@ -508,7 +508,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 					mDepth = mAxis.getDepth();
 					mAxis.getTransaction().moveTo(peekKey);
 					if ((depth > mDepth)
-							|| (nodeKind == EKind.ELEMENT && mLastKey != mAxis
+							|| (nodeKind == Kind.ELEMENT && mLastKey != mAxis
 									.getTransaction().getParentKey())) {
 						moveToNextNode();
 					} else {
@@ -543,9 +543,9 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	private final static class AttributeIterator implements Iterator<Attribute> {
 
 		/**
-		 * {@link INodeReadTrx} implementation.
+		 * {@link NodeReadTrx} implementation.
 		 */
-		private final INodeReadTrx mRTX;
+		private final NodeReadTrx mRTX;
 
 		/** Number of attribute nodes. */
 		private final int mAttCount;
@@ -563,14 +563,14 @@ public final class StAXDiffSerializer implements XMLEventReader {
 		 * Constructor.
 		 * 
 		 * @param pRtx
-		 *          reference implementing the {@link INodeReadTrx} interface
+		 *          reference implementing the {@link NodeReadTrx} interface
 		 */
-		public AttributeIterator(final INodeReadTrx pRtx) {
+		public AttributeIterator(final NodeReadTrx pRtx) {
 			mRTX = checkNotNull(pRtx);
 			mNodeKey = mRTX.getNodeKey();
 			mIndex = 0;
 
-			if (mRTX.getKind() == EKind.ELEMENT) {
+			if (mRTX.getKind() == Kind.ELEMENT) {
 				mAttCount = mRTX.getAttributeCount();
 			} else {
 				mAttCount = 0;
@@ -592,7 +592,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 		public Attribute next() {
 			mRTX.moveTo(mNodeKey);
 			mRTX.moveToAttribute(mIndex++);
-			assert mRTX.getKind() == EKind.ATTRIBUTE;
+			assert mRTX.getKind() == Kind.ATTRIBUTE;
 			final QName qName = mRTX.getName();
 			final String value = XMLToken.escapeAttribute(mRTX
 					.getValue());
@@ -612,9 +612,9 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	private final static class NamespaceIterator implements Iterator<Namespace> {
 
 		/**
-		 * sirix {@link INodeReadTrx}.
+		 * sirix {@link NodeReadTrx}.
 		 */
-		private final INodeReadTrx mRTX;
+		private final NodeReadTrx mRTX;
 
 		/** Number of namespace nodes. */
 		private final int mNamespCount;
@@ -633,14 +633,14 @@ public final class StAXDiffSerializer implements XMLEventReader {
 		 * Constructor.
 		 * 
 		 * @param pRtx
-		 *          reference implementing the {@link INodeReadTrx} interface
+		 *          reference implementing the {@link NodeReadTrx} interface
 		 */
-		public NamespaceIterator(final INodeReadTrx pRtx) {
+		public NamespaceIterator(final NodeReadTrx pRtx) {
 			mRTX = checkNotNull(pRtx);
 			mNodeKey = mRTX.getNodeKey();
 			mIndex = 0;
 
-			if (mRTX.getKind() == EKind.ELEMENT) {
+			if (mRTX.getKind() == Kind.ELEMENT) {
 				mNamespCount = mRTX.getNamespaceCount();
 			} else {
 				mNamespCount = 0;
@@ -662,7 +662,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 		public Namespace next() {
 			mRTX.moveTo(mNodeKey);
 			mRTX.moveToNamespace(mIndex++);
-			assert mRTX.getKind() == EKind.NAMESPACE;
+			assert mRTX.getKind() == Kind.NAMESPACE;
 			final QName qName = mRTX.getName();
 			mRTX.moveTo(mNodeKey);
 			return mFac

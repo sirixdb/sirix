@@ -41,13 +41,13 @@ import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewUtilities;
 import org.sirix.gui.view.smallmultiple.SmallmultipleView.Embedded;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI;
-import org.sirix.gui.view.sunburst.EDraw;
+import org.sirix.gui.view.sunburst.Draw;
 import org.sirix.gui.view.sunburst.EGreyState;
-import org.sirix.gui.view.sunburst.EView;
+import org.sirix.gui.view.sunburst.ViewType;
 import org.sirix.gui.view.sunburst.SunburstGUI;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.SunburstItemKeyEquivalence;
-import org.sirix.gui.view.sunburst.control.ISunburstControl;
+import org.sirix.gui.view.sunburst.control.SunburstControl;
 
 import processing.core.PApplet;
 import processing.core.PConstants;
@@ -68,7 +68,7 @@ public class SmallmultipleGUI extends AbsSunburstGUI implements PropertyChangeLi
   private static final SunburstItemKeyEquivalence mKeyEquivalence = new SunburstItemKeyEquivalence();
 
   /** {@link SmallmultipleControl} reference. */
-  private final ISunburstControl mControl;
+  private final SunburstControl mControl;
 
   /** {@link List} of {@link PGraphics} to buffer {@link SunburstItem}s. */
   private final List<ImageStore> mBufferedImages;
@@ -90,11 +90,11 @@ public class SmallmultipleGUI extends AbsSunburstGUI implements PropertyChangeLi
    * @param pReadDB
    *          {@link ReadDB} instance
    */
-  private SmallmultipleGUI(final PApplet pEmbedded, final ISunburstControl pControl, final ReadDB pReadDB) {
+  private SmallmultipleGUI(final PApplet pEmbedded, final SunburstControl pControl, final ReadDB pReadDB) {
     super(pEmbedded, pControl, pReadDB);
     mDb = pReadDB;
     mControl = pControl;
-    mUseDiffView = EView.DIFF;
+    mUseDiffView = ViewType.DIFF;
     mUseDiffView.setValue(true);
     mDone = false;
     mBufferedImages = new ArrayList<>();
@@ -109,12 +109,12 @@ public class SmallmultipleGUI extends AbsSunburstGUI implements PropertyChangeLi
    * @param pApplet
    *          parent processing applet
    * @param pControl
-   *          {@link ISunburstControl} implementation
+   *          {@link SunburstControl} implementation
    * @param pReadDB
    *          {@link ReadDB} instance
    * @return a {@link SunburstGUI} singleton
    */
-  public static SmallmultipleGUI getInstance(final PApplet pApplet, final ISunburstControl pControl,
+  public static SmallmultipleGUI getInstance(final PApplet pApplet, final SunburstControl pControl,
     final ReadDB pReadDB) {
     if (mGUI == null) {
       synchronized (SmallmultipleGUI.class) {
@@ -221,7 +221,7 @@ public class SmallmultipleGUI extends AbsSunburstGUI implements PropertyChangeLi
               mOldDepthMax = imageStore.mOldMaxDepth;
               for (final SunburstItem item : model) {
                 if (mKeyEquivalence.equivalent(item, mHitItem)) {
-                  EDraw.DRAW.drawHover(this, item);
+                  Draw.DRAW.drawHover(this, item);
                   break;
                 }
               }

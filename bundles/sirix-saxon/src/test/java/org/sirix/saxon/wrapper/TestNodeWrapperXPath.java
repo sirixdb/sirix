@@ -53,9 +53,9 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 
 /**
  * Test XPath Java API.
@@ -158,9 +158,9 @@ public final class TestNodeWrapperXPath {
 
           final QName qName = mHolder.getRtx().getName();
 
-          if (mHolder.getRtx().getKind() == EKind.ELEMENT) {
+          if (mHolder.getRtx().getKind() == Kind.ELEMENT) {
             assertEquals(expRes[j], qName.getPrefix() + ":" + qName.getLocalPart());
-          } else if (mHolder.getRtx().getKind() == EKind.TEXT) {
+          } else if (mHolder.getRtx().getKind() == Kind.TEXT) {
             assertEquals(expRes[j], mHolder.getRtx().getValue());
           }
 
@@ -370,7 +370,7 @@ public final class TestNodeWrapperXPath {
     final ArrayList<NodeWrapper> result = (ArrayList<NodeWrapper>)findLine.evaluate(doc, XPathConstants.NODESET);
     assertNotNull(result);
 
-    final INodeReadTrx rtx = mHolder.getSession().beginNodeReadTrx();
+    final NodeReadTrx rtx = mHolder.getSession().beginNodeReadTrx();
     rtx.moveTo(result.get(0).getKey());
     assertEquals("oops1", rtx.getValue());
     rtx.moveTo(result.get(1).getKey());
@@ -420,7 +420,7 @@ public final class TestNodeWrapperXPath {
     assertEquals(5, result.get(0).getKey());
     assertEquals(9, result.get(1).getKey());
 
-    final INodeReadTrx rtx = mHolder.getSession().beginNodeReadTrx();
+    final NodeReadTrx rtx = mHolder.getSession().beginNodeReadTrx();
     rtx.moveTo(result.get(0).getKey());
     assertEquals("b", rtx.getName().getLocalPart());
 

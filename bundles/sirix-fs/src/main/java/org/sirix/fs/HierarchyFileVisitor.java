@@ -18,12 +18,12 @@ import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.AbsShredder;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -32,7 +32,7 @@ import org.slf4j.LoggerFactory;
  * sirix. The XML representation can be easily equipped with further functionality through the usage of the
  * "Execute Around" idiom.
  * 
- * Further functionality can be plugged in through the implementation of the {@link IVisitor} interface.
+ * Further functionality can be plugged in through the implementation of the {@link Visitor} interface.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -41,52 +41,52 @@ import org.slf4j.LoggerFactory;
 public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, FileVisitor<Path> {
 
   /**
-   * Mapping of {@link IDatabase} to {@link HierarchyFileVisitor} shared among all
+   * Mapping of {@link Database} to {@link HierarchyFileVisitor} shared among all
    * instances.
    */
-  private static final ConcurrentMap<INodeWriteTrx, HierarchyFileVisitor> INSTANCES =
+  private static final ConcurrentMap<NodeWriteTrx, HierarchyFileVisitor> INSTANCES =
     new ConcurrentHashMap<>();
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
     .getLogger(HierarchyFileVisitor.class));
 
-  /** sirix {@link INodeWriteTrx}. */
-  private final INodeWriteTrx mWtx;
+  /** sirix {@link NodeWriteTrx}. */
+  private final NodeWriteTrx mWtx;
 
   /** Visitor which simply can be plugged in to create a more thorough XML representation. */
-  private final Optional<IVisitor<INodeWriteTrx>> mVisitor;
+  private final Optional<Visitor<NodeWriteTrx>> mVisitor;
 
-  /** Index entries {@code String} representation to {@link EPath} value. */
-  private final Map<Path, EPath> mIndex;
+  /** Index entries {@code String} representation to {@link Path} value. */
+  private final Map<Path, org.sirix.fs.Path> mIndex;
 
   /** Simple Builder. */
   public static class Builder {
 
-    /** sirix {@link INodeWriteTrx}. */
-    private final INodeWriteTrx mWtx;
+    /** sirix {@link NodeWriteTrx}. */
+    private final NodeWriteTrx mWtx;
 
-    /** Implementation of the {@link IVisitor} interface. */
-    private Optional<IVisitor<INodeWriteTrx>> mVisitor = Optional.absent();
+    /** Implementation of the {@link Visitor} interface. */
+    private Optional<Visitor<NodeWriteTrx>> mVisitor = Optional.absent();
 
     /**
      * Constructor.
      * 
      * @param pDatabase
-     *          sirix {@link INodeWriteTrx}
+     *          sirix {@link NodeWriteTrx}
      */
-    public Builder(final INodeWriteTrx pWtx) {
+    public Builder(final NodeWriteTrx pWtx) {
       mWtx = checkNotNull(pWtx);
     }
 
     /**
-     * Set an {@link IVisitor} implementation.
+     * Set an {@link Visitor} implementation.
      * 
      * @param pVisitor
-     *          {@link IVisitor} implementation
+     *          {@link Visitor} implementation
      * @return this builder instance
      */
-    public Builder setVisitor(final IVisitor<INodeWriteTrx> pVisitor) {
+    public Builder setVisitor(final Visitor<NodeWriteTrx> pVisitor) {
       mVisitor = Optional.fromNullable(pVisitor);
       return this;
     }
@@ -109,12 +109,12 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
    * @param pPath
    *          {@link Path} reference which denotes the {@code path/directory} to watch for changes.
    * @param pDatabase
-   *          {@link IDatabase} to use for importing changed data into sirix
+   *          {@link Database} to use for importing changed data into sirix
    * @throws NullPointerException
    *           if {@code pBuilder} is {@code null}
    */
   private HierarchyFileVisitor(final Builder pBuilder) throws SirixException {
-    super(pBuilder.mWtx, EInsert.ASFIRSTCHILD);
+    super(pBuilder.mWtx, Insert.ASFIRSTCHILD);
     mVisitor = pBuilder.mVisitor;
     mWtx = pBuilder.mWtx;
     mWtx.insertElementAsFirstChild(new QName("fsml"));
@@ -123,7 +123,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
 
   /**
    * Get an instance of {@link FileHierarchyWalker}. If an instance with the specified {@code {@link Path}/
-   * {@link IDatabase} already exists this instance is returned.
+   * {@link Database} already exists this instance is returned.
    * 
    * @param pPath
    *          {@link Path} reference which denotes the {@code path/directory} to watch for changes.
@@ -149,7 +149,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
    * Inserts a {@code dir-element} with a {@code name-attribute} for the directory to visit.
    * </p>
    * <p>
-   * An optional visitor can be used to add further attributes or metadata. The sirix {@link INodeWriteTrx}
+   * An optional visitor can be used to add further attributes or metadata. The sirix {@link NodeWriteTrx}
    * is located on the new directory before and after using a pluggable visitor.
    * </p>
    * 
@@ -162,7 +162,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
     checkNotNull(pDir);
     checkNotNull(pAttrs);
     try {
-      mIndex.put(pDir, EPath.ISDIRECTORY);
+      mIndex.put(pDir, org.sirix.fs.Path.ISDIRECTORY);
       processStartTag(new QName("dir"));
       mWtx.insertAttribute(new QName("name"), pDir.getFileName().toString());
       mWtx.moveToParent();
@@ -190,7 +190,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
    * Inserts a {@code file-element} with a {@code name-attribute} for the file which is visited.
    * </p>
    * <p>
-   * An optional visitor can be used to add further attributes or metadata. The sirix {@link INodeWriteTrx}
+   * An optional visitor can be used to add further attributes or metadata. The sirix {@link NodeWriteTrx}
    * is located on the new directory before and after using a pluggable visitor.
    * </p>
    * 
@@ -203,7 +203,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
     checkNotNull(pAttrs);
     try {
       if (Files.isRegularFile(pFile) | Files.isSymbolicLink(pFile)) {
-        mIndex.put(pFile, EPath.ISFILE);
+        mIndex.put(pFile, org.sirix.fs.Path.ISFILE);
         processEmptyElement(new QName("file"));
         mWtx.insertAttribute(new QName("name"), pFile.getFileName().toString());
         mWtx.moveToParent();
@@ -221,12 +221,12 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
    * Process a directory.
    * 
    * @param pVisitor
-   *          an optional visitor implementing {@link IVisitor}
+   *          an optional visitor implementing {@link Visitor}
    * @param pWtx
-   *          sirix {@link INodeWriteTrx}
-   * @see IVisitor#processDirectory(INodeReadTrx) processDirectory(IReadTransaction)
+   *          sirix {@link NodeWriteTrx}
+   * @see Visitor#processDirectory(NodeReadTrx) processDirectory(IReadTransaction)
    */
-  private void processDirectory(final Optional<IVisitor<INodeWriteTrx>> pVisitor, final INodeWriteTrx pWtx,
+  private void processDirectory(final Optional<Visitor<NodeWriteTrx>> pVisitor, final NodeWriteTrx pWtx,
     final Path pDir, final BasicFileAttributes pAttrs) {
     assert pVisitor != null;
     assert pWtx != null;
@@ -239,12 +239,12 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
    * Process a file.
    * 
    * @param pVisitor
-   *          an optional visitor implementing {@link IVisitor}
+   *          an optional visitor implementing {@link Visitor}
    * @param pWtx
-   *          sirix {@link INodeWriteTrx}
-   * @see IVisitor#processFile(INodeReadTrx) processFile(IReadTransaction)
+   *          sirix {@link NodeWriteTrx}
+   * @see Visitor#processFile(NodeReadTrx) processFile(IReadTransaction)
    */
-  private void processFile(final Optional<IVisitor<INodeWriteTrx>> pVisitor, final INodeWriteTrx pWtx,
+  private void processFile(final Optional<Visitor<NodeWriteTrx>> pVisitor, final NodeWriteTrx pWtx,
     final Path pFile, final BasicFileAttributes pAttrs) {
     assert pVisitor != null;
     assert pWtx != null;
@@ -269,7 +269,7 @@ public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, 
    * 
    * @return path index
    */
-  public Map<Path, EPath> getIndex() {
+  public Map<Path, org.sirix.fs.Path> getIndex() {
     return mIndex;
   }
 

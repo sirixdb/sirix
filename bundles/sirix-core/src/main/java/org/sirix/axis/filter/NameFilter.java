@@ -29,8 +29,8 @@ package org.sirix.axis.filter;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.interfaces.INameNode;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.interfaces.NameNode;
 
 /**
  * <h1>NameAxisTest</h1>
@@ -48,11 +48,11 @@ public class NameFilter extends AbsFilter {
    * Default constructor.
    * 
    * @param pRtx
-   *          {@link INodeReadTrx} this filter is bound to
+   *          {@link NodeReadTrx} this filter is bound to
    * @param pLocalPart
    *          local part to check
    */
-  public NameFilter(@Nonnull final INodeReadTrx pRtx, @Nonnull final String pLocalPart) {
+  public NameFilter(@Nonnull final NodeReadTrx pRtx, @Nonnull final String pLocalPart) {
     super(pRtx);
     mLocalPartKey = pRtx.keyForName(pLocalPart);
   }

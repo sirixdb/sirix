@@ -7,12 +7,12 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.IVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.PINode;
-import org.sirix.node.interfaces.INameNode;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
-import org.sirix.node.interfaces.IValNode;
+import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.ValNode;
 
 /**
  * Immutable processing instruction wrapper.
@@ -20,7 +20,7 @@ import org.sirix.node.interfaces.IValNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutablePI implements IValNode, INameNode, IStructNode {
+public class ImmutablePI implements ValNode, NameNode, StructNode {
 	/** Mutable {@link PINode}. */
 	private final PINode mNode;
 
@@ -56,7 +56,7 @@ public class ImmutablePI implements IValNode, INameNode, IStructNode {
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable INode pOther) {
+	public boolean isSameItem(@Nullable Node pOther) {
 		return mNode.isSameItem(pOther);
 	}
 
@@ -96,7 +96,7 @@ public class ImmutablePI implements IValNode, INameNode, IStructNode {
 	}
 
 	@Override
-	public EKind getKind() {
+	public Kind getKind() {
 		return mNode.getKind();
 	}
 

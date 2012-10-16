@@ -31,8 +31,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 
 /**
  * <h1>NonStructuralWrapperAxis</h1>
@@ -44,7 +44,7 @@ import org.sirix.api.INodeReadTrx;
 public final class NonStructuralWrapperAxis extends AbsAxis {
 
 	/** Parent axis. */
-	private final IAxis mParentAxis;
+	private final Axis mParentAxis;
 
 	/** Namespace index. */
 	private int mNspIndex;
@@ -63,7 +63,7 @@ public final class NonStructuralWrapperAxis extends AbsAxis {
 	 * @param pChildAxis
 	 *          outer nested axis
 	 */
-	public NonStructuralWrapperAxis(@Nonnull final IAxis pParentAxis) {
+	public NonStructuralWrapperAxis(@Nonnull final Axis pParentAxis) {
 		super(pParentAxis.getTrx());
 		mParentAxis = checkNotNull(pParentAxis);
 	}
@@ -78,7 +78,7 @@ public final class NonStructuralWrapperAxis extends AbsAxis {
 
 	@Override
 	protected long nextKey() {
-		final INodeReadTrx trx = mParentAxis.getTrx();
+		final NodeReadTrx trx = mParentAxis.getTrx();
 		if (trx.isNamespace()) {
 			trx.moveToParent();
 		}

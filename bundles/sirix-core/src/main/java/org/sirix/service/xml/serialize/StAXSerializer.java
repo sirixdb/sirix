@@ -45,14 +45,14 @@ import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.XMLEvent;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.utils.XMLToken;
 
 /**
@@ -88,8 +88,8 @@ public final class StAXSerializer implements XMLEventReader {
 	/** Determines if nextTag() method has been called. */
 	private transient boolean mNextTag;
 
-	/** {@link IAxis} for iteration. */
-	private final IAxis mAxis;
+	/** {@link Axis} for iteration. */
+	private final Axis mAxis;
 
 	/** Stack for reading end element. */
 	private final Deque<Long> mStack;
@@ -106,7 +106,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 */
 	private transient long mLastKey;
 
-	/** Determines if {@link INodeReadTrx} should be closed afterwards. */
+	/** Determines if {@link NodeReadTrx} should be closed afterwards. */
 	private transient boolean mCloseRtx;
 
 	/** First call. */
@@ -133,10 +133,10 @@ public final class StAXSerializer implements XMLEventReader {
 	 * tank ids.
 	 * 
 	 * @param pAxis
-	 *          {@link INodeReadTrx} which is used to iterate over and generate
+	 *          {@link NodeReadTrx} which is used to iterate over and generate
 	 *          StAX events
 	 */
-	public StAXSerializer(@Nonnull final INodeReadTrx pRtx) {
+	public StAXSerializer(@Nonnull final NodeReadTrx pRtx) {
 		this(pRtx, true);
 	}
 
@@ -151,10 +151,10 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @param pCloseRtx
 	 *          Determines if rtx should be closed afterwards.
 	 */
-	public StAXSerializer(final @Nonnull INodeReadTrx pRtx,
+	public StAXSerializer(final @Nonnull NodeReadTrx pRtx,
 			final boolean pCloseRtx) {
 		mNextTag = false;
-		mAxis = new DescendantAxis(checkNotNull(pRtx), EIncludeSelf.YES);
+		mAxis = new DescendantAxis(checkNotNull(pRtx), IncludeSelf.YES);
 		mCloseRtx = pCloseRtx;
 		mStack = new ArrayDeque<Long>();
 		mFirst = true;
@@ -168,9 +168,9 @@ public final class StAXSerializer implements XMLEventReader {
 	 * Emit end tag.
 	 * 
 	 * @param pRTX
-	 *          sirix reading transaction {@link INodeReadTrx}.
+	 *          sirix reading transaction {@link NodeReadTrx}.
 	 */
-	private void emitEndTag(final @Nonnull INodeReadTrx pRTX) {
+	private void emitEndTag(final @Nonnull NodeReadTrx pRTX) {
 		final long nodeKey = pRTX.getNodeKey();
 		mEvent = mFac
 				.createEndElement(pRTX.getName(), new NamespaceIterator(pRTX));
@@ -181,9 +181,9 @@ public final class StAXSerializer implements XMLEventReader {
 	 * Emit a node.
 	 * 
 	 * @param pRTX
-	 *          sirix reading transaction {@link INodeReadTrx}.
+	 *          sirix reading transaction {@link NodeReadTrx}.
 	 */
-	private void emitNode(final @Nonnull INodeReadTrx pRTX) {
+	private void emitNode(final @Nonnull NodeReadTrx pRTX) {
 		switch (pRTX.getKind()) {
 		case DOCUMENT_ROOT:
 			mEvent = mFac.createStartDocument();
@@ -223,7 +223,7 @@ public final class StAXSerializer implements XMLEventReader {
 
 	@Override
 	public String getElementText() throws XMLStreamException {
-		final INodeReadTrx rtx = mAxis.getTrx();
+		final NodeReadTrx rtx = mAxis.getTrx();
 		final long nodeKey = rtx.getNodeKey();
 
 		/*
@@ -292,7 +292,7 @@ public final class StAXSerializer implements XMLEventReader {
 				mKey = mAxis.next();
 
 				if (mNextTag) {
-					if (mAxis.getTrx().getKind() != EKind.ELEMENT) {
+					if (mAxis.getTrx().getKind() != Kind.ELEMENT) {
 						throw new XMLStreamException(
 								"The next tag isn't a start- or end-tag!");
 					}
@@ -322,7 +322,7 @@ public final class StAXSerializer implements XMLEventReader {
 	@Override
 	public XMLEvent peek() throws XMLStreamException {
 		final long currNodeKey = mAxis.getTrx().getNodeKey();
-		final INodeReadTrx rtx = mAxis.getTrx();
+		final NodeReadTrx rtx = mAxis.getTrx();
 		try {
 			if (!mHasNext && mEmitEndDocument) {
 				mEvent = mFac.createEndDocument();
@@ -333,7 +333,7 @@ public final class StAXSerializer implements XMLEventReader {
 					rtx.moveTo(mStack.peek());
 					emitEndTag(rtx);
 				} else {
-					if (mFirst && mAxis.isSelfIncluded() == EIncludeSelf.YES) {
+					if (mFirst && mAxis.isSelfIncluded() == IncludeSelf.YES) {
 						emitNode(rtx);
 					} else {
 						if (rtx.hasFirstChild()) {
@@ -344,7 +344,7 @@ public final class StAXSerializer implements XMLEventReader {
 								mEvent = mFac.createEndDocument();
 							} else {
 								rtx.moveToRightSibling();
-								final EKind nodeKind = rtx.getKind();
+								final Kind nodeKind = rtx.getKind();
 								processNode(nodeKind);
 							}
 						} else if (rtx.hasParent()) {
@@ -396,7 +396,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @throws IOException
 	 *           if any I/O error occurred
 	 */
-	private void processNode(@Nonnull final EKind pNodeKind) throws IOException {
+	private void processNode(@Nonnull final Kind pNodeKind) throws IOException {
 		assert pNodeKind != null;
 		switch (pNodeKind) {
 		case ELEMENT:
@@ -420,7 +420,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @throws IOException
 	 *           if any I/O error occurred
 	 */
-	private void emit(@Nonnull final INodeReadTrx pRtx) throws IOException {
+	private void emit(@Nonnull final NodeReadTrx pRtx) throws IOException {
 		assert pRtx != null;
 		// Emit pending end elements.
 		if (mCloseElements) {
@@ -444,14 +444,14 @@ public final class StAXSerializer implements XMLEventReader {
 			mLastKey = pRtx.getNodeKey();
 
 			// Push end element to stack if we are a start element.
-			if (pRtx.getKind() == EKind.ELEMENT) {
+			if (pRtx.getKind() == Kind.ELEMENT) {
 				mStack.push(mLastKey);
 			}
 
 			// Remember to emit all pending end elements from stack if
 			// required.
 			if ((!pRtx.hasFirstChild() && !pRtx.hasRightSibling())
-					|| (pRtx.getKind() == EKind.ELEMENT && !pRtx.hasFirstChild())) {
+					|| (pRtx.getKind() == Kind.ELEMENT && !pRtx.hasFirstChild())) {
 				moveToNextNode();
 			}
 		}
@@ -476,9 +476,9 @@ public final class StAXSerializer implements XMLEventReader {
 	private final static class AttributeIterator implements Iterator<Attribute> {
 
 		/**
-		 * {@link INodeReadTrx} implementation.
+		 * {@link NodeReadTrx} implementation.
 		 */
-		private final INodeReadTrx mRTX;
+		private final NodeReadTrx mRTX;
 
 		/** Number of attribute nodes. */
 		private final int mAttCount;
@@ -496,14 +496,14 @@ public final class StAXSerializer implements XMLEventReader {
 		 * Constructor.
 		 * 
 		 * @param pRtx
-		 *          reference implementing the {@link INodeReadTrx} interface
+		 *          reference implementing the {@link NodeReadTrx} interface
 		 */
-		public AttributeIterator(final INodeReadTrx pRtx) {
+		public AttributeIterator(final NodeReadTrx pRtx) {
 			mRTX = checkNotNull(pRtx);
 			mNodeKey = mRTX.getNodeKey();
 			mIndex = 0;
 
-			if (mRTX.getKind() == EKind.ELEMENT) {
+			if (mRTX.getKind() == Kind.ELEMENT) {
 				mAttCount = mRTX.getAttributeCount();
 			} else {
 				mAttCount = 0;
@@ -525,7 +525,7 @@ public final class StAXSerializer implements XMLEventReader {
 		public Attribute next() {
 			mRTX.moveTo(mNodeKey);
 			mRTX.moveToAttribute(mIndex++);
-			assert mRTX.getKind() == EKind.ATTRIBUTE;
+			assert mRTX.getKind() == Kind.ATTRIBUTE;
 			final QName qName = mRTX.getName();
 			final String value = XMLToken.escapeAttribute(mRTX.getValue());
 			mRTX.moveTo(mNodeKey);
@@ -544,9 +544,9 @@ public final class StAXSerializer implements XMLEventReader {
 	private final static class NamespaceIterator implements Iterator<Namespace> {
 
 		/**
-		 * sirix {@link INodeReadTrx}.
+		 * sirix {@link NodeReadTrx}.
 		 */
-		private final INodeReadTrx mRTX;
+		private final NodeReadTrx mRTX;
 
 		/** Number of namespace nodes. */
 		private final int mNamespCount;
@@ -565,14 +565,14 @@ public final class StAXSerializer implements XMLEventReader {
 		 * Constructor.
 		 * 
 		 * @param pRtx
-		 *          reference implementing the {@link INodeReadTrx} interface
+		 *          reference implementing the {@link NodeReadTrx} interface
 		 */
-		public NamespaceIterator(final INodeReadTrx pRtx) {
+		public NamespaceIterator(final NodeReadTrx pRtx) {
 			mRTX = checkNotNull(pRtx);
 			mNodeKey = mRTX.getNodeKey();
 			mIndex = 0;
 
-			if (mRTX.getKind() == EKind.ELEMENT) {
+			if (mRTX.getKind() == Kind.ELEMENT) {
 				mNamespCount = mRTX.getNamespaceCount();
 			} else {
 				mNamespCount = 0;
@@ -594,7 +594,7 @@ public final class StAXSerializer implements XMLEventReader {
 		public Namespace next() {
 			mRTX.moveTo(mNodeKey);
 			mRTX.moveToNamespace(mIndex++);
-			assert mRTX.getKind() == EKind.NAMESPACE;
+			assert mRTX.getKind() == Kind.NAMESPACE;
 			final QName qName = mRTX.getName();
 			mRTX.moveTo(mNodeKey);
 			return mFac

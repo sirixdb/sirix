@@ -42,21 +42,21 @@ import java.util.Objects;
 import javax.annotation.Nonnull;
 
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.IReader;
+import org.sirix.io.Reader;
 import org.sirix.io.berkeley.binding.PageBinding;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 /**
  * This class represents an reading instance of the Sirix-Application
- * implementing the {@link IReader}-interface.
+ * implementing the {@link Reader}-interface.
  * 
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class BerkeleyReader implements IReader {
+public final class BerkeleyReader implements Reader {
 
   /** {@link Database} reference. */
   private final Database mDatabase;
@@ -105,13 +105,13 @@ public final class BerkeleyReader implements IReader {
   }
 
   @Override
-  public IPage read(final long pKey) throws SirixIOException {
+  public Page read(final long pKey) throws SirixIOException {
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
 
     TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(pKey, keyEntry);
 
-    IPage page = null;
+    Page page = null;
     try {
       final OperationStatus status =
         mDatabase.get(mTxn, keyEntry, valueEntry, LockMode.DEFAULT);

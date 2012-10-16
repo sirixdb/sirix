@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.IPageReadTrx;
+import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.EPage;
 
@@ -26,7 +26,7 @@ import org.sirix.page.EPage;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class GuavaCache implements ICache<Tuple, PageContainer> {
+public class GuavaCache implements Cache<Tuple, PageContainer> {
 
   /**
    * Determines after how many seconds to expire entries after the last access.
@@ -46,18 +46,18 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
   /**
    * Second cache.
    */
-  private final ICache<Tuple, PageContainer> mSecondCache;
+  private final Cache<Tuple, PageContainer> mSecondCache;
 
   /**
    * Constructor with second cache.
    * 
    * @param pPageReadTransaction
-   *          {@link IPageReadTrx} implementation
+   *          {@link PageReadTrx} implementation
    * @param pSecondCache
    *          second fallback cache
    */
-  public GuavaCache(final @Nonnull IPageReadTrx pPageReadTransaction,
-    final @Nonnull ICache<Tuple, PageContainer> pSecondCache) {
+  public GuavaCache(final @Nonnull PageReadTrx pPageReadTransaction,
+    final @Nonnull Cache<Tuple, PageContainer> pSecondCache) {
     checkNotNull(pPageReadTransaction);
     mSecondCache = checkNotNull(pSecondCache);
 
@@ -97,9 +97,9 @@ public class GuavaCache implements ICache<Tuple, PageContainer> {
    * Constructor with an always empty second cache.
    * 
    * @param pPageReadTransaction
-   *          {@link IPageReadTrx} implementation to read pages
+   *          {@link PageReadTrx} implementation to read pages
    */
-  public GuavaCache(@Nonnull final IPageReadTrx pPageReadTransaction) {
+  public GuavaCache(@Nonnull final PageReadTrx pPageReadTransaction) {
     this(pPageReadTransaction, new EmptyCache<Tuple, PageContainer>());
   }
 

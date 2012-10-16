@@ -8,7 +8,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.AbsForwardingNode;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.settings.EFixed;
 
@@ -51,8 +51,8 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
   }
 
   @Override
-  public EKind getKind() {
-    return EKind.AVL;
+  public Kind getKind() {
+    return Kind.AVL;
   }
 
   @Override

@@ -29,8 +29,8 @@ package org.sirix.axis.filter;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.Kind;
 
 /**
  * <h1>FullTextLeafAxisTest</h1>
@@ -47,13 +47,13 @@ public class TextFilter extends AbsFilter {
    * @param rtx
    *          transaction this filter is bound to
    */
-  public TextFilter(final @Nonnull INodeReadTrx rtx) {
+  public TextFilter(final @Nonnull NodeReadTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == EKind.TEXT;
+    return getTrx().getKind() == Kind.TEXT;
   }
 
 }

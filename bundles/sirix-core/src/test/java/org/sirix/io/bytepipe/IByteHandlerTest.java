@@ -19,15 +19,15 @@ import org.testng.annotations.Test;
 public class IByteHandlerTest {
 
   /**
-   * Test method for {@link org.treetank.io.bytepipe.IByteHandler#deserialize(byte[])} and for
-   * {@link org.treetank.io.bytepipe.IByteHandler#serialize(byte[])}.
+   * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
+   * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
    * 
    * @throws TTByteHandleException
    */
   @Test(dataProvider = "instantiateByteHandler")
-  public void testSerializeAndDeserialize(Class<IByteHandler> clazz,
-    IByteHandler[] pHandlers) throws SirixIOException {
-    for (final IByteHandler handler : pHandlers) {
+  public void testSerializeAndDeserialize(Class<ByteHandler> clazz,
+    ByteHandler[] pHandlers) throws SirixIOException {
+    for (final ByteHandler handler : pHandlers) {
       final byte[] bytes = TestHelper.generateRandomBytes(10000);
       final byte[] serialized = handler.serialize(bytes);
       assertFalse(new StringBuilder("Check for ").append(handler.getClass())
@@ -39,9 +39,9 @@ public class IByteHandlerTest {
   }
 
   /**
-   * Providing different implementations of the {@link IByteHandler} as Dataprovider to the test class.
+   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test class.
    * 
-   * @return different classes of the {@link IByteHandler}
+   * @return different classes of the {@link ByteHandler}
    * @throws SirixIOException
    *           if an I/O error occurs
    */
@@ -50,8 +50,8 @@ public class IByteHandlerTest {
     Object[][] returnVal =
       {
         {
-          IByteHandler.class,
-          new IByteHandler[] {
+          ByteHandler.class,
+          new ByteHandler[] {
             new Encryptor(),
             new DeflateCompressor(),
             new SnappyCompressor(),

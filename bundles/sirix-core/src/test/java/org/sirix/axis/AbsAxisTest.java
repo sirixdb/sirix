@@ -40,7 +40,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.IAxis;
+import org.sirix.api.Axis;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.EFixed;
 
@@ -61,7 +61,7 @@ public class AbsAxisTest {
     TestHelper.closeEverything();
   }
 
-  public static void testIAxisConventions(final IAxis axis, final long[] expectedKeys) {
+  public static void testIAxisConventions(final Axis axis, final long[] expectedKeys) {
     // IAxis Convention 1.
     final long startKey = axis.getTrx().getNodeKey();
 
@@ -84,7 +84,7 @@ public class AbsAxisTest {
     assertArrayEquals(expectedKeys, keys);
   }
 
-  public static void testIAxisConventionsNext(final IAxis axis, final long[] expectedKeys) {
+  public static void testIAxisConventionsNext(final Axis axis, final long[] expectedKeys) {
     // IAxis Convention 1.
     final long startKey = axis.getTrx().getNodeKey();
 
@@ -123,7 +123,7 @@ public class AbsAxisTest {
 
   @Test
   public void testIAxisUserExample() throws SirixException {
-    final IAxis axis = new DescendantAxis(holder.getRtx());
+    final Axis axis = new DescendantAxis(holder.getRtx());
     long count = 0L;
     while (axis.hasNext()) {
       axis.next();

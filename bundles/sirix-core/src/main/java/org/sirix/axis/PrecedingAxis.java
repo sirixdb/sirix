@@ -32,9 +32,9 @@ import java.util.Deque;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeCursor;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.Kind;
 import org.sirix.settings.EFixed;
 
 /**
@@ -59,7 +59,7 @@ public final class PrecedingAxis extends AbsAxis {
    * @param pRtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PrecedingAxis(@Nonnull final INodeCursor pRtx) {
+  public PrecedingAxis(@Nonnull final NodeCursor pRtx) {
     super(pRtx);
     mIsFirst = true;
     mStack = new ArrayDeque<>();
@@ -74,13 +74,13 @@ public final class PrecedingAxis extends AbsAxis {
   
   @Override
   protected long nextKey() {
-		final INodeReadTrx rtx = getTrx();
+		final NodeReadTrx rtx = getTrx();
 		
     // Assure, that preceding is not evaluated on an attribute or a namespace.
     if (mIsFirst) {
       mIsFirst = false;
-      if (rtx.getKind() == EKind.ATTRIBUTE
-        || rtx.getKind() == EKind.NAMESPACE) {
+      if (rtx.getKind() == Kind.ATTRIBUTE
+        || rtx.getKind() == Kind.NAMESPACE) {
         return done();
       }
     }
@@ -129,7 +129,7 @@ public final class PrecedingAxis extends AbsAxis {
    * order.
    */
   private void getLastChild() {
-  	final INodeReadTrx rtx = getTrx();
+  	final NodeReadTrx rtx = getTrx();
   	
     // Nodekey of the root of the current subtree.
     final long parent = rtx.getNodeKey();

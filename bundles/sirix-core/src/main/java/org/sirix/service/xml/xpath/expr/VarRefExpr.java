@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.expr;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 
 /**
  * <h1>VarRefExpr</h1>
@@ -51,7 +51,7 @@ public class VarRefExpr extends AbsExpression implements IObserver {
    *          reference the variable expression that computes the items the
    *          variable holds
    */
-  public VarRefExpr(@Nonnull final INodeReadTrx pRtx, @Nonnull final VariableAxis pVariable) {
+  public VarRefExpr(@Nonnull final NodeReadTrx pRtx, @Nonnull final VariableAxis pVariable) {
     super(pRtx);
     pVariable.addObserver(this);
     mVarKey = -1;

@@ -41,7 +41,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.Encryptor;
-import org.sirix.io.bytepipe.IByteHandler;
+import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.io.file.FileStorage;
 import org.sirix.page.PageReference;
@@ -73,21 +73,21 @@ public class IStorageTest {
   }
 
   /**
-   * Test method for {@link org.treetank.io.bytepipe.IByteHandler#deserialize(byte[])} and for
-   * {@link org.treetank.io.bytepipe.IByteHandler#serialize(byte[])}.
+   * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
+   * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
    * 
    * @throws SirixIOException
    */
   @Test(dataProvider = "instantiateStorages")
-  public void testFirstRef(final @Nonnull Class<IStorage> pClass,
-    final @Nonnull IStorage[] pStorages) throws SirixException {
-    for (final IStorage handler : pStorages) {
+  public void testFirstRef(final @Nonnull Class<Storage> pClass,
+    final @Nonnull Storage[] pStorages) throws SirixException {
+    for (final Storage handler : pStorages) {
       final PageReference pageRef1 = new PageReference();
       final UberPage page1 = new UberPage();
       pageRef1.setPage(page1);
 
       // same instance check
-      final IWriter writer = handler.getWriter();
+      final Writer writer = handler.getWriter();
       writer.writeFirstReference(pageRef1);
       final PageReference pageRef2 = writer.readFirstReference();
       assertEquals(new StringBuilder("Check for ").append(handler.getClass())
@@ -99,7 +99,7 @@ public class IStorageTest {
       writer.close();
 
       // new instance check
-      final IReader reader = handler.getReader();
+      final Reader reader = handler.getReader();
       final PageReference pageRef3 = reader.readFirstReference();
       assertEquals(new StringBuilder("Check for ").append(handler.getClass())
         .append(" failed.").toString(), pageRef1.getNodePageKey(), pageRef3
@@ -113,9 +113,9 @@ public class IStorageTest {
   }
 
   /**
-   * Providing different implementations of the {@link IByteHandler} as Dataprovider to the test class.
+   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test class.
    * 
-   * @return different classes of the {@link IByteHandler}
+   * @return different classes of the {@link ByteHandler}
    * @throws SirixIOException
    */
   @DataProvider(name = "instantiateStorages")
@@ -125,8 +125,8 @@ public class IStorageTest {
     Object[][] returnVal =
       {
         {
-          IStorage.class,
-          new IStorage[] {
+          Storage.class,
+          new Storage[] {
             new FileStorage(TestHelper.PATHS.PATH1.getFile(), byteHandler),
             new BerkeleyStorage(TestHelper.PATHS.PATH1.getFile(), byteHandler)
           }

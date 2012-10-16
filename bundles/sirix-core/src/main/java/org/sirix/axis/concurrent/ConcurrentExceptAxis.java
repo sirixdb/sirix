@@ -29,8 +29,8 @@ package org.sirix.axis.concurrent;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
@@ -74,8 +74,8 @@ public final class ConcurrentExceptAxis extends AbsAxis {
 	 * @param pOperand2
 	 *          second operand
 	 */
-	public ConcurrentExceptAxis(final INodeReadTrx pRtx, final IAxis pOperand1,
-			final IAxis pOperand2) {
+	public ConcurrentExceptAxis(final NodeReadTrx pRtx, final Axis pOperand1,
+			final Axis pOperand2) {
 		super(pRtx);
 		mOp1 = new ConcurrentAxis(pRtx, pOperand1);
 		mOp2 = new ConcurrentAxis(pRtx, pOperand2);

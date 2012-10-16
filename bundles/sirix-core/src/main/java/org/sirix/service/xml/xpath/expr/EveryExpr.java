@@ -29,8 +29,8 @@ package org.sirix.service.xml.xpath.expr;
 
 import java.util.List;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.utils.TypedValue;
 
@@ -47,9 +47,9 @@ import org.sirix.utils.TypedValue;
  */
 public class EveryExpr extends AbsExpression {
 
-  private final List<IAxis> mVars;
+  private final List<Axis> mVars;
 
-  private final IAxis mSatisfy;
+  private final Axis mSatisfy;
 
   /**
    * Constructor. Initializes the internal state.
@@ -62,7 +62,7 @@ public class EveryExpr extends AbsExpression {
    *          condition every item of the variable results must satisfy in
    *          order to evaluate expression to true
    */
-  public EveryExpr(final INodeReadTrx rtx, final List<IAxis> mVars, final IAxis mSatisfy) {
+  public EveryExpr(final NodeReadTrx rtx, final List<Axis> mVars, final Axis mSatisfy) {
 
     super(rtx);
     this.mVars = mVars;
@@ -77,7 +77,7 @@ public class EveryExpr extends AbsExpression {
 
     super.reset(mNodeKey);
     if (mVars != null) {
-      for (final IAxis axis : mVars) {
+      for (final Axis axis : mVars) {
         axis.reset(mNodeKey);
       }
     }
@@ -95,7 +95,7 @@ public class EveryExpr extends AbsExpression {
 
     boolean satisfiesCond = true;
 
-    for (final IAxis axis : mVars) {
+    for (final Axis axis : mVars) {
       while (axis.hasNext()) {
         axis.next();
         if (!mSatisfy.hasNext()) {

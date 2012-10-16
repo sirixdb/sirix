@@ -35,7 +35,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.IAxis;
+import org.sirix.api.Axis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
@@ -104,7 +104,7 @@ public class NodeCompTest {
 
   @Test
   public void testAtomize() throws SirixXPathException {
-    IAxis axis = new LiteralExpr(holder.getRtx(), -2);
+    Axis axis = new LiteralExpr(holder.getRtx(), -2);
     axis.hasNext();
     axis.next();
     AtomicValue[] value = comparator.atomize(axis);

@@ -54,18 +54,18 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IAxis;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Axis;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -81,7 +81,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class WikipediaImport implements IImport<StartElement> {
+public final class WikipediaImport implements Import<StartElement> {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
@@ -93,11 +93,11 @@ public final class WikipediaImport implements IImport<StartElement> {
 	/** StAX parser {@link XMLEventReader}. */
 	private transient XMLEventReader mReader;
 
-	/** sirix {@link ISession}. */
-	private final ISession mSession;
+	/** sirix {@link Session}. */
+	private final Session mSession;
 
-	/** sirix {@link INodeWriteTrx}. */
-	private transient INodeWriteTrx mWtx;
+	/** sirix {@link NodeWriteTrx}. */
+	private transient NodeWriteTrx mWtx;
 
 	/** {@link XMLEvent}s which specify the page metadata. */
 	private transient Deque<XMLEvent> mPageEvents;
@@ -114,8 +114,8 @@ public final class WikipediaImport implements IImport<StartElement> {
 	/** Timestamp of each revision as a simple String. */
 	private transient String mTimestamp;
 
-	/** sirix {@link IDatabase}. */
-	private final IDatabase mDatabase;
+	/** sirix {@link Database}. */
+	private final Database mDatabase;
 
 	public enum EDateBy {
 		SECONDS,
@@ -150,8 +150,8 @@ public final class WikipediaImport implements IImport<StartElement> {
 		}
 
 		final DatabaseConfiguration config = new DatabaseConfiguration(pTTDir);
-		Database.createDatabase(config);
-		mDatabase = Database.openDatabase(pTTDir);
+		DatabaseImpl.createDatabase(config);
+		mDatabase = DatabaseImpl.openDatabase(pTTDir);
 		mDatabase.createResource(new ResourceConfiguration.Builder("shredded",
 				config).useCompression(false).build());
 		mSession = mDatabase
@@ -261,12 +261,12 @@ public final class WikipediaImport implements IImport<StartElement> {
 								// Shredder as child.
 								shredder = new XMLShredder.Builder(mWtx,
 										XMLShredder.createQueueReader(mPageEvents),
-										EInsert.ASRIGHTSIBLING).build();
+										Insert.ASRIGHTSIBLING).build();
 							} else {
 								// Shredder as right sibling.
 								shredder = new XMLShredder.Builder(mWtx,
 										XMLShredder.createQueueReader(mPageEvents),
-										EInsert.ASFIRSTCHILD).build();
+										Insert.ASFIRSTCHILD).build();
 							}
 
 							shredder.call();
@@ -292,12 +292,12 @@ public final class WikipediaImport implements IImport<StartElement> {
 			XMLStreamException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(
 				TMP_PATH.toFile());
-		Database.truncateDatabase(dbConf);
-		Database.createDatabase(dbConf);
-		final IDatabase db = Database.openDatabase(TMP_PATH.toFile());
+		DatabaseImpl.truncateDatabase(dbConf);
+		DatabaseImpl.createDatabase(dbConf);
+		final Database db = DatabaseImpl.openDatabase(TMP_PATH.toFile());
 		db.createResource(new ResourceConfiguration.Builder("wiki", dbConf)
 				.useCompression(false).build());
-		final ISession session = db.getSession(new SessionConfiguration.Builder(
+		final Session session = db.getSession(new SessionConfiguration.Builder(
 				"wiki").build());
 		if (mPageEvents.peek().isStartElement()
 				&& !mPageEvents.peek().asStartElement().getName().getLocalPart()
@@ -307,14 +307,14 @@ public final class WikipediaImport implements IImport<StartElement> {
 			mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(
 					new QName("root"), null));
 		}
-		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 		final XMLShredder shredder = new XMLShredder.Builder(wtx,
-				XMLShredder.createQueueReader(mPageEvents), EInsert.ASFIRSTCHILD)
+				XMLShredder.createQueueReader(mPageEvents), Insert.ASFIRSTCHILD)
 				.commitAfterwards().build();
 		shredder.call();
 		wtx.close();
 		mPageEvents = new ArrayDeque<>();
-		final INodeReadTrx rtx = session.beginNodeReadTrx();
+		final NodeReadTrx rtx = session.beginNodeReadTrx();
 		rtx.moveToFirstChild();
 		rtx.moveToFirstChild();
 		final long nodeKey = mWtx.getNodeKey();
@@ -395,7 +395,7 @@ public final class WikipediaImport implements IImport<StartElement> {
 			final String query = "//" + qNameToString(page) + "[fn:string("
 					+ qNameToString(id) + ") = '" + mIdText + "']";
 			mWtx.moveToDocumentRoot();
-			final IAxis axis = new XPathAxis(mWtx, query);
+			final Axis axis = new XPathAxis(mWtx, query);
 
 			mFound = false; // Determines if page is found in shreddered file.
 			int resCounter = 0; // Counts found page.
@@ -491,7 +491,7 @@ public final class WikipediaImport implements IImport<StartElement> {
 	}
 
 	/**
-	 * Moves {@link INodeWriteTrx} to last shreddered article/page.
+	 * Moves {@link NodeWriteTrx} to last shreddered article/page.
 	 * 
 	 * @param pPage
 	 *          {@link StartElement} page
@@ -502,12 +502,12 @@ public final class WikipediaImport implements IImport<StartElement> {
 		mWtx.moveToFirstChild();
 		mWtx.moveToFirstChild();
 
-		assert mWtx.getKind() == EKind.ELEMENT;
+		assert mWtx.getKind() == Kind.ELEMENT;
 		assert mWtx.getName().equals(pPage.getName());
 		while (mWtx.hasRightSibling()) {
 			mWtx.moveToRightSibling();
 		}
-		assert mWtx.getKind() == EKind.ELEMENT;
+		assert mWtx.getKind() == Kind.ELEMENT;
 		assert mWtx.getName().equals(pPage.getName());
 	}
 
@@ -606,7 +606,7 @@ public final class WikipediaImport implements IImport<StartElement> {
 
 		final File xml = new File(args[0]);
 		final File tnk = new File(args[1]);
-		Database.truncateDatabase(new DatabaseConfiguration(tnk));
+		DatabaseImpl.truncateDatabase(new DatabaseConfiguration(tnk));
 
 		// Create necessary element nodes.
 		final String NSP_URI = "http://www.mediawiki.org/xml/export-0.4/";

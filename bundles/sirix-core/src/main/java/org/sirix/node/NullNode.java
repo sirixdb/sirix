@@ -34,8 +34,9 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.EVisitResult;
 import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.interfaces.INode;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.NodeKind;
+import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.StructNode;
 import org.sirix.settings.EFixed;
 
 import com.google.common.base.Objects;
@@ -46,10 +47,10 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class NullNode implements IStructNode {
+public final class NullNode implements StructNode {
 
 	/** The underlying item. */
-	private final INode mNode;
+	private final Node mNode;
 
 	/**
 	 * Constructor.
@@ -59,7 +60,7 @@ public final class NullNode implements IStructNode {
 	 * @throws NullPointerException
 	 *           if {@code pNode} is {@code null}
 	 */
-	public NullNode(final INode pNode) {
+	public NullNode(final Node pNode) {
 		mNode = checkNotNull(pNode);
 	}
 
@@ -114,7 +115,7 @@ public final class NullNode implements IStructNode {
 	}
 
 	@Override
-	public EKind getKind() {
+	public Kind getKind() {
 		return mNode.getKind();
 	}
 
@@ -175,7 +176,7 @@ public final class NullNode implements IStructNode {
 	}
 
 	/** Get the underlying node. */
-	public INode getUnderlyingNode() {
+	public Node getUnderlyingNode() {
 		return mNode;
 	}
 
@@ -200,7 +201,7 @@ public final class NullNode implements IStructNode {
 	}
 
 	@Override
-	public boolean isSameItem(final @Nullable INode pOther) {
+	public boolean isSameItem(final @Nullable Node pOther) {
 		return mNode.isSameItem(pOther);
 	}
 

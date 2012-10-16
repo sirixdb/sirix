@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.axis.filter.IFilterTest;
 import org.sirix.axis.filter.TypeFilter;
@@ -60,7 +60,7 @@ public class TypeFilterTest {
   public void testIFilterConvetions() throws Exception {
 
     final AbsAxis axis = new XPathAxis(holder.getRtx(), "a");
-    final INodeReadTrx xtx = ((INodeReadTrx)axis.getTrx());
+    final NodeReadTrx xtx = ((NodeReadTrx)axis.getTrx());
 
     xtx.moveTo(9L);
     IFilterTest.testIFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);

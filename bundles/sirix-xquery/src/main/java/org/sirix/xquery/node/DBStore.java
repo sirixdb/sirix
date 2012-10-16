@@ -19,16 +19,16 @@ import org.brackit.xquery.xdm.Collection;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Store;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 
 /**
  * Database storage.
@@ -48,7 +48,7 @@ public class DBStore implements Store, AutoCloseable {
 	private boolean mUpdating;
 
 	/** {@link Set} of databases. */
-	private final Set<IDatabase> mDatabases;
+	private final Set<Database> mDatabases;
 
 	/**
 	 * Constructor.
@@ -77,9 +77,9 @@ public class DBStore implements Store, AutoCloseable {
 	public Collection<?> lookup(final String pName) throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, pName));
-		if (Database.existsDatabase(dbConf)) {
+		if (DatabaseImpl.existsDatabase(dbConf)) {
 			try {
-				final IDatabase database = Database.openDatabase(dbConf.getFile());
+				final Database database = DatabaseImpl.openDatabase(dbConf.getFile());
 				mDatabases.add(database);
 				return new DBCollection<AbsTemporalNode>(pName, database, mUpdating);
 			} catch (final SirixException e) {
@@ -94,11 +94,11 @@ public class DBStore implements Store, AutoCloseable {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, pName));
 		try {
-			if (Database.createDatabase(dbConf)) {
+			if (DatabaseImpl.createDatabase(dbConf)) {
 				throw new DocumentException("Document with name %s exists!", pName);
 			}
 
-			final IDatabase database = Database.openDatabase(dbConf.getFile());
+			final Database database = DatabaseImpl.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
 			return new DBCollection<AbsTemporalNode>(pName, database, mUpdating);
 		} catch (final SirixException e) {
@@ -112,20 +112,20 @@ public class DBStore implements Store, AutoCloseable {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, pName));
 		try {
-			Database.truncateDatabase(dbConf);
-			Database.createDatabase(dbConf);
-			final IDatabase database = Database.openDatabase(dbConf.getFile());
+			DatabaseImpl.truncateDatabase(dbConf);
+			DatabaseImpl.createDatabase(dbConf);
+			final Database database = DatabaseImpl.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
 			database.createResource(new ResourceConfiguration.Builder("shredded",
 					dbConf).build());
-			final ISession session = database
+			final Session session = database
 					.getSession(new SessionConfiguration.Builder("shredded").build());
-			final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 
 			final DBCollection<DBNode> collection = new DBCollection<DBNode>(pName,
 					database, mUpdating);
 			pParser.parse(new SubtreeBuilder<DBNode>(collection, wtx,
-					EInsert.ASFIRSTCHILD, Collections
+					Insert.ASFIRSTCHILD, Collections
 							.<SubtreeListener<? super AbsTemporalNode>> emptyList()));
 			wtx.commit();
 			wtx.close();
@@ -142,9 +142,9 @@ public class DBStore implements Store, AutoCloseable {
 			final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 					mLocation, pName));
 			try {
-				Database.truncateDatabase(dbConf);
-				Database.createDatabase(dbConf);
-				final IDatabase database = Database.openDatabase(dbConf.getFile());
+				DatabaseImpl.truncateDatabase(dbConf);
+				DatabaseImpl.createDatabase(dbConf);
+				final Database database = DatabaseImpl.openDatabase(dbConf.getFile());
 				mDatabases.add(database);
 				final ExecutorService pool = Executors.newFixedThreadPool(Runtime
 						.getRuntime().availableProcessors());
@@ -160,14 +160,14 @@ public class DBStore implements Store, AutoCloseable {
 							public Void call() throws DocumentException, SirixException {
 								database.createResource(new ResourceConfiguration.Builder(
 										resource, dbConf).build());
-								final ISession session = database
+								final Session session = database
 										.getSession(new SessionConfiguration.Builder(resource)
 												.build());
-								final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+								final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 								final DBCollection<DBNode> collection = new DBCollection<DBNode>(
 										pName, database, mUpdating);
 								nextParser.parse(new SubtreeBuilder<DBNode>(collection, wtx,
-										EInsert.ASFIRSTCHILD, Collections
+										Insert.ASFIRSTCHILD, Collections
 												.<SubtreeListener<? super AbsTemporalNode>> emptyList()));
 								wtx.commit();
 								wtx.close();
@@ -193,9 +193,9 @@ public class DBStore implements Store, AutoCloseable {
 	public void drop(final String pName) throws DocumentException {
 		final DatabaseConfiguration dbConfig = new DatabaseConfiguration(new File(
 				mLocation, pName));
-		if (Database.existsDatabase(dbConfig)) {
+		if (DatabaseImpl.existsDatabase(dbConfig)) {
 			try {
-				Database.truncateDatabase(dbConfig);
+				DatabaseImpl.truncateDatabase(dbConfig);
 			} catch (final SirixIOException e) {
 				throw new DocumentException(e.getCause());
 			}
@@ -220,7 +220,7 @@ public class DBStore implements Store, AutoCloseable {
 	 */
 	public void commitAll() throws DocumentException {
 		try {
-			for (final IDatabase database : mDatabases) {
+			for (final Database database : mDatabases) {
 				database.commitAll();
 			}
 		} catch (final SirixException e) {
@@ -231,7 +231,7 @@ public class DBStore implements Store, AutoCloseable {
 	@Override
 	public void close() throws DocumentException {
 		try {
-			for (final IDatabase database : mDatabases) {
+			for (final Database database : mDatabases) {
 				database.close();
 			}
 		} catch (final SirixException e) {

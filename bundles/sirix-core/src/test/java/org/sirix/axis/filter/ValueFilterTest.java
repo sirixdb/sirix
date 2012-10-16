@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 
 public class ValueFilterTest {
@@ -54,7 +54,7 @@ public class ValueFilterTest {
 
   @Test
   public void testIFilterConvetions() throws SirixException {
-    final INodeReadTrx rtx = holder.getRtx();
+    final NodeReadTrx rtx = holder.getRtx();
     rtx.moveTo(4L);
     IFilterTest.testIFilterConventions(new ValueFilter(rtx, "oops1"), true);
     IFilterTest.testIFilterConventions(new ValueFilter(rtx, "foo"), false);

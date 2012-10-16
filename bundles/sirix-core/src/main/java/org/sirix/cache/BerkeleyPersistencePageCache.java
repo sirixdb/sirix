@@ -38,7 +38,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 import com.google.common.collect.ImmutableMap;
 import com.sleepycat.bind.tuple.TupleBinding;
@@ -60,7 +60,7 @@ import com.sleepycat.je.OperationStatus;
  * 
  */
 public final class BerkeleyPersistencePageCache extends
-		AbsPersistenceCache<Long, IPage> {
+		AbsPersistenceCache<Long, Page> {
 
 	/**
 	 * Flush after defined value.
@@ -154,7 +154,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void putPersistent(@Nonnull final Long pKey, @Nonnull final IPage pPage)
+	public void putPersistent(@Nonnull final Long pKey, @Nonnull final Page pPage)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -173,7 +173,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public IPage getPersistent(@Nonnull final Long pKey) throws SirixIOException {
+	public Page getPersistent(@Nonnull final Long pKey) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(pKey), keyEntry);
@@ -188,14 +188,14 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public ImmutableMap<Long, IPage> getAll(
+	public ImmutableMap<Long, Page> getAll(
 			final @Nonnull Iterable<? extends Long> keys) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, IPage> pMap) {
-		for (final Entry<Long, IPage> entry : pMap.entrySet()) {
+	public void putAll(final @Nonnull Map<Long, Page> pMap) {
+		for (final Entry<Long, Page> entry : pMap.entrySet()) {
 			put(entry.getKey(), entry.getValue());
 		}
 	}

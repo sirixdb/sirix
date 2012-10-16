@@ -37,7 +37,7 @@ import org.sirix.api.visitor.IVisitor;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.immutable.ImmutableNamespace;
-import org.sirix.node.interfaces.INameNode;
+import org.sirix.node.interfaces.NameNode;
 
 import com.google.common.base.Objects;
 
@@ -48,7 +48,7 @@ import com.google.common.base.Objects;
  * Node representing a namespace.
  * </p>
  */
-public final class NamespaceNode extends AbsForwardingNode implements INameNode {
+public final class NamespaceNode extends AbsForwardingNode implements NameNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;
@@ -71,8 +71,8 @@ public final class NamespaceNode extends AbsForwardingNode implements INameNode 
   }
 
   @Override
-  public EKind getKind() {
-    return EKind.NAMESPACE;
+  public Kind getKind() {
+    return Kind.NAMESPACE;
   }
 
   @Override

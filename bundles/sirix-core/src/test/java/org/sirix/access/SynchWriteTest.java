@@ -44,8 +44,8 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 
 public class SynchWriteTest {
@@ -84,8 +84,8 @@ public class SynchWriteTest {
    */
   public void testConcurrentWrite() throws SirixException, InterruptedException, ExecutionException {
     final Semaphore semaphore = new Semaphore(1);
-    final INodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-    final INodeWriteTrx wtx2 = holder.getSession().beginNodeWriteTrx();
+    final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
+    final NodeWriteTrx wtx2 = holder.getSession().beginNodeWriteTrx();
     final ExecutorService exec = Executors.newFixedThreadPool(2);
     final Callable<Void> c1 = new Wtx1(wtx, semaphore);
     final Callable<Void> c2 = new Wtx2(wtx2, semaphore);
@@ -96,7 +96,7 @@ public class SynchWriteTest {
     r1.get();
     r2.get();
 
-    final INodeReadTrx rtx = holder.getSession().beginNodeWriteTrx();
+    final NodeReadTrx rtx = holder.getSession().beginNodeWriteTrx();
     Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
     Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
     Assert.assertFalse(rtx.moveToRightSibling().hasMoved());
@@ -109,10 +109,10 @@ public class SynchWriteTest {
 }
 
 class Wtx1 implements Callable<Void> {
-  final INodeWriteTrx wtx;
+  final NodeWriteTrx wtx;
   final Semaphore mSemaphore;
 
-  Wtx1(final INodeWriteTrx swtx, final Semaphore semaphore) {
+  Wtx1(final NodeWriteTrx swtx, final Semaphore semaphore) {
     this.wtx = swtx;
     mSemaphore = semaphore;
   }
@@ -140,10 +140,10 @@ class Wtx1 implements Callable<Void> {
 
 class Wtx2 implements Callable<Void> {
 
-  final INodeWriteTrx wtx;
+  final NodeWriteTrx wtx;
   final Semaphore mSemaphore;
 
-  Wtx2(final INodeWriteTrx swtx, final Semaphore semaphore) {
+  Wtx2(final NodeWriteTrx swtx, final Semaphore semaphore) {
     this.wtx = swtx;
     mSemaphore = semaphore;
   }

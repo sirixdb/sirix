@@ -43,7 +43,7 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.ImmutableElement;
-import org.sirix.node.interfaces.INameNode;
+import org.sirix.node.interfaces.NameNode;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.NamePageHash;
 
@@ -59,7 +59,7 @@ import com.google.common.collect.BiMap;
  * </p>
  */
 public final class ElementNode extends AbsStructForwardingNode implements
-		INameNode {
+		NameNode {
 
 	/** Delegate for name node information. */
 	private final NameNodeDelegate mNameDel;
@@ -237,8 +237,8 @@ public final class ElementNode extends AbsStructForwardingNode implements
 	}
 
 	@Override
-	public EKind getKind() {
-		return EKind.ELEMENT;
+	public Kind getKind() {
+		return Kind.ELEMENT;
 	}
 
 	@Override

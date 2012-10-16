@@ -14,7 +14,6 @@ import org.brackit.xquery.node.parser.NavigationalSubtreeParser;
 import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.node.parser.SubtreeParser;
-import org.brackit.xquery.xdm.Axis;
 import org.brackit.xquery.xdm.Collection;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Kind;
@@ -23,21 +22,20 @@ import org.brackit.xquery.xdm.OperationNotSupportedException;
 import org.brackit.xquery.xdm.Scope;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.type.NodeType;
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.FollowingAxis;
 import org.sirix.axis.NonStructuralWrapperAxis;
 import org.sirix.axis.PrecedingAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.interfaces.INode;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 import org.sirix.settings.EFixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.stream.SirixStream;
@@ -58,8 +56,8 @@ public class DBNode extends AbsTemporalNode {
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
 			LoggerFactory.getLogger(DBNode.class));
 
-	/** Sirix {@link INodeReadTrx}. */
-	private final INodeReadTrx mNodeReadTrx;
+	/** Sirix {@link NodeReadTrx}. */
+	private final NodeReadTrx mNodeReadTrx;
 
 	/** Sirix node key. */
 	private final long mNodeKey;
@@ -74,16 +72,16 @@ public class DBNode extends AbsTemporalNode {
 	 * Constructor.
 	 * 
 	 * @param pNodeReadTrx
-	 *          {@link INodeReadTrx} for providing reading access to the
-	 *          underlying node
+	 *          {@link NodeReadTrx} for providing reading access to the underlying
+	 *          node
 	 * @param pCollection
 	 *          {@link DBCollection} reference
 	 */
-	public DBNode(final @Nonnull INodeReadTrx pNodeReadTrx,
+	public DBNode(final @Nonnull NodeReadTrx pNodeReadTrx,
 			final @Nonnull DBCollection<? extends AbsTemporalNode> pCollection) {
 		mCollection = checkNotNull(pCollection);
 		mNodeReadTrx = checkNotNull(pNodeReadTrx);
-		mIsWtx = mNodeReadTrx instanceof INodeWriteTrx;
+		mIsWtx = mNodeReadTrx instanceof NodeWriteTrx;
 		mNodeKey = mNodeReadTrx.getNodeKey();
 	}
 
@@ -101,7 +99,7 @@ public class DBNode extends AbsTemporalNode {
 	 * 
 	 * @return underlying node
 	 */
-	public INode getUnderlyingNode() {
+	public org.sirix.node.interfaces.Node getUnderlyingNode() {
 		moveRtx();
 		return mNodeReadTrx.getNode();
 	}
@@ -156,7 +154,7 @@ public class DBNode extends AbsTemporalNode {
 			final DBNode node = (DBNode) pNode;
 			assert node.getNodeClassID() == this.getNodeClassID();
 			moveRtx();
-			for (final IAxis axis = new AncestorAxis(mNodeReadTrx); axis.hasNext();) {
+			for (final Axis axis = new AncestorAxis(mNodeReadTrx); axis.hasNext();) {
 				axis.next();
 				if (node.getUnderlyingNode().getNodeKey() == mNodeReadTrx.getNodeKey()) {
 					retVal = true;
@@ -171,7 +169,7 @@ public class DBNode extends AbsTemporalNode {
 	 * 
 	 * @return transaction handle
 	 */
-	public INodeReadTrx getTrx() {
+	public NodeReadTrx getTrx() {
 		moveRtx();
 		return mNodeReadTrx;
 	}
@@ -267,7 +265,7 @@ public class DBNode extends AbsTemporalNode {
 		if (pNode instanceof DBNode) {
 			final DBNode node = (DBNode) pNode;
 			moveRtx();
-			for (final IAxis axis = new FollowingAxis(mNodeReadTrx); axis.hasNext();) {
+			for (final Axis axis = new FollowingAxis(mNodeReadTrx); axis.hasNext();) {
 				axis.next();
 				if (mNodeReadTrx.getNodeKey() == node.getNodeKey()) {
 					return true;
@@ -282,7 +280,7 @@ public class DBNode extends AbsTemporalNode {
 		if (pNode instanceof DBNode) {
 			final DBNode node = (DBNode) pNode;
 			moveRtx();
-			for (final IAxis axis = new PrecedingAxis(mNodeReadTrx); axis.hasNext();) {
+			for (final Axis axis = new PrecedingAxis(mNodeReadTrx); axis.hasNext();) {
 				axis.next();
 				if (mNodeReadTrx.getNodeKey() == node.getNodeKey()) {
 					return true;
@@ -318,7 +316,7 @@ public class DBNode extends AbsTemporalNode {
 		if (getKind() == Kind.DOCUMENT && pNode instanceof DBNode) {
 			final DBNode node = (DBNode) pNode;
 			assert node.getNodeClassID() == this.getNodeClassID();
-			final INodeReadTrx rtx = node.getTrx();
+			final NodeReadTrx rtx = node.getTrx();
 			try {
 				if (rtx.getRevisionNumber() == mNodeReadTrx.getRevisionNumber()
 						&& rtx.getSession().getResourceConfig().getID() == mNodeReadTrx
@@ -399,7 +397,7 @@ public class DBNode extends AbsTemporalNode {
 			DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			if (wtx.isNameNode()) {
 				try {
 					wtx.setQName(new QName(pName.nsURI, pName.localName, pName.prefix));
@@ -425,7 +423,7 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			if (wtx.isValueNode()) {
 				try {
 					wtx.setValue(pValue.stringValue());
@@ -474,7 +472,7 @@ public class DBNode extends AbsTemporalNode {
 			throws DocumentException {
 		moveRtx();
 		return new SirixStream(new NonStructuralWrapperAxis(new DescendantAxis(
-				mNodeReadTrx, EIncludeSelf.YES)), mCollection);
+				mNodeReadTrx, IncludeSelf.YES)), mCollection);
 	}
 
 	@Override
@@ -501,7 +499,7 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			try {
 				if (wtx.hasFirstChild()) {
 					wtx.moveToLastChild();
@@ -573,14 +571,14 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			try {
 				if (wtx.hasFirstChild()) {
 					wtx.moveToLastChild();
 				}
 
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<DBNode>(
-						mCollection, wtx, EInsert.ASRIGHTSIBLING,
+						mCollection, wtx, Insert.ASRIGHTSIBLING,
 						Collections.<SubtreeListener<? super AbsTemporalNode>> emptyList());
 				pChild.parse(builder);
 				mNodeReadTrx.moveTo(builder.getStartNodeKey());
@@ -605,7 +603,7 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			try {
 				switch (kind) {
 				case DOCUMENT:
@@ -646,10 +644,10 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			try {
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<DBNode>(
-						mCollection, wtx, EInsert.ASFIRSTCHILD,
+						mCollection, wtx, Insert.ASFIRSTCHILD,
 						Collections.<SubtreeListener<? super AbsTemporalNode>> emptyList());
 				pChild.parse(builder);
 				mNodeReadTrx.moveTo(builder.getStartNodeKey());
@@ -669,7 +667,7 @@ public class DBNode extends AbsTemporalNode {
 			moveRtx();
 			try {
 				pParser.parse(new SubtreeBuilder<DBNode>(mCollection,
-						(INodeWriteTrx) mNodeReadTrx, EInsert.ASFIRSTCHILD, Collections
+						(NodeWriteTrx) mNodeReadTrx, Insert.ASFIRSTCHILD, Collections
 								.<SubtreeListener<? super AbsTemporalNode>> emptyList()));
 			} catch (final SirixException e) {
 				throw new DocumentException(e.getCause());
@@ -686,7 +684,7 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			try {
 				switch (kind) {
 				case DOCUMENT:
@@ -727,10 +725,10 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			try {
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<DBNode>(
-						mCollection, wtx, EInsert.ASLEFTSIBLING,
+						mCollection, wtx, Insert.ASLEFTSIBLING,
 						Collections.<SubtreeListener<? super AbsTemporalNode>> emptyList());
 				pNode.parse(builder);
 				mNodeReadTrx.moveTo(builder.getStartNodeKey());
@@ -750,7 +748,7 @@ public class DBNode extends AbsTemporalNode {
 			moveRtx();
 			try {
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<>(
-						mCollection, (INodeWriteTrx) mNodeReadTrx, EInsert.ASLEFTSIBLING,
+						mCollection, (NodeWriteTrx) mNodeReadTrx, Insert.ASLEFTSIBLING,
 						Collections.<SubtreeListener<? super AbsTemporalNode>> emptyList());
 				pParser.parse(builder);
 				return new DBNode(mNodeReadTrx.moveTo(builder.getStartNodeKey()).get(),
@@ -767,7 +765,7 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			try {
 				switch (kind) {
 				case DOCUMENT:
@@ -809,10 +807,10 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			try {
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<DBNode>(
-						mCollection, wtx, EInsert.ASRIGHTSIBLING,
+						mCollection, wtx, Insert.ASRIGHTSIBLING,
 						Collections.<SubtreeListener<? super AbsTemporalNode>> emptyList());
 				pNode.parse(builder);
 				mNodeReadTrx.moveTo(builder.getStartNodeKey());
@@ -832,7 +830,7 @@ public class DBNode extends AbsTemporalNode {
 			moveRtx();
 			try {
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<>(
-						mCollection, (INodeWriteTrx) mNodeReadTrx, EInsert.ASRIGHTSIBLING,
+						mCollection, (NodeWriteTrx) mNodeReadTrx, Insert.ASRIGHTSIBLING,
 						Collections.<SubtreeListener<? super AbsTemporalNode>> emptyList());
 				pParser.parse(builder);
 				return new DBNode(mNodeReadTrx.moveTo(builder.getStartNodeKey()).get(),
@@ -849,7 +847,7 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			if (wtx.isElement()) {
 				try {
 					final String value = pAttribute.getValue().asStr().stringValue();
@@ -870,7 +868,7 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			if (wtx.isElement()) {
 				try {
 					wtx.insertAttribute(new QName(pName.nsURI, pName.localName,
@@ -889,7 +887,7 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			if (wtx.isElement()) {
 				if (wtx.moveToAttributeByName(
 						new QName(pName.nsURI, pName.localName, pName.prefix)).hasMoved()) {
@@ -931,10 +929,10 @@ public class DBNode extends AbsTemporalNode {
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx && pNode instanceof DBNode) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			final DBNode node = (DBNode) pNode;
 			try {
-				final INodeReadTrx rtx = node.getTrx();
+				final NodeReadTrx rtx = node.getTrx();
 				rtx.moveTo(node.getNodeKey());
 				wtx.replaceNode(rtx);
 			} catch (final SirixException e) {
@@ -971,6 +969,11 @@ public class DBNode extends AbsTemporalNode {
 		return mNodeReadTrx.getAttributeCount() > 0;
 	}
 
+	/**
+	 * Get the sibling position.
+	 * 
+	 * @return sibling position
+	 */
 	public int getSiblingPosition() {
 		moveRtx();
 		int index = 0;
@@ -985,7 +988,7 @@ public class DBNode extends AbsTemporalNode {
 	public void delete() throws DocumentException {
 		if (mIsWtx) {
 			moveRtx();
-			final INodeWriteTrx wtx = (INodeWriteTrx) mNodeReadTrx;
+			final NodeWriteTrx wtx = (NodeWriteTrx) mNodeReadTrx;
 			try {
 				wtx.remove();
 			} catch (final SirixException e) {
@@ -1027,10 +1030,6 @@ public class DBNode extends AbsTemporalNode {
 
 		if (this.mNodeKey == ((DBNode) pOther).getNodeKey()) {
 			return 0;
-		}
-		
-		if (mNodeKey == 4 && ((DBNode) pOther).getNodeKey() == 5) {
-			System.out.println();
 		}
 
 		try {
@@ -1184,8 +1183,8 @@ public class DBNode extends AbsTemporalNode {
 	}
 
 	@Override
-	public Stream<? extends Node<?>> performStep(Axis axis, NodeType test)
-			throws DocumentException {
+	public Stream<? extends Node<?>> performStep(
+			org.brackit.xquery.xdm.Axis axis, NodeType test) throws DocumentException {
 		// TODO
 		return null;
 	}

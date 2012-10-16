@@ -34,7 +34,7 @@ import java.util.Map;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 /**
  * All Page types.
@@ -46,20 +46,20 @@ public enum EPage {
   NODEPAGE((byte)1, NodePage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
+    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new NodePage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
       pSink.writeByte(NODEPAGE.mId);
       pPage.serialize(pSink);
     }
 
     @Override
     public @Nonnull
-    IPage getInstance(@Nonnull final IPage pPage) {
+    Page getInstance(@Nonnull final Page pPage) {
       assert pPage instanceof NodePage;
       final NodePage page = (NodePage)pPage;
       return new NodePage(page.getNodePageKey(), page.getRevision());
@@ -72,20 +72,20 @@ public enum EPage {
   NAMEPAGE((byte)2, NamePage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
+    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new NamePage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
       pSink.writeByte(NAMEPAGE.mId);
       pPage.serialize(pSink);
     }
 
     @Override
     public @Nonnull
-    IPage getInstance(@Nonnull final IPage pPage) {
+    Page getInstance(@Nonnull final Page pPage) {
       return new NamePage(pPage.getRevision());
     }
   },
@@ -96,20 +96,20 @@ public enum EPage {
   UBERPAGE((byte)3, UberPage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
+    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new UberPage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
       pSink.writeByte(UBERPAGE.mId);
       pPage.serialize(pSink);
     }
 
     @Override
     public @Nonnull
-    IPage getInstance(@Nonnull final IPage pPage) {
+    Page getInstance(@Nonnull final Page pPage) {
       return new UberPage();
     }
   },
@@ -120,20 +120,20 @@ public enum EPage {
   INDIRECTPAGE((byte)4, IndirectPage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
+    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new IndirectPage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
       pSink.writeByte(INDIRECTPAGE.mId);
       pPage.serialize(pSink);
     }
 
     @Override
     public @Nonnull
-    IPage getInstance(@Nonnull final IPage pPage) {
+    Page getInstance(@Nonnull final Page pPage) {
       return new IndirectPage(pPage.getRevision());
     }
   },
@@ -144,20 +144,20 @@ public enum EPage {
   REVISIONROOTPAGE((byte)5, RevisionRootPage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
+    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new RevisionRootPage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
       pSink.writeByte(REVISIONROOTPAGE.mId);
       pPage.serialize(pSink);
     }
 
     @Override
     public @Nonnull
-    IPage getInstance(@Nonnull final IPage pPage) {
+    Page getInstance(@Nonnull final Page pPage) {
       return new RevisionRootPage();
     }
   },
@@ -168,20 +168,20 @@ public enum EPage {
   PATHSUMMARYPAGE((byte)6, PathSummaryPage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
+    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new PathSummaryPage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
       pSink.writeByte(PATHSUMMARYPAGE.mId);
       pPage.serialize(pSink);
     }
 
     @Override
     public @Nonnull
-    IPage getInstance(@Nonnull final IPage pPage) {
+    Page getInstance(@Nonnull final Page pPage) {
       return new PathSummaryPage(pPage.getRevision());
     }
   }, 
@@ -192,20 +192,20 @@ public enum EPage {
   VALUEPAGE((byte)7, ValuePage.class) {
     @Override
     @Nonnull
-    IPage deserializePage(@Nonnull final ByteArrayDataInput pSource) {
+    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
       return new ValuePage(pSource);
     }
 
     @Override
     void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final IPage pPage) {
+      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
       pSink.writeByte(VALUEPAGE.mId);
       pPage.serialize(pSink);
     }
 
     @Override
     public @Nonnull
-    IPage getInstance(@Nonnull final IPage pPage) {
+    Page getInstance(@Nonnull final Page pPage) {
       return new ValuePage(pPage.getRevision());
     }
   };
@@ -214,7 +214,7 @@ public enum EPage {
   private static final Map<Byte, EPage> INSTANCEFORID = new HashMap<>();
 
   /** Mapping of class -> page. */
-  private static final Map<Class<? extends IPage>, EPage> INSTANCEFORCLASS =
+  private static final Map<Class<? extends Page>, EPage> INSTANCEFORCLASS =
     new HashMap<>();
 
   static {
@@ -228,7 +228,7 @@ public enum EPage {
   private final byte mId;
 
   /** Class. */
-  private final Class<? extends IPage> mClass;
+  private final Class<? extends Page> mClass;
 
   /**
    * Constructor.
@@ -238,7 +238,7 @@ public enum EPage {
    * @param pClass
    *          class
    */
-  EPage(final byte pId, final Class<? extends IPage> pClass) {
+  EPage(final byte pId, final Class<? extends Page> pClass) {
     mId = pId;
     mClass = pClass;
   }
@@ -249,19 +249,19 @@ public enum EPage {
    * @param pSink
    *          {@link ITTSink} implementation
    * @param pPage
-   *          {@link IPage} implementation
+   *          {@link Page} implementation
    */
   abstract void serializePage(@Nonnull final ByteArrayDataOutput pSink,
-    @Nonnull final IPage pPage);
+    @Nonnull final Page pPage);
 
   /**
    * Deserialize page.
    * 
    * @param pSource
    *          {@link ITTSource} implementation
-   * @return page instance implementing the {@link IPage} interface
+   * @return page instance implementing the {@link Page} interface
    */
-  abstract IPage deserializePage(@Nonnull final ByteArrayDataInput pSource);
+  abstract Page deserializePage(@Nonnull final ByteArrayDataInput pSource);
 
   /**
    * Public method to get the related page based on the identifier.
@@ -286,7 +286,7 @@ public enum EPage {
    * @return the related page
    */
   public static @Nonnull
-  EPage getKind(@Nonnull final Class<? extends IPage> pClass) {
+  EPage getKind(@Nonnull final Class<? extends Page> pClass) {
     final EPage page = INSTANCEFORCLASS.get(pClass);
     if (page == null) {
       throw new IllegalStateException();
@@ -298,9 +298,9 @@ public enum EPage {
    * New page instance.
    * 
    * @param pPage
-   *          {@link IPage} implementation
+   *          {@link Page} implementation
    * @return new page instance
    */
   public abstract @Nonnull
-  IPage getInstance(@Nonnull final IPage pPage);
+  Page getInstance(@Nonnull final Page pPage);
 }

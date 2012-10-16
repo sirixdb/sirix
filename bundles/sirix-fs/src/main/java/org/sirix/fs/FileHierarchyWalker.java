@@ -15,9 +15,9 @@ import javax.annotation.Nonnull;
 
 import org.sirix.fs.HierarchyFileVisitor.Builder;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.ISession;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Database;
+import org.sirix.api.Session;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 
 /**
@@ -46,18 +46,18 @@ public class FileHierarchyWalker {
    * @throws NullPointerException
    *           if one of the arguments is {@code null}
    */
-  public static Map<Path, EPath> parseDir(final Path pPath, final IDatabase pDatabase,
-    Optional<IVisitor<INodeWriteTrx>> pVisitor) throws SirixException, IOException {
+  public static Map<Path, org.sirix.fs.Path> parseDir(final Path pPath, final Database pDatabase,
+    Optional<Visitor<NodeWriteTrx>> pVisitor) throws SirixException, IOException {
     checkNotNull(pVisitor);
     final Path path = checkNotNull(pPath);
-    final ISession session =
+    final Session session =
       checkNotNull(pDatabase).getSession(new SessionConfiguration.Builder("shredded").build());
-    final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+    final NodeWriteTrx wtx = session.beginNodeWriteTrx();
     final Builder builder = new Builder(wtx);
     if (pVisitor.isPresent()) {
       builder.setVisitor(pVisitor.get());
     }
-    Map<Path, EPath> index = Collections.emptyMap();
+    Map<Path, org.sirix.fs.Path> index = Collections.emptyMap();
     try (final HierarchyFileVisitor visitor = HierarchyFileVisitor.getInstance(builder)) {
       Files.walkFileTree(path, EnumSet.of(FileVisitOption.FOLLOW_LINKS), Integer.MAX_VALUE, visitor);
       index = visitor.getIndex();

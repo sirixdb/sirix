@@ -37,18 +37,18 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.access.Database;
-import org.sirix.access.Session;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.access.DatabaseImpl;
+import org.sirix.access.SessionImpl;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 
 /**
  * <h1>SessionConfiguration</h1>
  * 
  * <p>
- * Holds the {@link Session}-wide settings that can not change within the runtime of a {@link Session}. This
+ * Holds the {@link SessionImpl}-wide settings that can not change within the runtime of a {@link SessionImpl}. This
  * included stuff like commit-threshold and number of usable write/read transactions. Each
- * {@link SessionConfiguration} is only bound through the location to a {@link Database} and related
+ * {@link SessionConfiguration} is only bound through the location to a {@link DatabaseImpl} and related
  * resources.
  * </p>
  */
@@ -70,10 +70,10 @@ public final class SessionConfiguration {
   // END STATIC STANDARD FIELDS
 
   // MEMBERS FOR FLEXIBLE FIELDS
-  /** Numbers of allowed {@link INodeWriteTrx} instances. */
+  /** Numbers of allowed {@link NodeWriteTrx} instances. */
   public final int mWtxAllowed;
 
-  /** Numbers of allowed {@link INodeReadTrx} instances. */
+  /** Numbers of allowed {@link NodeReadTrx} instances. */
   public final int mRtxAllowed;
 
   /** Number of node modifications until an automatic commit occurs. */

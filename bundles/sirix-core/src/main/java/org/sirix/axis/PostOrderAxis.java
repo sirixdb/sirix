@@ -29,8 +29,8 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeCursor;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.settings.EFixed;
 
 /**
@@ -54,7 +54,7 @@ public final class PostOrderAxis extends AbsAxis {
 	 * @param pRtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public PostOrderAxis(@Nonnull final INodeCursor pRtx) {
+	public PostOrderAxis(@Nonnull final NodeCursor pRtx) {
 		super(pRtx);
 	}
 
@@ -64,8 +64,8 @@ public final class PostOrderAxis extends AbsAxis {
 	 * @param pRtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public PostOrderAxis(@Nonnull final INodeCursor pRtx,
-			@Nonnull final EIncludeSelf pIncludeSelf) {
+	public PostOrderAxis(@Nonnull final NodeCursor pRtx,
+			@Nonnull final IncludeSelf pIncludeSelf) {
 		super(pRtx, pIncludeSelf);
 	}
 
@@ -78,12 +78,12 @@ public final class PostOrderAxis extends AbsAxis {
 
 	@Override
 	protected long nextKey() {
-		final INodeReadTrx rtx = getTrx();
+		final NodeReadTrx rtx = getTrx();
 
 		// No subtree.
 		if (!rtx.hasFirstChild() && rtx.getNodeKey() == getStartKey()
 				|| mIsStartKey) {
-			if (!mIsStartKey && isSelfIncluded() == EIncludeSelf.YES) {
+			if (!mIsStartKey && isSelfIncluded() == IncludeSelf.YES) {
 				mIsStartKey = true;
 				return rtx.getNodeKey();
 			} else {
@@ -121,7 +121,7 @@ public final class PostOrderAxis extends AbsAxis {
 
 		// Traversal is at start key.
 		if (key == getStartKey()) {
-			if (isSelfIncluded() == EIncludeSelf.YES) {
+			if (isSelfIncluded() == IncludeSelf.YES) {
 				mIsStartKey = true;
 				return key;
 			} else {

@@ -43,12 +43,12 @@ import javax.annotation.Nonnull;
 
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.model.AbsModel;
-import org.sirix.gui.view.model.interfaces.IContainer;
-import org.sirix.gui.view.sunburst.EDraw;
+import org.sirix.gui.view.model.interfaces.Container;
+import org.sirix.gui.view.sunburst.Draw;
 import org.sirix.gui.view.sunburst.EGreyState;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
-import org.sirix.gui.view.sunburst.control.ISunburstControl;
+import org.sirix.gui.view.sunburst.control.SunburstControl;
 import org.sirix.gui.view.sunburst.model.SunburstCompareModel;
 import processing.core.PApplet;
 
@@ -98,7 +98,7 @@ public class SmallmultipleModel extends AbsModel<SunburstContainer, SunburstItem
    * @param pDb
    *          {@link ReadDB} reference
    * @param pControl
-   *          {@link ISunburstControl} implementation
+   *          {@link SunburstControl} implementation
    */
   public SmallmultipleModel(@Nonnull final PApplet pApplet, @Nonnull final ReadDB pDb) {
     super(pApplet, pDb);
@@ -122,12 +122,12 @@ public class SmallmultipleModel extends AbsModel<SunburstContainer, SunburstItem
   }
 
   @Override
-  public void update(@Nonnull final IContainer<SunburstContainer> pContainer) {
+  public void update(@Nonnull final Container<SunburstContainer> pContainer) {
     mModel.update(checkNotNull(pContainer));
   }
 
   @Override
-  public synchronized void traverseTree(@Nonnull final IContainer<SunburstContainer> pContainer) {
+  public synchronized void traverseTree(@Nonnull final Container<SunburstContainer> pContainer) {
     mContainer = (SunburstContainer)pContainer;
     mModel.traverseTree(checkNotNull(pContainer));
   }
@@ -233,7 +233,7 @@ public class SmallmultipleModel extends AbsModel<SunburstContainer, SunburstItem
         final List<SunburstItem> currItems = new ArrayList<>();
         for (int i = 0; i < mItems.size(); i++) {
           final SunburstItem newItem = new SunburstItem(mItems.get(i));
-          newItem.update(EDraw.UPDATEBUFFER, 2, mParent.g);
+          newItem.update(Draw.UPDATEBUFFER, 2, mParent.g);
           currItems.add(newItem);
         }
         mCompItems.add(new SunburstListContainer(mLastMaxDepth, mLastOldMaxDepth, currItems, mContainer
@@ -328,7 +328,7 @@ public class SmallmultipleModel extends AbsModel<SunburstContainer, SunburstItem
   // }
 
   private void compare(final List<SunburstItem> pFirst, final List<SunburstItem> pSecond,
-    final IFunction<Indexes> pFunction) {
+    final Function<Indexes> pFunction) {
     assert pFirst != null;
     assert pSecond != null;
 
@@ -348,7 +348,7 @@ public class SmallmultipleModel extends AbsModel<SunburstContainer, SunburstItem
     final List<SunburstItem> currItems = new ArrayList<SunburstItem>();
     for (int i = 0; i < mItems.size(); i++) {
       final SunburstItem newItem = new SunburstItem(mItems.get(i));
-      newItem.update(EDraw.UPDATEBUFFER, 2, mParent.g);
+      newItem.update(Draw.UPDATEBUFFER, 2, mParent.g);
       currItems.add(newItem);
     }
     mCompItems.add(new SunburstListContainer(mLastMaxDepth, mLastOldMaxDepth, currItems, mRevision));
@@ -379,7 +379,7 @@ public class SmallmultipleModel extends AbsModel<SunburstContainer, SunburstItem
     compare(pFirst, secondList, new GreyState());
   }
 
-  private static class GreyState implements IFunction<Indexes> {
+  private static class GreyState implements Function<Indexes> {
     @Override
     public Indexes apply(final SunburstItem pFirst, final SunburstItem pSecond, int pIndexFirst,
       int pIndexSecond) {

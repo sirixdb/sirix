@@ -32,7 +32,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.page.delegates.PageDelegate;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.Objects;
 import com.google.common.io.ByteArrayDataInput;
@@ -89,12 +89,12 @@ public class ValuePage extends AbsForwardingPage {
   }
 
   @Override
-  protected IPage delegate() {
+  protected Page delegate() {
     return mDelegate;
   }
   
 	@Override
-	public IPage setDirty(final boolean pDirty) {
+	public Page setDirty(final boolean pDirty) {
 		mDelegate.setDirty(pDirty);
 		return this;
 	}

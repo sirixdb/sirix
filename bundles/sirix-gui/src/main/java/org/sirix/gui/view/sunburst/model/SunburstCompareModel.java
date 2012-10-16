@@ -45,17 +45,17 @@ import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
-import org.sirix.gui.view.IVisualItem;
+import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.gui.view.model.AbsModel;
 import org.sirix.gui.view.model.TraverseCompareTree;
-import org.sirix.gui.view.model.interfaces.IContainer;
-import org.sirix.gui.view.sunburst.EXPathState;
+import org.sirix.gui.view.model.interfaces.Container;
+import org.sirix.gui.view.sunburst.XPathState;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.SunburstView.Embedded;
@@ -107,7 +107,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
   }
 
   @Override
-  public synchronized void update(@Nonnull final IContainer<SunburstContainer> pContainer) {
+  public synchronized void update(@Nonnull final Container<SunburstContainer> pContainer) {
     // Cast guaranteed to work.
     mContainer = (SunburstContainer)checkNotNull(pContainer);
     mLastItems.push(new ArrayList<SunburstItem>(mItems));
@@ -116,7 +116,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
   }
 
   @Override
-  public synchronized void traverseTree(@Nonnull final IContainer<SunburstContainer> pContainer) {
+  public synchronized void traverseTree(@Nonnull final Container<SunburstContainer> pContainer) {
     // Cast guaranteed to work.
     mContainer = (SunburstContainer)checkNotNull(pContainer);
     final SunburstContainer container = (SunburstContainer)pContainer;
@@ -177,8 +177,8 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
   /** XPath evaluation on an agglomeration. */
   private final class TemporalXPathEvaluation implements Callable<Void> {
 
-    /** sirix {@link ISession}. */
-    private final ISession mSession;
+    /** sirix {@link Session}. */
+    private final Session mSession;
 
     /** New revision to open. */
     private final int mNewRevision;
@@ -193,7 +193,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
      * Constructor.
      * 
      * @param pSession
-     *          sirix {@link ISession}
+     *          sirix {@link Session}
      * @param pRevision
      *          start revision to open
      * @param pKey
@@ -204,7 +204,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
      *           if {@code pSession} is {@code null}, {@code pNewRevision} is {@code less than 0},
      *           {@code pOldRevision} is {@code less than 0} or {@code pQuery} is {@code null}
      */
-    private TemporalXPathEvaluation(final ISession pSession, final int pNewRevision,
+    private TemporalXPathEvaluation(final Session pSession, final int pNewRevision,
       final int pOldRevision, final String pQuery) {
       assert pSession != null;
       assert pOldRevision >= 0;
@@ -256,7 +256,7 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
 
       // Initialize all items to ISNOTFOUND.
       for (final SunburstItem item : sortedItems) {
-        item.setXPathState(EXPathState.ISNOTFOUND);
+        item.setXPathState(XPathState.ISNOTFOUND);
       }
       final Iterator<Long> xpath = mResult.iterator();
       long nextResult = Integer.MIN_VALUE;
@@ -265,15 +265,15 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
       }
 
       for (int i = 0; i < sortedItems.size() && nextResult != Integer.MIN_VALUE;) {
-        IVisualItem item = sortedItems.get(i);
+        VisualItem item = sortedItems.get(i);
 
         if (item.getKey() == nextResult) {
           i++;
-          item.setXPathState(EXPathState.ISFOUND);
+          item.setXPathState(XPathState.ISFOUND);
           if (xpath.hasNext()) {
             item = sortedItems.get(i);
             if (item.getKey() == nextResult) {
-              item.setXPathState(EXPathState.ISFOUND);
+              item.setXPathState(XPathState.ISFOUND);
             }
             nextResult = xpath.next();
           } else {
@@ -300,8 +300,8 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
   /** Evaluate an XPath query on one revision. */
   private final class XPathEvaluation implements Callable<Void> {
 
-    /** sirix {@link ISession}. */
-    private final ISession mSession;
+    /** sirix {@link Session}. */
+    private final Session mSession;
 
     /** The revision to open. */
     private final int mRevision;
@@ -313,13 +313,13 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
      * Constructor.
      * 
      * @param pSession
-     *          sirix {@link ISession}
+     *          sirix {@link Session}
      * @param pRevision
      *          the revision to open
      * @param pQuery
      *          XPath query
      */
-    private XPathEvaluation(final ISession pSession, final int pRevision, final String pQuery) {
+    private XPathEvaluation(final Session pSession, final int pRevision, final String pQuery) {
       assert pSession != null;
       assert pRevision >= 0;
       assert pQuery != null;
@@ -339,8 +339,8 @@ public final class SunburstCompareModel extends AbsModel<SunburstContainer, Sunb
       // mQueue.put(wrapped.getKey());
       // }
       // }
-      final INodeReadTrx rtx = mSession.beginNodeReadTrx(mRevision);
-      final IAxis axis = new XPathAxis(rtx, mQuery);
+      final NodeReadTrx rtx = mSession.beginNodeReadTrx(mRevision);
+      final Axis axis = new XPathAxis(rtx, mQuery);
       for (final long nodeKey : axis) {
         mResult.add(nodeKey);
       }

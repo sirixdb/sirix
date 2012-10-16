@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 
 public class AttributeFilterTest {
@@ -54,7 +54,7 @@ public class AttributeFilterTest {
 
   @Test
   public void testIFilterConvetions() throws SirixException {
-    final INodeReadTrx wtx = holder.getRtx();
+    final NodeReadTrx wtx = holder.getRtx();
     wtx.moveTo(9L);
     IFilterTest.testIFilterConventions(new AttributeFilter(wtx), false);
 

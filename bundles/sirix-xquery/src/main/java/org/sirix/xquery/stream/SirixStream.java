@@ -6,40 +6,40 @@ import javax.annotation.Nonnull;
 
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.xquery.node.AbsTemporalNode;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
 
 /**
- * Stream wrapping a Sirix {@link IAxis}.
+ * Stream wrapping a Sirix {@link Axis}.
  * 
  * @author Johannes Lichtenberger
  * 
  */
 public class SirixStream implements Stream<DBNode> {
-	/** Sirix {@link IAxis}. */
-	private final IAxis mAxis;
+	/** Sirix {@link Axis}. */
+	private final Axis mAxis;
 
 	/** {@link DBCollection} the nodes belong to. */
 	private final DBCollection<? extends AbsTemporalNode> mCollection;
 
-	/** Sirix {@link INodeReadTrx}. */
-	private final INodeReadTrx mRtx;
+	/** Sirix {@link NodeReadTrx}. */
+	private final NodeReadTrx mRtx;
 
 	/**
 	 * Constructor.
 	 * 
 	 * @param pAxis
-	 *          Sirix {@link IAxis}
+	 *          Sirix {@link Axis}
 	 * @param pWtx
-	 *          optional {@link INodeWriteTrx}
+	 *          optional {@link NodeWriteTrx}
 	 * @param pCollection
 	 *          {@link DBCollection} the nodes belong to
 	 */
-	public SirixStream(final @Nonnull IAxis pAxis,
+	public SirixStream(final @Nonnull Axis pAxis,
 			final @Nonnull DBCollection<? extends AbsTemporalNode> pCollection) {
 		mAxis = checkNotNull(pAxis);
 		mRtx = mAxis.getTrx();

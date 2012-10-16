@@ -36,13 +36,13 @@ import java.util.concurrent.Callable;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 
 /**
  * Class implements main serialization algorithm. Other classes can extend it.
@@ -52,8 +52,8 @@ import org.sirix.node.EKind;
  */
 public abstract class AbsSerializer implements Callable<Void> {
 
-	/** Sirix session {@link ISession}. */
-	protected final ISession mSession;
+	/** Sirix session {@link Session}. */
+	protected final Session mSession;
 
 	/** Stack for reading end element. */
 	protected final Deque<Long> mStack;
@@ -68,13 +68,13 @@ public abstract class AbsSerializer implements Callable<Void> {
 	 * Constructor.
 	 * 
 	 * @param pSession
-	 *          Sirix {@link ISession}
+	 *          Sirix {@link Session}
 	 * @param pRevision
 	 *          first revision to serialize
 	 * @param pRevisions
 	 *          revisions to serialize
 	 */
-	public AbsSerializer(@Nonnull final ISession pSession, final int pRevision,
+	public AbsSerializer(@Nonnull final Session pSession, final int pRevision,
 			final int... pRevisions) {
 		mStack = new ArrayDeque<>();
 		mRevisions = pRevisions == null ? new int[1]
@@ -88,7 +88,7 @@ public abstract class AbsSerializer implements Callable<Void> {
 	 * Constructor.
 	 * 
 	 * @param pSession
-	 *          Sirix {@link ISession}
+	 *          Sirix {@link Session}
 	 * @param pKey
 	 *          key of root node from which to shredder the subtree
 	 * @param pRevision
@@ -96,7 +96,7 @@ public abstract class AbsSerializer implements Callable<Void> {
 	 * @param pRevisions
 	 *          revisions to serialize
 	 */
-	public AbsSerializer(final @Nonnull ISession pSession,
+	public AbsSerializer(final @Nonnull Session pSession,
 			final @Nonnegative long pKey, final @Nonnegative int pRevision,
 			final int... pRevisions) {
 		mStack = new ArrayDeque<>();
@@ -139,7 +139,7 @@ public abstract class AbsSerializer implements Callable<Void> {
 		final int length = (mRevisions.length == 1 && mRevisions[0] < 0) ? (int) mSession
 				.getLastRevisionNumber() : mRevisions.length;
 		for (int i = 0; i < length; i++) {
-			try (final INodeReadTrx rtx = mSession
+			try (final NodeReadTrx rtx = mSession
 					.beginNodeReadTrx((mRevisions.length == 1 && mRevisions[0] < 0) ? i
 							: mRevisions[i])) {
 				if (length > 1) {
@@ -148,7 +148,7 @@ public abstract class AbsSerializer implements Callable<Void> {
 
 				rtx.moveTo(mNodeKey);
 
-				final IAxis descAxis = new DescendantAxis(rtx, EIncludeSelf.YES);
+				final Axis descAxis = new DescendantAxis(rtx, IncludeSelf.YES);
 
 				// Setup primitives.
 				boolean closeElements = false;
@@ -179,7 +179,7 @@ public abstract class AbsSerializer implements Callable<Void> {
 
 					// Push end element to stack if we are a start element with
 					// children.
-					if (rtx.getKind() == EKind.ELEMENT
+					if (rtx.getKind() == Kind.ELEMENT
 							&& rtx.hasFirstChild()) {
 						mStack.push(rtx.getNodeKey());
 					}
@@ -216,17 +216,17 @@ public abstract class AbsSerializer implements Callable<Void> {
 	 * Emit start tag.
 	 * 
 	 * @param pRtx
-	 *          Sirix {@link INodeReadTrx}
+	 *          Sirix {@link NodeReadTrx}
 	 */
-	protected abstract void emitStartElement(@Nonnull final INodeReadTrx pRtx);
+	protected abstract void emitStartElement(@Nonnull final NodeReadTrx pRtx);
 
 	/**
 	 * Emit end tag.
 	 * 
 	 * @param pRtx
-	 *          Sirix {@link INodeReadTrx}
+	 *          Sirix {@link NodeReadTrx}
 	 */
-	protected abstract void emitEndElement(@Nonnull final INodeReadTrx pRtx);
+	protected abstract void emitEndElement(@Nonnull final NodeReadTrx pRtx);
 
 	/**
 	 * Emit a start tag, which specifies a revision.

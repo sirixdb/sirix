@@ -37,12 +37,12 @@ import javax.ws.rs.core.StreamingOutput;
 
 import org.jaxrx.core.JaxRxException;
 import org.jaxrx.core.QueryParameter;
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.enums.EIdAccessType;
 import org.sirix.service.jaxrx.util.RestXPathProcessor;
@@ -50,7 +50,7 @@ import org.sirix.service.jaxrx.util.WorkerHelper;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.service.xml.serialize.XMLSerializerProperties;
-import org.sirix.service.xml.shredder.EInsert;
+import org.sirix.service.xml.shredder.Insert;
 
 /**
  * This class is responsible to work with database specific XML node id's. It
@@ -238,13 +238,13 @@ public class NodeIdRepresentation {
 	public void deleteResource(final String resourceName, final long nodeId)
 			throws JaxRxException {
 		synchronized (resourceName) {
-			ISession session = null;
-			IDatabase database = null;
-			INodeWriteTrx wtx = null;
+			Session session = null;
+			Database database = null;
+			NodeWriteTrx wtx = null;
 			boolean abort = false;
 			if (WorkerHelper.checkExistingResource(mStoragePath, resourceName)) {
 				try {
-					database = Database.openDatabase(mStoragePath);
+					database = DatabaseImpl.openDatabase(mStoragePath);
 					// Creating a new session
 					session = database.getSession(new SessionConfiguration.Builder(
 							resourceName).build());
@@ -290,13 +290,13 @@ public class NodeIdRepresentation {
 	public void modifyResource(final String resourceName, final long nodeId,
 			final InputStream newValue) throws JaxRxException {
 		synchronized (resourceName) {
-			ISession session = null;
-			IDatabase database = null;
-			INodeWriteTrx wtx = null;
+			Session session = null;
+			Database database = null;
+			NodeWriteTrx wtx = null;
 			boolean abort = false;
 			if (WorkerHelper.checkExistingResource(mStoragePath, resourceName)) {
 				try {
-					database = Database.openDatabase(mStoragePath);
+					database = DatabaseImpl.openDatabase(mStoragePath);
 					// Creating a new session
 					session = database.getSession(new SessionConfiguration.Builder(
 							resourceName).build());
@@ -307,7 +307,7 @@ public class NodeIdRepresentation {
 						final long parentKey = wtx.getParentKey();
 						wtx.remove();
 						wtx.moveTo(parentKey);
-						WorkerHelper.shredInputStream(wtx, newValue, EInsert.ASFIRSTCHILD);
+						WorkerHelper.shredInputStream(wtx, newValue, Insert.ASFIRSTCHILD);
 
 					} else {
 						// workerHelper.closeWTX(abort, wtx, session, database);
@@ -349,16 +349,16 @@ public class NodeIdRepresentation {
 	 */
 	public void addSubResource(final String resourceName, final long nodeId,
 			final InputStream input, final EIdAccessType type) throws JaxRxException {
-		ISession session = null;
-		IDatabase database = null;
-		INodeWriteTrx wtx = null;
+		Session session = null;
+		Database database = null;
+		NodeWriteTrx wtx = null;
 		synchronized (resourceName) {
 			boolean abort;
 			if (WorkerHelper.checkExistingResource(mStoragePath, resourceName)) {
 				abort = false;
 				try {
 
-					database = Database.openDatabase(mStoragePath);
+					database = DatabaseImpl.openDatabase(mStoragePath);
 					// Creating a new session
 					session = database.getSession(new SessionConfiguration.Builder(
 							resourceName).build());
@@ -367,9 +367,9 @@ public class NodeIdRepresentation {
 					final boolean exist = wtx.moveTo(nodeId).hasMoved();
 					if (exist) {
 						if (type == EIdAccessType.FIRSTCHILD) {
-							WorkerHelper.shredInputStream(wtx, input, EInsert.ASFIRSTCHILD);
+							WorkerHelper.shredInputStream(wtx, input, Insert.ASFIRSTCHILD);
 						} else if (type == EIdAccessType.RIGHTSIBLING) {
-							WorkerHelper.shredInputStream(wtx, input, EInsert.ASRIGHTSIBLING);
+							WorkerHelper.shredInputStream(wtx, input, Insert.ASRIGHTSIBLING);
 						} else if (type == EIdAccessType.LASTCHILD) {
 							if (wtx.moveToFirstChild().hasMoved()) {
 								long last = wtx.getNodeKey();
@@ -378,7 +378,7 @@ public class NodeIdRepresentation {
 								}
 								wtx.moveTo(last);
 								WorkerHelper.shredInputStream(wtx, input,
-										EInsert.ASRIGHTSIBLING);
+										Insert.ASRIGHTSIBLING);
 
 							} else {
 								throw new JaxRxException(404, NOTFOUND);
@@ -387,7 +387,7 @@ public class NodeIdRepresentation {
 						} else if (type == EIdAccessType.LEFTSIBLING
 								&& wtx.moveToLeftSibling().hasMoved()) {
 
-							WorkerHelper.shredInputStream(wtx, input, EInsert.ASRIGHTSIBLING);
+							WorkerHelper.shredInputStream(wtx, input, Insert.ASRIGHTSIBLING);
 
 						}
 					} else {
@@ -435,10 +435,10 @@ public class NodeIdRepresentation {
 			final Long revision, final boolean doNodeId, final OutputStream output,
 			final boolean wrapResult) {
 		if (WorkerHelper.checkExistingResource(mStoragePath, resource)) {
-			ISession session = null;
-			IDatabase database = null;
+			Session session = null;
+			Database database = null;
 			try {
-				database = Database.openDatabase(mStoragePath);
+				database = DatabaseImpl.openDatabase(mStoragePath);
 				session = database
 						.getSession(new SessionConfiguration.Builder(resource).build());
 				if (wrapResult) {
@@ -516,11 +516,11 @@ public class NodeIdRepresentation {
 			final OutputStream output, final boolean wrapResult,
 			final EIdAccessType accessType) {
 		if (WorkerHelper.checkExistingResource(mStoragePath, resource)) {
-			ISession session = null;
-			IDatabase database = null;
-			INodeReadTrx rtx = null;
+			Session session = null;
+			Database database = null;
+			NodeReadTrx rtx = null;
 			try {
-				database = Database.openDatabase(mStoragePath);
+				database = DatabaseImpl.openDatabase(mStoragePath);
 				session = database
 						.getSession(new SessionConfiguration.Builder(resource).build());
 				if (revision == null) {

@@ -52,13 +52,13 @@ import javax.xml.stream.events.ProcessingInstruction;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeWriteTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.ElementNode;
@@ -66,7 +66,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * This class appends a given {@link XMLStreamReader} to a {@link INodeWriteTrx}
+ * This class appends a given {@link XMLStreamReader} to a {@link NodeWriteTrx}
  * . The content of the stream is added as a subtree. Based on an enum which
  * identifies the point of insertion, the subtree is either added as first child
  * or as right sibling.
@@ -82,17 +82,17 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
 			LoggerFactory.getLogger(XMLShredder.class));
 
-	/** {@link INodeWriteTrx}. */
-	protected final INodeWriteTrx mWtx;
+	/** {@link NodeWriteTrx}. */
+	protected final NodeWriteTrx mWtx;
 
 	/** {@link XMLEventReader}. */
 	protected final XMLEventReader mReader;
 
 	/** Determines if changes are going to be commit right after shredding. */
-	private final EShredderCommit mCommit;
+	private final ShredderCommit mCommit;
 
 	/** Insertion position. */
-	protected final EInsert mInsert;
+	protected final Insert mInsert;
 
 	/** Determines if comments should be included. */
 	private boolean mIncludeComments;
@@ -105,14 +105,14 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 	 */
 	public static class Builder {
 
-		/** {@link INodeWriteTrx} implementation. */
-		private final INodeWriteTrx mWtx;
+		/** {@link NodeWriteTrx} implementation. */
+		private final NodeWriteTrx mWtx;
 
 		/** {@link XMLEventReader} implementation. */
 		private final XMLEventReader mReader;
 
 		/** Insertion position. */
-		private final EInsert mInsert;
+		private final Insert mInsert;
 
 		/** Determines if comments should be included. */
 		private boolean mIncludeComments = true;
@@ -124,20 +124,20 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 		 * Determines if after shredding the transaction should be immediately
 		 * commited.
 		 */
-		private EShredderCommit mCommit = EShredderCommit.NOCOMMIT;
+		private ShredderCommit mCommit = ShredderCommit.NOCOMMIT;
 
 		/**
 		 * Constructor.
 		 * 
 		 * @param pWtx
-		 *          {@link INodeWriteTrx} implementation
+		 *          {@link NodeWriteTrx} implementation
 		 * @param pReader
 		 *          {@link XMLEventReader} implementation
 		 * @param pInsert
 		 *          insertion position
 		 */
-		public Builder(@Nonnull final INodeWriteTrx pWtx,
-				@Nonnull final XMLEventReader pReader, @Nonnull final EInsert pInsert) {
+		public Builder(@Nonnull final NodeWriteTrx pWtx,
+				@Nonnull final XMLEventReader pReader, @Nonnull final Insert pInsert) {
 			mWtx = checkNotNull(pWtx);
 			mReader = checkNotNull(pReader);
 			mInsert = checkNotNull(pInsert);
@@ -173,7 +173,7 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 		 * @return this builder instance
 		 */
 		public Builder commitAfterwards() {
-			mCommit = EShredderCommit.COMMIT;
+			mCommit = ShredderCommit.COMMIT;
 			return this;
 		}
 
@@ -343,19 +343,19 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 		final long time = System.nanoTime();
 		final File target = new File(pArgs[1]);
 		final DatabaseConfiguration config = new DatabaseConfiguration(target);
-		Database.truncateDatabase(config);
-		Database.createDatabase(config);
-		final IDatabase db = Database.openDatabase(target);
+		DatabaseImpl.truncateDatabase(config);
+		DatabaseImpl.createDatabase(config);
+		final Database db = DatabaseImpl.openDatabase(target);
 		db.createResource(new ResourceConfiguration.Builder("shredded", config)
 				.build());
-		final ISession session = db.getSession(new SessionConfiguration.Builder(
+		final Session session = db.getSession(new SessionConfiguration.Builder(
 				"shredded").build());
-		final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 		final XMLEventReader reader = createFileReader(new File(pArgs[0]));
 		final boolean includeCoPI = pArgs.length == 3 ? Boolean
 				.parseBoolean(pArgs[2]) : false;
 		final XMLShredder shredder = new XMLShredder.Builder(wtx, reader,
-				EInsert.ASFIRSTCHILD).commitAfterwards()
+				Insert.ASFIRSTCHILD).commitAfterwards()
 				.includeComments(includeCoPI).includePIs(includeCoPI).build();
 		shredder.call();
 		wtx.close();

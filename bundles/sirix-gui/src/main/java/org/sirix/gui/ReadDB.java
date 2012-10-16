@@ -35,11 +35,11 @@ import java.io.File;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.view.model.TraverseCompareTree;
 import org.sirix.utils.LogWrapper;
@@ -63,14 +63,14 @@ public final class ReadDB implements AutoCloseable {
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
 			LoggerFactory.getLogger(TraverseCompareTree.class));
 
-	/** Sirix {@link IDatabase}. */
-	private final IDatabase mDatabase;
+	/** Sirix {@link Database}. */
+	private final Database mDatabase;
 
-	/** Sirix {@link ISession}. */
-	private final ISession mSession;
+	/** Sirix {@link Session}. */
+	private final Session mSession;
 
-	/** Sirix {@link INodeReadTrx}. */
-	private final INodeReadTrx mRtx;
+	/** Sirix {@link NodeReadTrx}. */
+	private final NodeReadTrx mRtx;
 
 	/** Revision number. */
 	private final int mRevision;
@@ -124,7 +124,7 @@ public final class ReadDB implements AutoCloseable {
 		checkArgument(pNodekeyToStart >= 0, "pNodekeyToStart must be >= 0!");
 
 		// Initialize database.
-		mDatabase = Database.openDatabase(pFile);
+		mDatabase = DatabaseImpl.openDatabase(pFile);
 		mSession = mDatabase
 				.getSession(new SessionConfiguration.Builder("shredded").build());
 
@@ -139,20 +139,20 @@ public final class ReadDB implements AutoCloseable {
 	}
 
 	/**
-	 * Get the {@link IDatabase} instance.
+	 * Get the {@link Database} instance.
 	 * 
 	 * @return the Database.
 	 */
-	public IDatabase getDatabase() {
+	public Database getDatabase() {
 		return mDatabase;
 	}
 
 	/**
-	 * Get the {@link ISession} instance.
+	 * Get the {@link Session} instance.
 	 * 
 	 * @return the Session.
 	 */
-	public ISession getSession() {
+	public Session getSession() {
 		return mSession;
 	}
 

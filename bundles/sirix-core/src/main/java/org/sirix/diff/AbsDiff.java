@@ -32,18 +32,18 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.access.EHashKind;
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.access.HashKind;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.diff.DiffFactory.EDiffOptimized;
 import org.sirix.exception.SirixException;
-import org.sirix.node.EKind;
+import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.StructNode;
 
 /**
  * Abstract diff class which implements common functionality.
@@ -75,9 +75,9 @@ abstract class AbsDiff extends AbsDiffObservable {
 	/**
 	 * Kind of hash method.
 	 * 
-	 * @see EHashKind
+	 * @see HashKind
 	 */
-	private EHashKind mHashKind;
+	private HashKind mHashKind;
 
 	/**
 	 * Kind of difference.
@@ -99,13 +99,13 @@ abstract class AbsDiff extends AbsDiffObservable {
 	private final long mOldRootKey;
 
 	/**
-	 * Determines if {@link INodeReadTrx} on newer revision moved to the node
+	 * Determines if {@link NodeReadTrx} on newer revision moved to the node
 	 * denoted by {@code mNewStartKey}.
 	 */
 	private boolean mNewRtxMoved;
 
 	/**
-	 * Determines if {@link INodeReadTrx} on older revision moved to the node
+	 * Determines if {@link NodeReadTrx} on older revision moved to the node
 	 * denoted by {@code mOldStartKey}.
 	 */
 	private boolean mOldRtxMoved;
@@ -116,11 +116,11 @@ abstract class AbsDiff extends AbsDiffObservable {
 	/** Determines if it's the first diff-comparison. */
 	private boolean mIsFirst;
 
-	/** {@link INodeReadTrx} on new revision. */
-	private final INodeReadTrx mNewRtx;
+	/** {@link NodeReadTrx} on new revision. */
+	private final NodeReadTrx mNewRtx;
 
-	/** {@link INodeReadTrx} on old revision. */
-	private final INodeReadTrx mOldRtx;
+	/** {@link NodeReadTrx} on old revision. */
+	private final NodeReadTrx mOldRtx;
 
 	/**
 	 * Constructor.
@@ -139,17 +139,17 @@ abstract class AbsDiff extends AbsDiffObservable {
 		}
 		mNewRtxMoved = mNewRtx.moveTo(pBuilder.mNewStartKey).hasMoved();
 		mOldRtxMoved = mOldRtx.moveTo(pBuilder.mOldStartKey).hasMoved();
-		if (mNewRtx.getKind() == EKind.DOCUMENT_ROOT) {
+		if (mNewRtx.getKind() == Kind.DOCUMENT_ROOT) {
 			mNewRtx.moveToFirstChild();
 		}
-		if (mOldRtx.getKind() == EKind.DOCUMENT_ROOT) {
+		if (mOldRtx.getKind() == Kind.DOCUMENT_ROOT) {
 			mOldRtx.moveToFirstChild();
 		}
 		mRootKey = pBuilder.mNewStartKey;
 		mOldRootKey = pBuilder.mOldStartKey;
 
 		synchronized (pBuilder.mObservers) {
-			for (final IDiffObserver observer : pBuilder.mObservers) {
+			for (final DiffObserver observer : pBuilder.mObservers) {
 				addObserver(observer);
 			}
 		}
@@ -191,7 +191,7 @@ abstract class AbsDiff extends AbsDiffObservable {
 		}
 
 		// Check first node.
-		if (mHashKind == EHashKind.None || mDiffKind == EDiffOptimized.NO) {
+		if (mHashKind == HashKind.None || mDiffKind == EDiffOptimized.NO) {
 			mDiff = diff(mNewRtx, mOldRtx, mDepth);
 		} else {
 			mDiff = optimizedDiff(mNewRtx, mOldRtx, mDepth);
@@ -201,15 +201,15 @@ abstract class AbsDiff extends AbsDiffObservable {
 		// Iterate over new revision (order of operators significant -- regarding
 		// the OR).
 		if (mDiff != EDiff.SAMEHASH) {
-			while ((mOldRtx.getKind() != EKind.DOCUMENT_ROOT && mDiff == EDiff.DELETED)
+			while ((mOldRtx.getKind() != Kind.DOCUMENT_ROOT && mDiff == EDiff.DELETED)
 					|| moveCursor(mNewRtx, ERevision.NEW, EMove.FOLLOWING)) {
 				if (mDiff != EDiff.INSERTED) {
 					moveCursor(mOldRtx, ERevision.OLD, EMove.FOLLOWING);
 				}
 
-				if (mNewRtx.getKind() != EKind.DOCUMENT_ROOT
-						|| mOldRtx.getKind() != EKind.DOCUMENT_ROOT) {
-					if (mHashKind == EHashKind.None || mDiffKind == EDiffOptimized.NO) {
+				if (mNewRtx.getKind() != Kind.DOCUMENT_ROOT
+						|| mOldRtx.getKind() != Kind.DOCUMENT_ROOT) {
+					if (mHashKind == HashKind.None || mDiffKind == EDiffOptimized.NO) {
 						mDiff = diff(mNewRtx, mOldRtx, mDepth);
 					} else {
 						mDiff = optimizedDiff(mNewRtx, mOldRtx, mDepth);
@@ -218,7 +218,7 @@ abstract class AbsDiff extends AbsDiffObservable {
 			}
 
 			// Nodes deleted in old rev at the end of the tree.
-			if (mOldRtx.getKind() != EKind.DOCUMENT_ROOT) {
+			if (mOldRtx.getKind() != Kind.DOCUMENT_ROOT) {
 				mRootKey = mOldRootKey;
 				// First time it might be EDiff.INSERTED where the cursor doesn't move.
 				if (mDiff == EDiff.INSERTED) {
@@ -291,20 +291,20 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 * Move cursor one node forward in pre order.
 	 * 
 	 * @param pRtx
-	 *          the {@link INodeReadTrx} to use
+	 *          the {@link NodeReadTrx} to use
 	 * @param pRevision
 	 *          the {@link ERevision} constant
 	 * @return {@code true}, if cursor moved, {@code false} otherwise, if no nodes
 	 *         follow in document order
 	 */
-	private boolean moveCursor(@Nonnull final INodeReadTrx pRtx,
+	private boolean moveCursor(@Nonnull final NodeReadTrx pRtx,
 			@Nonnull final ERevision pRevision, @Nonnull final EMove pMove) {
 		assert pRtx != null;
 		assert pRevision != null;
 
 		boolean moved = false;
 
-		if (pRtx.getKind() != EKind.DOCUMENT_ROOT) {
+		if (pRtx.getKind() != Kind.DOCUMENT_ROOT) {
 			switch (mDiff) {
 			case SAME:
 			case SAMEHASH:
@@ -318,7 +318,7 @@ abstract class AbsDiff extends AbsDiffObservable {
 			case DELETED:
 				if (pMove == EMove.FOLLOWING
 						&& (mDiff == EDiff.INSERTED || mDiff == EDiff.DELETED)) {
-					if (pRtx.getKind() == EKind.DOCUMENT_ROOT) {
+					if (pRtx.getKind() == Kind.DOCUMENT_ROOT) {
 						moved = false;
 					} else {
 						moved = true;
@@ -334,11 +334,11 @@ abstract class AbsDiff extends AbsDiffObservable {
 		return moved;
 	}
 
-	private boolean moveToNext(@Nonnull final INodeReadTrx pRtx,
+	private boolean moveToNext(@Nonnull final NodeReadTrx pRtx,
 			@Nonnull final ERevision pRevision) {
 		boolean moved = false;
 		if (pRtx.hasFirstChild()) {
-			if (pRtx.getKind() != EKind.DOCUMENT_ROOT
+			if (pRtx.getKind() != Kind.DOCUMENT_ROOT
 					&& mDiffKind == EDiffOptimized.HASHED && mDiff == EDiff.SAMEHASH) {
 				moved = pRtx.moveToRightSibling().hasMoved();
 
@@ -375,12 +375,12 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 * Move to next following node.
 	 * 
 	 * @param pRtx
-	 *          the {@link INodeReadTrx} to use
+	 *          the {@link NodeReadTrx} to use
 	 * @param pRevision
 	 *          the {@link ERevision} constant
 	 * @return true, if cursor moved, false otherwise
 	 */
-	private boolean moveToFollowingNode(final INodeReadTrx pRtx,
+	private boolean moveToFollowingNode(final NodeReadTrx pRtx,
 			final ERevision pRevision) {
 		boolean moved = false;
 		while (!pRtx.hasRightSibling() && pRtx.hasParent()
@@ -410,9 +410,9 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 * Diff of nodes.
 	 * 
 	 * @param pNewRtx
-	 *          {@link INodeReadTrx} on new revision
+	 *          {@link NodeReadTrx} on new revision
 	 * @param pOldRtx
-	 *          {@link INodeReadTrx} on old revision
+	 *          {@link NodeReadTrx} on old revision
 	 * @param pDepth
 	 *          {@link DepthCounter} container for current depths of both
 	 *          transaction cursors
@@ -420,8 +420,8 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 *          determines if a diff should be fired
 	 * @return kind of difference
 	 */
-	EDiff diff(@Nonnull final INodeReadTrx pNewRtx,
-			@Nonnull final INodeReadTrx pOldRtx, @Nonnull final DepthCounter pDepth) {
+	EDiff diff(@Nonnull final NodeReadTrx pNewRtx,
+			@Nonnull final NodeReadTrx pOldRtx, @Nonnull final DepthCounter pDepth) {
 		assert pNewRtx != null;
 		assert pOldRtx != null;
 		assert pDepth != null;
@@ -451,9 +451,9 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 * Optimized diff, which skips unnecessary comparsions.
 	 * 
 	 * @param pNewRtx
-	 *          {@link INodeReadTrx} on new revision
+	 *          {@link NodeReadTrx} on new revision
 	 * @param pOldRtx
-	 *          {@link INodeReadTrx} on old revision
+	 *          {@link NodeReadTrx} on old revision
 	 * @param pDepth
 	 *          {@link DepthCounter} container for current depths of both
 	 *          transaction cursors
@@ -461,8 +461,8 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 *          determines if a diff should be fired
 	 * @return kind of difference
 	 */
-	EDiff optimizedDiff(@Nonnull final INodeReadTrx pNewRtx,
-			@Nonnull final INodeReadTrx pOldRtx, @Nonnull final DepthCounter pDepth) {
+	EDiff optimizedDiff(@Nonnull final NodeReadTrx pNewRtx,
+			@Nonnull final NodeReadTrx pOldRtx, @Nonnull final DepthCounter pDepth) {
 		assert pNewRtx != null;
 		assert pOldRtx != null;
 		assert pDepth != null;
@@ -500,16 +500,16 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 * Main algorithm to compute diffs between two nodes.
 	 * 
 	 * @param pNewRtx
-	 *          {@link INodeReadTrx} on new revision
+	 *          {@link NodeReadTrx} on new revision
 	 * @param pOldRtx
-	 *          {@link INodeReadTrx} on old revision
+	 *          {@link NodeReadTrx} on old revision
 	 * @param pDepth
 	 *          {@link DepthCounter} container for current depths of both
 	 *          transaction cursors
 	 * @return kind of diff
 	 */
-	private EDiff diffAlgorithm(@Nonnull final INodeReadTrx pNewRtx,
-			@Nonnull final INodeReadTrx pOldRtx, @Nonnull final DepthCounter pDepth) {
+	private EDiff diffAlgorithm(@Nonnull final NodeReadTrx pNewRtx,
+			@Nonnull final NodeReadTrx pOldRtx, @Nonnull final DepthCounter pDepth) {
 		assert pNewRtx != null;
 		assert pOldRtx != null;
 		assert pDepth != null;
@@ -577,7 +577,7 @@ abstract class AbsDiff extends AbsDiffObservable {
 				: ERevision.NEW;
 		final int depth = pDiff == EDiff.DELETED ? mDepth.getOldDepth() : mDepth
 				.getNewDepth();
-		final INodeReadTrx rtx = pDiff == EDiff.DELETED ? mOldRtx : mNewRtx;
+		final NodeReadTrx rtx = pDiff == EDiff.DELETED ? mOldRtx : mNewRtx;
 		do {
 			fireDiff(pDiff, mNewRtx.getNodeKey(), mOldRtx.getNodeKey(),
 					new DiffDepth(mDepth.getNewDepth(), mDepth.getOldDepth()));
@@ -590,15 +590,15 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 * Check {@link QName} of nodes.
 	 * 
 	 * @param pNewRtx
-	 *          {@link INodeReadTrx} on new revision
+	 *          {@link NodeReadTrx} on new revision
 	 * @param pOldRtx
-	 *          {@link INodeReadTrx} on old revision
+	 *          {@link NodeReadTrx} on old revision
 	 * @return {@code true} if nodes are "equal" according to their {@link QName}
 	 *         s, {@code false
 
 	 */
-	boolean checkName(@Nonnull final INodeReadTrx pNewRtx,
-			@Nonnull final INodeReadTrx pOldRtx) {
+	boolean checkName(@Nonnull final NodeReadTrx pNewRtx,
+			@Nonnull final NodeReadTrx pOldRtx) {
 		boolean found = false;
 		if (pNewRtx.getKind() == pOldRtx.getKind()) {
 			switch (pNewRtx.getKind()) {
@@ -622,25 +622,25 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 * Check if nodes are equal excluding subtrees.
 	 * 
 	 * @param pNewRtx
-	 *          {@link INodeReadTrx} on new revision
+	 *          {@link NodeReadTrx} on new revision
 	 * @param pOldRtx
-	 *          {@link INodeReadTrx} on old revision
+	 *          {@link NodeReadTrx} on old revision
 	 * @return true if nodes are "equal", otherwise false
 	 */
-	abstract boolean checkNodes(@Nonnull final INodeReadTrx pNewRtx,
-			@Nonnull final INodeReadTrx pOldRtx);
+	abstract boolean checkNodes(@Nonnull final NodeReadTrx pNewRtx,
+			@Nonnull final NodeReadTrx pOldRtx);
 
 	/**
 	 * Check for a replace of a node.
 	 * 
 	 * @param pNewRtx
-	 *          first {@link INodeReadTrx} instance
+	 *          first {@link NodeReadTrx} instance
 	 * @param pOldRtx
-	 *          second {@link INodeReadTrx} instance
+	 *          second {@link NodeReadTrx} instance
 	 * @return true if node has been replaced, false otherwise
 	 */
-	boolean checkReplace(@Nonnull final INodeReadTrx pNewRtx,
-			@Nonnull final INodeReadTrx pOldRtx) {
+	boolean checkReplace(@Nonnull final NodeReadTrx pNewRtx,
+			@Nonnull final NodeReadTrx pOldRtx) {
 		boolean replaced = false;
 		if (pNewRtx.getNodeKey() != pOldRtx.getNodeKey()) {
 			final long newKey = pNewRtx.getNodeKey();
@@ -676,8 +676,8 @@ abstract class AbsDiff extends AbsDiffObservable {
 			if (replaced) {
 				final long newNodeKey = pNewRtx.getNodeKey();
 				final long oldNodeKey = pOldRtx.getNodeKey();
-				final IAxis oldAxis = new DescendantAxis(pOldRtx, EIncludeSelf.YES);
-				final IAxis newAxis = new DescendantAxis(pNewRtx, EIncludeSelf.YES);
+				final Axis oldAxis = new DescendantAxis(pOldRtx, IncludeSelf.YES);
+				final Axis newAxis = new DescendantAxis(pNewRtx, IncludeSelf.YES);
 				while (oldAxis.hasNext()) {
 					oldAxis.next();
 					fireDiff(EDiff.REPLACEDOLD, pNewRtx.getNodeKey(), pOldRtx.getNodeKey(),
@@ -744,7 +744,7 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 * @param pStartNodeKey
 	 *          the start node key
 	 */
-	private void adjustDepth(final INodeReadTrx pRtx, final long pStartNodeKey,
+	private void adjustDepth(final NodeReadTrx pRtx, final long pStartNodeKey,
 			final ERevision pRevision) {
 		assert pRtx != null;
 		assert pStartNodeKey >= 0;
@@ -780,12 +780,12 @@ abstract class AbsDiff extends AbsDiffObservable {
 	 * Check for an update of a node.
 	 * 
 	 * @param pNewRtx
-	 *          first {@link INodeReadTrx} instance
+	 *          first {@link NodeReadTrx} instance
 	 * @param pOldRtx
-	 *          second {@link INodeReadTrx} instance
+	 *          second {@link NodeReadTrx} instance
 	 * @return kind of diff
 	 */
-	boolean checkUpdate(final INodeReadTrx pNewRtx, final INodeReadTrx pOldRtx) {
+	boolean checkUpdate(final NodeReadTrx pNewRtx, final NodeReadTrx pOldRtx) {
 		if (mIsFirst) {
 			return pNewRtx.getNodeKey() == pOldRtx.getNodeKey();
 		}

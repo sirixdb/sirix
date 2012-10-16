@@ -44,7 +44,7 @@ import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewNotifier;
 import org.sirix.gui.view.ViewUtilities;
 import org.sirix.gui.view.VisualItemAxis;
-import org.sirix.gui.view.model.interfaces.IModel;
+import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI.EResetZoomer;
 import org.sirix.gui.view.sunburst.SunburstView.Embedded;
 import org.sirix.gui.view.sunburst.control.AbsSunburstControl;
@@ -89,11 +89,11 @@ public final class SunburstControl extends AbsSunburstControl {
    * @param pParent
    *          parent processing {@link PApplet}
    * @param pModel
-   *          an {@link IModel} implementation
+   *          an {@link Model} implementation
    * @param pDb
    *          {@link ReadDB} instance
    */
-  private SunburstControl(final Embedded pParent, final IModel<SunburstContainer, SunburstItem> pModel,
+  private SunburstControl(final Embedded pParent, final Model<SunburstContainer, SunburstItem> pModel,
     final ReadDB pDb) {
     super(pParent, pModel, pDb);
     assert pParent != null;
@@ -101,13 +101,13 @@ public final class SunburstControl extends AbsSunburstControl {
     final SunburstContainer container =
       new SunburstContainer(mSunburstGUI, mModel).setNewStartKey(mDb.getNodeKey());
     if (mSunburstGUI.mUsePruning) {
-      if (mSunburstGUI.mUseDiffView == EView.DIFF && mSunburstGUI.mUseDiffView.getValue()) {
-        container.setPruning(EPruning.DIFF);
+      if (mSunburstGUI.mUseDiffView == ViewType.DIFF && mSunburstGUI.mUseDiffView.getValue()) {
+        container.setPruning(Pruning.DIFF);
       } else {
-        container.setPruning(EPruning.DEPTH);
+        container.setPruning(Pruning.DEPTH);
       }
     } else {
-      container.setPruning(EPruning.NO);
+      container.setPruning(Pruning.NO);
     }
     mModel.traverseTree(container);
   }
@@ -118,13 +118,13 @@ public final class SunburstControl extends AbsSunburstControl {
    * @param pParent
    *          parent processing {@link PApplet}
    * @param pModel
-   *          an {@link IModel} implementation
+   *          an {@link Model} implementation
    * @param pDb
    *          {@link ReadDB} instance
    * @return {@link SunburstControl} instance
    */
   public static synchronized SunburstControl getInstance(final Embedded pParent,
-    final IModel<SunburstContainer, SunburstItem> pModel, final ReadDB pDb) {
+    final Model<SunburstContainer, SunburstItem> pModel, final ReadDB pDb) {
     if (mControl == null) {
       mControl = new SunburstControl(checkNotNull(pParent), checkNotNull(pModel), checkNotNull(pDb));
     }
@@ -148,14 +148,14 @@ public final class SunburstControl extends AbsSunburstControl {
         mModel.addPropertyChangeListener(mSunburstGUI);
         final SunburstContainer container = new SunburstContainer(mSunburstGUI, mModel);
         if (mSunburstGUI.mUsePruning) {
-          container.setPruning(EPruning.DIFF);
+          container.setPruning(Pruning.DIFF);
         } else {
-          container.setPruning(EPruning.NO);
+          container.setPruning(Pruning.NO);
         }
         container.setMoveDetection(mSunburstGUI.mUseMoveDetection);
         mModel.traverseTree(container.setRevision(selectedRev).setModWeight(
           mSunburstGUI.getModificationWeight()));
-        mSunburstGUI.mUseDiffView = EView.DIFF;
+        mSunburstGUI.mUseDiffView = ViewType.DIFF;
         mSunburstGUI.mUseDiffView.setValue(true);
         final SunburstView view = (SunburstView)((Embedded)mSunburstGUI.mParent).getView();
         final ViewNotifier notifier = view.getNotifier();
@@ -245,7 +245,7 @@ public final class SunburstControl extends AbsSunburstControl {
         break;
       case 'o':
       case 'O':
-        if (mSunburstGUI.mUseDiffView == EView.NODIFF) {
+        if (mSunburstGUI.mUseDiffView == ViewType.NODIFF) {
           mSunburstGUI.mUseDiffView.setValue(true);
           mSunburstGUI.mRevisions =
             mSunburstGUI.getControlP5().addDropdownList("Compare revision", mSunburstGUI.mParent.width - 250,
@@ -335,13 +335,13 @@ public final class SunburstControl extends AbsSunburstControl {
             if (SwingUtilities.isLeftMouseButton(pEvent) && !mSunburstGUI.mCtrl.isOpen()) {
               final SunburstContainer container = new SunburstContainer(mSunburstGUI, mModel);
               if (mSunburstGUI.mUsePruning) {
-                if (mSunburstGUI.mUseDiffView == EView.DIFF && mSunburstGUI.mUseDiffView.getValue()) {
-                  container.setPruning(EPruning.DIFF);
+                if (mSunburstGUI.mUseDiffView == ViewType.DIFF && mSunburstGUI.mUseDiffView.getValue()) {
+                  container.setPruning(Pruning.DIFF);
                 } else {
-                  container.setPruning(EPruning.DEPTH);
+                  container.setPruning(Pruning.DEPTH);
                 }
               } else {
-                container.setPruning(EPruning.NO);
+                container.setPruning(Pruning.NO);
               }
 
               container.setMoveDetection(mSunburstGUI.mUseMoveDetection);
@@ -351,7 +351,7 @@ public final class SunburstControl extends AbsSunburstControl {
               final SunburstItem item = mModel.getItem(mHitTestIndex);
               notifier.getGUI().getReadDB().setKey(item.getKey());
 
-              if (mSunburstGUI.mUseDiffView == EView.DIFF) {
+              if (mSunburstGUI.mUseDiffView == ViewType.DIFF) {
                 LOGWRAPPER.debug("old rev: " + container.getOldRevision());
                 mModel
                   .update(container.setAll(mSunburstGUI.mSelectedRev, item.getDepth(),
@@ -362,7 +362,7 @@ public final class SunburstControl extends AbsSunburstControl {
               }
               refreshed(container, mHitTestIndex);
             } else if (SwingUtilities.isRightMouseButton(pEvent)) {
-              if (mSunburstGUI.mUseDiffView == EView.NODIFF) {
+              if (mSunburstGUI.mUseDiffView == ViewType.NODIFF) {
                 try {
                   ((SunburstModel)mModel).popupMenu(pEvent, mSunburstGUI.mCtrl, mHitTestIndex);
                 } catch (final SirixException e) {
@@ -389,8 +389,8 @@ public final class SunburstControl extends AbsSunburstControl {
   private void refreshed(@Nonnull final SunburstContainer pContainer, @Nonnegative final int pIndex) {
     assert pContainer != null;
     assert pIndex >= 0;
-    if (mRefresh || pContainer.getPruning() == EPruning.ITEMSIZE
-      || pContainer.getPruning() == EPruning.DEPTH) {
+    if (mRefresh || pContainer.getPruning() == Pruning.ITEMSIZE
+      || pContainer.getPruning() == Pruning.DEPTH) {
       mRefresh = false;
       mModel.traverseTree(pContainer);
     } else {
@@ -509,14 +509,14 @@ public final class SunburstControl extends AbsSunburstControl {
   public void refreshUpdate(@Nonnull final ReadDB pDB) {
     mDb = checkNotNull(pDB);
     mSunburstGUI.mDone = false;
-    mSunburstGUI.mUseDiffView = EView.NODIFF;
+    mSunburstGUI.mUseDiffView = ViewType.NODIFF;
     mModel = new SunburstModel(mSunburstGUI.mParent, mSunburstGUI.mDb);
     final SunburstContainer container =
       new SunburstContainer(mSunburstGUI, mModel).setNewStartKey(mDb.getNodeKey());
     if (mSunburstGUI.mUsePruning) {
-      container.setPruning(EPruning.DEPTH);
+      container.setPruning(Pruning.DEPTH);
     } else {
-      container.setPruning(EPruning.NO);
+      container.setPruning(Pruning.NO);
     }
     container.setOldRevision(mDb.getRevisionNumber());
     if (mSunburstGUI.mSelectedRev > 0) {

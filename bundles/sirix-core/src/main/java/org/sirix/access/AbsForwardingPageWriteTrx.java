@@ -3,12 +3,12 @@ package org.sirix.access;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.IPageWriteTrx;
+import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.PageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.node.EKind;
-import org.sirix.node.interfaces.INodeBase;
+import org.sirix.node.Kind;
+import org.sirix.node.interfaces.NodeBase;
 import org.sirix.page.EPage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
@@ -20,20 +20,20 @@ import org.sirix.page.UberPage;
  * 
  */
 public abstract class AbsForwardingPageWriteTrx extends
-		AbsForwardingPageReadTrx implements IPageWriteTrx {
+		AbsForwardingPageReadTrx implements PageWriteTrx {
 
 	/** Constructor for use by subclasses. */
 	protected AbsForwardingPageWriteTrx() {
 	}
 
 	@Override
-	public INodeBase createNode(@Nonnull INodeBase pNode, @Nonnull EPage pPage)
+	public NodeBase createNode(@Nonnull NodeBase pNode, @Nonnull EPage pPage)
 			throws SirixIOException {
 		return delegate().createNode(pNode, pPage);
 	}
 
 	@Override
-	public INodeBase prepareNodeForModification(@Nonnegative long pNodeKey,
+	public NodeBase prepareNodeForModification(@Nonnegative long pNodeKey,
 			@Nonnull EPage pPage) throws SirixIOException {
 		return delegate().prepareNodeForModification(pNodeKey, pPage);
 	}
@@ -51,13 +51,13 @@ public abstract class AbsForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public int createNameKey(@Nonnull String pName, @Nonnull EKind pKind)
+	public int createNameKey(@Nonnull String pName, @Nonnull Kind pKind)
 			throws SirixIOException {
 		return delegate().createNameKey(pName, pKind);
 	}
 
 	@Override
-	public UberPage commit(@Nonnull EMultipleWriteTrx pMultipleWriteTrx)
+	public UberPage commit(@Nonnull MultipleWriteTrx pMultipleWriteTrx)
 			throws SirixException {
 		return delegate().commit(pMultipleWriteTrx);
 	}
@@ -74,11 +74,11 @@ public abstract class AbsForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public void restore(@Nonnull ERestore pRestore) {
+	public void restore(@Nonnull Restore pRestore) {
 		delegate().restore(pRestore);
 	}
 
 	@Override
-	protected abstract IPageWriteTrx delegate();
+	protected abstract PageWriteTrx delegate();
 
 }

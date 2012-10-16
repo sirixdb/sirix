@@ -27,8 +27,8 @@
 
 package org.sirix.axis.filter;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.node.EKind;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.node.Kind;
 
 /**
  * <h1>AttributeAxisTest</h1>
@@ -45,13 +45,13 @@ public class AttributeFilter extends AbsFilter {
    * @param rtx
    *          Transaction this filter is bound to.
    */
-  public AttributeFilter(final INodeReadTrx rtx) {
+  public AttributeFilter(final NodeReadTrx rtx) {
     super(rtx);
   }
 
   @Override
   public final boolean filter() {
-    return getTrx().getKind() == EKind.ATTRIBUTE;
+    return getTrx().getKind() == Kind.ATTRIBUTE;
   }
 
 }

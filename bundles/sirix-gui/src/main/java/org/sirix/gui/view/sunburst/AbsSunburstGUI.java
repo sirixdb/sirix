@@ -53,12 +53,12 @@ import javax.xml.stream.events.Attribute;
 import org.gicentre.utils.move.ZoomPan;
 import org.sirix.diff.DiffFactory.EDiff;
 import org.sirix.gui.ReadDB;
-import org.sirix.gui.view.IProcessingGUI;
-import org.sirix.gui.view.IVisualItem;
+import org.sirix.gui.view.ProcessingGUI;
+import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.model.AbsModel;
-import org.sirix.gui.view.model.interfaces.IModel;
-import org.sirix.gui.view.sunburst.EDraw.EDrawSunburst;
-import org.sirix.gui.view.sunburst.control.ISunburstControl;
+import org.sirix.gui.view.model.interfaces.Model;
+import org.sirix.gui.view.sunburst.Draw.EDrawSunburst;
+import org.sirix.gui.view.sunburst.control.SunburstControl;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -91,7 +91,7 @@ import controlP5.Toggle;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbsSunburstGUI implements IProcessingGUI,
+public abstract class AbsSunburstGUI implements ProcessingGUI,
 		PropertyChangeListener {
 
 	/** {@link LogWrapper} reference. */
@@ -109,8 +109,8 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 	/** Current old depth for maximum old depth computation. */
 	private volatile int mOldDepth;
 
-	/** Model which implements {@link IModel} for the SunburstView. */
-	protected IModel<SunburstContainer, SunburstItem> mModel;
+	/** Model which implements {@link Model} for the SunburstView. */
+	protected Model<SunburstContainer, SunburstItem> mModel;
 
 	public enum EResetZoomer {
 		YES,
@@ -287,8 +287,8 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 	/** {@link ReadDB} instance. */
 	protected transient ReadDB mDb;
 
-	/** {@link ISunburstControl} implementation. */
-	public final ISunburstControl mControl;
+	/** {@link SunburstControl} implementation. */
+	public final SunburstControl mControl;
 
 	/** Selected revision to compare. */
 	protected transient int mSelectedRev;
@@ -300,7 +300,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 	protected transient int mOldDepthMax;
 
 	/** Determines if diff view should be used or not. */
-	protected transient EView mUseDiffView = EView.NODIFF;
+	protected transient ViewType mUseDiffView = ViewType.NODIFF;
 
 	/** Determines if current state should be saved as a PDF-file. */
 	private transient boolean mSavePDF;
@@ -359,13 +359,13 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 	 * @param pApplet
 	 *          {@link PApplet} instance
 	 * @param pControl
-	 *          {@link ISunburstControl} implementation
+	 *          {@link SunburstControl} implementation
 	 * @param pDb
 	 *          {@link ReadDB} instance
 	 */
 	@SuppressWarnings("unchecked")
 	protected AbsSunburstGUI(@Nonnull final PApplet pApplet,
-			@Nonnull final ISunburstControl pControl, @Nonnull final ReadDB pDb) {
+			@Nonnull final SunburstControl pControl, @Nonnull final ReadDB pDb) {
 		mParent = checkNotNull(pApplet);
 		mControl = checkNotNull(pControl);
 		mDb = checkNotNull(pDb);
@@ -381,7 +381,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 		mLock = new Semaphore(1);
 		mImages = new LinkedBlockingDeque<>();
 		// Generic cast always working.
-		mModel = (IModel<SunburstContainer, SunburstItem>) mControl.getModel();
+		mModel = (Model<SunburstContainer, SunburstItem>) mControl.getModel();
 		mFont = mParent.createFont("src" + File.separator + "main" + File.separator
 				+ "resources" + File.separator + "data" + File.separator
 				+ "miso-regular.ttf", 15);
@@ -602,7 +602,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 		mBuffer.noFill();
 		
 		// Draw items.
-		drawItems(EDraw.UPDATEBUFFER);
+		drawItems(Draw.UPDATEBUFFER);
 		
 		mBuffer.stroke(0);
 		mBuffer.strokeWeight(2f);
@@ -667,16 +667,16 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 	 * @param pItem
 	 *          {@link SunburstItem} instance
 	 */
-	protected void drawItem(final EDraw pDraw, final SunburstItem pItem) {
+	protected void drawItem(final Draw pDraw, final SunburstItem pItem) {
 		checkNotNull(pDraw);
 		pDraw.update(this, checkNotNull(pItem));
-		if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()) {
+		if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()) {
 			pDraw.drawModificationRel(this, pItem);
 			pDraw.drawStrategy(this, pItem, EDrawSunburst.COMPARE);
 		} else {
 			pDraw.drawStrategy(this, pItem, EDrawSunburst.NORMAL);
 		}
-		if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()) {
+		if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()) {
 			pDraw.drawRelation(this, pItem);
 			pDraw.drawDot(pItem);
 			pDraw.drawLabel(this, pItem);
@@ -684,24 +684,24 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 	}
 
 	/**
-	 * Draw {@link IVisualItem} instances on the screen.
+	 * Draw {@link VisualItem} instances on the screen.
 	 * 
 	 * @param pDraw
 	 *          drawing strategy
 	 */
 	@SuppressWarnings("unchecked")
-	protected synchronized void drawItems(final @Nonnull EDraw pDraw) {
+	protected synchronized void drawItems(final @Nonnull Draw pDraw) {
 		checkNotNull(pDraw);
 		if (!isShowArcs()) {
 			pDraw.drawRings(this);
 		}
 
-		mModel = (IModel<SunburstContainer, SunburstItem>) mControl.getModel();
+		mModel = (Model<SunburstContainer, SunburstItem>) mControl.getModel();
 		final Iterable<SunburstItem> items = mModel;
 		for (final SunburstItem item : items) {
 			pDraw.update(this, item);
 
-			if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()) {
+			if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()) {
 				pDraw.drawStrategy(this, item, EDrawSunburst.COMPARE);
 			} else {
 				pDraw.drawStrategy(this, item, EDrawSunburst.NORMAL);
@@ -711,7 +711,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 			}
 		}
 
-		if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()) {		
+		if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()) {		
 			pDraw.drawNewRevision(this);
 			pDraw.drawOldRevision(this);
 
@@ -826,10 +826,10 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 			assert pEvent.getNewValue() instanceof Boolean;
 			final boolean updateOldDepthMax = (boolean) pEvent.getNewValue();
 			// Generic cast always safe.
-			mModel = (IModel<SunburstContainer, SunburstItem>) mControl.getModel();
+			mModel = (Model<SunburstContainer, SunburstItem>) mControl.getModel();
 			int tmpOldDepth = mOldDepthMax;
 			if (updateOldDepthMax) {
-				final IVisualItem item = mModel.getItem(0);
+				final VisualItem item = mModel.getItem(0);
 				final int depth = item.getDepth();
 				mOldDepthMax = new OldDepthMax(
 						mModel.subList(0, mModel.getItemsSize()), depth).call();
@@ -856,7 +856,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 		case "oldmaxdepth":
 			assert pEvent.getNewValue() instanceof Integer;
 			mOldDepthMax = (Integer) pEvent.getNewValue();
-			mUseDiffView = EView.DIFF;
+			mUseDiffView = ViewType.DIFF;
 			break;
 		default:
 			break;
@@ -945,8 +945,8 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 			LOGWRAPPER.debug("depth: " + mDepth);
 
 			int index = 0;
-			final IModel<?, ?> model = mControl.getModel();
-			for (final IVisualItem visualItem : model) {
+			final Model<?, ?> model = mControl.getModel();
+			for (final VisualItem visualItem : model) {
 				final SunburstItem item = (SunburstItem) visualItem;
 				// Hittest, which arc is the closest to the mouse.
 				// System.out.println("radians: " + PApplet.radians(mRad));
@@ -1591,7 +1591,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 	 * 
 	 * @return the kind of view
 	 */
-	public EView getViewKind() {
+	public ViewType getViewKind() {
 		return mUseDiffView;
 	}
 
@@ -1702,7 +1702,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 			@Override
 			public Void call() throws Exception {
 				// Generic cast always working.
-				mModel = (IModel<SunburstContainer, SunburstItem>) mControl.getModel();
+				mModel = (Model<SunburstContainer, SunburstItem>) mControl.getModel();
 				final SunburstItem item = mModel.getItem(pHitItemIndex);
 				ListIterator<SunburstItem> items = ((AbsModel<SunburstContainer, SunburstItem>) mModel)
 						.listIterator(pHitItemIndex);
@@ -1847,7 +1847,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 				}
 
 				mControl.setItems(newItems);
-				if (!(mUseDiffView == EView.DIFF && mUseDiffView.getValue())) {
+				if (!(mUseDiffView == ViewType.DIFF && mUseDiffView.getValue())) {
 					mModel.setMinMax();
 				}
 				mControl.setNewMaxDepth(depthMax);
@@ -1855,7 +1855,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 				mDepthMax = depthMax;
 				mOldDepthMax = oldDepthMax;
 				setDepthMax();
-				if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()
+				if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()
 						&& mControl.getModel().getItemsSize() < ANIMATION_THRESHOLD) {
 					mInit = true;
 				} else {
@@ -1879,7 +1879,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 
 	/** Set maximum depth. */
 	protected void setDepthMax() {
-		if (mUseDiffView == EView.DIFF) {
+		if (mUseDiffView == ViewType.DIFF) {
 			if (mDepthMax < mOldDepthMax + 2) {
 				mDepthMax = mOldDepthMax;
 			}
@@ -1922,7 +1922,7 @@ public abstract class AbsSunburstGUI implements IProcessingGUI,
 		mLock.acquireUninterruptibly();
 		if (!mImages.isEmpty()) {
       resetZoom();
-      if (mUseDiffView == EView.DIFF && EView.DIFF.getValue()
+      if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()
         && mControl.getModel().getItemsSize() < ANIMATION_THRESHOLD) {
         mInit = true;
       } else {

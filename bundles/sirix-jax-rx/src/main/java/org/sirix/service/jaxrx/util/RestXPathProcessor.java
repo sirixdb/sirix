@@ -33,12 +33,12 @@ import java.io.OutputStream;
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Response;
 
-import org.sirix.access.Database;
+import org.sirix.access.DatabaseImpl;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IAxis;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
+import org.sirix.api.Axis;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.settings.EFixed;
@@ -155,11 +155,11 @@ public class RestXPathProcessor {
     if (query.charAt(0) == '/')
       qQuery = ".".concat(query);
 
-    IDatabase database = null;
-    ISession session = null;
-    INodeReadTrx rtx = null;
+    Database database = null;
+    Session session = null;
+    NodeReadTrx rtx = null;
     try {
-      database = Database.openDatabase(dbFile.getParentFile());
+      database = DatabaseImpl.openDatabase(dbFile.getParentFile());
       session =
         database.getSession(new SessionConfiguration.Builder(dbFile.getName())
           .build());
@@ -173,7 +173,7 @@ public class RestXPathProcessor {
 
       final boolean exist = rtx.moveTo(rId).hasMoved();
       if (exist) {
-        final IAxis axis = new XPathAxis(rtx, qQuery);
+        final Axis axis = new XPathAxis(rtx, qQuery);
         if (doWrap) {
           output.write(beginResult.getBytes());
           for (final long key : axis) {
@@ -221,11 +221,11 @@ public class RestXPathProcessor {
     final OutputStream output, final boolean nodeid, final String xpath)
     throws SirixException {
     // Database connection to sirix
-    IDatabase database = null;
-    ISession session = null;
-    INodeReadTrx rtx = null;
+    Database database = null;
+    Session session = null;
+    NodeReadTrx rtx = null;
     try {
-      database = Database.openDatabase(mStoragePath);
+      database = DatabaseImpl.openDatabase(mStoragePath);
       session =
         database.getSession(new SessionConfiguration.Builder(resource).build());
       // Creating a transaction
@@ -235,7 +235,7 @@ public class RestXPathProcessor {
         rtx = session.beginNodeReadTrx(revision);
       }
 
-      final IAxis axis = new XPathAxis(rtx, xpath);
+      final Axis axis = new XPathAxis(rtx, xpath);
       for (final long key : axis) {
         WorkerHelper
           .serializeXML(session, output, false, nodeid, key, revision).call();

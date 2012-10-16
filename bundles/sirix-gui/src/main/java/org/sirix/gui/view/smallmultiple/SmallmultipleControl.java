@@ -42,10 +42,10 @@ import javax.swing.JOptionPane;
 import org.slf4j.LoggerFactory;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewUtilities;
-import org.sirix.gui.view.model.interfaces.IModel;
+import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.smallmultiple.SmallmultipleView.Embedded;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI;
-import org.sirix.gui.view.sunburst.EPruning;
+import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.control.AbsSunburstControl;
@@ -92,12 +92,12 @@ public class SmallmultipleControl extends AbsSunburstControl {
    * @param pParent
    *          parent {@link Embedded} reference
    * @param pModel
-   *          model which implements the {@link IModel} interface
+   *          model which implements the {@link Model} interface
    * @param pDb
    *          {@link ReadDB} reference
    */
   private SmallmultipleControl(@Nonnull final Embedded pParent,
-    @Nonnull final IModel<SunburstContainer, SunburstItem> pModel, @Nonnull final ReadDB pDB) {
+    @Nonnull final Model<SunburstContainer, SunburstItem> pModel, @Nonnull final ReadDB pDB) {
     super(pParent, pModel, pDB);
     mSmallMultiplesGUI = (SmallmultipleGUI)mGUI;
   }
@@ -156,7 +156,7 @@ public class SmallmultipleControl extends AbsSunburstControl {
       mSmallMultiplesGUI.getModificationWeight()).setOldRevision(pOldRevision).setRevision(pNewRevision)
       .setDepth(0).setCompare(pCompare).setMoveDetection(true);
     if (mGUI.getUsePruning()) {
-      mContainer.setPruning(EPruning.DIFF_WITHOUT_SAMEHASHES);
+      mContainer.setPruning(Pruning.DIFF_WITHOUT_SAMEHASHES);
     }
     mModel.traverseTree(mContainer);
   }
@@ -174,7 +174,7 @@ public class SmallmultipleControl extends AbsSunburstControl {
         mContainer.setLatch(getLatch()).setLock(mLock).setNewStartKey(mDb.getNodeKey()).setModWeight(
           mSmallMultiplesGUI.getModificationWeight()).setOldRevision(mDb.getRevisionNumber()).setRevision(
           (lastRevision < mDb.getRevisionNumber() + REVS_TO_COMPARE) ? lastRevision : mDb.getRevisionNumber()
-            + REVS_TO_COMPARE).setDepth(0).setCompare(ECompare.HYBRID).setPruning(EPruning.ITEMSIZE);
+            + REVS_TO_COMPARE).setDepth(0).setCompare(ECompare.HYBRID).setPruning(Pruning.ITEMSIZE);
 
         mModel.traverseTree(mContainer);
         resetLatch();
@@ -183,7 +183,7 @@ public class SmallmultipleControl extends AbsSunburstControl {
           mContainer = new SunburstContainer(mSmallMultiplesGUI, mModel);
           mModel.traverseTree(mContainer.setLatch(getLatch()).setLock(mLock).setNewStartKey(mDb.getNodeKey())
             .setModWeight(mSmallMultiplesGUI.getModificationWeight()).setOldRevision(i - 1).setRevision(i)
-            .setDepth(0).setCompare(ECompare.HYBRID).setPruning(EPruning.ITEMSIZE));
+            .setDepth(0).setCompare(ECompare.HYBRID).setPruning(Pruning.ITEMSIZE));
           resetLatch();
         }
         return null;
@@ -221,7 +221,7 @@ public class SmallmultipleControl extends AbsSunburstControl {
    * @param pParent
    *          reference of class which extends {@link PApplet}
    * @param pModel
-   *          {@link IModel} reference
+   *          {@link Model} reference
    * @param pDB
    *          {@link ReadDB} reference
    * @return singelton instance of this class

@@ -29,8 +29,8 @@ package org.sirix.service.xml.xpath.functions;
 
 import java.util.List;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
@@ -76,7 +76,7 @@ import org.sirix.service.xml.xpath.expr.AbsExpression;
 public abstract class AbsFunction extends AbsExpression {
 
   /** The function's arguments. */
-  private final List<IAxis> mArgs;
+  private final List<Axis> mArgs;
 
   /** Minimum number of possible function arguments. */
   private final int mMin;
@@ -104,7 +104,7 @@ public abstract class AbsFunction extends AbsExpression {
    * @throws SirixXPathException
    *           if the verify process is failing.
    */
-  public AbsFunction(final INodeReadTrx rtx, final List<IAxis> args, final int min, final int max,
+  public AbsFunction(final NodeReadTrx rtx, final List<Axis> args, final int min, final int max,
     final int returnType) throws SirixXPathException {
 
     super(rtx);
@@ -142,7 +142,7 @@ public abstract class AbsFunction extends AbsExpression {
 
     super.reset(mNodeKey);
     if (mArgs != null) {
-      for (IAxis ax : mArgs) {
+      for (Axis ax : mArgs) {
         ax.reset(mNodeKey);
       }
     }
@@ -177,7 +177,7 @@ public abstract class AbsFunction extends AbsExpression {
   /**
    * @return the list of function arguments
    */
-  protected List<IAxis> getArgs() {
+  protected List<Axis> getArgs() {
     return mArgs;
   }
 

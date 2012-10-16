@@ -34,8 +34,8 @@ import java.util.NoSuchElementException;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.INodeReadTrx;
-import org.sirix.axis.EIncludeSelf;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.axis.IncludeSelf;
 
 /**
  * <h1>AbsDiffAxis</h1>
@@ -51,7 +51,7 @@ import org.sirix.axis.EIncludeSelf;
 public abstract class AbsDiffAxis implements Iterator<Long>, Iterable<Long> {
 
   /** Iterate over transaction exclusive to this step. */
-  private INodeReadTrx mRtx;
+  private NodeReadTrx mRtx;
 
   /** Key of last found node. */
   protected long mKey;
@@ -63,7 +63,7 @@ public abstract class AbsDiffAxis implements Iterator<Long>, Iterable<Long> {
   private long mStartKey;
 
   /** Include self? */
-  private final EIncludeSelf mIncludeSelf;
+  private final IncludeSelf mIncludeSelf;
 
   /**
    * Bind axis step to transaction.
@@ -71,9 +71,9 @@ public abstract class AbsDiffAxis implements Iterator<Long>, Iterable<Long> {
    * @param pRtx
    *          transaction to operate with
    */
-  public AbsDiffAxis(final INodeReadTrx pRtx) {
+  public AbsDiffAxis(final NodeReadTrx pRtx) {
     mRtx = checkNotNull(pRtx);
-    mIncludeSelf = EIncludeSelf.NO;
+    mIncludeSelf = IncludeSelf.NO;
     reset(pRtx.getNodeKey());
   }
 
@@ -85,7 +85,7 @@ public abstract class AbsDiffAxis implements Iterator<Long>, Iterable<Long> {
    * @param pIncludeSelf
    *          determines if self is included
    */
-  public AbsDiffAxis(final INodeReadTrx pRtx, final EIncludeSelf pIncludeSelf) {
+  public AbsDiffAxis(final NodeReadTrx pRtx, final IncludeSelf pIncludeSelf) {
     checkNotNull(pRtx);
     mRtx = pRtx;
     mIncludeSelf = pIncludeSelf;
@@ -127,11 +127,11 @@ public abstract class AbsDiffAxis implements Iterator<Long>, Iterable<Long> {
   }
 
   /**
-   * Get current {@link INodeReadTrx}.
+   * Get current {@link NodeReadTrx}.
    * 
-   * @return the {@link INodeReadTrx} used
+   * @return the {@link NodeReadTrx} used
    */
-  public INodeReadTrx getTransaction() {
+  public NodeReadTrx getTransaction() {
     return mRtx;
   }
 
@@ -175,9 +175,9 @@ public abstract class AbsDiffAxis implements Iterator<Long>, Iterable<Long> {
   /**
    * Is self included?
    * 
-   * @return {@link EIncludeSelf} value
+   * @return {@link IncludeSelf} value
    */
-  public final EIncludeSelf isSelfIncluded() {
+  public final IncludeSelf isSelfIncluded() {
     return mIncludeSelf;
   }
 
@@ -195,9 +195,9 @@ public abstract class AbsDiffAxis implements Iterator<Long>, Iterable<Long> {
    * Set a new transaction.
    * 
    * @param pRtx
-   *          sirix {@link INodeReadTrx}
+   *          sirix {@link NodeReadTrx}
    */
-  public void setTransaction(@Nonnull final INodeReadTrx pRtx) {
+  public void setTransaction(@Nonnull final NodeReadTrx pRtx) {
     mRtx = checkNotNull(pRtx);
   }
 }

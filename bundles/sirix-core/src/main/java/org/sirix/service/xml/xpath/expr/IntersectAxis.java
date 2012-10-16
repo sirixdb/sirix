@@ -30,8 +30,8 @@ package org.sirix.service.xml.xpath.expr;
 import java.util.HashSet;
 import java.util.Set;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbsAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
@@ -46,10 +46,10 @@ import org.sirix.service.xml.xpath.XPathError.ErrorType;
 public class IntersectAxis extends AbsAxis {
 
   /** First operand sequence. */
-  private final IAxis mOp1;
+  private final Axis mOp1;
 
   /** Second operand sequence. */
-  private final IAxis mOp2;
+  private final Axis mOp2;
 
   /** Set to decide, if an item is contained in both sequences. */
   private final Set<Long> mDupSet;
@@ -64,7 +64,7 @@ public class IntersectAxis extends AbsAxis {
    * @param mOperand2
    *          Second operand
    */
-  public IntersectAxis(final INodeReadTrx rtx, final IAxis mOperand1, final IAxis mOperand2) {
+  public IntersectAxis(final NodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2) {
 
     super(rtx);
     mOp1 = mOperand1;

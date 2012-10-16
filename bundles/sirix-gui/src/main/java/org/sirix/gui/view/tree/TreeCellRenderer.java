@@ -39,10 +39,10 @@ import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.xml.XMLConstants;
 import javax.xml.namespace.QName;
 
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
-import org.sirix.node.interfaces.INode;
+import org.sirix.node.interfaces.Node;
 
 /**
  * <h1>TreeCellRenderer</h1>
@@ -64,8 +64,8 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
   /** White color. */
   private static final Color WHITE = new Color(255, 255, 255);
 
-  /** Treetant reading transaction {@link INodeReadTrx}. */
-  private transient INodeReadTrx mRTX;
+  /** Treetant reading transaction {@link NodeReadTrx}. */
+  private transient NodeReadTrx mRTX;
 
   /** Path to file. */
   private final String mPATH;
@@ -97,7 +97,7 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
   public Component getTreeCellRendererComponent(final JTree pTree, Object pValue, final boolean pSel,
     final boolean pExpanded, final boolean pLeaf, final int pRow, final boolean pHasFocus)
     throws IllegalStateException {
-    final INode node = (INode)pValue;
+    final Node node = (Node)pValue;
 
     final long key = node.getNodeKey();
 

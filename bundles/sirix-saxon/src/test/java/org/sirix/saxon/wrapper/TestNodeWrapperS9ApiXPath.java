@@ -36,7 +36,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.IDatabase;
+import org.sirix.api.Database;
 import org.sirix.exception.SirixException;
 import org.sirix.saxon.evaluator.XPathEvaluator;
 
@@ -49,7 +49,7 @@ import org.sirix.saxon.evaluator.XPathEvaluator;
 public final class TestNodeWrapperS9ApiXPath extends XMLTestCase {
 
   /**
-   * sirix database on sirix test document {@link IDatabase}.
+   * sirix database on sirix test document {@link Database}.
    */
   private transient Holder mHolder;
 

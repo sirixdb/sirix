@@ -37,9 +37,9 @@ import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.ISession;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Database;
+import org.sirix.api.Session;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.utils.DocumentCreater;
@@ -58,10 +58,10 @@ public class XMLSerializerTest {
 
   @Test
   public void testXMLSerializer() throws Exception {
-    final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ISession session =
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final Session session =
       database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
-    final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+    final NodeWriteTrx wtx = session.beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
     wtx.close();
@@ -76,10 +76,10 @@ public class XMLSerializerTest {
 
   @Test
   public void testRestSerializer() throws Exception {
-    final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ISession session =
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final Session session =
       database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
-    final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+    final NodeWriteTrx wtx = session.beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
     wtx.close();
@@ -99,10 +99,10 @@ public class XMLSerializerTest {
 
   @Test
   public void testIDSerializer() throws Exception {
-    final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ISession session =
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final Session session =
       database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
-    final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+    final NodeWriteTrx wtx = session.beginNodeWriteTrx();
     DocumentCreater.create(wtx);
     wtx.commit();
     wtx.close();
@@ -120,10 +120,10 @@ public class XMLSerializerTest {
 
   @Test
   public void testSampleCompleteSerializer() throws Exception {
-    final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ISession session =
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final Session session =
       database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
-    final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+    final NodeWriteTrx wtx = session.beginNodeWriteTrx();
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
     // generate serialize all from this session
@@ -150,10 +150,10 @@ public class XMLSerializerTest {
   @Test
   public void testKeyStart() throws Exception {
 
-    final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-    final ISession session =
+    final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+    final Session session =
       database.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE).build());
-    final INodeWriteTrx wtx = session.beginNodeWriteTrx();
+    final NodeWriteTrx wtx = session.beginNodeWriteTrx();
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
 
     // generate serialize all from this session

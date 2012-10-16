@@ -33,8 +33,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
-import org.sirix.api.IFilter;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Filter;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 
 public class IFilterTest {
@@ -44,8 +44,8 @@ public class IFilterTest {
     TestHelper.deleteEverything();
   }
 
-  public static void testIFilterConventions(final IFilter filter, final boolean expected) {
-    final INodeReadTrx rtx = ((AbsFilter)filter).getTrx();
+  public static void testIFilterConventions(final Filter filter, final boolean expected) {
+    final NodeReadTrx rtx = ((AbsFilter)filter).getTrx();
 
     // IFilter Convention 1.
     final long startKey = rtx.getNodeKey();

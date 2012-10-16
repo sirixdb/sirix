@@ -43,21 +43,21 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.IWriter;
+import org.sirix.io.Writer;
 import org.sirix.io.berkeley.binding.PageBinding;
 import org.sirix.page.NodePage;
 import org.sirix.page.PageReference;
-import org.sirix.page.interfaces.IPage;
+import org.sirix.page.interfaces.Page;
 
 /**
  * This class represents a reading instance of the Sirix-Application
- * implementing the {@link IWriter}-interface. It inherits and overrides some
+ * implementing the {@link Writer}-interface. It inherits and overrides some
  * reader methods because of the transaction layer.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class BerkeleyWriter implements IWriter {
+public final class BerkeleyWriter implements Writer {
 
   /** Current {@link Database} to write to. */
   private final Database mDatabase;
@@ -111,7 +111,7 @@ public final class BerkeleyWriter implements IWriter {
   @Override
   public long write(@Nonnull final PageReference pageReference)
     throws SirixIOException {
-    final IPage page = pageReference.getPage();
+    final Page page = pageReference.getPage();
 
     final DatabaseEntry valueEntry = new DatabaseEntry();
     final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -201,7 +201,7 @@ public final class BerkeleyWriter implements IWriter {
   }
 
   @Override
-  public IPage read(final long pKey) throws SirixIOException {
+  public Page read(final long pKey) throws SirixIOException {
     return mReader.read(pKey);
   }
 

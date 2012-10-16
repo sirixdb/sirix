@@ -32,8 +32,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.api.IFilter;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Filter;
+import org.sirix.api.NodeReadTrx;
 
 import com.google.common.base.Predicate;
 
@@ -44,10 +44,10 @@ import com.google.common.base.Predicate;
  * Filter node of transaction this filter is bound to.
  * </p>
  */
-public abstract class AbsFilter implements IFilter, Predicate<Long> {
+public abstract class AbsFilter implements Filter, Predicate<Long> {
 
   /** Iterate over transaction exclusive to this step. */
-  private INodeReadTrx mRtx;
+  private NodeReadTrx mRtx;
 
   /**
    * Bind axis step to transaction.
@@ -55,12 +55,12 @@ public abstract class AbsFilter implements IFilter, Predicate<Long> {
    * @param pRtx
    *          transaction to operate with
    */
-  protected AbsFilter(final @Nonnull INodeReadTrx pRtx) {
+  protected AbsFilter(final @Nonnull NodeReadTrx pRtx) {
     mRtx = checkNotNull(pRtx);
   }
 
   @Override
-  public final INodeReadTrx getTrx() {
+  public final NodeReadTrx getTrx() {
     return mRtx;
   }
 

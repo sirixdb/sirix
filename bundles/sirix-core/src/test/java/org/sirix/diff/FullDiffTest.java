@@ -52,7 +52,7 @@ public class FullDiffTest {
   private Holder mHolder;
 
   /** Observer. */
-  private IDiffObserver mObserver;
+  private DiffObserver mObserver;
 
   @Before
   public void setUp() throws SirixException {

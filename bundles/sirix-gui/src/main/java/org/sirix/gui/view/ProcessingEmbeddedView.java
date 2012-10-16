@@ -35,7 +35,7 @@ import java.awt.event.MouseEvent;
 import javax.swing.JComponent;
 import javax.swing.JMenuBar;
 
-import org.sirix.gui.view.controls.IControl;
+import org.sirix.gui.view.controls.Control;
 import org.sirix.gui.view.sunburst.AbsSunburstGUI.EResetZoomer;
 
 import processing.core.PApplet;
@@ -48,14 +48,14 @@ import processing.core.PApplet;
  */
 public class ProcessingEmbeddedView {
 
-  /** {@link IProcessingGUI} reference. */
-  private final IProcessingGUI mProcessingGUI;
+  /** {@link ProcessingGUI} reference. */
+  private final ProcessingGUI mProcessingGUI;
 
-  /** {@link IControl} implementation. */
-  private final IControl mControl;
+  /** {@link Control} implementation. */
+  private final Control mControl;
 
-  /** {@link IView} implementation. */
-  private final IView mView;
+  /** {@link View} implementation. */
+  private final View mView;
 
   /** Processing view. */
   private final PApplet mApplet;
@@ -67,14 +67,14 @@ public class ProcessingEmbeddedView {
    * Constructor.
    * 
    * @param pProcessingGUI
-   *          {@link IProcessingGUI} implementation
+   *          {@link ProcessingGUI} implementation
    * @param pControl
-   *          {@link IControl} implementation
+   *          {@link Control} implementation
    * @param pViewNotifier
    *          {@link ViewNotifier} reference
    */
-  private ProcessingEmbeddedView(final PApplet pApplet, final IView pView,
-    final IProcessingGUI pProcessingGUI, final IControl pControl, final ViewNotifier pViewNotifier) {
+  private ProcessingEmbeddedView(final PApplet pApplet, final View pView,
+    final ProcessingGUI pProcessingGUI, final Control pControl, final ViewNotifier pViewNotifier) {
     mApplet = pApplet;
     mView = pView;
     mProcessingGUI = pProcessingGUI;
@@ -85,18 +85,18 @@ public class ProcessingEmbeddedView {
    * Get an instance, usually the same instance until the view resets everything.
    * 
    * @param pView
-   *          the implementing {@link IView} instance, which embeds the processing view
+   *          the implementing {@link View} instance, which embeds the processing view
    * @param pProcessingGUI
-   *          {@link IProcessingGUI} implementation
+   *          {@link ProcessingGUI} implementation
    * @param pControl
-   *          {@link IControl} implementation
+   *          {@link Control} implementation
    * @param pViewNotifier
    *          {@link ViewNotifier} reference
    * @return {@link ProcessingEmbeddedView} singleton
    */
   public static synchronized ProcessingEmbeddedView
-    getInstance(final PApplet pApplet, final IView pView, final IProcessingGUI pProcessingGUI,
-      final IControl pControl, final ViewNotifier pViewNotifier) {
+    getInstance(final PApplet pApplet, final View pView, final ProcessingGUI pProcessingGUI,
+      final Control pControl, final ViewNotifier pViewNotifier) {
     checkNotNull(pApplet);
     checkNotNull(pView);
     checkNotNull(pProcessingGUI);
@@ -181,12 +181,12 @@ public class ProcessingEmbeddedView {
   }
 
   /**
-   * Provide hovering mechanisms for the current {@link IVisualItem} implementation.
+   * Provide hovering mechanisms for the current {@link VisualItem} implementation.
    * 
    * @param pItem
-   *          {@link IVisualItem} implementation
+   *          {@link VisualItem} implementation
    */
-  public void hover(final IVisualItem pItem) {
+  public void hover(final VisualItem pItem) {
     mView.hover(pItem);
   }
 }

@@ -7,15 +7,15 @@ import javax.annotation.Nonnull;
 
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.interfaces.IStructNode;
+import org.sirix.node.interfaces.StructNode;
 
 /**
- * Skeletal implementation of {@link IStructNode} interface.
+ * Skeletal implementation of {@link StructNode} interface.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbsStructForwardingNode extends AbsForwardingNode implements IStructNode {
+public abstract class AbsStructForwardingNode extends AbsForwardingNode implements StructNode {
 
   /** Constructor for use by subclasses. */
   protected AbsStructForwardingNode() {

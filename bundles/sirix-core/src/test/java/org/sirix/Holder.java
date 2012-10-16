@@ -29,10 +29,10 @@ package org.sirix;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.IDatabase;
-import org.sirix.api.INodeReadTrx;
-import org.sirix.api.ISession;
-import org.sirix.api.INodeWriteTrx;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 
 /**
@@ -44,17 +44,17 @@ import org.sirix.exception.SirixException;
  */
 public class Holder {
 
-	/** {@link IDatabase} implementation. */
-	private IDatabase mDatabase;
+	/** {@link Database} implementation. */
+	private Database mDatabase;
 
-	/** {@link ISession} implementation. */
-	private ISession mSession;
+	/** {@link Session} implementation. */
+	private Session mSession;
 
-	/** {@link INodeReadTrx} implementation. */
-	private INodeReadTrx mRtx;
+	/** {@link NodeReadTrx} implementation. */
+	private NodeReadTrx mRtx;
 
-	/** {@link INodeWriteTrx} implementation. */
-	private INodeWriteTrx mWtx;
+	/** {@link NodeWriteTrx} implementation. */
+	private NodeWriteTrx mWtx;
 
 	/**
 	 * Generate a session.
@@ -64,10 +64,10 @@ public class Holder {
 	 *           if an error occurs
 	 */
 	public static Holder generateSession() throws SirixException {
-		final IDatabase database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		database.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
-		final ISession session = database
+		final Session session = database
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
 		final Holder holder = new Holder();
@@ -77,7 +77,7 @@ public class Holder {
 	}
 
 	/**
-	 * Generate a {@link INodeWriteTrx}.
+	 * Generate a {@link NodeWriteTrx}.
 	 * 
 	 * @return this holder instance
 	 * @throws SirixException
@@ -85,13 +85,13 @@ public class Holder {
 	 */
 	public static Holder generateWtx() throws SirixException {
 		final Holder holder = generateSession();
-		final INodeWriteTrx wtx = holder.mSession.beginNodeWriteTrx();
+		final NodeWriteTrx wtx = holder.mSession.beginNodeWriteTrx();
 		holder.setWtx(wtx);
 		return holder;
 	}
 
 	/**
-	 * Generate a {@link INodeReadTrx}.
+	 * Generate a {@link NodeReadTrx}.
 	 * 
 	 * @return this holder instance
 	 * @throws SirixException
@@ -99,7 +99,7 @@ public class Holder {
 	 */
 	public static Holder generateRtx() throws SirixException {
 		final Holder holder = generateSession();
-		final INodeReadTrx rtx = holder.mSession.beginNodeReadTrx();
+		final NodeReadTrx rtx = holder.mSession.beginNodeReadTrx();
 		holder.setRtx(rtx);
 		return holder;
 	}
@@ -127,78 +127,78 @@ public class Holder {
 	}
 
 	/**
-	 * Get the {@link IDatabase} handle.
+	 * Get the {@link Database} handle.
 	 * 
-	 * @return {@link IDatabase} handle
+	 * @return {@link Database} handle
 	 */
-	public IDatabase getDatabase() {
+	public Database getDatabase() {
 		return mDatabase;
 	}
 
 	/**
-	 * Get the {@link ISession} handle.
+	 * Get the {@link Session} handle.
 	 * 
-	 * @return {@link ISession} handle
+	 * @return {@link Session} handle
 	 */
-	public ISession getSession() {
+	public Session getSession() {
 		return mSession;
 	}
 
 	/**
-	 * Get the {@link INodeReadTrx} handle.
+	 * Get the {@link NodeReadTrx} handle.
 	 * 
-	 * @return {@link INodeReadTrx} handle
+	 * @return {@link NodeReadTrx} handle
 	 */
-	public INodeReadTrx getRtx() {
+	public NodeReadTrx getRtx() {
 		return mRtx;
 	}
 
 	/**
-	 * Get the {@link INodeWriteTrx} handle.
+	 * Get the {@link NodeWriteTrx} handle.
 	 * 
-	 * @return {@link INodeWriteTrx} handle
+	 * @return {@link NodeWriteTrx} handle
 	 */
-	public INodeWriteTrx getWtx() {
+	public NodeWriteTrx getWtx() {
 		return mWtx;
 	}
 
 	/**
-	 * Set the working {@link INodeWriteTrx}.
+	 * Set the working {@link NodeWriteTrx}.
 	 * 
 	 * @param pWtx
-	 *          {@link INodeWriteTrx} instance
+	 *          {@link NodeWriteTrx} instance
 	 */
-	private void setWtx(final INodeWriteTrx pWtx) {
+	private void setWtx(final NodeWriteTrx pWtx) {
 		mWtx = pWtx;
 	}
 
 	/**
-	 * Set the working {@link INodeReadTrx}.
+	 * Set the working {@link NodeReadTrx}.
 	 * 
 	 * @param pRtx
-	 *          {@link INodeReadTrx} instance
+	 *          {@link NodeReadTrx} instance
 	 */
-	private void setRtx(final INodeReadTrx pRtx) {
+	private void setRtx(final NodeReadTrx pRtx) {
 		mRtx = pRtx;
 	}
 
 	/**
-	 * Set the working {@link ISession}.
+	 * Set the working {@link Session}.
 	 * 
 	 * @param pRtx
-	 *          {@link INodeReadTrx} instance
+	 *          {@link NodeReadTrx} instance
 	 */
-	private void setSession(final ISession pSession) {
+	private void setSession(final Session pSession) {
 		mSession = pSession;
 	}
 
 	/**
-	 * Set the working {@link IDatabase}.
+	 * Set the working {@link Database}.
 	 * 
 	 * @param pRtx
-	 *          {@link IDatabase} instance
+	 *          {@link Database} instance
 	 */
-	private void setDatabase(final IDatabase pDatabase) {
+	private void setDatabase(final Database pDatabase) {
 		mDatabase = pDatabase;
 	}
 

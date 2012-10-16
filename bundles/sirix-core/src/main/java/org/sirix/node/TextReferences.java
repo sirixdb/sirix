@@ -9,7 +9,7 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.node.interfaces.INodeBase;
+import org.sirix.node.interfaces.NodeBase;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
@@ -20,7 +20,7 @@ import com.google.common.base.Objects.ToStringHelper;
  * @author Johannes Lichtenberger
  * 
  */
-public class TextReferences implements INodeBase {
+public class TextReferences implements NodeBase {
 	/** A {@link Set} of node-keys. */
 	private final Set<Long> mNodeKeys;
 
@@ -77,8 +77,8 @@ public class TextReferences implements INodeBase {
 	}
 
 	@Override
-	public EKind getKind() {
-		return EKind.TEXT_REFERENCES;
+	public Kind getKind() {
+		return Kind.TEXT_REFERENCES;
 	}
 
 	@Override

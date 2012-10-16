@@ -32,8 +32,8 @@ import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.sirix.api.IAxis;
-import org.sirix.api.INodeReadTrx;
+import org.sirix.api.Axis;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
@@ -60,7 +60,7 @@ public class GeneralComp extends AbsComparator {
    * @param mCom
    *          comparison kind
    */
-  public GeneralComp(final INodeReadTrx rtx, final IAxis mOperand1, final IAxis mOperand2, final CompKind mCom) {
+  public GeneralComp(final NodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2, final CompKind mCom) {
 
     super(rtx, mOperand1, mOperand2, mCom);
   }
@@ -91,9 +91,9 @@ public class GeneralComp extends AbsComparator {
    * {@inheritDoc}
    */
   @Override
-  protected AtomicValue[] atomize(final IAxis mOperand) {
+  protected AtomicValue[] atomize(final Axis mOperand) {
 
-    final INodeReadTrx rtx = getTrx();
+    final NodeReadTrx rtx = getTrx();
     final List<AtomicValue> op = new ArrayList<AtomicValue>();
     AtomicValue atomized;
     // cast to double, if compatible with XPath 1.0 and <, >, >=, <=
