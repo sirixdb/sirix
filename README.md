@@ -23,7 +23,7 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 
 ##Maven artifacts
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/johanneslichtenberger/sirix/.
-
+Just add the following repository section to your POM file:
 <pre><code>&lt;repository&gt;
   &lt;id&gt;sonatype-nexus-snapshots&lt;/id&gt;
   &lt;name&gt;Sonatype Nexus Snapshots&lt;/name&gt;
@@ -37,13 +37,13 @@ At this stage of development please use the latest SNAPSHOT artifacts from https
 &lt;/repository&gt;
 </code></pre>
 
-Maven artifacts are deployed to the central maven repository. Currently the following artifacts are available:
+Maven artifacts are deployed to the central maven repository (however please use the SNAPSHOT-variants as of now). Currently the following artifacts are available:
 
 Core project:
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-core&lt;/artifactId&gt;
-  &lt;version&gt;0.1.1&lt;/version&gt;
+  &lt;version&gt;0.1.3-SNAPSHOT&lt;/version&gt;
 &lt;/dependency&gt;
 </code></pre>
 
@@ -51,17 +51,26 @@ JAX-RX interface (RESTful API):
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-jax-rx&lt;/artifactId&gt;
-  &lt;version&gt;0.1.1&lt;/version&gt;
+  &lt;version&gt;0.1.3-SNAPSHOT&lt;/version&gt;
 &lt;/dependency&gt;
 </code></pre>
+
+Brackit(.org) interface (use Brackit to query data -- in the future should be preferable to Saxon (as we will include index rewriting rules... and it supports many build-in XQuery functions as well as the XQuery Update Facility), however as of now it is our very first (unstable) version):
+<pre><code>&lt;dependency&gt;
+  &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
+  &lt;artifactId&gt;sirix-xquery&lt;/artifactId&gt;
+  &lt;version&gt;0.1.3-SNAPSHOT&lt;/version&gt;
+&lt;/dependency>
+</pre></code>
 
 Saxon interface (use Saxon to query data):
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-saxon&lt;/artifactId&gt;
-  &lt;version&gt;0.1.1&lt;/version&gt;
+  &lt;version&gt;0.1.3-SNAPSHOT&lt;/version&gt;
 &lt;/dependency>
 </pre></code>
+
 
 Other modules are currently not available (namely the GUI, the distributed package) due to dependencies to processing.org which isn't available from a maven repository and other dependencies.
 
