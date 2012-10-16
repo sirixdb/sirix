@@ -23,6 +23,20 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 
 ##Maven artifacts
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/johanneslichtenberger/sirix/.
+
+<pre><code>&lt;repository&gt;
+  &lt;id&gt;sonatype-nexus-snapshots&lt;/id&gt;
+  &lt;name&gt;Sonatype Nexus Snapshots&lt;/name&gt;
+  &lt;url&gt;https://oss.sonatype.org/content/repositories/snapshots&lt;/url&gt;
+  &lt;releases&gt;
+    &lt;enabled&gt;false&lt;/enabled&gt;
+  &lt;/releases&gt;
+  &lt;snapshots&gt;
+    &lt;enabled&gt;true&lt;/enabled&gt;
+  &lt;/snapshots&gt;
+&lt;/repository&gt;
+</code></pre>
+
 Maven artifacts are deployed to the central maven repository. Currently the following artifacts are available:
 
 Core project:
