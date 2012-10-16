@@ -35,7 +35,7 @@ import org.sirix.TestHelper;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.visitor.VisitorDescendantAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 public class DescendantAxisTest {
 
@@ -82,7 +82,7 @@ public class DescendantAxisTest {
     final NodeReadTrx rtx = holder.getRtx();
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES), new long[] {
-      EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
+      Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
     });
 
     rtx.moveTo(1L);
@@ -131,7 +131,7 @@ public class DescendantAxisTest {
     rtx.moveToDocumentRoot();
     AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
       new long[] {
-        EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
+        Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
       });
 
     rtx.moveTo(1L);

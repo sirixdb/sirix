@@ -41,11 +41,11 @@ public interface Comparator<T> {
   /**
    * Compares two instances of type T.
    * 
-   * @param paramX
+   * @param x
    *          first instance
-   * @param paramY
+   * @param y
    *          second instance
    * @return true iff x and y are equal
    */
-  boolean isEqual(T paramX, T paramY);
+  boolean isEqual(T x, T y);
 }

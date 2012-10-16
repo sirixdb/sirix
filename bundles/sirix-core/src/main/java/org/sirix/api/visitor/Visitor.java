@@ -44,7 +44,7 @@ import org.sirix.node.immutable.ImmutableText;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public interface IVisitor {
+public interface Visitor {
   /**
    * Do something when visiting a {@link ImmutablePI}.
    * 

@@ -64,7 +64,7 @@ import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * This class is the Sirix DB connection for RESTful Web Services processing.
@@ -479,7 +479,7 @@ public class DatabaseRepresentation {
 					// stores all restids from revision 1 into a list
 					restIdsRev1.add(rtx.getNodeKey());
 				}
-				rtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+				rtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 				rtx.close();
 
 				// get highest rest-id from given revision 2
@@ -505,7 +505,7 @@ public class DatabaseRepresentation {
 					 */
 					restIdsRev1.remove(nodeKey);
 				}
-				rtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+				rtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 				rtx.close();
 
 				rtx = session.beginNodeReadTrx(revision1);
@@ -525,7 +525,7 @@ public class DatabaseRepresentation {
 						restIdsRev1New.add(nodeKey);
 					}
 				}
-				rtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+				rtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 				rtx.close();
 
 				if (wrap) {
@@ -542,7 +542,7 @@ public class DatabaseRepresentation {
 					WorkerHelper.serializeXML(session, output, false, nodeid, nodeKey,
 							revision2).call();
 				}
-				rtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+				rtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 				rtx.close();
 
 				/*
@@ -559,7 +559,7 @@ public class DatabaseRepresentation {
 					output.write(endResult.getBytes());
 				}
 
-				rtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+				rtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 
 			} catch (final Exception globExcep) {
 				throw new JaxRxException(globExcep);

@@ -6,7 +6,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NameNode;
@@ -27,22 +27,22 @@ public class ImmutableAttribute implements ValNode, NameNode {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          mutable {@link AttributeNode}
 	 */
-	private ImmutableAttribute(final @Nonnull AttributeNode pNode) {
-		mNode = checkNotNull(pNode);
+	private ImmutableAttribute(final @Nonnull AttributeNode node) {
+		mNode = checkNotNull(node);
 	}
 
 	/**
 	 * Get an immutable attribute node.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          the {@link AttributeNode} which should be immutable
 	 * @return an immutable instance
 	 */
-	public static ImmutableAttribute of(final @Nonnull AttributeNode pNode) {
-		return new ImmutableAttribute(pNode);
+	public static ImmutableAttribute of(final @Nonnull AttributeNode node) {
+		return new ImmutableAttribute(node);
 	}
 
 	@Override
@@ -51,22 +51,22 @@ public class ImmutableAttribute implements ValNode, NameNode {
 	}
 
 	@Override
-	public void setTypeKey(final int pTypeKey) {
+	public void setTypeKey(final int typeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean isSameItem(final @Nullable Node pOther) {
-		return mNode.isSameItem(pOther);
+	public boolean isSameItem(final @Nullable Node other) {
+		return mNode.isSameItem(other);
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
-		return pVisitor.visit(this);
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+		return visitor.visit(this);
 	}
 
 	@Override
-	public void setHash(long pHash) {
+	public void setHash(long hash) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -76,7 +76,7 @@ public class ImmutableAttribute implements ValNode, NameNode {
 	}
 
 	@Override
-	public void setParentKey(long pNodeKey) {
+	public void setParentKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -116,12 +116,12 @@ public class ImmutableAttribute implements ValNode, NameNode {
 	}
 
 	@Override
-	public void setNameKey(int pNameKey) {
+	public void setNameKey(int nameKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setURIKey(int pUriKey) {
+	public void setURIKey(int uriKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -132,18 +132,16 @@ public class ImmutableAttribute implements ValNode, NameNode {
 
 	@Override
 	public long getPathNodeKey() {
-		// TODO Auto-generated method stub
-		return 0;
+		return mNode.getPathNodeKey();
 	}
 
 	@Override
 	public byte[] getRawValue() {
-		// TODO Auto-generated method stub
-		return null;
+		return mNode.getRawValue();
 	}
 
 	@Override
-	public void setValue(@Nonnull byte[] pValue) {
+	public void setValue(byte[] value) {
 		throw new UnsupportedOperationException();
 	}
 

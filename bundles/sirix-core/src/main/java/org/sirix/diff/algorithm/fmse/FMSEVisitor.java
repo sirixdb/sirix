@@ -38,8 +38,11 @@ import org.sirix.api.Session;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
+import org.sirix.node.immutable.ImmutableComment;
 import org.sirix.node.immutable.ImmutableElement;
+import org.sirix.node.immutable.ImmutablePI;
 import org.sirix.node.immutable.ImmutableText;
+import org.sirix.node.interfaces.Node;
 
 /**
  * Initialize data structures.
@@ -63,26 +66,26 @@ public final class FMSEVisitor extends AbsVisitor {
 	 * 
 	 * @param pSession
 	 *          {@link Session} implementation
-	 * @param pInOrder
+	 * @param inOrder
 	 *          {@link Map} reference to track ordered nodes
-	 * @param pDescendants
+	 * @param descendants
 	 *          {@link Map} reference to track descendants per node
 	 * @throws SirixException
 	 *           if setting up sirix fails
 	 * @throws NullPointerException
 	 *           if one of the arguments is {@code null}
 	 */
-	public FMSEVisitor(@Nonnull final NodeReadTrx pReadTransaction,
-			@Nonnull final Map<Long, Boolean> pInOrder,
-			@Nonnull final Map<Long, Long> pDescendants) throws SirixException {
-		mRtx = checkNotNull(pReadTransaction);
-		mInOrder = checkNotNull(pInOrder);
-		mDescendants = checkNotNull(pDescendants);
+	public FMSEVisitor(final @Nonnull NodeReadTrx readTransaction,
+			final @Nonnull Map<Long, Boolean> inOrder,
+			final @Nonnull Map<Long, Long> descendants) throws SirixException {
+		mRtx = checkNotNull(readTransaction);
+		mInOrder = checkNotNull(inOrder);
+		mDescendants = checkNotNull(descendants);
 	}
 
 	@Override
-	public VisitResultType visit(@Nonnull final ImmutableElement pNode) {
-		final long nodeKey = pNode.getNodeKey();
+	public VisitResultType visit(final @Nonnull ImmutableElement node) {
+		final long nodeKey = node.getNodeKey();
 		mRtx.moveTo(nodeKey);
 		for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
 			mRtx.moveToAttribute(i);
@@ -129,7 +132,28 @@ public final class FMSEVisitor extends AbsVisitor {
 	}
 
 	@Override
-	public VisitResultType visit(@Nonnull final ImmutableText pNode) {
+	public VisitResultType visit(final @Nonnull ImmutableText node) {
+		return visiLeafNode(node);
+	}
+
+	@Override
+	public VisitResultType visit(final @Nonnull ImmutableComment node) {
+		return visiLeafNode(node);
+	}
+
+	@Override
+	public VisitResultType visit(final @Nonnull ImmutablePI node) {
+		return visiLeafNode(node);
+	}
+
+	/**
+	 * Visit a leaf node.
+	 * 
+	 * @param pNode
+	 *          the node to visit
+	 * @return {@link VisitResultType} value to continue normally
+	 */
+	private VisitResultType visiLeafNode(final @Nonnull Node pNode) {
 		final long nodeKey = pNode.getNodeKey();
 		mRtx.moveTo(nodeKey);
 		mInOrder.put(mRtx.getNodeKey(), false);

@@ -27,9 +27,12 @@
 
 package org.sirix.service.xml.shredder;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.NoSuchElementException;
 import java.util.Queue;
 
+import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamConstants;
@@ -51,16 +54,16 @@ public final class QueueEventReader implements XMLEventReader {
   /**
    * List of {@link XMLEvent}s.
    */
-  private transient Queue<XMLEvent> mEvents;
+  private final Queue<XMLEvent> mEvents;
 
   /**
    * Constructor.
    * 
-   * @param paramEvents
+   * @param events
    *          List of XMLEvents.
    */
-  public QueueEventReader(final Queue<XMLEvent> paramEvents) {
-    mEvents = paramEvents;
+  public QueueEventReader(final @Nonnull Queue<XMLEvent> events) {
+    mEvents = checkNotNull(events);
   }
 
   @Override

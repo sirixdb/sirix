@@ -62,30 +62,40 @@ public abstract class AbsPersistenceCache<K, V> implements Cache<K, V> {
 	/**
 	 * Constructor with the place to store the data.
 	 * 
-	 * @param pFile
+	 * @param file
 	 *          {@link File} which holds the place to store the data
-	 * @param pRevision
+	 * @param revision
 	 *          revision number
-	 * @param pLogType
+	 * @param logType
 	 *          type of log to append to the path of the log
 	 */
-	protected AbsPersistenceCache(final @Nonnull File pFile,
-			final @Nonnegative int pRevision, final @Nonnull String pLogType) {
-		mPlace = new File(new File(new File(pFile,
+	protected AbsPersistenceCache(final @Nonnull File file,
+			final @Nonnegative int revision, final @Nonnull String logType) {
+		mPlace = new File(new File(new File(file,
 				ResourceConfiguration.Paths.TransactionLog.getFile().getName()),
-				Integer.toString(pRevision)), pLogType);
+				Integer.toString(revision)), logType);
 		mCreated = mPlace.mkdirs();
 	}
 
-	protected boolean removeExistingDatabase(final @Nonnull String pName,
-			final @Nonnull Environment pEnvironment) {
+	/**
+	 * Remove an existing database from the environment if it's not removed.
+	 * 
+	 * @param dbName
+	 *          database name
+	 * @param environment
+	 *          environment handle
+	 * @return {@code true} if it removed at least one database, {@code false}
+	 *         otherwise
+	 */
+	protected boolean removeExistingDatabase(final @Nonnull String dbName,
+			final @Nonnull Environment environment) {
 		// Make a database within that environment.
 		boolean removed = false;
 		if (mPlace.list().length == 0) {
-			for (final String name : pEnvironment.getDatabaseNames()) {
-				if (pName.equals(name)) {
-					pEnvironment.removeDatabase(null, pName);
-					pEnvironment.close();
+			for (final String name : environment.getDatabaseNames()) {
+				if (dbName.equals(name)) {
+					environment.removeDatabase(null, dbName);
+					environment.close();
 					removed = true;
 				}
 			}
@@ -103,9 +113,9 @@ public abstract class AbsPersistenceCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public final void put(@Nonnull final K pKey, @Nonnull final V pPage) {
+	public final void put(@Nonnull final K key, @Nonnull final V page) {
 		try {
-			putPersistent(pKey, pPage);
+			putPersistent(key, page);
 		} catch (final SirixIOException exc) {
 			throw new IllegalStateException(exc);
 		}
@@ -149,26 +159,26 @@ public abstract class AbsPersistenceCache<K, V> implements Cache<K, V> {
 	/**
 	 * Putting a page into a persistent log.
 	 * 
-	 * @param pKey
+	 * @param key
 	 *          to be put
-	 * @param pPage
+	 * @param page
 	 *          to be put
 	 * @throws SirixIOException
 	 *           if something odd happens
 	 */
-	public abstract void putPersistent(@Nonnull final K pKey,
-			@Nonnull final V pPage) throws SirixIOException;
+	public abstract void putPersistent(@Nonnull final K key,
+			@Nonnull final V page) throws SirixIOException;
 
 	/**
 	 * Getting a NodePage from the persistent cache.
 	 * 
-	 * @param pKey
+	 * @param key
 	 *          to get the page
 	 * @return the Nodepage to be fetched
 	 * @throws SirixIOException
 	 *           if something odd happens.
 	 */
-	public abstract V getPersistent(@Nonnull final K pKey)
+	public abstract V getPersistent(@Nonnull final K key)
 			throws SirixIOException;
 
 }

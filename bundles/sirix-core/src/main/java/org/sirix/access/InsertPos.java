@@ -36,7 +36,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.page.PageKind;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * Determines the position of the insertion of nodes and appropriate methods for
@@ -118,7 +118,7 @@ enum InsertPos {
 				// Adapt right sibling key of moved node.
 				final StructNode moved = (StructNode) wtx.getPageTransaction()
 						.prepareNodeForModification(fromNode.getNodeKey(), PageKind.NODEPAGE);
-				moved.setRightSiblingKey(EFixed.NULL_NODE_KEY.getStandardProperty());
+				moved.setRightSiblingKey(Fixed.NULL_NODE_KEY.getStandardProperty());
 				wtx.getPageTransaction().finishNodeModification(moved.getNodeKey(),
 						PageKind.NODEPAGE);
 			}
@@ -133,7 +133,7 @@ enum InsertPos {
 			// Adapt left sibling key and parent key of moved node.
 			final StructNode moved = (StructNode) wtx.getPageTransaction()
 					.prepareNodeForModification(fromNode.getNodeKey(), PageKind.NODEPAGE);
-			moved.setLeftSiblingKey(EFixed.NULL_NODE_KEY.getStandardProperty());
+			moved.setLeftSiblingKey(Fixed.NULL_NODE_KEY.getStandardProperty());
 			moved.setParentKey(toNode.getNodeKey());
 			wtx.getPageTransaction().finishNodeModification(moved.getNodeKey(),
 					PageKind.NODEPAGE);

@@ -40,8 +40,8 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
-import org.sirix.settings.EFixed;
-import org.sirix.settings.IConstants;
+import org.sirix.settings.Fixed;
+import org.sirix.settings.Constants;
 
 /**
  * <h1>UberPage</h1>
@@ -76,8 +76,8 @@ public final class UberPage extends AbsForwardingPage {
 	 * Create uber page.
 	 */
 	public UberPage() {
-		mDelegate = new PageDelegate(1, IConstants.UBP_ROOT_REVISION_NUMBER);
-		mRevisionCount = IConstants.UBP_ROOT_REVISION_COUNT;
+		mDelegate = new PageDelegate(1, Constants.UBP_ROOT_REVISION_NUMBER);
+		mRevisionCount = Constants.UBP_ROOT_REVISION_COUNT;
 		mBootstrap = true;
 		mBulkInserted = true;
 
@@ -90,8 +90,8 @@ public final class UberPage extends AbsForwardingPage {
 		PageReference reference = getReference(INDIRECT_REFERENCE_OFFSET);
 
 		// Remaining levels.
-		for (int i = 0, l = IConstants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
-			page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
+		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
+			page = new IndirectPage(Constants.UBP_ROOT_REVISION_NUMBER);
 			reference.setPage(page);
 			reference.setPageKind(PageKind.INDIRECTPAGE);
 			reference = page.getReference(0);
@@ -141,51 +141,50 @@ public final class UberPage extends AbsForwardingPage {
 	/**
 	 * Set if first revision has been bulk inserted.
 	 * 
-	 * @param pIsBulkInserted
+	 * @param isBulkInserted
 	 *          bulk inserted or not
 	 */
-	public void setIsBulkInserted(final boolean pIsBulkInserted) {
-		mBulkInserted = pIsBulkInserted;
+	public void setIsBulkInserted(final boolean isBulkInserted) {
+		mBulkInserted = isBulkInserted;
 	}
 
 	/**
 	 * Create the initial tree structure.
 	 * 
-	 * @param pReference
+	 * @param reference
 	 *          reference from revision root
+	 * @param pageKind
+	 * 					the page kind
 	 */
-	private void createTree(@Nonnull PageReference pReference,
-			final @Nonnull PageKind pPage) {
+	private void createTree(@Nonnull PageReference reference,
+			final @Nonnull PageKind pageKind) {
 		Page page = null;
-//		assert pReference.getPage() instanceof IndirectPage : "page is of type: "
-//				+ pReference.getPage();
-//		pReference.setPageKind(EPage.INDIRECTPAGE);
 
 		// Level page count exponent from the configuration.
-		final int[] levelPageCountExp = getPageCountExp(pPage);
+		final int[] levelPageCountExp = getPageCountExp(pageKind);
 
 		// Remaining levels.
 		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
-			page = new IndirectPage(IConstants.UBP_ROOT_REVISION_NUMBER);
-			pReference.setPage(page);
-			pReference.setPageKind(PageKind.INDIRECTPAGE);
-			pReference = page.getReference(0);
+			page = new IndirectPage(Constants.UBP_ROOT_REVISION_NUMBER);
+			reference.setPage(page);
+			reference.setPageKind(PageKind.INDIRECTPAGE);
+			reference = page.getReference(0);
 		}
 
 		final NodePage ndp = new NodePage(
-				EFixed.ROOT_PAGE_KEY.getStandardProperty(),
-				IConstants.UBP_ROOT_REVISION_NUMBER);
-		pReference.setPage(ndp);
-		pReference.setPageKind(pPage);
+				Fixed.ROOT_PAGE_KEY.getStandardProperty(),
+				Constants.UBP_ROOT_REVISION_NUMBER);
+		reference.setPage(ndp);
+		reference.setPageKind(pageKind);
 
 		final NodeDelegate nodeDel = new NodeDelegate(
-				EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-				EFixed.NULL_NODE_KEY.getStandardProperty(),
-				EFixed.NULL_NODE_KEY.getStandardProperty(), 0);
+				Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(), 0);
 		final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
-				EFixed.NULL_NODE_KEY.getStandardProperty(),
-				EFixed.NULL_NODE_KEY.getStandardProperty(),
-				EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+				Fixed.NULL_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 		ndp.setNode(new DocumentRootNode(nodeDel, strucDel));
 	}
 
@@ -303,22 +302,22 @@ public final class UberPage extends AbsForwardingPage {
 	/**
 	 * Get the page count exponent for the given page.
 	 * 
-	 * @param pPage
+	 * @param pageKind
 	 *          page to lookup the exponent in the constant definition
 	 * @return page count exponent
 	 */
-	public int[] getPageCountExp(final @Nonnull PageKind pPage) {
+	public int[] getPageCountExp(final @Nonnull PageKind pageKind) {
 		int[] inpLevelPageCountExp = new int[0];
-		switch (pPage) {
+		switch (pageKind) {
 		case PATHSUMMARYPAGE:
-			inpLevelPageCountExp = IConstants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
+			inpLevelPageCountExp = Constants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
 			break;
 		case VALUEPAGE:
 		case NODEPAGE:
-			inpLevelPageCountExp = IConstants.INP_LEVEL_PAGE_COUNT_EXPONENT;
+			inpLevelPageCountExp = Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
 			break;
 		case UBERPAGE:
-			inpLevelPageCountExp = IConstants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
+			inpLevelPageCountExp = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
 			break;
 		default:
 			throw new IllegalStateException("page kind not known!");

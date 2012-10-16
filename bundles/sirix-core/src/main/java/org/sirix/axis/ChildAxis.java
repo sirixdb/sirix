@@ -29,8 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.NodeCursor;
-import org.sirix.settings.EFixed;
+import org.sirix.api.NodeReadTrx;
 
 /**
  * <h1>ChildAxis</h1>
@@ -50,7 +49,7 @@ public final class ChildAxis extends AbsAxis {
    * @param rtx
    *          exclusive (immutable) trx to iterate with
    */
-  public ChildAxis(final @Nonnull NodeCursor rtx) {
+  public ChildAxis(final @Nonnull NodeReadTrx rtx) {
     super(rtx);
   }
 

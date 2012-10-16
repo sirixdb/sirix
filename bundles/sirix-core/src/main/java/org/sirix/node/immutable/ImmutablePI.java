@@ -6,7 +6,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.PINode;
 import org.sirix.node.interfaces.NameNode;
@@ -27,22 +27,22 @@ public class ImmutablePI implements ValNode, NameNode, StructNode {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          {@link PINode} to wrap
 	 */
-	private ImmutablePI(final @Nonnull PINode pNode) {
-		mNode = checkNotNull(pNode);
+	private ImmutablePI(final @Nonnull PINode node) {
+		mNode = checkNotNull(node);
 	}
 
 	/**
 	 * Get an immutable processing instruction node instance.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          the mutable {@link PINode} to wrap
 	 * @return immutable processing instruction node instance
 	 */
-	public static ImmutablePI of(final @Nonnull PINode pNode) {
-		return new ImmutablePI(pNode);
+	public static ImmutablePI of(final @Nonnull PINode node) {
+		return new ImmutablePI(node);
 	}
 
 	@Override
@@ -56,17 +56,17 @@ public class ImmutablePI implements ValNode, NameNode, StructNode {
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable Node pOther) {
-		return mNode.isSameItem(pOther);
+	public boolean isSameItem(final @Nullable Node other) {
+		return mNode.isSameItem(other);
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+	public VisitResult acceptVisitor(final @Nonnull Visitor pVisitor) {
 		return pVisitor.visit(this);
 	}
 
 	@Override
-	public void setHash(long pHash) {
+	public void setHash(long hash) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -76,7 +76,7 @@ public class ImmutablePI implements ValNode, NameNode, StructNode {
 	}
 
 	@Override
-	public void setParentKey(long pNodeKey) {
+	public void setParentKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -146,17 +146,17 @@ public class ImmutablePI implements ValNode, NameNode, StructNode {
 	}
 
 	@Override
-	public void setRightSiblingKey(long pNodeKey) {
+	public void setRightSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setLeftSiblingKey(long pNodeKey) {
+	public void setLeftSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setFirstChildKey(long pNodeKey) {
+	public void setFirstChildKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -181,7 +181,7 @@ public class ImmutablePI implements ValNode, NameNode, StructNode {
 	}
 
 	@Override
-	public void setDescendantCount(long pDescendantCount) {
+	public void setDescendantCount(long descendantCount) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -196,12 +196,12 @@ public class ImmutablePI implements ValNode, NameNode, StructNode {
 	}
 
 	@Override
-	public void setNameKey(int pNameKey) {
+	public void setNameKey(int nameKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setURIKey(int pUriKey) {
+	public void setURIKey(int uriKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -221,7 +221,7 @@ public class ImmutablePI implements ValNode, NameNode, StructNode {
 	}
 
 	@Override
-	public void setValue(@Nonnull byte[] pValue) {
+	public void setValue(byte[] value) {
 		throw new UnsupportedOperationException();
 	}
 }

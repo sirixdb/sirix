@@ -55,46 +55,46 @@ public final class ConnectionMap<T> {
   /**
    * Copy constructor.
    * 
-   * @param paramMap
+   * @param map
    *          the original {@link ConnectionMap}
    */
-  public ConnectionMap(final ConnectionMap<T> paramMap) {
-    mMap = new HashMap<>(paramMap.mMap);
+  public ConnectionMap(final ConnectionMap<T> map) {
+    mMap = new HashMap<>(map.mMap);
   }
 
   /**
    * Sets the connection between a and b.
    * 
-   * @param paramOrigin
+   * @param origin
    *          origin object
-   * @param paramDestination
+   * @param destination
    *          destination object
-   * @param paramBool
+   * @param bool
    *          if connection is established or not
    */
-  public void set(final T paramOrigin, final T paramDestination, final boolean paramBool) {
-    checkNotNull(paramDestination);
-    if (!mMap.containsKey(checkNotNull(paramOrigin))) {
-      mMap.put(paramOrigin, new HashMap<T, Boolean>());
+  public void set(final T origin, final T destination, final boolean bool) {
+    checkNotNull(destination);
+    if (!mMap.containsKey(checkNotNull(origin))) {
+      mMap.put(origin, new HashMap<T, Boolean>());
     }
-    mMap.get(paramOrigin).put(paramDestination, paramBool);
+    mMap.get(origin).put(destination, bool);
   }
 
   /**
    * Returns whether there is a connection between a and b.
    * Unknown objects do never have a connection.
    * 
-   * @param paramOrigin
+   * @param origin
    *          origin object
-   * @param paramDestination
+   * @param destination
    *          destination object
    * @return true, iff there is a connection from a to b
    */
-  public boolean get(final T paramOrigin, final T paramDestination) {
-    if (!mMap.containsKey(paramOrigin)) {
+  public boolean get(final T origin, final T destination) {
+    if (!mMap.containsKey(origin)) {
       return false;
     }
-    final Boolean bool = mMap.get(paramOrigin).get(paramDestination);
+    final Boolean bool = mMap.get(origin).get(destination);
     return bool != null && bool;
   }
 

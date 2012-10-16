@@ -35,7 +35,7 @@ import org.junit.Test;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 public class TextNodeTest {
@@ -50,7 +50,7 @@ public class TextNodeTest {
       new NodeDelegate(13, 14, 0, 0);
     final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
     final StructNodeDelegate strucDel =
-      new StructNodeDelegate(del, EFixed.NULL_NODE_KEY.getStandardProperty(),
+      new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(),
         16l, 15l, 0l, 0l);
     final TextNode node1 = new TextNode(valDel, strucDel);
     check(node1);
@@ -67,7 +67,7 @@ public class TextNodeTest {
     // Now compare.
     assertEquals(13L, node.getNodeKey());
     assertEquals(14L, node.getParentKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node
       .getFirstChildKey());
     assertEquals(15L, node.getLeftSiblingKey());
     assertEquals(16L, node.getRightSiblingKey());

@@ -56,8 +56,8 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
-import org.sirix.diff.DiffFactory.EDiff;
-import org.sirix.diff.DiffFactory.EDiffOptimized;
+import org.sirix.diff.DiffFactory.DiffType;
+import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.diff.DiffTuple;
 import org.sirix.diff.DiffObserver;
 import org.sirix.diff.algorithm.fmse.Levenshtein;
@@ -138,7 +138,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	private final Semaphore mLock;
 
 	/**
-	 * {@link CountDownLatch} to wait until {@link List} of {@link EDiff}s has been
+	 * {@link CountDownLatch} to wait until {@link List} of {@link DiffType}s has been
 	 * created.
 	 */
 	private final CountDownLatch mStart;
@@ -332,10 +332,10 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			POOL.submit(new Callable<Void>() {
 				@Override
 				public Void call() throws SirixException {
-					EDiffOptimized optimized = EDiffOptimized.NO;
+					DiffOptimized optimized = DiffOptimized.NO;
 					if (mPrune == Pruning.DIFF
 							|| mPrune == Pruning.DIFF_WITHOUT_SAMEHASHES) {
-						optimized = EDiffOptimized.HASHED;
+						optimized = DiffOptimized.HASHED;
 					}
 					DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(mDb
 							.getSession(), mNewRevision, mOldRtx.getRevisionNumber(),
@@ -444,15 +444,15 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			for (final DiffTuple diffCont : mDiffs.values()) {
 				final Integer newIndex = mNewKeys.get(diffCont.getOldNodeKey());
 				if (newIndex != null
-						&& (diffCont.getDiff() == EDiff.DELETED || diffCont.getDiff() == EDiff.MOVEDFROM)) {
+						&& (diffCont.getDiff() == DiffType.DELETED || diffCont.getDiff() == DiffType.MOVEDFROM)) {
 					LOGWRAPPER.debug("new node key: "
 							+ mDiffs.get(newIndex).getNewNodeKey());
-					mDiffs.get(newIndex).setDiff(EDiff.MOVEDTO);
+					mDiffs.get(newIndex).setDiff(DiffType.MOVEDTO);
 				}
 				final Integer oldIndex = mOldKeys.get(diffCont.getNewNodeKey());
 				if (oldIndex != null
-						&& (diffCont.getDiff() == EDiff.INSERTED || diffCont.getDiff() == EDiff.MOVEDTO)) {
-					mDiffs.get(oldIndex).setDiff(EDiff.MOVEDFROM)
+						&& (diffCont.getDiff() == DiffType.INSERTED || diffCont.getDiff() == DiffType.MOVEDTO)) {
+					mDiffs.get(oldIndex).setDiff(DiffType.MOVEDFROM)
 							.setIndex(mNewKeys.get(diffCont.getNewNodeKey()));
 				}
 			}
@@ -460,17 +460,17 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	}
 
 	@Override
-	public void diffListener(@Nonnull final EDiff pDiff,
+	public void diffListener(@Nonnull final DiffType pDiff,
 			@Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
 			@Nonnull final DiffDepth pDepth) {
 		LOGWRAPPER.debug("kind of diff: " + pDiff);
 
 		if (mPrune != Pruning.DIFF_WITHOUT_SAMEHASHES
-				|| (mPrune == Pruning.DIFF_WITHOUT_SAMEHASHES && pDiff != EDiff.SAMEHASH)
+				|| (mPrune == Pruning.DIFF_WITHOUT_SAMEHASHES && pDiff != DiffType.SAMEHASH)
 				|| mEntries == 0) {
 			final DiffTuple diffCont = new DiffTuple(pDiff, pNewNodeKey, pOldNodeKey,
 					pDepth);
-			final EDiff diff = diffCont.getDiff();
+			final DiffType diff = diffCont.getDiff();
 			if (!mHasUpdatedNodes && mLastNodeUpdated) {
 				// Has at least one diff, thus it's safe.
 				final DiffTuple oldCont = mDiffs.get(mEntries - 1);
@@ -528,9 +528,9 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	 */
 	private int getDepth(@Nonnull final DiffTuple pDiffCont) {
 		int depth;
-		final EDiff diff = pDiffCont.getDiff();
-		if (diff == EDiff.DELETED || diff == EDiff.MOVEDFROM
-				|| diff == EDiff.REPLACEDOLD) {
+		final DiffType diff = pDiffCont.getDiff();
+		if (diff == DiffType.DELETED || diff == DiffType.MOVEDFROM
+				|| diff == DiffType.REPLACEDOLD) {
 			depth = pDiffCont.getDepth().getOldDepth();
 		} else {
 			depth = pDiffCont.getDepth().getNewDepth();
@@ -604,8 +604,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 				.isEmpty()) == true) || !mDone;) {
 			if (isNotEmpty) {
 				final DiffTuple tuple = mDiffQueue.peek();
-				final EDiff diff = tuple.getDiff();
-				if (diff == EDiff.SAME || diff == EDiff.SAMEHASH) {
+				final DiffType diff = tuple.getDiff();
+				if (diff == DiffType.SAME || diff == DiffType.SAMEHASH) {
 					// Set depth max.
 					depthMax = Math.max(mDiffQueue.poll().getDepth().getOldDepth()
 							- mDepth, depthMax);
@@ -675,14 +675,14 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			nodePruned();
 		} else {
 			// Add a sunburst item.
-			if (mPrune == Pruning.DIFF && diffCont.getDiff() == EDiff.SAMEHASH) {
+			if (mPrune == Pruning.DIFF && diffCont.getDiff() == DiffType.SAMEHASH) {
 				mIsPruned = true;
 			} else {
 				mIsPruned = false;
 			}
 
-			final NodeReadTrx rtx = (diffCont.getDiff() == EDiff.DELETED
-					|| diffCont.getDiff() == EDiff.MOVEDFROM || diffCont.getDiff() == EDiff.REPLACEDOLD) ? mOldRtx
+			final NodeReadTrx rtx = (diffCont.getDiff() == DiffType.DELETED
+					|| diffCont.getDiff() == DiffType.MOVEDFROM || diffCont.getDiff() == DiffType.REPLACEDOLD) ? mOldRtx
 					: mNewRtx;
 
 			final EStructType structKind = nextDepth > depth ? EStructType.ISINNERNODE
@@ -691,16 +691,16 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			// Set node relations.
 			String text = "";
 			NodeRelations relations = null;
-			final EDiff currDiff = diffCont.getDiff();
+			final DiffType currDiff = diffCont.getDiff();
 			if (rtx.getKind() == Kind.TEXT) {
-				if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM
-						|| currDiff == EDiff.REPLACEDOLD) {
+				if (currDiff == DiffType.DELETED || currDiff == DiffType.MOVEDFROM
+						|| currDiff == DiffType.REPLACEDOLD) {
 					text = mOldRtx.getValue();
 				} else {
 					text = mNewRtx.getValue();
 				}
-				if (currDiff == EDiff.UPDATED
-						|| ((currDiff == EDiff.REPLACEDNEW || currDiff == EDiff.REPLACEDOLD) && mOldRtx
+				if (currDiff == DiffType.UPDATED
+						|| ((currDiff == DiffType.REPLACEDNEW || currDiff == DiffType.REPLACEDOLD) && mOldRtx
 								.getKind() == mNewRtx.getKind())) {
 					final String oldValue = mOldRtx.getValue();
 					final String newValue = mNewRtx.getValue();
@@ -715,7 +715,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 					// }
 					relations = new NodeRelations(origDepth, depth, structKind,
 							similarity, 0, 1, indexToParent).setSubtract(subtract);
-				} else if (currDiff == EDiff.SAME || currDiff == EDiff.SAMEHASH) {
+				} else if (currDiff == DiffType.SAME || currDiff == DiffType.SAMEHASH) {
 					relations = new NodeRelations(origDepth, depth, structKind, 1, 0, 1,
 							indexToParent).setSubtract(subtract);
 				} else {
@@ -754,9 +754,9 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 
 			if (text.isEmpty()) {
 				QName name = null;
-				if (diffCont.getDiff() == EDiff.DELETED
-						|| diffCont.getDiff() == EDiff.MOVEDFROM
-						|| diffCont.getDiff() == EDiff.REPLACEDOLD) {
+				if (diffCont.getDiff() == DiffType.DELETED
+						|| diffCont.getDiff() == DiffType.MOVEDFROM
+						|| diffCont.getDiff() == DiffType.REPLACEDOLD) {
 					name = mOldRtx.getName();
 					builder.setAttributes(fillAttributes(mOldRtx));
 					builder.setNamespaces(fillNamespaces(mOldRtx));
@@ -775,8 +775,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			} else {
 				LOGWRAPPER.debug("text: " + text);
 
-				if (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM
-						|| currDiff == EDiff.REPLACEDOLD) {
+				if (currDiff == DiffType.DELETED || currDiff == DiffType.MOVEDFROM
+						|| currDiff == DiffType.REPLACEDOLD) {
 					builder.setOldText(text);
 					builder.setOldKey(mOldRtx.getNodeKey());
 				} else {
@@ -786,7 +786,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			updated(diffCont.getDiff(), builder);
 
 			final SunburstItem item = builder.build();
-			if (item.getDiff() == EDiff.MOVEDFROM) {
+			if (item.getDiff() == DiffType.MOVEDFROM) {
 				LOGWRAPPER.debug("movedToIndex: " + diffCont.getIndex());
 				item.setIndexMovedTo(diffCont.getIndex() - mAxis.getPrunedNodes());
 			}
@@ -815,10 +815,10 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	 * @param pBuilder
 	 *          {@link SunburstItem.Builder} reference
 	 */
-	private void updated(@Nonnull final EDiff pDiff,
+	private void updated(@Nonnull final DiffType pDiff,
 			@Nonnull final SunburstItem.Builder pBuilder) {
 		assert pBuilder != null;
-		if (pDiff == EDiff.UPDATED) {
+		if (pDiff == DiffType.UPDATED) {
 			if (mOldRtx.getKind() == Kind.TEXT) {
 				pBuilder.setOldText(mOldRtx.getValue());
 			} else {
@@ -857,10 +857,10 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			final Map<Integer, DiffTuple> diffs = mEntries > DIFF_THRESHOLD ? mDiffDatabase
 					.getMap() : mDiffs;
 			DiffTuple diff = diffs.get(0);
-			final int rootDepth = (diff.getDiff() == EDiff.DELETED
-					|| diff.getDiff() == EDiff.MOVEDFROM || diff.getDiff() == EDiff.REPLACEDOLD) ? diff
+			final int rootDepth = (diff.getDiff() == DiffType.DELETED
+					|| diff.getDiff() == DiffType.MOVEDFROM || diff.getDiff() == DiffType.REPLACEDOLD) ? diff
 					.getDepth().getOldDepth() : diff.getDepth().getNewDepth();
-			final boolean subtract = (diff.getDiff() != EDiff.SAME && diff.getDiff() != EDiff.SAMEHASH) ? true
+			final boolean subtract = (diff.getDiff() != DiffType.SAME && diff.getDiff() != DiffType.SAMEHASH) ? true
 					: false;
 			boolean first = true;
 			if (diffs.size() == 1) {
@@ -872,8 +872,8 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 			} else {
 				assert diffs.size() > 1;
 				diff = diffs.get(1);
-				int currDepth = (diff.getDiff() == EDiff.DELETED
-						|| diff.getDiff() == EDiff.MOVEDFROM || diff.getDiff() == EDiff.REPLACEDOLD) ? diff
+				int currDepth = (diff.getDiff() == DiffType.DELETED
+						|| diff.getDiff() == DiffType.MOVEDFROM || diff.getDiff() == DiffType.REPLACEDOLD) ? diff
 						.getDepth().getOldDepth() : diff.getDepth().getNewDepth();
 				for (int index = 0; index < mDiffs.size() && currDepth > rootDepth; index++) {
 					Future<Modification> modifications = null;
@@ -897,9 +897,9 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 					mModificationQueue.put(modifications);
 					if (index + 1 < diffs.size()) {
 						final DiffTuple currDiffCont = diffs.get(index + 1);
-						if (currDiffCont.getDiff() == EDiff.DELETED
-								|| currDiffCont.getDiff() == EDiff.MOVEDFROM
-								|| currDiffCont.getDiff() == EDiff.REPLACEDOLD) {
+						if (currDiffCont.getDiff() == DiffType.DELETED
+								|| currDiffCont.getDiff() == DiffType.MOVEDFROM
+								|| currDiffCont.getDiff() == DiffType.REPLACEDOLD) {
 							currDepth = currDiffCont.getDepth().getOldDepth();
 						} else {
 							currDepth = currDiffCont.getDepth().getNewDepth();

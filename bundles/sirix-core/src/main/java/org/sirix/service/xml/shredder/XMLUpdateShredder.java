@@ -58,7 +58,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.node.Kind;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.TypedValue;
 import org.slf4j.LoggerFactory;
@@ -299,7 +299,7 @@ public final class XMLUpdateShredder implements Callable<Long> {
       } else {
         if (mWtx.getKind() == Kind.DOCUMENT_ROOT) {
           // Find the start key for the update operation.
-          long startkey = EFixed.DOCUMENT_NODE_KEY.getStandardProperty() + 1;
+          long startkey = Fixed.DOCUMENT_NODE_KEY.getStandardProperty() + 1;
           while (!mWtx.moveTo(startkey).hasMoved()) {
             startkey++;
           }

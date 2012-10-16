@@ -32,18 +32,18 @@ import java.nio.charset.Charset;
 import com.google.common.base.Charsets;
 
 /**
- * <h1>IConstants</h1>
+ * <h1>Constants</h1>
  * 
  * <p>
  * Interface to hold all constants of the node layer.
  * </p>
  */
-public final class IConstants {
+public final class Constants {
 
   /**
    * Private constructor.
    */
-  private IConstants() {
+  private Constants() {
     // Cannot be instantiated.
     throw new AssertionError("May not be instantiated!");
   }

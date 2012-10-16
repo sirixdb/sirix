@@ -52,30 +52,31 @@ public final class Util {
    * cf. E. Myers. An O(ND) difference algorithm and its variations.
    * Algorithmica, 1(2): 251-266, 1986
    * 
-   * @param pX
+   * @param first
    *          first list
-   * @param pY
+   * @param second
    *          second list
    * @param pCmp
    *          function to compare the items in both lists (equality)
    * @return lcs, the items in the pairs are equal and taken from list x and list y.
    */
   public static <T> List<Pair<T, T>> longestCommonSubsequence(
-    @Nonnull final List<T> pX, @Nonnull final List<T> pY,
+    @Nonnull final List<T> first, @Nonnull final List<T> second,
     @Nonnull final Comparator<T> pCmp) {
-    final List<T> x = checkNotNull(pX);
-    final List<T> y = checkNotNull(pY);
+
+    if (first == null || second == null) {
+      return new ArrayList<>();
+    }
+
+    if (first.size() == 0 && second.size() == 0) {
+      return new ArrayList<>();
+    }
+    
+    final List<T> x = checkNotNull(first);
+    final List<T> y = checkNotNull(second);
     final int n = x.size();
     final int m = y.size();
     final int max = n + m;
-
-    if (pX == null || pY == null) {
-      return new ArrayList<>();
-    }
-
-    if (pX.size() == 0 && pY.size() == 0) {
-      return new ArrayList<>();
-    }
 
     final int v[] = new int[2 * max + 1];
     final List<List<Pair<T, T>>> common = new ArrayList<>(2 * max + 1);
@@ -116,15 +117,15 @@ public final class Util {
    * This is done by comparing the frequency of each
    * character occurs in both strings.
    * 
-   * @param pFirst
+   * @param first
    *          first string
-   * @param pSecond
+   * @param second
    *          second string
    * @return similarity of a and b, a value in [0, 1]
    */
-  public static float quickRatio(@Nonnull final String pFirst,
-    @Nonnull final String pSecond) {
-    if ((pFirst.isEmpty() && pSecond.isEmpty()) || (pFirst.equals(pSecond))) {
+  public static float quickRatio(final @Nonnull String first,
+    final @Nonnull String second) {
+    if ((first.isEmpty() && second.isEmpty()) || (first.equals(second))) {
       return 1;
     }
 
@@ -132,21 +133,21 @@ public final class Util {
     // Use a sparse array to reduce the memory usage
     // for unicode characters.
     final int x[][] = new int[256][];
-    for (char c : pSecond.toCharArray()) {
+    for (char c : second.toCharArray()) {
       if (x[c >> 8] == null) {
         x[c >> 8] = new int[256];
       }
       x[c >> 8][c & 0xFF]++;
     }
 
-    for (char c : pFirst.toCharArray()) {
+    for (char c : first.toCharArray()) {
       final int n = (x[c >> 8] == null) ? 0 : x[c >> 8][c & 0xFF]--;
       if (n > 0) {
         matches++;
       }
     }
 
-    return (float)(2d * matches / (pFirst.length() + pSecond.length()));
+    return (float)(2d * matches / (first.length() + second.length()));
   }
 
 }

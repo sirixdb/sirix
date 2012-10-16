@@ -42,14 +42,14 @@ public enum ShredderCommit {
   /** Auto commit afterwards. */
   COMMIT {
     @Override
-    void commit(@Nonnull final NodeWriteTrx pWtx) throws SirixException {
-      pWtx.commit();
+    void commit(final @Nonnull NodeWriteTrx wtx) throws SirixException {
+      wtx.commit();
     }
   },
   /** Do not commit after subtree has been shreddered. */
   NOCOMMIT {
     @Override
-    void commit(@Nonnull final NodeWriteTrx pWtx) throws SirixException {
+    void commit(final @Nonnull NodeWriteTrx wtx) throws SirixException {
       // Do nothing.
     }
   };
@@ -57,10 +57,10 @@ public enum ShredderCommit {
   /**
    * Determines if changes should be commited or not.
    * 
-   * @param pWtx
+   * @param wtx
    *          {@link NodeWriteTrx} reference
    * @throws SirixException
    *           if commiting changes fails
    */
-  abstract void commit(@Nonnull final NodeWriteTrx pWtx) throws SirixException;
+  abstract void commit(final @Nonnull NodeWriteTrx wtx) throws SirixException;
 }

@@ -39,8 +39,8 @@ import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.visitor.IVisitor;
-import org.sirix.settings.EFixed;
+import org.sirix.api.visitor.Visitor;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>AbsAxis</h1>
@@ -95,7 +95,7 @@ public abstract class AbsAxis implements Axis {
 	 * @throws NullPointerException
 	 *           if {@code paramRtx} is {@code null}
 	 */
-	public AbsAxis(final @Nonnull NodeCursor rtx) {
+	public AbsAxis(final @Nonnull NodeReadTrx rtx) {
 		mRtx = checkNotNull(rtx);
 		mIncludeSelf = IncludeSelf.NO;
 		reset(rtx.getNodeKey());
@@ -111,7 +111,7 @@ public abstract class AbsAxis implements Axis {
 	 * @throws NullPointerException
 	 *           if {@code rtx} or {@code includeSelf} is {@code null}
 	 */
-	public AbsAxis(final @Nonnull NodeCursor rtx,
+	public AbsAxis(final @Nonnull NodeReadTrx rtx,
 			final @Nonnull IncludeSelf includeSelf) {
 		mRtx = checkNotNull(rtx);
 		mIncludeSelf = checkNotNull(includeSelf);
@@ -129,10 +129,10 @@ public abstract class AbsAxis implements Axis {
 	 * signal that the axis-traversal is done and {@link #hasNext()} must return
 	 * false.
 	 * 
-	 * @return null node key to indicate that the travesal is finished
+	 * @return null node key to indicate that the travesal is done
 	 */
 	protected final long done() {
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	/**
@@ -182,7 +182,7 @@ public abstract class AbsAxis implements Axis {
 		mState = EState.FAILED; // temporary pessimism
 		// Template method.
 		mKey = nextKey();
-		if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+		if (mKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 			mState = EState.DONE;
 		}
 		if (mState == EState.DONE) {
@@ -261,13 +261,13 @@ public abstract class AbsAxis implements Axis {
 	/**
 	 * Resetting the nodekey of this axis to a given nodekey.
 	 * 
-	 * @param nodeKey
+	 * @param pNodeKey
 	 *          the nodekey where the reset should occur to
 	 */
 	@Override
-	public void reset(final @Nonnegative long nodeKey) {
-		mStartKey = nodeKey;
-		mKey = nodeKey;
+	public void reset(@Nonnegative final long pNodeKey) {
+		mStartKey = pNodeKey;
+		mKey = pNodeKey;
 		mState = EState.NOT_READY;
 	}
 
@@ -332,22 +332,22 @@ public abstract class AbsAxis implements Axis {
 	/**
 	 * Implements a simple foreach-method.
 	 * 
-	 * @param visitor
+	 * @param pVisitor
 	 *          {@link IVisitor} implementation
 	 */
 	@Override
-	public final void foreach(final @Nonnull IVisitor visitor) {
-		checkNotNull(visitor);
+	public final void foreach(@Nonnull final Visitor pVisitor) {
+		checkNotNull(pVisitor);
 		while (hasNext()) {
 			next();
-			mRtx.acceptVisitor(visitor);
+			mRtx.acceptVisitor(pVisitor);
 		}
 	}
 
 	@Override
 	public synchronized final long nextNode() {
 		synchronized (mRtx) {
-			long retVal = EFixed.NULL_NODE_KEY.getStandardProperty();
+			long retVal = Fixed.NULL_NODE_KEY.getStandardProperty();
 			if (hasNext()) {
 				retVal = next();
 			}

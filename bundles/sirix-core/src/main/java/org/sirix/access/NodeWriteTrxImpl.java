@@ -92,8 +92,8 @@ import org.sirix.page.UberPage;
 import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
-import org.sirix.settings.EFixed;
-import org.sirix.settings.IConstants;
+import org.sirix.settings.Fixed;
+import org.sirix.settings.Constants;
 import org.sirix.utils.XMLToken;
 
 import com.google.common.base.Objects;
@@ -604,14 +604,14 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 		checkAccessAndCommit();
 
 		final long parentKey = mPathSummary.getNodeKey();
-		final long leftSibKey = EFixed.NULL_NODE_KEY.getStandardProperty();
+		final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 		final long rightSibKey = mPathSummary.getFirstChildKey();
 		final PathNode node = mNodeFactory.createPathNode(parentKey, leftSibKey,
 				rightSibKey, 0, name, pathKind, level);
 
-		mPathSummary.setCurrentNode(node);
+		mPathSummary.moveTo(node.getNodeKey());
 		adaptForInsert(node, InsertPos.ASFIRSTCHILD, PageKind.PATHSUMMARYPAGE);
-		mPathSummary.setCurrentNode(node);
+		mPathSummary.moveTo(node.getNodeKey());
 
 		return this;
 	}
@@ -629,7 +629,7 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 				checkAccessAndCommit();
 
 				final long parentKey = mNodeRtx.getCurrentNode().getNodeKey();
-				final long leftSibKey = EFixed.NULL_NODE_KEY.getStandardProperty();
+				final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 				final long rightSibKey = ((StructNode) mNodeRtx.getCurrentNode())
 						.getFirstChildKey();
 
@@ -659,7 +659,7 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 		final Kind kind = mNodeRtx.getCurrentNode().getKind();
 		int level = 0;
 		if (kind == Kind.DOCUMENT_ROOT) {
-			mPathSummary.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+			mPathSummary.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		} else {
 			movePathSummary();
 			level = mPathSummary.getLevel();
@@ -874,7 +874,7 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 				switch (insert) {
 				case ASFIRSTCHILD:
 					parentKey = getCurrentNode().getNodeKey();
-					leftSibKey = EFixed.NULL_NODE_KEY.getStandardProperty();
+					leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 					rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
 					break;
 				case ASRIGHTSIBLING:
@@ -967,7 +967,7 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 				switch (insert) {
 				case ASFIRSTCHILD:
 					parentKey = getCurrentNode().getNodeKey();
-					leftSibKey = EFixed.NULL_NODE_KEY.getStandardProperty();
+					leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 					rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
 					break;
 				case ASRIGHTSIBLING:
@@ -1017,7 +1017,7 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 				checkAccessAndCommit();
 
 				final long parentKey = getCurrentNode().getNodeKey();
-				final long leftSibKey = EFixed.NULL_NODE_KEY.getStandardProperty();
+				final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 				final long rightSibKey = ((StructNode) getCurrentNode())
 						.getFirstChildKey();
 
@@ -1232,7 +1232,7 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 	 * @return byte-array representation of {@code pValue}
 	 */
 	private byte[] getBytes(final String pValue) {
-		return pValue.getBytes(IConstants.DEFAULT_ENCODING);
+		return pValue.getBytes(Constants.DEFAULT_ENCODING);
 	}
 
 	@Override

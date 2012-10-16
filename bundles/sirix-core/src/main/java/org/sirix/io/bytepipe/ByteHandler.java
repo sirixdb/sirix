@@ -16,24 +16,24 @@ public interface ByteHandler {
   /**
    * Method to serialize any byte-chunk.
    * 
-   * @param pToSerialize
+   * @param toSerialize
    *          byte to be serialized
    * @return result of the serialization
    * @throws SirixIOException
    *           if a byte handling exception occurs
    */
-  byte[] serialize(@Nonnull byte[] pToSerialize) throws SirixIOException;
+  byte[] serialize(@Nonnull byte[] toSerialize) throws SirixIOException;
 
   /**
    * Method to deserialize any byte-chunk.
    * 
-   * @param pToDeserialize
+   * @param toDeserialize
    *          to deserialize
    * @return result of the deserialization
    * @throws SirixIOException
    *           if a byte handling exception occurs
    */
-  byte[] deserialize(@Nonnull byte[] pToDeserialize)
+  byte[] deserialize(@Nonnull byte[] toDeserialize)
     throws SirixIOException;
   
   /**

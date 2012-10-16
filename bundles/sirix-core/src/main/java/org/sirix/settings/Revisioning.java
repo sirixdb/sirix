@@ -32,7 +32,7 @@ import java.util.Map.Entry;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.cache.PageContainer;
+import org.sirix.cache.NodePageContainer;
 import org.sirix.node.interfaces.NodeBase;
 import org.sirix.page.NodePage;
 
@@ -44,7 +44,7 @@ import org.sirix.page.NodePage;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public enum ERevisioning {
+public enum Revisioning {
 
   /**
    * FullDump, just dumping the complete older revision.
@@ -58,7 +58,7 @@ public enum ERevisioning {
     }
 
     @Override
-    public PageContainer combineNodePagesForModification(
+    public NodePageContainer combineNodePagesForModification(
       @Nonnull final NodePage[] pPages,
       @Nonnegative final int pMileStoneRevision) {
       final long nodePageKey = pPages[0].getNodePageKey();
@@ -73,7 +73,7 @@ public enum ERevisioning {
         returnVal[1].setNode(nodes);
       }
 
-      final PageContainer cont = new PageContainer(returnVal[0], returnVal[1]);
+      final NodePageContainer cont = new NodePageContainer(returnVal[0], returnVal[1]);
       return cont;
     }
   },
@@ -107,7 +107,7 @@ public enum ERevisioning {
     }
 
     @Override
-    public PageContainer combineNodePagesForModification(
+    public NodePageContainer combineNodePagesForModification(
       @Nonnull final NodePage[] pPages, @Nonnegative final int pRevToRestore) {
       assert pPages.length <= 2;
       final long nodePageKey = pPages[0].getNodePageKey();
@@ -135,7 +135,7 @@ public enum ERevisioning {
         returnVal[1].setNode(node);
       }
 
-      final PageContainer cont = new PageContainer(returnVal[0], returnVal[1]);
+      final NodePageContainer cont = new NodePageContainer(returnVal[0], returnVal[1]);
       return cont;
     }
   },
@@ -171,7 +171,7 @@ public enum ERevisioning {
     }
 
     @Override
-    public PageContainer combineNodePagesForModification(
+    public NodePageContainer combineNodePagesForModification(
       @Nonnull final NodePage[] pPages, final int pRevToRestore) {
       final long nodePageKey = pPages[0].getNodePageKey();
       final NodePage[] returnVal =
@@ -197,7 +197,7 @@ public enum ERevisioning {
         }
       }
 
-      final PageContainer cont = new PageContainer(returnVal[0], returnVal[1]);
+      final NodePageContainer cont = new NodePageContainer(returnVal[0], returnVal[1]);
       return cont;
     }
   };
@@ -223,10 +223,10 @@ public enum ERevisioning {
    *          the base of the complete {@link NodePage}
    * @param pMileStoneRevision
    *          the revision needed to build up the complete milestone
-   * @return a {@link PageContainer} holding a complete {@link NodePage} for reading and one
+   * @return a {@link NodePageContainer} holding a complete {@link NodePage} for reading and one
    *         for writing
    */
-  public abstract PageContainer
+  public abstract NodePageContainer
     combineNodePagesForModification(@Nonnull final NodePage[] pPages,
       @Nonnegative final int pMileStoneRevision);
 }

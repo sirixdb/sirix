@@ -6,7 +6,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.Node;
@@ -26,22 +26,22 @@ public class ImmutableText implements ValNode, StructNode {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          {@link TextNode} to wrap
 	 */
-	private ImmutableText(final @Nonnull TextNode pNode) {
-		mNode = checkNotNull(pNode);
+	private ImmutableText(final @Nonnull TextNode node) {
+		mNode = checkNotNull(node);
 	}
 
 	/**
 	 * Get an immutable text node instance.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          the mutable {@link TextNode} to wrap
 	 * @return immutable text node instance
 	 */
-	public static ImmutableText of(final @Nonnull TextNode pNode) {
-		return new ImmutableText(pNode);
+	public static ImmutableText of(final @Nonnull TextNode node) {
+		return new ImmutableText(node);
 	}
 
 	@Override
@@ -50,22 +50,22 @@ public class ImmutableText implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setTypeKey(int pTypeKey) {
+	public void setTypeKey(int typeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable Node pOther) {
+	public boolean isSameItem(final @Nullable Node pOther) {
 		return mNode.isSameItem(pOther);
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
-		return pVisitor.visit(this);
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+		return visitor.visit(this);
 	}
 
 	@Override
-	public void setHash(long pHash) {
+	public void setHash(long hash) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -75,7 +75,7 @@ public class ImmutableText implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setParentKey(long pNodeKey) {
+	public void setParentKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -145,17 +145,17 @@ public class ImmutableText implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setRightSiblingKey(long pNodeKey) {
+	public void setRightSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setLeftSiblingKey(long pNodeKey) {
+	public void setLeftSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setFirstChildKey(long pNodeKey) {
+	public void setFirstChildKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -180,7 +180,7 @@ public class ImmutableText implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setDescendantCount(long pDescendantCount) {
+	public void setDescendantCount(long descendantCount) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -190,7 +190,7 @@ public class ImmutableText implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setValue(@Nonnull byte[] pValue) {
+	public void setValue(byte[] value) {
 		throw new UnsupportedOperationException();
 	}
 }

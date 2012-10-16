@@ -66,7 +66,7 @@ import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.XPathAxis;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
@@ -342,7 +342,7 @@ public class FileSystemWatcher implements AutoCloseable {
   private void findNode(@Nonnull final String pXPath) throws SirixXPathException {
     final Axis axis = new XPathAxis(mWtx, checkNotNull(pXPath));
     int countResults = 0;
-    long resultNodeKey = (Long)EFixed.NULL_NODE_KEY.getStandardProperty();
+    long resultNodeKey = (Long)Fixed.NULL_NODE_KEY.getStandardProperty();
     while (axis.hasNext()) {
       resultNodeKey = axis.next();
       countResults++;

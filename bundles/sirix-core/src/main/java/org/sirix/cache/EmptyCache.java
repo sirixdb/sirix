@@ -16,21 +16,21 @@ public class EmptyCache<K, V> implements Cache<K, V> {
   }
 
   @Override
-  public V get(@Nonnull K pKey) {
+  public V get(@Nonnull K key) {
     return null;
   }
 
   @Override
-  public void put(@Nonnull K pKey, @Nonnull V pValue) {
+  public void put(@Nonnull K key, @Nonnull V value) {
   }
 
   @Override
-  public ImmutableMap<K, V> getAll(@Nonnull Iterable<? extends K> pKeys) {
+  public ImmutableMap<K, V> getAll(@Nonnull Iterable<? extends K> keys) {
     return null;
   }
 
   @Override
-  public void putAll(@Nonnull Map<K, V> pMap) {
+  public void putAll(@Nonnull Map<K, V> map) {
   }
 
   @Override
@@ -38,7 +38,7 @@ public class EmptyCache<K, V> implements Cache<K, V> {
   }
   
   @Override
-  public void remove(@Nonnull K pKey) {
+  public void remove(@Nonnull K key) {
   }
 
 	@Override

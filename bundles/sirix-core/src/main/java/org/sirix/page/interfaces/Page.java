@@ -35,20 +35,70 @@ import org.sirix.page.PageReference;
 
 import com.google.common.io.ByteArrayDataOutput;
 
+/**
+ * Page interface all pages have to implement.
+ * 
+ * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
+ * 
+ */
 public interface Page {
-  
-  void serialize(final @Nonnull ByteArrayDataOutput pOut);
 
-  int getRevision();
+	/**
+	 * Serialize a page
+	 * 
+	 * @param out
+	 *          {@link ByteArrayDataOutput} reference to serialize to
+	 */
+	void serialize(final @Nonnull ByteArrayDataOutput out);
 
-  PageReference[] getReferences();
+	/**
+	 * Revision of page.
+	 * 
+	 * @return revision number
+	 */
+	int getRevision();
 
-  void commit(final @Nonnull PageWriteTrx pPageWriteTrx) throws SirixException;
+	/**
+	 * Get all page references.
+	 * 
+	 * @return all page references
+	 */
+	PageReference[] getReferences();
 
+	/**
+	 * Commit page.
+	 * 
+	 * @param pageWriteTrx
+	 *          {@link PageWriteTrx} implementation
+	 * @throws SirixException
+	 *           if something went wrong
+	 */
+	void commit(final @Nonnull PageWriteTrx pageWriteTrx) throws SirixException;
+
+	/**
+	 * Get the {@link PageReference} at the specified offset
+	 * 
+	 * @param offset
+	 *          the offset
+	 * @return the {@link PageReference} at the specified offset
+	 */
 	PageReference getReference(final @Nonnegative int offset);
-	
+
+	/**
+	 * Determines if a page is dirty meaning if it has been changed.
+	 * 
+	 * @return {@code true} if it has been changed, {@code false} otherwise
+	 */
 	boolean isDirty();
-	
+
+	/**
+	 * Set dirty flag (if page has been modified).
+	 * 
+	 * @param pDirty
+	 *          dirty or not
+	 * @return the page instance
+	 */
 	Page setDirty(final boolean pDirty);
 
 }

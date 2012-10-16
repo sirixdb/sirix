@@ -34,7 +34,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
-import org.sirix.io.EStorage;
+import org.sirix.io.StorageType;
 import org.sirix.io.IOTestHelper;
 
 public class FileTest {
@@ -44,7 +44,7 @@ public class FileTest {
   public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     Holder.generateSession().close();
-    resourceConf = IOTestHelper.registerIO(EStorage.File);
+    resourceConf = IOTestHelper.registerIO(StorageType.File);
   }
 
   @Test

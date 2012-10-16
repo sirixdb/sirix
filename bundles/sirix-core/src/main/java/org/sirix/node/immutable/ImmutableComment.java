@@ -7,7 +7,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.CommentNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
@@ -28,22 +28,22 @@ public class ImmutableComment implements ValNode, StructNode {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          mutable {@link CommentNode}
 	 */
-	private ImmutableComment(final @Nonnull CommentNode pNode) {
-		mNode = checkNotNull(pNode);
+	private ImmutableComment(final @Nonnull CommentNode node) {
+		mNode = checkNotNull(node);
 	}
 
 	/**
 	 * Get an immutable comment node instance.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          the mutable {@link CommentNode} to wrap
 	 * @return immutable comment node instance
 	 */
-	public static ImmutableComment of(final @Nonnull CommentNode pNode) {
-		return new ImmutableComment(pNode);
+	public static ImmutableComment of(final @Nonnull CommentNode node) {
+		return new ImmutableComment(node);
 	}
 
 	@Override
@@ -52,22 +52,22 @@ public class ImmutableComment implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setTypeKey(final int pTypeKey) {
+	public void setTypeKey(final int typeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean isSameItem(final @Nullable Node pOther) {
-		return mNode.isSameItem(pOther);
+	public boolean isSameItem(final @Nullable Node other) {
+		return mNode.isSameItem(other);
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
-		return pVisitor.visit(this);
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+		return visitor.visit(this);
 	}
 
 	@Override
-	public void setHash(final long pHash) {
+	public void setHash(long hash) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -77,7 +77,7 @@ public class ImmutableComment implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setParentKey(final long pNodeKey) {
+	public void setParentKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -112,7 +112,7 @@ public class ImmutableComment implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setValue(final @Nonnull byte[] pValue) {
+	public void setValue(byte[] value) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -157,17 +157,17 @@ public class ImmutableComment implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setRightSiblingKey(final long pNodeKey) {
+	public void setRightSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setLeftSiblingKey(final long pNodeKey) {
+	public void setLeftSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setFirstChildKey(final long pNodeKey) {
+	public void setFirstChildKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -195,7 +195,7 @@ public class ImmutableComment implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setDescendantCount(final @Nonnegative long pDescendantCount) {
+	public void setDescendantCount(long descendantCount) {
 		throw new UnsupportedOperationException();
 	}
 }

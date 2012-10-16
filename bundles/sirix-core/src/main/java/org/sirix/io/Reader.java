@@ -51,13 +51,13 @@ public interface Reader {
   /**
    * Getting a reference for the given pointer.
    * 
-   * @param pKey
+   * @param key
    *          the reference for the page to be determined
    * @return a {@link PageDelegate} as the base for a page
    * @throws SirixIOException
    *           if something bad happens during read
    */
-  Page read(final long pKey) throws SirixIOException;
+  Page read(final long key) throws SirixIOException;
 
   /**
    * Closing the storage.

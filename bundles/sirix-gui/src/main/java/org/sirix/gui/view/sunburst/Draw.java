@@ -32,7 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.events.Attribute;
 
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.GUI;
 import org.sirix.gui.view.EHover;
 import org.sirix.gui.view.ViewUtilities;
@@ -283,9 +283,9 @@ public enum Draw {
 			}
 
 			if (!found) {
-				final EDiff diff = pItem.getDiff();
-				if (diff == EDiff.REPLACEDOLD || diff == EDiff.DELETED
-						|| diff == EDiff.MOVEDFROM) {
+				final DiffType diff = pItem.getDiff();
+				if (diff == DiffType.REPLACEDOLD || diff == DiffType.DELETED
+						|| diff == DiffType.MOVEDFROM) {
 					final QName oldQName = pItem.getOldQName();
 					text = oldQName == null ? pItem.getOldText() : ViewUtilities
 							.qNameToString(oldQName);

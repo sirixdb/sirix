@@ -30,9 +30,9 @@ package org.sirix.axis;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>AncestorAxis</h1>
@@ -55,7 +55,7 @@ public final class AncestorAxis extends AbsAxis {
 	 * @param paramRtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public AncestorAxis(final @Nonnull NodeCursor rtx) {
+	public AncestorAxis(final @Nonnull NodeReadTrx rtx) {
 		super(rtx);
 	}
 
@@ -67,7 +67,7 @@ public final class AncestorAxis extends AbsAxis {
 	 * @param includeSelf
 	 *          Is self included?
 	 */
-	public AncestorAxis(final @Nonnull NodeCursor rtx,
+	public AncestorAxis(final @Nonnull NodeReadTrx rtx,
 			final @Nonnull IncludeSelf includeSelf) {
 		super(rtx, includeSelf);
 	}
@@ -88,7 +88,7 @@ public final class AncestorAxis extends AbsAxis {
 
 		if (getTrx().getKind() != Kind.DOCUMENT_ROOT
 				&& getTrx().hasParent()
-				&& getTrx().getParentKey() != EFixed.DOCUMENT_NODE_KEY
+				&& getTrx().getParentKey() != Fixed.DOCUMENT_NODE_KEY
 						.getStandardProperty()) {
 			return getTrx().getParentKey();
 		}

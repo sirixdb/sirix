@@ -63,28 +63,28 @@ public final class PageBinding extends TupleBinding<Page> {
   /**
    * Copy constructor.
    * 
-   * @param pPageBinding
+   * @param pageBinding
    *          page binding
    */
-  public PageBinding(final @Nonnull PageBinding pPageBinding) {
-    mByteHandler = new ByteHandlePipeline(pPageBinding.mByteHandler);
+  public PageBinding(final @Nonnull PageBinding pageBinding) {
+    mByteHandler = new ByteHandlePipeline(pageBinding.mByteHandler);
   }
 
   /**
    * Constructor.
    * 
-   * @param pByteHandler
+   * @param byteHandler
    *          byte handler pipleine
    */
-  public PageBinding(final @Nonnull ByteHandlePipeline pByteHandler) {
-    mByteHandler = checkNotNull(pByteHandler);
+  public PageBinding(final @Nonnull ByteHandlePipeline byteHandler) {
+    mByteHandler = checkNotNull(byteHandler);
   }
 
   @Override
-  public Page entryToObject(final TupleInput pInput) {
+  public Page entryToObject(final TupleInput input) {
     byte[] deserialized = new byte[0];
     try {
-      deserialized = mByteHandler.deserialize(pInput.getBufferBytes());
+      deserialized = mByteHandler.deserialize(input.getBufferBytes());
     } catch (final SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
     }
@@ -93,11 +93,11 @@ public final class PageBinding extends TupleBinding<Page> {
   }
 
   @Override
-  public void objectToEntry(final Page pPage, final TupleOutput pOutput) {
-    final ByteArrayDataOutput output = ByteStreams.newDataOutput();
-    PagePersistenter.serializePage(output, pPage);
+  public void objectToEntry(final Page page, final TupleOutput output) {
+    final ByteArrayDataOutput outputData = ByteStreams.newDataOutput();
+    PagePersistenter.serializePage(outputData, page);
     try {
-      pOutput.write(mByteHandler.serialize(output.toByteArray()));
+      output.write(mByteHandler.serialize(outputData.toByteArray()));
     } catch (final SirixIOException e) {
       LOGGER.error(e.getMessage(), e);
     }

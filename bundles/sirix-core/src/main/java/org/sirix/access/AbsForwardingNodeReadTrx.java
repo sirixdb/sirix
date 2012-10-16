@@ -10,7 +10,7 @@ import org.sirix.api.ItemList;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
@@ -285,7 +285,7 @@ public abstract class AbsForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull IVisitor visitor) {
+	public VisitResult acceptVisitor(@Nonnull Visitor visitor) {
 		return delegate().acceptVisitor(visitor);
 	}
 	

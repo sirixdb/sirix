@@ -6,7 +6,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.interfaces.NameNode;
@@ -26,22 +26,22 @@ public class ImmutableNamespace implements NameNode {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          {@link NamespaceNode} to wrap
 	 */
-	private ImmutableNamespace(final @Nonnull NamespaceNode pNode) {
-		mNode = checkNotNull(pNode);
+	private ImmutableNamespace(final @Nonnull NamespaceNode node) {
+		mNode = checkNotNull(node);
 	}
 	
 	/**
 	 * Get an immutable namespace node instance.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          the mutable {@link NamespaceNode} to wrap
 	 * @return immutable namespace node instance
 	 */
-	public static ImmutableNamespace of(final @Nonnull NamespaceNode pNode) {
-		return new ImmutableNamespace(pNode);
+	public static ImmutableNamespace of(final @Nonnull NamespaceNode node) {
+		return new ImmutableNamespace(node);
 	}
 
 	@Override
@@ -50,17 +50,17 @@ public class ImmutableNamespace implements NameNode {
 	}
 
 	@Override
-	public void setTypeKey(final int pTypeKey) {
+	public void setTypeKey(int typeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable Node pOther) {
+	public boolean isSameItem(final @Nullable Node pOther) {
 		return mNode.isSameItem(pOther);
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
+	public VisitResult acceptVisitor(final @Nonnull Visitor pVisitor) {
 		return pVisitor.visit(this);
 	}
 
@@ -75,7 +75,7 @@ public class ImmutableNamespace implements NameNode {
 	}
 
 	@Override
-	public void setParentKey(long pNodeKey) {
+	public void setParentKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -115,12 +115,12 @@ public class ImmutableNamespace implements NameNode {
 	}
 
 	@Override
-	public void setNameKey(int pNameKey) {
+	public void setNameKey(int nameKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setURIKey(int pUriKey) {
+	public void setURIKey(int uriKey) {
 		throw new UnsupportedOperationException();
 	}
 

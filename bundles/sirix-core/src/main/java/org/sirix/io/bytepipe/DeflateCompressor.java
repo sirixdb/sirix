@@ -20,12 +20,15 @@ import org.sirix.exception.SirixIOException;
  */
 public class DeflateCompressor implements ByteHandler {
 
+	/** {@link Deflater} instance. */
   private final Deflater mCompressor;
 
+  /** {@link Inflater} instance. */
   private final Inflater mDecompressor;
 
   private final byte[] mTmp;
 
+  /** {@link ByteArrayOutputStream} instance. */
   private final ByteArrayOutputStream mOut;
 
   /**

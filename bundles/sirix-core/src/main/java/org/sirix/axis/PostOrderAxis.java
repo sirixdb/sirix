@@ -29,9 +29,8 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>PostOrder</h1>
@@ -51,27 +50,27 @@ public final class PostOrderAxis extends AbsAxis {
 	/**
 	 * Constructor initializing internal state.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public PostOrderAxis(@Nonnull final NodeCursor pRtx) {
-		super(pRtx);
+	public PostOrderAxis(final @Nonnull NodeReadTrx rtx) {
+		super(rtx);
 	}
 
 	/**
 	 * Constructor initializing internal state.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public PostOrderAxis(@Nonnull final NodeCursor pRtx,
-			@Nonnull final IncludeSelf pIncludeSelf) {
-		super(pRtx, pIncludeSelf);
+	public PostOrderAxis(final @Nonnull NodeReadTrx rtx,
+			final @Nonnull IncludeSelf includeSelf) {
+		super(rtx, includeSelf);
 	}
 
 	@Override
-	public void reset(final long pNodeKey) {
-		super.reset(pNodeKey);
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
 		mMovedToParent = false;
 		mIsStartKey = false;
 	}
@@ -115,7 +114,7 @@ public final class PostOrderAxis extends AbsAxis {
 		}
 
 		// Stop traversal if needed.
-		if (key == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+		if (key == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 			return key;
 		}
 

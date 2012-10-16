@@ -6,7 +6,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
 import org.sirix.node.interfaces.NameNode;
@@ -86,17 +86,17 @@ public class ImmutableElement implements NameNode, StructNode, Node {
 	}
 
 	@Override
-	public void setRightSiblingKey(long pNodeKey) {
+	public void setRightSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setLeftSiblingKey(long pNodeKey) {
+	public void setLeftSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setFirstChildKey(long pNodeKey) {
+	public void setFirstChildKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -121,7 +121,7 @@ public class ImmutableElement implements NameNode, StructNode, Node {
 	}
 
 	@Override
-	public void setDescendantCount(long pDescendantCount) {
+	public void setDescendantCount(long descendantCount) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -131,23 +131,23 @@ public class ImmutableElement implements NameNode, StructNode, Node {
 	}
 
 	@Override
-	public void setTypeKey(int pTypeKey) {
+	public void setTypeKey(int typeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable Node pOther) {
-		return mNode.isSameItem(pOther);
+	public boolean isSameItem(final @Nullable Node other) {
+		return mNode.isSameItem(other);
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
-		return pVisitor.visit(this);
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+		return visitor.visit(this);
 	}
 
 	@Override
-	public void setHash(long pHash) {
-		mNode.setHash(pHash);
+	public void setHash(final long hash) {
+		mNode.setHash(hash);
 	}
 
 	@Override
@@ -156,8 +156,8 @@ public class ImmutableElement implements NameNode, StructNode, Node {
 	}
 
 	@Override
-	public void setParentKey(long pNodeKey) {
-
+	public void setParentKey(long nodeKey) {
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
@@ -196,12 +196,12 @@ public class ImmutableElement implements NameNode, StructNode, Node {
 	}
 
 	@Override
-	public void setNameKey(int pNameKey) {
+	public void setNameKey(int nameKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setURIKey(int pUriKey) {
+	public void setURIKey(int uriKey) {
 		throw new UnsupportedOperationException();
 	}
 

@@ -34,7 +34,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 
@@ -54,13 +54,11 @@ public final class DeletedNode extends AbsForwardingNode {
   /**
    * Constructor.
    * 
-   * @param paramNode
-   *          nodekey to be replaced with a deletednode
-   * @param paramParent
-   *          parent of this key.
+   * @param nodeDel
+   *          node delegate
    */
-  public DeletedNode(@Nonnull final NodeDelegate pDel) {
-    mDel = checkNotNull(pDel);
+  public DeletedNode(@Nonnull final NodeDelegate nodeDel) {
+    mDel = checkNotNull(nodeDel);
   }
   
   @Override
@@ -74,13 +72,12 @@ public final class DeletedNode extends AbsForwardingNode {
   }
 
   @Override
-  public boolean equals(final Object pObj) {
-    boolean retVal = false;
-    if (pObj instanceof DeletedNode) {
-      final DeletedNode other = (DeletedNode)pObj;
-      retVal = Objects.equal(mDel, other.mDel);
+  public boolean equals(final Object obj) {
+    if (obj instanceof DeletedNode) {
+      final DeletedNode other = (DeletedNode)obj;
+      return Objects.equal(mDel, other.mDel);
     }
-    return retVal;
+    return false;
   }
 
   @Override
@@ -89,8 +86,8 @@ public final class DeletedNode extends AbsForwardingNode {
   }
   
   @Override
-  public boolean isSameItem(@Nullable final Node pOther) {
-    return mDel.isSameItem(pOther);
+  public boolean isSameItem(final @Nullable Node other) {
+    return mDel.isSameItem(other);
   }
 
   @Override
@@ -99,7 +96,7 @@ public final class DeletedNode extends AbsForwardingNode {
   }
 
   @Override
-  public VisitResultType acceptVisitor(@Nonnull IVisitor pVisitor) {
+  public VisitResultType acceptVisitor(Visitor visitor) {
     throw new UnsupportedOperationException();
   }
 

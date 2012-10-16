@@ -54,14 +54,14 @@ public class ValuePage extends AbsForwardingPage {
   /**
    * Metadata for the revision.
    * 
-   * @param pRevision
+   * @param revision
    *          revision number
    * @throws IllegalArgumentException
    *           if {@code pRevision} < 0
    */
-  public ValuePage(@Nonnegative final int pRevision) {
-    checkArgument(pRevision >= 0, "pRevision must be >= 0!");
-    mDelegate = new PageDelegate(1, pRevision);
+  public ValuePage(final @Nonnegative int revision) {
+    checkArgument(revision >= 0, "pRevision must be >= 0!");
+    mDelegate = new PageDelegate(1, revision);
   }
 
   /**
@@ -76,11 +76,11 @@ public class ValuePage extends AbsForwardingPage {
   /**
    * Read meta page.
    * 
-   * @param pIn
+   * @param in
    *          input bytes to read from
    */
-  protected ValuePage(@Nonnull final ByteArrayDataInput pIn) {
-    mDelegate = new PageDelegate(1, pIn);
+  protected ValuePage(final @Nonnull ByteArrayDataInput in) {
+    mDelegate = new PageDelegate(1, in);
   }
 
   @Override

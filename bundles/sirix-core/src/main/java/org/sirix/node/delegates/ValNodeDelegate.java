@@ -35,7 +35,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
@@ -66,21 +66,23 @@ public class ValNodeDelegate extends AbsForwardingNode implements ValNode {
   /**
    * Constructor
    * 
-   * @param pNodeDel
-   *          the common data.
-   * @param pVal
-   *          the own value.
+   * @param nodeDel
+   *          {@link NodeDelegate} reference
+   * @param val
+   *          the value
+   * @param compressed
+   * 					compress value or not
    */
-  public ValNodeDelegate(@Nonnull final NodeDelegate pNodeDel,
-    @Nonnull final byte[] pVal, final boolean pCompressed) {
-    mDelegate = checkNotNull(pNodeDel);
-    mVal = checkNotNull(pVal);
-    mCompressed = pCompressed;
+  public ValNodeDelegate(@Nonnull final NodeDelegate nodeDel,
+    @Nonnull final byte[] val, final boolean compressed) {
+    mDelegate = checkNotNull(nodeDel);
+    mVal = checkNotNull(val);
+    mCompressed = compressed;
   }
 
   @Override
-  public VisitResultType acceptVisitor(@Nonnull final IVisitor pVisitor) {
-    return mDelegate.acceptVisitor(pVisitor);
+  public VisitResultType acceptVisitor(@Nonnull final Visitor visitor) {
+    return mDelegate.acceptVisitor(visitor);
   }
 
   @Override
@@ -98,11 +100,11 @@ public class ValNodeDelegate extends AbsForwardingNode implements ValNode {
   }
 
   @Override
-  public void setValue(@Nonnull final byte[] pVal) {
-    mCompressed = new String(pVal).length() > 10 ? true : false;
+  public void setValue(@Nonnull final byte[] value) {
+    mCompressed = new String(value).length() > 10 ? true : false;
     mVal =
-      mCompressed ? Compression.compress(pVal, Deflater.DEFAULT_COMPRESSION)
-        : pVal;
+      mCompressed ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
+        : value;
   }
 
   /**
@@ -117,11 +119,11 @@ public class ValNodeDelegate extends AbsForwardingNode implements ValNode {
   /**
    * Set compression.
    * 
-   * @param pCompressed
+   * @param compressed
    *          determines if value is compressed or not
    */
-  public void setCompressed(final boolean pCompressed) {
-    mCompressed = pCompressed;
+  public void setCompressed(final boolean compressed) {
+    mCompressed = compressed;
   }
 
   @Override
@@ -130,9 +132,9 @@ public class ValNodeDelegate extends AbsForwardingNode implements ValNode {
   }
 
   @Override
-  public boolean equals(@Nullable final Object pObj) {
-    if (pObj instanceof ValNodeDelegate) {
-      final ValNodeDelegate other = (ValNodeDelegate)pObj;
+  public boolean equals(final @Nullable Object obj) {
+    if (obj instanceof ValNodeDelegate) {
+      final ValNodeDelegate other = (ValNodeDelegate)obj;
       return Objects.equal(mDelegate, other.mDelegate)
         && Arrays.equals(mVal, other.mVal);
     }
@@ -145,8 +147,8 @@ public class ValNodeDelegate extends AbsForwardingNode implements ValNode {
   }
 
   @Override
-  public boolean isSameItem(@Nullable final Node pOther) {
-    return mDelegate.isSameItem(pOther);
+  public boolean isSameItem(final @Nullable Node other) {
+    return mDelegate.isSameItem(other);
   }
 
   @Override

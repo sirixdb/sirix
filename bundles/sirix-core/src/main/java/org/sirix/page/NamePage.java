@@ -71,12 +71,12 @@ public final class NamePage implements Page {
   /**
    * Create name page.
    * 
-   * @param pRevision
+   * @param revision
    *          revision number
    */
-  public NamePage(final @Nonnegative int pRevision) {
-    checkArgument(pRevision >= 0, "pRevision must be >= 0!");
-    mRevision = pRevision;
+  public NamePage(final @Nonnegative int revision) {
+    checkArgument(revision >= 0, "pRevision must be >= 0!");
+    mRevision = revision;
     mAttributes = Names.getInstance();
     mElements = Names.getInstance();
     mNamespaces = Names.getInstance();
@@ -87,38 +87,38 @@ public final class NamePage implements Page {
   /**
    * Read name page.
    * 
-   * @param pIn
+   * @param in
    *          input bytes to read from
    */
-  protected NamePage(final @Nonnull ByteArrayDataInput pIn) {
-    mRevision = pIn.readInt();
-    mElements = Names.clone(pIn);
-    mNamespaces = Names.clone(pIn);
-    mAttributes = Names.clone(pIn);
-    mPIs = Names.clone(pIn);
+  protected NamePage(final @Nonnull ByteArrayDataInput in) {
+    mRevision = in.readInt();
+    mElements = Names.clone(in);
+    mNamespaces = Names.clone(in);
+    mAttributes = Names.clone(in);
+    mPIs = Names.clone(in);
   }
 
   /**
    * Get raw name belonging to name key.
    * 
-   * @param pKey
+   * @param key
    *          name key identifying name
    * @return raw name of name key
    */
-  public byte[] getRawName(final int pKey, final @Nonnull Kind pNodeKind) {
+  public byte[] getRawName(final int key, final @Nonnull Kind nodeKind) {
     byte[] rawName = new byte[] {};
-    switch (pNodeKind) {
+    switch (nodeKind) {
     case ELEMENT:
-      rawName = mElements.getRawName(pKey);
+      rawName = mElements.getRawName(key);
       break;
     case NAMESPACE:
-      rawName = mNamespaces.getRawName(pKey);
+      rawName = mNamespaces.getRawName(key);
       break;
     case ATTRIBUTE:
-      rawName = mAttributes.getRawName(pKey);
+      rawName = mAttributes.getRawName(key);
       break;
     case PROCESSING:
-      rawName = mPIs.getRawName(pKey);
+      rawName = mPIs.getRawName(key);
       break;
     default:
       throw new IllegalStateException("No other node types supported!");
@@ -129,24 +129,24 @@ public final class NamePage implements Page {
   /**
    * Get raw name belonging to name key.
    * 
-   * @param pKey
+   * @param key
    *          name key identifying name
    * @return raw name of name key, or {@code null} if not present
    */
-  public String getName(final int pKey, @Nonnull final Kind pNodeKind) {
+  public String getName(final int key, @Nonnull final Kind nodeKind) {
     String name;
-    switch (pNodeKind) {
+    switch (nodeKind) {
     case ELEMENT:
-      name = mElements.getName(pKey);
+      name = mElements.getName(key);
       break;
     case NAMESPACE:
-      name = mNamespaces.getName(pKey);
+      name = mNamespaces.getName(key);
       break;
     case ATTRIBUTE:
-      name = mAttributes.getName(pKey);
+      name = mAttributes.getName(key);
       break;
     case PROCESSING:
-    	name = mPIs.getName(pKey);
+    	name = mPIs.getName(key);
     	break;
     default:
       throw new IllegalStateException("No other node types supported!");
@@ -157,24 +157,24 @@ public final class NamePage implements Page {
   /**
    * Get number of nodes with the given name key.
    * 
-   * @param pKey
+   * @param key
    *          name key identifying name
    * @return number of nodes with the given name key
    */
-  public int getCount(final int pKey, @Nonnull final Kind pNodeKind) {
+  public int getCount(final int key, @Nonnull final Kind nodeKind) {
     int count;
-    switch (pNodeKind) {
+    switch (nodeKind) {
     case ELEMENT:
-      count = mElements.getCount(pKey);
+      count = mElements.getCount(key);
       break;
     case NAMESPACE:
-      count = mNamespaces.getCount(pKey);
+      count = mNamespaces.getCount(key);
       break;
     case ATTRIBUTE:
-      count = mAttributes.getCount(pKey);
+      count = mAttributes.getCount(key);
       break;
     case PROCESSING:
-    	count = mPIs.getCount(pKey);
+    	count = mPIs.getCount(key);
     	break;
     default:
       throw new IllegalStateException("No other node types supported!");
@@ -185,27 +185,27 @@ public final class NamePage implements Page {
   /**
    * Create name key given a name.
    * 
-   * @param pKey
+   * @param key
    *          key for given name
-   * @param pName
+   * @param name
    *          name to create key for
    * @param pNodeKind
    * 					kind of node
    */
-  public void setName(final int pKey, final @Nonnull String pName,
+  public void setName(final int key, final @Nonnull String name,
     final @Nonnull Kind pNodeKind) {
     switch (pNodeKind) {
     case ELEMENT:
-      mElements.setName(pKey, pName);
+      mElements.setName(key, name);
       break;
     case NAMESPACE:
-      mNamespaces.setName(pKey, pName);
+      mNamespaces.setName(key, name);
       break;
     case ATTRIBUTE:
-      mAttributes.setName(pKey, pName);
+      mAttributes.setName(key, name);
       break;
     case PROCESSING:
-      mPIs.setName(pKey, pName);
+      mPIs.setName(key, name);
       break;
     default:
       throw new IllegalStateException("No other node types supported!");
@@ -213,12 +213,12 @@ public final class NamePage implements Page {
   }
 
   @Override
-  public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
-    pOut.writeInt(mRevision);
-    mElements.serialize(pOut);
-    mNamespaces.serialize(pOut);
-    mAttributes.serialize(pOut);
-    mPIs.serialize(pOut);
+  public void serialize(final @Nonnull ByteArrayDataOutput out) {
+    out.writeInt(mRevision);
+    mElements.serialize(out);
+    mNamespaces.serialize(out);
+    mAttributes.serialize(out);
+    mPIs.serialize(out);
   }
 
   @Override
@@ -231,22 +231,22 @@ public final class NamePage implements Page {
   /**
    * Remove an attribute-name.
    * 
-   * @param pKey
+   * @param key
    *          the key to remove
    */
-  public void removeName(final int pKey, final @Nonnull Kind pNodeKind) {
-    switch (pNodeKind) {
+  public void removeName(final int key, final @Nonnull Kind nodeKind) {
+    switch (nodeKind) {
     case ELEMENT:
-      mElements.removeName(pKey);
+      mElements.removeName(key);
       break;
     case NAMESPACE:
-      mNamespaces.removeName(pKey);
+      mNamespaces.removeName(key);
       break;
     case ATTRIBUTE:
-      mAttributes.removeName(pKey);
+      mAttributes.removeName(key);
       break;
     case PROCESSING:
-      mPIs.removeName(pKey);
+      mPIs.removeName(key);
       break;
     default:
       throw new IllegalStateException("No other node types supported!");
@@ -264,12 +264,12 @@ public final class NamePage implements Page {
   }
 
   @Override
-  public void commit(final @Nonnull PageWriteTrx pPageWriteTrx)
+  public void commit(PageWriteTrx pageWriteTrx)
     throws SirixException {
   }
 
 	@Override
-	public PageReference getReference(final @Nonnegative int offset) {
+	public PageReference getReference(int offset) {
 		throw new UnsupportedOperationException();
 	}
 

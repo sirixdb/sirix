@@ -40,7 +40,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -137,7 +137,7 @@ public class ConcurrentAxis extends AbsAxis {
     	return done();
     }
 
-    long result = EFixed.NULL_NODE_KEY.getStandardProperty();
+    long result = Fixed.NULL_NODE_KEY.getStandardProperty();
 
     try {
       // Get result from producer as soon as it is available.
@@ -147,7 +147,7 @@ public class ConcurrentAxis extends AbsAxis {
     }
 
     // NULL_NODE_KEY marks end of the sequence computed by the producer.
-    if (result != EFixed.NULL_NODE_KEY.getStandardProperty()) {
+    if (result != Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return result;
     }
 

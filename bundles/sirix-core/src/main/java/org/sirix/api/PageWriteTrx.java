@@ -5,7 +5,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.MultipleWriteTrx;
 import org.sirix.access.Restore;
-import org.sirix.cache.PageContainer;
+import org.sirix.cache.NodePageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
@@ -128,13 +128,13 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * Update log.
 	 * 
 	 * @param nodePageCont
-	 *          {@link PageContainer} reference to synchronize
+	 *          {@link NodePageContainer} reference to synchronize
 	 * @param page
 	 *          type of page
 	 * @throws NullPointerException
 	 * 					if {@code nodePageCont} or {@code page} is {@code null}
 	 */
-	void updateDateContainer(@Nonnull PageContainer nodePageCont,
+	void updateDateContainer(@Nonnull NodePageContainer nodePageCont,
 			@Nonnull PageKind page);
 
 	/**

@@ -35,7 +35,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
-import org.sirix.settings.IConstants;
+import org.sirix.settings.Constants;
 
 /**
  * <h1>IndirectPage</h1>
@@ -52,36 +52,36 @@ public final class IndirectPage extends AbsForwardingPage {
   /**
    * Create indirect page.
    * 
-   * @param pRevision
+   * @param revision
    *          revision number
    */
-  public IndirectPage(final @Nonnegative int pRevision) {
-    checkArgument(pRevision >= 0, "pRevision must be >= 0!");
-    mDelegate = new PageDelegate(IConstants.INP_REFERENCE_COUNT, pRevision);
+  public IndirectPage(final @Nonnegative int revision) {
+    checkArgument(revision >= 0, "pRevision must be >= 0!");
+    mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, revision);
     
   }
 
   /**
    * Read indirect page.
    * 
-   * @param pIn
+   * @param in
    *          input source
    */
-  protected IndirectPage(final @Nonnull ByteArrayDataInput pIn) {
-    mDelegate = new PageDelegate(IConstants.INP_REFERENCE_COUNT, pIn);
+  protected IndirectPage(final @Nonnull ByteArrayDataInput in) {
+    mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
   }
 
   /**
    * Clone indirect page.
    * 
-   * @param pPage
+   * @param page
    *          {@link IndirectPage} to clone
-   * @param pRevisionToUse
+   * @param revisionToUse
    *          revision number to use
    */
-  public IndirectPage(final @Nonnull IndirectPage pPage, final @Nonnegative int pRevisionToUse) {
-    checkArgument(pRevisionToUse >= 0, "pRevisionToUse must be >= 0!");
-    mDelegate = new PageDelegate(pPage, pRevisionToUse);
+  public IndirectPage(final @Nonnull IndirectPage page, final @Nonnegative int revisionToUse) {
+    checkArgument(revisionToUse >= 0, "pRevisionToUse must be >= 0!");
+    mDelegate = new PageDelegate(page, revisionToUse);
   }
 
   @Override
@@ -90,8 +90,8 @@ public final class IndirectPage extends AbsForwardingPage {
   }
   
 	@Override
-	public Page setDirty(final boolean pDirty) {
-		mDelegate.setDirty(pDirty);
+	public Page setDirty(final boolean isDirty) {
+		mDelegate.setDirty(isDirty);
 		return this;
 	}
 }

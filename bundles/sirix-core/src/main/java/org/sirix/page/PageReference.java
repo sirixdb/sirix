@@ -33,7 +33,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.page.interfaces.Page;
-import org.sirix.settings.IConstants;
+import org.sirix.settings.Constants;
 
 /**
  * <h1>PageReference</h1>
@@ -56,7 +56,7 @@ public final class PageReference {
   private long mNodePageKey = -1;
 
   /** Key in persistent storage. */
-  private long mKey = IConstants.NULL_ID;;
+  private long mKey = Constants.NULL_ID;;
 
   /**
    * Default constructor setting up an uninitialized page reference.
@@ -67,14 +67,14 @@ public final class PageReference {
   /**
    * Copy constructor.
    * 
-   * @param pReference
+   * @param reference
    * 					{@link PageReference} to copy
    */
-  public PageReference(final @Nonnull PageReference pReference) {
-  	mPageKind = pReference.mPageKind;
-  	mPage = pReference.mPage;
-  	mNodePageKey = pReference.mNodePageKey;
-  	mKey = pReference.mKey;
+  public PageReference(final @Nonnull PageReference reference) {
+  	mPageKind = reference.mPageKind;
+  	mPage = reference.mPage;
+  	mNodePageKey = reference.mNodePageKey;
+  	mKey = reference.mKey;
   }
 
   /**
@@ -89,11 +89,11 @@ public final class PageReference {
   /**
    * Set in-memory instance of deserialized page.
    * 
-   * @param pPage
+   * @param page
    *          deserialized page
    */
-  public void setPage(final @Nullable Page pPage) {
-    mPage = pPage;
+  public void setPage(final @Nullable Page page) {
+    mPage = page;
   }
 
   /**
@@ -108,11 +108,11 @@ public final class PageReference {
   /**
    * Set start byte offset in file.
    * 
-   * @param pKey
+   * @param key
    *          key of this reference set by the persistent storage
    */
-  public void setKey(final long pKey) {
-    mKey = pKey;
+  public void setKey(final long key) {
+    mKey = key;
   }
 
   @Override
@@ -124,11 +124,11 @@ public final class PageReference {
   /**
    * Set nodepage key.
    * 
-   * @param pNodePageKey
+   * @param nodePageKey
    *          the nodePageKey to set
    */
-  public void setNodePageKey(final long pNodePageKey) {
-    mNodePageKey = pNodePageKey;
+  public void setNodePageKey(final long nodePageKey) {
+    mNodePageKey = nodePageKey;
   }
 
   /**
@@ -143,11 +143,11 @@ public final class PageReference {
   /**
    * Set the kind of page to which is referenced.
    * 
-   * @param pPageKind
+   * @param pageKind
    *          the page kind
    */
-  public void setPageKind(final @Nonnull PageKind pPageKind) {
-    mPageKind = pPageKind;
+  public void setPageKind(final @Nonnull PageKind pageKind) {
+    mPageKind = pageKind;
   }
 
   /**

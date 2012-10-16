@@ -129,41 +129,41 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 		/**
 		 * Constructor.
 		 * 
-		 * @param pWtx
+		 * @param wtx
 		 *          {@link NodeWriteTrx} implementation
-		 * @param pReader
+		 * @param reader
 		 *          {@link XMLEventReader} implementation
-		 * @param pInsert
+		 * @param insert
 		 *          insertion position
 		 */
-		public Builder(@Nonnull final NodeWriteTrx pWtx,
-				@Nonnull final XMLEventReader pReader, @Nonnull final Insert pInsert) {
-			mWtx = checkNotNull(pWtx);
-			mReader = checkNotNull(pReader);
-			mInsert = checkNotNull(pInsert);
+		public Builder(final @Nonnull NodeWriteTrx wtx,
+				final @Nonnull XMLEventReader reader, final @Nonnull Insert insert) {
+			mWtx = checkNotNull(wtx);
+			mReader = checkNotNull(reader);
+			mInsert = checkNotNull(insert);
 		}
 
 		/**
 		 * Include comments or not (default: yes).
 		 * 
-		 * @param pInclude
+		 * @param include
 		 *          include comments
 		 * @return this builder instance
 		 */
-		public Builder includeComments(final boolean pInclude) {
-			mIncludeComments = pInclude;
+		public Builder includeComments(final boolean include) {
+			mIncludeComments = include;
 			return this;
 		}
 
 		/**
 		 * Include processing instructions or not (default: yes).
 		 * 
-		 * @param pInclude
+		 * @param nclude
 		 *          processing instructions
 		 * @return this builder instance
 		 */
-		public Builder includePIs(final boolean pInclude) {
-			mIncludePIs = pInclude;
+		public Builder includePIs(final boolean include) {
+			mIncludePIs = include;
 			return this;
 		}
 
@@ -190,17 +190,17 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pBuilder
+	 * @param builder
 	 *          builder reference
 	 */
-	private XMLShredder(final @Nonnull Builder pBuilder) {
-		super(pBuilder.mWtx, pBuilder.mInsert);
-		mWtx = pBuilder.mWtx;
-		mReader = pBuilder.mReader;
-		mInsert = pBuilder.mInsert;
-		mIncludeComments = pBuilder.mIncludeComments;
-		mIncludePIs = pBuilder.mIncludePIs;
-		mCommit = pBuilder.mCommit;
+	private XMLShredder(final @Nonnull Builder builder) {
+		super(builder.mWtx, builder.mInsert);
+		mWtx = builder.mWtx;
+		mReader = builder.mReader;
+		mInsert = builder.mInsert;
+		mIncludeComments = builder.mIncludeComments;
+		mIncludePIs = builder.mIncludePIs;
+		mCommit = builder.mCommit;
 	}
 
 	/**
@@ -293,20 +293,20 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 	 *          stack used to determine if the new element has to be inserted as a
 	 *          right sibling or as a new child (in the latter case is NULL on top
 	 *          of the stack)
-	 * @param pEvent
+	 * @param event
 	 *          the current event from the StAX parser
 	 * @return the modified stack
 	 * @throws SirixException
 	 *           if adding {@link ElementNode} fails
 	 */
-	private void addNewElement(@Nonnull final StartElement pEvent)
+	private void addNewElement(final @Nonnull StartElement event)
 			throws SirixException {
-		assert pEvent != null;
-		final QName name = pEvent.getName();
+		assert event != null;
+		final QName name = event.getName();
 		processStartTag(name);
 
 		// Parse namespaces.
-		for (final Iterator<?> it = pEvent.getNamespaces(); it.hasNext();) {
+		for (final Iterator<?> it = event.getNamespaces(); it.hasNext();) {
 			final Namespace namespace = (Namespace) it.next();
 			mWtx.insertNamespace(new QName(namespace.getNamespaceURI(), "", namespace
 					.getPrefix()));
@@ -314,7 +314,7 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 		}
 
 		// Parse attributes.
-		for (final Iterator<?> it = pEvent.getAttributes(); it.hasNext();) {
+		for (final Iterator<?> it = event.getAttributes(); it.hasNext();) {
 			final Attribute attribute = (Attribute) it.next();
 			mWtx.insertAttribute(attribute.getName(), attribute.getValue());
 			mWtx.moveToParent();
@@ -324,7 +324,7 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 	/**
 	 * Main method.
 	 * 
-	 * @param pArgs
+	 * @param args
 	 *          input and output files
 	 * @throws XMLStreamException
 	 *           if the XML stream isn't valid
@@ -333,15 +333,15 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 	 * @throws SirixException
 	 *           if a Sirix error occurs
 	 */
-	public static void main(final String... pArgs) throws SirixException,
+	public static void main(final String... args) throws SirixException,
 			IOException, XMLStreamException {
-		if (pArgs.length != 2 && pArgs.length != 3) {
+		if (args.length != 2 && args.length != 3) {
 			throw new IllegalArgumentException(
 					"Usage: XMLShredder XMLFile Database [true/false] (shredder comment|PI)");
 		}
-		LOGWRAPPER.info("Shredding '" + pArgs[0] + "' to '" + pArgs[1] + "' ... ");
+		LOGWRAPPER.info("Shredding '" + args[0] + "' to '" + args[1] + "' ... ");
 		final long time = System.nanoTime();
-		final File target = new File(pArgs[1]);
+		final File target = new File(args[1]);
 		final DatabaseConfiguration config = new DatabaseConfiguration(target);
 		DatabaseImpl.truncateDatabase(config);
 		DatabaseImpl.createDatabase(config);
@@ -351,12 +351,12 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 		final Session session = db.getSession(new SessionConfiguration.Builder(
 				"shredded").build());
 		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-		final XMLEventReader reader = createFileReader(new File(pArgs[0]));
-		final boolean includeCoPI = pArgs.length == 3 ? Boolean
-				.parseBoolean(pArgs[2]) : false;
+		final XMLEventReader reader = createFileReader(new File(args[0]));
+		final boolean includeCoPI = args.length == 3 ? Boolean
+				.parseBoolean(args[2]) : false;
 		final XMLShredder shredder = new XMLShredder.Builder(wtx, reader,
-				Insert.ASFIRSTCHILD).commitAfterwards()
-				.includeComments(includeCoPI).includePIs(includeCoPI).build();
+				Insert.ASFIRSTCHILD).commitAfterwards().includeComments(includeCoPI)
+				.includePIs(includeCoPI).build();
 		shredder.call();
 		wtx.close();
 		session.close();
@@ -367,7 +367,7 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 	/**
 	 * Create a new StAX reader on a file.
 	 * 
-	 * @param pFile
+	 * @param xmlFile
 	 *          the XML file to parse
 	 * @return an {@link XMLEventReader}
 	 * @throws IOException
@@ -376,19 +376,19 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 	 *           if any parsing error occurs
 	 */
 	public static synchronized XMLEventReader createFileReader(
-			@Nonnull final File pFile) throws IOException, XMLStreamException {
-		checkNotNull(pFile);
+			final @Nonnull File xmlFile) throws IOException, XMLStreamException {
+		checkNotNull(xmlFile);
 		final XMLInputFactory factory = XMLInputFactory.newInstance();
 		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
 		factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
-		final InputStream in = new FileInputStream(pFile);
+		final InputStream in = new FileInputStream(xmlFile);
 		return factory.createXMLEventReader(in);
 	}
 
 	/**
 	 * Create a new StAX reader on a string.
 	 * 
-	 * @param pString
+	 * @param xmlString
 	 *          the XML file as a string to parse
 	 * @return an {@link XMLEventReader}
 	 * @throws IOException
@@ -397,19 +397,19 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 	 *           if any parsing error occurs
 	 */
 	public static synchronized XMLEventReader createStringReader(
-			@Nonnull final String pString) throws IOException, XMLStreamException {
-		checkNotNull(pString);
+			final @Nonnull String xmlString) throws IOException, XMLStreamException {
+		checkNotNull(xmlString);
 		final XMLInputFactory factory = XMLInputFactory.newInstance();
 		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
 		factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, true);
-		final InputStream in = new ByteArrayInputStream(pString.getBytes());
+		final InputStream in = new ByteArrayInputStream(xmlString.getBytes());
 		return factory.createXMLEventReader(in);
 	}
 
 	/**
 	 * Create a new StAX reader based on a List of {@link XMLEvent}s.
 	 * 
-	 * @param pEvents
+	 * @param events
 	 *          {@link XMLEvent}s
 	 * @return an {@link XMLEventReader}
 	 * @throws IOException
@@ -418,8 +418,8 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 	 *           if any parsing error occurs
 	 */
 	public static synchronized XMLEventReader createQueueReader(
-			@Nonnull final Queue<XMLEvent> pEvents) throws IOException,
+			final @Nonnull Queue<XMLEvent> events) throws IOException,
 			XMLStreamException {
-		return new QueueEventReader(checkNotNull(pEvents));
+		return new QueueEventReader(checkNotNull(events));
 	}
 }

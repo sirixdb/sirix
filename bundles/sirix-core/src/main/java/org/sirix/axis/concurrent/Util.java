@@ -5,7 +5,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -23,7 +23,7 @@ public final class Util {
 	 *         null node key is returned.
 	 */
 	public static long getNext(@Nonnull final Axis pAxis) {
-		return (pAxis.hasNext()) ? pAxis.next() : EFixed.NULL_NODE_KEY
+		return (pAxis.hasNext()) ? pAxis.next() : Fixed.NULL_NODE_KEY
 				.getStandardProperty();
 	}
 

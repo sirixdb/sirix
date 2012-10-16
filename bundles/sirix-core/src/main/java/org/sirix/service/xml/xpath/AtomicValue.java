@@ -33,13 +33,13 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
 import org.sirix.node.interfaces.ValNode;
 import org.sirix.service.xml.xpath.types.Type;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.TypedValue;
 
@@ -129,7 +129,7 @@ public class AtomicValue implements Node, ValNode {
 
 	@Override
 	public long getParentKey() {
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override
@@ -251,7 +251,7 @@ public class AtomicValue implements Node, ValNode {
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(@Nonnull final IVisitor pVisitor) {
+	public VisitResultType acceptVisitor(@Nonnull final Visitor pVisitor) {
 		return VisitResultType.CONTINUE;
 	}
 

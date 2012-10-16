@@ -1,7 +1,7 @@
 package org.sirix.api.visitor;
 
 /**
- * The result type of an {@link IVisitor} implementation.
+ * The result type of an {@link Visitor} implementation.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */

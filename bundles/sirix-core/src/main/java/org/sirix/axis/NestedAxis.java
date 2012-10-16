@@ -54,27 +54,27 @@ public final class NestedAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param pParentAxis
+   * @param parentAxis
    *          inner nested axis
-   * @param pChildAxis
+   * @param childAxis
    *          outer nested axis
    */
-  public NestedAxis(@Nonnull final Axis pParentAxis,
-    @Nonnull final Axis pChildAxis) {
-    super(pParentAxis.getTrx());
-    mParentAxis = checkNotNull(pParentAxis);
-    mChildAxis = checkNotNull(pChildAxis);
+  public NestedAxis(final @Nonnull Axis parentAxis,
+    final @Nonnull Axis childAxis) {
+    super(parentAxis.getTrx());
+    mParentAxis = checkNotNull(parentAxis);
+    mChildAxis = checkNotNull(childAxis);
     mIsFirst = true;
   }
 
   @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
     if (mParentAxis != null) {
-      mParentAxis.reset(pNodeKey);
+      mParentAxis.reset(nodeKey);
     }
     if (mChildAxis != null) {
-      mChildAxis.reset(pNodeKey);
+      mChildAxis.reset(nodeKey);
     }
     mIsFirst = true;
   }

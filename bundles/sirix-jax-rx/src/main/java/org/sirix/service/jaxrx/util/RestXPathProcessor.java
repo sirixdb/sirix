@@ -41,7 +41,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * This class is responsible to offer XPath processing functions for REST.
@@ -246,7 +246,7 @@ public class RestXPathProcessor {
         Response.Status.INTERNAL_SERVER_ERROR);
     } finally {
       if (rtx != null) {
-        rtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+        rtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
         WorkerHelper.closeRTX(rtx, session, database);
       }
     }

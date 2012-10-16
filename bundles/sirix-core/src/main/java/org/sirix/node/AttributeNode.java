@@ -34,7 +34,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -53,129 +53,127 @@ import com.google.common.base.Objects;
  * </p>
  */
 public final class AttributeNode extends AbsForwardingNode implements ValNode,
-  NameNode {
+		NameNode {
 
-  /** Delegate for name node information. */
-  private final NameNodeDelegate mNameDel;
+	/** Delegate for name node information. */
+	private final NameNodeDelegate mNameDel;
 
-  /** Delegate for val node information. */
-  private final ValNodeDelegate mValDel;
+	/** Delegate for val node information. */
+	private final ValNodeDelegate mValDel;
 
-  /** Node delegate. */
-  private final NodeDelegate mDel;
+	/** Node delegate. */
+	private final NodeDelegate mDel;
 
-  /**
-   * Creating an attribute.
-   * 
-   * @param pDel
-   *          {@link NodeDelegate} to be set
-   * @param pDel
-   *          {@link StructNodeDelegate} to be set
-   * @param pValDel
-   *          {@link ValNodeDelegate} to be set
-   * 
-   */
-  public AttributeNode(@Nonnull final NodeDelegate pDel,
-    @Nonnull final NameNodeDelegate pNameDel,
-    @Nonnull final ValNodeDelegate pValDel) {
-    mDel = checkNotNull(pDel);
-    mNameDel = checkNotNull(pNameDel);
-    mValDel = pValDel;
-  }
+	/**
+	 * Creating an attribute.
+	 * 
+	 * @param nodeDel
+	 *          {@link NodeDelegate} to be set
+	 * @param nodeDel
+	 *          {@link StructNodeDelegate} to be set
+	 * @param valDel
+	 *          {@link ValNodeDelegate} to be set
+	 * 
+	 */
+	public AttributeNode(final @Nonnull NodeDelegate nodeDel,
+			final @Nonnull NameNodeDelegate nameDel,
+			final @Nonnull ValNodeDelegate valDel) {
+		mDel = checkNotNull(nodeDel);
+		mNameDel = checkNotNull(nameDel);
+		mValDel = valDel;
+	}
 
-  @Override
-  public Kind getKind() {
-    return Kind.ATTRIBUTE;
-  }
+	@Override
+	public Kind getKind() {
+		return Kind.ATTRIBUTE;
+	}
 
-  @Override
-  public VisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-    return pVisitor.visit(ImmutableAttribute.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final @Nonnull Visitor pVisitor) {
+		return pVisitor.visit(ImmutableAttribute.of(this));
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("nameDel", mNameDel).add("valDel",
-      mValDel).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("nameDel", mNameDel)
+				.add("valDel", mValDel).toString();
+	}
 
-  @Override
-  public int getNameKey() {
-    return mNameDel.getNameKey();
-  }
+	@Override
+	public int getNameKey() {
+		return mNameDel.getNameKey();
+	}
 
-  @Override
-  public int getURIKey() {
-    return mNameDel.getURIKey();
-  }
+	@Override
+	public int getURIKey() {
+		return mNameDel.getURIKey();
+	}
 
-  @Override
-  public void setNameKey(final int pNameKey) {
-    mNameDel.setNameKey(pNameKey);
-  }
+	@Override
+	public void setNameKey(final int pNameKey) {
+		mNameDel.setNameKey(pNameKey);
+	}
 
-  @Override
-  public void setURIKey(final int pUriKey) {
-    mNameDel.setURIKey(pUriKey);
-  }
+	@Override
+	public void setURIKey(final int pUriKey) {
+		mNameDel.setURIKey(pUriKey);
+	}
 
-  @Override
-  public byte[] getRawValue() {
-    return mValDel.getRawValue();
-  }
+	@Override
+	public byte[] getRawValue() {
+		return mValDel.getRawValue();
+	}
 
-  @Override
-  public void setValue(@Nonnull final byte[] pVal) {
-    mValDel.setValue(pVal);
-  }
+	@Override
+	public void setValue(final @Nonnull byte[] pVal) {
+		mValDel.setValue(pVal);
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mNameDel, mValDel);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mNameDel, mValDel);
+	}
 
-  @Override
-  public boolean equals(@Nullable final Object pObj) {
-    boolean retVal = false;
-    if (pObj instanceof AttributeNode) {
-      final AttributeNode other = (AttributeNode)pObj;
-      retVal =
-        Objects.equal(mNameDel, other.mNameDel)
-          && Objects.equal(mValDel, other.mValDel);
-    }
-    return retVal;
-  }
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof AttributeNode) {
+			final AttributeNode other = (AttributeNode) obj;
+			return Objects.equal(mNameDel, other.mNameDel)
+					&& Objects.equal(mValDel, other.mValDel);
+		}
+		return false;
+	}
 
-  @Override
-  public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
-    mNameDel.setPathNodeKey(pPathNodeKey);
-  }
+	@Override
+	public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+		mNameDel.setPathNodeKey(pathNodeKey);
+	}
 
-  @Override
-  public long getPathNodeKey() {
-    return mNameDel.getPathNodeKey();
-  }
+	@Override
+	public long getPathNodeKey() {
+		return mNameDel.getPathNodeKey();
+	}
 
-  /**
-   * Getting the inlying {@link NameNodeDelegate}.
-   * 
-   * @return the {@link NameNodeDelegate} instance
-   */
-  NameNodeDelegate getNameNodeDelegate() {
-    return mNameDel;
-  }
+	/**
+	 * Getting the inlying {@link NameNodeDelegate}.
+	 * 
+	 * @return the {@link NameNodeDelegate} instance
+	 */
+	NameNodeDelegate getNameNodeDelegate() {
+		return mNameDel;
+	}
 
-  /**
-   * Getting the inlying {@link ValNodeDelegate}.
-   * 
-   * @return the {@link ValNodeDelegate} instance
-   */
-  ValNodeDelegate getValNodeDelegate() {
-    return mValDel;
-  }
+	/**
+	 * Getting the inlying {@link ValNodeDelegate}.
+	 * 
+	 * @return the {@link ValNodeDelegate} instance
+	 */
+	ValNodeDelegate getValNodeDelegate() {
+		return mValDel;
+	}
 
-  @Override
-  protected NodeDelegate delegate() {
-    return mDel;
-  }
+	@Override
+	protected NodeDelegate delegate() {
+		return mDel;
+	}
 }

@@ -53,14 +53,14 @@ public class PathSummaryPage extends AbsForwardingPage {
   /**
    * Path summary page.
    * 
-   * @param pRevision
+   * @param revision
    *          revision number
    * @throws IllegalArgumentException
    *           if {@code pRevision} < 0
    */
-  public PathSummaryPage(final @Nonnegative int pRevision) {
-    checkArgument(pRevision >= 0, "pRevision must be >= 0!");
-    mDelegate = new PageDelegate(1, pRevision);
+  public PathSummaryPage(final @Nonnegative int revision) {
+    checkArgument(revision >= 0, "pRevision must be >= 0!");
+    mDelegate = new PageDelegate(1, revision);
   }
 
   /**
@@ -75,11 +75,11 @@ public class PathSummaryPage extends AbsForwardingPage {
   /**
    * Read meta page.
    * 
-   * @param pIn
+   * @param in
    *          input bytes to read from
    */
-  protected PathSummaryPage(final @Nonnull ByteArrayDataInput pIn) {
-    mDelegate = new PageDelegate(1, pIn);
+  protected PathSummaryPage(final @Nonnull ByteArrayDataInput in) {
+    mDelegate = new PageDelegate(1, in);
   }
 
   @Override

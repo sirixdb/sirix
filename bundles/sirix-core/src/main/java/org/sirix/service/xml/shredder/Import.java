@@ -29,14 +29,14 @@ package org.sirix.service.xml.shredder;
 
 import java.util.List;
 
-import org.sirix.service.xml.shredder.WikipediaImport.EDateBy;
+import org.sirix.service.xml.shredder.WikipediaImport.DateBy;
 
 /**
- * <h1>IImport</h1>
+ * <h1>Import</h1>
  * 
  * <p>
- * Interface to provide convenient methods which all classes have to implement which shredder revisioned
- * databases into sirix.
+ * Interface to provide convenient methods which all classes have to implement
+ * which shredder revisioned databases into sirix.
  * </p>
  * 
  * @param <T>
@@ -46,13 +46,14 @@ import org.sirix.service.xml.shredder.WikipediaImport.EDateBy;
  * 
  */
 public interface Import<T> {
-  /**
-   * Import data.
-   * 
-   * @param paramDateRange
-   *          Date range, which is used to determine the time between single revisions.
-   * @param paramTimestamps
-   *          {@link List} of Timestamp objects.
-   */
-  void importData(final EDateBy paramDateRange, final List<T> paramTimestamps);
+	/**
+	 * Import data.
+	 * 
+	 * @param dateRange
+	 *          date range, which is used to determine the time between single
+	 *          revisions
+	 * @param timestamps
+	 *          {@link List} of Timestamp objects
+	 */
+	void importData(final DateBy dateRange, final List<T> timestamps);
 }

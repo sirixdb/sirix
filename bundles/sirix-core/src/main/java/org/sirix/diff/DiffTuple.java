@@ -31,8 +31,14 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.Serializable;
+import java.util.Map;
 
-import org.sirix.diff.DiffFactory.EDiff;
+import javax.annotation.Nonnegative;
+import javax.annotation.Nonnull;
+
+import org.sirix.diff.DiffFactory.DiffType;
+
+import com.google.common.base.Objects;
 
 /**
  * Container for diffs.
@@ -41,119 +47,122 @@ import org.sirix.diff.DiffFactory.EDiff;
  * 
  */
 public final class DiffTuple implements Serializable {
-  /**
-   * Serialization UID.
-   */
-  private static final long serialVersionUID = -8805161170968505227L;
+	/**
+	 * Serialization UID.
+	 */
+	private static final long serialVersionUID = -8805161170968505227L;
 
-  /** {@link EDiff} which specifies the kind of diff between two nodes. */
-  private transient EDiff mDiff;
+	/** {@link DiffType} which specifies the kind of diff between two nodes. */
+	private DiffType mDiff;
 
-  /** Node key of node in new revision. */
-  private final long mNewNodeKey;
+	/** Node key of node in new revision. */
+	private final long mNewNodeKey;
 
-  /** Node key of node in old revision. */
-  private final long mOldNodeKey;
+	/** Node key of node in old revision. */
+	private final long mOldNodeKey;
 
-  /** {@link DiffDepth} instance. */
-  private final DiffDepth mDepth;
+	/** {@link DiffDepth} instance. */
+	private final DiffDepth mDepth;
 
-  /** Key of index in a Map (used for move-detection). */
-  private transient int mIndex;
+	/** Key of index in a Map (used for move-detection). */
+	private int mIndex;
 
-  /**
-   * Constructor.
-   * 
-   * @param pDiff
-   *          {@link EDiff} which specifies the kind of diff between two nodes
-   * @param pNewNodeKey
-   *          node key of node in new revision
-   * @param pOldNode
-   *          node key of node in old revision
-   * @param pDepth
-   *          current {@link DiffDepth} instance
-   */
-  public DiffTuple(final EDiff pDiff, final long pNewNodeKey, final long pOldNodeKey, final DiffDepth pDepth) {
-    checkArgument(pNewNodeKey >= 0);
-    checkArgument(pOldNodeKey >= 0);
+	/**
+	 * Constructor.
+	 * 
+	 * @param diff
+	 *          {@link DiffType} which specifies the kind of diff between two
+	 *          nodes
+	 * @param newNodeKey
+	 *          node key of node in new revision
+	 * @param pOldNode
+	 *          node key of node in old revision
+	 * @param depth
+	 *          current {@link DiffDepth} instance
+	 */
+	public DiffTuple(final DiffType diff, final long newNodeKey,
+			final long oldNodeKey, final DiffDepth depth) {
+		checkArgument(newNodeKey >= 0);
+		checkArgument(oldNodeKey >= 0);
 
-    mDiff = checkNotNull(pDiff);
-    mNewNodeKey = pNewNodeKey;
-    mOldNodeKey = pOldNodeKey;
-    mDepth = checkNotNull(pDepth);
-  }
+		mDiff = checkNotNull(diff);
+		mNewNodeKey = newNodeKey;
+		mOldNodeKey = oldNodeKey;
+		mDepth = checkNotNull(depth);
+	}
 
-  /**
-   * Get diff.
-   * 
-   * @return the kind of diff
-   */
-  public EDiff getDiff() {
-    return mDiff;
-  }
+	/**
+	 * Get diff.
+	 * 
+	 * @return the kind of diff
+	 */
+	public DiffType getDiff() {
+		return mDiff;
+	}
 
-  /**
-   * Set diff.
-   * 
-   * @param pDiff
-   *          kind of diff
-   */
-  public DiffTuple setDiff(EDiff pDiff) {
-    mDiff = checkNotNull(pDiff);
-    return this;
-  }
+	/**
+	 * Set diff.
+	 * 
+	 * @param diffType
+	 *          kind of diff
+	 */
+	public DiffTuple setDiff(final @Nonnull DiffType diffType) {
+		mDiff = checkNotNull(diffType);
+		return this;
+	}
 
-  /**
-   * Set index of node in {@link Map}, if a moved node is encountered.
-   * 
-   * @param pIndex
-   *          index to set
-   */
-  public DiffTuple setIndex(final int pIndex) {
-    checkArgument(pIndex >= 0);
-    mIndex = pIndex;
-    return this;
-  }
+	/**
+	 * Set index of node in {@link Map}, if a moved node is encountered.
+	 * 
+	 * @param index
+	 *          index to set
+	 */
+	public DiffTuple setIndex(final @Nonnegative int index) {
+		checkArgument(index >= 0);
+		mIndex = index;
+		return this;
+	}
 
-  /**
-   * Get new node key.
-   * 
-   * @return the new node key
-   */
-  public long getNewNodeKey() {
-    return mNewNodeKey;
-  }
+	/**
+	 * Get new node key.
+	 * 
+	 * @return the new node key
+	 */
+	public long getNewNodeKey() {
+		return mNewNodeKey;
+	}
 
-  /**
-   * Get old node key.
-   * 
-   * @return the old node key
-   */
-  public long getOldNodeKey() {
-    return mOldNodeKey;
-  }
+	/**
+	 * Get old node key.
+	 * 
+	 * @return the old node key
+	 */
+	public long getOldNodeKey() {
+		return mOldNodeKey;
+	}
 
-  /**
-   * Get depth.
-   * 
-   * @return the depth
-   */
-  public DiffDepth getDepth() {
-    return mDepth;
-  }
+	/**
+	 * Get depth.
+	 * 
+	 * @return the depth
+	 */
+	public DiffDepth getDepth() {
+		return mDepth;
+	}
 
-  @Override
-  public String toString() {
-    return new StringBuilder("diff: ").append(mDiff).append(" new nodeKey: ").append(mNewNodeKey).append(
-      " old nodeKey: ").append(mOldNodeKey).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("diff", mDiff)
+				.add("new nodeKey", mNewNodeKey).add("old nodeKey", mOldNodeKey)
+				.toString();
+	}
 
-  /**
-   * Get index.
-   * 
-   * @return index
-   */
-  public int getIndex() {
-    return mIndex;
-  }
+	/**
+	 * Get index.
+	 * 
+	 * @return index
+	 */
+	public int getIndex() {
+		return mIndex;
+	}
 }

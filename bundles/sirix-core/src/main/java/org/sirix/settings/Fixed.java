@@ -32,7 +32,7 @@ package org.sirix.settings;
  * 
  * @author Sebastian Graf, University of Konstanz
  */
-public enum EFixed {
+public enum Fixed {
 
   // --- File Version
   // ----------------------------------------------------------------
@@ -67,11 +67,11 @@ public enum EFixed {
   /**
    * Private constructor.
    * 
-   * @param pProperty
+   * @param property
    *          property to set
    */
-  private EFixed(final long pProperty) {
-    mStandardProperty = pProperty;
+  private Fixed(final long property) {
+    mStandardProperty = property;
   }
 
   /**

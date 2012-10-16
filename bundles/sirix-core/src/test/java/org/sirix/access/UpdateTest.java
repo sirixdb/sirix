@@ -49,7 +49,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.DocumentCreater;
 import org.sirix.utils.NamePageHash;
 
@@ -170,9 +170,9 @@ public class UpdateTest {
     assertTrue(pRtx.moveToFirstChild().hasMoved());
     assertEquals(1, pRtx.getNodeKey());
     assertEquals(0, pRtx.getChildCount());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getFirstChildKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getFirstChildKey());
   }
 
   /** Test NamePage. */
@@ -283,7 +283,7 @@ public class UpdateTest {
     assertEquals(8, rtx.getDescendantCount());
     assertTrue(rtx.moveToFirstChild().hasMoved());
     assertEquals(5, rtx.getNodeKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), rtx.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), rtx.getLeftSiblingKey());
     assertTrue(rtx.moveToRightSibling().hasMoved());
     assertEquals(8, rtx.getNodeKey());
     assertEquals(5, rtx.getLeftSiblingKey());
@@ -487,7 +487,7 @@ public class UpdateTest {
     assertTrue(pRtx.moveToFirstChild().hasMoved());
     assertEquals(4, pRtx.getNodeKey());
     assertFalse(pRtx.moveToRightSibling().hasMoved());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
   }
 
   @Test
@@ -704,12 +704,12 @@ public class UpdateTest {
     assertTrue(pRtx.moveTo(5).hasMoved());
     assertEquals(2L, pRtx.getChildCount());
     assertEquals(2L, pRtx.getDescendantCount());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
     assertEquals(4L, pRtx.getFirstChildKey());
     assertFalse(pRtx.moveTo(6).hasMoved());
     assertTrue(pRtx.moveTo(4).hasMoved());
     assertEquals("oops1foo", pRtx.getValue());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
     assertEquals(5L, pRtx.getParentKey());
     assertEquals(7L, pRtx.getRightSiblingKey());
     assertTrue(pRtx.moveTo(7).hasMoved());
@@ -748,7 +748,7 @@ public class UpdateTest {
     assertEquals(3L, pRtx.getChildCount());
     assertEquals(3L, pRtx.getDescendantCount());
     assertTrue(pRtx.moveTo(11).hasMoved());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
     assertEquals(5L, pRtx.getParentKey());
     assertEquals(6L, pRtx.getRightSiblingKey());
     assertTrue(pRtx.moveTo(6L).hasMoved());
@@ -878,7 +878,7 @@ public class UpdateTest {
     // Assert that oops1 and oops3 text nodes merged.
     assertEquals("oops1oops3", pRtx.getValue());
     assertFalse(pRtx.moveTo(13).hasMoved());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
     assertEquals(9L, pRtx.getLeftSiblingKey());
     assertTrue(pRtx.moveTo(9).hasMoved());
     assertEquals(4L, pRtx.getRightSiblingKey());
@@ -916,7 +916,7 @@ public class UpdateTest {
     assertEquals(5L, pRtx.getLeftSiblingKey());
     assertTrue(pRtx.moveTo(5L).hasMoved());
     assertEquals(4L, pRtx.getRightSiblingKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
     assertTrue(pRtx.moveTo(9).hasMoved());
     assertEquals(4L, pRtx.getLeftSiblingKey());
   }
@@ -952,7 +952,7 @@ public class UpdateTest {
     assertTrue(pRtx.moveTo(9).hasMoved());
     assertEquals(14, pRtx.getFirstChildKey());
     assertTrue(pRtx.moveTo(14).hasMoved());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
     assertEquals(11, pRtx.getRightSiblingKey());
     assertEquals("oops1", pRtx.getValue());
     assertTrue(pRtx.moveTo(1).hasMoved());
@@ -992,7 +992,7 @@ public class UpdateTest {
     assertTrue(pRtx.moveTo(9).hasMoved());
     assertEquals(14, pRtx.getFirstChildKey());
     assertTrue(pRtx.moveTo(14).hasMoved());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getLeftSiblingKey());
     assertEquals(11, pRtx.getRightSiblingKey());
     assertEquals("b", pRtx.getName().getLocalPart());
     assertTrue(pRtx.moveTo(4).hasMoved());
@@ -1007,7 +1007,7 @@ public class UpdateTest {
     assertEquals("c", pRtx.getName().getLocalPart());
     assertFalse(pRtx.moveTo(17).hasMoved());
     assertEquals(16, pRtx.getNodeKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), pRtx.getRightSiblingKey());
   }
 
   @Test

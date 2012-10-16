@@ -29,9 +29,6 @@ package org.sirix.io.file;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteStreams;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -40,14 +37,14 @@ import javax.annotation.Nonnull;
 
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
+
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteStreams;
 
 /**
  * File Reader. Used for ReadTransaction to provide read only access on a
@@ -59,90 +56,93 @@ import org.sirix.page.interfaces.Page;
  */
 public final class FileReader implements Reader {
 
-  /** Beacon of first references. */
-  final static int FIRST_BEACON = 12;
+	/** Beacon of first references. */
+	final static int FIRST_BEACON = 12;
 
-  /** Beacon of the other references. */
-  final static int OTHER_BEACON = 4;
+	/** Beacon of the other references. */
+	final static int OTHER_BEACON = 4;
 
-  /** Random access mFile to work on. */
-  private final RandomAccessFile mFile;
+	/** Random access mFile to work on. */
+	private final RandomAccessFile mFile;
 
-  /** Inflater to decompress. */
-  final ByteHandler mByteHandler;
+	/** Inflater to decompress. */
+	final ByteHandler mByteHandler;
 
-  /**
-   * Constructor.
-   * 
-   * @param pConcreteStorage
-   *          storage file
-   * @throws SirixIOException
-   *           if something bad happens
-   */
-  public FileReader(final @Nonnull File pConcreteStorage, final @Nonnull ByteHandler pHandler) throws SirixIOException {
-    try {
-      if (!pConcreteStorage.exists()) {
-        pConcreteStorage.getParentFile().mkdirs();
-        pConcreteStorage.createNewFile();
-      }
+	/**
+	 * Constructor.
+	 * 
+	 * @param concreteStorage
+	 *          storage file
+	 * @param handler
+	 *          {@link ByteHandler} instance
+	 * @throws SirixIOException
+	 *           if something bad happens
+	 */
+	public FileReader(final @Nonnull File concreteStorage,
+			final @Nonnull ByteHandler handler) throws SirixIOException {
+		try {
+			if (!concreteStorage.exists()) {
+				concreteStorage.getParentFile().mkdirs();
+				concreteStorage.createNewFile();
+			}
 
-      mFile = new RandomAccessFile(pConcreteStorage, "r");
-      mByteHandler = checkNotNull(pHandler);
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
-  }
+			mFile = new RandomAccessFile(concreteStorage, "r");
+			mByteHandler = checkNotNull(handler);
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
+	}
 
-  /**
-   * Read page from storage.
-   * 
-   * @param pKey
-   *          key of page reference to read
-   * @return byte array reader to read bytes from
-   * @throws SirixIOException
-   *           if there was an error during reading.
-   */
-  @Override
-  public Page read(final long pKey) throws SirixIOException {
-    try {
-      // Read page from file.
-      mFile.seek(pKey);
-      final int dataLength = mFile.readInt();
-      final byte[] page = new byte[dataLength];
-      mFile.read(page);
+	/**
+	 * Read page from storage.
+	 * 
+	 * @param pKey
+	 *          key of page reference to read
+	 * @return byte array reader to read bytes from
+	 * @throws SirixIOException
+	 *           if there was an error during reading.
+	 */
+	@Override
+	public Page read(final long pKey) throws SirixIOException {
+		try {
+			// Read page from file.
+			mFile.seek(pKey);
+			final int dataLength = mFile.readInt();
+			final byte[] page = new byte[dataLength];
+			mFile.read(page);
 
-      // Perform byte operations.
-      final ByteArrayDataInput input =
-        ByteStreams.newDataInput(mByteHandler.deserialize(page));
-      
-      // Return reader required to instantiate and deserialize page.
-      return PagePersistenter.deserializePage(input);
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
-  }
+			// Perform byte operations.
+			final ByteArrayDataInput input = ByteStreams.newDataInput(mByteHandler
+					.deserialize(page));
 
-  @Override
-  public PageReference readFirstReference() throws SirixIOException {
-    final PageReference uberPageReference = new PageReference();
-    try {
-      // Read primary beacon.
-      mFile.seek(0);
-      uberPageReference.setKey(mFile.readLong());
-      final UberPage page = (UberPage)read(uberPageReference.getKey());
-      uberPageReference.setPage(page);
-      return uberPageReference;
-    } catch (final IOException exc) {
-      throw new SirixIOException(exc);
-    }
-  }
+			// Return reader required to instantiate and deserialize page.
+			return PagePersistenter.deserializePage(input);
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
+	}
 
-  @Override
-  public void close() throws SirixIOException {
-    try {
-      mFile.close();
-    } catch (final IOException exc) {
-      throw new SirixIOException(exc);
-    }
-  }
+	@Override
+	public PageReference readFirstReference() throws SirixIOException {
+		final PageReference uberPageReference = new PageReference();
+		try {
+			// Read primary beacon.
+			mFile.seek(0);
+			uberPageReference.setKey(mFile.readLong());
+			final UberPage page = (UberPage) read(uberPageReference.getKey());
+			uberPageReference.setPage(page);
+			return uberPageReference;
+		} catch (final IOException exc) {
+			throw new SirixIOException(exc);
+		}
+	}
+
+	@Override
+	public void close() throws SirixIOException {
+		try {
+			mFile.close();
+		} catch (final IOException exc) {
+			throw new SirixIOException(exc);
+		}
+	}
 }

@@ -34,7 +34,7 @@ import com.google.common.io.ByteStreams;
 import org.junit.Test;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 public class DocumentRootNodeTest {
 
@@ -43,11 +43,11 @@ public class DocumentRootNodeTest {
 
     // Create empty node.
     final NodeDelegate nodeDel =
-      new NodeDelegate(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty(),
-        EFixed.NULL_NODE_KEY.getStandardProperty(), 0);
+      new NodeDelegate(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), 0);
     final StructNodeDelegate strucDel =
-      new StructNodeDelegate(nodeDel, EFixed.NULL_NODE_KEY.getStandardProperty(), EFixed.NULL_NODE_KEY
-        .getStandardProperty(), EFixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+      new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY
+        .getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
     final DocumentRootNode node1 = new DocumentRootNode(nodeDel, strucDel);
     check(node1);
 
@@ -62,11 +62,11 @@ public class DocumentRootNodeTest {
 
   private final static void check(final DocumentRootNode node) {
     // Now compare.
-    assertEquals(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), node.getNodeKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node.getParentKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
-    assertEquals(EFixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
+    assertEquals(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), node.getNodeKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getParentKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getLeftSiblingKey());
+    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getRightSiblingKey());
     assertEquals(0L, node.getChildCount());
     assertEquals(Kind.DOCUMENT_ROOT, node.getKind());
 

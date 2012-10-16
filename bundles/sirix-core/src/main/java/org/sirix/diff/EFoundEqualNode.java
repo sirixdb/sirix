@@ -27,7 +27,7 @@
 
 package org.sirix.diff;
 
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 
 /**
  * Determines if an equal node is found and returns the appropriate diff.
@@ -39,16 +39,16 @@ enum EFoundEqualNode {
   /** Node found. */
   TRUE {
     @Override
-    EDiff kindOfDiff() {
-      return EDiff.DELETED;
+    DiffType kindOfDiff() {
+      return DiffType.DELETED;
     }
   },
 
   /** Node not found. */
   FALSE {
     @Override
-    EDiff kindOfDiff() {
-      return EDiff.INSERTED;
+    DiffType kindOfDiff() {
+      return DiffType.INSERTED;
     }
   };
 
@@ -57,5 +57,5 @@ enum EFoundEqualNode {
    * 
    * @return kind of difference
    */
-  abstract EDiff kindOfDiff();
+  abstract DiffType kindOfDiff();
 }

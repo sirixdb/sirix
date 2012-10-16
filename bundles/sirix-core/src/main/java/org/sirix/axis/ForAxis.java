@@ -30,7 +30,7 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>ForAxis</h1>

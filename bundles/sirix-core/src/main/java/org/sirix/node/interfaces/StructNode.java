@@ -94,26 +94,26 @@ public interface StructNode extends Node {
 	/**
 	 * Setting the right sibling key to this node.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          the new key to be set.
 	 */
-	void setRightSiblingKey(long pNodeKey);
+	void setRightSiblingKey(long nodeKey);
 
 	/**
 	 * Setting the left sibling key to this node.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          the new key to be set.
 	 */
-	void setLeftSiblingKey(long pNodeKey);
+	void setLeftSiblingKey(long nodeKey);
 
 	/**
 	 * Setting the first child sibling key to this node.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          the new key to be set.
 	 */
-	void setFirstChildKey(long pNodeKey);
+	void setFirstChildKey(long nodeKey);
 
 	/**
 	 * Decrementing the child count.
@@ -142,5 +142,5 @@ public interface StructNode extends Node {
 	 * @param pDescendantCount
 	 *          new descendant count
 	 */
-	void setDescendantCount(long pDescendantCount);
+	void setDescendantCount(long descendantCount);
 }

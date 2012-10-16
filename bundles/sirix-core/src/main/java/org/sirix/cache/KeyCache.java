@@ -3,7 +3,7 @@ package org.sirix.cache;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -22,38 +22,35 @@ public class KeyCache {
   /**
    * The collection to hold the maps.
    */
-  private final Map<String, LinkedList<Long>> mMap;
+  private final Map<String, List<Long>> mMap;
 
   /**
    * Constructor creates a new key cache.
    */
   public KeyCache() {
-
-    mMap = new LinkedHashMap<String, LinkedList<Long>>(CACHE_CAPACITY) {
+    mMap = new LinkedHashMap<String, List<Long>>(CACHE_CAPACITY) {
       private static final long serialVersionUID = 1;
 
       @Override
-      protected boolean removeEldestEntry(final Map.Entry<String, LinkedList<Long>> mEldest) {
+      protected boolean removeEldestEntry(final Map.Entry<String, List<Long>> mEldest) {
         boolean returnVal = false;
         if (size() > CACHE_CAPACITY) {
           returnVal = true;
         }
         return returnVal;
       }
-
     };
-
   }
 
   /**
    * Returns the stored <code>LinkedList</code> of corresponding user.
    * 
-   * @param paramUser
+   * @param user
    *          User key.
    * @return linked list of user.
    */
-  public final LinkedList<Long> get(final String paramUser) {
-    final LinkedList<Long> list = mMap.get(paramUser);
+  public final List<Long> get(final String user) {
+    final List<Long> list = mMap.get(user);
     return list; // returns null if no value for this user exists in cache.
   }
 
@@ -61,14 +58,14 @@ public class KeyCache {
    * Stores a new entry in cache consisting of a user name as key and
    * a linked list for storing node keys as value.
    * 
-   * @param paramUser
+   * @param user
    *          user name as key.
-   * @param paramList
+   * @param list
    *          linked list as values.
    */
-  public final void put(final String paramUser, final LinkedList<Long> paramList) {
+  public final void put(final String user, final List<Long> list) {
 
-    mMap.put(paramUser, paramList);
+    mMap.put(user, list);
   }
 
   /**
@@ -94,8 +91,8 @@ public class KeyCache {
    * @return a <code>Collection</code> with a copy of the cache content.
    */
 
-  public final Collection<Map.Entry<String, LinkedList<Long>>> getAll() {
-    return new ArrayList<Map.Entry<String, LinkedList<Long>>>(mMap.entrySet());
+  public final Collection<Map.Entry<String, List<Long>>> getAll() {
+    return new ArrayList<Map.Entry<String, List<Long>>>(mMap.entrySet());
 
   }
 }

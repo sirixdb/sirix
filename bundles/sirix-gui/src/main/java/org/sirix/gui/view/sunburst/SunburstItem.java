@@ -45,7 +45,7 @@ import javax.xml.stream.events.Namespace;
 
 import org.gicentre.utils.move.Ease;
 import org.sirix.access.Utils;
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.EHover;
 import org.sirix.gui.view.VisualItem;
@@ -171,7 +171,7 @@ public final class SunburstItem implements VisualItem {
 	private final PApplet mParent;
 
 	/** Kind of diff. */
-	transient EDiff mDiff = EDiff.SAME;
+	transient DiffType mDiff = DiffType.SAME;
 
 	/** Determines if one must be subtracted. */
 	private transient boolean mSubtract;
@@ -251,7 +251,7 @@ public final class SunburstItem implements VisualItem {
 		private transient String mOldText;
 
 		/** Kind of diff. */
-		private transient EDiff mDiff = EDiff.SAME;
+		private transient DiffType mDiff = DiffType.SAME;
 
 		/** Modification count. */
 		private transient int mModifications;
@@ -415,10 +415,10 @@ public final class SunburstItem implements VisualItem {
 		 * Set kind of diff.
 		 * 
 		 * @param pDiff
-		 *          {@link EDiff}
+		 *          {@link DiffType}
 		 * @return this builder
 		 */
-		public Builder setDiff(@Nonnull final EDiff pDiff) {
+		public Builder setDiff(@Nonnull final DiffType pDiff) {
 			mDiff = checkNotNull(pDiff);
 			return this;
 		}
@@ -561,7 +561,7 @@ public final class SunburstItem implements VisualItem {
 	 * @param pDiff
 	 *          kind of diff to set
 	 */
-	public void setDiff(@Nonnull final EDiff pDiff) {
+	public void setDiff(@Nonnull final DiffType pDiff) {
 		mDiff = checkNotNull(pDiff);
 	}
 
@@ -1036,7 +1036,7 @@ public final class SunburstItem implements VisualItem {
 	 */
 	void drawMovedConnection(final EHover pHover) {
 		checkNotNull(pHover);
-		if (mDiff == EDiff.MOVEDFROM) {
+		if (mDiff == DiffType.MOVEDFROM) {
 			if (mGUI.mParent.recorder != null) {
 				setStroke(mGUI.mParent.recorder, pHover);
 			}
@@ -1048,7 +1048,7 @@ public final class SunburstItem implements VisualItem {
 
 			final SunburstItem movedTo = (SunburstItem) mGUI.mControl.getModel()
 					.getItem(mIndexMovedTo);
-			assert movedTo.getDiff() == EDiff.MOVEDTO;
+			assert movedTo.getDiff() == DiffType.MOVEDTO;
 			final float angle = PApplet.abs(PApplet.atan2(mY, mX)
 					- PApplet.atan2(movedTo.mY, movedTo.mX));
 			if (mGUI.mParent.recorder != null) {
@@ -1323,7 +1323,7 @@ public final class SunburstItem implements VisualItem {
 	public void updated(final StringBuilder pBuilder) {
 		checkNotNull(pBuilder);
 		if (mDiff != null
-				&& (mDiff == EDiff.UPDATED || mDiff == EDiff.REPLACEDOLD || mDiff == EDiff.REPLACEDNEW)) {
+				&& (mDiff == DiffType.UPDATED || mDiff == DiffType.REPLACEDOLD || mDiff == DiffType.REPLACEDNEW)) {
 			if (mGUI.mUseAttribute) {
 				mGUI.processAttributes(pBuilder);
 			}
@@ -1376,7 +1376,7 @@ public final class SunburstItem implements VisualItem {
 			final PGraphics graphic = mGraphic;
 			mGraphic = checkNotNull(pGraphic);
 			mGraphic.noFill();
-			if (mDiff == EDiff.MOVEDFROM || mDiff == EDiff.MOVEDTO) {
+			if (mDiff == DiffType.MOVEDFROM || mDiff == DiffType.MOVEDTO) {
 				drawArcRec();
 
 				if (mIndexMovedTo >= 0 && mIndexMovedTo < mGUI.mModel.getItemsSize()) {
@@ -1644,7 +1644,7 @@ public final class SunburstItem implements VisualItem {
 	}
 
 	@Override
-	public EDiff getDiff() {
+	public DiffType getDiff() {
 		return mDiff;
 	}
 

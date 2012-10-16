@@ -43,7 +43,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.Session;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.AttributeNode;
@@ -70,7 +70,7 @@ import org.sirix.node.interfaces.ValNode;
 import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.ItemListImpl;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.Util;
 
@@ -127,7 +127,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 		mPageReadTrx = checkNotNull(pageReadTransaction);
 		@SuppressWarnings("unchecked")
 		final Optional<? extends Node> node = (Optional<? extends Node>) mPageReadTrx
-				.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.NODEPAGE);
+				.getNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.NODEPAGE);
 		if (node.isPresent()) {
 			mCurrentNode = node.get();
 		} else {
@@ -185,7 +185,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public Move<? extends NodeReadTrx> moveTo(final long nodeKey) {
 		assertNotClosed();
-		if (nodeKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+		if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 			return Move.notMoved();
 		}
 
@@ -221,7 +221,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public Move<? extends NodeReadTrx> moveToDocumentRoot() {
 		assertNotClosed();
-		return moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+		return moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 	}
 
 	@Override
@@ -665,7 +665,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull IVisitor visitor) {
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
 		assertNotClosed();
 		return mCurrentNode.acceptVisitor(visitor);
 	}
@@ -851,7 +851,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public Kind getParentKind() {
 		assertNotClosed();
-		if (mCurrentNode.getParentKey() == EFixed.NULL_NODE_KEY
+		if (mCurrentNode.getParentKey() == Fixed.NULL_NODE_KEY
 				.getStandardProperty()) {
 			return Kind.UNKNOWN;
 		}

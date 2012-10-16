@@ -29,7 +29,7 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.NodeCursor;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
 
 /**
@@ -50,7 +50,7 @@ public final class FollowingSiblingAxis extends AbsAxis {
    * @param rtx
    *          exclusive (immutable) trx to iterate with
    */
-  public FollowingSiblingAxis(@Nonnull final NodeCursor rtx) {
+  public FollowingSiblingAxis(final @Nonnull NodeReadTrx rtx) {
     super(rtx);
     mIsFirst = true;
   }

@@ -30,7 +30,6 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
-import org.sirix.settings.EFixed;
 
 /**
  * <h1>ParentAxis</h1>
@@ -47,16 +46,16 @@ public final class SelfAxis extends AbsAxis {
 	/**
 	 * Constructor initializing internal state.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public SelfAxis(final @Nonnull NodeReadTrx pRtx) {
-		super(pRtx);
+	public SelfAxis(final @Nonnull NodeReadTrx rtx) {
+		super(rtx);
 	}
 
 	@Override
-	public void reset(final long pNodeKey) {
-		super.reset(pNodeKey);
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
 		mFirst = true;
 	}
 

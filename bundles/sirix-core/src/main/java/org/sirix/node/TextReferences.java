@@ -30,26 +30,26 @@ public class TextReferences implements NodeBase {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pNodeKeys
+	 * @param nodeKeys
 	 *          {@link Set} of unique node-keys
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          node key of this node
 	 */
-	public TextReferences(final @Nonnull Set<Long> pNodeKeys, final long pNodeKey) {
-		mNodeKeys = Collections.synchronizedSet(checkNotNull(pNodeKeys));
-		checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
-		mNodeKey = pNodeKey;
+	public TextReferences(final @Nonnull Set<Long> nodeKeys, final long nodeKey) {
+		mNodeKeys = Collections.synchronizedSet(checkNotNull(nodeKeys));
+		checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
+		mNodeKey = nodeKey;
 	}
 
 	/**
 	 * Retrieve if a node-ID is present with the given key.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          node key to lookup
 	 * @return {@code true} if it is indexed, {@code false} otherwise
 	 */
-	public boolean getNodeKey(final @Nonnegative long pNodeKey) {
-		return mNodeKeys.contains(pNodeKey);
+	public boolean getNodeKey(final @Nonnegative long nodeKey) {
+		return mNodeKeys.contains(nodeKey);
 	}
 
 	/**
@@ -64,11 +64,11 @@ public class TextReferences implements NodeBase {
 	/**
 	 * Set a new nodeKey.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          node key to set
 	 */
-	public void setNodeKey(final @Nonnegative long pNodeKey) {
-		mNodeKeys.add(pNodeKey);
+	public void setNodeKey(final @Nonnegative long nodeKey) {
+		mNodeKeys.add(nodeKey);
 	}
 
 	@Override

@@ -67,60 +67,60 @@ public abstract class AbsSerializer implements Callable<Void> {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pSession
+	 * @param session
 	 *          Sirix {@link Session}
-	 * @param pRevision
+	 * @param revision
 	 *          first revision to serialize
-	 * @param pRevisions
+	 * @param revisions
 	 *          revisions to serialize
 	 */
-	public AbsSerializer(@Nonnull final Session pSession, final int pRevision,
-			final int... pRevisions) {
+	public AbsSerializer(final @Nonnull Session session, final @Nonnegative int revision,
+			final int... revisions) {
 		mStack = new ArrayDeque<>();
-		mRevisions = pRevisions == null ? new int[1]
-				: new int[pRevisions.length + 1];
-		initialize(pRevision, pRevisions);
-		mSession = checkNotNull(pSession);
+		mRevisions = revisions == null ? new int[1]
+				: new int[revisions.length + 1];
+		initialize(revision, revisions);
+		mSession = checkNotNull(session);
 		mNodeKey = 0;
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param pSession
+	 * @param session
 	 *          Sirix {@link Session}
-	 * @param pKey
+	 * @param key
 	 *          key of root node from which to shredder the subtree
-	 * @param pRevision
+	 * @param revision
 	 *          first revision to serialize
-	 * @param pRevisions
+	 * @param revisions
 	 *          revisions to serialize
 	 */
-	public AbsSerializer(final @Nonnull Session pSession,
-			final @Nonnegative long pKey, final @Nonnegative int pRevision,
-			final int... pRevisions) {
+	public AbsSerializer(final @Nonnull Session session,
+			final @Nonnegative long key, final @Nonnegative int revision,
+			final int... revisions) {
 		mStack = new ArrayDeque<>();
-		mRevisions = pRevisions == null ? new int[1]
-				: new int[pRevisions.length + 1];
-		initialize(pRevision, pRevisions);
-		mSession = checkNotNull(pSession);
-		mNodeKey = pKey;
+		mRevisions = revisions == null ? new int[1]
+				: new int[revisions.length + 1];
+		initialize(revision, revisions);
+		mSession = checkNotNull(session);
+		mNodeKey = key;
 	}
 
 	/**
 	 * Initialize.
 	 * 
-	 * @param pRevision
+	 * @param revision
 	 *          first revision to serialize
-	 * @param pRevisions
+	 * @param revisions
 	 *          revisions to serialize
 	 */
-	private void initialize(@Nonnegative final int pRevision,
-			final int... pRevisions) {
-		mRevisions[0] = pRevision;
-		if (pRevisions != null) {
-			for (int i = 0; i < pRevisions.length; i++) {
-				mRevisions[i + 1] = pRevisions[i];
+	private void initialize(final @Nonnegative int revision,
+			final int... revisions) {
+		mRevisions[0] = revision;
+		if (revisions != null) {
+			for (int i = 0; i < revisions.length; i++) {
+				mRevisions[i + 1] = revisions[i];
 			}
 		}
 	}
@@ -215,35 +215,35 @@ public abstract class AbsSerializer implements Callable<Void> {
 	/**
 	 * Emit start tag.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          Sirix {@link NodeReadTrx}
 	 */
-	protected abstract void emitStartElement(@Nonnull final NodeReadTrx pRtx);
+	protected abstract void emitStartElement(@Nonnull final NodeReadTrx rtx);
 
 	/**
 	 * Emit end tag.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          Sirix {@link NodeReadTrx}
 	 */
-	protected abstract void emitEndElement(@Nonnull final NodeReadTrx pRtx);
+	protected abstract void emitEndElement(@Nonnull final NodeReadTrx rtx);
 
 	/**
 	 * Emit a start tag, which specifies a revision.
 	 * 
-	 * @param pRevision
+	 * @param revision
 	 *          the revision to serialize
 	 */
 	protected abstract void emitStartManualElement(
-			@Nonnegative final long pRevision);
+			final @Nonnegative long revision);
 
 	/**
 	 * Emit an end tag, which specifies a revision.
 	 * 
-	 * @param pRevision
+	 * @param revision
 	 *          the revision to serialize
 	 */
-	protected abstract void emitEndManualElement(@Nonnegative final long pRevision);
+	protected abstract void emitEndManualElement(final @Nonnegative long revision);
 
 	/** Emit end document. */
 	protected abstract void emitEndDocument();

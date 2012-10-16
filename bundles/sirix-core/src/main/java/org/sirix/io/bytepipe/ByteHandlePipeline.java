@@ -25,12 +25,12 @@ public final class ByteHandlePipeline implements ByteHandler {
   /**
    * Copy constructor.
    * 
-   * @param pPipeline
+   * @param pipeline
    *          pipeline to copy
    */
-  public ByteHandlePipeline(final @Nonnull ByteHandlePipeline pPipeline) {
-    mParts = new ArrayList<>(pPipeline.mParts.size());
-    for (final ByteHandler handler : pPipeline.mParts) {
+  public ByteHandlePipeline(final @Nonnull ByteHandlePipeline pipeline) {
+    mParts = new ArrayList<>(pipeline.mParts.size());
+    for (final ByteHandler handler : pipeline.mParts) {
       mParts.add(handler.getInstance());
     }
   }
@@ -39,20 +39,20 @@ public final class ByteHandlePipeline implements ByteHandler {
    * 
    * Constructor.
    * 
-   * @param pParts
+   * @param parts
    *          to be stored, Order is important!
    */
-  public ByteHandlePipeline(final @Nonnull ByteHandler... pParts) {
+  public ByteHandlePipeline(final @Nonnull ByteHandler... parts) {
     mParts = new ArrayList<>();
-    for (final ByteHandler part : pParts) {
+    for (final ByteHandler part : parts) {
       mParts.add(part);
     }
   }
 
   @Override
-  public byte[] serialize(final @Nonnull byte[] pToSerialize)
+  public byte[] serialize(final @Nonnull byte[] toSerialize)
     throws SirixIOException {
-    byte[] pipeData = pToSerialize;
+    byte[] pipeData = toSerialize;
     for (final ByteHandler part : mParts) {
       pipeData = part.serialize(pipeData);
     }
@@ -60,9 +60,9 @@ public final class ByteHandlePipeline implements ByteHandler {
   }
 
   @Override
-  public byte[] deserialize(final @Nonnull byte[] pToDeserialize)
+  public byte[] deserialize(final @Nonnull byte[] toDeserialize)
     throws SirixIOException {
-    byte[] pipeData = pToDeserialize;
+    byte[] pipeData = toDeserialize;
     for (int i = mParts.size() - 1; i >= 0; i--) {
       pipeData = mParts.get(i).deserialize(pipeData);
     }

@@ -27,6 +27,8 @@
 
 package org.sirix.diff;
 
+import com.google.common.base.Objects;
+
 /**
  * Container for transaction cursor depths in both the old and new revision.
  * 
@@ -34,69 +36,66 @@ package org.sirix.diff;
  * 
  */
 final class DepthCounter {
-  /** Depth in new revision. */
-  private transient int mNewDepth;
+	/** Depth in new revision. */
+	private int mNewDepth;
 
-  /** Depth in old revision. */
-  private transient int mOldDepth;
+	/** Depth in old revision. */
+	private int mOldDepth;
 
-  /**
-   * Constructor.
-   * 
-   * @param paramNewDepth
-   *          depth of transaction cursor in new revision
-   * @param paramOldDepth
-   *          depth of transaction cursor in old revision
-   */
-  DepthCounter(final int paramNewDepth, final int paramOldDepth) {
-    mNewDepth = paramNewDepth;
-    mOldDepth = paramOldDepth;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param newDepth
+	 *          depth of transaction cursor in new revision
+	 * @param oldDepth
+	 *          depth of transaction cursor in old revision
+	 */
+	DepthCounter(final int newDepth, final int oldDepth) {
+		mNewDepth = newDepth;
+		mOldDepth = oldDepth;
+	}
 
-  /** Increment depth in new revision. */
-  void incrementNewDepth() {
-    mNewDepth++;
-  }
+	/** Increment depth in new revision. */
+	void incrementNewDepth() {
+		mNewDepth++;
+	}
 
-  /** Decrement depth in new revision. */
-  void decrementNewDepth() {
-    mNewDepth--;
-  }
+	/** Decrement depth in new revision. */
+	void decrementNewDepth() {
+		mNewDepth--;
+	}
 
-  /** Increment depth in old revision. */
-  void incrementOldDepth() {
-    mOldDepth++;
-  }
+	/** Increment depth in old revision. */
+	void incrementOldDepth() {
+		mOldDepth++;
+	}
 
-  /** Decrement depth in old revision. */
-  void decrementOldDepth() {
-    mOldDepth--;
-  }
+	/** Decrement depth in old revision. */
+	void decrementOldDepth() {
+		mOldDepth--;
+	}
 
-  /**
-   * Get depth in new revision.
-   * 
-   * @return depth in new revision
-   */
-  int getNewDepth() {
-    return mNewDepth;
-  }
+	/**
+	 * Get depth in new revision.
+	 * 
+	 * @return depth in new revision
+	 */
+	int getNewDepth() {
+		return mNewDepth;
+	}
 
-  /**
-   * Get depth in old revision.
-   * 
-   * @return depth in old revision
-   */
-  int getOldDepth() {
-    return mOldDepth;
-  }
+	/**
+	 * Get depth in old revision.
+	 * 
+	 * @return depth in old revision
+	 */
+	int getOldDepth() {
+		return mOldDepth;
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public String toString() {
-    return new StringBuilder("newDepth: ").append(mNewDepth).append("oldDepth: ").append(mOldDepth)
-      .toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("newDepth: ", mNewDepth)
+				.add("oldDepth: ", mOldDepth).toString();
+	}
 }

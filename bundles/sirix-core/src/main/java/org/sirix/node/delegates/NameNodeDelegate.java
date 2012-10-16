@@ -38,7 +38,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NameNode;
@@ -55,125 +55,128 @@ import org.sirix.node.interfaces.NameNode;
  */
 public class NameNodeDelegate extends AbsForwardingNode implements NameNode {
 
-  /** Node delegate, containing basic node information. */
-  private final NodeDelegate mDelegate;
+	/** Node delegate, containing basic node information. */
+	private final NodeDelegate mDelegate;
 
-  /** Key of the name. The name contains the prefix as well. */
-  private int mNameKey;
+	/** Key of the name. The name contains the prefix as well. */
+	private int mNameKey;
 
-  /** URI of the related namespace. */
-  private int mUriKey;
+	/** URI of the related namespace. */
+	private int mUriKey;
 
-  /** Path node key. */
-  private long mPathNodeKey;
-  
-  /**
-   * Constructor.
-   * 
-   * @param pDel
-   *          page delegator
-   * @param pNameKey
-   *          namekey to be stored
-   * @param pUriKey
-   *          urikey to be stored
-   */
-  public NameNodeDelegate(final @Nonnull NodeDelegate pDel, final int pNameKey,
-    final int pUriKey, final @Nonnegative long pPathNodeKey) {
-    mDelegate = checkNotNull(pDel);
-    mNameKey = pNameKey;
-    mUriKey = pUriKey;
-    checkArgument(pPathNodeKey >= 0, "pPathNodeKey may not be < 0!");
-    mPathNodeKey = pPathNodeKey;
-  }
+	/** Path node key. */
+	private long mPathNodeKey;
 
-  /**
-   * Copy constructor.
-   * 
-   * @param pNameDel
-   *          old name node delegate
-   */
-  public NameNodeDelegate(final @Nonnull NameNodeDelegate pNameDel) {
-    mDelegate = pNameDel.mDelegate;
-    mNameKey = pNameDel.mNameKey;
-    mUriKey = pNameDel.mUriKey;
-    mPathNodeKey = pNameDel.mPathNodeKey;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param delegate
+	 *          page delegator
+	 * @param nameKey
+	 *          namekey to be stored
+	 * @param uriKey
+	 *          urikey to be stored
+	 * @param pathNodeKey
+	 *          path node key associated with node
+	 */
+	public NameNodeDelegate(final @Nonnull NodeDelegate delegate,
+			final int nameKey, final int uriKey, final @Nonnegative long pathNodeKey) {
+		mDelegate = checkNotNull(delegate);
+		mNameKey = nameKey;
+		mUriKey = uriKey;
+		checkArgument(pathNodeKey >= 0, "pPathNodeKey may not be < 0!");
+		mPathNodeKey = pathNodeKey;
+	}
 
-  @Override
-  public Kind getKind() {
-    return Kind.UNKNOWN;
-  }
+	/**
+	 * Copy constructor.
+	 * 
+	 * @param nameDel
+	 *          old name node delegate
+	 */
+	public NameNodeDelegate(final @Nonnull NameNodeDelegate nameDel) {
+		mDelegate = nameDel.mDelegate;
+		mNameKey = nameDel.mNameKey;
+		mUriKey = nameDel.mUriKey;
+		mPathNodeKey = nameDel.mPathNodeKey;
+	}
 
-  @Override
-  public VisitResultType acceptVisitor(final @Nonnull IVisitor pVisitor) {
-    return mDelegate.acceptVisitor(pVisitor);
-  }
+	@Override
+	public Kind getKind() {
+		return Kind.UNKNOWN;
+	}
 
-  @Override
-  public int getNameKey() {
-    return mNameKey;
-  }
+	@Override
+	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
+		return mDelegate.acceptVisitor(visitor);
+	}
 
-  @Override
-  public int getURIKey() {
-    return mUriKey;
-  }
+	@Override
+	public int getNameKey() {
+		return mNameKey;
+	}
 
-  @Override
-  public void setNameKey(final int pNameKey) {
-    mNameKey = pNameKey;
-  }
+	@Override
+	public int getURIKey() {
+		return mUriKey;
+	}
 
-  @Override
-  public void setURIKey(final int pUriKey) {
-    mUriKey = pUriKey;
-  }
-  
-  /**
-   * Setting the class path record.
-   * 
-   * @param pPCR
-   *          the path class record to set
-   */
-  public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
-    checkArgument(pPathNodeKey >= 0, "pPathNodeKey may not be < 0!");
-    mPathNodeKey = pPathNodeKey;
-  }
-  
-  /**
-   * Get the path class record.
-   * 
-   * @return path class record the node belongs to
-   */
-  public long getPathNodeKey() {
-    return mPathNodeKey;
-  }
+	@Override
+	public void setNameKey(final int nameKey) {
+		mNameKey = nameKey;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mNameKey, mUriKey);
-  }
+	@Override
+	public void setURIKey(final int uriKey) {
+		mUriKey = uriKey;
+	}
 
-  @Override
-  public boolean equals(@Nullable final Object pObj) {
-    if (pObj instanceof NameNodeDelegate) {
-      final NameNodeDelegate other = (NameNodeDelegate)pObj;
-      return Objects.equal(mNameKey, other.mNameKey)
-        && Objects.equal(mUriKey, other.mUriKey);
-    }
-    return false;
-  }
+	/**
+	 * Setting the class path record.
+	 * 
+	 * @param pPCR
+	 *          the path class record to set
+	 */
+	public void setPathNodeKey(@Nonnegative final long pathNodeKey) {
+		checkArgument(pathNodeKey >= 0, "pPathNodeKey may not be < 0!");
+		mPathNodeKey = pathNodeKey;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("node delegate", mDelegate).add(
-      "uriKey", mUriKey).add("nameKey", mNameKey).add("pathNodeKey", mPathNodeKey).toString();
-  }
+	/**
+	 * Get the path class record.
+	 * 
+	 * @return path class record the node belongs to
+	 */
+	public long getPathNodeKey() {
+		return mPathNodeKey;
+	}
 
-  @Override
-  protected NodeDelegate delegate() {
-    return mDelegate;
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mNameKey, mUriKey);
+	}
+
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof NameNodeDelegate) {
+			final NameNodeDelegate other = (NameNodeDelegate) obj;
+			return Objects.equal(mNameKey, other.mNameKey)
+					&& Objects.equal(mUriKey, other.mUriKey);
+		}
+		return false;
+	}
+
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("node delegate", mDelegate)
+				.add("uriKey", mUriKey).add("nameKey", mNameKey)
+				.add("pathNodeKey", mPathNodeKey).toString();
+	}
+
+	@Override
+	protected NodeDelegate delegate() {
+		return mDelegate;
+	}
 
 	@Override
 	public long getRevision() {

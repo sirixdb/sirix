@@ -49,13 +49,13 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.view.DiffAxis;
 import org.sirix.gui.view.TransactionTuple;
 import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.node.Kind;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.XMLToken;
 
 /**
@@ -122,7 +122,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	private boolean mHasNext;
 
 	/** Diff type. */
-	private EDiff mDiff;
+	private DiffType mDiff;
 
 	/** Current depth. */
 	private int mDepth;
@@ -389,9 +389,9 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	/**
 	 * Get diff type.
 	 * 
-	 * @return {@link EDiff} value
+	 * @return {@link DiffType} value
 	 */
-	public EDiff getDiff() {
+	public DiffType getDiff() {
 		return mDiff;
 	}
 
@@ -429,7 +429,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 		assert pRtx != null;
 		// Emit pending update elements.
 		if (!mUpdatedStack.isEmpty()) {
-			mDiff = EDiff.UPDATED;
+			mDiff = DiffType.UPDATED;
 			final TransactionTuple tuple = mUpdatedStack.peek();
 			final NodeReadTrx trx = tuple.getRtx();
 			final long nodeKey = trx.getNodeKey();
@@ -456,8 +456,8 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			final long nodeKey = rtx.getNodeKey();
 			int depth = tuple.getDepth();
 			mDiff = tuple.getDiff();
-			if (mDepth < depth || (mDiff == EDiff.UPDATED && mFirstUpdate)) {
-				if (mDiff == EDiff.UPDATED) {
+			if (mDepth < depth || (mDiff == DiffType.UPDATED && mFirstUpdate)) {
+				if (mDiff == DiffType.UPDATED) {
 					mFirstUpdate = false;
 				}
 				rtx.moveTo(mStack.pop().getKey());
@@ -486,7 +486,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			mDiff = mAxis.getDiff();
 			final int depth = mAxis.getDepth();
 
-			if (mDiff == EDiff.UPDATED) {
+			if (mDiff == DiffType.UPDATED) {
 				mFirstUpdate = true;
 				mUpdatedStack.push(new TransactionTuple(mAxis.getOldRtx().getNodeKey(),
 						mAxis.getOldRtx(), mAxis.getDiff(), mAxis.getDepth()));
@@ -502,7 +502,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 
 			// Remember to emit all pending end elements from stack if
 			// required.
-			if (mLastKey != EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+			if (mLastKey != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
 				if (mAxis.hasNext()) {
 					final long peekKey = mAxis.peek();
 					mDepth = mAxis.getDepth();

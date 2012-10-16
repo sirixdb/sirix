@@ -49,63 +49,66 @@ import org.sirix.io.bytepipe.ByteHandler;
  */
 public final class FileStorage implements Storage {
 
-  /** File name. */
-  private static final String FILENAME = "tt.tnk";
+	/** File name. */
+	private static final String FILENAME = "tt.tnk";
 
-  /** Instance to storage. */
-  private final File mFile;
+	/** Instance to storage. */
+	private final File mFile;
 
-  /** Byte handler pipeline. */
-  private final ByteHandlePipeline mByteHandler;
+	/** Byte handler pipeline. */
+	private final ByteHandlePipeline mByteHandler;
 
-  /**
-   * Constructor.
-   * 
-   * @param pFile
-   *          the location of the database
-   */
-  public FileStorage(final @Nonnull File pFile,
-    final @Nonnull ByteHandlePipeline pByteHandler) {
-    mFile = checkNotNull(pFile);
-    mByteHandler = checkNotNull(pByteHandler);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param file
+	 *          the location of the database
+	 * @param byteHandler
+	 *          byte handler pipeline
+	 */
+	public FileStorage(final @Nonnull File file,
+			final @Nonnull ByteHandlePipeline byteHandler) {
+		mFile = checkNotNull(file);
+		mByteHandler = checkNotNull(byteHandler);
+	}
 
-  @Override
-  public Reader getReader() throws SirixIOException {
-    return new FileReader(getConcreteStorage(), new ByteHandlePipeline(
-      mByteHandler));
-  }
+	@Override
+	public Reader getReader() throws SirixIOException {
+		return new FileReader(getConcreteStorage(), new ByteHandlePipeline(
+				mByteHandler));
+	}
 
-  @Override
-  public Writer getWriter() throws SirixIOException {
-    return new FileWriter(getConcreteStorage(), new ByteHandlePipeline(
-      mByteHandler));
-  }
+	@Override
+	public Writer getWriter() throws SirixIOException {
+		return new FileWriter(getConcreteStorage(), new ByteHandlePipeline(
+				mByteHandler));
+	}
 
-  @Override
-  public void close() {
-    // not used over here
-  }
+	@Override
+	public void close() {
+		// not used over here
+	}
 
-  /**
-   * Getting concrete storage for this file.
-   * 
-   * @return the concrete storage for this database
-   */
-  private File getConcreteStorage() {
-    return new File(mFile, new StringBuilder(ResourceConfiguration.Paths.Data
-      .getFile().getName()).append(File.separator).append(FILENAME).toString());
-  }
+	/**
+	 * Getting concrete storage for this file.
+	 * 
+	 * @return the concrete storage for this database
+	 */
+	private File getConcreteStorage() {
+		return new File(mFile, new StringBuilder(ResourceConfiguration.Paths.Data
+				.getFile().getName()).append(File.separator).append(FILENAME)
+				.toString());
+	}
 
-  @Override
-  public boolean exists() throws SirixIOException {
-    final File file = getConcreteStorage();
-    final boolean returnVal = file.length() > 0;
-    return returnVal;
-  }
+	@Override
+	public boolean exists() throws SirixIOException {
+		final File file = getConcreteStorage();
+		final boolean returnVal = file.length() > 0;
+		return returnVal;
+	}
 
-  @Override
-  public ByteHandler getByteHandler() {
-    return mByteHandler;
-  }
+	@Override
+	public ByteHandler getByteHandler() {
+		return mByteHandler;
+	}
 }

@@ -30,7 +30,7 @@ package org.sirix.gui.view;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.view.sunburst.Draw;
 import org.sirix.gui.view.sunburst.EGreyState;
 import org.sirix.gui.view.sunburst.XPathState;
@@ -101,7 +101,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * 
 	 * @return type of diff
 	 */
-	EDiff getDiff();
+	DiffType getDiff();
 
 	/**
 	 * Set if node should be colored or not.

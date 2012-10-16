@@ -40,267 +40,266 @@ import org.sirix.page.interfaces.Page;
  * All Page types.
  */
 public enum PageKind {
-  /**
-   * {@link NodePage}.
-   */
-  NODEPAGE((byte)1, NodePage.class) {
-    @Override
-    @Nonnull
-    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
-      return new NodePage(pSource);
-    }
+	/**
+	 * {@link NodePage}.
+	 */
+	NODEPAGE((byte) 1, NodePage.class) {
+		@Override
+		@Nonnull
+		Page deserializePage(@Nonnull final ByteArrayDataInput source) {
+			return new NodePage(source);
+		}
 
-    @Override
-    void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
-      pSink.writeByte(NODEPAGE.mId);
-      pPage.serialize(pSink);
-    }
+		@Override
+		void serializePage(@Nonnull final ByteArrayDataOutput sink,
+				@Nonnull final Page page) {
+			sink.writeByte(NODEPAGE.mId);
+			page.serialize(sink);
+		}
 
-    @Override
-    public @Nonnull
-    Page getInstance(@Nonnull final Page pPage) {
-      assert pPage instanceof NodePage;
-      final NodePage page = (NodePage)pPage;
-      return new NodePage(page.getNodePageKey(), page.getRevision());
-    }
-  },
+		@Override
+		public @Nonnull
+		Page getInstance(@Nonnull final Page nodePage) {
+			assert nodePage instanceof NodePage;
+			final NodePage page = (NodePage) nodePage;
+			return new NodePage(page.getNodePageKey(), page.getRevision());
+		}
+	},
 
-  /**
-   * {@link NamePage}.
-   */
-  NAMEPAGE((byte)2, NamePage.class) {
-    @Override
-    @Nonnull
-    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
-      return new NamePage(pSource);
-    }
+	/**
+	 * {@link NamePage}.
+	 */
+	NAMEPAGE((byte) 2, NamePage.class) {
+		@Override
+		@Nonnull
+		Page deserializePage(@Nonnull final ByteArrayDataInput source) {
+			return new NamePage(source);
+		}
 
-    @Override
-    void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
-      pSink.writeByte(NAMEPAGE.mId);
-      pPage.serialize(pSink);
-    }
+		@Override
+		void serializePage(@Nonnull final ByteArrayDataOutput sink,
+				@Nonnull final Page page) {
+			sink.writeByte(NAMEPAGE.mId);
+			page.serialize(sink);
+		}
 
-    @Override
-    public @Nonnull
-    Page getInstance(@Nonnull final Page pPage) {
-      return new NamePage(pPage.getRevision());
-    }
-  },
+		@Override
+		public @Nonnull
+		Page getInstance(@Nonnull final Page page) {
+			return new NamePage(page.getRevision());
+		}
+	},
 
-  /**
-   * {@link UberPage}.
-   */
-  UBERPAGE((byte)3, UberPage.class) {
-    @Override
-    @Nonnull
-    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
-      return new UberPage(pSource);
-    }
+	/**
+	 * {@link UberPage}.
+	 */
+	UBERPAGE((byte) 3, UberPage.class) {
+		@Override
+		@Nonnull
+		Page deserializePage(@Nonnull final ByteArrayDataInput source) {
+			return new UberPage(source);
+		}
 
-    @Override
-    void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
-      pSink.writeByte(UBERPAGE.mId);
-      pPage.serialize(pSink);
-    }
+		@Override
+		void serializePage(@Nonnull final ByteArrayDataOutput sink,
+				@Nonnull final Page page) {
+			sink.writeByte(UBERPAGE.mId);
+			page.serialize(sink);
+		}
 
-    @Override
-    public @Nonnull
-    Page getInstance(@Nonnull final Page pPage) {
-      return new UberPage();
-    }
-  },
+		@Override
+		public @Nonnull
+		Page getInstance(@Nonnull final Page page) {
+			return new UberPage();
+		}
+	},
 
-  /**
-   * {@link IndirectPage}.
-   */
-  INDIRECTPAGE((byte)4, IndirectPage.class) {
-    @Override
-    @Nonnull
-    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
-      return new IndirectPage(pSource);
-    }
+	/**
+	 * {@link IndirectPage}.
+	 */
+	INDIRECTPAGE((byte) 4, IndirectPage.class) {
+		@Override
+		@Nonnull
+		Page deserializePage(@Nonnull final ByteArrayDataInput source) {
+			return new IndirectPage(source);
+		}
 
-    @Override
-    void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
-      pSink.writeByte(INDIRECTPAGE.mId);
-      pPage.serialize(pSink);
-    }
+		@Override
+		void serializePage(@Nonnull final ByteArrayDataOutput sink,
+				@Nonnull final Page page) {
+			sink.writeByte(INDIRECTPAGE.mId);
+			page.serialize(sink);
+		}
 
-    @Override
-    public @Nonnull
-    Page getInstance(@Nonnull final Page pPage) {
-      return new IndirectPage(pPage.getRevision());
-    }
-  },
+		@Override
+		public @Nonnull
+		Page getInstance(@Nonnull final Page page) {
+			return new IndirectPage(page.getRevision());
+		}
+	},
 
-  /**
-   * {@link RevisionRootPage}.
-   */
-  REVISIONROOTPAGE((byte)5, RevisionRootPage.class) {
-    @Override
-    @Nonnull
-    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
-      return new RevisionRootPage(pSource);
-    }
+	/**
+	 * {@link RevisionRootPage}.
+	 */
+	REVISIONROOTPAGE((byte) 5, RevisionRootPage.class) {
+		@Override
+		@Nonnull
+		Page deserializePage(@Nonnull final ByteArrayDataInput source) {
+			return new RevisionRootPage(source);
+		}
 
-    @Override
-    void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
-      pSink.writeByte(REVISIONROOTPAGE.mId);
-      pPage.serialize(pSink);
-    }
+		@Override
+		void serializePage(@Nonnull final ByteArrayDataOutput sink,
+				@Nonnull final Page page) {
+			sink.writeByte(REVISIONROOTPAGE.mId);
+			page.serialize(sink);
+		}
 
-    @Override
-    public @Nonnull
-    Page getInstance(@Nonnull final Page pPage) {
-      return new RevisionRootPage();
-    }
-  },
+		@Override
+		public @Nonnull
+		Page getInstance(@Nonnull final Page page) {
+			return new RevisionRootPage();
+		}
+	},
 
-  /**
-   * {@link PathSummaryPage}.
-   */
-  PATHSUMMARYPAGE((byte)6, PathSummaryPage.class) {
-    @Override
-    @Nonnull
-    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
-      return new PathSummaryPage(pSource);
-    }
+	/**
+	 * {@link PathSummaryPage}.
+	 */
+	PATHSUMMARYPAGE((byte) 6, PathSummaryPage.class) {
+		@Override
+		@Nonnull
+		Page deserializePage(@Nonnull final ByteArrayDataInput source) {
+			return new PathSummaryPage(source);
+		}
 
-    @Override
-    void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
-      pSink.writeByte(PATHSUMMARYPAGE.mId);
-      pPage.serialize(pSink);
-    }
+		@Override
+		void serializePage(@Nonnull final ByteArrayDataOutput sink,
+				@Nonnull final Page page) {
+			sink.writeByte(PATHSUMMARYPAGE.mId);
+			page.serialize(sink);
+		}
 
-    @Override
-    public @Nonnull
-    Page getInstance(@Nonnull final Page pPage) {
-      return new PathSummaryPage(pPage.getRevision());
-    }
-  }, 
-  
-  /**
-   * {@link ValuePage}.
-   */
-  VALUEPAGE((byte)7, ValuePage.class) {
-    @Override
-    @Nonnull
-    Page deserializePage(@Nonnull final ByteArrayDataInput pSource) {
-      return new ValuePage(pSource);
-    }
+		@Override
+		public @Nonnull
+		Page getInstance(@Nonnull final Page page) {
+			return new PathSummaryPage(page.getRevision());
+		}
+	},
 
-    @Override
-    void
-      serializePage(@Nonnull final ByteArrayDataOutput pSink, @Nonnull final Page pPage) {
-      pSink.writeByte(VALUEPAGE.mId);
-      pPage.serialize(pSink);
-    }
+	/**
+	 * {@link ValuePage}.
+	 */
+	VALUEPAGE((byte) 7, ValuePage.class) {
+		@Override
+		@Nonnull
+		Page deserializePage(@Nonnull final ByteArrayDataInput source) {
+			return new ValuePage(source);
+		}
 
-    @Override
-    public @Nonnull
-    Page getInstance(@Nonnull final Page pPage) {
-      return new ValuePage(pPage.getRevision());
-    }
-  };
+		@Override
+		void serializePage(@Nonnull final ByteArrayDataOutput sink,
+				@Nonnull final Page page) {
+			sink.writeByte(VALUEPAGE.mId);
+			page.serialize(sink);
+		}
 
-  /** Mapping of keys -> page */
-  private static final Map<Byte, PageKind> INSTANCEFORID = new HashMap<>();
+		@Override
+		public @Nonnull
+		Page getInstance(@Nonnull final Page pPage) {
+			return new ValuePage(pPage.getRevision());
+		}
+	};
 
-  /** Mapping of class -> page. */
-  private static final Map<Class<? extends Page>, PageKind> INSTANCEFORCLASS =
-    new HashMap<>();
+	/** Mapping of keys -> page */
+	private static final Map<Byte, PageKind> INSTANCEFORID = new HashMap<>();
 
-  static {
-    for (final PageKind node : values()) {
-      INSTANCEFORID.put(node.mId, node);
-      INSTANCEFORCLASS.put(node.mClass, node);
-    }
-  }
+	/** Mapping of class -> page. */
+	private static final Map<Class<? extends Page>, PageKind> INSTANCEFORCLASS = new HashMap<>();
 
-  /** Unique ID. */
-  private final byte mId;
+	static {
+		for (final PageKind node : values()) {
+			INSTANCEFORID.put(node.mId, node);
+			INSTANCEFORCLASS.put(node.mClass, node);
+		}
+	}
 
-  /** Class. */
-  private final Class<? extends Page> mClass;
+	/** Unique ID. */
+	private final byte mId;
 
-  /**
-   * Constructor.
-   * 
-   * @param pId
-   *          unique identifier
-   * @param pClass
-   *          class
-   */
-  PageKind(final byte pId, final Class<? extends Page> pClass) {
-    mId = pId;
-    mClass = pClass;
-  }
+	/** Class. */
+	private final Class<? extends Page> mClass;
 
-  /**
-   * Serialize page.
-   * 
-   * @param pSink
-   *          {@link ITTSink} implementation
-   * @param pPage
-   *          {@link Page} implementation
-   */
-  abstract void serializePage(@Nonnull final ByteArrayDataOutput pSink,
-    @Nonnull final Page pPage);
+	/**
+	 * Constructor.
+	 * 
+	 * @param pId
+	 *          unique identifier
+	 * @param clazz
+	 *          class
+	 */
+	PageKind(final byte pId, final Class<? extends Page> clazz) {
+		mId = pId;
+		mClass = clazz;
+	}
 
-  /**
-   * Deserialize page.
-   * 
-   * @param pSource
-   *          {@link ITTSource} implementation
-   * @return page instance implementing the {@link Page} interface
-   */
-  abstract Page deserializePage(@Nonnull final ByteArrayDataInput pSource);
+	/**
+	 * Serialize page.
+	 * 
+	 * @param sink
+	 *          {@link ITTSink} implementation
+	 * @param page
+	 *          {@link Page} implementation
+	 */
+	abstract void serializePage(@Nonnull final ByteArrayDataOutput sink,
+			@Nonnull final Page page);
 
-  /**
-   * Public method to get the related page based on the identifier.
-   * 
-   * @param pId
-   *          the identifier for the page
-   * @return the related page
-   */
-  public static PageKind getKind(final byte pId) {
-    final PageKind page = INSTANCEFORID.get(pId);
-    if (page == null) {
-      throw new IllegalStateException();
-    }
-    return page;
-  }
+	/**
+	 * Deserialize page.
+	 * 
+	 * @param source
+	 *          {@link ITTSource} implementation
+	 * @return page instance implementing the {@link Page} interface
+	 */
+	abstract Page deserializePage(@Nonnull final ByteArrayDataInput source);
 
-  /**
-   * Public method to get the related page based on the class.
-   * 
-   * @param pClass
-   *          the class for the page
-   * @return the related page
-   */
-  public static @Nonnull
-  PageKind getKind(@Nonnull final Class<? extends Page> pClass) {
-    final PageKind page = INSTANCEFORCLASS.get(pClass);
-    if (page == null) {
-      throw new IllegalStateException();
-    }
-    return page;
-  }
+	/**
+	 * Public method to get the related page based on the identifier.
+	 * 
+	 * @param id
+	 *          the identifier for the page
+	 * @return the related page
+	 */
+	public static PageKind getKind(final byte id) {
+		final PageKind page = INSTANCEFORID.get(id);
+		if (page == null) {
+			throw new IllegalStateException();
+		}
+		return page;
+	}
 
-  /**
-   * New page instance.
-   * 
-   * @param pPage
-   *          {@link Page} implementation
-   * @return new page instance
-   */
-  public abstract @Nonnull
-  Page getInstance(@Nonnull final Page pPage);
+	/**
+	 * Public method to get the related page based on the class.
+	 * 
+	 * @param clazz
+	 *          the class for the page
+	 * @return the related page
+	 */
+	public static @Nonnull
+	PageKind getKind(@Nonnull final Class<? extends Page> clazz) {
+		final PageKind page = INSTANCEFORCLASS.get(clazz);
+		if (page == null) {
+			throw new IllegalStateException();
+		}
+		return page;
+	}
+
+	/**
+	 * New page instance.
+	 * 
+	 * @param page
+	 *          {@link Page} implementation
+	 * @return new page instance
+	 */
+	public abstract @Nonnull
+	Page getInstance(@Nonnull final Page page);
 }

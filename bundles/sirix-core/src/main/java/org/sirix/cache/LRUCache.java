@@ -67,12 +67,12 @@ public final class LRUCache<K, V> implements Cache<K, V> {
   /**
    * Creates a new LRU cache.
    * 
-   * @param pSecondCache
+   * @param secondCache
    *          the reference to the second {@link Cache} where the data is stored
    *          when it gets removed from the first one.
    */
-  public LRUCache(@Nonnull final Cache<K, V> pSecondCache) {
-    mSecondCache = checkNotNull(pSecondCache);
+  public LRUCache(@Nonnull final Cache<K, V> secondCache) {
+    mSecondCache = checkNotNull(secondCache);
     mMap = new LinkedHashMap<K, V>(CACHE_CAPACITY) {
       private static final long serialVersionUID = 1;
 
@@ -103,16 +103,16 @@ public final class LRUCache<K, V> implements Cache<K, V> {
    * Retrieves an entry from the cache.<br>
    * The retrieved entry becomes the MRU (most recently used) entry.
    * 
-   * @param pKey
+   * @param key
    *          the key whose associated value is to be returned.
    * @return the value associated to this key, or {@code null} if no value with this
    *         key exists in the cache
    */
   @Override
-  public V get(@Nonnull final K pKey) {
-    V page = mMap.get(pKey);
+  public V get(@Nonnull final K key) {
+    V page = mMap.get(key);
     if (page == null) {
-      page = mSecondCache.get(pKey);
+      page = mSecondCache.get(key);
     }
     return page;
   }
@@ -122,14 +122,14 @@ public final class LRUCache<K, V> implements Cache<K, V> {
    * Adds an entry to this cache. If the cache is full, the LRU (least
    * recently used) entry is dropped.
    * 
-   * @param pKey
+   * @param key
    *          the key with which the specified value is to be associated
-   * @param pValue
+   * @param value
    *          a value to be associated with the specified key
    */
   @Override
-  public void put(@Nonnull final K pKey, @Nonnull final V pValue) {
-    mMap.put(pKey, pValue);
+  public void put(@Nonnull final K key, @Nonnull final V value) {
+    mMap.put(key, value);
   }
 
   /**
@@ -167,9 +167,9 @@ public final class LRUCache<K, V> implements Cache<K, V> {
   }
 
   @Override
-  public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> pKeys) {
+  public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> keys) {
     final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
-    for (final K key : pKeys) {
+    for (final K key : keys) {
       if (mMap.get(key) != null) {
         builder.put(key, mMap.get(key));
       }
@@ -178,8 +178,8 @@ public final class LRUCache<K, V> implements Cache<K, V> {
   }
 
   @Override
-  public void putAll(final @Nonnull Map<K, V> pMap) {
-    mMap.putAll(checkNotNull(pMap));
+  public void putAll(final @Nonnull Map<K, V> map) {
+    mMap.putAll(checkNotNull(map));
   }
 
   @Override
@@ -197,10 +197,10 @@ public final class LRUCache<K, V> implements Cache<K, V> {
   }
   
   @Override
-  public void remove(final @Nonnull K pKey) {
-    mMap.remove(pKey);
-    if (mSecondCache.get(pKey) != null) {
-      mSecondCache.remove(pKey);
+  public void remove(final @Nonnull K key) {
+    mMap.remove(key);
+    if (mSecondCache.get(key) != null) {
+      mSecondCache.remove(key);
     }
   }
 

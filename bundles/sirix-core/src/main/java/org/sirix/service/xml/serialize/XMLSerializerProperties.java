@@ -35,6 +35,11 @@ import java.lang.reflect.Field;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import javax.annotation.Nonnull;
+
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 /**
  * <h1>XMLSerializerProperties</h1>
  * 
@@ -47,6 +52,9 @@ import java.util.concurrent.ConcurrentMap;
  */
 public final class XMLSerializerProperties {
 
+	/** Logger. */
+	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(XMLSerializerProperties.class));
+	
   // ============== Class constants. =================
 
   /** YES maps to true. */
@@ -110,7 +118,7 @@ public final class XMLSerializerProperties {
    * <h2>Read properties</h2>
    * 
    * <p>
-   * Read properties file into a concurrent HashMap. Format of properties file:
+   * Read properties file into a concurrent map. Format of properties file:
    * </p>
    * 
    * <ul>
@@ -126,12 +134,12 @@ public final class XMLSerializerProperties {
    * once the last values are preserved, so the default values are overridden by user specified values.
    * </p>
    * 
-   * @param paramFilePath
-   *          Path to properties file.
+   * @param filePath
+   *          path to properties file
    * @return ConcurrentMap which holds property key/values.
    */
-  public ConcurrentMap<String, Object> readProps(final String paramFilePath) {
-    mFilePath = paramFilePath;
+  public ConcurrentMap<String, Object> readProps(final @Nonnull String filePath) {
+    mFilePath = filePath;
     if (!new File(mFilePath).exists()) {
       throw new IllegalStateException("Properties file doesn't exist!");
     }
@@ -147,7 +155,7 @@ public final class XMLSerializerProperties {
 
         final int equals = line.indexOf('=');
         if (equals < 0) {
-          System.out.println("Properties file has no '=' sign in line -- parsing error!");
+        	LOGGER.error("Properties file has no '=' sign in line -- parsing error!");
         }
 
         final String key = line.substring(0, equals).toUpperCase();
@@ -156,8 +164,8 @@ public final class XMLSerializerProperties {
         mProps.put(key, value);
         buffReader.close();
       }
-    } catch (final IOException exc) {
-      exc.printStackTrace();
+    } catch (final IOException e) {
+    	LOGGER.error(e.getMessage(), e);
     }
 
     return mProps;

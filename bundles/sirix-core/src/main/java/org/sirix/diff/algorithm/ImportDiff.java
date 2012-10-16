@@ -40,16 +40,16 @@ public interface ImportDiff {
   /**
    * Do the diff.
    * 
-   * @param pWtx
+   * @param wtx
    *          on resource to update
-   * @param pRtx
+   * @param rtx
    *          on new revision
    * @throws NullPointerException
    *           if {@code pWtx} or {@code pRtx} is {@code null}
    * @throws SirixException
    *           if something in sirix went wrong
    */
-  void diff(final NodeWriteTrx pWtx, final NodeReadTrx pRtx) throws SirixException;
+  void diff(final NodeWriteTrx wtx, final NodeReadTrx rtx) throws SirixException;
 
   /**
    * Name of algorithm.

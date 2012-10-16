@@ -31,55 +31,58 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import java.io.Serializable;
 
+import javax.annotation.Nonnegative;
+
 /**
- * Immutable serializable diff depth container class to save the depth of the node in the old revision and the
- * depth of the node in the new revision.
+ * Immutable serializable diff depth container class to save the depth of the
+ * node in the old revision and the depth of the node in the new revision.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public final class DiffDepth implements Serializable {
-  /**
-   * Serial version UID.
-   */
-  private static final long serialVersionUID = 2657000076345449253L;
+	/**
+	 * Serial version UID.
+	 */
+	private static final long serialVersionUID = 2657000076345449253L;
 
-  /** Depth in new revision. */
-  private final int mNewDepth;
+	/** Depth in new revision. */
+	private final int mNewDepth;
 
-  /** Depth in old revision. */
-  private final int mOldDepth;
+	/** Depth in old revision. */
+	private final int mOldDepth;
 
-  /**
-   * Constructor.
-   * 
-   * @param paramNewDepth
-   *          current depth in new revision
-   * @param paramOldDepth
-   *          current depth in old revision
-   */
-  public DiffDepth(final int paramNewDepth, final int paramOldDepth) {
-    checkArgument(paramNewDepth >= -1);
-    checkArgument(paramOldDepth >= -1);
-    mNewDepth = paramNewDepth;
-    mOldDepth = paramOldDepth;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param newDepth
+	 *          current depth in new revision
+	 * @param oldDepth
+	 *          current depth in old revision
+	 */
+	public DiffDepth(final @Nonnegative int newDepth,
+			final @Nonnegative int oldDepth) {
+		checkArgument(newDepth >= -1);
+		checkArgument(oldDepth >= -1);
+		mNewDepth = newDepth;
+		mOldDepth = oldDepth;
+	}
 
-  /**
-   * Get depth in new revision.
-   * 
-   * @return depth in new revision
-   */
-  public int getNewDepth() {
-    return mNewDepth;
-  }
+	/**
+	 * Get depth in new revision.
+	 * 
+	 * @return depth in new revision
+	 */
+	public int getNewDepth() {
+		return mNewDepth;
+	}
 
-  /**
-   * Get depth in old revision.
-   * 
-   * @return depth in old revision
-   */
-  public int getOldDepth() {
-    return mOldDepth;
-  }
+	/**
+	 * Get depth in old revision.
+	 * 
+	 * @return depth in old revision
+	 */
+	public int getOldDepth() {
+		return mOldDepth;
+	}
 }

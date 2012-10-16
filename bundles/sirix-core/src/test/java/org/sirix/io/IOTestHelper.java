@@ -57,7 +57,7 @@ public final class IOTestHelper {
 	 * @return a suitable {@link ResourceConfiguration}
 	 * @throws SirixUsageException
 	 */
-	public static ResourceConfiguration registerIO(final EStorage type)
+	public static ResourceConfiguration registerIO(final StorageType type)
 			throws SirixException {
 		final ResourceConfiguration.Builder resourceConfig = new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, PATHS.PATH1.getConfig());
@@ -82,7 +82,7 @@ public final class IOTestHelper {
 	 */
 	public static void testReadWriteFirstRef(
 			final ResourceConfiguration resourceConf) throws SirixException {
-		final Storage fac = EStorage.getStorage(resourceConf);
+		final Storage fac = StorageType.getStorage(resourceConf);
 		final PageReference pageRef1 = new PageReference();
 		final UberPage page1 = new UberPage();
 		pageRef1.setPage(page1);

@@ -15,22 +15,22 @@ public interface NodeKind {
 	/**
 	 * Deserializing a node using a {@link ByteArrayDataInput}.
 	 * 
-	 * @param pSource
+	 * @param source
 	 *          input source
 	 * @return a {@link Node} instance
 	 */
-	NodeBase deserialize(final @Nonnull ByteArrayDataInput pSource);
+	NodeBase deserialize(final @Nonnull ByteArrayDataInput source);
 
 	/**
 	 * Serializing a node from a {@link ByteArrayDataOutput}.
 	 * 
-	 * @param pSink
+	 * @param sink
 	 *          where the data should be serialized to
-	 * @param pToSerialize
+	 * @param toSerialize
 	 *          the node to serialize
 	 */
-	void serialize(final @Nonnull ByteArrayDataOutput pSink,
-			final @Nonnull NodeBase pToSerialize);
+	void serialize(final @Nonnull ByteArrayDataOutput sink,
+			final @Nonnull NodeBase toSerialize);
 
 	/**
 	 * Get the nodeKind.

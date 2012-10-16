@@ -72,17 +72,17 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 	 * Constructor including the {@link DatabaseConfiguration} for persistent
 	 * storage.
 	 * 
-	 * @param pFile
+	 * @param file
 	 *          the config for having a storage-place
-	 * @param pRevision
+	 * @param revision
 	 *          revision number
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public TransactionLogPageCache(final @Nonnull File pFile,
-			final @Nonnegative int pRevision, final @Nonnull String pLogType)
+	public TransactionLogPageCache(final @Nonnull File file,
+			final @Nonnegative int revision, final @Nonnull String logType)
 			throws SirixIOException {
-		mSecondCache = new BerkeleyPersistencePageCache(pFile, pRevision, pLogType);
+		mSecondCache = new BerkeleyPersistencePageCache(file, revision, logType);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 	
@@ -98,11 +98,11 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 
 	@Override
 	public ImmutableMap<Long, Page> getAll(
-			final @Nonnull Iterable<? extends Long> pKeys) {
+			final @Nonnull Iterable<? extends Long> keys) {
 		final ImmutableMap.Builder<Long, Page> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
-			for (final Long key : pKeys) {
+			for (final Long key : keys) {
 				if (mFirstCache.get(key) != null) {
 					builder.put(key, mFirstCache.get(key));
 				}
@@ -124,11 +124,11 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 	}
 
 	@Override
-	public Page get(final @Nonnull Long pKey) {
+	public Page get(final @Nonnull Long key) {
 		Page container = null;
 		try {
 			mReadLock.lock();
-			container = mFirstCache.get(pKey);
+			container = mFirstCache.get(key);
 		} finally {
 			mReadLock.unlock();
 		}
@@ -136,20 +136,20 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 	}
 
 	@Override
-	public void put(final @Nonnull Long pKey, final @Nonnull Page pValue) {
+	public void put(final @Nonnull Long key, final @Nonnull Page value) {
 		try {
 			mWriteLock.lock();
-			mFirstCache.put(pKey, pValue);
+			mFirstCache.put(key, value);
 		} finally {
 			mWriteLock.unlock();
 		}
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, Page> pMap) {
+	public void putAll(final @Nonnull Map<Long, Page> map) {
 		try {
 			mWriteLock.lock();
-			mFirstCache.putAll(pMap);
+			mFirstCache.putAll(map);
 		} finally {
 			mWriteLock.unlock();
 		}
@@ -166,12 +166,12 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 	}
 
 	@Override
-	public void remove(final @Nonnull Long pKey) {
+	public void remove(final @Nonnull Long key) {
 		try {
 			mWriteLock.lock();
-			mFirstCache.remove(pKey);
-			if (mSecondCache.get(pKey) != null) {
-				mSecondCache.remove(pKey);
+			mFirstCache.remove(key);
+			if (mSecondCache.get(key) != null) {
+				mSecondCache.remove(key);
 			}
 		} finally {
 			mWriteLock.unlock();

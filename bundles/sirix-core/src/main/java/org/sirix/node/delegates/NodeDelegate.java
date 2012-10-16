@@ -33,10 +33,10 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 import com.google.common.base.Objects;
@@ -77,24 +77,24 @@ public class NodeDelegate implements Node {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          node key
-	 * @param pParentKey
+	 * @param parentKey
 	 *          parent node key
-	 * @param pHash
+	 * @param hash
 	 *          hash of the node
-	 * @param pRevision
+	 * @param revision
 	 *          revision this node was added
 	 */
-	public NodeDelegate(final @Nonnegative long pNodeKey,
-			final @Nonnegative long pParentKey, final long pHash,
-			final @Nonnegative long pRevision) {
-		checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
-		checkArgument(pParentKey >= (EFixed.NULL_NODE_KEY.getStandardProperty()));
-		mNodeKey = pNodeKey;
-		mParentKey = pParentKey;
-		mHash = pHash;
-		mRevision = pRevision;
+	public NodeDelegate(final @Nonnegative long nodeKey,
+			final @Nonnegative long parentKey, final long hash,
+			final @Nonnegative long revision) {
+		checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
+		checkArgument(parentKey >= (Fixed.NULL_NODE_KEY.getStandardProperty()));
+		mNodeKey = nodeKey;
+		mParentKey = parentKey;
+		mHash = hash;
+		mRevision = revision;
 		mTypeKey = TYPE_KEY;
 	}
 
@@ -115,7 +115,7 @@ public class NodeDelegate implements Node {
 
 	@Override
 	public void setParentKey(final long pParentKey) {
-		checkArgument(pParentKey >= EFixed.NULL_NODE_KEY.getStandardProperty());
+		checkArgument(pParentKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
 		mParentKey = pParentKey;
 	}
 
@@ -130,7 +130,7 @@ public class NodeDelegate implements Node {
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(@Nonnull final IVisitor pVisitor) {
+	public VisitResultType acceptVisitor(@Nonnull final Visitor pVisitor) {
 		return VisitResultType.CONTINUE;
 	}
 
@@ -163,21 +163,21 @@ public class NodeDelegate implements Node {
 	}
 
 	@Override
-	public void setTypeKey(final int pTypeKey) {
-		mTypeKey = pTypeKey;
+	public void setTypeKey(final int typeKey) {
+		mTypeKey = typeKey;
 	}
 
 	@Override
 	public boolean hasParent() {
-		return mParentKey != EFixed.NULL_NODE_KEY.getStandardProperty();
+		return mParentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable final Node pOther) {
-		if (pOther == null) {
+	public boolean isSameItem(final @Nullable Node other) {
+		if (other == null) {
 			return false;
 		}
-		return pOther.getNodeKey() == this.getNodeKey();
+		return other.getNodeKey() == this.getNodeKey();
 	}
 
 	@Override

@@ -51,7 +51,7 @@ package org.sirix.diff.algorithm.fmse.utils;
  *         href="mailto:sam@dcs.shef.ac.uk">Email</a>.
  * @version 1.1
  */
-public final class SubCost01 implements ISubstitutionCost {
+public final class SubCost01 implements SubstitutionCost {
 
   /**
    * Get the name of the cost function.

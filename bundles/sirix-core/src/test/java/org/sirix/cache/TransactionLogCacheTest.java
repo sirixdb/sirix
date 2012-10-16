@@ -34,7 +34,7 @@ import org.sirix.TestHelper;
 import org.sirix.exception.SirixException;
 
 public class TransactionLogCacheTest {
-  private Cache<Long, PageContainer> cache;
+  private Cache<Long, NodePageContainer> cache;
 
   @Before
   public void setUp() throws SirixException {

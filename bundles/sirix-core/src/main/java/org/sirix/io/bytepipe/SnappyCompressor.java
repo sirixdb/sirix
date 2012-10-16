@@ -16,11 +16,11 @@ import org.xerial.snappy.Snappy;
 public class SnappyCompressor implements ByteHandler {
 
   @Override
-  public byte[] serialize(final @Nonnull byte[] pToSerialize)
+  public byte[] serialize(final @Nonnull byte[] toSerialize)
     throws SirixIOException {
     byte[] compressed;
     try {
-      compressed = Snappy.compress(pToSerialize);
+      compressed = Snappy.compress(toSerialize);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -28,11 +28,11 @@ public class SnappyCompressor implements ByteHandler {
   }
 
   @Override
-  public byte[] deserialize(final @Nonnull byte[] pToDeserialize)
+  public byte[] deserialize(final @Nonnull byte[] toDeserialize)
     throws SirixIOException {
     byte[] uncompressed;
     try {
-      uncompressed = Snappy.uncompress(pToDeserialize);
+      uncompressed = Snappy.uncompress(toDeserialize);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

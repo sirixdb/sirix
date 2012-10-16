@@ -44,7 +44,7 @@ import org.slf4j.LoggerFactory;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffDepth;
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.diff.DiffTuple;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.view.model.interfaces.Model;
@@ -138,7 +138,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
   private transient int mMaxDepth;
 
   /** Current diff. */
-  private transient EDiff mDiff;
+  private transient DiffType mDiff;
 
   /** {@link DiffTuple} instance. */
   private transient DiffTuple mDiffCont;
@@ -179,7 +179,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
    * @param pOldRtx
    *          {@link NodeReadTrx} on old revision
    * @param pDiffs
-   *          {@link List} of {@link EDiff}s
+   *          {@link List} of {@link DiffType}s
    * @param pMaxDepth
    *          maximum depth in old revision
    * @param pInitDepth
@@ -250,7 +250,7 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
     mDiff = mDiffCont.getDiff();
 
     final boolean isOldTransaction =
-      (mDiff == EDiff.DELETED || mDiff == EDiff.MOVEDFROM || mDiff == EDiff.REPLACEDOLD);
+      (mDiff == DiffType.DELETED || mDiff == DiffType.MOVEDFROM || mDiff == DiffType.REPLACEDOLD);
     final long nodeKey = isOldTransaction ? mDiffCont.getOldNodeKey() : mDiffCont.getNewNodeKey();
     final DiffDepth depthCont = mDiffCont.getDepth();
     mOrigDepth = isOldTransaction ? depthCont.getOldDepth() : depthCont.getNewDepth();
@@ -260,19 +260,19 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
     // Move to next key.
     getTransaction().moveTo(nodeKey);
 
-    if (mDiff == EDiff.UPDATED) {
+    if (mDiff == DiffType.UPDATED) {
       mOldRtx.moveTo(mDiffCont.getOldNodeKey());
     }
 
-    if (mDiff == EDiff.REPLACEDOLD) {
+    if (mDiff == DiffType.REPLACEDOLD) {
       mNewRtx.moveTo(mDiffCont.getNewNodeKey());
     }
 
     if (mIndex + mPrunedNodes + 2 < mSize) {
       final DiffTuple nextDiffCont = mDiffs.get(mIndex + mPrunedNodes + 2);
-      final EDiff nextDiff = nextDiffCont.getDiff();
+      final DiffType nextDiff = nextDiffCont.getDiff();
       final boolean nextIsOldTransaction =
-        (nextDiff == EDiff.DELETED || nextDiff == EDiff.MOVEDFROM || nextDiff == EDiff.REPLACEDOLD);
+        (nextDiff == DiffType.DELETED || nextDiff == DiffType.MOVEDFROM || nextDiff == DiffType.REPLACEDOLD);
       final DiffDepth nextDepthCont = nextDiffCont.getDepth();
       final int nextDepth = nextIsOldTransaction ? nextDepthCont.getOldDepth() : nextDepthCont.getNewDepth();
 
@@ -313,20 +313,20 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
     processLastItem(pNextDepth);
 
     if (mModel.getIsPruned()) {
-      if (mDiff != EDiff.SAMEHASH) {
+      if (mDiff != DiffType.SAMEHASH) {
         mPrunedNodes += mDescendantCount - 1;
       }
 
       final boolean isOldTransaction =
-        (mDiff == EDiff.DELETED || mDiff == EDiff.MOVEDFROM || mDiff == EDiff.REPLACEDOLD);
+        (mDiff == DiffType.DELETED || mDiff == DiffType.MOVEDFROM || mDiff == DiffType.REPLACEDOLD);
       final DiffDepth depthCont = mDiffCont.getDepth();
       final int depth = isOldTransaction ? depthCont.getOldDepth() : depthCont.getNewDepth();
 
       if (mIndex + mPrunedNodes + 1 < mSize) {
         final DiffTuple nextDiffCont = mDiffs.get(mIndex + mPrunedNodes + 1);
-        final EDiff nextDiff = nextDiffCont.getDiff();
+        final DiffType nextDiff = nextDiffCont.getDiff();
         final boolean nextIsOldTransaction =
-          (nextDiff == EDiff.DELETED || nextDiff == EDiff.MOVEDFROM || nextDiff == EDiff.REPLACEDOLD);
+          (nextDiff == DiffType.DELETED || nextDiff == DiffType.MOVEDFROM || nextDiff == DiffType.REPLACEDOLD);
         final DiffDepth nextDepthCont = nextDiffCont.getDepth();
         final int nextDepth =
           nextIsOldTransaction ? nextDepthCont.getOldDepth() : nextDepthCont.getNewDepth();
@@ -452,10 +452,10 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
    * Calculates new depth for modifications and back to "normal" depth.
    */
   private void calculateDepth() {
-    if (mDiff != EDiff.SAME && mDiff != EDiff.SAMEHASH && mDepth <= mMaxDepth + 2) {
+    if (mDiff != DiffType.SAME && mDiff != DiffType.SAMEHASH && mDepth <= mMaxDepth + 2) {
       mDepth = mMaxDepth + 2;
       setTempKey();
-    } else if ((mDiff == EDiff.SAME || mDiff == EDiff.SAMEHASH) && mDiffCont.getNewNodeKey() == mTempKey) {
+    } else if ((mDiff == DiffType.SAME || mDiff == DiffType.SAMEHASH) && mDiffCont.getNewNodeKey() == mTempKey) {
       mDepth = mDiffCont.getDepth().getNewDepth() - mInitDepth;
     }
   }
@@ -467,15 +467,15 @@ public final class DiffSunburstAxis extends AbsSunburstAxis {
   private void setTempKey() {
     final int index = mIndex + mPrunedNodes + mDescendantCount;
     final boolean isOldTransaction =
-      (mDiff == EDiff.DELETED || mDiff == EDiff.MOVEDFROM || mDiff == EDiff.REPLACEDOLD);
+      (mDiff == DiffType.DELETED || mDiff == DiffType.MOVEDFROM || mDiff == DiffType.REPLACEDOLD);
     final DiffDepth depthCont = mDiffCont.getDepth();
     final int depth = isOldTransaction ? depthCont.getOldDepth() : depthCont.getNewDepth();
 
     if (index < mSize) {
       DiffTuple nextDiffCont = mDiffs.get(index);
-      EDiff nextDiff = nextDiffCont.getDiff();
+      DiffType nextDiff = nextDiffCont.getDiff();
       boolean nextIsOldTransaction =
-        (nextDiff == EDiff.DELETED || nextDiff == EDiff.MOVEDFROM || nextDiff == EDiff.REPLACEDOLD);
+        (nextDiff == DiffType.DELETED || nextDiff == DiffType.MOVEDFROM || nextDiff == DiffType.REPLACEDOLD);
       DiffDepth nextDepthCont = nextDiffCont.getDepth();
       int nextDepth = nextIsOldTransaction ? nextDepthCont.getOldDepth() : nextDepthCont.getNewDepth();
 

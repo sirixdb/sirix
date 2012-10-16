@@ -44,7 +44,7 @@ import org.sirix.api.Database;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 public class HashTest {
 
@@ -192,7 +192,7 @@ public class HashTest {
 		wtx.insertElementAsFirstChild(new QName(NAME1));
 		wtx.insertElementAsFirstChild(new QName(NAME1));
 		wtx.insertElementAsFirstChild(new QName(NAME1));
-		wtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		wtx.moveTo(wtx.getFirstChildKey());
 		final long hashRoot1 = wtx.getHash();
 		wtx.moveTo(wtx.getFirstChildKey());
@@ -200,7 +200,7 @@ public class HashTest {
 		final long hashLeaf1 = wtx.getHash();
 		wtx.setQName(new QName(NAME2));
 		final long hashLeaf2 = wtx.getHash();
-		wtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		wtx.moveTo(wtx.getFirstChildKey());
 		final long hashRoot2 = wtx.getHash();
 		assertFalse(hashRoot1 == hashRoot2);
@@ -210,13 +210,13 @@ public class HashTest {
 		wtx.setQName(new QName(NAME1));
 		final long hashLeaf3 = wtx.getHash();
 		assertEquals(hashLeaf1, hashLeaf3);
-		wtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		wtx.moveTo(wtx.getFirstChildKey());
 		final long hashRoot3 = wtx.getHash();
 		assertEquals(hashRoot1, hashRoot3);
 
 		// Testing root inheritance
-		wtx.moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		wtx.moveTo(wtx.getFirstChildKey());
 		wtx.setQName(new QName(NAME2));
 		final long hashRoot4 = wtx.getHash();

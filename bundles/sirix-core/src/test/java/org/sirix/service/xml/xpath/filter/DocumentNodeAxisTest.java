@@ -34,7 +34,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.exception.SirixException;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 public class DocumentNodeAxisTest {
 
@@ -58,28 +58,28 @@ public class DocumentNodeAxisTest {
 
     holder.getRtx().moveTo(1L);
     AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {
-      EFixed.ROOT_PAGE_KEY.getStandardProperty()
+      Fixed.ROOT_PAGE_KEY.getStandardProperty()
     });
 
     holder.getRtx().moveTo(5L);
     AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {
-      EFixed.ROOT_PAGE_KEY.getStandardProperty()
+      Fixed.ROOT_PAGE_KEY.getStandardProperty()
     });
 
     holder.getRtx().moveTo(9L);
     AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {
-      EFixed.ROOT_PAGE_KEY.getStandardProperty()
+      Fixed.ROOT_PAGE_KEY.getStandardProperty()
     });
 
     holder.getRtx().moveTo(9L);
     holder.getRtx().moveToAttribute(0);
     AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {
-      EFixed.ROOT_PAGE_KEY.getStandardProperty()
+      Fixed.ROOT_PAGE_KEY.getStandardProperty()
     });
 
     holder.getRtx().moveTo(13L);
     AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {
-      EFixed.ROOT_PAGE_KEY.getStandardProperty()
+      Fixed.ROOT_PAGE_KEY.getStandardProperty()
     });
 
   }

@@ -32,7 +32,6 @@ import javax.annotation.Nonnull;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.exception.SirixException;
-import org.sirix.node.ElementNode;
 
 /**
  * Structural diff, thus no attributes and namespace nodes are taken into
@@ -46,33 +45,33 @@ final class StructuralDiff extends AbsDiff {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pBuilder
+	 * @param builder
 	 *          {@link Builder} reference
 	 * @throws SirixException
 	 */
-	public StructuralDiff(@Nonnull final Builder pBuilder) throws SirixException {
-		super(pBuilder);
+	public StructuralDiff(final @Nonnull Builder builder) throws SirixException {
+		super(builder);
 	}
 
 	@Override
-	boolean checkNodes(@Nonnull final NodeReadTrx pNewRtx,
-			@Nonnull final NodeReadTrx pOldRtx) {
+	boolean checkNodes(final @Nonnull NodeReadTrx newRtx,
+			final @Nonnull NodeReadTrx oldRtx) {
 		boolean found = false;
-		if (pNewRtx.getNodeKey() == pOldRtx.getNodeKey()
-				&& pNewRtx.getKind() == pOldRtx.getKind()) {
-			switch (pNewRtx.getKind()) {
+		if (newRtx.getNodeKey() == oldRtx.getNodeKey()
+				&& newRtx.getKind() == oldRtx.getKind()) {
+			switch (newRtx.getKind()) {
 			case ELEMENT:
-				if (pNewRtx.getNameKey() == pOldRtx.getNameKey()) {
+				if (newRtx.getNameKey() == oldRtx.getNameKey()) {
 					found = true;
 				}
 				break;
 			case PROCESSING:
-				found = pNewRtx.getValue().equals(pOldRtx.getValue())
-						&& pNewRtx.getName().equals(pOldRtx.getName());
+				found = newRtx.getValue().equals(oldRtx.getValue())
+						&& newRtx.getName().equals(oldRtx.getName());
 				break;
 			case COMMENT:
 			case TEXT:
-				if (pNewRtx.getValue().equals(pOldRtx.getValue())) {
+				if (newRtx.getValue().equals(oldRtx.getValue())) {
 					found = true;
 				}
 				break;

@@ -61,7 +61,7 @@ import javax.xml.stream.events.XMLEvent;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.GUI;
 import org.sirix.gui.GUIProp;
@@ -498,7 +498,7 @@ public final class TextView extends JScrollPane implements View {
 				case XMLStreamConstants.START_ELEMENT:
 					level++;
 					if (mSerializer instanceof StAXDiffSerializer) {
-						if (((StAXDiffSerializer) mSerializer).getDiff() == EDiff.UPDATED) {
+						if (((StAXDiffSerializer) mSerializer).getDiff() == DiffType.UPDATED) {
 							if (doIndent) {
 								doIndent = false;
 							} else {
@@ -514,7 +514,7 @@ public final class TextView extends JScrollPane implements View {
 					indent(doc, level, indentSpaces);
 					mEmptyElement = processStartTag(event, doc);
 					if (mSerializer instanceof StAXDiffSerializer
-							&& ((StAXDiffSerializer) mSerializer).getDiff() == EDiff.UPDATED) {
+							&& ((StAXDiffSerializer) mSerializer).getDiff() == DiffType.UPDATED) {
 						mTempEmptyElement = mEmptyElement;
 					} else {
 						mTempEmptyElement = false;
@@ -523,7 +523,7 @@ public final class TextView extends JScrollPane implements View {
 					break;
 				case XMLStreamConstants.END_ELEMENT:
 					if (mSerializer instanceof StAXDiffSerializer) {
-						if (((StAXDiffSerializer) mSerializer).getDiff() == EDiff.UPDATED) {
+						if (((StAXDiffSerializer) mSerializer).getDiff() == DiffType.UPDATED) {
 							if (doIndent) {
 								doIndent = false;
 							} else {
@@ -580,7 +580,7 @@ public final class TextView extends JScrollPane implements View {
 				case XMLStreamConstants.START_ELEMENT:
 					mTempLevel++;
 					if (mSerializer instanceof StAXDiffSerializer) {
-						if (((StAXDiffSerializer) mSerializer).getDiff() == EDiff.UPDATED) {
+						if (((StAXDiffSerializer) mSerializer).getDiff() == DiffType.UPDATED) {
 							if (doIndent) {
 								doIndent = false;
 							} else {
@@ -597,7 +597,7 @@ public final class TextView extends JScrollPane implements View {
 					indent(doc, mTempLevel, indentSpaces);
 					mEmptyElement = processStartTag(event, doc);
 					if (mSerializer instanceof StAXDiffSerializer
-							&& ((StAXDiffSerializer) mSerializer).getDiff() == EDiff.UPDATED) {
+							&& ((StAXDiffSerializer) mSerializer).getDiff() == DiffType.UPDATED) {
 						mTempEmptyElement = mEmptyElement;
 					} else {
 						mTempEmptyElement = false;
@@ -608,7 +608,7 @@ public final class TextView extends JScrollPane implements View {
 					break;
 				case XMLStreamConstants.END_ELEMENT:
 					if (mSerializer instanceof StAXDiffSerializer) {
-						if (((StAXDiffSerializer) mSerializer).getDiff() == EDiff.UPDATED) {
+						if (((StAXDiffSerializer) mSerializer).getDiff() == DiffType.UPDATED) {
 							if (doIndent) {
 								doIndent = false;
 							} else {
@@ -656,7 +656,7 @@ public final class TextView extends JScrollPane implements View {
 	 * @param pStyle
 	 *          all available styles
 	 */
-	private void style(final EDiff pDiff, final Style[] pStyle) {
+	private void style(final DiffType pDiff, final Style[] pStyle) {
 		assert pStyle != null;
 		switch (pDiff) {
 		case UPDATED:

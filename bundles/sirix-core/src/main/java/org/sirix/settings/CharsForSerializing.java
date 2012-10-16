@@ -33,7 +33,7 @@ package org.sirix.settings;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public enum ECharsForSerializing {
+public enum CharsForSerializing {
 
 	/** " ". */
 	SPACE(new byte[] { 32 }),
@@ -89,7 +89,7 @@ public enum ECharsForSerializing {
 
 	/** Newline. */
 	NEWLINE(System.getProperty("line.separator").getBytes(
-			IConstants.DEFAULT_ENCODING));
+			Constants.DEFAULT_ENCODING));
 
 	/** Getting the bytes for the char. */
 	private final byte[] mBytes;
@@ -97,17 +97,17 @@ public enum ECharsForSerializing {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param paramBytes
+	 * @param bytes
 	 *          the bytes for the chars
 	 */
-	ECharsForSerializing(final byte[]... pBytes) {
+	CharsForSerializing(final byte[]... bytes) {
 		int index = 0;
-		for (final byte[] runner : pBytes) {
+		for (final byte[] runner : bytes) {
 			index = index + runner.length;
 		}
 		mBytes = new byte[index];
 		index = 0;
-		for (final byte[] runner : pBytes) {
+		for (final byte[] runner : bytes) {
 			System.arraycopy(runner, 0, mBytes, index, runner.length);
 			index = index + runner.length;
 		}

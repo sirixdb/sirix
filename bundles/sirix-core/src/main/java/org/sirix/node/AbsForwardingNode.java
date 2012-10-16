@@ -40,8 +40,8 @@ public abstract class AbsForwardingNode extends ForwardingObject implements
 	}
 
 	@Override
-	public void setTypeKey(final int pTypeKey) {
-		delegate().setTypeKey(pTypeKey);
+	public void setTypeKey(final int typeKey) {
+		delegate().setTypeKey(typeKey);
 	}
 
 	@Override
@@ -60,8 +60,8 @@ public abstract class AbsForwardingNode extends ForwardingObject implements
 	}
 
 	@Override
-	public void setParentKey(final long pParentKey) {
-		delegate().setParentKey(pParentKey);
+	public void setParentKey(final long parentKey) {
+		delegate().setParentKey(parentKey);
 	}
 
 	@Override
@@ -70,8 +70,8 @@ public abstract class AbsForwardingNode extends ForwardingObject implements
 	}
 
 	@Override
-	public void setHash(final long pHash) {
-		delegate().setHash(pHash);
+	public void setHash(final long hash) {
+		delegate().setHash(hash);
 	}
 
 	@Override
@@ -85,7 +85,7 @@ public abstract class AbsForwardingNode extends ForwardingObject implements
 	}
 
 	@Override
-	public boolean isSameItem(final @Nullable Node pOther) {
-		return delegate().isSameItem(pOther);
+	public boolean isSameItem(final @Nullable Node other) {
+		return delegate().isSameItem(other);
 	}
 }

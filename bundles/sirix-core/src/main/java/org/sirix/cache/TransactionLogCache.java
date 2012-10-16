@@ -50,10 +50,10 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TransactionLogCache implements Cache<Long, PageContainer> {
+public final class TransactionLogCache implements Cache<Long, NodePageContainer> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<Long, PageContainer> mFirstCache;
+	private final LRUCache<Long, NodePageContainer> mFirstCache;
 
 	/** Persistend second cache. */
 	private final BerkeleyPersistenceCache mSecondCache;
@@ -98,9 +98,9 @@ public final class TransactionLogCache implements Cache<Long, PageContainer> {
 	}
 
 	@Override
-	public ImmutableMap<Long, PageContainer> getAll(
+	public ImmutableMap<Long, NodePageContainer> getAll(
 			final @Nonnull Iterable<? extends Long> pKeys) {
-		final ImmutableMap.Builder<Long, PageContainer> builder = new ImmutableMap.Builder<>();
+		final ImmutableMap.Builder<Long, NodePageContainer> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
 			for (final Long key : pKeys) {
@@ -125,13 +125,13 @@ public final class TransactionLogCache implements Cache<Long, PageContainer> {
 	}
 
 	@Override
-	public PageContainer get(final @Nonnull Long pKey) {
-		PageContainer container = PageContainer.EMPTY_INSTANCE;
+	public NodePageContainer get(final @Nonnull Long pKey) {
+		NodePageContainer container = NodePageContainer.EMPTY_INSTANCE;
 		try {
 			mReadLock.lock();
 			container = mFirstCache.get(pKey);
 			if (container == null) {
-				container = PageContainer.EMPTY_INSTANCE;
+				container = NodePageContainer.EMPTY_INSTANCE;
 			}
 		} finally {
 			mReadLock.unlock();
@@ -140,7 +140,7 @@ public final class TransactionLogCache implements Cache<Long, PageContainer> {
 	}
 
 	@Override
-	public void put(final @Nonnull Long pKey, final @Nonnull PageContainer pValue) {
+	public void put(final @Nonnull Long pKey, final @Nonnull NodePageContainer pValue) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(pKey, pValue);
@@ -150,7 +150,7 @@ public final class TransactionLogCache implements Cache<Long, PageContainer> {
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, PageContainer> pMap) {
+	public void putAll(final @Nonnull Map<Long, NodePageContainer> pMap) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.putAll(pMap);

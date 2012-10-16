@@ -80,7 +80,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.service.xml.shredder.ShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 import processing.core.PApplet;
@@ -212,7 +212,7 @@ public final class SunburstModel extends
 			mRtx = mModel.getDb().getSession()
 					.beginNodeReadTrx(mModel.getDb().getRevisionNumber());
 			mMaxDescendantCount = (int) mRtx.getDescendantCount();
-			boolean moved = pKey == EFixed.DOCUMENT_NODE_KEY.getStandardProperty() ? mRtx
+			boolean moved = pKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty() ? mRtx
 					.moveToFirstChild().hasMoved() : mRtx.moveTo(pKey).hasMoved();
 			assert moved;
 			mKey = mRtx.getNodeKey();

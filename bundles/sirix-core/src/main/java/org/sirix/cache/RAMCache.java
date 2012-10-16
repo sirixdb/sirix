@@ -63,13 +63,13 @@ public final class RAMCache<K, V> implements Cache<K, V> {
   }
 
   @Override
-  public V get(final @Nonnull K pKey) {
-    return mMap.get(pKey);
+  public V get(final @Nonnull K key) {
+    return mMap.get(key);
   }
 
   @Override
-  public void put(final @Nonnull K pKey, final @Nonnull V pPage) {
-    mMap.put(pKey, pPage);
+  public void put(final @Nonnull K key, final @Nonnull V page) {
+    mMap.put(key, page);
   }
 
   @Override
@@ -78,9 +78,9 @@ public final class RAMCache<K, V> implements Cache<K, V> {
   }
 
   @Override
-  public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> pKeys) {
+  public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> keys) {
     final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
-    for (final K key : pKeys) {
+    for (final K key : keys) {
       if (mMap.get(key) != null) {
         builder.put(key, mMap.get(key));
       }
@@ -89,8 +89,8 @@ public final class RAMCache<K, V> implements Cache<K, V> {
   }
 
   @Override
-  public void putAll(final @Nonnull Map<K, V> pMap) {
-    mMap.putAll(checkNotNull(pMap));
+  public void putAll(final @Nonnull Map<K, V> map) {
+    mMap.putAll(checkNotNull(map));
   }
   
   @Override
@@ -99,8 +99,8 @@ public final class RAMCache<K, V> implements Cache<K, V> {
   }
   
   @Override
-  public void remove(final @Nonnull K pKey) {
-    mMap.remove(pKey);
+  public void remove(final @Nonnull K key) {
+    mMap.remove(key);
   }
 
 	@Override

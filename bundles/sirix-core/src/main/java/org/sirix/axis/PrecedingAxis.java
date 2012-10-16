@@ -32,10 +32,8 @@ import java.util.Deque;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
-import org.sirix.settings.EFixed;
 
 /**
  * <h1>PrecedingAxis</h1>
@@ -56,18 +54,18 @@ public final class PrecedingAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param pRtx
+   * @param rtx
    *          exclusive (immutable) trx to iterate with
    */
-  public PrecedingAxis(@Nonnull final NodeCursor pRtx) {
-    super(pRtx);
+  public PrecedingAxis(final @Nonnull NodeReadTrx rtx) {
+    super(rtx);
     mIsFirst = true;
     mStack = new ArrayDeque<>();
   }
 
   @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
     mIsFirst = true;
     mStack = new ArrayDeque<>();
   }

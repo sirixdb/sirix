@@ -64,7 +64,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.interfaces.NodeBase;
 import org.sirix.page.NodePage;
-import org.sirix.settings.ECharsForSerializing;
+import org.sirix.settings.CharsForSerializing;
 import org.sirix.utils.DocumentCreater;
 
 import com.google.common.collect.HashBiMap;
@@ -276,7 +276,7 @@ public final class TestHelper {
 		final StringBuilder sBuilder = new StringBuilder();
 		for (String line = in.readLine(); line != null; line = in.readLine()) {
 			if (paramWhitespaces) {
-				sBuilder.append(line + ECharsForSerializing.NEWLINE);
+				sBuilder.append(line + CharsForSerializing.NEWLINE);
 			} else {
 				sBuilder.append(line.trim());
 			}

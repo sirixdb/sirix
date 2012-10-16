@@ -33,7 +33,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.ImmutableDocument;
@@ -61,15 +61,15 @@ public final class DocumentRootNode extends AbsStructForwardingNode implements
   /**
    * Constructor.
    * 
-   * @param pNodeDel
+   * @param nodeDel
    *          {@link NodeDelegate} reference
-   * @param pStructDel
+   * @param structDel
    *          {@link StructNodeDelegate} reference
    */
-  public DocumentRootNode(final @Nonnull NodeDelegate pNodeDel,
-    @Nonnull final StructNodeDelegate pStructDel) {
-    mNodeDel = checkNotNull(pNodeDel);
-    mStructNodeDel = checkNotNull(pStructDel);
+  public DocumentRootNode(final @Nonnull NodeDelegate nodeDel,
+    @Nonnull final StructNodeDelegate structDel) {
+    mNodeDel = checkNotNull(nodeDel);
+    mStructNodeDel = checkNotNull(structDel);
   }
 
   @Override
@@ -78,8 +78,8 @@ public final class DocumentRootNode extends AbsStructForwardingNode implements
   }
 
   @Override
-  public VisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
-  	return pVisitor.visit(ImmutableDocument.of(this));
+  public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+  	return visitor.visit(ImmutableDocument.of(this));
   }
   
   @Override
@@ -88,9 +88,9 @@ public final class DocumentRootNode extends AbsStructForwardingNode implements
   }
 
   @Override
-  public boolean equals(@Nullable final Object pObj) {
-    if (pObj instanceof DocumentRootNode) {
-      final DocumentRootNode other = (DocumentRootNode)pObj;
+  public boolean equals(@Nullable final Object obj) {
+    if (obj instanceof DocumentRootNode) {
+      final DocumentRootNode other = (DocumentRootNode)obj;
       return Objects.equal(mNodeDel, other.mNodeDel);
     }
     return false;

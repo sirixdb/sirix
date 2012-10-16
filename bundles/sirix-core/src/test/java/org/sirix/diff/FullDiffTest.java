@@ -36,7 +36,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.diff.DiffFactory.EDiffOptimized;
+import org.sirix.diff.DiffFactory.DiffOptimized;
 import org.sirix.exception.SirixException;
 
 /**
@@ -69,14 +69,14 @@ public class FullDiffTest {
   @Test
   public void testFullDiffFirst() throws SirixException, InterruptedException {
     DiffTestHelper.setUpFirst(mHolder);
-    DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
     DiffTestHelper.verifyDiffFirst(mObserver);
   }
 
   @Test
   public void testOptimizedFirst() throws InterruptedException, SirixException {
     DiffTestHelper.setUpFirst(mHolder);
-    DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
     DiffTestHelper.verifyDiffFirst(mObserver);
   }
 
@@ -84,7 +84,7 @@ public class FullDiffTest {
   public void testFullDiffSecond() throws SirixException, InterruptedException, IOException,
     XMLStreamException {
     DiffTestHelper.setUpSecond(mHolder);
-    DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
     DiffTestHelper.verifyDiffSecond(mObserver);
   }
 
@@ -92,28 +92,28 @@ public class FullDiffTest {
   public void testFullDiffThird() throws SirixException, IOException, XMLStreamException,
     InterruptedException {
     DiffTestHelper.setUpThird(mHolder);
-    DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
     DiffTestHelper.verifyDiffThird(mObserver);
   }
 
   @Test
   public void testFullDiffFourth() throws Exception {
     DiffTestHelper.setUpFourth(mHolder);
-    DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
     DiffTestHelper.verifyDiffFourth(mObserver);
   }
 
   @Test
   public void testFullDiffFifth() throws Exception {
     DiffTestHelper.setUpFifth(mHolder);
-    DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
     DiffTestHelper.verifyDiffFifth(mObserver);
   }
 
   @Test
   public void testFullDiffSixth() throws Exception {
     DiffTestHelper.setUpSixth(mHolder);
-    DiffTestHelper.checkFullDiff(mHolder, mObserver, EDiffOptimized.NO);
+    DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
     DiffTestHelper.verifyDiffSixth(mObserver);
   }
 }

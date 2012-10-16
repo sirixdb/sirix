@@ -28,10 +28,6 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -42,6 +38,7 @@ import java.util.Set;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
@@ -49,6 +46,11 @@ import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NodeBase;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Objects.ToStringHelper;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * <h1>NodePage</h1>
@@ -74,17 +76,17 @@ public class NodePage implements Page {
 	/**
 	 * Create node page.
 	 * 
-	 * @param pNodePageKey
+	 * @param nodePageKey
 	 *          base key assigned to this node page
-	 * @param pRevision
+	 * @param revision
 	 *          revision the page belongs to
 	 */
-	public NodePage(@Nonnegative final long pNodePageKey,
-			@Nonnegative final int pRevision) {
-		checkArgument(pNodePageKey >= 0, "pNodePageKey must not be negative!");
-		checkArgument(pRevision >= 0, "pRevision must not be negative!");
-		mRevision = pRevision;
-		mNodePageKey = pNodePageKey;
+	public NodePage(@Nonnegative final long nodePageKey,
+			@Nonnegative final int revision) {
+		checkArgument(nodePageKey >= 0, "pNodePageKey must not be negative!");
+		checkArgument(revision >= 0, "pRevision must not be negative!");
+		mRevision = revision;
+		mNodePageKey = nodePageKey;
 		mNodes = new HashMap<>();
 		mIsDirty = true;
 	}
@@ -92,18 +94,18 @@ public class NodePage implements Page {
 	/**
 	 * Read node page.
 	 * 
-	 * @param pIn
+	 * @param in
 	 *          input bytes to read page from
 	 */
-	protected NodePage(final @Nonnull ByteArrayDataInput pIn) {
-		mRevision = pIn.readInt();
-		mNodePageKey = pIn.readLong();
-		final int size = pIn.readInt();
+	protected NodePage(final @Nonnull ByteArrayDataInput in) {
+		mRevision = in.readInt();
+		mNodePageKey = in.readLong();
+		final int size = in.readInt();
 		mNodes = new HashMap<>(size);
 		for (int offset = 0; offset < size; offset++) {
-			final byte id = pIn.readByte();
+			final byte id = in.readByte();
 			final Kind enumKind = Kind.getKind(id);
-			final NodeBase node = enumKind.deserialize(pIn);
+			final NodeBase node = enumKind.deserialize(in);
 			mNodes.put(node.getNodeKey(), node);
 		}
 	}
@@ -120,13 +122,15 @@ public class NodePage implements Page {
 	/**
 	 * Get node with the specified node key.
 	 * 
-	 * @param pKey
+	 * @param key
 	 *          node key
 	 * @return node with given node key, or {@code null} if not present
+	 * @throws IllegalArgumentException
+	 * 					if {@code key < 0}
 	 */
-	public NodeBase getNode(final @Nonnegative long pKey) {
-		checkArgument(pKey >= 0, "pKey must not be negative!");
-		return mNodes.get(pKey);
+	public NodeBase getNode(final @Nonnegative long key) {
+		checkArgument(key >= 0, "pKey must not be negative!");
+		return mNodes.get(key);
 	}
 
 	/**
@@ -134,22 +138,22 @@ public class NodePage implements Page {
 	 * 
 	 * @param pKey
 	 *          key of node to overwrite in this node page
-	 * @param pNode
+	 * @param node
 	 *          node to store at given nodeOffset
 	 */
-	public void setNode(final @Nonnull NodeBase pNode) {
-		mNodes.put(pNode.getNodeKey(), checkNotNull(pNode));
+	public void setNode(final @Nonnull NodeBase node) {
+		mNodes.put(node.getNodeKey(), checkNotNull(node));
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
-		pOut.writeInt(mRevision);
-		pOut.writeLong(mNodePageKey);
-		pOut.writeInt(mNodes.size());
+	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+		out.writeInt(mRevision);
+		out.writeLong(mNodePageKey);
+		out.writeInt(mNodes.size());
 		for (final NodeBase node : mNodes.values()) {
 			final byte id = node.getKind().getId();
-			pOut.writeByte(id);
-			Kind.getKind(node.getClass()).serialize(pOut, node);
+			out.writeByte(id);
+			Kind.getKind(node.getClass()).serialize(out, node);
 		}
 	}
 
@@ -179,9 +183,9 @@ public class NodePage implements Page {
 	}
 
 	@Override
-	public boolean equals(final Object pObj) {
-		if (pObj instanceof NodePage) {
-			final NodePage other = (NodePage) pObj;
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof NodePage) {
+			final NodePage other = (NodePage) obj;
 			return Objects.equal(mNodePageKey, other.mNodePageKey)
 					&& Objects.equal(mNodes, other.mNodes);
 		}
@@ -213,7 +217,7 @@ public class NodePage implements Page {
 	}
 
 	@Override
-	public PageReference getReference(final @Nonnegative int offset) {
+	public PageReference getReference(int offset) {
 		throw new UnsupportedOperationException();
 	}
 	

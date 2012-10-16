@@ -25,7 +25,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.page.PageKind;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
 
@@ -69,7 +69,7 @@ public class NodeFactoryImpl implements NodeFactory {
 				.getActualRevisionRootPage().getMaxPathNodeKey() + 1, parentKey, 0,
 				revision);
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-				EFixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey,
+				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey,
 				0, 0);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
 				uriKey, 0);
@@ -93,7 +93,7 @@ public class NodeFactoryImpl implements NodeFactory {
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
 				revision);
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-				EFixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey,
+				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey,
 				0, 0);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
 				uriKey, pathNodeKey);
@@ -119,7 +119,7 @@ public class NodeFactoryImpl implements NodeFactory {
 		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, compressedValue,
 				compression);
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-				EFixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey,
+				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey,
 				0, 0);
 		return (TextNode) mPageWriteTrx.createNode(new TextNode(valDel, structDel),
 				PageKind.NODEPAGE);
@@ -176,7 +176,7 @@ public class NodeFactoryImpl implements NodeFactory {
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
 				revision);
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-				EFixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey,
+				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey,
 				0, 0);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
 				uriKey, pathNodeKey);
@@ -202,7 +202,7 @@ public class NodeFactoryImpl implements NodeFactory {
 		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, compressedValue,
 				compression);
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-				EFixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey,
+				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey,
 				0, 0);
 		return (CommentNode) mPageWriteTrx.createNode(new CommentNode(valDel,
 				structDel), PageKind.NODEPAGE);

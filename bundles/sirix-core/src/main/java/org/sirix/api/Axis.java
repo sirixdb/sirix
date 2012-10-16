@@ -3,7 +3,7 @@ package org.sirix.api;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.axis.IncludeSelf;
 
 import com.google.common.collect.PeekingIterator;
@@ -25,9 +25,9 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long> {
 	 * Foreach-iterator calling a {@link IVistor} for each iteration.
 	 * 
 	 * @param visitor
-	 *          {@link IVisitor} implementation
+	 *          {@link Visitor} implementation
 	 */
-	void foreach(@Nonnull IVisitor visitor);
+	void foreach(@Nonnull Visitor visitor);
 
 	/**
 	 * Thread safe node iterator.

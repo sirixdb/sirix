@@ -92,7 +92,7 @@ public final class BerkeleyStorage implements Storage {
   /**
    * Constructor.
    * 
-   * @param pFile
+   * @param file
    *          the file associated with the database
    * @param pDatabase
    *          for the Database settings
@@ -103,16 +103,16 @@ public final class BerkeleyStorage implements Storage {
    * @throws NullPointerException
    *           if {@code pFile} is {@code null}
    */
-  public BerkeleyStorage(final @Nonnull File pFile,
-    final @Nonnull ByteHandlePipeline pHandler) throws SirixIOException {
+  public BerkeleyStorage(final @Nonnull File file,
+    final @Nonnull ByteHandlePipeline handler) throws SirixIOException {
     final File repoFile =
-      new File(checkNotNull(pFile), ResourceConfiguration.Paths.Data.getFile()
+      new File(checkNotNull(file), ResourceConfiguration.Paths.Data.getFile()
         .getName());
     if (!repoFile.exists()) {
       repoFile.mkdirs();
     }
 
-    mByteHandler = checkNotNull(pHandler);
+    mByteHandler = checkNotNull(handler);
     mPageBinding = new PageBinding(mByteHandler);
 
     final DatabaseConfig conf = generateDBConf();

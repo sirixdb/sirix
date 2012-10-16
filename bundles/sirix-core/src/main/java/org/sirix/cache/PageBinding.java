@@ -40,28 +40,28 @@ import org.sirix.page.PagePersistenter;
 import org.sirix.page.interfaces.Page;
 
 /**
- * Binding for {@link PageContainer} reference.
+ * Binding for {@link NodePageContainer} reference.
  */
 public class PageBinding extends TupleBinding<Page> {
 
   @Override
-  public Page entryToObject(final @Nullable TupleInput pInput) {
-    if (pInput == null) {
+  public Page entryToObject(final @Nullable TupleInput input) {
+    if (input == null) {
       return null;
     }
     final ByteArrayDataInput source =
-      ByteStreams.newDataInput(pInput.getBufferBytes());
+      ByteStreams.newDataInput(input.getBufferBytes());
     return PagePersistenter.deserializePage(source);
   }
 
   @Override
-  public void objectToEntry(final @Nullable Page pPage,
-    final @Nullable TupleOutput pOutput) {
-    if (pPage != null && pOutput != null) {
+  public void objectToEntry(final @Nullable Page page,
+    final @Nullable TupleOutput output) {
+    if (page != null && output != null) {
       final ByteArrayDataOutput target = ByteStreams.newDataOutput();
-      final byte[] bytes = pOutput.getBufferBytes();
+      final byte[] bytes = output.getBufferBytes();
       target.write(bytes, 0, bytes.length);
-      pPage.serialize(target);
+      page.serialize(target);
     }
   }
 }

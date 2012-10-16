@@ -46,11 +46,11 @@ import javax.annotation.Nonnull;
 import org.sirix.access.HashKind;
 import org.sirix.access.SessionImpl;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.EStorage;
+import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.DeflateCompressor;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.settings.ERevisioning;
+import org.sirix.settings.Revisioning;
 
 import com.google.common.base.Objects;
 import com.google.gson.stream.JsonReader;
@@ -157,10 +157,10 @@ public final class ResourceConfiguration {
 
 	// FIXED STANDARD FIELDS
 	/** Standard storage. */
-	public static final EStorage STORAGE = EStorage.File;
+	public static final StorageType STORAGE = StorageType.File;
 
 	/** Standard Versioning Approach. */
-	public static final ERevisioning VERSIONING = ERevisioning.INCREMENTAL;
+	public static final Revisioning VERSIONING = Revisioning.INCREMENTAL;
 
 	/** Type of hashing. */
 	public static final HashKind HASHKIND = HashKind.Rolling;
@@ -174,10 +174,10 @@ public final class ResourceConfiguration {
 
 	// MEMBERS FOR FIXED FIELDS
 	/** Type of Storage (File, BerkeleyDB). */
-	public final EStorage mStorage;
+	public final StorageType mStorage;
 
 	/** Kind of revisioning (Full, Incremental, Differential). */
-	public final ERevisioning mRevisionKind;
+	public final Revisioning mRevisionKind;
 
 	/** Kind of integrity hash (rolling, postorder). */
 	public final HashKind mHashKind;
@@ -377,7 +377,7 @@ public final class ResourceConfiguration {
 			jsonReader.beginObject();
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[1]);
-			final ERevisioning revisioning = ERevisioning.valueOf(jsonReader
+			final Revisioning revisioning = Revisioning.valueOf(jsonReader
 					.nextString());
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[2]);
@@ -399,7 +399,7 @@ public final class ResourceConfiguration {
 			// Storage type.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[4]);
-			final EStorage storage = EStorage.valueOf(jsonReader.nextString());
+			final StorageType storage = StorageType.valueOf(jsonReader.nextString());
 			// Hashing type.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[5]);
@@ -439,7 +439,7 @@ public final class ResourceConfiguration {
 			builder.setRevisionKind(revisioning);
 			builder.setRevisionsToRestore(revisionToRestore);
 			builder.setType(storage);
-			builder.useCompression(compression);
+			builder.useTextCompression(compression);
 
 			// Deserialized instance.
 			final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -457,10 +457,10 @@ public final class ResourceConfiguration {
 	public static final class Builder {
 
 		/** Type of Storage (File, Berkeley). */
-		private EStorage mType = STORAGE;
+		private StorageType mType = STORAGE;
 
 		/** Kind of revisioning (Incremental, Differential). */
-		private ERevisioning mRevisionKind = VERSIONING;
+		private Revisioning mRevisionKind = VERSIONING;
 
 		/** Kind of integrity hash (rolling, postorder). */
 		private HashKind mHashKind = HASHKIND;
@@ -505,7 +505,7 @@ public final class ResourceConfiguration {
 		 *          storage type to use
 		 * @return reference to the builder object
 		 */
-		public Builder setType(final @Nonnull EStorage pType) {
+		public Builder setType(final @Nonnull StorageType pType) {
 			mType = checkNotNull(pType);
 			return this;
 		}
@@ -529,7 +529,7 @@ public final class ResourceConfiguration {
 		 *          revisioning algorithm to use
 		 * @return reference to the builder object
 		 */
-		public Builder setRevisionKind(final @Nonnull ERevisioning pRevKind) {
+		public Builder setRevisionKind(final @Nonnull Revisioning pRevKind) {
 			mRevisionKind = checkNotNull(pRevKind);
 			return this;
 		}
@@ -579,7 +579,7 @@ public final class ResourceConfiguration {
 		 *          use text compression or not (default: yes)
 		 * @return reference to the builder object
 		 */
-		public Builder useCompression(final boolean pCompression) {
+		public Builder useTextCompression(final boolean pCompression) {
 			mCompression = pCompression;
 			return this;
 		}

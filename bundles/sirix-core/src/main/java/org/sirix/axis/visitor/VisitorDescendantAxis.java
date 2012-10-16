@@ -37,13 +37,13 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.VisitResultType;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.axis.AbsAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 import com.google.common.base.Optional;
 
@@ -52,7 +52,7 @@ import com.google.common.base.Optional;
  * 
  * <p>
  * Iterate over all descendants of kind ELEMENT or TEXT starting at a given
- * node. Self is not optionally included. Furthermore an {@link IVisitor} can be
+ * node. Self is not optionally included. Furthermore an {@link Visitor} can be
  * used. Note that it is faster to use the standard {@link DescendantAxis} if no
  * visitor is specified.
  * </p>
@@ -65,7 +65,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 	private Deque<Long> mRightSiblingKeyStack;
 
 	/** Optional visitor. */
-	private Optional<? extends IVisitor> mVisitor = Optional.absent();
+	private Optional<? extends Visitor> mVisitor = Optional.absent();
 
 	/** Determines if it is the first call. */
 	private boolean mFirst;
@@ -74,10 +74,10 @@ public final class VisitorDescendantAxis extends AbsAxis {
 	public static class Builder {
 
 		/** Optional visitor. */
-		private Optional<? extends IVisitor> mVisitor = Optional.absent();
+		private Optional<? extends Visitor> mVisitor = Optional.absent();
 
-		/** Sirix {@link NodeCursor}. */
-		private final NodeCursor mRtx;
+		/** Sirix {@link NodeReadTrx}. */
+		private final NodeReadTrx mRtx;
 
 		/** Determines if current node should be included or not. */
 		private IncludeSelf mIncludeSelf = IncludeSelf.NO;
@@ -88,7 +88,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		 * @param rtx
 		 *          Sirix {@link NodeCursor}
 		 */
-		public Builder(final @Nonnull NodeCursor rtx) {
+		public Builder(final @Nonnull NodeReadTrx rtx) {
 			mRtx = checkNotNull(rtx);
 		}
 
@@ -111,7 +111,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		 *          the visitor
 		 * @return this builder instance
 		 */
-		public Builder visitor(final Optional<? extends IVisitor> visitor) {
+		public Builder visitor(final Optional<? extends Visitor> visitor) {
 			mVisitor = checkNotNull(visitor);
 			return this;
 		}
@@ -155,7 +155,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		// If visitor is present and the return value is EVisitResult.TERMINATE than
 		// return false.
 		if (result.isPresent() && result.get() == VisitResultType.TERMINATE) {
-			return EFixed.NULL_NODE_KEY.getStandardProperty();
+			return Fixed.NULL_NODE_KEY.getStandardProperty();
 		}
 
 		final NodeReadTrx rtx = getTrx();
@@ -208,7 +208,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 			return hasNextNode(nextKey, rtx.getNodeKey());
 		}
 
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	/**
@@ -223,7 +223,7 @@ public final class VisitorDescendantAxis extends AbsAxis {
 		final NodeReadTrx rtx = getTrx();
 		rtx.moveTo(nextKey);
 		if (rtx.getLeftSiblingKey() == getStartKey()) {
-			return EFixed.NULL_NODE_KEY.getStandardProperty();
+			return Fixed.NULL_NODE_KEY.getStandardProperty();
 		} else {
 			rtx.moveTo(currKey);
 			return nextKey;

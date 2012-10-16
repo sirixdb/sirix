@@ -33,11 +33,10 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.IVisitor;
-import org.sirix.node.interfaces.NodeKind;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 import com.google.common.base.Objects;
 
@@ -55,22 +54,22 @@ public final class NullNode implements StructNode {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          the underlying node which is wrapped
 	 * @throws NullPointerException
 	 *           if {@code pNode} is {@code null}
 	 */
-	public NullNode(final Node pNode) {
-		mNode = checkNotNull(pNode);
+	public NullNode(final Node node) {
+		mNode = checkNotNull(node);
 	}
 
 	@Override
 	public long getFirstChildKey() {
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override
-	public void setFirstChildKey(final long mFirstChildKey) {
+	public void setFirstChildKey(long firstChildKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -85,7 +84,7 @@ public final class NullNode implements StructNode {
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(@Nonnull final IVisitor paramVisitor) {
+	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -125,13 +124,13 @@ public final class NullNode implements StructNode {
 	}
 
 	@Override
-	public void setParentKey(final long pNodeKey) {
+	public void setParentKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 
 	}
 
 	@Override
-	public void setTypeKey(final int pTypeKey) {
+	public void setTypeKey(int typeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -157,21 +156,21 @@ public final class NullNode implements StructNode {
 
 	@Override
 	public long getLeftSiblingKey() {
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override
 	public long getRightSiblingKey() {
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override
-	public void setRightSiblingKey(final long pNodeKey) {
+	public void setRightSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setLeftSiblingKey(final long pNodeKey) {
+	public void setLeftSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -196,13 +195,13 @@ public final class NullNode implements StructNode {
 	}
 
 	@Override
-	public void setDescendantCount(final long pDescendantCount) {
+	public void setDescendantCount(long descendantCount) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean isSameItem(final @Nullable Node pOther) {
-		return mNode.isSameItem(pOther);
+	public boolean isSameItem(final @Nullable Node other) {
+		return mNode.isSameItem(other);
 	}
 
 	@Override
@@ -211,9 +210,9 @@ public final class NullNode implements StructNode {
 	}
 
 	@Override
-	public boolean equals(final @Nullable Object pObj) {
-		if (pObj instanceof NullNode) {
-			final NullNode other = (NullNode) pObj;
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof NullNode) {
+			final NullNode other = (NullNode) obj;
 			return Objects.equal(mNode, other.mNode);
 		}
 		return false;

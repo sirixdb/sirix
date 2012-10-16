@@ -64,18 +64,18 @@ public final class FileWriter implements Writer {
    * Constructor.
    * 
    * 
-   * @param pStorage
+   * @param storage
    *          the concrete storage
    * @throws SirixIOException
    *           if an I/O error occurs
    */
-  public FileWriter(final @Nonnull File pStorage, final @Nonnull ByteHandler pHandler) throws SirixIOException {
+  public FileWriter(final @Nonnull File storage, final @Nonnull ByteHandler handler) throws SirixIOException {
     try {
-      mFile = new RandomAccessFile(pStorage, "rw");
+      mFile = new RandomAccessFile(storage, "rw");
     } catch (final FileNotFoundException fileExc) {
       throw new SirixIOException(fileExc);
     }
-    mReader = new FileReader(pStorage, pHandler);
+    mReader = new FileReader(storage, handler);
   }
 
   /**

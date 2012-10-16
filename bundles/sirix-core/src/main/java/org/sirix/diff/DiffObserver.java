@@ -29,7 +29,7 @@ package org.sirix.diff;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 
 /**
  * Interface for observers, which are listening for diffs.
@@ -41,17 +41,18 @@ public interface DiffObserver {
   /**
    * Called for every node comparsion.
    * 
-   * @param pDiff
-   *          the {@link EDiff} type
+   * @param diffType
+   *          the {@link DiffType} type
    * @param pNewNode
    *          node key of node in new revision
    * @param pOldNode
    *          node key of node in old revision
-   * @param pDepth
+   * @param depth
    *          current {@link DiffDepth} instance
    */
-  void diffListener(@Nonnull final EDiff pDiff, @Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
-    @Nonnull final DiffDepth pDepth);
+	void diffListener(@Nonnull final DiffType diffType,
+			@Nonnull final long newNodeKey, @Nonnull final long pOldNodeKey,
+    @Nonnull final DiffDepth depth);
 
   /** Signals that the diff calculation is done. */
   void diffDone();

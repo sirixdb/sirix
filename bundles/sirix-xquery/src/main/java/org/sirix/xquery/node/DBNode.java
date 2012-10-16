@@ -36,7 +36,7 @@ import org.sirix.axis.PrecedingAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.service.xml.shredder.Insert;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.xquery.stream.SirixStream;
 import org.slf4j.LoggerFactory;
@@ -335,7 +335,7 @@ public class DBNode extends AbsTemporalNode {
 		moveRtx();
 		boolean retVal = false;
 		// TODO: Actually it seems it must check if it's the document root node.
-		if (mNodeReadTrx.getNode().getParentKey() == EFixed.NULL_NODE_KEY
+		if (mNodeReadTrx.getNode().getParentKey() == Fixed.NULL_NODE_KEY
 				.getStandardProperty()) {
 			retVal = true;
 		}

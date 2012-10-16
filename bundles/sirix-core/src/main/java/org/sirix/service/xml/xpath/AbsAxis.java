@@ -38,9 +38,9 @@ import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.axis.IncludeSelf;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>AbsAxis</h1>
@@ -118,7 +118,7 @@ public abstract class AbsAxis implements Axis {
 	 * @return null node key
 	 */
 	protected long done() {
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	/**
@@ -147,7 +147,7 @@ public abstract class AbsAxis implements Axis {
 		// Template method.
 		mKey = nextKey();
 
-		if (mKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+		if (mKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 			// Reset to the start key before invoking the axis.
 			resetToStartKey();
 			return false;
@@ -294,10 +294,10 @@ public abstract class AbsAxis implements Axis {
 	 * Implements a simple foreach-method.
 	 * 
 	 * @param pVisitor
-	 *          {@link IVisitor} implementation
+	 *          {@link Visitor} implementation
 	 */
 	@Override
-	public final void foreach(@Nonnull final IVisitor pVisitor) {
+	public final void foreach(@Nonnull final Visitor pVisitor) {
 		checkNotNull(pVisitor);
 		for (; hasNext(); next()) {
 			mRtx.acceptVisitor(pVisitor);
@@ -307,7 +307,7 @@ public abstract class AbsAxis implements Axis {
 	@Override
 	public synchronized final long nextNode() {
 		synchronized (mRtx) {
-			long retVal = EFixed.NULL_NODE_KEY.getStandardProperty();
+			long retVal = Fixed.NULL_NODE_KEY.getStandardProperty();
 			if (hasNext()) {
 				retVal = next();
 			}

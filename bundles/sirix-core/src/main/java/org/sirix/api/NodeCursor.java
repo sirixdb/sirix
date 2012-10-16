@@ -6,7 +6,7 @@ import org.sirix.access.Move;
 import org.sirix.access.Moved;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 
@@ -151,10 +151,10 @@ public interface NodeCursor extends AutoCloseable {
 	 * Accept a visitor.
 	 * 
 	 * @param visitor
-	 *          {@link IVisitor} implementation
+	 *          {@link Visitor} implementation
 	 * @return {@link VisitResultType} value
 	 */
-	VisitResult acceptVisitor(@Nonnull IVisitor visitor);
+	VisitResult acceptVisitor(@Nonnull Visitor visitor);
 	
 	/**
 	 * Get the node where the cursor currently is located.

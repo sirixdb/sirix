@@ -29,9 +29,8 @@ package org.sirix.diff;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
-import org.sirix.node.interfaces.StructNode;
 
 /**
  * Observable class to fire diffs for interested observers, which implement the {@link DiffObserver}
@@ -45,18 +44,18 @@ interface DiffObservable {
    * Fire a diff for exactly one node comparsion. Must call the diffListener(EDiff) method defined in the
    * {@link DiffObserver} interface.
    * 
-   * @param pDiff
+   * @param diff
    *          the encountered diff
-   * @param pNewNodeKey
+   * @param newNodeKey
    *          node key of current node in new revision
-   * @param pOldNodeKey
+   * @param oldNodeKey
    *          node key of current node in old revision
-   * @param pDepth
+   * @param depth
    *          current {@link DiffDepth} instance
    */
-  void fireDiff(@Nonnull final EDiff pDiff,
-    @Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
-    @Nonnull final DiffDepth pDepth);
+  void fireDiff(final @Nonnull DiffType diff,
+    final @Nonnull long newNodeKey, final @Nonnull long oldNodeKey,
+    final @Nonnull DiffDepth depth);
 
   /**
    * Diff computation done, thus inform listeners.
@@ -70,16 +69,16 @@ interface DiffObservable {
    * Add an observer. This means add an instance of a class which implements the {@link DiffObserver}
    * interface.
    * 
-   * @param pObserver
-   *          instance of the class which implements {@link DiffObserver}.
+   * @param observer
+   *          instance of the class which implements {@link DiffObserver}
    */
-  void addObserver(@Nonnull final DiffObserver pObserver);
+  void addObserver(final @Nonnull DiffObserver observer);
 
   /**
    * Remove an observer.
    * 
-   * @param pObserver
-   *          instance of the class which implements {@link DiffObserver}.
+   * @param observer
+   *          instance of the class which implements {@link DiffObserver}
    */
-  void removeObserver(@Nonnull final DiffObserver pObserver);
+  void removeObserver(final @Nonnull DiffObserver observer);
 }

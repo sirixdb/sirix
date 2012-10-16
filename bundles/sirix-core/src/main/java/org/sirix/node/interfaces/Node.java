@@ -31,7 +31,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 
 /**
  * <h1>INode</h1>
@@ -52,28 +52,28 @@ public interface Node extends NodeBase {
   /**
    * Setting the type key.
    * 
-   * @param pTypeKey
+   * @param typeKey
    *          the type to set
    */
-  void setTypeKey(int pTypeKey);
+  void setTypeKey(int typeKey);
   
   /**
    * Determines if {@code pOther} is the same item.
    * 
-   * @param pOther
+   * @param other
    *          the other node
    * @return {@code true}, if it is the same item, {@code false} otherwise
    */
-  boolean isSameItem(final @Nullable Node pOther);
+  boolean isSameItem(@Nullable Node other);
   
   /**
    * Accept a visitor and use double dispatching to invoke the visitor method.
    * 
-   * @param pVisitor
-   *          implementation of the {@link IVisitor} interface
+   * @param visitor
+   *          implementation of the {@link Visitor} interface
    * @return the result of a visit
    */
-  VisitResult acceptVisitor(final @Nonnull IVisitor pVisitor);
+  VisitResult acceptVisitor(@Nonnull Visitor visitor);
   
   /**
    * Setting the actual hash of the structure. The hash of one node should
@@ -83,7 +83,7 @@ public interface Node extends NodeBase {
    *          hash to be set for this node
    * 
    */
-  void setHash(final long pHash);
+  void setHash(long hash);
 
   /**
    * Getting the persistent stored hash.
@@ -98,7 +98,7 @@ public interface Node extends NodeBase {
    * @param pNodeKey
    *          the parent to be set
    */
-  void setParentKey(long pNodeKey);
+  void setParentKey(long nodeKey);
   
   /**
    * Gets key of the context item's parent.

@@ -33,7 +33,7 @@ import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.parser.XPathParser;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>XPath Axis</h1>
@@ -128,7 +128,7 @@ public final class XPathAxis extends AbsAxis {
 		if (mPipeline.hasNext()) {
 			return mPipeline.next();
 		} else {
-			return EFixed.NULL_NODE_KEY.getStandardProperty();
+			return Fixed.NULL_NODE_KEY.getStandardProperty();
 		}
 	}
 

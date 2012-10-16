@@ -45,7 +45,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.settings.IConstants;
+import org.sirix.settings.Constants;
 import org.sirix.utils.DocumentCreater;
 
 public class SessionTest {
@@ -131,7 +131,7 @@ public class SessionTest {
 
     rtx = holder.getSession().beginNodeReadTrx();
 
-    assertEquals(IConstants.UBP_ROOT_REVISION_NUMBER, rtx.getRevisionNumber());
+    assertEquals(Constants.UBP_ROOT_REVISION_NUMBER, rtx.getRevisionNumber());
     rtx.close();
 
     final NodeReadTrx rtx2 = holder.getSession().beginNodeReadTrx();

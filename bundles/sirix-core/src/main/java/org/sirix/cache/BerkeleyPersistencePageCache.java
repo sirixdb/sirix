@@ -36,7 +36,6 @@ import java.util.Map.Entry;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.Page;
 
@@ -98,20 +97,20 @@ public final class BerkeleyPersistencePageCache extends
 	/**
 	 * Constructor. Building up the berkeley db and setting necessary settings.
 	 * 
-	 * @param pFile
+	 * @param file
 	 *          the place where the berkeley db is stored.
-	 * @param pRevision
+	 * @param revision
 	 *          revision number, needed to reconstruct the sliding window in the
 	 *          correct way
-	 * @param pLogType
+	 * @param logType
 	 *          type of log to append to the path of the log
 	 * @throws SirixIOException
 	 *           if an database open exception occurs
 	 */
-	public BerkeleyPersistencePageCache(final @Nonnull File pFile,
-			final @Nonnegative int pRevision, final @Nonnull String pLogType)
+	public BerkeleyPersistencePageCache(final @Nonnull File file,
+			final @Nonnegative int revision, final @Nonnull String logType)
 			throws SirixIOException {
-		super(checkNotNull(pFile), pRevision, pLogType);
+		super(checkNotNull(file), revision, logType);
 		try {
 			// Create a new, transactional database environment.
 			final EnvironmentConfig config = new EnvironmentConfig();
@@ -154,13 +153,13 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void putPersistent(@Nonnull final Long pKey, @Nonnull final Page pPage)
+	public void putPersistent(@Nonnull final Long key, @Nonnull final Page page)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mEntries++;
-		mKeyBinding.objectToEntry(checkNotNull(pKey), keyEntry);
-		mValueBinding.objectToEntry(checkNotNull(pPage), valueEntry);
+		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
+		mValueBinding.objectToEntry(checkNotNull(page), valueEntry);
 		try {
 			mDatabase.put(null, keyEntry, valueEntry);
 		} catch (final DatabaseException e) {
@@ -173,10 +172,10 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public Page getPersistent(@Nonnull final Long pKey) throws SirixIOException {
+	public Page getPersistent(@Nonnull final Long key) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
-		mKeyBinding.objectToEntry(checkNotNull(pKey), keyEntry);
+		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
 		try {
 			final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry,
 					LockMode.DEFAULT);
@@ -194,8 +193,8 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, Page> pMap) {
-		for (final Entry<Long, Page> entry : pMap.entrySet()) {
+	public void putAll(final @Nonnull Map<Long, Page> map) {
+		for (final Entry<Long, Page> entry : map.entrySet()) {
 			put(entry.getKey(), entry.getValue());
 		}
 	}
@@ -206,9 +205,9 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void remove(final @Nonnull Long pKey) {
+	public void remove(final @Nonnull Long key) {
 		final DatabaseEntry keyEntry = new DatabaseEntry();
-		mKeyBinding.objectToEntry(checkNotNull(pKey), keyEntry);
+		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
 		final OperationStatus status = mDatabase.delete(null, keyEntry);
 		if (status == OperationStatus.NOTFOUND) {
 			throw new IllegalStateException();

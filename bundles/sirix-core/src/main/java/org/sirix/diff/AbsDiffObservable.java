@@ -32,7 +32,7 @@ import java.util.Set;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.StructNode;
 
@@ -56,7 +56,7 @@ abstract class AbsDiffObservable implements DiffObservable {
   }
 
   @Override
-  public final void fireDiff(@Nonnull final EDiff pDiff,
+  public final void fireDiff(@Nonnull final DiffType pDiff,
     @Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
     @Nonnull final DiffDepth pDepth) {
     for (final DiffObserver observer : mDiffObservers) {

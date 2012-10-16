@@ -49,7 +49,7 @@ import javax.annotation.Nonnull;
 import org.slf4j.LoggerFactory;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.AbsObservableComponent;
@@ -272,11 +272,11 @@ public abstract class AbsModel<S, T extends VisualItem> extends AbsObservableCom
   public int getDepthMax() {
     int depthMax = 0;
     for (final T item : mItems) {
-      if (item.getDiff() == EDiff.SAME || item.getDiff() == EDiff.SAMEHASH) {
+      if (item.getDiff() == DiffType.SAME || item.getDiff() == DiffType.SAMEHASH) {
         int indexToParent = item.getIndexToParent();
         T tmpItem = item;
         while (indexToParent != -1
-          && (tmpItem.getDiff() == EDiff.SAME || tmpItem.getDiff() == EDiff.SAMEHASH)) {
+          && (tmpItem.getDiff() == DiffType.SAME || tmpItem.getDiff() == DiffType.SAMEHASH)) {
           indexToParent = tmpItem.getIndexToParent();
           if (indexToParent != -1) {
             tmpItem = mItems.get(indexToParent);

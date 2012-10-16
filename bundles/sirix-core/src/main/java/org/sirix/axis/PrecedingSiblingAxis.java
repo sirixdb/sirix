@@ -27,75 +27,77 @@
 
 package org.sirix.axis;
 
-import org.sirix.api.NodeCursor;
+import javax.annotation.Nonnull;
+
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>PrecedingSiblingAxis</h1>
  * 
  * <p>
- * Iterate over all preceding siblings of kind ELEMENT or TEXT starting at a given node. Self is not included.
- * Note that the axis conforms to the XPath specification and returns nodes in document order.
+ * Iterate over all preceding siblings of kind ELEMENT or TEXT starting at a
+ * given node. Self is not included. Note that the axis conforms to the XPath
+ * specification and returns nodes in document order.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class PrecedingSiblingAxis extends AbsAxis {
 
-  /** Determines if it's the first call. */
-  private boolean mIsFirst;
+	/** Determines if it's the first call. */
+	private boolean mIsFirst;
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with
-   */
-  public PrecedingSiblingAxis(final NodeCursor pRtx) {
-    super(pRtx);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param rtx
+	 *          exclusive (immutable) trx to iterate with
+	 */
+	public PrecedingSiblingAxis(final @Nonnull NodeReadTrx rtx) {
+		super(rtx);
+	}
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    mIsFirst = true;
-  }
-  
-  @Override
-  protected long nextKey() {
-    final NodeReadTrx rtx = getTrx();
-    if (mIsFirst) {
-      mIsFirst = false;
-      /*
-       * If the context node is an attribute or namespace node,
-       * the following-sibling axis is empty.
-       */
-      final Kind kind = rtx.getKind();
-      if (kind == Kind.ATTRIBUTE || kind == Kind.NAMESPACE) {
-        return done();
-      } else {
-        if (rtx.hasParent()) {
-          final long startNodeKey = rtx.getNodeKey();
-          rtx.moveToParent();
-          rtx.moveToFirstChild();
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
+		mIsFirst = true;
+	}
 
-          if (rtx.getNodeKey() == startNodeKey) {
-            return EFixed.NULL_NODE_KEY.getStandardProperty();
-          } else {
-            final long key = rtx.getNodeKey();
-            rtx.moveTo(startNodeKey);
-            return key;
-          }
-        }
-      }
-    }
+	@Override
+	protected long nextKey() {
+		final NodeReadTrx rtx = getTrx();
+		if (mIsFirst) {
+			mIsFirst = false;
+			/*
+			 * If the context node is an attribute or namespace node, the
+			 * following-sibling axis is empty.
+			 */
+			final Kind kind = rtx.getKind();
+			if (kind == Kind.ATTRIBUTE || kind == Kind.NAMESPACE) {
+				return done();
+			} else {
+				if (rtx.hasParent()) {
+					final long startNodeKey = rtx.getNodeKey();
+					rtx.moveToParent();
+					rtx.moveToFirstChild();
 
-    if (rtx.hasRightSibling() && rtx.getRightSiblingKey() != getStartKey()) {
-      return rtx.getRightSiblingKey();
-    }
-    
-    return done();
-  }
+					if (rtx.getNodeKey() == startNodeKey) {
+						return Fixed.NULL_NODE_KEY.getStandardProperty();
+					} else {
+						final long key = rtx.getNodeKey();
+						rtx.moveTo(startNodeKey);
+						return key;
+					}
+				}
+			}
+		}
+
+		if (rtx.hasRightSibling() && rtx.getRightSiblingKey() != getStartKey()) {
+			return rtx.getRightSiblingKey();
+		}
+
+		return done();
+	}
 }

@@ -36,7 +36,7 @@ import java.util.concurrent.Semaphore;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.view.model.interfaces.Container;
 import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.smallmultiple.ECompare;
@@ -89,8 +89,8 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	/** {@link Model} implementation. */
 	private final Model<SunburstContainer, SunburstItem> mModel;
 
-	/** {@link EDiff} of root node of subtree to compare. */
-	private transient EDiff mDiff = EDiff.SAME;
+	/** {@link DiffType} of root node of subtree to compare. */
+	private transient DiffType mDiff = DiffType.SAME;
 
 	/** Shared {@link CountDownLatch} instance. */
 	private transient CountDownLatch mLatch;
@@ -310,7 +310,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 * 
 	 * @return the diif
 	 */
-	public EDiff getDiff() {
+	public DiffType getDiff() {
 		return mDiff;
 	}
 
@@ -386,7 +386,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 *          determines diff of root node to compare
 	 * @return instance of this class
 	 */
-	public SunburstContainer setDiff(@Nonnull final EDiff paramDiff) {
+	public SunburstContainer setDiff(@Nonnull final DiffType paramDiff) {
 		mDiff = checkNotNull(paramDiff);
 		return this;
 	}

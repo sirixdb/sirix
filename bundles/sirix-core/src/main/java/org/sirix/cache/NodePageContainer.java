@@ -28,16 +28,17 @@
 package org.sirix.cache;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
-import com.sleepycat.bind.tuple.TupleOutput;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.page.NodePage;
 import org.sirix.page.PagePersistenter;
+
+import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
+import com.sleepycat.bind.tuple.TupleOutput;
 
 /**
  * <h1>PageContainer</h1>
@@ -58,7 +59,7 @@ import org.sirix.page.PagePersistenter;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class PageContainer {
+public final class NodePageContainer {
 
   /** {@link NodePage} reference, which references the complete node page. */
   private final NodePage mComplete;
@@ -67,10 +68,10 @@ public final class PageContainer {
   private final NodePage mModified;
 
   /** Empty instance. */
-  public static final PageContainer EMPTY_INSTANCE = new PageContainer();
+  public static final NodePageContainer EMPTY_INSTANCE = new NodePageContainer();
 
   /** Private constructor for empty instance. */
-  private PageContainer() {
+  private NodePageContainer() {
     mComplete = null;
     mModified = null;
   }
@@ -81,7 +82,7 @@ public final class PageContainer {
    * @param pComplete
    *          to be used as a base for this container
    */
-  public PageContainer(@Nonnull final NodePage pComplete) {
+  public NodePageContainer(final @Nonnull NodePage pComplete) {
     this(pComplete, new NodePage(pComplete.getNodePageKey(), pComplete.getRevision()));
   }
 
@@ -93,7 +94,7 @@ public final class PageContainer {
    * @param pModifying
    *          to be used as a base for this container
    */
-  public PageContainer(@Nonnull final NodePage pComplete, @Nonnull final NodePage pModifying) {
+  public NodePageContainer(final @Nonnull NodePage pComplete, final @Nonnull NodePage pModifying) {
     mComplete = checkNotNull(pComplete);
     mModified = checkNotNull(pModifying);
   }
@@ -119,14 +120,14 @@ public final class PageContainer {
   /**
    * Serializing the container to the cache.
    * 
-   * @param pOut
+   * @param out
    *          for serialization
    */
-  public void serialize(@Nonnull final TupleOutput pOut) {
+	public void serialize(final @Nonnull TupleOutput out) {
     final ByteArrayDataOutput sink = ByteStreams.newDataOutput();
     PagePersistenter.serializePage(sink, mComplete);
     PagePersistenter.serializePage(sink, mModified);
-    pOut.write(sink.toByteArray());
+    out.write(sink.toByteArray());
   }
 
   @Override
@@ -135,9 +136,9 @@ public final class PageContainer {
   }
 
   @Override
-  public boolean equals(@Nullable final Object pObj) {
-    if (pObj instanceof PageContainer) {
-      final PageContainer other = (PageContainer) pObj;
+  public boolean equals(final @Nullable Object obj) {
+    if (obj instanceof NodePageContainer) {
+      final NodePageContainer other = (NodePageContainer) obj;
       return Objects.equal(mComplete, other.mComplete) && Objects.equal(mModified, other.mModified);
     }
     return false;

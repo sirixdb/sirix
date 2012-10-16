@@ -39,7 +39,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
 
 /**
- * Iterates over {@link IStructuralNode}s in a breath first traversal.
+ * Iterates over a subtree in levelorder / in a breath first traversal.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 

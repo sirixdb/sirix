@@ -19,58 +19,58 @@ public interface Shredder<S, T> {
 	/**
 	 * Process a processing instruction.
 	 * 
-	 * @param pContent
+	 * @param content
 	 * 						the content
-	 * @param pTarget
+	 * @param target
 	 * 						the target
 	 */
-	void processPI(final @Nonnull S pContent, final @Nonnull S pTarget) throws SirixException;
+	void processPI(final @Nonnull S content, final @Nonnull S target) throws SirixException;
 	
 	/**
 	 * Process a comment.
 	 * 
-	 * @param pValue
+	 * @param value
 	 * 						the value
 	 */
-	void processComment(@Nonnull final S pValue) throws SirixException;
+	void processComment(@Nonnull final S value) throws SirixException;
 	
   /**
    * Process a start tag.
    * 
-   * @param pName
+   * @param name
    *          name, usually a {@link QName}
    * @throws SirixException
    *           if Sirix fails to insert a new node
    */
-  void processStartTag(@Nonnull final T pName) throws SirixException;
+  void processStartTag(@Nonnull final T name) throws SirixException;
 
   /**
    * Process a text node
    * 
-   * @param pText
+   * @param text
    *          text, usually of type String
    * @throws SirixException
    *           if Sirix fails to insert a new node
    */
-  void processText(@Nonnull final S pText) throws SirixException;
+  void processText(@Nonnull final S text) throws SirixException;
 
   /**
    * Process an end tag.
    * 
-   * @param pName
+   * @param name
    *          name, usually a {@link QName}
    * @throws SirixException
    *           if Sirix fails to insert a new node
    */
-  void processEndTag(@Nonnull final T pName) throws SirixException;
+  void processEndTag(@Nonnull final T name) throws SirixException;
 
   /**
    * Process an empty element.
    * 
-   * @param pName
+   * @param name
    *          name, usually a {@link QName}
    * @throws SirixException
    *           if Sirix fails to insert a new node
    */
-  void processEmptyElement(@Nonnull final T pName) throws SirixException;
+  void processEmptyElement(@Nonnull final T name) throws SirixException;
 }

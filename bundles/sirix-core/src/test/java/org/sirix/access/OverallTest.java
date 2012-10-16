@@ -41,7 +41,7 @@ import org.sirix.TestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /** Test a bunch of modification methods. */
 public final class OverallTest extends TestCase {
@@ -98,7 +98,7 @@ public final class OverallTest extends TestCase {
         }
       } else {
         if (holder.getWtx().getKind() == Kind.ELEMENT) {
-          if (holder.getWtx().getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+          if (holder.getWtx().getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
             assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
             assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
           }
@@ -127,12 +127,12 @@ public final class OverallTest extends TestCase {
         do {
           final int newKey = ran.nextInt(i + 1) + 1;
 
-          if (newKey == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+          if (newKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
             holder.getWtx().moveToFirstChild();
             holder.getWtx().moveToFirstChild();
           } else {
             holder.getWtx().moveTo(newKey);
-            if (holder.getWtx().getParentKey() == EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+            if (holder.getWtx().getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
               holder.getWtx().moveToFirstChild();
             }
           }

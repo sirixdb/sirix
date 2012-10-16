@@ -27,7 +27,7 @@
 
 package org.sirix.utils;
 
-import org.sirix.settings.IConstants;
+import org.sirix.settings.Constants;
 
 /**
  * <h1>UTF</h1>
@@ -260,7 +260,7 @@ public final class TypedValue {
             builder.append(mValue.charAt(i));
           }
         }
-        bytes = builder.toString().getBytes(IConstants.DEFAULT_ENCODING);
+        bytes = builder.toString().getBytes(Constants.DEFAULT_ENCODING);
 
         // bytes = value.replace("&", "&amp;").replace("<", "&lt;")
         // .getBytes(IConstants.DEFAULT_ENCODING);

@@ -45,47 +45,47 @@ final class FullDiff extends AbsDiff {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pBuilder
+	 * @param builder
 	 *          {@link Builder} reference
 	 * @throws SirixException
 	 *           if anything goes wrong while setting up sirix transactions
 	 */
-	FullDiff(@Nonnull final Builder pBuilder) throws SirixException {
-		super(pBuilder);
+	FullDiff(final @Nonnull Builder builder) throws SirixException {
+		super(builder);
 	}
 
 	@Override
-	boolean checkNodes(@Nonnull final NodeReadTrx pFirstRtx,
-			@Nonnull final NodeReadTrx pSecondRtx) {
-		assert pFirstRtx != null;
-		assert pSecondRtx != null;
+	boolean checkNodes(final @Nonnull NodeReadTrx firstRtx,
+			final @Nonnull NodeReadTrx secondRtx) {
+		assert firstRtx != null;
+		assert secondRtx != null;
 
 		boolean found = false;
-		if (pFirstRtx.getNodeKey() == pSecondRtx.getNodeKey()
-				&& pFirstRtx.getKind() == pSecondRtx.getKind()) {
-			switch (pFirstRtx.getKind()) {
+		if (firstRtx.getNodeKey() == secondRtx.getNodeKey()
+				&& firstRtx.getKind() == secondRtx.getKind()) {
+			switch (firstRtx.getKind()) {
 			case ELEMENT:
-				if (pFirstRtx.getNameKey() == pSecondRtx.getNameKey()) {
-					if (pFirstRtx.getNamespaceCount() == 0
-							&& pFirstRtx.getAttributeCount() == 0
-							&& pFirstRtx.getAttributeCount() == 0
-							&& pFirstRtx.getNamespaceCount() == 0) {
+				if (firstRtx.getNameKey() == secondRtx.getNameKey()) {
+					if (firstRtx.getNamespaceCount() == 0
+							&& firstRtx.getAttributeCount() == 0
+							&& firstRtx.getAttributeCount() == 0
+							&& firstRtx.getNamespaceCount() == 0) {
 						found = true;
-					} else if (pFirstRtx.getAttributeKeys().equals(
-							pSecondRtx.getAttributeKeys())
-							&& pSecondRtx.getNamespaceKeys().equals(
-									pSecondRtx.getNamespaceKeys())) {
+					} else if (firstRtx.getAttributeKeys().equals(
+							secondRtx.getAttributeKeys())
+							&& secondRtx.getNamespaceKeys().equals(
+									secondRtx.getNamespaceKeys())) {
 						found = true;
 					}
 				}
 				break;
 			case PROCESSING:
-				found = pFirstRtx.getValue().equals(pSecondRtx.getValue())
-						&& pFirstRtx.getName().equals(pSecondRtx.getName());
+				found = firstRtx.getValue().equals(secondRtx.getValue())
+						&& firstRtx.getName().equals(secondRtx.getName());
 				break;
 			case TEXT:
 			case COMMENT:
-				found = pFirstRtx.getValue().equals(pSecondRtx.getValue());
+				found = firstRtx.getValue().equals(secondRtx.getValue());
 				break;
 			default:
 				throw new IllegalStateException(

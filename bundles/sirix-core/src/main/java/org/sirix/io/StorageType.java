@@ -42,7 +42,7 @@ import org.sirix.io.file.FileStorage;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public enum EStorage {
+public enum StorageType {
   File {
     @Override
     public Storage getInstance(

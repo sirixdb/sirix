@@ -42,7 +42,7 @@ import org.sirix.page.NodePage;
 
 public class BerkeleyPersistentCacheTest {
 
-  private Cache<Long, PageContainer> cache;
+  private Cache<Long, NodePageContainer> cache;
   
   private Holder holder;
 
@@ -60,7 +60,7 @@ public class BerkeleyPersistentCacheTest {
   @Test
   public void test() {
     for (long i = 0; i < CacheTestHelper.PAGES.length; i++) {
-      final PageContainer cont = cache.get(i);
+      final NodePageContainer cont = cache.get(i);
       final NodePage current = (NodePage)cont.getComplete();
       assertEquals(CacheTestHelper.PAGES[(int)i][0], current);
     }

@@ -6,12 +6,12 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * Immutable document root node wrapper.
@@ -26,22 +26,22 @@ public class ImmutableDocument implements StructNode {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          mutable {@link DocumentRootNode}
 	 */
-	private ImmutableDocument(final @Nonnull DocumentRootNode pNode) {
-		mNode = checkNotNull(pNode);
+	private ImmutableDocument(final @Nonnull DocumentRootNode node) {
+		mNode = checkNotNull(node);
 	}
 
 	/**
 	 * Get an immutable document root node instance.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          the mutable {@link DocumentRootNode} to wrap
 	 * @return immutable document root node instance
 	 */
-	public static ImmutableDocument of(final @Nonnull DocumentRootNode pNode) {
-		return new ImmutableDocument(pNode);
+	public static ImmutableDocument of(final @Nonnull DocumentRootNode node) {
+		return new ImmutableDocument(node);
 	}
 
 	@Override
@@ -50,22 +50,22 @@ public class ImmutableDocument implements StructNode {
 	}
 
 	@Override
-	public void setTypeKey(int pTypeKey) {
+	public void setTypeKey(int typeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public boolean isSameItem(@Nullable Node pOther) {
+	public boolean isSameItem(Node other) {
 		return false;
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull IVisitor pVisitor) {
-		return pVisitor.visit(this);
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+		return visitor.visit(this);
 	}
 
 	@Override
-	public void setHash(long pHash) {
+	public void setHash(long hash) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -75,7 +75,7 @@ public class ImmutableDocument implements StructNode {
 	}
 
 	@Override
-	public void setParentKey(long pNodeKey) {
+	public void setParentKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -136,26 +136,26 @@ public class ImmutableDocument implements StructNode {
 
 	@Override
 	public long getLeftSiblingKey() {
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override
 	public long getRightSiblingKey() {
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override
-	public void setRightSiblingKey(long pNodeKey) {
+	public void setRightSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setLeftSiblingKey(long pNodeKey) {
+	public void setLeftSiblingKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void setFirstChildKey(long pNodeKey) {
+	public void setFirstChildKey(long nodeKey) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -180,7 +180,7 @@ public class ImmutableDocument implements StructNode {
 	}
 
 	@Override
-	public void setDescendantCount(long pDescendantCount) {
+	public void setDescendantCount(long descendantCount) {
 		throw new UnsupportedOperationException();
 	}
 }

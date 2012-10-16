@@ -61,14 +61,14 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.Session;
-import org.sirix.cache.PageContainer;
+import org.sirix.cache.NodePageContainer;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.PathSummary;
-import org.sirix.io.EStorage;
+import org.sirix.io.StorageType;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;
 import org.sirix.io.Writer;
@@ -169,7 +169,7 @@ public final class SessionImpl implements Session {
 		mWriteSemaphore = new Semaphore(pSessionConf.mWtxAllowed);
 		mReadSemaphore = new Semaphore(pSessionConf.mRtxAllowed);
 
-		mFac = EStorage.getStorage(mResourceConfig);
+		mFac = StorageType.getStorage(mResourceConfig);
 		if (mFac.exists()) {
 			final Reader reader = mFac.getReader();
 			final PageReference firstRef = reader.readFirstReference();
@@ -500,14 +500,14 @@ public final class SessionImpl implements Session {
 	 * Synchronize logs.
 	 * 
 	 * @param pContToSync
-	 *          {@link PageContainer} to synchronize
+	 *          {@link NodePageContainer} to synchronize
 	 * @param pTransactionId
 	 *          transaction ID
 	 * @throws SirixThreadedException
 	 * 
 	 */
 	protected synchronized void syncLogs(
-			final @Nonnull PageContainer pContToSync,
+			final @Nonnull NodePageContainer pContToSync,
 			final @Nonnegative long pTransactionID, final @Nonnull PageKind pPage)
 			throws SirixThreadedException {
 		final ExecutorService pool = Executors.newCachedThreadPool();
@@ -566,8 +566,8 @@ public final class SessionImpl implements Session {
 		/** {@link PageWriteTrx} to interact with the page layer. */
 		private final PageWriteTrx mPageWriteTrx;
 
-		/** {@link PageContainer} reference. */
-		private final PageContainer mCont;
+		/** {@link NodePageContainer} reference. */
+		private final NodePageContainer mCont;
 
 		/** Type of page. */
 		private final PageKind mPage;
@@ -578,12 +578,12 @@ public final class SessionImpl implements Session {
 		 * @param pPageWriteTransaction
 		 *          Sirix {@link PageWriteTrx}
 		 * @param pNodePageCont
-		 *          {@link PageContainer} to update
+		 *          {@link NodePageContainer} to update
 		 * @param pPage
 		 *          page type
 		 */
 		LogSyncer(final @Nonnull PageWriteTrx pPageWriteTransaction,
-				final @Nonnull PageContainer pNodePageCont, final @Nonnull PageKind pPage) {
+				final @Nonnull NodePageContainer pNodePageCont, final @Nonnull PageKind pPage) {
 			mPageWriteTrx = checkNotNull(pPageWriteTransaction);
 			mCont = checkNotNull(pNodePageCont);
 			mPage = checkNotNull(pPage);

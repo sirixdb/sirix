@@ -45,7 +45,7 @@ import org.sirix.gui.view.model.interfaces.TraverseModel;
 import org.sirix.gui.view.sunburst.Moved;
 import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.Item;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import processing.core.PConstants;
 
@@ -170,7 +170,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
   @Override
   protected long nextKey() {
     // Fail if there is no node anymore.
-    if (mNextKey == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+    if (mNextKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
     	return done();
     }
 
@@ -178,7 +178,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
 
     // Fail if the subtree is finished.
     if (getTrx().getLeftSiblingKey() == getStartKey()) {
-    	return EFixed.NULL_NODE_KEY.getStandardProperty();
+    	return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
 
     // Always follow first child if there is one.
@@ -245,7 +245,7 @@ public final class SunburstDescendantAxis extends AbsAxis implements PropertyCha
     } else {
       processMove();
       mChildExtension = mModel.createSunburstItem(mItem, mDepth, mIndex);
-      mNextKey = (Long)EFixed.NULL_NODE_KEY.getStandardProperty();
+      mNextKey = (Long)Fixed.NULL_NODE_KEY.getStandardProperty();
       return mNextKey;
     }
   }

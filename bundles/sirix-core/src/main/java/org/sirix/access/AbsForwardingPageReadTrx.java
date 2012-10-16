@@ -5,7 +5,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.Session;
-import org.sirix.cache.PageContainer;
+import org.sirix.cache.NodePageContainer;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
@@ -68,7 +68,7 @@ public abstract class AbsForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public PageContainer getNodeFromPage(@Nonnegative long key,
+	public NodePageContainer getNodeFromPage(@Nonnegative long key,
 			@Nonnull PageKind page) throws SirixIOException {
 		return delegate().getNodeFromPage(key, page);
 	}

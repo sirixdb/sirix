@@ -33,8 +33,8 @@ import java.util.Deque;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.api.NodeCursor;
-import org.sirix.settings.EFixed;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>DescendantAxis</h1>
@@ -57,7 +57,7 @@ public final class DescendantAxis extends AbsAxis {
    * @param rtx
    *          exclusive (immutable) trx to iterate with
    */
-  public DescendantAxis(final @Nonnull NodeCursor rtx) {
+  public DescendantAxis(final @Nonnull NodeReadTrx rtx) {
     super(rtx);
   }
 
@@ -69,7 +69,7 @@ public final class DescendantAxis extends AbsAxis {
    * @param includeSelf
    *          Is self included?
    */
-  public DescendantAxis(final @Nonnull NodeCursor rtx,
+  public DescendantAxis(final @Nonnull NodeReadTrx rtx,
     final @Nonnull IncludeSelf includeSelf) {
     super(rtx, includeSelf);
   }
@@ -83,7 +83,7 @@ public final class DescendantAxis extends AbsAxis {
 
   @Override
   protected long nextKey() {
-  	long key = EFixed.NULL_NODE_KEY.getStandardProperty();
+  	long key = Fixed.NULL_NODE_KEY.getStandardProperty();
  
     // Determines if first call to hasNext().
     if (mFirst) {

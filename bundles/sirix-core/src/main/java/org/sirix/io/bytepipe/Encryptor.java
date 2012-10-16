@@ -59,12 +59,12 @@ public class Encryptor implements ByteHandler {
   }
 
   @Override
-  public byte[] serialize(@Nonnull final byte[] pToSerialize)
+  public byte[] serialize(@Nonnull final byte[] toSerialize)
     throws SirixIOException {
     try {
       mCipher.init(Cipher.ENCRYPT_MODE, mKey);
 
-      byte[] toEncrypt = pToSerialize;
+      byte[] toEncrypt = toSerialize;
       for (int i = 0; i < ITERATIONS; i++) {
         byte[] encValue = mCipher.doFinal(toEncrypt);
         toEncrypt = encValue;
@@ -76,12 +76,12 @@ public class Encryptor implements ByteHandler {
   }
 
   @Override
-  public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
+  public byte[] deserialize(@Nonnull final byte[] toDeserialize)
     throws SirixIOException {
     try {
       mCipher.init(Cipher.DECRYPT_MODE, mKey);
 
-      byte[] toDecrypt = pToDeserialize;
+      byte[] toDecrypt = toDeserialize;
       for (int i = 0; i < ITERATIONS; i++) {
         byte[] decValue = mCipher.doFinal(toDecrypt);
         toDecrypt = decValue;

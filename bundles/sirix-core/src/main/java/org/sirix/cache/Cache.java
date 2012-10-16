@@ -56,29 +56,29 @@ public interface Cache<K, V> {
   /**
    * Getting a value related to a given key.
    * 
-   * @param pKey
-   *          the key for the requested {@link PageContainer}
-   * @return {@link PageContainer} instance related to this key
+   * @param key
+   *          the key for the requested {@link NodePageContainer}
+   * @return {@link NodePageContainer} instance related to this key
    */
-  V get(@Nonnull K pKey);
+  V get(@Nonnull K key);
 
   /**
    * Putting an key/value into the cache.
    * 
-   * @param pKey
+   * @param key
    *          for putting the page in the cache
-   * @param pValue
+   * @param value
    *          should be putted in the cache as well
    */
-  void put(@Nonnull K pKey, @Nonnull V pValue);
+  void put(@Nonnull K key, @Nonnull V value);
 
   /**
    * Put all entries from a map into the cache.
    * 
-   * @param pMap
+   * @param map
    *          map with entries to put into the cache
    */
-  void putAll(@Nonnull Map<K, V> pMap);
+  void putAll(@Nonnull Map<K, V> map);
 
   /**
    * Save all entries of this cache in the secondary cache without removing them.
@@ -97,10 +97,10 @@ public interface Cache<K, V> {
   /**
    * Remove key from storage.
    * 
-   * @param pKey
+   * @param key
    *          key to remove
    */
-  void remove(@Nonnull K pKey);
+  void remove(@Nonnull K key);
 
   /** Close a cache, might be a file handle for persistent caches. */
 	void close();

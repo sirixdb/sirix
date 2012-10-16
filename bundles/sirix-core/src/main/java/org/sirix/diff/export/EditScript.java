@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 import org.sirix.diff.DiffTuple;
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 
 /**
  * Builds an edit script.
@@ -83,15 +83,15 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
   /**
    * Checks if a node has been added(changed).
    * 
-   * @param paramKey
+   * @param key
    *          key of node
    * @return true if the changes {@link List} already contains the nodeKey, false otherwise
    */
-  public boolean containsNode(final long paramKey) {
-    if (paramKey < 0) {
+  public boolean containsNode(final long key) {
+    if (key < 0) {
       throw new IllegalArgumentException("paramKey may not be < 0!");
     }
-    return mChangeByNode.containsKey(paramKey);
+    return mChangeByNode.containsKey(key);
   }
 
   /**
@@ -116,29 +116,27 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
   /**
    * Adds a change to the edit script.
    * 
-   * @param paramChange
+   * @param change
    *          {@link DiffTuple} reference
    * @return the change
    */
-  public DiffTuple add(final DiffTuple paramChange) {
-    assert paramChange != null;
+  public DiffTuple add(final DiffTuple change) {
+    assert change != null;
     final long nodeKey =
-      paramChange.getDiff() == EDiff.DELETED ? paramChange.getOldNodeKey() : paramChange.getNewNodeKey();
+      change.getDiff() == DiffType.DELETED ? change.getOldNodeKey() : change.getNewNodeKey();
     if (mChangeByNode.containsKey(nodeKey)) {
-      return paramChange;
+      return change;
     }
 
-    mChanges.add(paramChange);
-    return mChangeByNode.put(nodeKey, paramChange);
+    mChanges.add(change);
+    return mChangeByNode.put(nodeKey, change);
   }
 
-  /** {@inheritDoc} */
   @Override
   public Iterator<DiffTuple> iterator() {
     return mChanges.iterator();
   }
 
-  /** {@inheritDoc} */
   @Override
   public boolean hasNext() {
     if (mIndex < mChanges.size() - 1) {
@@ -147,7 +145,6 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
     return false;
   }
 
-  /** {@inheritDoc} */
   @Override
   public DiffTuple next() {
     if (mIndex < mChanges.size()) {
@@ -157,7 +154,6 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
     }
   }
 
-  /** {@inheritDoc} */
   @Override
   public void remove() {
     throw new UnsupportedOperationException("Remove is not supported!");

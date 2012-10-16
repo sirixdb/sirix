@@ -34,12 +34,12 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 import com.google.common.base.Objects;
 
@@ -76,33 +76,33 @@ public class StructNodeDelegate extends AbsForwardingNode implements StructNode 
   /**
    * Constructor.
    * 
-   * @param pDel
+   * @param del
    *          {@link NodeDelegate} instance
-   * @param pFirstChild
+   * @param firstChild
    *          first child key
-   * @param pRightSib
+   * @param rightSib
    *          right sibling key
-   * @param pLeftSib
+   * @param leftSib
    *          left sibling key
-   * @param pChildCount
+   * @param childCount
    *          number of children of the node
-   * @param pDescendantCount
+   * @param descendantCount
    *          number of descendants of the node
    * @param pSiblingPos
    * 					sibling position
    */
-  public StructNodeDelegate(final @Nonnull NodeDelegate pDel,
-    final long pFirstChild, final long pRightSib, final long pLeftSib,
-    final @Nonnegative long pChildCount,
-    final @Nonnegative long pDescendantCount) {
-    checkArgument(pChildCount >= 0, "pChildCount must be >= 0!");
-    checkArgument(pDescendantCount >= 0, "pDescendantCount must be >= 0!");
-    mDelegate = checkNotNull(pDel);
-    mFirstChild = pFirstChild;
-    mRightSibling = pRightSib;
-    mLeftSibling = pLeftSib;
-    mChildCount = pChildCount;
-    mDescendantCount = pDescendantCount;
+  public StructNodeDelegate(final @Nonnull NodeDelegate del,
+    final long firstChild, final long rightSib, final long leftSib,
+    final @Nonnegative long childCount,
+    final @Nonnegative long descendantCount) {
+    checkArgument(childCount >= 0, "pChildCount must be >= 0!");
+    checkArgument(descendantCount >= 0, "pDescendantCount must be >= 0!");
+    mDelegate = checkNotNull(del);
+    mFirstChild = firstChild;
+    mRightSibling = rightSib;
+    mLeftSibling = leftSib;
+    mChildCount = childCount;
+    mDescendantCount = descendantCount;
   }
 
   @Override
@@ -112,17 +112,17 @@ public class StructNodeDelegate extends AbsForwardingNode implements StructNode 
 
   @Override
   public boolean hasFirstChild() {
-    return mFirstChild != EFixed.NULL_NODE_KEY.getStandardProperty();
+    return mFirstChild != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasLeftSibling() {
-    return mLeftSibling != EFixed.NULL_NODE_KEY.getStandardProperty();
+    return mLeftSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasRightSibling() {
-    return mRightSibling != EFixed.NULL_NODE_KEY.getStandardProperty();
+    return mRightSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -146,18 +146,18 @@ public class StructNodeDelegate extends AbsForwardingNode implements StructNode 
   }
 
   @Override
-  public void setRightSiblingKey(final long pKey) {
-    mRightSibling = pKey;
+  public void setRightSiblingKey(final long key) {
+    mRightSibling = key;
   }
 
   @Override
-  public void setLeftSiblingKey(final long pKey) {
-    mLeftSibling = pKey;
+  public void setLeftSiblingKey(final long key) {
+    mLeftSibling = key;
   }
 
   @Override
-  public void setFirstChildKey(final long pKey) {
-    mFirstChild = pKey;
+  public void setFirstChildKey(final long key) {
+    mFirstChild = key;
   }
 
   @Override
@@ -171,7 +171,7 @@ public class StructNodeDelegate extends AbsForwardingNode implements StructNode 
   }
 
   @Override
-  public VisitResultType acceptVisitor(final @Nonnull IVisitor pVisitor) {
+  public VisitResultType acceptVisitor(final @Nonnull Visitor pVisitor) {
     return mDelegate.acceptVisitor(pVisitor);
   }
 
@@ -182,9 +182,9 @@ public class StructNodeDelegate extends AbsForwardingNode implements StructNode 
   }
 
   @Override
-  public boolean equals(final Object pObj) {
-    if (pObj instanceof StructNodeDelegate) {
-      final StructNodeDelegate other = (StructNodeDelegate)pObj;
+  public boolean equals(final Object obj) {
+    if (obj instanceof StructNodeDelegate) {
+      final StructNodeDelegate other = (StructNodeDelegate)obj;
       return Objects.equal(mChildCount, other.mChildCount)
         && Objects.equal(mDelegate, other.mDelegate)
         && Objects.equal(mFirstChild, other.mFirstChild)
@@ -220,14 +220,14 @@ public class StructNodeDelegate extends AbsForwardingNode implements StructNode 
   }
 
   @Override
-  public void setDescendantCount(final @Nonnegative long pDescendantCount) {
-    checkArgument(pDescendantCount >= 0, "pDescendantCount must be >= 0!");
-    mDescendantCount = pDescendantCount;
+  public void setDescendantCount(final @Nonnegative long descendantCount) {
+    checkArgument(descendantCount >= 0, "pDescendantCount must be >= 0!");
+    mDescendantCount = descendantCount;
   }
 
   @Override
-  public boolean isSameItem(@Nullable final Node pOther) {
-    return mDelegate.isSameItem(pOther);
+  public boolean isSameItem(@Nullable final Node other) {
+    return mDelegate.isSameItem(other);
   }
 
   @Override

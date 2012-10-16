@@ -29,10 +29,9 @@ package org.sirix.axis;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>ParentAxis</h1>
@@ -48,16 +47,16 @@ public final class ParentAxis extends AbsAxis {
   /**
    * Constructor initializing internal state.
    * 
-   * @param pRtx
+   * @param rtx
    *          exclusive (immutable) trx to iterate with.
    */
-  public ParentAxis(@Nonnull final NodeCursor pRtx) {
-    super(pRtx);
+  public ParentAxis(@Nonnull final NodeReadTrx rtx) {
+    super(rtx);
   }
 
   @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
     mFirst = true;
   }
   
@@ -65,7 +64,7 @@ public final class ParentAxis extends AbsAxis {
   protected long nextKey() {
     final NodeReadTrx rtx = getTrx();
     if (rtx.getKind() != Kind.DOCUMENT_ROOT && mFirst && rtx.hasParent()
-      && rtx.getParentKey() != EFixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+      && rtx.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
       mFirst = false;
       return rtx.getParentKey();
     }

@@ -38,13 +38,13 @@ import javax.xml.namespace.QName;
 
 import org.sirix.access.Utils;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.immutable.ImmutableElement;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 import com.google.common.base.Objects;
@@ -79,26 +79,26 @@ public final class ElementNode extends AbsStructForwardingNode implements
 	/**
 	 * Constructor
 	 * 
-	 * @param pNodeDel
-	 *          {@link NodeDelegate} to be set
-	 * @param pStructDel
+	 * @param structDel
 	 *          {@link StructNodeDelegate} to be set
-	 * @param pNameDel
+	 * @param nameDel
 	 *          {@link NameNodeDelegate} to be set
-	 * @param pAttributeKeys
-	 *          keys of attributes to be set
+	 * @param attributeKeys
+	 *          list of attribute keys
+	 * @param attributes
+	 *          attribute nameKey / nodeKey mapping in both directions
 	 * @param pNamespaceKeys
 	 *          keys of namespaces to be set
 	 */
-	public ElementNode(@Nonnull final StructNodeDelegate pStructDel,
-			@Nonnull final NameNodeDelegate pNameDel,
-			@Nonnull final List<Long> pAttributeKeys,
-			@Nonnull final BiMap<Integer, Long> pAttributes,
+	public ElementNode(@Nonnull final StructNodeDelegate structDel,
+			@Nonnull final NameNodeDelegate nameDel,
+			@Nonnull final List<Long> attributeKeys,
+			@Nonnull final BiMap<Integer, Long> attributes,
 			@Nonnull final List<Long> pNamespaceKeys) {
-		mStructNodeDel = checkNotNull(pStructDel);
-		mNameDel = checkNotNull(pNameDel);
-		mAttributeKeys = checkNotNull(pAttributeKeys);
-		mAttributes = checkNotNull(pAttributes);
+		mStructNodeDel = checkNotNull(structDel);
+		mNameDel = checkNotNull(nameDel);
+		mAttributeKeys = checkNotNull(attributeKeys);
+		mAttributes = checkNotNull(attributes);
 		mNamespaceKeys = checkNotNull(pNamespaceKeys);
 	}
 
@@ -114,63 +114,63 @@ public final class ElementNode extends AbsStructForwardingNode implements
 	/**
 	 * Getting the attribute key for an given index.
 	 * 
-	 * @param pIndex
+	 * @param index
 	 *          index of the attribute
 	 * @return the attribute key
 	 */
-	public long getAttributeKey(final int pIndex) {
-		if (mAttributeKeys.size() <= pIndex) {
-			return EFixed.NULL_NODE_KEY.getStandardProperty();
+	public long getAttributeKey(final @Nonnegative int index) {
+		if (mAttributeKeys.size() <= index) {
+			return Fixed.NULL_NODE_KEY.getStandardProperty();
 		}
-		return mAttributeKeys.get(pIndex);
+		return mAttributeKeys.get(index);
 	}
 
 	/**
 	 * Getting the attribute key by name (from the dictionary).
 	 * 
-	 * @param pNameIndex
-	 *          name index
-	 * @return the attribute key
+	 * @param name
+	 *          the attribute-name to lookup
+	 * @return the attribute key associated with the name
 	 */
-	public Optional<Long> getAttributeKeyByName(@Nonnull final QName pQName) {
+	public Optional<Long> getAttributeKeyByName(final @Nonnull QName name) {
 		final int nameIndex = NamePageHash.generateHashForString(Utils
-				.buildName(pQName));
+				.buildName(name));
 		return Optional.fromNullable(mAttributes.get(nameIndex));
 	}
 
 	/**
 	 * Get name key by node key.
 	 * 
-	 * @param pKey
+	 * @param key
 	 *          node key
 	 * @return optional name key
 	 */
-	public Optional<Integer> getAttributeNameKey(final @Nonnegative long pKey) {
-		return Optional.fromNullable(mAttributes.inverse().get(pKey));
+	public Optional<Integer> getAttributeNameKey(final @Nonnegative long key) {
+		return Optional.fromNullable(mAttributes.inverse().get(key));
 	}
 
 	/**
 	 * Inserting an attribute.
 	 * 
-	 * @param pAttrKey
+	 * @param attrKey
 	 *          the new attribute key
-	 * @param pNameIndex
+	 * @param nameIndex
 	 *          index mapping to name string
 	 */
-	public void insertAttribute(final long pAttrKey, final int pNameIndex) {
-		mAttributeKeys.add(pAttrKey);
-		mAttributes.put(pNameIndex, pAttrKey);
+	public void insertAttribute(final long attrKey, final int nameIndex) {
+		mAttributeKeys.add(attrKey);
+		mAttributes.put(nameIndex, attrKey);
 	}
 
 	/**
 	 * Removing an attribute.
 	 * 
-	 * @param pAttrKey
+	 * @param attrKey
 	 *          the key of the attribute to be removed
 	 */
-	public void removeAttribute(final long pAttrKey) {
-		mAttributeKeys.remove(pAttrKey);
-		mAttributes.inverse().remove(pAttrKey);
+	public void removeAttribute(final long attrKey) {
+		mAttributeKeys.remove(attrKey);
+		mAttributes.inverse().remove(attrKey);
 	}
 
 	/**
@@ -185,35 +185,35 @@ public final class ElementNode extends AbsStructForwardingNode implements
 	/**
 	 * Getting the namespace key for a given index.
 	 * 
-	 * @param pNamespaceKey
+	 * @param namespaceKey
 	 *          index of the namespace
 	 * @return the namespace key
 	 */
-	public long getNamespaceKey(final int pNamespaceKey) {
-		if (mNamespaceKeys.size() <= pNamespaceKey) {
-			return EFixed.NULL_NODE_KEY.getStandardProperty();
+	public long getNamespaceKey(final @Nonnegative int namespaceKey) {
+		if (mNamespaceKeys.size() <= namespaceKey) {
+			return Fixed.NULL_NODE_KEY.getStandardProperty();
 		}
-		return mNamespaceKeys.get(pNamespaceKey);
+		return mNamespaceKeys.get(namespaceKey);
 	}
 
 	/**
 	 * Inserting a namespace.
 	 * 
-	 * @param pNamespaceKey
+	 * @param namespaceKey
 	 *          new namespace key
 	 */
-	public void insertNamespace(final long pNamespaceKey) {
-		mNamespaceKeys.add(pNamespaceKey);
+	public void insertNamespace(final long namespaceKey) {
+		mNamespaceKeys.add(namespaceKey);
 	}
 
 	/**
 	 * Removing a namepsace.
 	 * 
-	 * @param pNamespaceKey
+	 * @param namespaceKey
 	 *          the key of the namespace to be removed
 	 */
-	public void removeNamespace(final long pNamespaceKey) {
-		mNamespaceKeys.remove(pNamespaceKey);
+	public void removeNamespace(final long namespaceKey) {
+		mNamespaceKeys.remove(namespaceKey);
 	}
 
 	@Override
@@ -227,13 +227,13 @@ public final class ElementNode extends AbsStructForwardingNode implements
 	}
 
 	@Override
-	public void setNameKey(final int pNameKey) {
-		mNameDel.setNameKey(pNameKey);
+	public void setNameKey(final int nameKey) {
+		mNameDel.setNameKey(nameKey);
 	}
 
 	@Override
-	public void setURIKey(final int pUriKey) {
-		mNameDel.setURIKey(pUriKey);
+	public void setURIKey(final int uriKey) {
+		mNameDel.setURIKey(uriKey);
 	}
 
 	@Override
@@ -250,8 +250,8 @@ public final class ElementNode extends AbsStructForwardingNode implements
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-		return pVisitor.visit(ImmutableElement.of(this));
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+		return visitor.visit(ImmutableElement.of(this));
 	}
 
 	@Override
@@ -260,9 +260,9 @@ public final class ElementNode extends AbsStructForwardingNode implements
 	}
 
 	@Override
-	public boolean equals(final Object pObj) {
-		if (pObj instanceof ElementNode) {
-			final ElementNode other = (ElementNode) pObj;
+	public boolean equals(final Object obj) {
+		if (obj instanceof ElementNode) {
+			final ElementNode other = (ElementNode) obj;
 			return Objects.equal(delegate(), other.delegate())
 					&& Objects.equal(mNameDel, other.mNameDel);
 		}
@@ -308,8 +308,8 @@ public final class ElementNode extends AbsStructForwardingNode implements
 	}
 
 	@Override
-	public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
-		mNameDel.setPathNodeKey(pPathNodeKey);
+	public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+		mNameDel.setPathNodeKey(pathNodeKey);
 	}
 
 	@Override

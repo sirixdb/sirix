@@ -31,9 +31,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.immutable.ImmutableNamespace;
@@ -59,15 +60,15 @@ public final class NamespaceNode extends AbsForwardingNode implements NameNode {
   /**
    * Constructor.
    * 
-   * @param pDel
+   * @param nodeDel
    *          {@link NodeDelegate} reference
-   * @param pNameDel
+   * @param nameDel
    *          {@link NameNodeDelegate} reference
    */
-  public NamespaceNode(@Nonnull final NodeDelegate pDel,
-    @Nonnull final NameNodeDelegate pNameDel) {
-    mNodeDel = checkNotNull(pDel);
-    mNameDel = checkNotNull(pNameDel);
+  public NamespaceNode(final @Nonnull NodeDelegate nodeDel,
+    final @Nonnull NameNodeDelegate nameDel) {
+    mNodeDel = checkNotNull(nodeDel);
+    mNameDel = checkNotNull(nameDel);
   }
 
   @Override
@@ -81,8 +82,8 @@ public final class NamespaceNode extends AbsForwardingNode implements NameNode {
   }
 
   @Override
-  public void setNameKey(final int pNameKey) {
-    mNameDel.setNameKey(pNameKey);
+  public void setNameKey(final int nameKey) {
+    mNameDel.setNameKey(nameKey);
   }
 
   @Override
@@ -91,13 +92,13 @@ public final class NamespaceNode extends AbsForwardingNode implements NameNode {
   }
 
   @Override
-  public void setURIKey(final int pUriKey) {
-    mNameDel.setURIKey(pUriKey);
+  public void setURIKey(final int uriKey) {
+    mNameDel.setURIKey(uriKey);
   }
 
   @Override
-  public VisitResult acceptVisitor(@Nonnull final IVisitor pVisitor) {
-  	return pVisitor.visit(ImmutableNamespace.of(this));
+  public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+  	return visitor.visit(ImmutableNamespace.of(this));
   }
 
   @Override
@@ -106,9 +107,9 @@ public final class NamespaceNode extends AbsForwardingNode implements NameNode {
   }
 
   @Override
-  public boolean equals(final Object pObj) {
-    if (pObj instanceof NamespaceNode) {
-      final NamespaceNode other = (NamespaceNode)pObj;
+  public boolean equals(final @Nullable Object obj) {
+    if (obj instanceof NamespaceNode) {
+      final NamespaceNode other = (NamespaceNode)obj;
       return Objects.equal(mNodeDel, other.mNodeDel)
         && Objects.equal(mNameDel, other.mNameDel);
     }
@@ -122,8 +123,8 @@ public final class NamespaceNode extends AbsForwardingNode implements NameNode {
   }
   
   @Override
-  public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
-    mNameDel.setPathNodeKey(pPathNodeKey);
+  public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+    mNameDel.setPathNodeKey(pathNodeKey);
   }
 
   @Override

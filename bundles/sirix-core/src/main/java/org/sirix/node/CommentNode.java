@@ -6,7 +6,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
@@ -14,7 +14,7 @@ import org.sirix.node.immutable.ImmutableComment;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValNode;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 import com.google.common.base.Objects;
 
@@ -40,15 +40,15 @@ public class CommentNode extends AbsStructForwardingNode implements ValNode {
 	 * 
 	 * @param pDel
 	 *          delegate for {@link Node} implementation
-	 * @param pValDel
+	 * @param valDel
 	 *          delegate for {@link ValNode} implementation
-	 * @param pStructDel
+	 * @param structDel
 	 *          delegate for {@link StructNode} implementation
 	 */
-	public CommentNode(final @Nonnull ValNodeDelegate pValDel,
-			final @Nonnull StructNodeDelegate pStructDel) {
-		mStructNodeDel = checkNotNull(pStructDel);
-		mValDel = checkNotNull(pValDel);
+	public CommentNode(final @Nonnull ValNodeDelegate valDel,
+			final @Nonnull StructNodeDelegate structDel) {
+		mStructNodeDel = checkNotNull(structDel);
+		mValDel = checkNotNull(valDel);
 	}
 
 	@Override
@@ -65,19 +65,19 @@ public class CommentNode extends AbsStructForwardingNode implements ValNode {
 	}
 
 	@Override
-	public void setValue(final @Nonnull byte[] pVal) {
+	public void setValue(final @Nonnull byte[] value) {
 		mValue = null;
-		mValDel.setValue(pVal);
+		mValDel.setValue(value);
 	}
 
 	@Override
 	public long getFirstChildKey() {
-		return EFixed.NULL_NODE_KEY.getStandardProperty();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
-		return pVisitor.visit(ImmutableComment.of(this));
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+		return visitor.visit(ImmutableComment.of(this));
 	}
 
 	@Override
@@ -106,7 +106,7 @@ public class CommentNode extends AbsStructForwardingNode implements ValNode {
 	}
 
 	@Override
-	public void setDescendantCount(final long pDescendantCount) {
+	public void setDescendantCount(final long descendantCount) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -116,9 +116,9 @@ public class CommentNode extends AbsStructForwardingNode implements ValNode {
 	}
 
 	@Override
-	public boolean equals(final @Nullable Object pObj) {
-		if (pObj instanceof CommentNode) {
-			final CommentNode other = (CommentNode) pObj;
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof CommentNode) {
+			final CommentNode other = (CommentNode) obj;
 			return Objects.equal(mStructNodeDel.getNodeDelegate(),
 					other.getNodeDelegate())
 					&& mValDel.equals(other.mValDel);

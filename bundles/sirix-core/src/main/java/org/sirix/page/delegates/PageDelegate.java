@@ -62,19 +62,19 @@ public class PageDelegate implements Page {
 	/**
 	 * Constructor to initialize instance.
 	 * 
-	 * @param pReferenceCount
+	 * @param referenceCount
 	 *          number of references of page
-	 * @param pRevision
+	 * @param revision
 	 *          revision number
 	 */
-	public PageDelegate(@Nonnegative final int pReferenceCount,
-			@Nonnegative final int pRevision) {
-		checkArgument(pReferenceCount >= 0);
-		checkArgument(pRevision >= 0);
-		mReferences = new PageReference[pReferenceCount];
-		mRevision = pRevision;
+	public PageDelegate(final @Nonnegative int referenceCount,
+			final @Nonnegative int revision) {
+		checkArgument(referenceCount >= 0);
+		checkArgument(revision >= 0);
+		mReferences = new PageReference[referenceCount];
+		mRevision = revision;
 		mIsDirty = true;
-		for (int i = 0; i < pReferenceCount; i++) {
+		for (int i = 0; i < referenceCount; i++) {
 			mReferences[i] = new PageReference();
 		}
 	}
@@ -82,51 +82,51 @@ public class PageDelegate implements Page {
 	/**
 	 * Constructor to initialize instance.
 	 * 
-	 * @param pReferenceCount
+	 * @param referenceCount
 	 *          number of references of page
-	 * @param pIn
+	 * @param in
 	 *          input stream to read from
 	 */
-	public PageDelegate(final @Nonnegative int pReferenceCount,
-			final @Nonnull ByteArrayDataInput pIn) {
-		checkArgument(pReferenceCount >= 0);
-		mReferences = new PageReference[pReferenceCount];
-		mRevision = pIn.readInt();
+	public PageDelegate(final @Nonnegative int referenceCount,
+			final @Nonnull ByteArrayDataInput in) {
+		checkArgument(referenceCount >= 0);
+		mReferences = new PageReference[referenceCount];
+		mRevision = in.readInt();
 		mIsDirty = false;
 		for (int offset = 0; offset < mReferences.length; offset++) {
 			mReferences[offset] = new PageReference();
-			mReferences[offset].setKey(pIn.readLong());
+			mReferences[offset].setKey(in.readLong());
 		}
 	}
 
 	/**
 	 * Constructor to initialize instance.
 	 * 
-	 * @param pCommitedPage
+	 * @param commitedPage
 	 *          commited page
-	 * @param pRevision
+	 * @param revision
 	 *          revision number
 	 */
-	public PageDelegate(final @Nonnull Page pCommitedPage,
-			final @Nonnegative int pRevision) {
-		checkArgument(pRevision >= 0);
-		mReferences = pCommitedPage.getReferences();
+	public PageDelegate(final @Nonnull Page commitedPage,
+			final @Nonnegative int revision) {
+		checkArgument(revision >= 0);
+		mReferences = commitedPage.getReferences();
 		mIsDirty = true;
-		mRevision = pRevision;
+		mRevision = revision;
 	}
 
 	/**
 	 * Get page reference of given offset.
 	 * 
-	 * @param pOffset
+	 * @param offset
 	 *          offset of page reference
 	 * @return {@link PageReference} at given offset
 	 */
-	public final PageReference getReference(@Nonnegative final int pOffset) {
-		if (mReferences[pOffset] == null) {
-			mReferences[pOffset] = new PageReference();
+	public final PageReference getReference(final @Nonnegative int offset) {
+		if (mReferences[offset] == null) {
+			mReferences[offset] = new PageReference();
 		}
-		return mReferences[pOffset];
+		return mReferences[offset];
 	}
 
 	/**
@@ -138,24 +138,24 @@ public class PageDelegate implements Page {
 	 *           if a write-error occured
 	 */
 	@Override
-	public final void commit(final @Nonnull PageWriteTrx pPageWriteTrx)
+	public final void commit(final @Nonnull PageWriteTrx pageWriteTrx)
 			throws SirixException {
 		for (final PageReference reference : mReferences) {
-			pPageWriteTrx.commit(reference);
+			pageWriteTrx.commit(reference);
 		}
 	}
 
 	/**
 	 * Serialize page references into output.
 	 * 
-	 * @param pOut
+	 * @param out
 	 *          output stream
 	 */
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
-		pOut.writeInt(mRevision);
+	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+		out.writeInt(mRevision);
 		for (final PageReference reference : mReferences) {
-			pOut.writeLong(reference.getKey());
+			out.writeLong(reference.getKey());
 		}
 	}
 

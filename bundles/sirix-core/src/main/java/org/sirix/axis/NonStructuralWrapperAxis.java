@@ -38,8 +38,10 @@ import org.sirix.api.NodeReadTrx;
  * <h1>NonStructuralWrapperAxis</h1>
  * 
  * <p>
- * Adds non-structural nodes to an axis.
+ * Adds non-structural nodes (that is namespaces and attributes) to an axis.
  * </p>
+ * 
+ * @author Johannes Lichtenberger
  */
 public final class NonStructuralWrapperAxis extends AbsAxis {
 
@@ -52,27 +54,24 @@ public final class NonStructuralWrapperAxis extends AbsAxis {
 	/** Attribute index. */
 	private int mAttIndex;
 
-	/** First run. */
-	private boolean mFirst;
-
 	/**
 	 * Constructor initializing internal state.
 	 * 
-	 * @param pParentAxis
+	 * @param parentAxis
 	 *          inner nested axis
 	 * @param pChildAxis
 	 *          outer nested axis
 	 */
-	public NonStructuralWrapperAxis(@Nonnull final Axis pParentAxis) {
-		super(pParentAxis.getTrx());
-		mParentAxis = checkNotNull(pParentAxis);
+	public NonStructuralWrapperAxis(final @Nonnull Axis parentAxis) {
+		super(parentAxis.getTrx());
+		mParentAxis = checkNotNull(parentAxis);
 	}
 
 	@Override
-	public void reset(final long pNodeKey) {
-		super.reset(pNodeKey);
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
 		if (mParentAxis != null) {
-			mParentAxis.reset(pNodeKey);
+			mParentAxis.reset(nodeKey);
 		}
 	}
 

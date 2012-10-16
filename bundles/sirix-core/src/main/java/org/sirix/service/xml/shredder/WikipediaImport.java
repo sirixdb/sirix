@@ -114,46 +114,52 @@ public final class WikipediaImport implements Import<StartElement> {
 	/** Timestamp of each revision as a simple String. */
 	private transient String mTimestamp;
 
-	/** sirix {@link Database}. */
+	/** Sirix {@link Database}. */
 	private final Database mDatabase;
 
-	public enum EDateBy {
+	/** Revision-timespan by date. */
+	public enum DateBy {
+		/** By seconds. */
 		SECONDS,
 
+		/** By minutes. */
 		MINUTES,
 
+		/** By hours. */
 		HOURS,
 
+		/** By days. */
 		DAYS,
 
+		/** By months. */
 		MONTHS
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param pXMLFile
+	 * @param xmlFile
 	 *          The XML file to import.
-	 * @param pTTDir
+	 * @param sirixDatabase
 	 *          The sirix destination storage directory.
 	 * 
 	 */
-	public WikipediaImport(final File pXMLFile, final File pTTDir)
+	public WikipediaImport(final File xmlFile, final File sirixDatabase)
 			throws SirixException {
 		mPageEvents = new ArrayDeque<>();
 		final XMLInputFactory xmlif = XMLInputFactory.newInstance();
 		try {
 			mReader = xmlif.createXMLEventReader(new FileInputStream(
-					checkNotNull(pXMLFile)));
+					checkNotNull(xmlFile)));
 		} catch (XMLStreamException | FileNotFoundException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
 
-		final DatabaseConfiguration config = new DatabaseConfiguration(pTTDir);
+		final DatabaseConfiguration config = new DatabaseConfiguration(sirixDatabase);
 		DatabaseImpl.createDatabase(config);
-		mDatabase = DatabaseImpl.openDatabase(pTTDir);
+		mDatabase = DatabaseImpl.openDatabase(sirixDatabase);
 		mDatabase.createResource(new ResourceConfiguration.Builder("shredded",
-				config).useCompression(false).build());
+				config).useTextCompression(false).build());
 		mSession = mDatabase
 				.getSession(new SessionConfiguration.Builder("shredded").build());
 		mWtx = mSession.beginNodeWriteTrx();
@@ -162,7 +168,7 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Import data.
 	 * 
-	 * @param pDateRange
+	 * @param dateRange
 	 *          <p>
 	 *          Date range, the following values are possible:
 	 *          </p>
@@ -177,7 +183,7 @@ public final class WikipediaImport implements Import<StartElement> {
 	 *          <dd>monthly revisions</dd>
 	 *          </dl>
 	 * 
-	 * @param pData
+	 * @param data
 	 *          <p>
 	 *          List of {@link StartElement}s with the following meaning:
 	 *          </p>
@@ -195,17 +201,17 @@ public final class WikipediaImport implements Import<StartElement> {
 	 *          </dl>
 	 */
 	@Override
-	public void importData(final EDateBy pDateRange,
-			final List<StartElement> pData) {
+	public void importData(final DateBy dateRange,
+			final List<StartElement> data) {
 		// Some checks.
-		checkNotNull(pDateRange);
-		checkNotNull(pData);
-		checkArgument(pData.size() == 5, "paramData must have 5 elements!");
+		checkNotNull(dateRange);
+		checkNotNull(data);
+		checkArgument(data.size() == 5, "paramData must have 5 elements!");
 
-		final StartElement timestamp = pData.get(0);
-		final StartElement page = pData.get(1);
-		final StartElement rev = pData.get(2);
-		final StartElement id = pData.get(3);
+		final StartElement timestamp = data.get(0);
+		final StartElement page = data.get(1);
+		final StartElement rev = data.get(2);
+		final StartElement id = data.get(3);
 		// final StartElement text = pData.get(4);
 
 		// Initialize variables.
@@ -232,7 +238,7 @@ public final class WikipediaImport implements Import<StartElement> {
 						isFirst = false;
 						mIsRev = true;
 					} else {
-						parseStartTag(event, timestamp, page, rev, id, pDateRange);
+						parseStartTag(event, timestamp, page, rev, id, dateRange);
 					}
 
 					break;
@@ -296,7 +302,7 @@ public final class WikipediaImport implements Import<StartElement> {
 		DatabaseImpl.createDatabase(dbConf);
 		final Database db = DatabaseImpl.openDatabase(TMP_PATH.toFile());
 		db.createResource(new ResourceConfiguration.Builder("wiki", dbConf)
-				.useCompression(false).build());
+				.useTextCompression(false).build());
 		final Session session = db.getSession(new SessionConfiguration.Builder(
 				"wiki").build());
 		if (mPageEvents.peek().isStartElement()
@@ -330,18 +336,18 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Parses a start tag.
 	 * 
-	 * @param pEvent
-	 *          Current StAX {@link XMLEvent}.
-	 * @param pTimestamp
-	 *          Timestamp start tag {@link StartElement}.
-	 * @param pPage
-	 *          Page start tag {@link StartElement}.
-	 * @param pRev
-	 *          Revision start tag {@link StartElement}.
-	 * @param pID
-	 *          Page-ID start tag {@link StartElement}.
-	 * @param pDateRange
-	 *          Date range, the following values are possible:
+	 * @param startTagEvent
+	 *          current StAX {@link XMLEvent}
+	 * @param timestamp
+	 *          timestamp start tag {@link StartElement}
+	 * @param wikiPage
+	 *          wikipedia page start tag {@link StartElement}
+	 * @param revision
+	 *          revision start tag {@link StartElement}
+	 * @param pageID
+	 *          page-ID start tag {@link StartElement}
+	 * @param dateRange
+	 *          date range, the following values are possible:
 	 *          <dl>
 	 *          <dt>h</dt>
 	 *          <dd>hourly revisions</dd>
@@ -357,20 +363,20 @@ public final class WikipediaImport implements Import<StartElement> {
 	 * @throws SirixException
 	 *           In case of any sirix errors.
 	 */
-	private void parseStartTag(final XMLEvent pEvent,
-			final StartElement pTimestamp, final StartElement pPage,
-			final StartElement pRev, final StartElement pID, final EDateBy pDateRange)
+	private void parseStartTag(final XMLEvent startTagEvent,
+			final StartElement timestamp, final StartElement wikiPage,
+			final StartElement revision, final StartElement pageID, final DateBy dateRange)
 			throws XMLStreamException, SirixException {
-		XMLEvent event = pEvent;
+		XMLEvent event = startTagEvent;
 
-		if (checkStAXStartElement(event.asStartElement(), pID)) {
+		if (checkStAXStartElement(event.asStartElement(), pageID)) {
 			event = mReader.nextEvent();
 			mPageEvents.add(event);
 
 			if (!mIsRev) {
 				mIdText = event.asCharacters().getData();
 			}
-		} else if (checkStAXStartElement(event.asStartElement(), pTimestamp)) {
+		} else if (checkStAXStartElement(event.asStartElement(), timestamp)) {
 			// Timestamp start tag found.
 			event = mReader.nextEvent();
 			mPageEvents.add(event);
@@ -379,9 +385,9 @@ public final class WikipediaImport implements Import<StartElement> {
 
 			// Timestamp.
 			if (mTimestamp == null) {
-				mTimestamp = parseTimestamp(pDateRange, currTimestamp);
-			} else if (!parseTimestamp(pDateRange, currTimestamp).equals(mTimestamp)) {
-				mTimestamp = parseTimestamp(pDateRange, currTimestamp);
+				mTimestamp = parseTimestamp(dateRange, currTimestamp);
+			} else if (!parseTimestamp(dateRange, currTimestamp).equals(mTimestamp)) {
+				mTimestamp = parseTimestamp(dateRange, currTimestamp);
 				mWtx.commit();
 				mWtx.close();
 				mWtx = mSession.beginNodeWriteTrx();
@@ -390,8 +396,8 @@ public final class WikipediaImport implements Import<StartElement> {
 			assert mIdText != null;
 
 			// Search for existing page.
-			final QName page = pPage.getName();
-			final QName id = pID.getName();
+			final QName page = wikiPage.getName();
+			final QName id = pageID.getName();
 			final String query = "//" + qNameToString(page) + "[fn:string("
 					+ qNameToString(id) + ") = '" + mIdText + "']";
 			mWtx.moveToDocumentRoot();
@@ -411,7 +417,7 @@ public final class WikipediaImport implements Import<StartElement> {
 				assert resCounter == 1;
 
 				// Make sure the transaction is on the page element found.
-				assert mWtx.getName().equals(pPage.getName());
+				assert mWtx.getName().equals(wikiPage.getName());
 				key = mWtx.getNodeKey();
 			}
 			mWtx.moveTo(key);
@@ -422,34 +428,34 @@ public final class WikipediaImport implements Import<StartElement> {
 	 * Parses a given Timestamp-String to extract time interval which is used
 	 * (simple String value to improve performance).
 	 * 
-	 * @param pDateRange
+	 * @param dateRange
 	 *          date Range which is used for revisioning
-	 * @param pTimestamp
+	 * @param timestamp
 	 *          the timestamp to parse
 	 * @return parsed and truncated String
 	 */
-	private String parseTimestamp(final EDateBy pDateRange,
-			final String pTimestamp) {
+	private String parseTimestamp(final DateBy dateRange,
+			final String timestamp) {
 		final StringBuilder sb = new StringBuilder();
 
-		switch (pDateRange) {
+		switch (dateRange) {
 		case SECONDS:
-			sb.append(pTimestamp);
+			sb.append(timestamp);
 			break;
 		case HOURS:
-			final String[] splittedHour = pTimestamp.split(":");
+			final String[] splittedHour = timestamp.split(":");
 			sb.append(splittedHour[0]);
 			sb.append(":");
 			sb.append(splittedHour[1]);
 			break;
 		case DAYS:
-			final String[] splittedDay = pTimestamp.split("T");
+			final String[] splittedDay = timestamp.split("T");
 			sb.append(splittedDay[0]);
 			break;
 		case MINUTES:
 			throw new UnsupportedOperationException("Not supported right now!");
 		case MONTHS:
-			final String[] splittedMonth = pTimestamp.split("-");
+			final String[] splittedMonth = timestamp.split("-");
 			sb.append(splittedMonth[0]);
 			sb.append("-");
 			sb.append(splittedMonth[1]);
@@ -464,28 +470,28 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Determines if the current event is a whitespace event.
 	 * 
-	 * @param pEvent
+	 * @param event
 	 *          {@link XMLEvent} to check.
 	 * @return true if it is whitespace, otherwise false.
 	 */
-	private boolean isWhitespace(final XMLEvent pEvent) {
-		return pEvent.isCharacters() && pEvent.asCharacters().isWhiteSpace();
+	private boolean isWhitespace(final XMLEvent event) {
+		return event.isCharacters() && event.asCharacters().isWhiteSpace();
 	}
 
 	/**
 	 * Get prefix:localname or localname String representation of a qName.
 	 * 
-	 * @param pQName
+	 * @param name
 	 *          the full qualified name
 	 * @return string representation
 	 */
-	private static String qNameToString(final QName pQName) {
+	private static String qNameToString(final QName name) {
 		final StringBuilder retVal = new StringBuilder();
-		if ("".equals(pQName.getPrefix())) {
-			retVal.append(pQName.getLocalPart());
+		if ("".equals(name.getPrefix())) {
+			retVal.append(name.getLocalPart());
 		} else {
-			retVal.append(pQName.getPrefix()).append(":")
-					.append(pQName.getLocalPart());
+			retVal.append(name.getPrefix()).append(":")
+					.append(name.getLocalPart());
 		}
 		return retVal.toString();
 	}
@@ -493,50 +499,50 @@ public final class WikipediaImport implements Import<StartElement> {
 	/**
 	 * Moves {@link NodeWriteTrx} to last shreddered article/page.
 	 * 
-	 * @param pPage
+	 * @param page
 	 *          {@link StartElement} page
 	 */
-	private void moveToLastPage(final StartElement pPage) {
-		assert pPage != null;
+	private void moveToLastPage(final StartElement page) {
+		assert page != null;
 		// All subsequent shredders, move cursor to the end.
 		mWtx.moveToFirstChild();
 		mWtx.moveToFirstChild();
 
 		assert mWtx.getKind() == Kind.ELEMENT;
-		assert mWtx.getName().equals(pPage.getName());
+		assert mWtx.getName().equals(page.getName());
 		while (mWtx.hasRightSibling()) {
 			mWtx.moveToRightSibling();
 		}
 		assert mWtx.getKind() == Kind.ELEMENT;
-		assert mWtx.getName().equals(pPage.getName());
+		assert mWtx.getName().equals(page.getName());
 	}
 
 	/**
 	 * Check if start element of two StAX parsers match.
 	 * 
-	 * @param mStartTag
+	 * @param startTag
 	 *          StartTag of the StAX parser, where it is currently (the "real"
-	 *          StAX parser over the whole document).
-	 * @param mElem
-	 *          StartTag to check against.
+	 *          StAX parser over the whole document)
+	 * @param elem
+	 *          StartTag to check against
 	 * @return {@code true} if start elements match, {@code false} otherwise
 	 * @throws XMLStreamException
 	 *           handling XML Stream Exception
 	 */
-	private static boolean checkStAXStartElement(final StartElement mStartTag,
-			final StartElement mElem) throws XMLStreamException {
-		assert mStartTag != null && mElem != null;
+	private static boolean checkStAXStartElement(final StartElement startTag,
+			final StartElement elem) throws XMLStreamException {
+		assert startTag != null && elem != null;
 		boolean retVal = false;
-		if (mStartTag.getEventType() == XMLStreamConstants.START_ELEMENT
-				&& mStartTag.getName().equals(mElem.getName())) {
+		if (startTag.getEventType() == XMLStreamConstants.START_ELEMENT
+				&& startTag.getName().equals(elem.getName())) {
 			// Check attributes.
 			boolean foundAtts = false;
 			boolean hasAtts = false;
-			for (final Iterator<?> itStartTag = mStartTag.getAttributes(); itStartTag
+			for (final Iterator<?> itStartTag = startTag.getAttributes(); itStartTag
 					.hasNext();) {
 				hasAtts = true;
 				final Attribute attStartTag = (Attribute) itStartTag.next();
-				for (final Iterator<?> itElem = mElem.getAttributes(); itElem.hasNext();) {
+				for (final Iterator<?> itElem = elem.getAttributes(); itElem.hasNext();) {
 					final Attribute attElem = (Attribute) itElem.next();
 					if (attStartTag.getName().equals(attElem.getName())
 							&& attStartTag.getName().equals(attElem.getName())) {
@@ -556,11 +562,11 @@ public final class WikipediaImport implements Import<StartElement> {
 			// Check namespaces.
 			boolean foundNamesps = false;
 			boolean hasNamesps = false;
-			for (final Iterator<?> itStartTag = mStartTag.getNamespaces(); itStartTag
+			for (final Iterator<?> itStartTag = startTag.getNamespaces(); itStartTag
 					.hasNext();) {
 				hasNamesps = true;
 				final Namespace nsStartTag = (Namespace) itStartTag.next();
-				for (final Iterator<?> itElem = mElem.getNamespaces(); itElem.hasNext();) {
+				for (final Iterator<?> itElem = elem.getNamespaces(); itElem.hasNext();) {
 					final Namespace nsElem = (Namespace) itElem.next();
 					if (nsStartTag.getName().equals(nsElem.getName())
 							&& nsStartTag.getName().equals(nsElem.getName())) {
@@ -595,7 +601,7 @@ public final class WikipediaImport implements Import<StartElement> {
 	 * @throws SirixException
 	 *           if anything within sirix fails
 	 */
-	public static void main(final String... args) throws SirixException {
+	public static void main(final String[] args) throws SirixException {
 		if (args.length != 2) {
 			throw new IllegalArgumentException(
 					"Usage: WikipediaImport path/to/xmlFile path/to/TTStorage");
@@ -631,7 +637,7 @@ public final class WikipediaImport implements Import<StartElement> {
 		list.add(text);
 
 		// Invoke import.
-		new WikipediaImport(xml, tnk).importData(EDateBy.HOURS, list);
+		new WikipediaImport(xml, tnk).importData(DateBy.HOURS, list);
 
 		LOGWRAPPER.info(" done in " + (System.nanoTime() - start) / 1_000_000_000
 				+ "[s].");

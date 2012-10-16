@@ -48,8 +48,8 @@ public interface ValNode extends Node {
   /**
    * Setting the value key.
    * 
-   * @param pValue
+   * @param value
    *          the value to be set
    */
-  void setValue(@Nonnull byte[] pValue);
+  void setValue(@Nonnull byte[] value);
 }

@@ -34,7 +34,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
-import org.sirix.settings.IConstants;
+import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
 import com.google.common.io.ByteArrayDataInput;
@@ -81,13 +81,13 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	 * Create revision root page.
 	 */
 	public RevisionRootPage() {
-		mDelegate = new PageDelegate(4, IConstants.UBP_ROOT_REVISION_NUMBER);
+		mDelegate = new PageDelegate(4, Constants.UBP_ROOT_REVISION_NUMBER);
 		getReference(NAME_REFERENCE_OFFSET).setPage(
-				new NamePage(IConstants.UBP_ROOT_REVISION_NUMBER));
+				new NamePage(Constants.UBP_ROOT_REVISION_NUMBER));
 		getReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(
-				new PathSummaryPage(IConstants.UBP_ROOT_REVISION_NUMBER));
+				new PathSummaryPage(Constants.UBP_ROOT_REVISION_NUMBER));
 		getReference(VALUE_REFERENCE_OFFSET).setPage(
-				new ValuePage(IConstants.UBP_ROOT_REVISION_NUMBER));
+				new ValuePage(Constants.UBP_ROOT_REVISION_NUMBER));
 		mMaxNodeKey = -1L;
 		mMaxPathNodeKey = -1L;
 		mMaxValueNodeKey = -1L;
@@ -96,33 +96,33 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	/**
 	 * Read revision root page.
 	 * 
-	 * @param pIn
+	 * @param in
 	 *          input stream
 	 */
-	protected RevisionRootPage(final @Nonnull ByteArrayDataInput pIn) {
-		mDelegate = new PageDelegate(4, pIn);
-		mMaxNodeKey = pIn.readLong();
-		mMaxPathNodeKey = pIn.readLong();
-		mMaxValueNodeKey = pIn.readLong();
-		mRevisionTimestamp = pIn.readLong();
+	protected RevisionRootPage(final @Nonnull ByteArrayDataInput in) {
+		mDelegate = new PageDelegate(4, in);
+		mMaxNodeKey = in.readLong();
+		mMaxPathNodeKey = in.readLong();
+		mMaxValueNodeKey = in.readLong();
+		mRevisionTimestamp = in.readLong();
 	}
 
 	/**
 	 * Clone revision root page.
 	 * 
-	 * @param pCommittedRevisionRootPage
+	 * @param committedRevisionRootPage
 	 *          page to clone
-	 * @param pRevisionToUse
+	 * @param revisionToUse
 	 *          revision number to use
 	 */
 	public RevisionRootPage(
-			@Nonnull final RevisionRootPage pCommittedRevisionRootPage,
-			final int pRevisionToUse) {
-		mDelegate = new PageDelegate(pCommittedRevisionRootPage, pRevisionToUse);
-		mMaxNodeKey = pCommittedRevisionRootPage.mMaxNodeKey;
-		mMaxPathNodeKey = pCommittedRevisionRootPage.mMaxPathNodeKey;
-		mMaxValueNodeKey = pCommittedRevisionRootPage.mMaxValueNodeKey;
-		mRevisionTimestamp = pCommittedRevisionRootPage.mRevisionTimestamp;
+			@Nonnull final RevisionRootPage committedRevisionRootPage,
+			final int revisionToUse) {
+		mDelegate = new PageDelegate(committedRevisionRootPage, revisionToUse);
+		mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;
+		mMaxPathNodeKey = committedRevisionRootPage.mMaxPathNodeKey;
+		mMaxValueNodeKey = committedRevisionRootPage.mMaxValueNodeKey;
+		mRevisionTimestamp = committedRevisionRootPage.mRevisionTimestamp;
 	}
 
 	/**
@@ -221,31 +221,31 @@ public final class RevisionRootPage extends AbsForwardingPage {
 	/**
 	 * Set the maximum node key in the revision.
 	 * 
-	 * @param pMaxNodeKey
+	 * @param maxNodeKey
 	 *          new maximum node key
 	 */
-	public void setMaxNodeKey(final @Nonnegative long pMaxNodeKey) {
-		mMaxNodeKey = pMaxNodeKey;
+	public void setMaxNodeKey(final @Nonnegative long maxNodeKey) {
+		mMaxNodeKey = maxNodeKey;
 	}
 
 	/**
 	 * Set the maximum path node key in the revision.
 	 * 
-	 * @param pMaxNodeKey
+	 * @param maxNodeKey
 	 *          new maximum node key
 	 */
-	public void setMaxPathNodeKey(final @Nonnegative long pMaxNodeKey) {
-		mMaxPathNodeKey = pMaxNodeKey;
+	public void setMaxPathNodeKey(final @Nonnegative long maxNodeKey) {
+		mMaxPathNodeKey = maxNodeKey;
 	}
 
 	/**
 	 * Set the maximum value node key in the revision.
 	 * 
-	 * @param pMaxNodeKey
+	 * @param maxNodeKey
 	 *          new maximum node key
 	 */
-	public void setMaxValueNodeKey(final @Nonnegative long pMaxNodeKey) {
-		mMaxValueNodeKey = pMaxNodeKey;
+	public void setMaxValueNodeKey(final @Nonnegative long maxNodeKey) {
+		mMaxValueNodeKey = maxNodeKey;
 	}
 
 	@Override

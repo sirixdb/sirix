@@ -11,7 +11,7 @@ import java.util.concurrent.RecursiveTask;
 import org.slf4j.LoggerFactory;
 import org.sirix.diff.DiffTuple;
 import org.sirix.diff.DiffDepth;
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.view.model.interfaces.TraverseModel;
 import org.sirix.utils.LogWrapper;
@@ -87,8 +87,8 @@ public final class Modifications extends RecursiveTask<Modification> implements 
     assert paramIndex >= 0;
     assert paramDiffCounts >= 0;
     int diffCounts = paramDiffCounts;
-    if (paramIndex < mDiffs.size() && mDiffs.get(paramIndex).getDiff() != EDiff.SAME
-      && mDiffs.get(paramIndex).getDiff() != EDiff.SAMEHASH) {
+    if (paramIndex < mDiffs.size() && mDiffs.get(paramIndex).getDiff() != DiffType.SAME
+      && mDiffs.get(paramIndex).getDiff() != DiffType.SAMEHASH) {
       diffCounts++;
     }
     return diffCounts;
@@ -104,9 +104,9 @@ public final class Modifications extends RecursiveTask<Modification> implements 
   public Modification countDiffs() throws SirixException {
     int index = mIndex;
     final DiffTuple diffCont = mDiffs.get(index);
-    final EDiff diff = diffCont.getDiff();
+    final DiffType diff = diffCont.getDiff();
     final int rootDepth =
-      (diff == EDiff.DELETED || diff == EDiff.MOVEDFROM || diff == EDiff.REPLACEDOLD) ? diffCont.getDepth()
+      (diff == DiffType.DELETED || diff == DiffType.MOVEDFROM || diff == DiffType.REPLACEDOLD) ? diffCont.getDepth()
         .getOldDepth() : diffCont.getDepth().getNewDepth();
 
     int diffCounts = 0;
@@ -119,7 +119,7 @@ public final class Modifications extends RecursiveTask<Modification> implements 
     if (diffCounts == 1 && index < mDiffs.size()) {
       final DiffTuple cont = mDiffs.get(index);
       final int depth =
-        (cont.getDiff() == EDiff.DELETED || cont.getDiff() == EDiff.MOVEDFROM || cont.getDiff() == EDiff.REPLACEDOLD)
+        (cont.getDiff() == DiffType.DELETED || cont.getDiff() == DiffType.MOVEDFROM || cont.getDiff() == DiffType.REPLACEDOLD)
           ? cont.getDepth().getOldDepth() : cont.getDepth().getNewDepth();
       if (depth == rootDepth + 1) {
         // Current node is modified and has at least one child.
@@ -130,17 +130,17 @@ public final class Modifications extends RecursiveTask<Modification> implements 
     boolean done = false;
     while (!done && index < mDiffs.size()) {
       final DiffTuple currDiffCont = mDiffs.get(index);
-      final EDiff currDiff = currDiffCont.getDiff();
+      final DiffType currDiff = currDiffCont.getDiff();
       final DiffDepth currDepth = currDiffCont.getDepth();
       final int depth =
-        (currDiff == EDiff.DELETED || currDiff == EDiff.MOVEDFROM || currDiff == EDiff.REPLACEDOLD)
+        (currDiff == DiffType.DELETED || currDiff == DiffType.MOVEDFROM || currDiff == DiffType.REPLACEDOLD)
           ? currDepth.getOldDepth() : currDepth.getNewDepth();
       if (depth <= rootDepth) {
         done = true;
       }
       if (!done) {
         descendantCounts++;
-        if (currDiff != EDiff.SAME && currDiff != EDiff.SAMEHASH) {
+        if (currDiff != DiffType.SAME && currDiff != DiffType.SAMEHASH) {
           diffCounts++;
         }
         index++;

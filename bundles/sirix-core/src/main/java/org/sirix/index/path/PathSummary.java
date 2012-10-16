@@ -16,7 +16,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.Session;
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
@@ -27,8 +27,8 @@ import org.sirix.node.interfaces.NodeBase;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
-import org.sirix.settings.EFixed;
-import org.sirix.settings.IConstants;
+import org.sirix.settings.Fixed;
+import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.Util;
@@ -65,20 +65,20 @@ public final class PathSummary implements NodeReadTrx {
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pPageReadTrx
+	 * @param pageReadTrx
 	 *          page reader
-	 * @param pSession
+	 * @param session
 	 *          {@link Session} reference
 	 */
-	private PathSummary(final @Nonnull PageReadTrx pPageReadTrx,
-			final @Nonnull Session pSession) {
-		mPageReadTrx = pPageReadTrx;
+	private PathSummary(final @Nonnull PageReadTrx pageReadTrx,
+			final @Nonnull Session session) {
+		mPageReadTrx = pageReadTrx;
 		mClosed = false;
-		mSession = pSession;
+		mSession = session;
 		try {
-			final Optional<? extends NodeBase> node = mPageReadTrx
-					.getNode(EFixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-							PageKind.PATHSUMMARYPAGE);
+			final Optional<? extends NodeBase> node = mPageReadTrx.getNode(
+					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+					PageKind.PATHSUMMARYPAGE);
 			if (node.isPresent()) {
 				mCurrentNode = (Node) node.get();
 			} else {
@@ -89,7 +89,7 @@ public final class PathSummary implements NodeReadTrx {
 			LOGWRAPPER.error(e.getMessage(), e.getCause());
 		}
 	}
-	
+
 	@Override
 	public boolean isValueNode() {
 		return false;
@@ -98,13 +98,13 @@ public final class PathSummary implements NodeReadTrx {
 	/**
 	 * Get a new path summary instance.
 	 * 
-	 * @param pPageReadTrx
+	 * @param pageReadTrx
 	 *          {@link IPageReaderTrx} implementation
 	 * @return new path summary instance
 	 */
 	public static final PathSummary getInstance(
-			final @Nonnull PageReadTrx pPageReadTrx, final @Nonnull Session pSession) {
-		return new PathSummary(checkNotNull(pPageReadTrx), checkNotNull(pSession));
+			final @Nonnull PageReadTrx pageReadTrx, final @Nonnull Session session) {
+		return new PathSummary(checkNotNull(pageReadTrx), checkNotNull(session));
 	}
 
 	@Override
@@ -113,12 +113,12 @@ public final class PathSummary implements NodeReadTrx {
 		// FIXME: Do not expose a mutable node.
 		return mCurrentNode;
 	}
-	
+
 	@Override
 	public boolean hasAttributes() {
 		return getStructuralNode().hasFirstChild();
 	}
-	
+
 	@Override
 	public boolean hasChildren() {
 		return getStructuralNode().getChildCount() > 0;
@@ -219,15 +219,16 @@ public final class PathSummary implements NodeReadTrx {
 		}
 	}
 
-	public void setCurrentNode(@Nonnull final PathNode pNode) {
-		mCurrentNode = checkNotNull(pNode);
-	}
-
 	@Override
 	public Move<? extends PathSummary> moveToDocumentRoot() {
-		return moveTo(EFixed.DOCUMENT_NODE_KEY.getStandardProperty());
+		return moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 	}
 
+	/**
+	 * Get the current node as a structural node.
+	 * 
+	 * @return structural node
+	 */
 	private StructNode getStructuralNode() {
 		if (mCurrentNode instanceof StructNode) {
 			return (StructNode) mCurrentNode;
@@ -257,17 +258,17 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToAttribute(@Nonnegative int pIndex) {
+	public Move<? extends PathSummary> moveToAttribute(@Nonnegative int index) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToAttributeByName(@Nonnull QName pName) {
+	public Move<? extends PathSummary> moveToAttributeByName(@Nonnull QName name) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToNamespace(@Nonnegative int pIndex) {
+	public Move<? extends PathSummary> moveToNamespace(@Nonnegative int index) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -309,25 +310,25 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public String nameForKey(int pKey) {
+	public String nameForKey(int key) {
 		assertNotClosed();
 		if (mCurrentNode instanceof PathNode) {
 			final PathNode node = (PathNode) mCurrentNode;
-			return mPageReadTrx.getName(pKey, node.getPathKind());
+			return mPageReadTrx.getName(key, node.getPathKind());
 		} else {
 			return "";
 		}
 	}
 
 	@Override
-	public byte[] rawNameForKey(int pKey) {
+	public byte[] rawNameForKey(int key) {
 		assertNotClosed();
 		if (mCurrentNode instanceof PathNode) {
 			final PathNode node = (PathNode) mCurrentNode;
-			return mPageReadTrx.getName(pKey, node.getPathKind()).getBytes(
-					IConstants.DEFAULT_ENCODING);
+			return mPageReadTrx.getName(key, node.getPathKind()).getBytes(
+					Constants.DEFAULT_ENCODING);
 		} else {
-			return "".getBytes(IConstants.DEFAULT_ENCODING);
+			return "".getBytes(Constants.DEFAULT_ENCODING);
 		}
 	}
 
@@ -370,9 +371,9 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public int getNameCount(@Nonnull String pName, @Nonnull Kind pKind) {
-		return mPageReadTrx.getNameCount(NamePageHash.generateHashForString(pName),
-				pKind);
+	public int getNameCount(@Nonnull String name, @Nonnull Kind kind) {
+		return mPageReadTrx.getNameCount(NamePageHash.generateHashForString(name),
+				kind);
 	}
 
 	@Override
@@ -402,9 +403,9 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public boolean hasNode(final @Nonnegative long pKey) {
+	public boolean hasNode(final @Nonnegative long key) {
 		final long currNodeKey = mCurrentNode.getNodeKey();
-		final boolean retVal = moveTo(pKey).hasMoved();
+		final boolean retVal = moveTo(key).hasMoved();
 		final boolean movedBack = moveTo(currNodeKey).hasMoved();
 		assert movedBack : "moveTo(currNodeKey) must succeed!";
 		return retVal;
@@ -436,7 +437,7 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(final @Nonnull IVisitor pVisitor) {
+	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -507,7 +508,7 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public long getAttributeKey(final @Nonnegative int pIndex) {
+	public long getAttributeKey(final @Nonnegative int index) {
 		return -1;
 	}
 
@@ -571,22 +572,22 @@ public final class PathSummary implements NodeReadTrx {
 	public String getNamespaceURI() {
 		return null;
 	}
-	
+
 	@Override
 	public Kind getFirstChildKind() {
 		return Kind.PATH;
 	}
-	
+
 	@Override
 	public Kind getLastChildKind() {
 		return Kind.PATH;
 	}
-	
+
 	@Override
 	public Kind getLeftSiblingKind() {
 		return Kind.PATH;
 	}
-	
+
 	@Override
 	public Kind getParentKind() {
 		if (mCurrentNode.getKind() == Kind.DOCUMENT_ROOT) {
@@ -594,7 +595,7 @@ public final class PathSummary implements NodeReadTrx {
 		}
 		return Kind.PATH;
 	}
-	
+
 	@Override
 	public Kind getRightSiblingKind() {
 		return Kind.PATH;

@@ -42,7 +42,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.Axis;
 import org.sirix.exception.SirixException;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 public class AbsAxisTest {
 
@@ -92,7 +92,7 @@ public class AbsAxisTest {
     int offset = 0;
 
     try {
-      while (axis.next() != EFixed.NULL_NODE_KEY.getStandardProperty()) {
+      while (axis.next() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
         // IAxis results.
         assertTrue(offset < expectedKeys.length);
         keys[offset++] = axis.getTrx().getNodeKey();

@@ -32,19 +32,19 @@ public class TextValue implements Comparable<NodeBase>, NodeBase {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          the String value in bytes
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          the unique node-key
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          the path node-key
 	 */
-	public TextValue(final @Nonnull byte[] pValue,
-			final @Nonnegative long pNodeKey, final @Nonnegative long pPathNodeKey) {
-		mValue = checkNotNull(pValue);
-		checkArgument(pNodeKey >= 0, "pNodeKey must be >= 0!");
-		mNodeKey = pNodeKey;
-		mPathNodeKey = pPathNodeKey;
+	public TextValue(final @Nonnull byte[] value,
+			final @Nonnegative long nodeKey, final @Nonnegative long pathNodeKey) {
+		mValue = checkNotNull(value);
+		checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
+		mNodeKey = nodeKey;
+		mPathNodeKey = pathNodeKey;
 	}
 
 	/**
@@ -57,8 +57,8 @@ public class TextValue implements Comparable<NodeBase>, NodeBase {
 	}
 
 	@Override
-	public int compareTo(final @Nullable NodeBase pOther) {
-		final TextValue value = (TextValue) pOther;
+	public int compareTo(final @Nullable NodeBase other) {
+		final TextValue value = (TextValue) other;
 		return new String(mValue).compareTo(new String(value.mValue));
 	}
 	
@@ -68,9 +68,9 @@ public class TextValue implements Comparable<NodeBase>, NodeBase {
 	}
 
 	@Override
-	public boolean equals(final @Nullable Object pObj) {
-		if (pObj instanceof TextValue) {
-			final TextValue otherValue = (TextValue) pObj;
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof TextValue) {
+			final TextValue otherValue = (TextValue) obj;
 			return Arrays.equals(otherValue.mValue, mValue);
 		}
 		return false;

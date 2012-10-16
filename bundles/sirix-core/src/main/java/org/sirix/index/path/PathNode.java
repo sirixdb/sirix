@@ -8,7 +8,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbsStructForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -18,141 +18,196 @@ import org.sirix.node.interfaces.NameNode;
 
 import com.google.common.base.Objects;
 
+/**
+ * Path node in the {@link PathSummary}.
+ * 
+ * @author Johannes Lichtenberger
+ * 
+ */
 public class PathNode extends AbsStructForwardingNode implements NameNode {
 
-  private final NodeDelegate mNodeDel;
-  private final StructNodeDelegate mStructNodeDel;
-  private final NameNodeDelegate mNameNodeDel;
-  private final Kind mKind;
-  private int mReferences;
-  private int mLevel;
+	/** {@link NodeDelegate} instance. */
+	private final NodeDelegate mNodeDel;
 
-  public PathNode(@Nonnull final NodeDelegate pNodeDel,
-    @Nonnull final StructNodeDelegate pStructNodeDel,
-    @Nonnull final NameNodeDelegate pNameNodeDel, @Nonnull final Kind pKind,
-    @Nonnegative final int pReferences, @Nonnegative final int pLevel) {
-    mNodeDel = checkNotNull(pNodeDel);
-    mStructNodeDel = checkNotNull(pStructNodeDel);
-    mNameNodeDel = checkNotNull(pNameNodeDel);
-    mKind = checkNotNull(pKind);
-    checkArgument(pReferences > 0, "pReferences must be > 0!");
-    mReferences = pReferences;
-    mLevel = pLevel;
-  }
+	/** {@link StructNodeDelegate} instance. */
+	private final StructNodeDelegate mStructNodeDel;
 
-  public int getLevel() {
-    return mLevel;
-  }
+	/** {@link NameNodeDelegate} instance. */
+	private final NameNodeDelegate mNameNodeDel;
 
-  public int getReferences() {
-    return mReferences;
-  }
+	/** Kind of node to index. */
+	private final Kind mKind;
 
-  public void setReferenceCount(final @Nonnegative int pReferences) {
-    checkArgument(pReferences > 0, "pReferences must be > 0!");
-    mReferences = pReferences;
-  }
+	/** Number of references to this path node. */
+	private int mReferences;
 
-  public void incrementReferenceCount() {
-    mReferences++;
-  }
+	/** Level of this path node. */
+	private int mLevel;
 
-  public void decrementReferenceCount() {
-    if (mReferences <= 1) {
-      throw new IllegalStateException();
-    }
-    mReferences--;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param nodeDel
+	 *          {@link NodeDelegate} instance
+	 * @param structNodeDel
+	 *          {@link StructNodeDelegate} instance
+	 * @param nameNodeDel
+	 *          {@link NameNodeDelegate} instance
+	 * @param kind
+	 *          kind of node to index
+	 * @param references
+	 *          number of references to this path node
+	 * @param level
+	 *          level of this path node
+	 */
+	public PathNode(@Nonnull final NodeDelegate nodeDel,
+			@Nonnull final StructNodeDelegate structNodeDel,
+			@Nonnull final NameNodeDelegate nameNodeDel, @Nonnull final Kind kind,
+			@Nonnegative final int references, @Nonnegative final int level) {
+		mNodeDel = checkNotNull(nodeDel);
+		mStructNodeDel = checkNotNull(structNodeDel);
+		mNameNodeDel = checkNotNull(nameNodeDel);
+		mKind = checkNotNull(kind);
+		checkArgument(references > 0, "pReferences must be > 0!");
+		mReferences = references;
+		mLevel = level;
+	}
 
-  /**
-   * Get the kind of path (element, attribute or namespace).
-   * 
-   * @return path kind
-   */
-  public Kind getPathKind() {
-    return mKind;
-  }
+	/**
+	 * Level of this path node.
+	 * 
+	 * @return level of this path node
+	 */
+	public int getLevel() {
+		return mLevel;
+	}
 
-  @Override
-  public Kind getKind() {
-    return Kind.PATH;
-  }
+	/**
+	 * Get the number of references to this path node.
+	 * 
+	 * @return number of references
+	 */
+	public int getReferences() {
+		return mReferences;
+	}
 
-  @Override
-  public int getNameKey() {
-    return mNameNodeDel.getNameKey();
-  }
+	/**
+	 * Set the reference count.
+	 * 
+	 * @param references
+	 *          number of references
+	 */
+	public void setReferenceCount(final @Nonnegative int references) {
+		checkArgument(references > 0, "pReferences must be > 0!");
+		mReferences = references;
+	}
 
-  @Override
-  public int getURIKey() {
-    return mNameNodeDel.getURIKey();
-  }
+	/**
+	 * Increment the reference count.
+	 */
+	public void incrementReferenceCount() {
+		mReferences++;
+	}
 
-  @Override
-  public void setNameKey(final int pNameKey) {
-    mNameNodeDel.setNameKey(pNameKey);
-  }
+	/**
+	 * Decrement the reference count.
+	 */
+	public void decrementReferenceCount() {
+		if (mReferences <= 1) {
+			throw new IllegalStateException();
+		}
+		mReferences--;
+	}
 
-  @Override
-  public void setURIKey(final int pUriKey) {
-    mNameNodeDel.setURIKey(pUriKey);
-  }
+	/**
+	 * Get the kind of path (element, attribute or namespace).
+	 * 
+	 * @return path kind
+	 */
+	public Kind getPathKind() {
+		return mKind;
+	}
 
-  @Override
-  public VisitResultType acceptVisitor(final @Nonnull IVisitor pVisitor) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public Kind getKind() {
+		return Kind.PATH;
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
-  }
+	@Override
+	public int getNameKey() {
+		return mNameNodeDel.getNameKey();
+	}
 
-  @Override
-  protected NodeDelegate delegate() {
-    return mNodeDel;
-  }
+	@Override
+	public int getURIKey() {
+		return mNameNodeDel.getURIKey();
+	}
 
-  /**
-   * Get the name node delegate.
-   * 
-   * @return name node delegate.
-   */
-  public NameNodeDelegate getNameNodeDelegate() {
-    return mNameNodeDel;
-  }
+	@Override
+	public void setNameKey(final int nameKey) {
+		mNameNodeDel.setNameKey(nameKey);
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mNodeDel, mNameNodeDel);
-  }
+	@Override
+	public void setURIKey(final int uriKey) {
+		mNameNodeDel.setURIKey(uriKey);
+	}
 
-  @Override
-  public boolean equals(@Nullable Object pObj) {
-    if (pObj instanceof PathNode) {
-      final PathNode other = (PathNode)pObj;
-      return Objects.equal(mNodeDel, other.mNodeDel)
-        && Objects.equal(mNameNodeDel, other.mNameNodeDel);
-    }
-    return false;
-  }
+	@Override
+	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("node delegate", mNodeDel).add(
-      "struct delegate", mStructNodeDel).add("name delegate", mNameNodeDel)
-      .add("references", mReferences).add("kind", mKind).add("level", mLevel)
-      .toString();
-  }
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return mStructNodeDel;
+	}
 
-  @Override
-  public void setPathNodeKey(final long pNodeKey) {
-  	throw new UnsupportedOperationException();
-  }
+	@Override
+	protected NodeDelegate delegate() {
+		return mNodeDel;
+	}
 
-  @Override
-  public long getPathNodeKey() {
-    throw new UnsupportedOperationException();
-  }
+	/**
+	 * Get the name node delegate.
+	 * 
+	 * @return name node delegate.
+	 */
+	public NameNodeDelegate getNameNodeDelegate() {
+		return mNameNodeDel;
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mNodeDel, mNameNodeDel);
+	}
+
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof PathNode) {
+			final PathNode other = (PathNode) obj;
+			return Objects.equal(mNodeDel, other.mNodeDel)
+					&& Objects.equal(mNameNodeDel, other.mNameNodeDel);
+		}
+		return false;
+	}
+
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("node delegate", mNodeDel)
+				.add("struct delegate", mStructNodeDel)
+				.add("name delegate", mNameNodeDel).add("references", mReferences)
+				.add("kind", mKind).add("level", mLevel).toString();
+	}
+
+	@Override
+	public void setPathNodeKey(final long pNodeKey) {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public long getPathNodeKey() {
+		throw new UnsupportedOperationException();
+	}
 
 }

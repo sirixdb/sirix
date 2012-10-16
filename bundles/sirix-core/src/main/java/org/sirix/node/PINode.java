@@ -7,7 +7,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -40,20 +40,20 @@ public final class PINode extends AbsStructForwardingNode implements ValNode,
 	/**
 	 * Creating an attribute.
 	 * 
-	 * @param pStructDel
+	 * @param structDel
 	 *          {@link StructNodeDelegate} to be set
-	 * @param pNameDel
+	 * @param nameDel
 	 *          {@link NameNodeDelegate} to be set
-	 * @param pValDel
+	 * @param valDel
 	 *          {@link ValNodeDelegate} to be set
 	 * 
 	 */
-	public PINode(@Nonnull final StructNodeDelegate pStructDel,
-			@Nonnull final NameNodeDelegate pNameDel,
-			@Nonnull final ValNodeDelegate pValDel) {
-		mStructDel = checkNotNull(pStructDel);
-		mNameDel = checkNotNull(pNameDel);
-		mValDel = pValDel;
+	public PINode(@Nonnull final StructNodeDelegate structDel,
+			@Nonnull final NameNodeDelegate nameDel,
+			@Nonnull final ValNodeDelegate valDel) {
+		mStructDel = checkNotNull(structDel);
+		mNameDel = checkNotNull(nameDel);
+		mValDel = valDel;
 	}
 
 	@Override
@@ -62,8 +62,8 @@ public final class PINode extends AbsStructForwardingNode implements ValNode,
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull IVisitor pVisitor) {
-		return pVisitor.visit(ImmutablePI.of(this));
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+		return visitor.visit(ImmutablePI.of(this));
 	}
 
 	@Override
@@ -83,13 +83,13 @@ public final class PINode extends AbsStructForwardingNode implements ValNode,
 	}
 
 	@Override
-	public void setNameKey(final int pNameKey) {
-		mNameDel.setNameKey(pNameKey);
+	public void setNameKey(final int nameKey) {
+		mNameDel.setNameKey(nameKey);
 	}
 
 	@Override
-	public void setURIKey(final int pUriKey) {
-		mNameDel.setURIKey(pUriKey);
+	public void setURIKey(final int uriKey) {
+		mNameDel.setURIKey(uriKey);
 	}
 
 	@Override
@@ -98,8 +98,8 @@ public final class PINode extends AbsStructForwardingNode implements ValNode,
 	}
 
 	@Override
-	public void setValue(@Nonnull final byte[] pVal) {
-		mValDel.setValue(pVal);
+	public void setValue(final @Nonnull byte[] value) {
+		mValDel.setValue(value);
 	}
 
 	@Override
@@ -108,19 +108,18 @@ public final class PINode extends AbsStructForwardingNode implements ValNode,
 	}
 
 	@Override
-	public boolean equals(@Nullable final Object pObj) {
-		boolean retVal = false;
-		if (pObj instanceof PINode) {
-			final PINode other = (PINode) pObj;
-			retVal = Objects.equal(mNameDel, other.mNameDel)
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof PINode) {
+			final PINode other = (PINode) obj;
+			return Objects.equal(mNameDel, other.mNameDel)
 					&& Objects.equal(mValDel, other.mValDel);
 		}
-		return retVal;
+		return false;
 	}
 
 	@Override
-	public void setPathNodeKey(@Nonnegative final long pPathNodeKey) {
-		mNameDel.setPathNodeKey(pPathNodeKey);
+	public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+		mNameDel.setPathNodeKey(pathNodeKey);
 	}
 
 	@Override

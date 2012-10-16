@@ -11,7 +11,7 @@ import javax.xml.namespace.QName;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * Skeleton implementation of {@link Shredder} interface methods.
@@ -41,21 +41,21 @@ public abstract class AbsShredder implements Shredder<String, QName> {
 	 * @throws NullPointerException
 	 *           if {@code pWtx} is {@code null}
 	 */
-	public AbsShredder(final @Nonnull NodeWriteTrx pWtx,
-			final @Nonnull Insert pInsertLocation) {
-		mWtx = checkNotNull(pWtx);
-		mInsertLocation = checkNotNull(pInsertLocation);
+	public AbsShredder(final @Nonnull NodeWriteTrx wtx,
+			final @Nonnull Insert insertLocation) {
+		mWtx = checkNotNull(wtx);
+		mInsertLocation = checkNotNull(insertLocation);
 		mParents = new ArrayDeque<>();
-		mParents.push(EFixed.NULL_NODE_KEY.getStandardProperty());
+		mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
 	}
 
 	@Override
-	public void processComment(final @Nonnull String pValue)
+	public void processComment(final @Nonnull String commentValue)
 			throws SirixException {
-		final String value = checkNotNull(pValue);
+		final String value = checkNotNull(commentValue);
 		long key;
 		if (!value.isEmpty()) {
-			if (mParents.peek() == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+			if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 				key = mWtx.insertCommentAsFirstChild(value).getNodeKey();
 			} else {
 				key = mWtx.insertCommentAsRightSibling(value).getNodeKey();
@@ -67,13 +67,13 @@ public abstract class AbsShredder implements Shredder<String, QName> {
 	}
 
 	@Override
-	public void processPI(final @Nonnull String pContent,
-			final @Nonnull String pTarget) throws SirixException {
-		final String content = checkNotNull(pContent);
-		final String target = checkNotNull(pTarget);
+	public void processPI(final @Nonnull String processingContent,
+			final @Nonnull String processingTarget) throws SirixException {
+		final String content = checkNotNull(processingContent);
+		final String target = checkNotNull(processingTarget);
 		long key;
 		if (!target.isEmpty()) {
-			if (mParents.peek() == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+			if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 				key = mWtx.insertPIAsFirstChild(target, content).getNodeKey();
 			} else {
 				key = mWtx.insertPIAsRightSibling(target, content).getNodeKey();
@@ -85,11 +85,11 @@ public abstract class AbsShredder implements Shredder<String, QName> {
 	}
 
 	@Override
-	public void processText(final @Nonnull String pText) throws SirixException {
-		final String text = checkNotNull(pText);
+	public void processText(final @Nonnull String textValue) throws SirixException {
+		final String text = checkNotNull(textValue);
 		long key;
 		if (!text.isEmpty()) {
-			if (mParents.peek() == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+			if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 				key = mWtx.insertTextAsFirstChild(text).getNodeKey();
 			} else {
 				key = mWtx.insertTextAsRightSibling(text).getNodeKey();
@@ -101,12 +101,12 @@ public abstract class AbsShredder implements Shredder<String, QName> {
 	}
 
 	@Override
-	public void processStartTag(final @Nonnull QName pName) throws SirixException {
-		final QName name = checkNotNull(pName);
+	public void processStartTag(final @Nonnull QName elementName) throws SirixException {
+		final QName name = checkNotNull(elementName);
 		long key = -1;
 		switch (mInsertLocation) {
 		case ASFIRSTCHILD:
-			if (mParents.peek() == EFixed.NULL_NODE_KEY.getStandardProperty()) {
+			if (mParents.peek() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 				key = mWtx.insertElementAsFirstChild(name).getNodeKey();
 			} else {
 				key = mWtx.insertElementAsRightSibling(name).getNodeKey();
@@ -114,7 +114,7 @@ public abstract class AbsShredder implements Shredder<String, QName> {
 			break;
 		case ASRIGHTSIBLING:
 			if (mWtx.getKind() == Kind.DOCUMENT_ROOT
-					|| mWtx.getParentKey() == EFixed.DOCUMENT_NODE_KEY
+					|| mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY
 							.getStandardProperty()) {
 				throw new IllegalStateException(
 						"Subtree can not be inserted as sibling of document root or the root-element!");
@@ -124,7 +124,7 @@ public abstract class AbsShredder implements Shredder<String, QName> {
 			break;
 		case ASLEFTSIBLING:
 			if (mWtx.getKind() == Kind.DOCUMENT_ROOT
-					|| mWtx.getParentKey() == EFixed.DOCUMENT_NODE_KEY
+					|| mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY
 							.getStandardProperty()) {
 				throw new IllegalStateException(
 						"Subtree can not be inserted as sibling of document root or the root-element!");
@@ -136,19 +136,19 @@ public abstract class AbsShredder implements Shredder<String, QName> {
 
 		mParents.pop();
 		mParents.push(key);
-		mParents.push(EFixed.NULL_NODE_KEY.getStandardProperty());
+		mParents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
 	}
 
 	@Override
-	public void processEndTag(final @Nonnull QName pName) {
+	public void processEndTag(final @Nonnull QName elementName) {
 		mParents.pop();
 		mWtx.moveTo(mParents.peek());
 	}
 
 	@Override
-	public void processEmptyElement(final @Nonnull QName pName)
+	public void processEmptyElement(final @Nonnull QName alementName)
 			throws SirixException {
-		processStartTag(pName);
-		processEndTag(pName);
+		processStartTag(alementName);
+		processEndTag(alementName);
 	}
 }

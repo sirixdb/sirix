@@ -43,7 +43,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.diff.algorithm.fmse.utils.ISubstitutionCost;
+import org.sirix.diff.algorithm.fmse.utils.SubstitutionCost;
 import org.sirix.diff.algorithm.fmse.utils.SubCost01;
 
 /**
@@ -70,7 +70,7 @@ public final class Levenshtein {
   /**
    * The private cost function used in the levenstein distance.
    */
-  private static final ISubstitutionCost COSTFUNC = new SubCost01();
+  private static final SubstitutionCost COSTFUNC = new SubCost01();
 
   /**
    * Get the description.

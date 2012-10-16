@@ -34,7 +34,7 @@ import java.util.concurrent.BlockingQueue;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -96,7 +96,7 @@ public class ConcurrentAxisHelper implements Runnable {
 
     try {
       // Mark end of result sequence by the NULL_NODE_KEY.
-      mResults.put(EFixed.NULL_NODE_KEY.getStandardProperty());
+      mResults.put(Fixed.NULL_NODE_KEY.getStandardProperty());
     } catch (final InterruptedException e) {
     	LOGWRAPPER.error(e.getMessage(), e);
     }

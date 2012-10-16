@@ -51,7 +51,7 @@ import javax.annotation.Nonnull;
 import javax.xml.stream.events.Attribute;
 
 import org.gicentre.utils.move.ZoomPan;
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ProcessingGUI;
 import org.sirix.gui.view.VisualItem;
@@ -724,7 +724,7 @@ public abstract class AbsSunburstGUI implements ProcessingGUI,
 
 			if (mUseMoveDetection) {
 				for (final SunburstItem item : items) {
-					if (item.getDiff() == EDiff.MOVEDFROM && item.getIndexMovedTo() >= 0
+					if (item.getDiff() == DiffType.MOVEDFROM && item.getIndexMovedTo() >= 0
 							&& item.getIndexMovedTo() < mModel.getItemsSize()) {
 						pDraw.drawMovedRel(item);
 					}
@@ -1716,8 +1716,8 @@ public abstract class AbsSunburstGUI implements ProcessingGUI,
 				int oldDepthMax = 0;
 				if (items.hasNext()) {
 					oldRoot = items.next();
-					final int depth = (oldRoot.getDiff() == EDiff.SAME || oldRoot
-							.getDiff() == EDiff.SAMEHASH) ? 0 : 2;
+					final int depth = (oldRoot.getDiff() == DiffType.SAME || oldRoot
+							.getDiff() == DiffType.SAMEHASH) ? 0 : 2;
 					depthMax = depth;
 					SunburstItem.Builder builder = new SunburstItem.Builder(mParent, 0,
 							PConstants.TWO_PI, new NodeRelations(depth, depth, oldRoot
@@ -1966,12 +1966,12 @@ public abstract class AbsSunburstGUI implements ProcessingGUI,
 		public Integer call() {
 			int oldDepthMax = 0;
 			for (final SunburstItem oldItem : mItems) {
-				if (oldItem.getDiff() == EDiff.SAME
-						|| oldItem.getDiff() == EDiff.SAMEHASH) {
+				if (oldItem.getDiff() == DiffType.SAME
+						|| oldItem.getDiff() == DiffType.SAMEHASH) {
 					int indexToParent = oldItem.getIndexToParent();
 					SunburstItem tmpItem = oldItem;
 					while (indexToParent != -1
-							&& (tmpItem.getDiff() == EDiff.SAME || tmpItem.getDiff() == EDiff.SAMEHASH)) {
+							&& (tmpItem.getDiff() == DiffType.SAME || tmpItem.getDiff() == DiffType.SAMEHASH)) {
 						indexToParent = tmpItem.getIndexToParent();
 						if (indexToParent != -1) {
 							tmpItem = mModel.getItem(indexToParent);

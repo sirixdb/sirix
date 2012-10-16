@@ -31,7 +31,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.immutable.ImmutableAttribute;
 import org.sirix.node.immutable.ImmutableComment;
 import org.sirix.node.immutable.ImmutableDocument;
@@ -45,7 +45,7 @@ import org.sirix.node.immutable.ImmutableText;
  * 
  * <p>
  * Inspired by the dom4j approach {@code VisitorSupport} is an abstract base class which is useful for
- * implementation inheritence or when using anonymous inner classes to create simple {@link IVisitor}
+ * implementation inheritence or when using anonymous inner classes to create simple {@link Visitor}
  * implementations.
  * </p>
  * 
@@ -78,7 +78,7 @@ import org.sirix.node.immutable.ImmutableText;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbsVisitor implements IVisitor {
+public abstract class AbsVisitor implements Visitor {
   @Override
   public VisitResult visit(@Nonnull final ImmutablePI node) {
     return VisitResultType.CONTINUE;

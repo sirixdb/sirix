@@ -32,7 +32,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>ConcurrentExceptAxis</h1>
@@ -79,8 +79,8 @@ public final class ConcurrentExceptAxis extends AbsAxis {
 		mOp1 = new ConcurrentAxis(rtx, operand1);
 		mOp2 = new ConcurrentAxis(rtx, operand2);
 		mFirst = true;
-		mCurrentResult1 = EFixed.NULL_NODE_KEY.getStandardProperty();
-		mCurrentResult2 = EFixed.NULL_NODE_KEY.getStandardProperty();
+		mCurrentResult1 = Fixed.NULL_NODE_KEY.getStandardProperty();
+		mCurrentResult2 = Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override
@@ -95,8 +95,8 @@ public final class ConcurrentExceptAxis extends AbsAxis {
 		}
 
 		mFirst = true;
-		mCurrentResult1 = EFixed.NULL_NODE_KEY.getStandardProperty();
-		mCurrentResult2 = EFixed.NULL_NODE_KEY.getStandardProperty();
+		mCurrentResult1 = Fixed.NULL_NODE_KEY.getStandardProperty();
+		mCurrentResult2 = Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override

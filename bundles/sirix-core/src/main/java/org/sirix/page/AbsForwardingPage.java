@@ -55,9 +55,9 @@ public abstract class AbsForwardingPage extends ForwardingObject implements
 	protected abstract Page delegate();
 
 	@Override
-	public void commit(final @Nonnull PageWriteTrx pPageWriteTrx)
+	public void commit(final @Nonnull PageWriteTrx pageWriteTrx)
 			throws SirixException {
-		delegate().commit(checkNotNull(pPageWriteTrx));
+		delegate().commit(checkNotNull(pageWriteTrx));
 	}
 
 	@Override
@@ -71,13 +71,13 @@ public abstract class AbsForwardingPage extends ForwardingObject implements
 	}
 
 	@Override
-	public PageReference getReference(final @Nonnegative int pOffset) {
-		return delegate().getReference(pOffset);
+	public PageReference getReference(final @Nonnegative int offset) {
+		return delegate().getReference(offset);
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
-		delegate().serialize(checkNotNull(pOut));
+	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+		delegate().serialize(checkNotNull(out));
 	}
 	
 	@Override

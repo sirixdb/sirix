@@ -26,6 +26,12 @@
  */
 package org.sirix.node.interfaces;
 
+/**
+ * Node with a name.
+ * 
+ * @author Sebastian Graf, University of Konstanz
+ *
+ */
 public interface NameNode extends Node {
 	/**
 	 * Gets key of qualified name.
@@ -44,18 +50,18 @@ public interface NameNode extends Node {
 	/**
 	 * Setting the name key.
 	 * 
-	 * @param pNameKey
+	 * @param nameKey
 	 *          the namekey to be set
 	 */
-	void setNameKey(int pNameKey);
+	void setNameKey(int nameKey);
 
 	/**
 	 * Setting the uri key.
 	 * 
-	 * @param pUriKey
+	 * @param uriKey
 	 *          the urikey to be set
 	 */
-	void setURIKey(int pUriKey);
+	void setURIKey(int uriKey);
 
 	/**
 	 * Set a path node key.

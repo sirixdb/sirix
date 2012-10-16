@@ -2,7 +2,7 @@ package org.sirix.gui.view;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
-import org.sirix.diff.DiffFactory.EDiff;
+import org.sirix.diff.DiffFactory.DiffType;
 
 public class DiffAxis extends AbsDiffAxis {
 
@@ -24,11 +24,11 @@ public class DiffAxis extends AbsDiffAxis {
   /** First call to {@code hasNext()}? */
   private boolean mFirst;
 
-  /** Current {@link EDiff} value. */
-  private EDiff mDiff;
+  /** Current {@link DiffType} value. */
+  private DiffType mDiff;
 
-  /** Temp. {@link EDiff} value. */
-  private EDiff mTmpDiff;
+  /** Temp. {@link DiffType} value. */
+  private DiffType mTmpDiff;
 
   private boolean mLastHasNext;
 
@@ -61,7 +61,7 @@ public class DiffAxis extends AbsDiffAxis {
     super.reset(pNodeKey);
     mFirst = true;
     mHasPeeked = false;
-    mDiff = EDiff.SAME;
+    mDiff = DiffType.SAME;
 
     if (mAxis != null) {
       mAxis.reset();
@@ -93,7 +93,7 @@ public class DiffAxis extends AbsDiffAxis {
       final VisualItem item = mAxis.next();
       mDiff = item.getDiff();
       final boolean isOldTransaction =
-        (mDiff == EDiff.DELETED || mDiff == EDiff.MOVEDFROM || mDiff == EDiff.REPLACEDOLD);
+        (mDiff == DiffType.DELETED || mDiff == DiffType.MOVEDFROM || mDiff == DiffType.REPLACEDOLD);
       final long nodeKey = item.getKey();
       mDepth = item.getOriginalDepth();
       
@@ -102,12 +102,12 @@ public class DiffAxis extends AbsDiffAxis {
       // Move to next key.
       mKey = nodeKey;
 
-      if (mDiff == EDiff.UPDATED || mDiff == EDiff.REPLACEDNEW || mDiff == EDiff.REPLACEDOLD) {
+      if (mDiff == DiffType.UPDATED || mDiff == DiffType.REPLACEDNEW || mDiff == DiffType.REPLACEDOLD) {
         // For EDiff.UPDATE or EDiff.REPLACED the transaction needs to be on the right node.
         mOldRtx.moveTo(nodeKey);
       }
 
-      if (mDiff == EDiff.REPLACEDOLD) {
+      if (mDiff == DiffType.REPLACEDOLD) {
         mNewRtx.moveTo(item.getKey());
       }
       mLastHasNext = true;
@@ -147,9 +147,9 @@ public class DiffAxis extends AbsDiffAxis {
   /**
    * Get diff type.
    * 
-   * @return {@link EDiff} value
+   * @return {@link DiffType} value
    */
-  public EDiff getDiff() {
+  public DiffType getDiff() {
     return mDiff;
   }
   

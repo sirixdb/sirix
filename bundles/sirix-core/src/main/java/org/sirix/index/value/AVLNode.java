@@ -6,11 +6,11 @@ import com.google.common.base.Objects;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.VisitResultType;
-import org.sirix.api.visitor.IVisitor;
+import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbsForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * AVLNode.
@@ -43,11 +43,11 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
    * @param pParent
    *          id of the parent node
    */
-  public AVLNode(final @Nonnull K pKey, final @Nonnull V pValue,
-    final @Nonnull NodeDelegate pDelegate) {
-    mKey = checkNotNull(pKey);
-    mValue = checkNotNull(pValue);
-    mNodeDelegate = checkNotNull(pDelegate);
+  public AVLNode(final @Nonnull K key, final @Nonnull V value,
+    final @Nonnull NodeDelegate delegate) {
+    mKey = checkNotNull(key);
+    mValue = checkNotNull(value);
+    mNodeDelegate = checkNotNull(delegate);
   }
 
   @Override
@@ -98,11 +98,11 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
   }
 
   public boolean hasLeftChild() {
-    return mLeft != EFixed.NULL_NODE_KEY.getStandardProperty();
+    return mLeft != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   public boolean hasRightChild() {
-    return mRight != EFixed.NULL_NODE_KEY.getStandardProperty();
+    return mRight != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   /**
@@ -129,8 +129,8 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
    * @param left
    *          child pointer
    */
-  public void setLeftChildKey(final long pLeft) {
-    mLeft = pLeft;
+	public void setLeftChildKey(final long left) {
+    mLeft = left;
   }
 
   /**
@@ -139,12 +139,12 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
    * @param right
    *          child pointer
    */
-  public void setRightChildKey(final long pRight) {
-    mLeft = pRight;
+  public void setRightChildKey(final long right) {
+    mLeft = right;
   }
 
   @Override
-  public VisitResultType acceptVisitor(final @Nonnull IVisitor pVisitor) {
+  public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
     return VisitResultType.CONTINUE;
   }
 

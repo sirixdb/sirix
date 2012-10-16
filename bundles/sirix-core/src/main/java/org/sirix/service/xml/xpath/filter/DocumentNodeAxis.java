@@ -31,7 +31,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbsAxis;
-import org.sirix.settings.EFixed;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>DocumentNodeAxis</h1>
@@ -64,7 +64,7 @@ public class DocumentNodeAxis extends AbsAxis {
   protected long nextKey() {
     if (mFirst) {
       mFirst = false;
-      return EFixed.DOCUMENT_NODE_KEY.getStandardProperty();
+      return Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
     }
     
     return done();
