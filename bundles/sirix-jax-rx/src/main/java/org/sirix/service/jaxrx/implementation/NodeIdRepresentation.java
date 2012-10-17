@@ -37,14 +37,14 @@ import javax.ws.rs.core.StreamingOutput;
 
 import org.jaxrx.core.JaxRxException;
 import org.jaxrx.core.QueryParameter;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
-import org.sirix.service.jaxrx.enums.EIdAccessType;
+import org.sirix.service.jaxrx.enums.IDAccessType;
 import org.sirix.service.jaxrx.util.RestXPathProcessor;
 import org.sirix.service.jaxrx.util.WorkerHelper;
 import org.sirix.service.xml.serialize.XMLSerializer;
@@ -66,21 +66,20 @@ public class NodeIdRepresentation {
 	/**
 	 * This field specifies the begin result element of the request.
 	 */
-	private static final transient byte[] BEGINRESULT = "<jaxrx:result xmlns:jaxrx=\"http://jaxrx.org/\">"
+	private static final byte[] BEGINRESULT = "<jaxrx:result xmlns:jaxrx=\"http://jaxrx.org/\">"
 			.getBytes();
 
 	/**
 	 * This field specifies the end result element of the request.
 	 */
-	private static final transient byte[] ENDRESULT = "</jaxrx:result>"
-			.getBytes();
+	private static final byte[] ENDRESULT = "</jaxrx:result>".getBytes();
 
-	private static final transient String NOTFOUND = "Node id not found";
+	private static final String NOTFOUND = "Node id not found";
 
 	/**
 	 * The 'yes' string.
 	 */
-	private static final transient String YESSTRING = "yes";
+	private static final String YESSTRING = "yes";
 
 	/**
 	 * Storage path to the data.
@@ -148,14 +147,14 @@ public class NodeIdRepresentation {
 	 *          The optional query parameters.
 	 * @param accessType
 	 *          The id access type to access a resource by a relative method type
-	 *          defined in {@link EIdAccessType}.
+	 *          defined in {@link IDAccessType}.
 	 * @return The whole XML resource addressed by a unique node id.
 	 * @throws JaxRxException
 	 *           The exception occurred.
 	 */
 	public StreamingOutput getResourceByAT(final String resourceName,
 			final long nodeId, final Map<QueryParameter, String> queryParams,
-			final EIdAccessType accessType) throws JaxRxException {
+			final IDAccessType accessType) throws JaxRxException {
 		final StreamingOutput sOutput = new StreamingOutput() {
 			@Override
 			public void write(final OutputStream output) throws IOException,
@@ -244,7 +243,7 @@ public class NodeIdRepresentation {
 			boolean abort = false;
 			if (WorkerHelper.checkExistingResource(mStoragePath, resourceName)) {
 				try {
-					database = DatabaseImpl.openDatabase(mStoragePath);
+					database = Databases.openDatabase(mStoragePath);
 					// Creating a new session
 					session = database.getSession(new SessionConfiguration.Builder(
 							resourceName).build());
@@ -296,7 +295,7 @@ public class NodeIdRepresentation {
 			boolean abort = false;
 			if (WorkerHelper.checkExistingResource(mStoragePath, resourceName)) {
 				try {
-					database = DatabaseImpl.openDatabase(mStoragePath);
+					database = Databases.openDatabase(mStoragePath);
 					// Creating a new session
 					session = database.getSession(new SessionConfiguration.Builder(
 							resourceName).build());
@@ -348,7 +347,7 @@ public class NodeIdRepresentation {
 	 *           The exception occurred.
 	 */
 	public void addSubResource(final String resourceName, final long nodeId,
-			final InputStream input, final EIdAccessType type) throws JaxRxException {
+			final InputStream input, final IDAccessType type) throws JaxRxException {
 		Session session = null;
 		Database database = null;
 		NodeWriteTrx wtx = null;
@@ -358,7 +357,7 @@ public class NodeIdRepresentation {
 				abort = false;
 				try {
 
-					database = DatabaseImpl.openDatabase(mStoragePath);
+					database = Databases.openDatabase(mStoragePath);
 					// Creating a new session
 					session = database.getSession(new SessionConfiguration.Builder(
 							resourceName).build());
@@ -366,25 +365,25 @@ public class NodeIdRepresentation {
 					wtx = session.beginNodeWriteTrx();
 					final boolean exist = wtx.moveTo(nodeId).hasMoved();
 					if (exist) {
-						if (type == EIdAccessType.FIRSTCHILD) {
+						if (type == IDAccessType.FIRSTCHILD) {
 							WorkerHelper.shredInputStream(wtx, input, Insert.ASFIRSTCHILD);
-						} else if (type == EIdAccessType.RIGHTSIBLING) {
+						} else if (type == IDAccessType.RIGHTSIBLING) {
 							WorkerHelper.shredInputStream(wtx, input, Insert.ASRIGHTSIBLING);
-						} else if (type == EIdAccessType.LASTCHILD) {
+						} else if (type == IDAccessType.LASTCHILD) {
 							if (wtx.moveToFirstChild().hasMoved()) {
 								long last = wtx.getNodeKey();
 								while (wtx.moveToRightSibling().hasMoved()) {
 									last = wtx.getNodeKey();
 								}
 								wtx.moveTo(last);
-								WorkerHelper.shredInputStream(wtx, input,
-										Insert.ASRIGHTSIBLING);
+								WorkerHelper
+										.shredInputStream(wtx, input, Insert.ASRIGHTSIBLING);
 
 							} else {
 								throw new JaxRxException(404, NOTFOUND);
 							}
 
-						} else if (type == EIdAccessType.LEFTSIBLING
+						} else if (type == IDAccessType.LEFTSIBLING
 								&& wtx.moveToLeftSibling().hasMoved()) {
 
 							WorkerHelper.shredInputStream(wtx, input, Insert.ASRIGHTSIBLING);
@@ -438,7 +437,7 @@ public class NodeIdRepresentation {
 			Session session = null;
 			Database database = null;
 			try {
-				database = DatabaseImpl.openDatabase(mStoragePath);
+				database = Databases.openDatabase(mStoragePath);
 				session = database
 						.getSession(new SessionConfiguration.Builder(resource).build());
 				if (wrapResult) {
@@ -508,19 +507,19 @@ public class NodeIdRepresentation {
 	 *          Specifies whether the result has to be wrapped with a result
 	 *          element.
 	 * @param accessType
-	 *          The {@link EIdAccessType} which indicates the access to a special
+	 *          The {@link IDAccessType} which indicates the access to a special
 	 *          node.
 	 */
 	private void serializeAT(final String resource, final long nodeId,
 			final Integer revision, final boolean doNodeId,
 			final OutputStream output, final boolean wrapResult,
-			final EIdAccessType accessType) {
+			final IDAccessType accessType) {
 		if (WorkerHelper.checkExistingResource(mStoragePath, resource)) {
 			Session session = null;
 			Database database = null;
 			NodeReadTrx rtx = null;
 			try {
-				database = DatabaseImpl.openDatabase(mStoragePath);
+				database = Databases.openDatabase(mStoragePath);
 				session = database
 						.getSession(new SessionConfiguration.Builder(resource).build());
 				if (revision == null) {
@@ -604,7 +603,6 @@ public class NodeIdRepresentation {
 					throw new JaxRxException(exce);
 				}
 			}
-
 		} else {
 			throw new JaxRxException(404, "Resource does not exist");
 		}

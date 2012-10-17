@@ -39,23 +39,23 @@ import java.util.concurrent.TimeUnit;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.Session;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.service.xml.shredder.ShredderCommit;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.Shredder;
+import org.sirix.service.xml.shredder.ShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.service.xml.shredder.XMLUpdateShredder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Determines how to shred.
@@ -149,24 +149,24 @@ enum Shredding {
 	/**
 	 * Do the shredding.
 	 * 
-	 * @param pSource
+	 * @param source
 	 *          the source file to shredder
-	 * @param pTarget
+	 * @param target
 	 *          the database to create/open
 	 */
-	private static boolean shredder(final File pSource, final File pTarget,
+	private static boolean shredder(final File source, final File target,
 			final EType pType) {
-		assert pSource != null;
-		assert pTarget != null;
+		assert source != null;
+		assert target != null;
 		assert pType != null;
 		boolean retVal = true;
 		try {
-			final Database database = setupDatabase(pTarget);
+			final Database database = setupDatabase(target);
 			try (final Session session = database
 					.getSession(new SessionConfiguration.Builder("shredded").build());
 					final NodeWriteTrx wtx = session.beginNodeWriteTrx();) {
 				final ExecutorService executor = Executors.newSingleThreadExecutor();
-				executor.submit(pType.newInstance(pSource, wtx));
+				executor.submit(pType.newInstance(source, wtx));
 				executor.shutdown();
 				executor.awaitTermination(5 * 60, TimeUnit.SECONDS);
 			}
@@ -182,19 +182,19 @@ enum Shredding {
 	/**
 	 * Setup a new {@code database/resource}.
 	 * 
-	 * @param pTarget
+	 * @param target
 	 *          the database to create/open
 	 * @return {@link Database} implementation
 	 * @throws SirixException
 	 *           if something went wrong
 	 */
-	private static Database setupDatabase(final File pTarget)
+	private static Database setupDatabase(final File target)
 			throws SirixException {
-		assert pTarget != null;
-		final DatabaseConfiguration config = new DatabaseConfiguration(pTarget);
-		DatabaseImpl.truncateDatabase(config);
-		DatabaseImpl.createDatabase(config);
-		final Database db = DatabaseImpl.openDatabase(pTarget);
+		assert target != null;
+		final DatabaseConfiguration config = new DatabaseConfiguration(target);
+		Databases.truncateDatabase(config);
+		Databases.createDatabase(config);
+		final Database db = Databases.openDatabase(target);
 		db.createResource(new ResourceConfiguration.Builder("shredded", config)
 				.useTextCompression(false).build());
 		return db;

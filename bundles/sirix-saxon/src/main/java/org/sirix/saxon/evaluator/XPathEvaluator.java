@@ -49,8 +49,8 @@ import org.sirix.saxon.wrapper.DocumentWrapper;
  * <h1>XPath Evaluator</h1>
  * 
  * <p>
- * The XPath evaluator takes an XPath expression and evaluates the expression against a wrapped sirix
- * document.
+ * The XPath evaluator takes an XPath expression and evaluates the expression
+ * against a wrapped sirix document.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -58,91 +58,92 @@ import org.sirix.saxon.wrapper.DocumentWrapper;
  */
 public final class XPathEvaluator implements Callable<XPathSelector> {
 
-  /** An XPath expression. */
-  private final String mExpression;
+	/** An XPath expression. */
+	private final String mExpression;
 
-  /** Sirix {@link Session}. */
-  private final Session mSession;
+	/** Sirix {@link Session}. */
+	private final Session mSession;
 
-  /** The revision to open. */
-  private int mRevision;
+	/** The revision to open. */
+	private int mRevision;
 
-  /**
-   * Builder.
-   */
-  public static class Builder {
-    /** An XPath expression. */
-    private final String mExpression;
+	/**
+	 * Builder.
+	 */
+	public static class Builder {
+		/** An XPath expression. */
+		private final String mExpression;
 
-    /** Sirix {@link Session}. */
-    private final Session mSession;
+		/** Sirix {@link Session}. */
+		private final Session mSession;
 
-    /** The revision to open. */
-    private int mRevision;
+		/** The revision to open. */
+		private int mRevision;
 
-    /**
-     * Constructor.
-     * 
-     * @param pExpression
-     *          XPath expression
-     * @param pSession
-     *          sirix {@link Session} instance
-     */
-    public Builder(@Nonnull final String pExpression, @Nonnull final Session pSession) {
-      mExpression = checkNotNull(pExpression);
-      mSession = checkNotNull(pSession);
-      mRevision = pSession.getLastRevisionNumber();
-    }
+		/**
+		 * Constructor.
+		 * 
+		 * @param expression
+		 *          XPath expression
+		 * @param session
+		 *          sirix {@link Session} instance
+		 */
+		public Builder(final @Nonnull String expression,
+				final @Nonnull Session session) {
+			mExpression = checkNotNull(expression);
+			mSession = checkNotNull(session);
+			mRevision = session.getLastRevisionNumber();
+		}
 
-    /**
-     * Set a revision to open.
-     * 
-     * @param pRevision
-     *          the revision to open
-     * @return this builder instance
-     */
-    public Builder setRevision(@Nonnegative final int pRevision) {
-      checkArgument(pRevision >= 0, "pRevision must be >= 0!");
-      mRevision = pRevision;
-      return this;
-    }
+		/**
+		 * Set a revision to open.
+		 * 
+		 * @param revision
+		 *          the revision to open
+		 * @return this builder instance
+		 */
+		public Builder setRevision(final @Nonnegative int revision) {
+			checkArgument(revision >= 0, "pRevision must be >= 0!");
+			mRevision = revision;
+			return this;
+		}
 
-    /**
-     * Build a new instance.
-     * 
-     * @return new {@link XPathEvaluator} instance
-     * */
-    public XPathEvaluator build() {
-      return new XPathEvaluator(this);
-    }
-  }
+		/**
+		 * Build a new instance.
+		 * 
+		 * @return new {@link XPathEvaluator} instance
+		 * */
+		public XPathEvaluator build() {
+			return new XPathEvaluator(this);
+		}
+	}
 
-  /**
-   * Private Constructor.
-   * 
-   * @param pBuilder
-   *          {@link Builder} instance
-   * @param pSession
-   *          sirix {@link Session} instance
-   * @param pRevision
-   *          the revision to open
-   */
-  public XPathEvaluator(@Nonnull final Builder pBuilder) {
-    mExpression = pBuilder.mExpression;
-    mSession = pBuilder.mSession;
-    mRevision = pBuilder.mRevision;
-  }
+	/**
+	 * Private Constructor.
+	 * 
+	 * @param builder
+	 *          {@link Builder} instance
+	 * @param pSession
+	 *          sirix {@link Session} instance
+	 * @param pRevision
+	 *          the revision to open
+	 */
+	public XPathEvaluator(final @Nonnull Builder builder) {
+		mExpression = builder.mExpression;
+		mSession = builder.mSession;
+		mRevision = builder.mRevision;
+	}
 
-  @Override
-  public XPathSelector call() throws Exception {
-    final Processor proc = new Processor(false);
-    final Configuration config = proc.getUnderlyingConfiguration();
-    final NodeInfo doc = new DocumentWrapper(mSession, mRevision, config);
-    final XPathCompiler xpath = proc.newXPathCompiler();
-    final DocumentBuilder builder = proc.newDocumentBuilder();
-    final XdmItem item = builder.wrap(doc);
-    final XPathSelector selector = xpath.compile(mExpression).load();
-    selector.setContextItem(item);
-    return selector;
-  }
+	@Override
+	public XPathSelector call() throws Exception {
+		final Processor proc = new Processor(false);
+		final Configuration config = proc.getUnderlyingConfiguration();
+		final NodeInfo doc = new DocumentWrapper(mSession, mRevision, config);
+		final XPathCompiler xpath = proc.newXPathCompiler();
+		final DocumentBuilder builder = proc.newDocumentBuilder();
+		final XdmItem item = builder.wrap(doc);
+		final XPathSelector selector = xpath.compile(mExpression).load();
+		selector.setContextItem(item);
+		return selector;
+	}
 }

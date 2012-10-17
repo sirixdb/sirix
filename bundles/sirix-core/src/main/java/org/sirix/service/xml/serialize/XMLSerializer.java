@@ -46,7 +46,7 @@ import java.util.concurrent.ConcurrentMap;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
@@ -136,7 +136,7 @@ public final class XMLSerializer extends AbsSerializer {
 	 * Emit node (start element or characters).
 	 * 
 	 * @param rtx
-	 * 					Sirix {@link NodeReadTrx}
+	 *          Sirix {@link NodeReadTrx}
 	 */
 	@Override
 	protected void emitStartElement(final @Nonnull NodeReadTrx rtx) {
@@ -380,12 +380,12 @@ public final class XMLSerializer extends AbsSerializer {
 		try (final FileOutputStream outputStream = new FileOutputStream(target)) {
 			final DatabaseConfiguration config = new DatabaseConfiguration(new File(
 					args[0]));
-			DatabaseImpl.createDatabase(config);
-			try (final Database db = DatabaseImpl.openDatabase(new File(args[0]))) {
+			Databases.createDatabase(config);
+			try (final Database db = Databases.openDatabase(new File(args[0]))) {
 				db.createResource(new ResourceConfiguration.Builder("shredded", config)
 						.build());
-				final Session session = db
-						.getSession(new SessionConfiguration.Builder("shredded").build());
+				final Session session = db.getSession(new SessionConfiguration.Builder(
+						"shredded").build());
 
 				final XMLSerializer serializer = new XMLSerializerBuilder(session,
 						outputStream).build();

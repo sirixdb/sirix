@@ -37,6 +37,7 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -265,8 +266,8 @@ public final class SAXSerializer extends AbsSerializer implements XMLReader {
 	public static void main(final String... args) throws Exception {
 		final DatabaseConfiguration config = new DatabaseConfiguration(new File(
 				args[0]));
-		DatabaseImpl.createDatabase(config);
-		final Database database = DatabaseImpl.openDatabase(new File(args[0]));
+		Databases.createDatabase(config);
+		final Database database = Databases.openDatabase(new File(args[0]));
 		database.createResource(new ResourceConfiguration.Builder("shredded",
 				config).build());
 		try (final Session session = database

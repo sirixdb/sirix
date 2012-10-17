@@ -31,26 +31,25 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 import java.io.IOException;
 
-import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 
-import org.slf4j.LoggerFactory;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.Session;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.diff.algorithm.fmse.FMSE;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.Files;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /**
  * Import using the FMSE algorithm.
@@ -87,9 +86,9 @@ public final class FMSEImport {
 		assert pResNewRev != null;
 		assert pNewRev != null;
 		final DatabaseConfiguration conf = new DatabaseConfiguration(pNewRev);
-		DatabaseImpl.truncateDatabase(conf);
-		DatabaseImpl.createDatabase(conf);
-		final Database db = DatabaseImpl.openDatabase(pNewRev);
+		Databases.truncateDatabase(conf);
+		Databases.createDatabase(conf);
+		final Database db = Databases.openDatabase(pNewRev);
 		db.createResource(new ResourceConfiguration.Builder("shredded", conf)
 				.build());
 		final Session session = db.getSession(new SessionConfiguration.Builder(
@@ -124,12 +123,12 @@ public final class FMSEImport {
 			}
 			shredder(checkNotNull(pResNewRev), newRevTarget);
 
-			final Database databaseOld = DatabaseImpl.openDatabase(pResOldRev);
+			final Database databaseOld = Databases.openDatabase(pResOldRev);
 			final Session sessionOld = databaseOld
 					.getSession(new SessionConfiguration.Builder("shredded").build());
 			final NodeWriteTrx wtx = sessionOld.beginNodeWriteTrx();
 
-			final Database databaseNew = DatabaseImpl.openDatabase(newRevTarget);
+			final Database databaseNew = Databases.openDatabase(newRevTarget);
 			final Session sessionNew = databaseNew
 					.getSession(new SessionConfiguration.Builder("shredded").build());
 			final NodeReadTrx rtx = sessionNew.beginNodeReadTrx();

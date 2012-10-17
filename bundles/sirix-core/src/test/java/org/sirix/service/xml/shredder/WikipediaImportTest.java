@@ -43,7 +43,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
@@ -81,7 +81,7 @@ public class WikipediaImportTest {
 
 	@Test
 	public void testWikipediaImport() throws Exception {
-		DatabaseImpl.truncateDatabase(new DatabaseConfiguration(PATHS.PATH2
+		Databases.truncateDatabase(new DatabaseConfiguration(PATHS.PATH2
 				.getFile()));
 
 		// Create necessary element nodes.

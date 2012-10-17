@@ -304,6 +304,7 @@
 		<module>bundles/sirix-core</module>
 		<module>bundles/sirix-saxon</module>
 		<module>bundles/sirix-jax-rx</module>
+		<module>bundles/sirix-xquery</module>
 	</modules>
 	<url>https://github.com/JohannesLichtenberger/sirix</url>
 </project>

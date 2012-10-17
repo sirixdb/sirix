@@ -80,7 +80,7 @@ import org.slf4j.LoggerFactory;
  * <h1>NodeWrapper</h1>
  * 
  * <p>
- * Wraps a sirix node into Saxon's internal representation of a node. It
+ * Wraps a Sirix node into Saxon's internal representation of a node. It
  * therefore implements Saxon's core interface NodeInfo as well as two others:
  * </p>
  * 
@@ -129,20 +129,20 @@ public final class NodeWrapper implements SiblingCountingNode {
 	 * 
 	 * @param database
 	 *          sirix database.
-	 * @param pNodeKeyToStart
+	 * @param nodeKeyToStart
 	 *          start noeKey to move to
 	 * @throws SirixException
 	 */
-	NodeWrapper(final DocumentWrapper pDocWrapper, final long pNodeKeyToStart)
-			throws SirixException {
-		mDocWrapper = checkNotNull(pDocWrapper);
-		checkArgument(pNodeKeyToStart >= 0, "pNodeKeyToStart must be >= 0!");
+	NodeWrapper(final @Nonnull DocumentWrapper docWrapper,
+			final long nodeKeyToStart) throws SirixException {
+		mDocWrapper = checkNotNull(docWrapper);
+		checkArgument(nodeKeyToStart >= 0, "pNodeKeyToStart must be >= 0!");
 		final NodeReadTrx rtx = mDocWrapper.mSession
-				.beginNodeReadTrx(pDocWrapper.mRevision);
-		rtx.moveTo(pNodeKeyToStart);
+				.beginNodeReadTrx(docWrapper.mRevision);
+		rtx.moveTo(nodeKeyToStart);
 		mNodeKind = rtx.getKind();
 		mKey = rtx.getNodeKey();
-		mRevision = pDocWrapper.mRevision;
+		mRevision = docWrapper.mRevision;
 
 		if (mNodeKind == Kind.ELEMENT || mNodeKind == Kind.ATTRIBUTE) {
 			mQName = rtx.getName();
@@ -152,9 +152,6 @@ public final class NodeWrapper implements SiblingCountingNode {
 		rtx.close();
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
 	@Override
 	public Value atomize() throws XPathException {
 		Value value = null;
@@ -725,8 +722,8 @@ public final class NodeWrapper implements SiblingCountingNode {
 				index++;
 			}
 			rtx.close();
-		} catch (final SirixException exc) {
-			LOGGER.error(exc.toString());
+		} catch (final SirixException e) {
+			LOGGER.error(e.getMessage(), e);
 		}
 		return index;
 	}
@@ -770,11 +767,11 @@ public final class NodeWrapper implements SiblingCountingNode {
 		/**
 		 * Constructor.
 		 * 
-		 * @param pAxis
+		 * @param axis
 		 *          Sirix {@link Axis}
 		 */
-		public SaxonEnumeration(@Nonnull final org.sirix.api.Axis pAxis) {
-			mAxis = checkNotNull(pAxis);
+		public SaxonEnumeration(final @Nonnull org.sirix.api.Axis axis) {
+			mAxis = checkNotNull(axis);
 		}
 
 		@Override

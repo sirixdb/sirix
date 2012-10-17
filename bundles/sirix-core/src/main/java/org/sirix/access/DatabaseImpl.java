@@ -34,7 +34,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.annotation.Nonnegative;
@@ -64,18 +63,16 @@ import com.google.common.collect.Maps;
  * 
  * @see Database
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
  */
 public final class DatabaseImpl implements Database {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
 			LoggerFactory.getLogger(DatabaseImpl.class));
-	
+
 	/** Unique ID of a resource. */
 	private final AtomicLong mResourceID = new AtomicLong();
-
-	/** Central repository of all running databases. */
-	private static final ConcurrentMap<File, DatabaseImpl> DATABASEMAP = new ConcurrentHashMap<>();
 
 	/** Central repository of all running sessions. */
 	private final ConcurrentMap<File, SessionImpl> mSessions;
@@ -87,7 +84,7 @@ public final class DatabaseImpl implements Database {
 	private final DatabaseConfiguration mDBConfig;
 
 	/**
-	 * Private constructor.
+	 * Package private constructor.
 	 * 
 	 * @param dbConfig
 	 *          {@link ResourceConfiguration} reference to configure the
@@ -95,94 +92,12 @@ public final class DatabaseImpl implements Database {
 	 * @throws SirixException
 	 *           if something weird happens
 	 */
-	private DatabaseImpl(final @Nonnull DatabaseConfiguration dbConfig)
+	DatabaseImpl(final @Nonnull DatabaseConfiguration dbConfig)
 			throws SirixException {
 		mDBConfig = checkNotNull(dbConfig);
 		mSessions = new ConcurrentHashMap<>();
 		mResources = Maps.synchronizedBiMap(HashBiMap.<Long, String> create());
 	}
-
-	// //////////////////////////////////////////////////////////
-	// START Creation/Deletion of Databases /////////////////////
-	// //////////////////////////////////////////////////////////
-	/**
-	 * Creating a database. This includes loading the database configuration,
-	 * building up the structure and preparing everything for login.
-	 * 
-	 * @param dbConfig
-	 *          config which is used for the database, including storage location
-	 * @return true if creation is valid, false otherwise
-	 * @throws SirixIOException
-	 *           if something odd happens within the creation process.
-	 */
-	public static synchronized boolean createDatabase(
-			final @Nonnull DatabaseConfiguration dbConfig) throws SirixIOException {
-		boolean returnVal = true;
-		// if file is existing, skipping
-		if (dbConfig.getFile().exists()) {
-			return false;
-		} else {
-			returnVal = dbConfig.getFile().mkdirs();
-			if (returnVal) {
-				// creation of folder structure
-				for (DatabaseConfiguration.Paths paths : DatabaseConfiguration.Paths
-						.values()) {
-					final File toCreate = new File(dbConfig.getFile(), paths.getFile()
-							.getName());
-					if (paths.isFolder()) {
-						returnVal = toCreate.mkdir();
-					} else {
-						try {
-							returnVal = toCreate.getName().equals(
-									DatabaseConfiguration.Paths.LOCK.getFile().getName()) ? true
-									: toCreate.createNewFile();
-						} catch (final IOException e) {
-							Files.recursiveRemove(dbConfig.getFile().toPath());
-							throw new SirixIOException(e);
-						}
-					}
-					if (!returnVal) {
-						break;
-					}
-				}
-			}
-			// serialization of the config
-			DatabaseConfiguration.serialize(dbConfig);
-
-			// if something was not correct, delete the partly created
-			// substructure
-			if (!returnVal) {
-				Files.recursiveRemove(dbConfig.getFile().toPath());
-			}
-			return returnVal;
-		}
-	}
-
-	/**
-	 * Truncate a database. This deletes all relevant data. All running sessions
-	 * must be closed beforehand.
-	 * 
-	 * @param dbConfig
-	 *          the database at this path should be deleted
-	 * @throws SirixException
-	 *           if Sirix fails to delete the database
-	 */
-	public static synchronized void truncateDatabase(
-			final @Nonnull DatabaseConfiguration dbConfig) throws SirixIOException {
-		// check that database must be closed beforehand
-		if (!DATABASEMAP.containsKey(dbConfig.getFile())) {
-			// if file is existing and folder is a tt-dataplace, delete it
-			if (dbConfig.getFile().exists()) {
-//					&& DatabaseConfiguration.Paths.compareStructure(pConf.getFile()) == 0) {
-				// instantiate the database for deletion
-				Files.recursiveRemove(dbConfig.getFile().toPath());
-			}
-		}
-	}
-
-	// //////////////////////////////////////////////////////////
-	// END Creation/Deletion of Databases ///////////////////////
-	// //////////////////////////////////////////////////////////
 
 	// //////////////////////////////////////////////////////////
 	// START Creation/Deletion of Resources /////////////////////
@@ -225,8 +140,7 @@ public final class DatabaseImpl implements Database {
 			ResourceConfiguration.serialize(resConfig.setID(mResourceID
 					.getAndIncrement()));
 			mDBConfig.setMaximumResourceID(mResourceID.get());
-			mResources.forcePut(mResourceID.get(), resConfig.getResource()
-					.getName());
+			mResources.forcePut(mResourceID.get(), resConfig.getResource().getName());
 
 			// If something was not correct, delete the partly created
 			// substructure.
@@ -235,17 +149,6 @@ public final class DatabaseImpl implements Database {
 			}
 			return returnVal;
 		}
-	}
-
-	@Override
-	public synchronized String getResourceName(final @Nonnegative long id) {
-		checkArgument(id >= 0, "pID must be >= 0!");
-		return mResources.get(id);
-	}
-
-	@Override
-	public synchronized long getResourceID(final @Nonnull String name) {
-		return mResources.inverse().get(checkNotNull(name));
 	}
 
 	@Override
@@ -265,7 +168,7 @@ public final class DatabaseImpl implements Database {
 				}
 			}
 		}
-		
+
 		return this;
 	}
 
@@ -274,62 +177,27 @@ public final class DatabaseImpl implements Database {
 	// //////////////////////////////////////////////////////////
 
 	// //////////////////////////////////////////////////////////
-	// START Opening of Databases ///////////////////////
+	// START resource name <=> ID handling //////////////////////
 	// //////////////////////////////////////////////////////////
-	/**
-	 * Open database. A database can be opened only once (even across JVMs).
-	 * Afterwards a singleton instance bound to the {@link File} is returned.
-	 * 
-	 * @param file
-	 *          determines where the database is located sessionConf a
-	 *          {@link SessionConfiguration} object to set up the session
-	 * @return {@link Database} instance.
-	 * @throws SirixException
-	 *           if something odd happens
-	 * @throws NullPointerException
-	 *           if {@code pFile} is {@code null}
-	 */
-	public static synchronized Database openDatabase(final @Nonnull File file)
-			throws SirixException {
-		if (!file.exists()) {
-			throw new SirixUsageException(
-					"DB could not be opened (since it was not created?) at location",
-					file.toString());
-		}
-		final DatabaseConfiguration config = DatabaseConfiguration
-				.deserialize(file);
-		if (config == null) {
-			throw new IllegalStateException("Configuration may not be null!");
-		}
-		final File lock = new File(file, DatabaseConfiguration.Paths.LOCK
-				.getFile().getName());
-		final DatabaseImpl database = new DatabaseImpl(config);
-		if (lock.exists() && DATABASEMAP.get(file) == null) {
-			throw new SirixUsageException(
-					"DB could not be opened (since it is in use by another JVM)",
-					file.toString());
-		} else {
-			try {
-				lock.createNewFile();
-			} catch (final IOException e) {
-				throw new SirixIOException(e.getCause());
-			}
-		}
-		final Database returnVal = DATABASEMAP.putIfAbsent(file, database);
-		if (returnVal == null) {
-			return database;
-		} else {
-			return returnVal;
-		}
+
+	@Override
+	public synchronized String getResourceName(final @Nonnegative long id) {
+		checkArgument(id >= 0, "pID must be >= 0!");
+		return mResources.get(id);
+	}
+
+	@Override
+	public synchronized long getResourceID(final @Nonnull String name) {
+		return mResources.inverse().get(checkNotNull(name));
 	}
 
 	// //////////////////////////////////////////////////////////
-	// END Opening of Databases ///////////////////////
+	// END resource name <=> ID handling ////////////////////////
 	// //////////////////////////////////////////////////////////
 
 	// //////////////////////////////////////////////////////////
-	// START DB-Operations//////////////////////////////////
-	// /////////////////////////////////////////////////////////
+	// START DB-Operations //////////////////////////////////////
+	// //////////////////////////////////////////////////////////
 
 	@Override
 	public synchronized Session getSession(
@@ -368,16 +236,63 @@ public final class DatabaseImpl implements Database {
 		}
 
 		// Remove from database mapping.
-		DATABASEMAP.remove(mDBConfig.getFile());
+		Databases.removeDatabase(mDBConfig.getFile());
 
 		// Remove lock file.
 		Files.recursiveRemove(new File(mDBConfig.getFile().getAbsoluteFile(),
 				DatabaseConfiguration.Paths.LOCK.getFile().getName()).toPath());
 	}
 
+	@Override
+	public DatabaseConfiguration getDatabaseConfig() {
+		return mDBConfig;
+	}
+
+	@Override
+	public synchronized boolean existsResource(final @Nonnull String pResourceName) {
+		final File resourceFile = new File(new File(mDBConfig.getFile(),
+				DatabaseConfiguration.Paths.Data.getFile().getName()), pResourceName);
+		return resourceFile.exists()
+				&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0 ? true
+				: false;
+	}
+
+	@Override
+	public String[] listResources() {
+		return new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
+				.getFile().getName()).list();
+	}
+
+	@Override
+	public synchronized Database commitAll() throws SirixException {
+		// Commit all sessions.
+		for (final Session session : mSessions.values()) {
+			if (!session.isClosed()) {
+				session.commitAll();
+			}
+		}
+		return this;
+	}
+
+	/**
+	 * Closing a resource. This callback is necessary due to centralized handling
+	 * of all sessions within a database.
+	 * 
+	 * @param file
+	 *          {@link File} to be closed
+	 * @return {@code true} if close successful, {@code false} otherwise
+	 */
+	protected boolean removeSession(final @Nonnull File file) {
+		return mSessions.remove(file) == null ? false : true;
+	}
+
 	// //////////////////////////////////////////////////////////
-	// End DB-Operations//////////////////////////////////
-	// /////////////////////////////////////////////////////////
+	// END DB-Operations ////////////////////////////////////////
+	// //////////////////////////////////////////////////////////
+
+	// //////////////////////////////////////////////////////////
+	// START general methods ////////////////////////////////////
+	// //////////////////////////////////////////////////////////
 
 	@Override
 	public String toString() {
@@ -398,66 +313,7 @@ public final class DatabaseImpl implements Database {
 		return false;
 	}
 
-	/**
-	 * Closing a resource. This callback is necessary due to centralized handling
-	 * of all sessions within a database.
-	 * 
-	 * @param file
-	 *          {@link File} to be closed
-	 * @return {@code true} if close successful, {@code false} otherwise
-	 */
-	protected boolean removeSession(final @Nonnull File file) {
-		return mSessions.remove(file) == null ? false : true;
-	}
-
-	@Override
-	public DatabaseConfiguration getDatabaseConfig() {
-		return mDBConfig;
-	}
-
-	/**
-	 * Determines if a database already exists.
-	 * 
-	 * @param dbConfig
-	 *          database configuration
-	 * @return {@code true}, if database exists, {@code false} otherwise
-	 */
-	public synchronized static boolean existsDatabase(
-			final @Nonnull DatabaseConfiguration dbConfig) {
-		boolean retVal = dbConfig.getFile().exists() ? true : false;
-		if (retVal
-				&& DatabaseConfiguration.Paths.compareStructure(dbConfig
-						.getFile()) == 0) {
-			retVal = true;
-		}
-		return retVal;
-	}
-
-	@Override
-	public synchronized boolean existsResource(final @Nonnull String pResourceName) {
-		final File resourceFile = new File(new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.Data.getFile().getName()), pResourceName);
-		final boolean retVal = resourceFile.exists() ? true : false;
-		// if file is existing and folder is a tt-dataplace
-		return retVal
-				&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0 ? true
-				: false;
-	}
-
-	@Override
-	public String[] listResources() {
-		return new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.Data.getFile().getName()).list();
-	}
-
-	@Override
-	public synchronized Database commitAll() throws SirixException {
-		// Close all sessions.
-		for (final Session session : mSessions.values()) {
-			if (!session.isClosed()) {
-				session.commitAll();
-			}
-		}
-		return this;
-	}
+	// //////////////////////////////////////////////////////////
+	// END general methods //////////////////////////////////////
+	// //////////////////////////////////////////////////////////
 }

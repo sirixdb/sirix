@@ -3,13 +3,13 @@ package org.sirix.access.conf;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertTrue;
 
+import org.sirix.TestHelper;
+import org.sirix.access.Databases;
+import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixIOException;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
-import org.sirix.TestHelper;
-import org.sirix.access.DatabaseImpl;
-import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
 
 /**
  * Test case for de-/serialization of {@link DatabaseConfiguration}s.
@@ -43,7 +43,7 @@ public class DatabaseConfigurationTest {
 	public void testDeSerialize() throws SirixIOException {
 		DatabaseConfiguration conf = new DatabaseConfiguration(
 				TestHelper.PATHS.PATH1.getFile());
-		assertTrue(DatabaseImpl.createDatabase(conf));
+		assertTrue(Databases.createDatabase(conf));
 		DatabaseConfiguration serializedConf = DatabaseConfiguration
 				.deserialize(TestHelper.PATHS.PATH1.getFile());
 		assertEquals(conf.toString(), serializedConf.toString());

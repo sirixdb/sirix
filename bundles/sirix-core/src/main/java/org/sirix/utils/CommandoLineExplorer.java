@@ -32,6 +32,7 @@ import java.io.File;
 import java.io.InputStreamReader;
 
 import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
@@ -94,8 +95,8 @@ public final class CommandoLineExplorer {
 
 			final File file = new File(args[0]);
 			final DatabaseConfiguration config = new DatabaseConfiguration(file);
-			DatabaseImpl.createDatabase(config);
-			database = DatabaseImpl.openDatabase(file);
+			Databases.createDatabase(config);
+			database = Databases.openDatabase(file);
 			database.createResource(new ResourceConfiguration.Builder("TMP", config)
 					.build());
 			session = database.getSession(new SessionConfiguration.Builder("TMP")
@@ -134,7 +135,7 @@ public final class CommandoLineExplorer {
 					}
 					final File file = findFile(line);
 					if (file != null) {
-						database = DatabaseImpl.openDatabase(file);
+						database = Databases.openDatabase(file);
 						session = database.getSession(new SessionConfiguration.Builder(
 								"TMP").build());
 						rtx = session.beginNodeReadTrx();

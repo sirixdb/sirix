@@ -53,6 +53,7 @@ import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
 import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
@@ -343,9 +344,9 @@ public final class XMLShredder extends AbsShredder implements Callable<Long> {
 		final long time = System.nanoTime();
 		final File target = new File(args[1]);
 		final DatabaseConfiguration config = new DatabaseConfiguration(target);
-		DatabaseImpl.truncateDatabase(config);
-		DatabaseImpl.createDatabase(config);
-		final Database db = DatabaseImpl.openDatabase(target);
+		Databases.truncateDatabase(config);
+		Databases.createDatabase(config);
+		final Database db = Databases.openDatabase(target);
 		db.createResource(new ResourceConfiguration.Builder("shredded", config)
 				.build());
 		final Session session = db.getSession(new SessionConfiguration.Builder(

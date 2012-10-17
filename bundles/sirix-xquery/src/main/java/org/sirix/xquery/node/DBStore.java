@@ -11,15 +11,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.xdm.Collection;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Store;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
@@ -39,10 +39,10 @@ import org.sirix.service.xml.shredder.Insert;
 public class DBStore implements Store, AutoCloseable {
 
 	/** User home directory. */
-	private final String mUserHome = System.getProperty("user.home");
+	private static final String USER_HOME = System.getProperty("user.home");
 
 	/** Storage for databases: Sirix data in home directory. */
-	private final File mLocation = new File(mUserHome, "sirix-data");
+	private static final File LOCATION = new File(USER_HOME, "sirix-data");
 
 	/** Determines if collections have to be updating or not. */
 	private boolean mUpdating;
@@ -59,29 +59,30 @@ public class DBStore implements Store, AutoCloseable {
 
 	/** Get the location of the generated collections/databases. */
 	public File getLocation() {
-		return mLocation;
+		return LOCATION;
 	}
 
 	/**
 	 * Determines if collections have to be updatable.
 	 * 
-	 * @param pUpdating
+	 * @param updating
 	 *          {@code true} if they should be updatable, {@code false} otherwise
 	 */
-	public DBStore isUpdating(final boolean pUpdating) {
-		mUpdating = pUpdating;
+	public DBStore isUpdating(final boolean updating) {
+		mUpdating = updating;
 		return this;
 	}
 
 	@Override
-	public Collection<?> lookup(final String pName) throws DocumentException {
+	public Collection<?> lookup(final @Nonnull String name)
+			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
-				mLocation, pName));
-		if (DatabaseImpl.existsDatabase(dbConf)) {
+				LOCATION, name));
+		if (Databases.existsDatabase(dbConf)) {
 			try {
-				final Database database = DatabaseImpl.openDatabase(dbConf.getFile());
+				final Database database = Databases.openDatabase(dbConf.getFile());
 				mDatabases.add(database);
-				return new DBCollection<AbsTemporalNode>(pName, database, mUpdating);
+				return new DBCollection<AbsTemporalNode>(name, database, mUpdating);
 			} catch (final SirixException e) {
 				throw new DocumentException(e.getCause());
 			}
@@ -90,31 +91,32 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final String pName) throws DocumentException {
+	public Collection<?> create(final @Nonnull String name)
+			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
-				mLocation, pName));
+				LOCATION, name));
 		try {
-			if (DatabaseImpl.createDatabase(dbConf)) {
-				throw new DocumentException("Document with name %s exists!", pName);
+			if (Databases.createDatabase(dbConf)) {
+				throw new DocumentException("Document with name %s exists!", name);
 			}
 
-			final Database database = DatabaseImpl.openDatabase(dbConf.getFile());
+			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
-			return new DBCollection<AbsTemporalNode>(pName, database, mUpdating);
+			return new DBCollection<AbsTemporalNode>(name, database, mUpdating);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
 		}
 	}
 
 	@Override
-	public Collection<?> create(final String pName, final SubtreeParser pParser)
-			throws DocumentException {
+	public Collection<?> create(final @Nonnull String name,
+			final @Nonnull SubtreeParser parser) throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
-				mLocation, pName));
+				LOCATION, name));
 		try {
-			DatabaseImpl.truncateDatabase(dbConf);
-			DatabaseImpl.createDatabase(dbConf);
-			final Database database = DatabaseImpl.openDatabase(dbConf.getFile());
+			Databases.truncateDatabase(dbConf);
+			Databases.createDatabase(dbConf);
+			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
 			database.createResource(new ResourceConfiguration.Builder("shredded",
 					dbConf).build());
@@ -122,9 +124,9 @@ public class DBStore implements Store, AutoCloseable {
 					.getSession(new SessionConfiguration.Builder("shredded").build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 
-			final DBCollection<DBNode> collection = new DBCollection<DBNode>(pName,
+			final DBCollection<DBNode> collection = new DBCollection<DBNode>(name,
 					database, mUpdating);
-			pParser.parse(new SubtreeBuilder<DBNode>(collection, wtx,
+			parser.parse(new SubtreeBuilder<DBNode>(collection, wtx,
 					Insert.ASFIRSTCHILD, Collections
 							.<SubtreeListener<? super AbsTemporalNode>> emptyList()));
 			wtx.commit();
@@ -136,15 +138,15 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final String pName,
+	public Collection<?> create(final @Nonnull String name,
 			final @Nullable Stream<SubtreeParser> pParsers) throws DocumentException {
 		if (pParsers != null) {
 			final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
-					mLocation, pName));
+					LOCATION, name));
 			try {
-				DatabaseImpl.truncateDatabase(dbConf);
-				DatabaseImpl.createDatabase(dbConf);
-				final Database database = DatabaseImpl.openDatabase(dbConf.getFile());
+				Databases.truncateDatabase(dbConf);
+				Databases.createDatabase(dbConf);
+				final Database database = Databases.openDatabase(dbConf.getFile());
 				mDatabases.add(database);
 				final ExecutorService pool = Executors.newFixedThreadPool(Runtime
 						.getRuntime().availableProcessors());
@@ -165,7 +167,7 @@ public class DBStore implements Store, AutoCloseable {
 												.build());
 								final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 								final DBCollection<DBNode> collection = new DBCollection<DBNode>(
-										pName, database, mUpdating);
+										name, database, mUpdating);
 								nextParser.parse(new SubtreeBuilder<DBNode>(collection, wtx,
 										Insert.ASFIRSTCHILD, Collections
 												.<SubtreeListener<? super AbsTemporalNode>> emptyList()));
@@ -181,7 +183,7 @@ public class DBStore implements Store, AutoCloseable {
 				}
 				pool.shutdown();
 				pool.awaitTermination(5, TimeUnit.MINUTES);
-				return new DBCollection<>(pName, database, mUpdating);
+				return new DBCollection<>(name, database, mUpdating);
 			} catch (final SirixException | InterruptedException e) {
 				throw new DocumentException(e.getCause());
 			}
@@ -190,12 +192,12 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public void drop(final String pName) throws DocumentException {
+	public void drop(final @Nonnull String name) throws DocumentException {
 		final DatabaseConfiguration dbConfig = new DatabaseConfiguration(new File(
-				mLocation, pName));
-		if (DatabaseImpl.existsDatabase(dbConfig)) {
+				LOCATION, name));
+		if (Databases.existsDatabase(dbConfig)) {
 			try {
-				DatabaseImpl.truncateDatabase(dbConfig);
+				Databases.truncateDatabase(dbConfig);
 			} catch (final SirixIOException e) {
 				throw new DocumentException(e.getCause());
 			}
@@ -204,9 +206,9 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public void makeDir(final String pPath) throws DocumentException {
+	public void makeDir(final @Nonnull String path) throws DocumentException {
 		try {
-			Files.createDirectory(java.nio.file.Paths.get(pPath));
+			Files.createDirectory(java.nio.file.Paths.get(path));
 		} catch (final IOException e) {
 			throw new DocumentException(e.getCause());
 		}

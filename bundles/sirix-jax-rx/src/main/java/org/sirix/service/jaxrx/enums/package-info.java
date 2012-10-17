@@ -26,7 +26,7 @@
  */
 
 /**
- * Enums for relative access types
+ * Enums for relative access types.
  * 
  * Used to access relative nodes via URL e.g., for fist child of a resource:
  * http://localhost:8093/sirix/factbook/firstChild()

@@ -48,18 +48,20 @@ import static org.junit.Assert.assertNotNull;
  */
 public class RESTXMLShredderTest {
 
-  /**
-   * Test method for {@link org.sirix.service.jaxrx.util.RESTXMLShredder#createReader(java.io.InputStream)}
-   * .
-   * 
-   * @throws XMLStreamException
-   * @throws IOException
-   */
-  @Test
-  public final void testCreateReader() throws IOException, XMLStreamException {
-    final InputStream input = RESTXMLShredderTest.class.getResourceAsStream("/books.xml");
-    final XMLEventReader reader = RESTXMLShredder.createReader(input);
-    assertNotNull("Test if the reader has been created", reader);
-  }
+	/**
+	 * Test method for
+	 * {@link org.sirix.service.jaxrx.util.RESTXMLShredder#createReader(java.io.InputStream)}
+	 * .
+	 * 
+	 * @throws XMLStreamException
+	 * @throws IOException
+	 */
+	@Test
+	public final void testCreateReader() throws IOException, XMLStreamException {
+		final InputStream input = RESTXMLShredderTest.class
+				.getResourceAsStream("/books.xml");
+		final XMLEventReader reader = RESTXMLShredder.createReader(input);
+		assertNotNull("Test if the reader has been created", reader);
+	}
 
 }

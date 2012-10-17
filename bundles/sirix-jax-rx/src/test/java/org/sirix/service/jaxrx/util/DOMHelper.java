@@ -51,34 +51,36 @@ import org.xml.sax.SAXException;
  */
 public final class DOMHelper {
 
-  /**
-   * private contructor.
-   */
-  private DOMHelper() {
-    // private no instantiation
-  }
+	/**
+	 * private contructor.
+	 */
+	private DOMHelper() {
+		// private no instantiation
+	}
 
-  /**
-   * This method gets an output stream from the streaming output and converts
-   * it to a Document type to perform test cases.
-   * 
-   * @param output
-   *          The output stream that has to be packed into the document.
-   * @return The parsed document.
-   * @throws ParserConfigurationException
-   *           The error occurred.
-   * @throws SAXException
-   *           XML parsing exception.
-   * @throws IOException
-   *           An exception occurred.
-   */
-  public static Document buildDocument(final ByteArrayOutputStream output)
-    throws ParserConfigurationException, SAXException, IOException {
-    final DocumentBuilder docBuilder = DocumentBuilderFactory.newInstance().newDocumentBuilder();
-    final ByteArrayInputStream bais = new ByteArrayInputStream(output.toByteArray());
-    final Document document = docBuilder.parse(bais);
+	/**
+	 * This method gets an output stream from the streaming output and converts it
+	 * to a Document type to perform test cases.
+	 * 
+	 * @param output
+	 *          The output stream that has to be packed into the document.
+	 * @return The parsed document.
+	 * @throws ParserConfigurationException
+	 *           The error occurred.
+	 * @throws SAXException
+	 *           XML parsing exception.
+	 * @throws IOException
+	 *           An exception occurred.
+	 */
+	public static Document buildDocument(final ByteArrayOutputStream output)
+			throws ParserConfigurationException, SAXException, IOException {
+		final DocumentBuilder docBuilder = DocumentBuilderFactory.newInstance()
+				.newDocumentBuilder();
+		final ByteArrayInputStream bais = new ByteArrayInputStream(
+				output.toByteArray());
+		final Document document = docBuilder.parse(bais);
 
-    return document;
-  }
+		return document;
+	}
 
 }

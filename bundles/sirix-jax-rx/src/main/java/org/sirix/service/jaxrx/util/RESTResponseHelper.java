@@ -59,126 +59,126 @@ import org.w3c.dom.Element;
  */
 public final class RESTResponseHelper {
 
-    /**
-     * The private empty constructor.
-     */
-    private RESTResponseHelper() {
-        // i do nothing
-        // constructor only exists to meet pmd requirements
-    }
+	/**
+	 * The private empty constructor.
+	 */
+	private RESTResponseHelper() {
+		throw new AssertionError();
+	}
 
-    /**
-     * This method creates a new {@link Document} instance for the surrounding
-     * XML element for the client response.
-     * 
-     * @return The created {@link Document} instance.
-     * @throws ParserConfigurationException
-     *             The exception occurred.
-     */
-    private static Document createSurroundingXMLResp() throws ParserConfigurationException {
-        final Document document = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
-        return document;
-    }
+	/**
+	 * This method creates a new {@link Document} instance for the surrounding XML
+	 * element for the client response.
+	 * 
+	 * @return The created {@link Document} instance.
+	 * @throws ParserConfigurationException
+	 *           The exception occurred.
+	 */
+	private static Document createSurroundingXMLResp()
+			throws ParserConfigurationException {
+		final Document document = DocumentBuilderFactory.newInstance()
+				.newDocumentBuilder().newDocument();
+		return document;
+	}
 
-    /**
-     * This method creates the sirix response XML element.
-     * 
-     * @param document
-     *            The {@link Document} instance for the response.
-     * @return The created XML {@link Element}.
-     */
-    private static Element createResultElement(final Document document) {
-        final Element ttResponse = document.createElementNS("http://jaxrx.org/", "result");
-        ttResponse.setPrefix("jaxrx");
-        return ttResponse;
-    }
+	/**
+	 * This method creates the sirix response XML element.
+	 * 
+	 * @param document
+	 *          The {@link Document} instance for the response.
+	 * @return The created XML {@link Element}.
+	 */
+	private static Element createResultElement(final Document document) {
+		final Element ttResponse = document.createElementNS("http://jaxrx.org/",
+				"result");
+		ttResponse.setPrefix("jaxrx");
+		return ttResponse;
+	}
 
-    /**
-     * This method creates the XML element containing a collection. This
-     * collection contains the available resources which are children of the
-     * database.
-     * 
-     * @param resources
-     *            The list with the path of the available resources.
-     * @param pStoragePath
-     *            path where the data must be stored
-     * @param document
-     *            The XML {@link Document} instance.
-     * @return A list of XML {@link Element} as the collection.
-     * @throws SirixException
-     * @throws WebApplicationException
-     */
-    private static List<Element> createCollectionElementDBs(final File pStoragePath,
-        final List<String> resources, final Document document) throws WebApplicationException, SirixException {
-        final List<Element> collectionsEls = new ArrayList<Element>();
-        for (final String res : resources) {
-            final Element elRes = document.createElement("resource");
-            // Getting the name
-            elRes.setAttribute("name", res);
+	/**
+	 * This method creates the XML element containing a collection. This
+	 * collection contains the available resources which are children of the
+	 * database.
+	 * 
+	 * @param resources
+	 *          the list with the path of the available resources
+	 * @param pStoragePath
+	 *          path where the data must be stored
+	 * @param document
+	 *          the XML {@link Document} instance
+	 * @return a list of XML {@link Element} as the collection
+	 * @throws SirixException
+	 * @throws WebApplicationException
+	 */
+	private static List<Element> createCollectionElementDBs(
+			final File pStoragePath, final List<String> resources,
+			final Document document) throws WebApplicationException, SirixException {
+		final List<Element> collectionsEls = new ArrayList<Element>();
+		for (final String res : resources) {
+			final Element elRes = document.createElement("resource");
+			// Getting the name
+			elRes.setAttribute("name", res);
 
-            // get last revision from given db name
-            final DatabaseRepresentation dbWorker = new DatabaseRepresentation(pStoragePath);
-            final String lastRevision = Long.toString(dbWorker.getLastRevision(res.toString()));
+			// get last revision from given db name
+			final DatabaseRepresentation dbWorker = new DatabaseRepresentation(
+					pStoragePath);
+			final String lastRevision = Long.toString(dbWorker.getLastRevision(res
+					.toString()));
 
-            elRes.setAttribute("lastRevision", lastRevision);
-            collectionsEls.add(elRes);
-        }
+			elRes.setAttribute("lastRevision", lastRevision);
+			collectionsEls.add(elRes);
+		}
 
-        return collectionsEls;
-    }
+		return collectionsEls;
+	}
 
-    /**
-     * This method builds the overview for the resources and collection we offer
-     * in our implementation.
-     * 
-     * @param pStoragePath
-     *            path to the storage
-     * @param availableRes
-     *            A list of available resources or collections.
-     * @return The streaming output for the HTTP response body.
-     */
-    public static StreamingOutput buildResponseOfDomLR(final File pStoragePath,
-        final List<String> availableRes) {
+	/**
+	 * This method builds the overview for the resources and collection we offer
+	 * in our implementation.
+	 * 
+	 * @param storagePath
+	 *          path to the storage
+	 * @param availableRes
+	 *          a list of available resources or collections
+	 * @return the streaming output for the HTTP response body
+	 */
+	public static StreamingOutput buildResponseOfDomLR(final File storagePath,
+			final List<String> availableRes) {
+		final StreamingOutput sOutput = new StreamingOutput() {
+			@Override
+			public void write(final OutputStream output) throws IOException,
+					WebApplicationException {
+				Document document;
+				try {
+					document = createSurroundingXMLResp();
+					final Element resElement = RESTResponseHelper
+							.createResultElement(document);
 
-        final StreamingOutput sOutput = new StreamingOutput() {
+					List<Element> collections;
+					try {
+						collections = RESTResponseHelper.createCollectionElementDBs(
+								storagePath, availableRes, document);
+					} catch (final SirixException exce) {
+						throw new WebApplicationException(exce);
+					}
+					for (final Element resource : collections) {
+						resElement.appendChild(resource);
+					}
+					document.appendChild(resElement);
+					final DOMSource domSource = new DOMSource(document);
+					final StreamResult streamResult = new StreamResult(output);
+					final Transformer transformer = TransformerFactory.newInstance()
+							.newTransformer();
+					transformer.transform(domSource, streamResult);
 
-            @Override
-            public void write(final OutputStream output) throws IOException, WebApplicationException {
-                Document document;
-                try {
-                    document = createSurroundingXMLResp();
-                    final Element resElement = RESTResponseHelper.createResultElement(document);
+				} catch (ParserConfigurationException
+						| TransformerFactoryConfigurationError | TransformerException e) {
+					throw new WebApplicationException(e);
+				}
+			}
+		};
 
-                    List<Element> collections;
-                    try {
-                        collections =
-                            RESTResponseHelper.createCollectionElementDBs(pStoragePath, availableRes,
-                                document);
-                    } catch (final SirixException exce) {
-                        throw new WebApplicationException(exce);
-                    }
-                    for (final Element resource : collections) {
-                        resElement.appendChild(resource);
-                    }
-                    document.appendChild(resElement);
-                    final DOMSource domSource = new DOMSource(document);
-                    final StreamResult streamResult = new StreamResult(output);
-                    final Transformer transformer = TransformerFactory.newInstance().newTransformer();
-                    transformer.transform(domSource, streamResult);
-
-                } catch (final ParserConfigurationException exce) {
-                    throw new WebApplicationException(exce);
-                } catch (final TransformerConfigurationException exce) {
-                    throw new WebApplicationException(exce);
-                } catch (final TransformerFactoryConfigurationError exce) {
-                    throw new WebApplicationException(exce);
-                } catch (final TransformerException exce) {
-                    throw new WebApplicationException(exce);
-                }
-            }
-        };
-
-        return sOutput;
-    }
+		return sOutput;
+	}
 
 }

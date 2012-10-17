@@ -33,44 +33,48 @@ package org.sirix.service.jaxrx.util;
 import java.io.IOException;
 import java.io.InputStream;
 
+import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 
 /**
- * This class is responsible to create a sirix {@link XMLStreamReader} out of
- * an {@link InputStream}.
+ * This class is responsible to create a Sirix {@link XMLStreamReader} out of an
+ * {@link InputStream}.
  * 
  * @author Patrick Lang, Lukas Lewandowski, University of Konstanz
+ * @author Johannes Lichtenberger
  * 
  */
 public final class RESTXMLShredder {
 
-  /**
-   * The empty constructor.
-   */
-  private RESTXMLShredder() {
-    // i do nothing
-  }
+	/**
+	 * The empty constructor.
+	 */
+	private RESTXMLShredder() {
+		throw new AssertionError();
+	}
 
-  /**
-   * This method creates an {@link XMLEventReader} out of an {@link InputStream}.
-   * 
-   * @param inputStream
-   *          The {@link InputStream} containing the XML file that has to be
-   *          stored.
-   * @return The {@link XMLStreamReader} object.
-   * @throws IOException
-   *           The exception occurred.
-   * @throws XMLStreamException
-   *           The exception occurred.
-   */
-  public static XMLEventReader createReader(final InputStream inputStream) throws IOException,
-    XMLStreamException {
-    final XMLInputFactory factory = XMLInputFactory.newInstance();
-    factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
-    return factory.createXMLEventReader(inputStream);
-  }
+	/**
+	 * This method creates an {@link XMLEventReader} out of an {@link InputStream}
+	 * .
+	 * 
+	 * @param inputStream
+	 *          The {@link InputStream} containing the XML file that has to be
+	 *          stored.
+	 * @return The {@link XMLStreamReader} object.
+	 * @throws IOException
+	 *           if an I/O exception occurred
+	 * @throws XMLStreamException
+	 *           if an XML stream exception occurred
+	 */
+	public static XMLEventReader createReader(
+			final @Nonnull InputStream inputStream) throws IOException,
+			XMLStreamException {
+		final XMLInputFactory factory = XMLInputFactory.newInstance();
+		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+		return factory.createXMLEventReader(inputStream);
+	}
 
 }

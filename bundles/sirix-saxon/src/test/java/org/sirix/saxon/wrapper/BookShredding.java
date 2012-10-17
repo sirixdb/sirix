@@ -7,13 +7,13 @@ import javax.xml.stream.XMLEventReader;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.Session;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 
@@ -44,9 +44,9 @@ public final class BookShredding {
 	private static void shredder(final File pBooks) throws Exception {
 		final DatabaseConfiguration config = new DatabaseConfiguration(
 				TestHelper.PATHS.PATH1.getFile());
-		DatabaseImpl.truncateDatabase(config);
-		DatabaseImpl.createDatabase(config);
-		final Database database = DatabaseImpl.openDatabase(config.getFile());
+		Databases.truncateDatabase(config);
+		Databases.createDatabase(config);
+		final Database database = Databases.openDatabase(config.getFile());
 		database.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
 		final Session session = database

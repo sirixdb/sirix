@@ -55,6 +55,7 @@ import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
 import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
@@ -156,8 +157,8 @@ public final class WikipediaImport implements Import<StartElement> {
 		}
 
 		final DatabaseConfiguration config = new DatabaseConfiguration(sirixDatabase);
-		DatabaseImpl.createDatabase(config);
-		mDatabase = DatabaseImpl.openDatabase(sirixDatabase);
+		Databases.createDatabase(config);
+		mDatabase = Databases.openDatabase(sirixDatabase);
 		mDatabase.createResource(new ResourceConfiguration.Builder("shredded",
 				config).useTextCompression(false).build());
 		mSession = mDatabase
@@ -298,9 +299,9 @@ public final class WikipediaImport implements Import<StartElement> {
 			XMLStreamException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(
 				TMP_PATH.toFile());
-		DatabaseImpl.truncateDatabase(dbConf);
-		DatabaseImpl.createDatabase(dbConf);
-		final Database db = DatabaseImpl.openDatabase(TMP_PATH.toFile());
+		Databases.truncateDatabase(dbConf);
+		Databases.createDatabase(dbConf);
+		final Database db = Databases.openDatabase(TMP_PATH.toFile());
 		db.createResource(new ResourceConfiguration.Builder("wiki", dbConf)
 				.useTextCompression(false).build());
 		final Session session = db.getSession(new SessionConfiguration.Builder(
@@ -612,7 +613,7 @@ public final class WikipediaImport implements Import<StartElement> {
 
 		final File xml = new File(args[0]);
 		final File tnk = new File(args[1]);
-		DatabaseImpl.truncateDatabase(new DatabaseConfiguration(tnk));
+		Databases.truncateDatabase(new DatabaseConfiguration(tnk));
 
 		// Create necessary element nodes.
 		final String NSP_URI = "http://www.mediawiki.org/xml/export-0.4/";

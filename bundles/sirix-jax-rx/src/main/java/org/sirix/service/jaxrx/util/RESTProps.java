@@ -33,34 +33,33 @@ import java.io.File;
  * This class specifies the properties of this RESTful approach.
  * 
  * @author Patrick Lang, Lukas Lewandowski, University of Konstanz
+ * @author Johannes Lichtenberger
  * 
  */
 public final class RESTProps {
 
-  /**
-   * This class has a lazy constructor.
-   */
-  private RESTProps() {
-    // i do nothing
-    // constructor only exists to meet pmd requirements
-  }
+	/**
+	 * This class has a lazy constructor.
+	 */
+	private RESTProps() {
+		throw new AssertionError();
+	}
 
-  /**
-   * The path where the databases will be stored.
-   */
-  // public final static transient String STOREDBPATH = System
-  // .getProperty("user.home")
-  // + File.separatorChar + "xml-databases";
-  public final static transient String STOREDBPATH = File.separatorChar + "tmp" + File.separatorChar + "tt";
+	/**
+	 * The path where the databases will be stored.
+	 */
+	public static final String STOREDBPATH = new StringBuilder(
+			System.getProperty("user.home")).append(File.separator)
+			.append("sirix-data").toString();
 
-  /**
-   * The tnk ending.
-   */
-  public final static transient String TNKEND = ".tnk";
+	/**
+	 * The sirix file-suffix.
+	 */
+	public static final String TNKEND = ".sirix";
 
-  /**
-   * The collection ending.
-   */
-  public final static transient String COLEND = ".col";
+	/**
+	 * The collection suffix.
+	 */
+	public static final String COLEND = ".col";
 
 }

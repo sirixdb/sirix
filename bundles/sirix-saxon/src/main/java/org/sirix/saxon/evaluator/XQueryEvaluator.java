@@ -49,8 +49,8 @@ import org.slf4j.LoggerFactory;
  * <h1>XQuery evaluator</h1>
  * 
  * <p>
- * Evaluates an XQuery expression against a sirix storage and returns an XdmValue instance, which
- * corresponds to zero or more XdmItems.
+ * Evaluates an XQuery expression against a sirix storage and returns an
+ * XdmValue instance, which corresponds to zero or more XdmItems.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -58,48 +58,50 @@ import org.slf4j.LoggerFactory;
  */
 public final class XQueryEvaluator implements Callable<XdmValue> {
 
-  /**
-   * Log wrapper for better output.
-   */
-  private static final Logger LOGGER = LoggerFactory.getLogger(XQueryEvaluator.class);
+	/**
+	 * Log wrapper for better output.
+	 */
+	private static final Logger LOGGER = LoggerFactory
+			.getLogger(XQueryEvaluator.class);
 
-  /** XQuery expression. */
-  private final String mExpression;
+	/** XQuery expression. */
+	private final String mExpression;
 
-  /** Sirix {@link Session}. */
-  private final Session mSession;
+	/** Sirix {@link Session}. */
+	private final Session mSession;
 
-  /**
-   * Constructor.
-   * 
-   * @param paramExpression
-   *          XQuery expression.
-   * @param paramSession
-   *          sirix database.
-   */
-  public XQueryEvaluator(@Nonnull final String pExpression, @Nonnull final Session pSession) {
-    mExpression = checkNotNull(pExpression);
-    mSession = checkNotNull(pSession);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param paramExpression
+	 *          XQuery expression.
+	 * @param paramSession
+	 *          sirix database.
+	 */
+	public XQueryEvaluator(final @Nonnull String expression,
+			final @Nonnull Session session) {
+		mExpression = checkNotNull(expression);
+		mSession = checkNotNull(session);
+	}
 
-  @Override
-  public XdmValue call() throws Exception {
-    XdmValue value = null;
+	@Override
+	public XdmValue call() throws Exception {
+		XdmValue value = null;
 
-    try {
-      final Processor proc = new Processor(false);
-      final Configuration config = proc.getUnderlyingConfiguration();
-      final NodeInfo doc = new DocumentWrapper(mSession, config);
-      final XQueryCompiler comp = proc.newXQueryCompiler();
-      final XQueryExecutable exp = comp.compile(mExpression);
-      final net.sf.saxon.s9api.XQueryEvaluator exe = exp.load();
-      exe.setSource(doc);
-      value = exe.evaluate();
-    } catch (final SaxonApiException e) {
-      LOGGER.error("Saxon Exception: " + e.getMessage(), e);
-      throw e;
-    }
+		try {
+			final Processor proc = new Processor(false);
+			final Configuration config = proc.getUnderlyingConfiguration();
+			final NodeInfo doc = new DocumentWrapper(mSession, config);
+			final XQueryCompiler comp = proc.newXQueryCompiler();
+			final XQueryExecutable exp = comp.compile(mExpression);
+			final net.sf.saxon.s9api.XQueryEvaluator exe = exp.load();
+			exe.setSource(doc);
+			value = exe.evaluate();
+		} catch (final SaxonApiException e) {
+			LOGGER.error("Saxon Exception: " + e.getMessage(), e);
+			throw e;
+		}
 
-    return value;
-  }
+		return value;
+	}
 }

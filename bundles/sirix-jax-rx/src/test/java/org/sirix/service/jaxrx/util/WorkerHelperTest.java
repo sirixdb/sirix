@@ -42,7 +42,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
@@ -59,123 +59,133 @@ import org.sirix.service.xml.shredder.Insert;
  * 
  */
 public class WorkerHelperTest {
-    /**
-     * The WorkerHelper reference.
-     */
-    private transient static WorkerHelper workerHelper;
-    /**
-     * The sirix reference.
-     */
-    private transient static DatabaseRepresentation sirix;
-    /**
-     * The resource name.
-     */
-    private static final transient String RESOURCENAME = "factyTest";
-    /**
-     * The test file that has to be saved on the server.
-     */
-    private final static File DBFILE = new File(TestHelper.PATHS.PATH1.getFile(), RESOURCENAME);
+	/**
+	 * The WorkerHelper reference.
+	 */
+	private transient static WorkerHelper workerHelper;
+	/**
+	 * The sirix reference.
+	 */
+	private transient static DatabaseRepresentation sirix;
+	/**
+	 * The resource name.
+	 */
+	private static final transient String RESOURCENAME = "factyTest";
+	/**
+	 * The test file that has to be saved on the server.
+	 */
+	private final static File DBFILE = new File(TestHelper.PATHS.PATH1.getFile(),
+			RESOURCENAME);
 
-    /**
-     * The test file that has to be saved on the server.
-     */
-    private final transient InputStream INPUTFILE = WorkerHelperTest.class.getClass().getResourceAsStream(
-        "/factbook.xml");
+	/**
+	 * The test file that has to be saved on the server.
+	 */
+	private final transient InputStream INPUTFILE = WorkerHelperTest.class
+			.getClass().getResourceAsStream("/factbook.xml");
 
-    /**
-     * A simple set up.
-     * 
-     * @throws FileNotFoundException
-     */
-    @Before
-    public void setUp() throws FileNotFoundException, SirixException {
-        TestHelper.closeEverything();
-        TestHelper.deleteEverything();
-        TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
-        workerHelper = WorkerHelper.getInstance();
-        sirix = new DatabaseRepresentation(TestHelper.PATHS.PATH1.getFile());
-        sirix.shred(INPUTFILE, RESOURCENAME);
-    }
+	/**
+	 * A simple set up.
+	 * 
+	 * @throws FileNotFoundException
+	 */
+	@Before
+	public void setUp() throws FileNotFoundException, SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+		TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
+		workerHelper = WorkerHelper.getInstance();
+		sirix = new DatabaseRepresentation(TestHelper.PATHS.PATH1.getFile());
+		sirix.shred(INPUTFILE, RESOURCENAME);
+	}
 
-    @After
-    public void after() throws SirixException {
-        TestHelper.closeEverything();
-        TestHelper.deleteEverything();
-    }
+	@After
+	public void after() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+	}
 
-    /**
-     * This method tests {@link WorkerHelper#checkExistingResource(File)}
-     */
-    @Test
-    public void testCheckExistingResource() {
-        assertEquals("test check existing resource", true, WorkerHelper.checkExistingResource(
-            TestHelper.PATHS.PATH1.getFile(), RESOURCENAME));
-    }
+	/**
+	 * This method tests {@link WorkerHelper#checkExistingResource(File)}
+	 */
+	@Test
+	public void testCheckExistingResource() {
+		assertEquals("test check existing resource", true,
+				WorkerHelper.checkExistingResource(TestHelper.PATHS.PATH1.getFile(),
+						RESOURCENAME));
+	}
 
-    /**
-     * This method tests {@link WorkerHelper#createStringBuilderObject()}
-     */
-    @Test
-    public void testCreateStringBuilderObject() {
-        assertNotNull("test create string builder object", workerHelper.createStringBuilderObject());
-    }
+	/**
+	 * This method tests {@link WorkerHelper#createStringBuilderObject()}
+	 */
+	@Test
+	public void testCreateStringBuilderObject() {
+		assertNotNull("test create string builder object",
+				workerHelper.createStringBuilderObject());
+	}
 
-    /**
-     * This method tests {@link WorkerHelper#serializeXML(Session, OutputStream, boolean, boolean,Long)}
-     */
-    @Test
-    public void testSerializeXML() throws SirixException, IOException {
-        final Database database = DatabaseImpl.openDatabase(DBFILE.getParentFile());
-        final Session session =
-            database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
-        final OutputStream out = new ByteArrayOutputStream();
+	/**
+	 * This method tests
+	 * {@link WorkerHelper#serializeXML(Session, OutputStream, boolean, boolean,Long)}
+	 */
+	@Test
+	public void testSerializeXML() throws SirixException, IOException {
+		final Database database = Databases.openDatabase(DBFILE.getParentFile());
+		final Session session = database
+				.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
+		final OutputStream out = new ByteArrayOutputStream();
 
-        assertNotNull("test serialize xml", WorkerHelper.serializeXML(session, out, true, true, null));
-        session.close();
-        database.close();
-        out.close();
-    }
+		assertNotNull("test serialize xml",
+				WorkerHelper.serializeXML(session, out, true, true, null));
+		session.close();
+		database.close();
+		out.close();
+	}
 
-    /**
-     * This method tests {@link WorkerHelper#shredInputStream(NodeWriteTrx, InputStream, Insert)}
-     */
-    @Test
-    public void testShredInputStream() throws SirixException, IOException {
-        long lastRevision = sirix.getLastRevision(RESOURCENAME);
-        final Database database = DatabaseImpl.openDatabase(DBFILE.getParentFile());
-        final Session session =
-            database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
-        final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-        wtx.moveToFirstChild();
-        final InputStream inputStream = new ByteArrayInputStream("<testNode/>".getBytes());
-        WorkerHelper.shredInputStream(wtx, inputStream, Insert.ASFIRSTCHILD);
-        assertEquals("test shred input stream", sirix.getLastRevision(RESOURCENAME), ++lastRevision);
-        wtx.close();
-        session.close();
-        database.close();
-        inputStream.close();
-    }
+	/**
+	 * This method tests
+	 * {@link WorkerHelper#shredInputStream(NodeWriteTrx, InputStream, Insert)}
+	 */
+	@Test
+	public void testShredInputStream() throws SirixException, IOException {
+		long lastRevision = sirix.getLastRevision(RESOURCENAME);
+		final Database database = Databases.openDatabase(DBFILE.getParentFile());
+		final Session session = database
+				.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+		wtx.moveToFirstChild();
+		final InputStream inputStream = new ByteArrayInputStream(
+				"<testNode/>".getBytes());
+		WorkerHelper.shredInputStream(wtx, inputStream, Insert.ASFIRSTCHILD);
+		assertEquals("test shred input stream",
+				sirix.getLastRevision(RESOURCENAME), ++lastRevision);
+		wtx.close();
+		session.close();
+		database.close();
+		inputStream.close();
+	}
 
-    /**
-     * This method tests {@link WorkerHelper#closeWTX(boolean, NodeWriteTrx, Session, Database)}
-     */
-    @Test(expected = IllegalStateException.class)
-    public void testClose() throws SirixException {
-        Database database = DatabaseImpl.openDatabase(DBFILE.getParentFile());
-        Session session = database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
-        final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+	/**
+	 * This method tests
+	 * {@link WorkerHelper#closeWTX(boolean, NodeWriteTrx, Session, Database)}
+	 */
+	@Test(expected = IllegalStateException.class)
+	public void testClose() throws SirixException {
+		Database database = Databases.openDatabase(DBFILE.getParentFile());
+		Session session = database.getSession(new SessionConfiguration.Builder(
+				DBFILE.getName()).build());
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 
-        WorkerHelper.closeWTX(false, wtx, session, database);
+		WorkerHelper.closeWTX(false, wtx, session, database);
 
-        wtx.commit();
+		wtx.commit();
 
-        database = DatabaseImpl.openDatabase(DBFILE.getParentFile());
-        session = database.getSession(new SessionConfiguration.Builder(DBFILE.getName()).build());
-        final NodeReadTrx rtx = session.beginNodeReadTrx();
-        WorkerHelper.closeRTX(rtx, session, database);
+		database = Databases.openDatabase(DBFILE.getParentFile());
+		session = database.getSession(new SessionConfiguration.Builder(DBFILE
+				.getName()).build());
+		final NodeReadTrx rtx = session.beginNodeReadTrx();
+		WorkerHelper.closeRTX(rtx, session, database);
 
-        rtx.moveTo(11);
-
-    }
+		rtx.moveTo(11);
+	}
 
 }

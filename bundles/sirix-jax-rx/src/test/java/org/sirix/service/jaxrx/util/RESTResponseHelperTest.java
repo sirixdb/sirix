@@ -63,129 +63,138 @@ import org.xml.sax.SAXException;
  * 
  */
 public class RESTResponseHelperTest {
-    /**
-     * name constant.
-     */
-    private static final String NAME = "name";
+	/**
+	 * name constant.
+	 */
+	private static final String NAME = "name";
 
-    /**
-     * last revision constant.
-     */
-    private static final String LREV = "lastRevision";
+	/**
+	 * last revision constant.
+	 */
+	private static final String LREV = "lastRevision";
 
-    /**
-     * shake constant.
-     */
-    private static final String SHAKE = "shakespeare";
-    /**
-     * book constant.
-     */
-    private static final String BOOK = "books";
-    /**
-     * fact constant.
-     */
-    private static final String FACT = "factbook";
-    /**
-     * ebay constant.
-     */
-    private static final String EBAY = "ebay";
-    /**
-     * resource path constant.
-     */
-    private static final String RESPATH = "/factbook.xml";
+	/**
+	 * shake constant.
+	 */
+	private static final String SHAKE = "shakespeare";
+	/**
+	 * book constant.
+	 */
+	private static final String BOOK = "books";
+	/**
+	 * fact constant.
+	 */
+	private static final String FACT = "factbook";
+	/**
+	 * ebay constant.
+	 */
+	private static final String EBAY = "ebay";
+	/**
+	 * resource path constant.
+	 */
+	private static final String RESPATH = "/factbook.xml";
 
-    @Before
-    public void before() throws SirixException {
-        TestHelper.closeEverything();
-        TestHelper.deleteEverything();
-        TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
-    }
+	@Before
+	public void before() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+		TestHelper.getDatabase(TestHelper.PATHS.PATH1.getFile());
+	}
 
-    @After
-    public void after() throws SirixException {
-        TestHelper.closeEverything();
-        TestHelper.deleteEverything();
-    }
+	@After
+	public void after() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+	}
 
-    /**
-     * Test method for
-     * {@link org.sirix.service.jaxrx.util.RESTResponseHelper#buildResponseOfDomLR(java.util.Map)} .
-     * 
-     * @throws IOException
-     * @throws WebApplicationException
-     * @throws SAXException
-     * @throws ParserConfigurationException
-     * @throws SirixException
-     * @throws InterruptedException
-     */
-    @Test
-    public final void testBuildResponseOfDomLR() throws WebApplicationException, IOException,
-        ParserConfigurationException, SAXException, SirixException, InterruptedException {
+	/**
+	 * Test method for
+	 * {@link org.sirix.service.jaxrx.util.RESTResponseHelper#buildResponseOfDomLR(java.util.Map)}
+	 * .
+	 * 
+	 * @throws IOException
+	 * @throws WebApplicationException
+	 * @throws SAXException
+	 * @throws ParserConfigurationException
+	 * @throws SirixException
+	 * @throws InterruptedException
+	 */
+	@Test
+	public final void testBuildResponseOfDomLR() throws WebApplicationException,
+			IOException, ParserConfigurationException, SAXException, SirixException,
+			InterruptedException {
 
-        final List<String> availResources = new ArrayList<String>();
-        availResources.add(FACT);
-        availResources.add(EBAY);
-        availResources.add(BOOK);
-        availResources.add(SHAKE);
+		final List<String> availResources = new ArrayList<String>();
+		availResources.add(FACT);
+		availResources.add(EBAY);
+		availResources.add(BOOK);
+		availResources.add(SHAKE);
 
-        final DatabaseRepresentation sirix = new DatabaseRepresentation(TestHelper.PATHS.PATH1.getFile());
-        InputStream input = NodeIdRepresentationTest.class.getClass().getResourceAsStream(RESPATH);
-        sirix.shred(input, FACT);
-        input.close();
+		final DatabaseRepresentation sirix = new DatabaseRepresentation(
+				TestHelper.PATHS.PATH1.getFile());
+		InputStream input = NodeIdRepresentationTest.class.getClass()
+				.getResourceAsStream(RESPATH);
+		sirix.shred(input, FACT);
+		input.close();
 
-        input = NodeIdRepresentationTest.class.getClass().getResourceAsStream(RESPATH);
-        sirix.shred(input, EBAY);
-        input.close();
+		input = NodeIdRepresentationTest.class.getClass().getResourceAsStream(
+				RESPATH);
+		sirix.shred(input, EBAY);
+		input.close();
 
-        input.close();
-        input = NodeIdRepresentationTest.class.getClass().getResourceAsStream(RESPATH);
-        sirix.add(input, BOOK);
+		input.close();
+		input = NodeIdRepresentationTest.class.getClass().getResourceAsStream(
+				RESPATH);
+		sirix.add(input, BOOK);
 
-        input = NodeIdRepresentationTest.class.getClass().getResourceAsStream(RESPATH);
-        sirix.shred(input, SHAKE);
-        input.close();
+		input = NodeIdRepresentationTest.class.getClass().getResourceAsStream(
+				RESPATH);
+		sirix.shred(input, SHAKE);
+		input.close();
 
-        Node node;
-        Attr attribute;
+		Node node;
+		Attr attribute;
 
-        final StreamingOutput result =
-            RESTResponseHelper.buildResponseOfDomLR(TestHelper.PATHS.PATH1.getFile(), availResources);
-        final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        result.write(outputStream);
-        final Document doc = DOMHelper.buildDocument(outputStream);
-        final NodeList listRes = doc.getElementsByTagName("resource");
-        assertEquals("Test for the length of resource", 4, listRes.getLength());
+		final StreamingOutput result = RESTResponseHelper.buildResponseOfDomLR(
+				TestHelper.PATHS.PATH1.getFile(), availResources);
+		final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+		result.write(outputStream);
+		final Document doc = DOMHelper.buildDocument(outputStream);
+		final NodeList listRes = doc.getElementsByTagName("resource");
+		assertEquals("Test for the length of resource", 4, listRes.getLength());
 
-        node = listRes.item(0);
-        attribute = (Attr)node.getAttributes().getNamedItem(NAME);
-        assertEquals("test for name factbook", FACT, attribute.getTextContent());
-        attribute = (Attr)node.getAttributes().getNamedItem(LREV);
-        assertNotNull("test for existence of revision attribute", attribute);
+		node = listRes.item(0);
+		attribute = (Attr) node.getAttributes().getNamedItem(NAME);
+		assertEquals("test for name factbook", FACT, attribute.getTextContent());
+		attribute = (Attr) node.getAttributes().getNamedItem(LREV);
+		assertNotNull("test for existence of revision attribute", attribute);
 
-        node = listRes.item(1);
-        attribute = (Attr)node.getAttributes().getNamedItem(NAME);
-        assertEquals("test for name ebay", EBAY, attribute.getTextContent());
-        attribute = (Attr)node.getAttributes().getNamedItem(LREV);
-        assertNotNull("test for existence of revision attribute", attribute);
+		node = listRes.item(1);
+		attribute = (Attr) node.getAttributes().getNamedItem(NAME);
+		assertEquals("test for name ebay", EBAY, attribute.getTextContent());
+		attribute = (Attr) node.getAttributes().getNamedItem(LREV);
+		assertNotNull("test for existence of revision attribute", attribute);
 
-        node = listRes.item(2);
-        attribute = (Attr)node.getAttributes().getNamedItem(NAME);
-        assertEquals("test for name shakespeare", BOOK, attribute.getTextContent());
-        attribute = (Attr)node.getAttributes().getNamedItem(LREV);
-        assertNotNull("test for existence of revision attribute in collection", attribute);
+		node = listRes.item(2);
+		attribute = (Attr) node.getAttributes().getNamedItem(NAME);
+		assertEquals("test for name shakespeare", BOOK, attribute.getTextContent());
+		attribute = (Attr) node.getAttributes().getNamedItem(LREV);
+		assertNotNull("test for existence of revision attribute in collection",
+				attribute);
 
-        node = listRes.item(3);
-        attribute = (Attr)node.getAttributes().getNamedItem(NAME);
-        assertEquals("test for name books", SHAKE, attribute.getTextContent());
-        attribute = (Attr)node.getAttributes().getNamedItem(LREV);
-        assertNotNull("test for existence of revision attribute in collection", attribute);
+		node = listRes.item(3);
+		attribute = (Attr) node.getAttributes().getNamedItem(NAME);
+		assertEquals("test for name books", SHAKE, attribute.getTextContent());
+		attribute = (Attr) node.getAttributes().getNamedItem(LREV);
+		assertNotNull("test for existence of revision attribute in collection",
+				attribute);
 
-        outputStream.close();
+		outputStream.close();
 
-        sirix.deleteResource(EBAY);
-        sirix.deleteResource(FACT);
-        sirix.deleteResource(BOOK);
-        sirix.deleteResource(SHAKE);
+		sirix.deleteResource(EBAY);
+		sirix.deleteResource(FACT);
+		sirix.deleteResource(BOOK);
+		sirix.deleteResource(SHAKE);
 
-    }
+	}
 }

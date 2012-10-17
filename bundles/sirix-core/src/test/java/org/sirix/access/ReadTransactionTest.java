@@ -43,7 +43,6 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.StructNode;
 
 public class ReadTransactionTest {
 
@@ -65,8 +64,8 @@ public class ReadTransactionTest {
 	@Test
 	public void testEmptyRtx() throws SirixException {
 		assertFalse(PATHS.PATH2.getFile().exists());
-		DatabaseImpl.createDatabase(PATHS.PATH2.getConfig());
-		final Database db = DatabaseImpl.openDatabase(PATHS.PATH2.getFile());
+		Databases.createDatabase(PATHS.PATH2.getConfig());
+		final Database db = Databases.openDatabase(PATHS.PATH2.getFile());
 		db.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE,
 				PATHS.PATH2.getConfig()).build());
 		final Session session = db.getSession(new SessionConfiguration.Builder(

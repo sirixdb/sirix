@@ -45,67 +45,69 @@ import org.sirix.saxon.evaluator.XQueryEvaluator;
  * 
  */
 public final class TestNodeWrapperS9ApiXQuery {
-  /** sirix database on books document. */
-  private transient Holder mHolder;
+	/** sirix database on books document. */
+	private transient Holder mHolder;
 
-  @Before
-  public void setUp() throws Exception {
-    BookShredding.createMyBookDB();
-    mHolder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws Exception {
+		BookShredding.createMyBookDB();
+		mHolder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    mHolder.close();
-    TestHelper.deleteEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		mHolder.close();
+		TestHelper.deleteEverything();
+	}
 
-  @Test
-  public void testWhereBooks() throws Exception {
-    final XdmValue value =
-      new XQueryEvaluator("for $x in /bookstore/book where $x/price>30 return $x/title", mHolder.getSession())
-        .call();
+	@Test
+	public void testWhereBooks() throws Exception {
+		final XdmValue value = new XQueryEvaluator(
+				"for $x in /bookstore/book where $x/price>30 return $x/title",
+				mHolder.getSession()).call();
 
-    final StringBuilder strBuilder = new StringBuilder();
+		final StringBuilder strBuilder = new StringBuilder();
 
-    for (final XdmItem item : value) {
-      strBuilder.append(item.toString());
-    }
+		for (final XdmItem item : value) {
+			strBuilder.append(item.toString());
+		}
 
-    assertEquals("<title lang=\"en\">XQuery Kick Start</title><title lang=\"en\">Learning XML</title>",
-      strBuilder.toString());
-  }
+		assertEquals(
+				"<title lang=\"en\">XQuery Kick Start</title><title lang=\"en\">Learning XML</title>",
+				strBuilder.toString());
+	}
 
-  @Test
-  public void testOrderByBooks() throws Exception {
-    final XdmValue value =
-      new XQueryEvaluator("for $x in /bookstore/book where $x/price>30 order by $x/title return $x/title",
-        mHolder.getSession()).call();
+	@Test
+	public void testOrderByBooks() throws Exception {
+		final XdmValue value = new XQueryEvaluator(
+				"for $x in /bookstore/book where $x/price>30 order by $x/title return $x/title",
+				mHolder.getSession()).call();
 
-    final StringBuilder strBuilder = new StringBuilder();
+		final StringBuilder strBuilder = new StringBuilder();
 
-    for (final XdmItem item : value) {
-      strBuilder.append(item.toString());
-    }
+		for (final XdmItem item : value) {
+			strBuilder.append(item.toString());
+		}
 
-    assertEquals("<title lang=\"en\">Learning XML</title><title lang=\"en\">XQuery Kick Start</title>",
-      strBuilder.toString());
-  }
+		assertEquals(
+				"<title lang=\"en\">Learning XML</title><title lang=\"en\">XQuery Kick Start</title>",
+				strBuilder.toString());
+	}
 
-  @Test
-  public void testFLOWR() throws Exception {
-    final XdmValue value =
-      new XQueryEvaluator(
-        "for $x in /bookstore/book let $y := $x/price where $y>30 order by $x/title return $x/title", mHolder
-          .getSession()).call();
-    final StringBuilder strBuilder = new StringBuilder();
+	@Test
+	public void testFLOWR() throws Exception {
+		final XdmValue value = new XQueryEvaluator(
+				"for $x in /bookstore/book let $y := $x/price where $y>30 order by $x/title return $x/title",
+				mHolder.getSession()).call();
+		final StringBuilder strBuilder = new StringBuilder();
 
-    for (final XdmItem item : value) {
-      strBuilder.append(item.toString());
-    }
+		for (final XdmItem item : value) {
+			strBuilder.append(item.toString());
+		}
 
-    assertEquals("<title lang=\"en\">Learning XML</title><title lang=\"en\">XQuery Kick Start</title>",
-      strBuilder.toString());
-  }
+		assertEquals(
+				"<title lang=\"en\">Learning XML</title><title lang=\"en\">XQuery Kick Start</title>",
+				strBuilder.toString());
+	}
 
 }

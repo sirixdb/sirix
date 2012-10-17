@@ -35,7 +35,7 @@ import java.io.File;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
@@ -124,7 +124,7 @@ public final class ReadDB implements AutoCloseable {
 		checkArgument(pNodekeyToStart >= 0, "pNodekeyToStart must be >= 0!");
 
 		// Initialize database.
-		mDatabase = DatabaseImpl.openDatabase(pFile);
+		mDatabase = Databases.openDatabase(pFile);
 		mSession = mDatabase
 				.getSession(new SessionConfiguration.Builder("shredded").build());
 

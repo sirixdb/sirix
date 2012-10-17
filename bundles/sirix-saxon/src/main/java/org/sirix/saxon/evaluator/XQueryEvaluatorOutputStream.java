@@ -51,89 +51,92 @@ import org.slf4j.LoggerFactory;
  * <h1>XQuery evaluator</h1>
  * 
  * <p>
- * Evaluates an XQuery expression against a Sirix storage. Output is available through an output stream.
+ * Evaluates an XQuery expression against a Sirix storage. Output is available
+ * through an output stream.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public final class XQueryEvaluatorOutputStream implements Callable<Void> {
-  /**
-   * Log wrapper for better output.
-   */
-  private static final Logger LOGGER = LoggerFactory.getLogger(XQueryEvaluatorOutputStream.class);
+	/**
+	 * Log wrapper for better output.
+	 */
+	private static final Logger LOGGER = LoggerFactory
+			.getLogger(XQueryEvaluatorOutputStream.class);
 
-  /** XQuery expression. */
-  private final String mExpression;
+	/** XQuery expression. */
+	private final String mExpression;
 
-  /** Sirix {@link Session}. */
-  private final Session mSession;
+	/** Sirix {@link Session}. */
+	private final Session mSession;
 
-  /** Output Stream. */
-  private final OutputStream mOut;
+	/** Output Stream. */
+	private final OutputStream mOut;
 
-  /** Serializer to specify serialization output properties. */
-  private transient Serializer mSerializer;
+	/** Serializer to specify serialization output properties. */
+	private Serializer mSerializer;
 
-  /**
-   * Constructor.
-   * 
-   * @param pExpression
-   *          XQuery expression
-   * @param pSession
-   *          Sirix {@link Session}.
-   * @param paramOut
-   *          output Stream
-   */
-  public XQueryEvaluatorOutputStream(@Nonnull final String pExpression, @Nonnull final Session pSession,
-    final OutputStream pOut) {
-    this(pExpression, pSession, pOut, null);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param expression
+	 *          XQuery expression
+	 * @param session
+	 *          Sirix {@link Session}.
+	 * @param paramOut
+	 *          output Stream
+	 */
+	public XQueryEvaluatorOutputStream(final @Nonnull String expression,
+			final @Nonnull Session session, final OutputStream out) {
+		this(expression, session, out, null);
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param pExpression
-   *          XQuery expression
-   * @param pSession
-   *          Sirix {@link Session}
-   * @param pOut
-   *          output Stream
-   * @param pSerializer
-   *          Serializer, for which one can specify output properties
-   */
-  public XQueryEvaluatorOutputStream(@Nonnull final String pExpression, @Nonnull final Session pSession,
-    @Nonnull final OutputStream pOut, @Nullable final Serializer pSerializer) {
-    mExpression = checkNotNull(pExpression);
-    mSession = checkNotNull(pSession);
-    mOut = checkNotNull(pOut);
-    mSerializer = pSerializer;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param expression
+	 *          XQuery expression
+	 * @param session
+	 *          Sirix {@link Session}
+	 * @param out
+	 *          output Stream
+	 * @param serializer
+	 *          Serializer, for which one can specify output properties
+	 */
+	public XQueryEvaluatorOutputStream(final @Nonnull String expression,
+			final @Nonnull Session session, final @Nonnull OutputStream out,
+			@Nullable final Serializer serializer) {
+		mExpression = checkNotNull(expression);
+		mSession = checkNotNull(session);
+		mOut = checkNotNull(out);
+		mSerializer = serializer;
+	}
 
-  @Override
-  public Void call() throws Exception {
-    try {
-      final Processor proc = new Processor(false);
-      final Configuration config = proc.getUnderlyingConfiguration();
-      final NodeInfo doc = new DocumentWrapper(mSession, config);
-      final XQueryCompiler comp = proc.newXQueryCompiler();
-      final XQueryExecutable exp = comp.compile(mExpression);
+	@Override
+	public Void call() throws Exception {
+		try {
+			final Processor proc = new Processor(false);
+			final Configuration config = proc.getUnderlyingConfiguration();
+			final NodeInfo doc = new DocumentWrapper(mSession, config);
+			final XQueryCompiler comp = proc.newXQueryCompiler();
+			final XQueryExecutable exp = comp.compile(mExpression);
 
-      if (mSerializer == null) {
-        final Serializer out = new Serializer();
-        out.setOutputProperty(Serializer.Property.METHOD, "xml");
-        out.setOutputProperty(Serializer.Property.OMIT_XML_DECLARATION, "yes");
-        out.setOutputStream(mOut);
-        mSerializer = out;
-      }
+			if (mSerializer == null) {
+				final Serializer out = new Serializer();
+				out.setOutputProperty(Serializer.Property.METHOD, "xml");
+				out.setOutputProperty(Serializer.Property.OMIT_XML_DECLARATION, "yes");
+				out.setOutputStream(mOut);
+				mSerializer = out;
+			}
 
-      final net.sf.saxon.s9api.XQueryEvaluator exe = exp.load();
-      exe.setSource(doc);
-      exe.run(mSerializer);
-      return null;
-    } catch (final SaxonApiException e) {
-      LOGGER.error("Saxon Exception: " + e.getMessage(), e);
-      throw e;
-    }
-  }
+			final net.sf.saxon.s9api.XQueryEvaluator exe = exp.load();
+			exe.setSource(doc);
+			exe.run(mSerializer);
+			return null;
+		} catch (final SaxonApiException e) {
+			LOGGER.error("Saxon Exception: " + e.getMessage(), e);
+			throw e;
+		}
+	}
 }

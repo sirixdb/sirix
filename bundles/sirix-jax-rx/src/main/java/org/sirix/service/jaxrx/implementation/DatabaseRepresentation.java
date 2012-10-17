@@ -28,6 +28,8 @@
 package org.sirix.service.jaxrx.implementation; // NOPMD we need all these imports, declaring with * is
 // pointless
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -40,20 +42,21 @@ import java.util.StringTokenizer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.annotation.Nonnull;
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.StreamingOutput;
 
 import org.jaxrx.core.JaxRxException;
 import org.jaxrx.core.QueryParameter;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.api.Axis;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
-import org.sirix.api.Axis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.jaxrx.util.RESTResponseHelper;
 import org.sirix.service.jaxrx.util.RESTXMLShredder;
@@ -68,7 +71,7 @@ import org.sirix.settings.Fixed;
 
 /**
  * This class is the Sirix DB connection for RESTful Web Services processing.
- * When a RESTful WS database request occurs it will be forwarded to sirix to
+ * When a RESTful WS database request occurs it will be forwarded to Sirix to
  * manage the request. Here XML files can be shredded and serialized to build
  * the client response. Further more it supports XPath queries.
  * 
@@ -84,26 +87,26 @@ public class DatabaseRepresentation {
 	/**
 	 * This field the begin result element of a XQuery or XPath expression.
 	 */
-	private final static transient String beginResult = "<jaxrx:result xmlns:jaxrx=\"http://jaxrx.org/\">";
+	private final static String beginResult = "<jaxrx:result xmlns:jaxrx=\"http://jaxrx.org/\">";
 
 	/**
 	 * This field the end result element of a XQuery or XPath expression.
 	 */
-	private final static transient String endResult = "</jaxrx:result>";
+	private final static String endResult = "</jaxrx:result>";
 
 	/**
 	 * Often used 'yes' {@link String}.
 	 */
-	private final static transient String YESSTRING = "yes";
+	private final static String YESSTRING = "yes";
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param pStoragePath
+	 * @param storagePath
 	 *          path to storage
 	 */
-	public DatabaseRepresentation(final File pStoragePath) {
-		mStoragePath = pStoragePath;
+	public DatabaseRepresentation(final @Nonnull File storagePath) {
+		mStoragePath = checkNotNull(storagePath);
 	}
 
 	/**
@@ -282,8 +285,7 @@ public class DatabaseRepresentation {
 	public void deleteResource(final String resourceName)
 			throws WebApplicationException {
 		synchronized (resourceName) {
-			try {
-				final Database database = DatabaseImpl.openDatabase(mStoragePath);
+			try (final Database database = Databases.openDatabase(mStoragePath)) {
 				database.truncateResource(resourceName);
 			} catch (final SirixException exc) {
 				throw new JaxRxException(500, "Deletion could not be performed");
@@ -315,8 +317,8 @@ public class DatabaseRepresentation {
 
 			final DatabaseConfiguration dbConf = new DatabaseConfiguration(
 					mStoragePath);
-			DatabaseImpl.createDatabase(dbConf);
-			database = DatabaseImpl.openDatabase(dbConf.getFile());
+			Databases.createDatabase(dbConf);
+			database = Databases.openDatabase(dbConf.getFile());
 			// Shredding the database to the file as XML
 			final ResourceConfiguration resConf = new ResourceConfiguration.Builder(
 					resource, dbConf).setRevisionsToRestore(1).build();
@@ -325,7 +327,8 @@ public class DatabaseRepresentation {
 						.getSession(new SessionConfiguration.Builder(resource).build());
 				wtx = session.beginNodeWriteTrx();
 				final XMLShredder shredder = new XMLShredder.Builder(wtx,
-						RESTXMLShredder.createReader(xmlInput), Insert.ASFIRSTCHILD).commitAfterwards().build();
+						RESTXMLShredder.createReader(xmlInput), Insert.ASFIRSTCHILD)
+						.commitAfterwards().build();
 				shredder.call();
 				allOk = true;
 			}
@@ -394,7 +397,7 @@ public class DatabaseRepresentation {
 			SirixException {
 		long lastRevision;
 		if (WorkerHelper.checkExistingResource(mStoragePath, resourceName)) {
-			Database database = DatabaseImpl.openDatabase(mStoragePath);
+			Database database = Databases.openDatabase(mStoragePath);
 			NodeReadTrx rtx = null;
 			Session session = null;
 			try {
@@ -463,7 +466,7 @@ public class DatabaseRepresentation {
 			final List<Long> restIdsRev1 = new LinkedList<Long>();
 
 			try {
-				database = DatabaseImpl.openDatabase(mStoragePath);
+				database = Databases.openDatabase(mStoragePath);
 				session = database.getSession(new SessionConfiguration.Builder(
 						resourceName).build());
 
@@ -597,7 +600,7 @@ public class DatabaseRepresentation {
 		Session session = null;
 		// INodeReadTrx rtx = null;
 		try {
-			database = DatabaseImpl.openDatabase(mStoragePath);
+			database = Databases.openDatabase(mStoragePath);
 			session = database.getSession(new SessionConfiguration.Builder(resource)
 					.build());
 			// and creating a transaction
@@ -607,10 +610,8 @@ public class DatabaseRepresentation {
 			// rtx = session.beginReadTransaction(revision);
 			// }
 			final XMLSerializerBuilder builder;
-			if (revision == null)
-				builder = new XMLSerializerBuilder(session, output);
-			else
-				builder = new XMLSerializerBuilder(session, output, revision);
+			if (revision == null) builder = new XMLSerializerBuilder(session, output);
+			else builder = new XMLSerializerBuilder(session, output, revision);
 			builder.setREST(nodeid);
 			builder.setID(nodeid);
 			builder.setDeclaration(false);
@@ -641,7 +642,7 @@ public class DatabaseRepresentation {
 		NodeWriteTrx wtx = null;
 		boolean abort = false;
 		try {
-			database = DatabaseImpl.openDatabase(mStoragePath);
+			database = Databases.openDatabase(mStoragePath);
 			session = database.getSession(new SessionConfiguration.Builder(
 					resourceName).build());
 			wtx = session.beginNodeWriteTrx();

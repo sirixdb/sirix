@@ -14,7 +14,7 @@ import org.brackit.xquery.node.stream.ArrayStream;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.OperationNotSupportedException;
 import org.brackit.xquery.xdm.Stream;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
@@ -49,16 +49,16 @@ public class DBCollection<E extends AbsTemporalNode> extends
 	/**
 	 * Constructor.
 	 * 
-	 * @param pName
+	 * @param name
 	 *          collection name
-	 * @param pDatabase
+	 * @param database
 	 *          Sirix {@link Database} reference
 	 */
-	public DBCollection(final @Nonnull String pName,
-			final @Nonnull Database pDatabase, final boolean pUpdating) {
-		super(checkNotNull(pName));
-		mDatabase = checkNotNull(pDatabase);
-		mUpdating = pUpdating;
+	public DBCollection(final @Nonnull String name,
+			final @Nonnull Database database, final boolean updating) {
+		super(checkNotNull(name));
+		mDatabase = checkNotNull(database);
+		mUpdating = updating;
 		mID = ID_SEQUENCE.incrementAndGet();
 	}
 
@@ -74,7 +74,7 @@ public class DBCollection<E extends AbsTemporalNode> extends
 	@Override
 	public void delete() throws DocumentException {
 		try {
-			DatabaseImpl.truncateDatabase(new DatabaseConfiguration(mDatabase
+			Databases.truncateDatabase(new DatabaseConfiguration(mDatabase
 					.getDatabaseConfig().getFile()));
 		} catch (final SirixIOException e) {
 			throw new DocumentException(e.getCause());

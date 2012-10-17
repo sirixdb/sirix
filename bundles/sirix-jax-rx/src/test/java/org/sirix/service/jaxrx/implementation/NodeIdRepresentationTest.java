@@ -52,7 +52,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.exception.SirixException;
-import org.sirix.service.jaxrx.enums.EIdAccessType;
+import org.sirix.service.jaxrx.enums.IDAccessType;
 import org.sirix.service.jaxrx.util.DOMHelper;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
@@ -257,7 +257,7 @@ public class NodeIdRepresentationTest {
 
 	/**
 	 * Test method for
-	 * {@link org.sirix.service.jaxrx.implementation.NodeIdRepresentation#getResourceByAT(java.lang.String, long, java.util.Map, org.sirix.service.jaxrx.enums.EIdAccessType)}
+	 * {@link org.sirix.service.jaxrx.implementation.NodeIdRepresentation#getResourceByAT(java.lang.String, long, java.util.Map, org.sirix.service.jaxrx.enums.IDAccessType)}
 	 * .
 	 * 
 	 * @throws IOException
@@ -282,7 +282,7 @@ public class NodeIdRepresentationTest {
 
 		// Test for fist child
 		final StreamingOutput fChildOutput = ridWorker.getResourceByAT(
-				RESOURCENAME, NODEIDGETRESOURCE, queryParams, EIdAccessType.FIRSTCHILD);
+				RESOURCENAME, NODEIDGETRESOURCE, queryParams, IDAccessType.FIRSTCHILD);
 		outputStream = new ByteArrayOutputStream();
 		fChildOutput.write(outputStream);
 		doc = DOMHelper.buildDocument(outputStream);
@@ -294,7 +294,7 @@ public class NodeIdRepresentationTest {
 
 		// Test for last child final StreamingOutput lChildOutput =
 		final StreamingOutput lChildOutput = ridWorker.getResourceByAT(
-				RESOURCENAME, NODEIDGETRESOURCE, queryParams, EIdAccessType.LASTCHILD);
+				RESOURCENAME, NODEIDGETRESOURCE, queryParams, IDAccessType.LASTCHILD);
 		outputStream = new ByteArrayOutputStream();
 		lChildOutput.write(outputStream);
 		doc = DOMHelper.buildDocument(outputStream);
@@ -305,9 +305,9 @@ public class NodeIdRepresentationTest {
 		assertEquals("Test expected border value ", "287", attribute.getValue());
 
 		// Test for rightSibling final StreamingOutput rSiblingOutput =
-		final StreamingOutput rSiblingOutput = ridWorker.getResourceByAT(
-				RESOURCENAME, NODEIDGETRESOURCE, queryParams,
-				EIdAccessType.RIGHTSIBLING);
+		final StreamingOutput rSiblingOutput = ridWorker
+				.getResourceByAT(RESOURCENAME, NODEIDGETRESOURCE, queryParams,
+						IDAccessType.RIGHTSIBLING);
 		outputStream = new ByteArrayOutputStream();
 		rSiblingOutput.write(outputStream);
 		doc = DOMHelper.buildDocument(outputStream);
@@ -319,9 +319,8 @@ public class NodeIdRepresentationTest {
 				attribute.getValue());
 
 		// Test for leftSibling final StreamingOutput lSiblingOutput =
-		final StreamingOutput lSiblingOutput = ridWorker
-				.getResourceByAT(RESOURCENAME, NODEIDGETRESOURCE, queryParams,
-						EIdAccessType.LEFTSIBLING);
+		final StreamingOutput lSiblingOutput = ridWorker.getResourceByAT(
+				RESOURCENAME, NODEIDGETRESOURCE, queryParams, IDAccessType.LEFTSIBLING);
 		outputStream = new ByteArrayOutputStream();
 		lSiblingOutput.write(outputStream);
 		doc = DOMHelper.buildDocument(outputStream);
@@ -464,7 +463,7 @@ public class NodeIdRepresentationTest {
 
 	/**
 	 * Test method for
-	 * {@link org.sirix.service.jaxrx.implementation.NodeIdRepresentation#addSubResource(java.lang.String, long, java.io.InputStream, org.sirix.service.jaxrx.enums.EIdAccessType)}
+	 * {@link org.sirix.service.jaxrx.implementation.NodeIdRepresentation#addSubResource(java.lang.String, long, java.io.InputStream, org.sirix.service.jaxrx.enums.IDAccessType)}
 	 * .
 	 * 
 	 * @throws IOException
@@ -493,9 +492,9 @@ public class NodeIdRepresentationTest {
 
 		// Test append first child
 		ridWorker.addSubResource(RESOURCENAME, NODEIDGETRESOURCE, newNode,
-				EIdAccessType.FIRSTCHILD);
+				IDAccessType.FIRSTCHILD);
 		result = ridWorker.getResourceByAT(RESOURCENAME, NODEIDGETRESOURCE,
-				queryParamsComp, EIdAccessType.FIRSTCHILD);
+				queryParamsComp, IDAccessType.FIRSTCHILD);
 		outputStream = new ByteArrayOutputStream();
 		result.write(outputStream);
 		doc = DOMHelper.buildDocument(outputStream);
@@ -507,9 +506,9 @@ public class NodeIdRepresentationTest {
 		// Test append last child
 		newNode.reset();
 		ridWorker.addSubResource(RESOURCENAME, NODEIDGETRESOURCE, newNode,
-				EIdAccessType.LASTCHILD);
+				IDAccessType.LASTCHILD);
 		result = ridWorker.getResourceByAT(RESOURCENAME, NODEIDGETRESOURCE,
-				queryParamsComp, EIdAccessType.LASTCHILD);
+				queryParamsComp, IDAccessType.LASTCHILD);
 		outputStream = new ByteArrayOutputStream();
 		result.write(outputStream);
 		doc = DOMHelper.buildDocument(outputStream);
@@ -521,9 +520,9 @@ public class NodeIdRepresentationTest {
 		// Test append left sibling
 		newNode.reset();
 		ridWorker.addSubResource(RESOURCENAME, NODEIDGETRESOURCE, newNode,
-				EIdAccessType.LEFTSIBLING);
+				IDAccessType.LEFTSIBLING);
 		result = ridWorker.getResourceByAT(RESOURCENAME, NODEIDGETRESOURCE,
-				queryParamsComp, EIdAccessType.LEFTSIBLING);
+				queryParamsComp, IDAccessType.LEFTSIBLING);
 		outputStream = new ByteArrayOutputStream();
 		result.write(outputStream);
 		doc = DOMHelper.buildDocument(outputStream);
@@ -535,9 +534,9 @@ public class NodeIdRepresentationTest {
 		// Test append right sibling
 		newNode.reset();
 		ridWorker.addSubResource(RESOURCENAME, NODEIDGETRESOURCE, newNode,
-				EIdAccessType.RIGHTSIBLING);
+				IDAccessType.RIGHTSIBLING);
 		result = ridWorker.getResourceByAT(RESOURCENAME, NODEIDGETRESOURCE,
-				queryParamsComp, EIdAccessType.RIGHTSIBLING);
+				queryParamsComp, IDAccessType.RIGHTSIBLING);
 		outputStream = new ByteArrayOutputStream();
 		result.write(outputStream);
 		doc = DOMHelper.buildDocument(outputStream);

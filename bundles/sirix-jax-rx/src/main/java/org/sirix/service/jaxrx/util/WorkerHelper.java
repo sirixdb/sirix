@@ -45,7 +45,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
-import org.sirix.service.jaxrx.enums.EIdAccessType;
+import org.sirix.service.jaxrx.enums.IDAccessType;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.service.xml.serialize.XMLSerializerProperties;
@@ -65,17 +65,17 @@ public final class WorkerHelper {
 	/**
 	 * The map containing the available access types.
 	 */
-	private final transient Map<String, EIdAccessType> typeList;
+	private final transient Map<String, IDAccessType> typeList;
 
 	/**
-	 * This constructor initializes the {@link EIdAccessType}s.
+	 * This constructor initializes the {@link IDAccessType}s.
 	 */
 	private WorkerHelper() {
-		typeList = new HashMap<String, EIdAccessType>();
-		typeList.put("FIRSTCHILD()", EIdAccessType.FIRSTCHILD);
-		typeList.put("LASTCHILD()", EIdAccessType.LASTCHILD);
-		typeList.put("RIGHTSIBLING()", EIdAccessType.RIGHTSIBLING);
-		typeList.put("LEFTSIBLING()", EIdAccessType.LEFTSIBLING);
+		typeList = new HashMap<String, IDAccessType>();
+		typeList.put("FIRSTCHILD()", IDAccessType.FIRSTCHILD);
+		typeList.put("LASTCHILD()", IDAccessType.LASTCHILD);
+		typeList.put("RIGHTSIBLING()", IDAccessType.RIGHTSIBLING);
+		typeList.put("LEFTSIBLING()", IDAccessType.LEFTSIBLING);
 	}
 
 	/**
@@ -154,10 +154,8 @@ public final class WorkerHelper {
 			final OutputStream out, final boolean serializeXMLDec,
 			final boolean serializeRest, final Integer revision) {
 		final XMLSerializerBuilder builder;
-		if (revision == null)
-			builder = new XMLSerializerBuilder(session, out);
-		else
-			builder = new XMLSerializerBuilder(session, out, revision);
+		if (revision == null) builder = new XMLSerializerBuilder(session, out);
+		else builder = new XMLSerializerBuilder(session, out, revision);
 		builder.setREST(serializeRest);
 		builder.setID(serializeRest);
 		builder.setDeclaration(serializeXMLDec);
@@ -256,13 +254,13 @@ public final class WorkerHelper {
 	/**
 	 * This method checks the variable URL path after the node id resource (e.g.
 	 * http://.../factbook/3/[ACCESSTYPE]) for the available access type to
-	 * identify a node. The access types are defined in {@link EIdAccessType}.
+	 * identify a node. The access types are defined in {@link IDAccessType}.
 	 * 
 	 * @param accessType
 	 *          The access type as String value encoded in the URL request.
 	 * @return The valid access type or null otherwise.
 	 */
-	public EIdAccessType validateAccessType(final String accessType) {
+	public IDAccessType validateAccessType(final String accessType) {
 		return typeList.get(accessType.toUpperCase(Locale.US));
 	}
 

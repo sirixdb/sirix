@@ -43,6 +43,7 @@ import javax.annotation.Nonnull;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.SessionImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -54,8 +55,8 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.DocumentRootNode;
-import org.sirix.node.Kind.DumbNode;
 import org.sirix.node.ElementNode;
+import org.sirix.node.Kind.DumbNode;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.TextNode;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -81,26 +82,25 @@ import com.google.common.collect.HashBiMap;
  */
 public final class TestHelper {
 
+	/** Temporary directory path. */
+	private static final String TMPDIR = System.getProperty("java.io.tmpdir");
+
 	/** Common resource name. */
 	public static final String RESOURCE = "shredded";
 
 	/** Paths where the data is stored to. */
 	public enum PATHS {
+		// PATH1 (Sirix)
+		PATH1(new File(new StringBuilder(TMPDIR).append(File.separator)
+				.append("sirix").append(File.separator).append("path1").toString())),
 
-		// PATH1 (TNK)
-		PATH1(new File(new StringBuilder(File.separator).append("tmp")
-				.append(File.separator).append("tnk").append(File.separator)
-				.append("path1").toString())),
-
-		// PATH2 (TNK)
-		PATH2(new File(new StringBuilder(File.separator).append("tmp")
-				.append(File.separator).append("tnk").append(File.separator)
-				.append("path2").toString())),
+		// PATH2 (Sirix)
+		PATH2(new File(new StringBuilder(TMPDIR).append(File.separator)
+				.append("sirix").append(File.separator).append("path2").toString())),
 
 		// PATH3 (XML)
-		PATH3(new File(new StringBuilder(File.separator).append("tmp")
-				.append(File.separator).append("xml").append(File.separator)
-				.append("test.xml").toString()));
+		PATH3(new File(new StringBuilder(TMPDIR).append(File.separator)
+				.append("xml").append(File.separator).append("test.xml").toString()));
 
 		final File file;
 
@@ -148,9 +148,9 @@ public final class TestHelper {
 			try {
 				final DatabaseConfiguration config = new DatabaseConfiguration(file);
 				if (!file.exists()) {
-					DatabaseImpl.createDatabase(config);
+					Databases.createDatabase(config);
 				}
-				final Database database = DatabaseImpl.openDatabase(file);
+				final Database database = Databases.openDatabase(file);
 				database.createResource(new ResourceConfiguration.Builder(RESOURCE,
 						config).build());
 				INSTANCES.put(file, database);
@@ -170,8 +170,8 @@ public final class TestHelper {
 	@Ignore
 	public static final void deleteEverything() throws SirixException {
 		closeEverything();
-		DatabaseImpl.truncateDatabase(PATHS.PATH1.config);
-		DatabaseImpl.truncateDatabase(PATHS.PATH2.config);
+		Databases.truncateDatabase(PATHS.PATH1.config);
+		Databases.truncateDatabase(PATHS.PATH2.config);
 	}
 
 	/**
@@ -212,8 +212,9 @@ public final class TestHelper {
 				page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
 				break;
 			case 1:
-				page.setNode(new DeletedNode(new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000))));
+				page.setNode(new DeletedNode(
+						new NodeDelegate(random.nextInt(10000), random.nextInt(10000),
+								random.nextInt(10000), random.nextInt(10000))));
 				break;
 			case 2:
 				nodeDel = new NodeDelegate(random.nextInt(10000),
@@ -223,9 +224,8 @@ public final class TestHelper {
 				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
 						random.nextInt(10000), random.nextInt(10000),
 						random.nextInt(10000), random.nextInt(10000));
-				page.setNode(new ElementNode(strucDel, nameDel,
-						new ArrayList<Long>(), HashBiMap.<Integer, Long> create(),
-						new ArrayList<Long>()));
+				page.setNode(new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
+						HashBiMap.<Integer, Long> create(), new ArrayList<Long>()));
 				break;
 			case 3:
 				nodeDel = new NodeDelegate(random.nextInt(10000),
@@ -308,7 +308,7 @@ public final class TestHelper {
 		wtx.close();
 		session.close();
 	}
-	
+
 	/**
 	 * Creating a test document at {@link PATHS#PATH1}.
 	 * 

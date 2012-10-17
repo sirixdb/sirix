@@ -40,51 +40,53 @@ import org.jaxrx.JettyServer;
  */
 public final class StartServer {
 
-  /**
-   * The Jetty instance.
-   */
-  private JettyServer jetty;
+	/**
+	 * The Jetty instance.
+	 */
+	private JettyServer jetty;
 
-  /**
-   * I'm a lazy constructor.
-   * 
-   * @param sPort
-   *          port for the REST server.
-   * @throws Exception
-   *           Exception occurred
-   * 
-   */
-  public StartServer(final int sPort) throws Exception {
-    System.setProperty("org.jaxrx.systemPath", "org.sirix.service.jaxrx.implementation.sirixMediator");
-    System.setProperty("org.jaxrx.systemName", "sirix");
-    jetty = new JettyServer(sPort);
-  }
+	/**
+	 * I'm a lazy constructor.
+	 * 
+	 * @param sPort
+	 *          port for the REST server
+	 * @throws Exception
+	 *           if any exception occurred
+	 * 
+	 */
+	public StartServer(final int sPort) throws Exception {
+		System.setProperty("org.jaxrx.systemPath",
+				"org.sirix.service.jaxrx.implementation.sirixMediator");
+		System.setProperty("org.jaxrx.systemName", "sirix");
+		jetty = new JettyServer(sPort);
+	}
 
-  /**
-   * This method starts the embedded Jetty server.
-   * 
-   * @param args
-   *          Not used parameter.
-   * @throws Exception
-   *           Exception occurred.
-   */
-  public static void main(final String[] args) throws Exception {
-    int port = 8093;
-    if (args != null && args.length > 0) {
-      port = Integer.parseInt(args[0]);
-    }
-    System.setProperty("org.jaxrx.systemPath", "org.sirix.service.jaxrx.implementation.sirixMediator");
-    System.setProperty("org.jaxrx.systemName", "sirix");
-    new JettyServer(port);
-  }
+	/**
+	 * This method starts the embedded Jetty server.
+	 * 
+	 * @param args
+	 *          Not used parameter.
+	 * @throws Exception
+	 *           Exception occurred.
+	 */
+	public static void main(final String[] args) throws Exception {
+		int port = 8093;
+		if (args != null && args.length > 0) {
+			port = Integer.parseInt(args[0]);
+		}
+		System.setProperty("org.jaxrx.systemPath",
+				"org.sirix.service.jaxrx.implementation.sirixMediator");
+		System.setProperty("org.jaxrx.systemName", "sirix");
+		new JettyServer(port);
+	}
 
-  /**
-   * This method stops the Jetty server.
-   * 
-   * @throws Exception
-   *           The exception occurred while stopping server.
-   */
-  public void stopServer() throws Exception {
-    jetty.stop();
-  }
+	/**
+	 * This method stops the Jetty server.
+	 * 
+	 * @throws Exception
+	 *           The exception occurred while stopping server.
+	 */
+	public void stopServer() throws Exception {
+		jetty.stop();
+	}
 }

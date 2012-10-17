@@ -56,7 +56,8 @@ import org.slf4j.LoggerFactory;
  * <h1>XSLT Evaluator</h1>
  * 
  * <p>
- * Transforms an input document according to an XSLT stylesheet and returns a resulting output stream.
+ * Transforms an input document according to an XSLT stylesheet and returns a
+ * resulting output stream.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -64,94 +65,97 @@ import org.slf4j.LoggerFactory;
  */
 public final class XSLTEvaluator implements Callable<OutputStream> {
 
-  /**
-   * Log wrapper for better output.
-   */
-  private static final Logger LOGGER = LoggerFactory.getLogger(XSLTEvaluator.class);
+	/**
+	 * Log wrapper for better output.
+	 */
+	private static final Logger LOGGER = LoggerFactory
+			.getLogger(XSLTEvaluator.class);
 
-  /** Stylesheet file. */
-  private final File mStylesheet;
+	/** Stylesheet file. */
+	private final File mStylesheet;
 
-  /** Resulting stream of the transformation. */
-  private final OutputStream mOut;
+	/** Resulting stream of the transformation. */
+	private final OutputStream mOut;
 
-  /**
-   * Serializer to specify serialization output properties and the destination
-   * of the Transformation.
-   */
-  private transient Serializer mSerializer;
+	/**
+	 * Serializer to specify serialization output properties and the destination
+	 * of the Transformation.
+	 */
+	private Serializer mSerializer;
 
-  /** sirix database. */
-  private final Session mSession;
+	/** sirix database. */
+	private final Session mSession;
 
-  /**
-   * Constructor.
-   * 
-   * @param pSession
-   *          Sirix {@link Session}
-   * @param pStylesheet
-   *          path to stylesheet
-   * @param pOut
-   *          resulting stream of the transformation
-   */
-  public XSLTEvaluator(@Nonnull final Session pSession, @Nonnull final File pStylesheet, @Nonnull final OutputStream pOut) {
-    this(pSession, pStylesheet, pOut, null);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param session
+	 *          Sirix {@link Session}
+	 * @param stylesheet
+	 *          path to stylesheet
+	 * @param out
+	 *          resulting stream of the transformation
+	 */
+	public XSLTEvaluator(final @Nonnull Session session,
+			final @Nonnull File stylesheet, final @Nonnull OutputStream out) {
+		this(session, stylesheet, out, null);
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param pSession
-   *          Sirix {@link Session}
-   * @param pStyle
-   *          path to stylesheet
-   * @param pOut
-   *          resulting stream of the transformation
-   * @param pSerializer
-   *          serializer, for which one can specify output properties
-   */
-  public XSLTEvaluator(@Nonnull final Session pSession, @Nonnull final File pStyle, @Nonnull final OutputStream pOut,
-    @Nullable final Serializer pSerializer) {
-    mSession = checkNotNull(pSession);
-    mStylesheet = checkNotNull(pStyle);
-    mOut = checkNotNull(pOut);
-    mSerializer = pSerializer;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pSession
+	 *          Sirix {@link Session}
+	 * @param pStyle
+	 *          path to stylesheet
+	 * @param pOut
+	 *          resulting stream of the transformation
+	 * @param pSerializer
+	 *          serializer, for which one can specify output properties
+	 */
+	public XSLTEvaluator(final @Nonnull Session pSession,
+			final @Nonnull File pStyle, final @Nonnull OutputStream pOut,
+			@Nullable final Serializer pSerializer) {
+		mSession = checkNotNull(pSession);
+		mStylesheet = checkNotNull(pStyle);
+		mOut = checkNotNull(pOut);
+		mSerializer = pSerializer;
+	}
 
-  @Override
-  public OutputStream call() {
-    final Processor proc = new Processor(false);
-    final XsltCompiler comp = proc.newXsltCompiler();
-    XsltExecutable exp;
-    XdmNode source;
+	@Override
+	public OutputStream call() {
+		final Processor proc = new Processor(false);
+		final XsltCompiler comp = proc.newXsltCompiler();
+		XsltExecutable exp;
+		XdmNode source;
 
-    try {
-      final Configuration config = proc.getUnderlyingConfiguration();
-      final NodeInfo doc = new DocumentWrapper(mSession, config);
-      exp = comp.compile(new StreamSource(mStylesheet));
-      source = proc.newDocumentBuilder().build(doc);
+		try {
+			final Configuration config = proc.getUnderlyingConfiguration();
+			final NodeInfo doc = new DocumentWrapper(mSession, config);
+			exp = comp.compile(new StreamSource(mStylesheet));
+			source = proc.newDocumentBuilder().build(doc);
 
-      if (mSerializer == null) {
-        final Serializer out = new Serializer();
-        out.setOutputProperty(Serializer.Property.METHOD, "xml");
-        out.setOutputProperty(Serializer.Property.INDENT, "yes");
-        out.setOutputStream(mOut);
-        mSerializer = out;
-      } else {
-        mSerializer.setOutputStream(mOut);
-      }
+			if (mSerializer == null) {
+				final Serializer out = new Serializer();
+				out.setOutputProperty(Serializer.Property.METHOD, "xml");
+				out.setOutputProperty(Serializer.Property.INDENT, "yes");
+				out.setOutputStream(mOut);
+				mSerializer = out;
+			} else {
+				mSerializer.setOutputStream(mOut);
+			}
 
-      final XsltTransformer trans = exp.load();
-      trans.setInitialContextNode(source);
-      trans.setDestination(mSerializer);
-      trans.transform();
-    } catch (final SaxonApiException e) {
-      LOGGER.error("Saxon exception: " + e.getMessage(), e);
-    } catch (final SirixException e) {
-      LOGGER.error("TT exception: " + e.getMessage(), e);
-    }
+			final XsltTransformer trans = exp.load();
+			trans.setInitialContextNode(source);
+			trans.setDestination(mSerializer);
+			trans.transform();
+		} catch (final SaxonApiException e) {
+			LOGGER.error("Saxon exception: " + e.getMessage(), e);
+		} catch (final SirixException e) {
+			LOGGER.error("TT exception: " + e.getMessage(), e);
+		}
 
-    return mOut;
-  }
+		return mOut;
+	}
 
 }

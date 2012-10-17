@@ -49,24 +49,23 @@ import static org.junit.Assert.assertEquals;
  */
 public class StartServerTest {
 
-  /**
-   * This method tests the {@link StartServer#main(String[])} method.
-   * 
-   * @throws Exception
-   *           Exception occurred.
-   */
-  @Test
-  @Ignore
-  public void startServer() throws Exception {
-    StartServer.main(new String[] {
-      "8093"
-    });
-    final Client client = Client.create();
-    final WebResource resource = client.resource("http://localhost:8093");
-    final ClientResponse anotherResponse = resource.accept("text/xml").get(ClientResponse.class);
-    final int status = anotherResponse.getStatus();
-    assertEquals("checks if status meets status 200", 200, status);
+	/**
+	 * This method tests the {@link StartServer#main(String[])} method.
+	 * 
+	 * @throws Exception
+	 *           Exception occurred.
+	 */
+	@Test
+	@Ignore
+	public void startServer() throws Exception {
+		StartServer.main(new String[] { "8093" });
+		final Client client = Client.create();
+		final WebResource resource = client.resource("http://localhost:8093");
+		final ClientResponse anotherResponse = resource.accept("text/xml").get(
+				ClientResponse.class);
+		final int status = anotherResponse.getStatus();
+		assertEquals("checks if status meets status 200", 200, status);
 
-  }
+	}
 
 }

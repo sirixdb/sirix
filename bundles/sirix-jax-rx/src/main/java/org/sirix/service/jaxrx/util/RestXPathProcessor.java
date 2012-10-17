@@ -33,7 +33,7 @@ import java.io.OutputStream;
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Response;
 
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
@@ -51,205 +51,200 @@ import org.sirix.settings.Fixed;
  */
 public class RestXPathProcessor {
 
-  /**
-   * This field the begin result element of a XQuery or XPath expression.
-   */
-  private static String beginResult =
-    "<jaxrx:result xmlns:jaxrx=\"http://jaxrx.org/\">";
+	/**
+	 * This field the begin result element of a XQuery or XPath expression.
+	 */
+	private static final String beginResult = "<jaxrx:result xmlns:jaxrx=\"http://jaxrx.org/\">";
 
-  /**
-   * This field the end result element of a XQuery or XPath expression.
-   */
-  private static String endResult = "</jaxrx:result>";
+	/**
+	 * This field the end result element of a XQuery or XPath expression.
+	 */
+	private static final String endResult = "</jaxrx:result>";
 
-  /**
-   * Path to storage.
-   */
-  private final File mStoragePath;
+	/**
+	 * Path to storage.
+	 */
+	private final File mStoragePath;
 
-  /**
-   * 
-   * Constructor.
-   * 
-   * @param pStoragePath
-   *          path to the storage
-   */
-  public RestXPathProcessor(final File pStoragePath) {
-    mStoragePath = pStoragePath;
-  }
+	/**
+	 * 
+	 * Constructor.
+	 * 
+	 * @param pStoragePath
+	 *          path to the storage
+	 */
+	public RestXPathProcessor(final File pStoragePath) {
+		mStoragePath = pStoragePath;
+	}
 
-  /**
-   * Getting part of the XML based on a XPath query
-   * 
-   * @param resourceName
-   *          where the content should be extracted
-   * @param xpath
-   *          contains XPath query
-   * @param nodeid
-   *          To response the resource with a restid for each node ( <code>true</code>) or without (
-   *          <code>false</code>).
-   * @param revision
-   *          The revision of the requested resource. If <code>null</code>,
-   *          than response the latest revision.
-   * @param output
-   *          The OutputStream reference which have to be modified and
-   *          returned
-   * @return the queried XML fragment
-   * @throws IOException
-   *           The exception occurred.
-   * @throws SirixException
-   */
-  public OutputStream getXpathResource(final String resourceName,
-    final String xpath, final boolean nodeid, final Integer revision,
-    final OutputStream output, final boolean wrapResult) throws IOException,
-    SirixException {
+	/**
+	 * Getting part of the XML based on a XPath query
+	 * 
+	 * @param resourceName
+	 *          where the content should be extracted
+	 * @param xpath
+	 *          contains XPath query
+	 * @param nodeid
+	 *          to response the resource with a restid for each node (
+	 *          <code>true</code>) or without ( <code>false</code>)
+	 * @param revision
+	 *          the revision of the requested resource. If <code>null</code>, than
+	 *          response the latest revision
+	 * @param output
+	 *          the OutputStream reference which have to be modified and returned
+	 * @return the queried XML fragment
+	 * @throws IOException
+	 *           if an I/O exception occurred
+	 * @throws SirixException
+	 */
+	public OutputStream getXpathResource(final String resourceName,
+			final String xpath, final boolean nodeid, final Integer revision,
+			final OutputStream output, final boolean wrapResult) throws IOException,
+			SirixException {
 
-    // work around because of query root char '/'
-    String qQuery = xpath;
-    if (xpath.charAt(0) == '/')
-      qQuery = ".".concat(xpath);
-    if (WorkerHelper.checkExistingResource(mStoragePath, resourceName)) {
-      if (wrapResult) {
-        output.write(beginResult.getBytes());
-        doXPathRes(resourceName, revision, output, nodeid, qQuery);
-        output.write(endResult.getBytes());
-      } else {
-        doXPathRes(resourceName, revision, output, nodeid, qQuery);
-      }
+		// work around because of query root char '/'
+		String qQuery = xpath;
+		if (xpath.charAt(0) == '/') qQuery = ".".concat(xpath);
+		if (WorkerHelper.checkExistingResource(mStoragePath, resourceName)) {
+			if (wrapResult) {
+				output.write(beginResult.getBytes());
+				doXPathRes(resourceName, revision, output, nodeid, qQuery);
+				output.write(endResult.getBytes());
+			} else {
+				doXPathRes(resourceName, revision, output, nodeid, qQuery);
+			}
 
-    } else {
-      throw new WebApplicationException(Response.Status.NOT_FOUND);
-    }
-    return output;
-  }
+		} else {
+			throw new WebApplicationException(Response.Status.NOT_FOUND);
+		}
+		return output;
+	}
 
-  /**
-   * Getting part of the XML based on a XPath query
-   * 
-   * @param dbFile
-   *          where the content should be extracted
-   * 
-   * @param query
-   *          contains XPath query
-   * @param rId
-   *          To response the resource with a restid for each node ( <code>true</code>) or without (
-   *          <code>false</code>).
-   * @param doRevision
-   *          The revision of the requested resource. If <code>null</code>,
-   *          than response the latest revision.
-   * @param output
-   *          The OutputStream reference which have to be modified and
-   *          returned
-   * @param doNodeId
-   *          specifies whether node id should be shown
-   * @param doWrap
-   *          output of result elements
-   * @throws SirixException
-   */
-  public void getXpathResource(final File dbFile, final long rId,
-    final String query, final boolean doNodeId, final Integer doRevision,
-    final OutputStream output, final boolean doWrap) throws SirixException {
+	/**
+	 * Getting part of the XML based on a XPath query
+	 * 
+	 * @param dbFile
+	 *          where the content should be extracted
+	 * 
+	 * @param query
+	 *          contains XPath query
+	 * @param rId
+	 *          To response the resource with a restid for each node (
+	 *          <code>true</code>) or without ( <code>false</code>).
+	 * @param doRevision
+	 *          The revision of the requested resource. If <code>null</code>, than
+	 *          response the latest revision.
+	 * @param output
+	 *          The OutputStream reference which have to be modified and returned
+	 * @param doNodeId
+	 *          specifies whether node id should be shown
+	 * @param doWrap
+	 *          output of result elements
+	 * @throws SirixException
+	 */
+	public void getXpathResource(final File dbFile, final long rId,
+			final String query, final boolean doNodeId, final Integer doRevision,
+			final OutputStream output, final boolean doWrap) throws SirixException {
 
-    // work around because of query root char '/'
-    String qQuery = query;
-    if (query.charAt(0) == '/')
-      qQuery = ".".concat(query);
+		// work around because of query root char '/'
+		String qQuery = query;
+		if (query.charAt(0) == '/') qQuery = ".".concat(query);
 
-    Database database = null;
-    Session session = null;
-    NodeReadTrx rtx = null;
-    try {
-      database = DatabaseImpl.openDatabase(dbFile.getParentFile());
-      session =
-        database.getSession(new SessionConfiguration.Builder(dbFile.getName())
-          .build());
-      // Creating a transaction
+		Database database = null;
+		Session session = null;
+		NodeReadTrx rtx = null;
+		try {
+			database = Databases.openDatabase(dbFile.getParentFile());
+			session = database.getSession(new SessionConfiguration.Builder(dbFile
+					.getName()).build());
+			// Creating a transaction
 
-      if (doRevision == null) {
-        rtx = session.beginNodeReadTrx();
-      } else {
-        rtx = session.beginNodeReadTrx(doRevision);
-      }
+			if (doRevision == null) {
+				rtx = session.beginNodeReadTrx();
+			} else {
+				rtx = session.beginNodeReadTrx(doRevision);
+			}
 
-      final boolean exist = rtx.moveTo(rId).hasMoved();
-      if (exist) {
-        final Axis axis = new XPathAxis(rtx, qQuery);
-        if (doWrap) {
-          output.write(beginResult.getBytes());
-          for (final long key : axis) {
-            WorkerHelper.serializeXML(session, output, false, doNodeId, key,
-              doRevision).call();
-          }
+			final boolean exist = rtx.moveTo(rId).hasMoved();
+			if (exist) {
+				final Axis axis = new XPathAxis(rtx, qQuery);
+				if (doWrap) {
+					output.write(beginResult.getBytes());
+					for (final long key : axis) {
+						WorkerHelper.serializeXML(session, output, false, doNodeId, key,
+								doRevision).call();
+					}
 
-          output.write(endResult.getBytes());
-        } else {
-          for (final long key : axis) {
-            WorkerHelper.serializeXML(session, output, false, doNodeId, key,
-              doRevision).call();
-          }
+					output.write(endResult.getBytes());
+				} else {
+					for (final long key : axis) {
+						WorkerHelper.serializeXML(session, output, false, doNodeId, key,
+								doRevision).call();
+					}
 
-        }
-      } else {
-        throw new WebApplicationException(404);
-      }
+				}
+			} else {
+				throw new WebApplicationException(404);
+			}
 
-    } catch (final Exception globExcep) {
-      throw new WebApplicationException(globExcep,
-        Response.Status.INTERNAL_SERVER_ERROR);
-    } finally {
-      WorkerHelper.closeRTX(rtx, session, database);
-    }
-  }
+		} catch (final Exception globExcep) {
+			throw new WebApplicationException(globExcep,
+					Response.Status.INTERNAL_SERVER_ERROR);
+		} finally {
+			WorkerHelper.closeRTX(rtx, session, database);
+		}
+	}
 
-  /**
-   * This method performs an XPath evaluation and writes it to a given output
-   * stream.
-   * 
-   * @param resource
-   *          The existing resource.
-   * @param revision
-   *          The revision of the requested document.
-   * @param output
-   *          The output stream where the results are written.
-   * @param nodeid
-   *          <code>true</code> if node id's have to be delivered. <code>false</code> otherwise.
-   * @param xpath
-   *          The XPath expression.
-   * @throws SirixException
-   */
-  private void doXPathRes(final String resource, final Integer revision,
-    final OutputStream output, final boolean nodeid, final String xpath)
-    throws SirixException {
-    // Database connection to sirix
-    Database database = null;
-    Session session = null;
-    NodeReadTrx rtx = null;
-    try {
-      database = DatabaseImpl.openDatabase(mStoragePath);
-      session =
-        database.getSession(new SessionConfiguration.Builder(resource).build());
-      // Creating a transaction
-      if (revision == null) {
-        rtx = session.beginNodeReadTrx();
-      } else {
-        rtx = session.beginNodeReadTrx(revision);
-      }
+	/**
+	 * This method performs an XPath evaluation and writes it to a given output
+	 * stream.
+	 * 
+	 * @param resource
+	 *          The existing resource.
+	 * @param revision
+	 *          The revision of the requested document.
+	 * @param output
+	 *          The output stream where the results are written.
+	 * @param nodeid
+	 *          <code>true</code> if node id's have to be delivered.
+	 *          <code>false</code> otherwise.
+	 * @param xpath
+	 *          The XPath expression.
+	 * @throws SirixException
+	 */
+	private void doXPathRes(final String resource, final Integer revision,
+			final OutputStream output, final boolean nodeid, final String xpath)
+			throws SirixException {
+		// Database connection to sirix
+		Database database = null;
+		Session session = null;
+		NodeReadTrx rtx = null;
+		try {
+			database = Databases.openDatabase(mStoragePath);
+			session = database.getSession(new SessionConfiguration.Builder(resource)
+					.build());
+			// Creating a transaction
+			if (revision == null) {
+				rtx = session.beginNodeReadTrx();
+			} else {
+				rtx = session.beginNodeReadTrx(revision);
+			}
 
-      final Axis axis = new XPathAxis(rtx, xpath);
-      for (final long key : axis) {
-        WorkerHelper
-          .serializeXML(session, output, false, nodeid, key, revision).call();
-      }
+			final Axis axis = new XPathAxis(rtx, xpath);
+			for (final long key : axis) {
+				WorkerHelper
+						.serializeXML(session, output, false, nodeid, key, revision).call();
+			}
 
-    } catch (final Exception globExcep) {
-      throw new WebApplicationException(globExcep,
-        Response.Status.INTERNAL_SERVER_ERROR);
-    } finally {
-      if (rtx != null) {
-        rtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-        WorkerHelper.closeRTX(rtx, session, database);
-      }
-    }
-  }
+		} catch (final Exception globExcep) {
+			throw new WebApplicationException(globExcep,
+					Response.Status.INTERNAL_SERVER_ERROR);
+		} finally {
+			if (rtx != null) {
+				rtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+				WorkerHelper.closeRTX(rtx, session, database);
+			}
+		}
+	}
 
 }

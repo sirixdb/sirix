@@ -44,7 +44,7 @@ import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
@@ -137,7 +137,7 @@ public enum GUICommands implements IGUICommand {
 					try {
 						final FileOutputStream outputStream = new FileOutputStream(target);
 
-						final Database db = DatabaseImpl.openDatabase(source);
+						final Database db = Databases.openDatabase(source);
 						final Session session = db
 								.getSession(new org.sirix.access.conf.SessionConfiguration.Builder(
 										"shredded").build());
@@ -358,7 +358,7 @@ public enum GUICommands implements IGUICommand {
 					boolean error = false;
 
 					try {
-						final Database db = DatabaseImpl.openDatabase(tmpDir);
+						final Database db = Databases.openDatabase(tmpDir);
 						final NodeReadTrx rtx = db.getSession(
 								new org.sirix.access.conf.SessionConfiguration.Builder(
 										"shredded").build()).beginNodeReadTrx();
@@ -413,7 +413,7 @@ public enum GUICommands implements IGUICommand {
 				pShredding.shred(source, target);
 
 				try {
-					final Database database = DatabaseImpl.openDatabase(target);
+					final Database database = Databases.openDatabase(target);
 					final Session session = database
 							.getSession(new SessionConfiguration.Builder("shredded").build());
 					final NodeReadTrx rtx = session.beginNodeReadTrx();

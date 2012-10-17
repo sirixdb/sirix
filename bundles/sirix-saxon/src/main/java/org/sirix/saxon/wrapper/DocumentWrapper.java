@@ -61,9 +61,9 @@ import org.slf4j.LoggerFactory;
  * <h1>DocumentWrapper</h1>
  * 
  * <p>
- * Wraps a sirix document and represents a document node. Therefore it implements Saxon's DocumentInfo core
- * interface and also represents a Node in Saxon's internal node implementation. Thus it extends
- * <tt>NodeWrapper</tt>.
+ * Wraps a sirix document and represents a document node. Therefore it
+ * implements Saxon's DocumentInfo core interface and also represents a Node in
+ * Saxon's internal node implementation. Thus it extends <tt>NodeWrapper</tt>.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -72,329 +72,328 @@ import org.slf4j.LoggerFactory;
  */
 public final class DocumentWrapper implements DocumentInfo {
 
-  /** {@link LogWrapper} instance. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
-    .getLogger(DocumentWrapper.class));
+	/** {@link LogWrapper} instance. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(DocumentWrapper.class));
 
-  /** sirix database. */
-  final Session mSession;
+	/** sirix database. */
+	final Session mSession;
 
-  /** The revision. */
-  final int mRevision;
+	/** The revision. */
+	final int mRevision;
 
-  /** Base URI of the document. */
-  String mBaseURI;
+	/** Base URI of the document. */
+	String mBaseURI;
 
-  /** Saxon configuration. */
-  Configuration mConfig;
+	/** Saxon configuration. */
+	Configuration mConfig;
 
-  /** Unique document number. */
-  long mDocumentNumber;
+	/** Unique document number. */
+	long mDocumentNumber;
 
-  /**
-   * Instance of {@link NodeWrapper}-implementation
-   */
-  private final NodeWrapper mNodeWrapper;
+	/**
+	 * Instance of {@link NodeWrapper}-implementation
+	 */
+	private final NodeWrapper mNodeWrapper;
 
-  /**
-   * Wrap a sirix document.
-   * 
-   * @param pSession
-   *          sirix {@link Session}
-   * @param pRevision
-   *          the revision to open
-   * @param pConfig
-   *          Saxon {@link Configuration} instance
-   * @throws SirixException
-   *           if sirix encounters an error
-   */
-  public DocumentWrapper(@Nonnull final Session pSession,
-    @Nonnegative final int pRevision, @Nonnull final Configuration pConfig)
-    throws SirixException {
-    mSession = checkNotNull(pSession);
-    mRevision = pRevision;
-    mBaseURI = pSession.getResourceConfig().getResource().getAbsolutePath();
-    mConfig = checkNotNull(pConfig);
-    mNodeWrapper = new NodeWrapper(this, 0);
-  }
+	/**
+	 * Wrap a sirix document.
+	 * 
+	 * @param session
+	 *          sirix {@link Session}
+	 * @param revision
+	 *          the revision to open
+	 * @param config
+	 *          Saxon {@link Configuration} instance
+	 * @throws SirixException
+	 *           if sirix encounters an error
+	 */
+	public DocumentWrapper(final @Nonnull Session session,
+			@Nonnegative final int revision, final @Nonnull Configuration config)
+			throws SirixException {
+		mSession = checkNotNull(session);
+		mRevision = revision;
+		mBaseURI = session.getResourceConfig().getResource().getAbsolutePath();
+		mConfig = checkNotNull(config);
+		mNodeWrapper = new NodeWrapper(this, 0);
+	}
 
-  /**
-   * Wrap a sirix document.
-   * 
-   * @param pSession
-   *          Sirix {@link Session}
-   * @param pConfig
-   *          Saxon {@link Configuration} instance
-   * @throws SirixException
-   *           if Sirix encounters an error
-   */
-  public DocumentWrapper(final Session pSession, final Configuration pConfig)
-    throws SirixException {
-    this(pSession, pSession.beginNodeReadTrx().getRevisionNumber(), pConfig);
-  }
+	/**
+	 * Wrap a sirix document.
+	 * 
+	 * @param session
+	 *          Sirix {@link Session}
+	 * @param config
+	 *          Saxon {@link Configuration} instance
+	 * @throws SirixException
+	 *           if Sirix encounters an error
+	 */
+	public DocumentWrapper(final @Nonnull Session session,
+			final @Nonnull Configuration config) throws SirixException {
+		this(session, session.beginNodeReadTrx().getRevisionNumber(), config);
+	}
 
-  @Override
-  public String[] getUnparsedEntity(final String name) {
-    throw new UnsupportedOperationException("Currently not supported by sirix!");
-  }
+	@Override
+	public String[] getUnparsedEntity(final String name) {
+		throw new UnsupportedOperationException("Currently not supported by sirix!");
+	}
 
-  /**
-   * Get the unparsed entity with a given name.
-   * 
-   * @return null: sirix does not provide access to unparsed entities.
-   */
-  @SuppressWarnings("unchecked")
-  public Iterator<String> getUnparsedEntityNames() {
-    return (Iterator<String>)Collections.EMPTY_LIST.iterator();
-  }
+	/**
+	 * Get the unparsed entity with a given name.
+	 * 
+	 * @return null: sirix does not provide access to unparsed entities.
+	 */
+	@SuppressWarnings("unchecked")
+	public Iterator<String> getUnparsedEntityNames() {
+		return (Iterator<String>) Collections.EMPTY_LIST.iterator();
+	}
 
-  @Override
-  public NodeInfo selectID(final String ID, final boolean getParent) {
-    try {
-      final NodeReadTrx rtx = mSession.beginNodeReadTrx();
-      final Axis axis = new DescendantAxis(rtx, IncludeSelf.YES);
-      while (axis.hasNext()) {
-        if (rtx.getKind() == Kind.ELEMENT) {
-          final int attCount = rtx.getAttributeCount();
+	@Override
+	public NodeInfo selectID(final String ID, final boolean getParent) {
+		try {
+			final NodeReadTrx rtx = mSession.beginNodeReadTrx();
+			final Axis axis = new DescendantAxis(rtx, IncludeSelf.YES);
+			while (axis.hasNext()) {
+				if (rtx.getKind() == Kind.ELEMENT) {
+					final int attCount = rtx.getAttributeCount();
 
-          if (attCount > 0) {
-            final long nodeKey = rtx.getNodeKey();
+					if (attCount > 0) {
+						final long nodeKey = rtx.getNodeKey();
 
-            for (int index = 0; index < attCount; index++) {
-              rtx.moveToAttribute(index);
+						for (int index = 0; index < attCount; index++) {
+							rtx.moveToAttribute(index);
 
-              if ("xml:id".equalsIgnoreCase(rtx.getName()
-                .getLocalPart())
-                && ID.equals(rtx.getValue())) {
-                if (getParent) {
-                  rtx.moveToParent();
-                }
-                return new NodeWrapper(this, rtx.getNodeKey());
-              }
-              rtx.moveTo(nodeKey);
-            }
-          }
-        }
-        axis.next();
-      }
-      rtx.close();
-    } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-    return null;
-  }
+							if ("xml:id".equalsIgnoreCase(rtx.getName().getLocalPart())
+									&& ID.equals(rtx.getValue())) {
+								if (getParent) {
+									rtx.moveToParent();
+								}
+								return new NodeWrapper(this, rtx.getNodeKey());
+							}
+							rtx.moveTo(nodeKey);
+						}
+					}
+				}
+				axis.next();
+			}
+			rtx.close();
+		} catch (final SirixException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+		return null;
+	}
 
-  @Override
-  public NamePool getNamePool() {
-    return mConfig.getNamePool();
-  }
+	@Override
+	public NamePool getNamePool() {
+		return mConfig.getNamePool();
+	}
 
-  /**
-   * Set the configuration (containing the name pool used for all names in
-   * this document). Calling this method allocates a unique number to the
-   * document (unique within the Configuration); this will form the basis for
-   * testing node identity.
-   * 
-   * @param config
-   *          Saxon {@link Configuration} instance
-   */
-  public void setConfiguration(final Configuration pConfig) {
-    mConfig = pConfig;
-    mDocumentNumber =
-      pConfig.getDocumentNumberAllocator().allocateDocumentNumber();
-  }
+	/**
+	 * Set the configuration (containing the name pool used for all names in this
+	 * document). Calling this method allocates a unique number to the document
+	 * (unique within the Configuration); this will form the basis for testing
+	 * node identity.
+	 * 
+	 * @param config
+	 *          Saxon {@link Configuration} instance
+	 */
+	public void setConfiguration(final Configuration config) {
+		mConfig = config;
+		mDocumentNumber = config.getDocumentNumberAllocator()
+				.allocateDocumentNumber();
+	}
 
-  @Override
-  public Configuration getConfiguration() {
-    return mConfig;
-  }
+	@Override
+	public Configuration getConfiguration() {
+		return mConfig;
+	}
 
-  @Override
-  public String getBaseURI() {
-    return mBaseURI;
-  }
+	@Override
+	public String getBaseURI() {
+		return mBaseURI;
+	}
 
-  /**
-   * Set the baseURI of the current document.
-   * 
-   * @param pBaseURI
-   *          usually the absolute path of the document
-   */
-  void setBaseURI(@Nonnull final String pBaseURI) {
-    mBaseURI = checkNotNull(pBaseURI);
-  }
+	/**
+	 * Set the baseURI of the current document.
+	 * 
+	 * @param baseURI
+	 *          usually the absolute path of the document
+	 */
+	void setBaseURI(final @Nonnull String baseURI) {
+		mBaseURI = checkNotNull(baseURI);
+	}
 
-  @Override
-  public Object getUserData(String arg0) {
-    return null;
-  }
+	@Override
+	public Object getUserData(String arg0) {
+		return null;
+	}
 
-  @Override
-  public void setUserData(String arg0, Object arg1) {
-  }
+	@Override
+	public void setUserData(String arg0, Object arg1) {
+	}
 
-  @Override
-  public Value atomize() throws XPathException {
-    return getNodeWrapper().atomize();
-  }
+	@Override
+	public Value atomize() throws XPathException {
+		return getNodeWrapper().atomize();
+	}
 
-  @Override
-  public int compareOrder(NodeInfo arg0) {
-    return getNodeWrapper().compareOrder(arg0);
-  }
+	@Override
+	public int compareOrder(NodeInfo arg0) {
+		return getNodeWrapper().compareOrder(arg0);
+	}
 
-  @Override
-  public void copy(Receiver arg0, int arg1, int arg2) throws XPathException {
-    getNodeWrapper().copy(arg0, arg1, arg2);
+	@Override
+	public void copy(Receiver arg0, int arg1, int arg2) throws XPathException {
+		getNodeWrapper().copy(arg0, arg1, arg2);
 
-  }
+	}
 
-  @Override
-  public void generateId(FastStringBuffer arg0) {
-    getNodeWrapper().generateId(arg0);
-  }
+	@Override
+	public void generateId(FastStringBuffer arg0) {
+		getNodeWrapper().generateId(arg0);
+	}
 
-  @Override
-  public String getAttributeValue(int arg0) {
-    return getNodeWrapper().getAttributeValue(arg0);
-  }
+	@Override
+	public String getAttributeValue(int arg0) {
+		return getNodeWrapper().getAttributeValue(arg0);
+	}
 
-  @Override
-  public int getColumnNumber() {
-    return getNodeWrapper().getColumnNumber();
-  }
+	@Override
+	public int getColumnNumber() {
+		return getNodeWrapper().getColumnNumber();
+	}
 
-  @Override
-  public int[] getDeclaredNamespaces(int[] arg0) {
-    return getNodeWrapper().getDeclaredNamespaces(arg0);
-  }
+	@Override
+	public int[] getDeclaredNamespaces(int[] arg0) {
+		return getNodeWrapper().getDeclaredNamespaces(arg0);
+	}
 
-  @Override
-  public String getDisplayName() {
-    return getNodeWrapper().getDisplayName();
-  }
+	@Override
+	public String getDisplayName() {
+		return getNodeWrapper().getDisplayName();
+	}
 
-  @Override
-  public long getDocumentNumber() {
-    return getNodeWrapper().getDocumentNumber();
-  }
+	@Override
+	public long getDocumentNumber() {
+		return getNodeWrapper().getDocumentNumber();
+	}
 
-  @Override
-  public DocumentInfo getDocumentRoot() {
-    return getNodeWrapper().getDocumentRoot();
-  }
+	@Override
+	public DocumentInfo getDocumentRoot() {
+		return getNodeWrapper().getDocumentRoot();
+	}
 
-  @Override
-  public int getFingerprint() {
-    return getNodeWrapper().getFingerprint();
-  }
+	@Override
+	public int getFingerprint() {
+		return getNodeWrapper().getFingerprint();
+	}
 
-  @Override
-  public int getLineNumber() {
-    return getNodeWrapper().getLineNumber();
-  }
+	@Override
+	public int getLineNumber() {
+		return getNodeWrapper().getLineNumber();
+	}
 
-  @Override
-  public String getLocalPart() {
-    return getNodeWrapper().getLocalPart();
-  }
+	@Override
+	public String getLocalPart() {
+		return getNodeWrapper().getLocalPart();
+	}
 
-  @Override
-  public int getNameCode() {
-    return getNodeWrapper().getNameCode();
-  }
+	@Override
+	public int getNameCode() {
+		return getNodeWrapper().getNameCode();
+	}
 
-  @Override
-  public int getNodeKind() {
-    return getNodeWrapper().getNodeKind();
-  }
+	@Override
+	public int getNodeKind() {
+		return getNodeWrapper().getNodeKind();
+	}
 
-  @Override
-  public NodeInfo getParent() {
-    return getNodeWrapper().getParent();
-  }
+	@Override
+	public NodeInfo getParent() {
+		return getNodeWrapper().getParent();
+	}
 
-  @Override
-  public String getPrefix() {
-    return getNodeWrapper().getPrefix();
-  }
+	@Override
+	public String getPrefix() {
+		return getNodeWrapper().getPrefix();
+	}
 
-  @Override
-  public NodeInfo getRoot() {
-    return getNodeWrapper().getRoot();
-  }
+	@Override
+	public NodeInfo getRoot() {
+		return getNodeWrapper().getRoot();
+	}
 
-  @Override
-  public String getStringValue() {
-    return getNodeWrapper().getStringValue();
-  }
+	@Override
+	public String getStringValue() {
+		return getNodeWrapper().getStringValue();
+	}
 
-  @Override
-  public String getSystemId() {
-    return getNodeWrapper().getSystemId();
-  }
+	@Override
+	public String getSystemId() {
+		return getNodeWrapper().getSystemId();
+	}
 
-  @Override
-  public int getTypeAnnotation() {
-    return getNodeWrapper().getTypeAnnotation();
-  }
+	@Override
+	public int getTypeAnnotation() {
+		return getNodeWrapper().getTypeAnnotation();
+	}
 
-  @Override
-  public String getURI() {
-    return getNodeWrapper().getURI();
-  }
+	@Override
+	public String getURI() {
+		return getNodeWrapper().getURI();
+	}
 
-  @Override
-  public boolean hasChildNodes() {
-    return getNodeWrapper().hasChildNodes();
-  }
+	@Override
+	public boolean hasChildNodes() {
+		return getNodeWrapper().hasChildNodes();
+	}
 
-  @Override
-  public boolean isId() {
-    return getNodeWrapper().isId();
-  }
+	@Override
+	public boolean isId() {
+		return getNodeWrapper().isId();
+	}
 
-  @Override
-  public boolean isIdref() {
-    return getNodeWrapper().isIdref();
-  }
+	@Override
+	public boolean isIdref() {
+		return getNodeWrapper().isIdref();
+	}
 
-  @Override
-  public boolean isNilled() {
-    return getNodeWrapper().isNilled();
-  }
+	@Override
+	public boolean isNilled() {
+		return getNodeWrapper().isNilled();
+	}
 
-  @Override
-  public boolean isSameNodeInfo(NodeInfo arg0) {
-    return getNodeWrapper().isSameNodeInfo(arg0);
-  }
+	@Override
+	public boolean isSameNodeInfo(NodeInfo arg0) {
+		return getNodeWrapper().isSameNodeInfo(arg0);
+	}
 
-  @Override
-  public AxisIterator iterateAxis(byte arg0) {
-    return getNodeWrapper().iterateAxis(arg0);
-  }
+	@Override
+	public AxisIterator iterateAxis(byte arg0) {
+		return getNodeWrapper().iterateAxis(arg0);
+	}
 
-  @Override
-  public AxisIterator iterateAxis(byte arg0, NodeTest arg1) {
-    return getNodeWrapper().iterateAxis(arg0, arg1);
-  }
+	@Override
+	public AxisIterator iterateAxis(byte arg0, NodeTest arg1) {
+		return getNodeWrapper().iterateAxis(arg0, arg1);
+	}
 
-  @Override
-  public void setSystemId(String arg0) {
-    getNodeWrapper().setSystemId(arg0);
-  }
+	@Override
+	public void setSystemId(String arg0) {
+		getNodeWrapper().setSystemId(arg0);
+	}
 
-  @Override
-  public CharSequence getStringValueCS() {
-    return getNodeWrapper().getStringValueCS();
-  }
+	@Override
+	public CharSequence getStringValueCS() {
+		return getNodeWrapper().getStringValueCS();
+	}
 
-  @Override
-  public SequenceIterator getTypedValue() throws XPathException {
-    return getNodeWrapper().getTypedValue();
-  }
+	@Override
+	public SequenceIterator getTypedValue() throws XPathException {
+		return getNodeWrapper().getTypedValue();
+	}
 
-  public NodeWrapper getNodeWrapper() {
-    return mNodeWrapper;
-  }
+	public NodeWrapper getNodeWrapper() {
+		return mNodeWrapper;
+	}
 }

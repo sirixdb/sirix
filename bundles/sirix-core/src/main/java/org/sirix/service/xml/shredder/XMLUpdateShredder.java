@@ -48,6 +48,7 @@ import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
 import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
@@ -1359,8 +1360,8 @@ public final class XMLUpdateShredder implements Callable<Long> {
 
     try {
       final DatabaseConfiguration config = new DatabaseConfiguration(target);
-      DatabaseImpl.createDatabase(config);
-      final Database db = DatabaseImpl.openDatabase(target);
+      Databases.createDatabase(config);
+      final Database db = Databases.openDatabase(target);
       db.createResource(new ResourceConfiguration.Builder("shredded", config).build());
       final Session session = db.getSession(new SessionConfiguration.Builder("shredded").build());
       final NodeWriteTrx wtx = session.beginNodeWriteTrx();

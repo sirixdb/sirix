@@ -51,60 +51,61 @@ import org.xml.sax.ContentHandler;
  * <h1>XQuery evaluator</h1>
  * 
  * <p>
- * Evaluates an XQuery expression and returns the result to a given content handler.
+ * Evaluates an XQuery expression and returns the result to a given content
+ * handler.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public final class XQueryEvaluatorSAXHandler implements Callable<Void> {
-  /**
-   * Log wrapper for better output.
-   */
-  private static final Logger LOGGER = LoggerFactory
-    .getLogger(XQueryEvaluatorSAXHandler.class);
+	/**
+	 * Log wrapper for better output.
+	 */
+	private static final Logger LOGGER = LoggerFactory
+			.getLogger(XQueryEvaluatorSAXHandler.class);
 
-  /** XQuery expression. */
-  private final String mExpression;
+	/** XQuery expression. */
+	private final String mExpression;
 
-  /** sirix database. */
-  private final Session mSession;
+	/** Sirix {@link Session}. */
+	private final Session mSession;
 
-  /** SAX receiver. */
-  private final ContentHandler mHandler;
+	/** SAX receiver. */
+	private final ContentHandler mHandler;
 
-  /**
-   * Constructor.
-   * 
-   * @param pExpression
-   *          XQuery expression
-   * @param pSession
-   *          Sirix {@link Session}
-   * @param pHandler
-   *          SAX content handler
-   */
-  public XQueryEvaluatorSAXHandler(@Nonnull final String pExpression,
-    @Nonnull final Session pSession, @Nonnull final ContentHandler pHandler) {
-    mExpression = checkNotNull(pExpression);
-    mSession = checkNotNull(pSession);
-    mHandler = checkNotNull(pHandler);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param expression
+	 *          XQuery expression
+	 * @param session
+	 *          Sirix {@link Session}
+	 * @param handler
+	 *          SAX content handler
+	 */
+	public XQueryEvaluatorSAXHandler(final @Nonnull String expression,
+			final @Nonnull Session session, final @Nonnull ContentHandler handler) {
+		mExpression = checkNotNull(expression);
+		mSession = checkNotNull(session);
+		mHandler = checkNotNull(handler);
+	}
 
-  @Override
-  public Void call() throws Exception {
-    try {
-      final Processor proc = new Processor(false);
-      final Configuration config = proc.getUnderlyingConfiguration();
-      final NodeInfo doc = new DocumentWrapper(mSession, config);
-      final XQueryCompiler comp = proc.newXQueryCompiler();
-      final XQueryExecutable exp = comp.compile(mExpression);
-      final net.sf.saxon.s9api.XQueryEvaluator exe = exp.load();
-      exe.setSource(doc);
-      exe.run(new SAXDestination(mHandler));
-      return null;
-    } catch (final SaxonApiException e) {
-      LOGGER.error("Saxon Exception: " + e.getMessage(), e);
-      throw e;
-    }
-  }
+	@Override
+	public Void call() throws Exception {
+		try {
+			final Processor proc = new Processor(false);
+			final Configuration config = proc.getUnderlyingConfiguration();
+			final NodeInfo doc = new DocumentWrapper(mSession, config);
+			final XQueryCompiler comp = proc.newXQueryCompiler();
+			final XQueryExecutable exp = comp.compile(mExpression);
+			final net.sf.saxon.s9api.XQueryEvaluator exe = exp.load();
+			exe.setSource(doc);
+			exe.run(new SAXDestination(mHandler));
+			return null;
+		} catch (final SaxonApiException e) {
+			LOGGER.error("Saxon Exception: " + e.getMessage(), e);
+			throw e;
+		}
+	}
 }

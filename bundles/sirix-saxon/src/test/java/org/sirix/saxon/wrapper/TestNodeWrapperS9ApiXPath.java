@@ -48,111 +48,116 @@ import org.sirix.saxon.evaluator.XPathEvaluator;
  */
 public final class TestNodeWrapperS9ApiXPath extends XMLTestCase {
 
-  /**
-   * sirix database on sirix test document {@link Database}.
-   */
-  private transient Holder mHolder;
+	/**
+	 * sirix database on sirix test document {@link Database}.
+	 */
+	private transient Holder mHolder;
 
-  @Override
-  @Before
-  public void setUp() throws SirixException {
-    XMLUnit.setIgnoreWhitespace(true);
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    mHolder = Holder.generateRtx();
-  }
+	@Override
+	@Before
+	public void setUp() throws SirixException {
+		XMLUnit.setIgnoreWhitespace(true);
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		mHolder = Holder.generateRtx();
+	}
 
-  @Override
-  @After
-  public void tearDown() throws SirixException {
-    mHolder.close();
-  }
+	@Override
+	@After
+	public void tearDown() throws SirixException {
+		mHolder.close();
+	}
 
-  @Test
-  public void testB1() throws Exception {
-    final XPathSelector selector = new XPathEvaluator.Builder("//b[1]", mHolder.getSession()).build().call();
+	@Test
+	public void testB1() throws Exception {
+		final XPathSelector selector = new XPathEvaluator.Builder("//b[1]",
+				mHolder.getSession()).build().call();
 
-    final StringBuilder strBuilder = new StringBuilder();
+		final StringBuilder strBuilder = new StringBuilder();
 
-    for (final XdmItem item : selector) {
-      strBuilder.append(item.toString());
-    }
+		for (final XdmItem item : selector) {
+			strBuilder.append(item.toString());
+		}
 
-    assertXMLEqual("expected pieces to be similar", "<b xmlns:p=\"ns\">foo<c xmlns:p=\"ns\"/></b>",
-      strBuilder.toString());
-  }
+		assertXMLEqual("expected pieces to be similar",
+				"<b xmlns:p=\"ns\">foo<c xmlns:p=\"ns\"/></b>", strBuilder.toString());
+	}
 
-  @Test
-  public void testB1String() throws Exception {
-    final XPathSelector selector =
-      new XPathEvaluator.Builder("//b[1]/text()", mHolder.getSession()).build().call();
+	@Test
+	public void testB1String() throws Exception {
+		final XPathSelector selector = new XPathEvaluator.Builder("//b[1]/text()",
+				mHolder.getSession()).build().call();
 
-    final StringBuilder strBuilder = new StringBuilder();
+		final StringBuilder strBuilder = new StringBuilder();
 
-    for (final XdmItem item : selector) {
-      strBuilder.append(item.toString());
-    }
+		for (final XdmItem item : selector) {
+			strBuilder.append(item.toString());
+		}
 
-    assertEquals("foo", strBuilder.toString());
-  }
+		assertEquals("foo", strBuilder.toString());
+	}
 
-  @Test
-  public void testB2() throws Exception {
-    final XPathSelector selector = new XPathEvaluator.Builder("//b[2]", mHolder.getSession()).build().call();
+	@Test
+	public void testB2() throws Exception {
+		final XPathSelector selector = new XPathEvaluator.Builder("//b[2]",
+				mHolder.getSession()).build().call();
 
-    final StringBuilder strBuilder = new StringBuilder();
+		final StringBuilder strBuilder = new StringBuilder();
 
-    for (final XdmItem item : selector) {
-      strBuilder.append(item.toString());
-    }
+		for (final XdmItem item : selector) {
+			strBuilder.append(item.toString());
+		}
 
-    assertXMLEqual("expected pieces to be similar", "<b xmlns:p=\"ns\" p:x=\"y\"><c xmlns:p=\"ns\"/>bar</b>",
-      strBuilder.toString());
-  }
+		assertXMLEqual("expected pieces to be similar",
+				"<b xmlns:p=\"ns\" p:x=\"y\"><c xmlns:p=\"ns\"/>bar</b>",
+				strBuilder.toString());
+	}
 
-  @Test
-  public void testB2Text() throws Exception {
-    final XPathSelector selector =
-      new XPathEvaluator.Builder("//b[2]/text()", mHolder.getSession()).build().call();
+	@Test
+	public void testB2Text() throws Exception {
+		final XPathSelector selector = new XPathEvaluator.Builder("//b[2]/text()",
+				mHolder.getSession()).build().call();
 
-    final StringBuilder strBuilder = new StringBuilder();
+		final StringBuilder strBuilder = new StringBuilder();
 
-    for (final XdmItem item : selector) {
-      strBuilder.append(item.toString());
-    }
+		for (final XdmItem item : selector) {
+			strBuilder.append(item.toString());
+		}
 
-    assertEquals("bar", strBuilder.toString());
-  }
+		assertEquals("bar", strBuilder.toString());
+	}
 
-  @Test
-  public void testB() throws Exception {
-    final XPathSelector selector = new XPathEvaluator.Builder("//b", mHolder.getSession()).build().call();
+	@Test
+	public void testB() throws Exception {
+		final XPathSelector selector = new XPathEvaluator.Builder("//b",
+				mHolder.getSession()).build().call();
 
-    final StringBuilder strBuilder = new StringBuilder();
+		final StringBuilder strBuilder = new StringBuilder();
 
-    strBuilder.append("<result>");
-    for (final XdmItem item : selector) {
-      strBuilder.append(item.toString());
-    }
-    strBuilder.append("</result>");
+		strBuilder.append("<result>");
+		for (final XdmItem item : selector) {
+			strBuilder.append(item.toString());
+		}
+		strBuilder.append("</result>");
 
-    assertXMLEqual("expected pieces to be similar",
-      "<result><b xmlns:p=\"ns\">foo<c xmlns:p=\"ns\"/></b><b xmlns:p=\"ns\" p:x=\"y\">"
-        + "<c xmlns:p=\"ns\"/>bar</b></result>", strBuilder.toString());
-  }
+		assertXMLEqual(
+				"expected pieces to be similar",
+				"<result><b xmlns:p=\"ns\">foo<c xmlns:p=\"ns\"/></b><b xmlns:p=\"ns\" p:x=\"y\">"
+						+ "<c xmlns:p=\"ns\"/>bar</b></result>", strBuilder.toString());
+	}
 
-  @Test
-  public void testCountB() throws Exception {
-    final XPathSelector selector =
-      new XPathEvaluator.Builder("count(//b)", mHolder.getSession()).build().call();
+	@Test
+	public void testCountB() throws Exception {
+		final XPathSelector selector = new XPathEvaluator.Builder("count(//b)",
+				mHolder.getSession()).build().call();
 
-    final StringBuilder sb = new StringBuilder();
+		final StringBuilder sb = new StringBuilder();
 
-    for (final XdmItem item : selector) {
-      sb.append(item.getStringValue());
-    }
+		for (final XdmItem item : selector) {
+			sb.append(item.getStringValue());
+		}
 
-    assertEquals("2", sb.toString());
-  }
+		assertEquals("2", sb.toString());
+	}
 
 }

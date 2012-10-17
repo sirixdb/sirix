@@ -51,27 +51,27 @@ public final class SubtreeBuilder<E extends AbsTemporalNode> extends
 	/**
 	 * Constructor.
 	 * 
-	 * @param pWtx
+	 * @param wtx
 	 *          Sirix {@link IWriteTransaction}
-	 * @param pInsert
+	 * @param insertPos
 	 *          determines how to insert (as a right sibling, first child or left
 	 *          sibling)
-	 * @param pListeners
+	 * @param listeners
 	 *          listeners which implement
 	 * @throws SirixException
 	 *           if constructor couldn't be fully constructed because building a
 	 *           new reading transaction failed (might indicate that a few
 	 */
 	public SubtreeBuilder(
-			final @Nonnull DBCollection<? extends AbsTemporalNode> pCollection,
-			final @Nonnull NodeWriteTrx pWtx, final @Nonnull Insert pInsert,
-			final @Nonnull List<SubtreeListener<? super AbsTemporalNode>> pListeners)
+			final @Nonnull DBCollection<? extends AbsTemporalNode> collection,
+			final @Nonnull NodeWriteTrx wtx, final @Nonnull Insert insertPos,
+			final @Nonnull List<SubtreeListener<? super AbsTemporalNode>> listeners)
 			throws SirixException {
-		super(pWtx, pInsert);
-		mCollection = checkNotNull(pCollection);
+		super(wtx, insertPos);
+		mCollection = checkNotNull(collection);
 		mSubtreeProcessor = new SubtreeProcessor<AbsTemporalNode>(
-				checkNotNull(pListeners));
-		mWtx = checkNotNull(pWtx);
+				checkNotNull(listeners));
+		mWtx = checkNotNull(wtx);
 		mParents = new ArrayDeque<>();
 		mFirst = true;
 	}
@@ -151,18 +151,18 @@ public final class SubtreeBuilder<E extends AbsTemporalNode> extends
 	}
 
 	@Override
-	public void startMapping(final String pPrefix, final String pUri)
+	public void startMapping(final String prefix, final String uri)
 			throws DocumentException {
 	}
 
 	@Override
-	public void endMapping(final String pPrefix) throws DocumentException {
+	public void endMapping(final String prefix) throws DocumentException {
 	}
 
 	@Override
-	public void comment(final Atomic pContent) throws DocumentException {
+	public void comment(final Atomic content) throws DocumentException {
 		try {
-			processComment(pContent.asStr().stringValue());
+			processComment(content.asStr().stringValue());
 			if (mFirst) {
 				mFirst = false;
 				mStartNodeKey = mWtx.getNodeKey();
@@ -174,10 +174,10 @@ public final class SubtreeBuilder<E extends AbsTemporalNode> extends
 	}
 
 	@Override
-	public void processingInstruction(final QNm pTarget, final Atomic pContent)
+	public void processingInstruction(final QNm target, final Atomic content)
 			throws DocumentException {
 		try {
-			processPI(pContent.asStr().stringValue(), pTarget.localName);
+			processPI(content.asStr().stringValue(), target.localName);
 			mSubtreeProcessor.notifyProcessingInstruction(new DBNode(mWtx, mCollection));
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
@@ -185,9 +185,9 @@ public final class SubtreeBuilder<E extends AbsTemporalNode> extends
 	}
 
 	@Override
-	public void startElement(final QNm pName) throws DocumentException {
+	public void startElement(final QNm name) throws DocumentException {
 		try {
-			processStartTag(new QName(pName.nsURI, pName.localName, pName.prefix));
+			processStartTag(new QName(name.nsURI, name.localName, name.prefix));
 			if (mFirst) {
 				mFirst = false;
 				mStartNodeKey = mWtx.getNodeKey();
@@ -201,16 +201,16 @@ public final class SubtreeBuilder<E extends AbsTemporalNode> extends
 	}
 
 	@Override
-	public void endElement(final QNm pName) throws DocumentException {
-		processEndTag(new QName(pName.nsURI, pName.localName, pName.prefix));
+	public void endElement(final QNm name) throws DocumentException {
+		processEndTag(new QName(name.nsURI, name.localName, name.prefix));
 		final DBNode node = mParents.pop();
 		mSubtreeProcessor.notifyEndElement(node);
 	}
 
 	@Override
-	public void text(final Atomic pContent) throws DocumentException {
+	public void text(final Atomic content) throws DocumentException {
 		try {
-			processText(pContent.stringValue());
+			processText(content.stringValue());
 			mSubtreeProcessor.notifyText(new DBNode(mWtx, mCollection));
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
@@ -218,12 +218,12 @@ public final class SubtreeBuilder<E extends AbsTemporalNode> extends
 	}
 
 	@Override
-	public void attribute(final QNm pName, final Atomic pValue)
+	public void attribute(final QNm name, final Atomic value)
 			throws DocumentException {
 		try {
 			mWtx.insertAttribute(
-					new QName(pName.nsURI, pName.localName, pName.prefix),
-					pValue.stringValue());
+					new QName(name.nsURI, name.localName, name.prefix),
+					value.stringValue());
 			mWtx.moveToParent();
 			mSubtreeProcessor.notifyAttribute(new DBNode(mWtx, mCollection));
 		} catch (final SirixException e) {

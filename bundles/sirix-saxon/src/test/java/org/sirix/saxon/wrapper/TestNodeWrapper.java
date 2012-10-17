@@ -47,19 +47,20 @@ import net.sf.saxon.tree.iter.NamespaceIterator.NamespaceNodeImpl;
 import net.sf.saxon.type.Type;
 import net.sf.saxon.value.UntypedAtomicValue;
 import net.sf.saxon.value.Value;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.access.DatabaseImpl;
+import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.Session;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -85,8 +86,8 @@ public class TestNodeWrapper {
 
 	@Before
 	public void beforeMethod() throws SirixException {
-		DatabaseImpl.truncateDatabase(DB_CONFIG);
-		DatabaseImpl.createDatabase(DB_CONFIG);
+		Databases.truncateDatabase(DB_CONFIG);
+		Databases.createDatabase(DB_CONFIG);
 		TestHelper.createTestDocument();
 		mHolder = Holder.generateRtx();
 
@@ -295,9 +296,9 @@ public class TestNodeWrapper {
 	public Session generateSession() throws SirixException {
 		final DatabaseConfiguration dbConfig = new DatabaseConfiguration(
 				TestHelper.PATHS.PATH2.getFile());
-		DatabaseImpl.truncateDatabase(dbConfig);
-		DatabaseImpl.createDatabase(dbConfig);
-		mDatabase = DatabaseImpl.openDatabase(dbConfig.getFile());
+		Databases.truncateDatabase(dbConfig);
+		Databases.createDatabase(dbConfig);
+		mDatabase = Databases.openDatabase(dbConfig.getFile());
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, dbConfig).build());
 		return mDatabase.getSession(new SessionConfiguration.Builder(
