@@ -43,7 +43,7 @@ Core project:
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-core&lt;/artifactId&gt;
-  &lt;version&gt;0.1.3-SNAPSHOT&lt;/version&gt;
+  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency&gt;
 </code></pre>
 
@@ -51,7 +51,7 @@ JAX-RX interface (RESTful API):
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-jax-rx&lt;/artifactId&gt;
-  &lt;version&gt;0.1.3-SNAPSHOT&lt;/version&gt;
+  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency&gt;
 </code></pre>
 
@@ -59,7 +59,7 @@ Brackit(.org) interface (use Brackit to query data -- in the future should be pr
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-xquery&lt;/artifactId&gt;
-  &lt;version&gt;0.1.3-SNAPSHOT&lt;/version&gt;
+  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency>
 </pre></code>
 
@@ -67,7 +67,7 @@ Saxon interface (use Saxon to query data):
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-saxon&lt;/artifactId&gt;
-  &lt;version&gt;0.1.3-SNAPSHOT&lt;/version&gt;
+  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency>
 </pre></code>
 
