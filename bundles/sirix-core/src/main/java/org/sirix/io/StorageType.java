@@ -43,6 +43,7 @@ import org.sirix.io.file.FileStorage;
  * 
  */
 public enum StorageType {
+	/** {@link RandomAccessFile} backend. */
   FILE {
     @Override
     public Storage getInstance(
@@ -52,6 +53,7 @@ public enum StorageType {
     }
   },
 
+  /** BerkeleyDB backend. */
   BERKELEY_DB {
     @Override
     public Storage getInstance(
