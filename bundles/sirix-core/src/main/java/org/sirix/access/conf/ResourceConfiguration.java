@@ -157,13 +157,13 @@ public final class ResourceConfiguration {
 
 	// FIXED STANDARD FIELDS
 	/** Standard storage. */
-	public static final StorageType STORAGE = StorageType.File;
+	public static final StorageType STORAGE = StorageType.FILE;
 
 	/** Standard Versioning Approach. */
 	public static final Revisioning VERSIONING = Revisioning.INCREMENTAL;
 
 	/** Type of hashing. */
-	public static final HashKind HASHKIND = HashKind.NONE;
+	public static final HashKind HASHKIND = HashKind.ROLLING;
 
 	/** Versions to restore. */
 	public static final int VERSIONSTORESTORE = 3;

@@ -45,7 +45,7 @@ public class BerkeleyTest {
   public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     Holder.generateSession().close();
-    resourceConf = IOTestHelper.registerIO(StorageType.BerkeleyDB);
+    resourceConf = IOTestHelper.registerIO(StorageType.BERKELEY_DB);
   }
 
   @Test

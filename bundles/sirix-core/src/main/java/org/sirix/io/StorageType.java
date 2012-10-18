@@ -43,7 +43,7 @@ import org.sirix.io.file.FileStorage;
  * 
  */
 public enum StorageType {
-  File {
+  FILE {
     @Override
     public Storage getInstance(
       final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {
@@ -52,7 +52,7 @@ public enum StorageType {
     }
   },
 
-  BerkeleyDB {
+  BERKELEY_DB {
     @Override
     public Storage getInstance(
       final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {

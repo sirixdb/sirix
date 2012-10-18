@@ -44,7 +44,7 @@ public class FileTest {
   public void setUp() throws SirixException {
     TestHelper.deleteEverything();
     Holder.generateSession().close();
-    resourceConf = IOTestHelper.registerIO(StorageType.File);
+    resourceConf = IOTestHelper.registerIO(StorageType.FILE);
   }
 
   @Test

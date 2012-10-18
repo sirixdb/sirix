@@ -8,7 +8,6 @@ import org.sirix.access.Restore;
 import org.sirix.cache.NodePageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.exception.SirixThreadedException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
