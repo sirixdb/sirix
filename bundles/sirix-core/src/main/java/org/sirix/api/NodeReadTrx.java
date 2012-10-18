@@ -57,12 +57,12 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <ol>
  * <li>Only a single thread accesses each INodeReadTransaction instance.</li>
  * <li><strong>Precondition</strong> before moving cursor:
- * <code>INodeReadTransaction.getNodeKey() == n</code>.</li>
+ * <code>NodeReadTrx.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after moving cursor:
- * <code>(INodeReadTransaction.moveToX().hasMoved() &&
- *       INodeReadTransaction.getNodeKey() == m) ||
- *       (!INodeReadTransaction.moveToX().hasMoved() &&
- *       INodeReadTransaction.getNodeKey() == n)</code>.</li>
+ * <code>(NodeReadTrx.moveToX().hasMoved() &&
+ *       NodeReadTrx.getNodeKey() == m) ||
+ *       (!NodeReadTrx.moveToX().hasMoved() &&
+ *       NodeReadTrx.getNodeKey() == n)</code>.</li>
  * </ol>
  * </p>
  * 
@@ -71,7 +71,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <p>
  * 
  * <pre>
- *   try(final IReadTransaction rtx = session.beginNodeReadTrx()) {
+ *   try(final NodeReadTrx rtx = session.beginNodeReadTrx()) {
  *     // Either test before moving...
  *     if (rtx.hasFirstChild()) {
  *       rtx.moveToFirstChild();
@@ -103,7 +103,7 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <p>
  * 
  * <pre>
- *   public void someIReadTransactionMethod() {
+ *   public void someNodeReadTrxMethod() {
  *     // This must be called to make sure the transaction is not closed.
  *     assertNotClosed();
  *     ...
