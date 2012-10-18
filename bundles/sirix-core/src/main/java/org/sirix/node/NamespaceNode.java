@@ -49,100 +49,101 @@ import com.google.common.base.Objects;
  * Node representing a namespace.
  * </p>
  */
-public final class NamespaceNode extends AbstractForwardingNode implements NameNode {
+public final class NamespaceNode extends AbstractForwardingNode implements
+		NameNode {
 
-  /** Delegate for name node information. */
-  private final NameNodeDelegate mNameDel;
+	/** Delegate for name node information. */
+	private final NameNodeDelegate mNameDel;
 
-  /** {@link NodeDelegate} reference. */
-  private final NodeDelegate mNodeDel;
+	/** {@link NodeDelegate} reference. */
+	private final NodeDelegate mNodeDel;
 
-  /**
-   * Constructor.
-   * 
-   * @param nodeDel
-   *          {@link NodeDelegate} reference
-   * @param nameDel
-   *          {@link NameNodeDelegate} reference
-   */
-  public NamespaceNode(final @Nonnull NodeDelegate nodeDel,
-    final @Nonnull NameNodeDelegate nameDel) {
-    mNodeDel = checkNotNull(nodeDel);
-    mNameDel = checkNotNull(nameDel);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param nodeDel
+	 *          {@link NodeDelegate} reference
+	 * @param nameDel
+	 *          {@link NameNodeDelegate} reference
+	 */
+	public NamespaceNode(final @Nonnull NodeDelegate nodeDel,
+			final @Nonnull NameNodeDelegate nameDel) {
+		mNodeDel = checkNotNull(nodeDel);
+		mNameDel = checkNotNull(nameDel);
+	}
 
-  @Override
-  public Kind getKind() {
-    return Kind.NAMESPACE;
-  }
+	@Override
+	public Kind getKind() {
+		return Kind.NAMESPACE;
+	}
 
-  @Override
-  public int getNameKey() {
-    return mNameDel.getNameKey();
-  }
+	@Override
+	public int getNameKey() {
+		return mNameDel.getNameKey();
+	}
 
-  @Override
-  public void setNameKey(final int nameKey) {
-    mNameDel.setNameKey(nameKey);
-  }
+	@Override
+	public void setNameKey(final int nameKey) {
+		mNameDel.setNameKey(nameKey);
+	}
 
-  @Override
-  public int getURIKey() {
-    return mNameDel.getURIKey();
-  }
+	@Override
+	public int getURIKey() {
+		return mNameDel.getURIKey();
+	}
 
-  @Override
-  public void setURIKey(final int uriKey) {
-    mNameDel.setURIKey(uriKey);
-  }
+	@Override
+	public void setURIKey(final int uriKey) {
+		mNameDel.setURIKey(uriKey);
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
-  	return visitor.visit(ImmutableNamespace.of(this));
-  }
+	@Override
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+		return visitor.visit(ImmutableNamespace.of(this));
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mNodeDel, mNameDel);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mNodeDel, mNameDel);
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof NamespaceNode) {
-      final NamespaceNode other = (NamespaceNode)obj;
-      return Objects.equal(mNodeDel, other.mNodeDel)
-        && Objects.equal(mNameDel, other.mNameDel);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof NamespaceNode) {
+			final NamespaceNode other = (NamespaceNode) obj;
+			return Objects.equal(mNodeDel, other.mNodeDel)
+					&& Objects.equal(mNameDel, other.mNameDel);
+		}
+		return false;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("nodeDel", mNodeDel).add("nameDel",
-      mNameDel).toString();
-  }
-  
-  @Override
-  public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
-    mNameDel.setPathNodeKey(pathNodeKey);
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("nodeDel", mNodeDel)
+				.add("nameDel", mNameDel).toString();
+	}
 
-  @Override
-  public long getPathNodeKey() {
-    return mNameDel.getPathNodeKey();
-  }
+	@Override
+	public void setPathNodeKey(final @Nonnegative long pathNodeKey) {
+		mNameDel.setPathNodeKey(pathNodeKey);
+	}
 
-  /**
-   * Getting the inlying {@link NameNodeDelegate}.
-   * 
-   * @return {@link NameNodeDelegate} instance
-   */
-  NameNodeDelegate getNameNodeDelegate() {
-    return mNameDel;
-  }
+	@Override
+	public long getPathNodeKey() {
+		return mNameDel.getPathNodeKey();
+	}
 
-  @Override
-  protected NodeDelegate delegate() {
-    return mNodeDel;
-  }
+	/**
+	 * Getting the inlying {@link NameNodeDelegate}.
+	 * 
+	 * @return {@link NameNodeDelegate} instance
+	 */
+	NameNodeDelegate getNameNodeDelegate() {
+		return mNameDel;
+	}
+
+	@Override
+	protected NodeDelegate delegate() {
+		return mNodeDel;
+	}
 }

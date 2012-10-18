@@ -40,57 +40,53 @@ import org.sirix.exception.SirixException;
 
 public class FilterAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testNameAxisTest() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testNameAxisTest() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new FilterAxis(new DescendantAxis(rtx), new NameFilter(rtx, "b")),
-      new long[] {
-        5L, 9L
-      });
-  }
+		rtx.moveToDocumentRoot();
+		AbsAxisTest.testIAxisConventions(new FilterAxis(new DescendantAxis(rtx),
+				new NameFilter(rtx, "b")), new long[] { 5L, 9L });
+	}
 
-  @Test
-  public void testValueAxisTest() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testValueAxisTest() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new FilterAxis(new DescendantAxis(rtx), new ValueFilter(rtx, "foo")),
-      new long[] {
-        6L
-      });
-  }
+		rtx.moveToDocumentRoot();
+		AbsAxisTest.testIAxisConventions(new FilterAxis(new DescendantAxis(rtx),
+				new ValueFilter(rtx, "foo")), new long[] { 6L });
+	}
 
-  @Test
-  public void testValueAndNameAxisTest() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testValueAndNameAxisTest() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new FilterAxis(new AttributeAxis(rtx), new NameFilter(rtx, "i"),
-      new ValueFilter(rtx, "j")), new long[] {
-      3L
-    });
+		rtx.moveTo(1L);
+		AbsAxisTest
+				.testIAxisConventions(new FilterAxis(new AttributeAxis(rtx),
+						new NameFilter(rtx, "i"), new ValueFilter(rtx, "j")),
+						new long[] { 3L });
 
-    rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new FilterAxis(new AttributeAxis(rtx), new NameFilter(rtx, "y"),
-      new ValueFilter(rtx, "y")), new long[] {});
+		rtx.moveTo(9L);
+		AbsAxisTest.testIAxisConventions(new FilterAxis(new AttributeAxis(rtx),
+				new NameFilter(rtx, "y"), new ValueFilter(rtx, "y")), new long[] {});
 
-  }
+	}
 
 }

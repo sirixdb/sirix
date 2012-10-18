@@ -37,66 +37,57 @@ import org.sirix.exception.SirixException;
 
 public class AncestorAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testAxisConventions() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testAxisConventions() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveTo(12L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx), new long[] {
-      9L, 1L
-    });
+		rtx.moveTo(12L);
+		AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx),
+				new long[] { 9L, 1L });
 
-    rtx.moveTo(4L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx), new long[] {
-      1L
-    });
+		rtx.moveTo(4L);
+		AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx), new long[] { 1L });
 
-    rtx.moveTo(5L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx), new long[] {
-      1L
-    });
+		rtx.moveTo(5L);
+		AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx), new long[] { 1L });
 
-    rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx), new long[] {});
-  }
+		rtx.moveTo(1L);
+		AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx), new long[] {});
+	}
 
-  @Test
-  public void testAxisConventionsIncludingSelf() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testAxisConventionsIncludingSelf() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveTo(11L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {
-      11L, 9L, 1L
-    });
+		rtx.moveTo(11L);
+		AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES),
+				new long[] { 11L, 9L, 1L });
 
-    rtx.moveTo(5L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {
-      5L, 1L
-    });
+		rtx.moveTo(5L);
+		AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES),
+				new long[] { 5L, 1L });
 
-    rtx.moveTo(4L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {
-      4L, 1L
-    });
+		rtx.moveTo(4L);
+		AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES),
+				new long[] { 4L, 1L });
 
-    rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES), new long[] {
-      1L
-    });
-  }
+		rtx.moveTo(1L);
+		AbsAxisTest.testIAxisConventions(new AncestorAxis(rtx, IncludeSelf.YES),
+				new long[] { 1L });
+	}
 }

@@ -184,8 +184,8 @@ public enum Kind implements NodeKind {
 			// Struct delegate.
 			final long nodeKey = nodeDel.getNodeKey();
 			final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-					Fixed.NULL_NODE_KEY.getStandardProperty(),
-					nodeKey - getLong(source), nodeKey - getLong(source), 0L, 0L);
+					Fixed.NULL_NODE_KEY.getStandardProperty(), nodeKey - getLong(source),
+					nodeKey - getLong(source), 0L, 0L);
 
 			// Returning an instance.
 			return new TextNode(valDel, structDel);
@@ -256,8 +256,8 @@ public enum Kind implements NodeKind {
 			// Struct delegate.
 			final long nodeKey = nodeDel.getNodeKey();
 			final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
-					Fixed.NULL_NODE_KEY.getStandardProperty(),
-					nodeKey - getLong(source), nodeKey - getLong(source), 0L, 0L);
+					Fixed.NULL_NODE_KEY.getStandardProperty(), nodeKey - getLong(source),
+					nodeKey - getLong(source), 0L, 0L);
 
 			// Returning an instance.
 			return new CommentNode(valDel, structDel);
@@ -614,7 +614,8 @@ public enum Kind implements NodeKind {
 	 * @param sink
 	 *          to serialize to
 	 */
-	private static final void serializeDelegate(final @Nonnull NodeDelegate nodeDel,
+	private static final void serializeDelegate(
+			final @Nonnull NodeDelegate nodeDel,
 			final @Nonnull ByteArrayDataOutput sink) {
 		putLong(sink, nodeDel.getNodeKey());
 		putLong(sink, nodeDel.getNodeKey() - nodeDel.getParentKey());

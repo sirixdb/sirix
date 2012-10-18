@@ -123,8 +123,8 @@ public final class BerkeleyPersistenceCache extends
 			dbConfig.setAllowCreate(true).setExclusiveCreate(false)
 					.setDeferredWrite(true);
 
-			if (removeExistingDatabase(NAME, mEnv)) {		
-			mEnv = new Environment(mPlace, config);
+			if (removeExistingDatabase(NAME, mEnv)) {
+				mEnv = new Environment(mPlace, config);
 			}
 			mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
@@ -154,8 +154,8 @@ public final class BerkeleyPersistenceCache extends
 			mDatabase.sync();
 		}
 	}
-	
-  @Override
+
+	@Override
 	public void close() {
 		mDatabase.close();
 		mEnv.close();

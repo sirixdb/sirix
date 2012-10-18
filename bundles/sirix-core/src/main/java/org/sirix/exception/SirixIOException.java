@@ -38,41 +38,41 @@ import java.io.IOException;
  */
 public final class SirixIOException extends SirixException {
 
-  /**
-   * Serializable id.
-   */
-  private static final long serialVersionUID = 4099242625448155216L;
+	/**
+	 * Serializable id.
+	 */
+	private static final long serialVersionUID = 4099242625448155216L;
 
-  /**
-   * Constructor.
-   * 
-   * @param pMessage
-   *          to be used
-   */
-  public SirixIOException(final String pMessage) {
-    super(pMessage);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pMessage
+	 *          to be used
+	 */
+	public SirixIOException(final String pMessage) {
+		super(pMessage);
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param pThrowable
-   *          {@link Throwable} exception
-   * @param pMessage
-   *          for the overlaying {@link IOException}
-   */
-  public SirixIOException(final String pMessage, final Throwable pThrowable) {
-    super(pMessage, pThrowable);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pThrowable
+	 *          {@link Throwable} exception
+	 * @param pMessage
+	 *          for the overlaying {@link IOException}
+	 */
+	public SirixIOException(final String pMessage, final Throwable pThrowable) {
+		super(pMessage, pThrowable);
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param pThrowable
-   *          {@link Throwable} exception
-   */
-  public SirixIOException(final Throwable pThrowable) {
-    super(pThrowable);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pThrowable
+	 *          {@link Throwable} exception
+	 */
+	public SirixIOException(final Throwable pThrowable) {
+		super(pThrowable);
+	}
 
 }

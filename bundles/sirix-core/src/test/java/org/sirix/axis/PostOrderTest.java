@@ -47,107 +47,95 @@ import org.sirix.utils.DocumentCreater;
  * Test {@link PostOrderAxis}.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
- *
+ * 
  */
 public class PostOrderTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testIterateWhole() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testIterateWhole() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {
-      4L, 6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L
-    });
-  }
+		rtx.moveToDocumentRoot();
+		AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] { 4L,
+				6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L });
+	}
 
-  @Test
-  public void testIterateFirstSubtree() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testIterateFirstSubtree() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveTo(5);
-    AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {
-      6L, 7L
-    });
-  }
+		rtx.moveTo(5);
+		AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] { 6L,
+				7L });
+	}
 
-  @Test
-  public void testIterateZero() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testIterateZero() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveTo(8);
-    AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {});
-  }
+		rtx.moveTo(8);
+		AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {});
+	}
 
-  @Test
-  public void testIterateDocumentFirst() throws SirixException, IOException,
-    XMLStreamException {
-    try (final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
-      wtx.moveTo(9);
-      wtx.insertSubtree(XMLShredder
-        .createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
-        Insert.ASFIRSTCHILD);
-      wtx.commit();
-      AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] {
-        17, 19, 20, 18, 21, 24, 25, 22, 26
-      });
-      wtx.moveTo(14);
-      AbsAxisTest.testIAxisConventions(
-        new PostOrderAxis(wtx, IncludeSelf.YES), new long[] {
-          17, 19, 20, 18, 21, 24, 25, 22, 26, 14
-        });
-      wtx.moveToDocumentRoot();
-      AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] {
-        4L, 6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26, 14, 11L, 12L,
-        9L, 13L, 1L
-      });
-      wtx.moveToDocumentRoot();
-      AbsAxisTest.testIAxisConventions(
-        new PostOrderAxis(wtx, IncludeSelf.YES), new long[] {
-          4L, 6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26, 14, 11L, 12L,
-          9L, 13L, 1L, 0L
-        });
-    }
-  }
+	@Test
+	public void testIterateDocumentFirst() throws SirixException, IOException,
+			XMLStreamException {
+		try (final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
+			wtx.moveTo(9);
+			wtx.insertSubtree(
+					XMLShredder.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
+					Insert.ASFIRSTCHILD);
+			wtx.commit();
+			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] { 17,
+					19, 20, 18, 21, 24, 25, 22, 26 });
+			wtx.moveTo(14);
+			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx, IncludeSelf.YES),
+					new long[] { 17, 19, 20, 18, 21, 24, 25, 22, 26, 14 });
+			wtx.moveToDocumentRoot();
+			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] { 4L,
+					6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26, 14, 11L, 12L, 9L,
+					13L, 1L });
+			wtx.moveToDocumentRoot();
+			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx, IncludeSelf.YES),
+					new long[] { 4L, 6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26,
+							14, 11L, 12L, 9L, 13L, 1L, 0L });
+		}
+	}
 
-  @Test
-  public void testIterateDocumentSecond() throws SirixException, IOException,
-    XMLStreamException {
-    try (final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
-      wtx.moveTo(11);
-      wtx.insertSubtree(XMLShredder
-        .createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
-        Insert.ASFIRSTCHILD);
-      wtx.commit();
-      wtx.moveToDocumentRoot();
-      wtx.moveToFirstChild();
-      AbsAxisTest.testIAxisConventions(
-        new PostOrderAxis(wtx, IncludeSelf.YES), new long[] {
-          4L, 6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26, 14, 11L, 12L,
-          9L, 13L, 1L
-        });
-      wtx.moveToDocumentRoot();
-      wtx.moveToFirstChild();
-      AbsAxisTest.testIAxisConventions(
-        new PostOrderAxis(wtx), new long[] {
-          4L, 6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26, 14, 11L, 12L,
-          9L, 13L
-        });
-    }
-  }
+	@Test
+	public void testIterateDocumentSecond() throws SirixException, IOException,
+			XMLStreamException {
+		try (final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
+			wtx.moveTo(11);
+			wtx.insertSubtree(
+					XMLShredder.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
+					Insert.ASFIRSTCHILD);
+			wtx.commit();
+			wtx.moveToDocumentRoot();
+			wtx.moveToFirstChild();
+			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx, IncludeSelf.YES),
+					new long[] { 4L, 6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26,
+							14, 11L, 12L, 9L, 13L, 1L });
+			wtx.moveToDocumentRoot();
+			wtx.moveToFirstChild();
+			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] { 4L,
+					6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26, 14, 11L, 12L, 9L,
+					13L });
+		}
+	}
 }

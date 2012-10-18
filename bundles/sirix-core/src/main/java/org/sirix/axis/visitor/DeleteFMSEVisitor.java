@@ -114,12 +114,12 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	public VisitResult visit(final @Nonnull ImmutableText node) {
 		return deleteLeaf(node);
 	}
-	
+
 	@Override
 	public VisitResult visit(final @Nonnull ImmutableComment node) {
 		return deleteLeaf(node);
 	}
-	
+
 	@Override
 	public VisitResult visit(final @Nonnull ImmutablePI node) {
 		return deleteLeaf(node);

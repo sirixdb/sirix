@@ -217,8 +217,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 		if (mIndexes.contains(EIndexes.PATH)) {
 			mPathCache = builder.build(new CacheLoader<Long, NodePageContainer>() {
 				public NodePageContainer load(final Long pKey) throws SirixException {
-					final NodePageContainer container = mPathLog.isPresent() ? mPathLog.get()
-							.get(pKey) : NodePageContainer.EMPTY_INSTANCE;
+					final NodePageContainer container = mPathLog.isPresent() ? mPathLog
+							.get().get(pKey) : NodePageContainer.EMPTY_INSTANCE;
 					if (container.equals(NodePageContainer.EMPTY_INSTANCE)) {
 						return getNodeFromPage(pKey, PageKind.PATHSUMMARYPAGE);
 					} else {
@@ -378,7 +378,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		}
 		mNodeCache.invalidateAll();
 		mPageCache.invalidateAll();
-		
+
 		if (mPathLog.isPresent()) {
 			mPathLog.get().clear();
 		}
@@ -540,8 +540,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 					pPage);
 			if (ref != null
 					&& (ref.getPage() != null || ref.getKey() != Constants.NULL_ID)) {
-				if (ref.getKey() == Constants.NULL_ID
-						|| (!keys.contains(ref.getKey()))) {
+				if (ref.getKey() == Constants.NULL_ID || (!keys.contains(ref.getKey()))) {
 					refs.add(ref);
 					if (ref.getKey() != Constants.NULL_ID) {
 						keys.add(ref.getKey());
@@ -549,8 +548,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 				}
 				if (refs.size() == revsToRestore
 						|| config.mRevisionKind == Revisioning.FULL
-						|| (config.mRevisionKind == Revisioning.DIFFERENTIAL && refs
-								.size() == 2)) {
+						|| (config.mRevisionKind == Revisioning.DIFFERENTIAL && refs.size() == 2)) {
 					break;
 				}
 				if (config.mRevisionKind == Revisioning.DIFFERENTIAL) {
@@ -731,8 +729,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public NodePageContainer getNodeFromPage(final @Nonnegative long pNodePageKey,
-			final @Nonnull PageKind pPage) throws SirixIOException {
+	public NodePageContainer getNodeFromPage(
+			final @Nonnegative long pNodePageKey, final @Nonnull PageKind pPage)
+			throws SirixIOException {
 		final NodePage[] revs = getSnapshotPages(pNodePageKey, pPage);
 		if (revs.length == 0) {
 			return NodePageContainer.EMPTY_INSTANCE;
@@ -750,7 +749,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		if (!mClosed) {
 			closeCaches();
 			mPageReader.close();
-			
+
 			mClosed = true;
 		}
 	}

@@ -41,19 +41,19 @@ import org.sirix.node.Kind;
  */
 public class TextFilter extends AbstractFilter {
 
-  /**
-   * Default constructor.
-   * 
-   * @param rtx
-   *          transaction this filter is bound to
-   */
-  public TextFilter(final @Nonnull NodeReadTrx rtx) {
-    super(rtx);
-  }
+	/**
+	 * Default constructor.
+	 * 
+	 * @param rtx
+	 *          transaction this filter is bound to
+	 */
+	public TextFilter(final @Nonnull NodeReadTrx rtx) {
+		super(rtx);
+	}
 
-  @Override
-  public final boolean filter() {
-    return getTrx().getKind() == Kind.TEXT;
-  }
+	@Override
+	public final boolean filter() {
+		return getTrx().getKind() == Kind.TEXT;
+	}
 
 }

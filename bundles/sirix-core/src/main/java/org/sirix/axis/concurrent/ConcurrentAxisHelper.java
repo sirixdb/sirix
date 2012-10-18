@@ -41,66 +41,69 @@ import org.slf4j.LoggerFactory;
 /**
  * <h1>ConcurrentAxisHelper</h1>
  * <p>
- * Is the helper for the ConcurrentAxis and realizes the concurrent evaluation of pipeline steps by decoupling
- * the given axis from the main thread and storing its results in a blocking queue so establish a
+ * Is the helper for the ConcurrentAxis and realizes the concurrent evaluation
+ * of pipeline steps by decoupling the given axis from the main thread and
+ * storing its results in a blocking queue so establish a
  * producer-consumer-relationship between the ConcurrentAxis and this one.
  * </p>
  * <p>
- * This axis should only be used and instantiated by the ConcurrentAxis. Find more information on how to use
- * this framework in the ConcurrentAxis documentation.
+ * This axis should only be used and instantiated by the ConcurrentAxis. Find
+ * more information on how to use this framework in the ConcurrentAxis
+ * documentation.
  * </p>
  */
 public class ConcurrentAxisHelper implements Runnable {
-	
+
 	/** Logger. */
-	public static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxisHelper.class));
+	public static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(ConcurrentAxisHelper.class));
 
-  /** {@link Axis} that computes the results. */
-  private final Axis mAxis;
+	/** {@link Axis} that computes the results. */
+	private final Axis mAxis;
 
-  /**
-   * Queue that stores result keys already computed by this axis. End of the
-   * result sequence is marked by the NULL_NODE_KEY. This is used for
-   * communication with the consumer.
-   */
-  private BlockingQueue<Long> mResults;
+	/**
+	 * Queue that stores result keys already computed by this axis. End of the
+	 * result sequence is marked by the NULL_NODE_KEY. This is used for
+	 * communication with the consumer.
+	 */
+	private BlockingQueue<Long> mResults;
 
-  /**
-   * Bind axis step to transaction. Make sure to create a new ReadTransaction
-   * instead of using the parameter rtx. Because of concurrency every axis has
-   * to have it's own transaction.
-   * 
-   * @param rtx
-   *          Transaction to operate with.
-   */
+	/**
+	 * Bind axis step to transaction. Make sure to create a new ReadTransaction
+	 * instead of using the parameter rtx. Because of concurrency every axis has
+	 * to have it's own transaction.
+	 * 
+	 * @param rtx
+	 *          Transaction to operate with.
+	 */
 	public ConcurrentAxisHelper(@Nonnull final Axis axis,
 			@Nonnull final BlockingQueue<Long> results) {
-    mAxis = checkNotNull(axis);
-    mResults = checkNotNull(results);
-  }
+		mAxis = checkNotNull(axis);
+		mResults = checkNotNull(results);
+	}
 
-  @Override
-  public void run() {
-    // Compute all results of the given axis and store the results in the
-    // queue.
-    while (mAxis.hasNext()) {
-      final long nodeKey = mAxis.next();
-      try {
-        // Store result in queue as soon as there is space left.
-        mResults.put(nodeKey);
-        // Wait until next thread arrives and exchange blocking queue.
-      } catch (final InterruptedException e) {
-      	LOGWRAPPER.error(e.getMessage(), e);
-      }
-    }
+	@Override
+	public void run() {
+		// Compute all results of the given axis and store the results in the
+		// queue.
+		while (mAxis.hasNext()) {
+			final long nodeKey = mAxis.next();
+			try {
+				// Store result in queue as soon as there is space left.
+				mResults.put(nodeKey);
+				// Wait until next thread arrives and exchange blocking queue.
+			} catch (final InterruptedException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 
-    try {
-      // Mark end of result sequence by the NULL_NODE_KEY.
-      mResults.put(Fixed.NULL_NODE_KEY.getStandardProperty());
-    } catch (final InterruptedException e) {
-    	LOGWRAPPER.error(e.getMessage(), e);
-    }
+		try {
+			// Mark end of result sequence by the NULL_NODE_KEY.
+			mResults.put(Fixed.NULL_NODE_KEY.getStandardProperty());
+		} catch (final InterruptedException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
 
-  }
+	}
 
 }

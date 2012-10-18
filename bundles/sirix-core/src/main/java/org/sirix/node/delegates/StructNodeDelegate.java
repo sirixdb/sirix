@@ -47,191 +47,194 @@ import com.google.common.base.Objects;
  * Delegate method for all nodes building up the structure. That means that all
  * nodes representing trees in Sirix are represented by an instance of the
  * interface {@link StructNode} namely containing the position of all related
- * siblings, the first-child and all nodes defined by the {@link NodeDelegate} as well.
+ * siblings, the first-child and all nodes defined by the {@link NodeDelegate}
+ * as well.
  * 
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class StructNodeDelegate extends AbstractForwardingNode implements StructNode {
+public class StructNodeDelegate extends AbstractForwardingNode implements
+		StructNode {
 
-  /** Pointer to the first child of the current node. */
-  private long mFirstChild;
+	/** Pointer to the first child of the current node. */
+	private long mFirstChild;
 
-  /** Pointer to the right sibling of the current node. */
-  private long mRightSibling;
+	/** Pointer to the right sibling of the current node. */
+	private long mRightSibling;
 
-  /** Pointer to the left sibling of the current node. */
-  private long mLeftSibling;
+	/** Pointer to the left sibling of the current node. */
+	private long mLeftSibling;
 
-  /** Number of children. */
-  private long mChildCount;
+	/** Number of children. */
+	private long mChildCount;
 
-  /** Number of descendants. */
-  private long mDescendantCount;
-  
-  /** Delegate for common node information. */
-  private final NodeDelegate mDelegate;
+	/** Number of descendants. */
+	private long mDescendantCount;
 
-  /**
-   * Constructor.
-   * 
-   * @param del
-   *          {@link NodeDelegate} instance
-   * @param firstChild
-   *          first child key
-   * @param rightSib
-   *          right sibling key
-   * @param leftSib
-   *          left sibling key
-   * @param childCount
-   *          number of children of the node
-   * @param descendantCount
-   *          number of descendants of the node
-   * @param pSiblingPos
-   * 					sibling position
-   */
-  public StructNodeDelegate(final @Nonnull NodeDelegate del,
-    final long firstChild, final long rightSib, final long leftSib,
-    final @Nonnegative long childCount,
-    final @Nonnegative long descendantCount) {
-    checkArgument(childCount >= 0, "pChildCount must be >= 0!");
-    checkArgument(descendantCount >= 0, "pDescendantCount must be >= 0!");
-    mDelegate = checkNotNull(del);
-    mFirstChild = firstChild;
-    mRightSibling = rightSib;
-    mLeftSibling = leftSib;
-    mChildCount = childCount;
-    mDescendantCount = descendantCount;
-  }
+	/** Delegate for common node information. */
+	private final NodeDelegate mDelegate;
 
-  @Override
-  public Kind getKind() {
-    return mDelegate.getKind();
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param del
+	 *          {@link NodeDelegate} instance
+	 * @param firstChild
+	 *          first child key
+	 * @param rightSib
+	 *          right sibling key
+	 * @param leftSib
+	 *          left sibling key
+	 * @param childCount
+	 *          number of children of the node
+	 * @param descendantCount
+	 *          number of descendants of the node
+	 * @param pSiblingPos
+	 *          sibling position
+	 */
+	public StructNodeDelegate(final @Nonnull NodeDelegate del,
+			final long firstChild, final long rightSib, final long leftSib,
+			final @Nonnegative long childCount,
+			final @Nonnegative long descendantCount) {
+		checkArgument(childCount >= 0, "pChildCount must be >= 0!");
+		checkArgument(descendantCount >= 0, "pDescendantCount must be >= 0!");
+		mDelegate = checkNotNull(del);
+		mFirstChild = firstChild;
+		mRightSibling = rightSib;
+		mLeftSibling = leftSib;
+		mChildCount = childCount;
+		mDescendantCount = descendantCount;
+	}
 
-  @Override
-  public boolean hasFirstChild() {
-    return mFirstChild != Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public Kind getKind() {
+		return mDelegate.getKind();
+	}
 
-  @Override
-  public boolean hasLeftSibling() {
-    return mLeftSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public boolean hasFirstChild() {
+		return mFirstChild != Fixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public boolean hasRightSibling() {
-    return mRightSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
-  }
+	@Override
+	public boolean hasLeftSibling() {
+		return mLeftSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public long getChildCount() {
-    return mChildCount;
-  }
+	@Override
+	public boolean hasRightSibling() {
+		return mRightSibling != Fixed.NULL_NODE_KEY.getStandardProperty();
+	}
 
-  @Override
-  public long getFirstChildKey() {
-    return mFirstChild;
-  }
+	@Override
+	public long getChildCount() {
+		return mChildCount;
+	}
 
-  @Override
-  public long getLeftSiblingKey() {
-    return mLeftSibling;
-  }
+	@Override
+	public long getFirstChildKey() {
+		return mFirstChild;
+	}
 
-  @Override
-  public long getRightSiblingKey() {
-    return mRightSibling;
-  }
+	@Override
+	public long getLeftSiblingKey() {
+		return mLeftSibling;
+	}
 
-  @Override
-  public void setRightSiblingKey(final long key) {
-    mRightSibling = key;
-  }
+	@Override
+	public long getRightSiblingKey() {
+		return mRightSibling;
+	}
 
-  @Override
-  public void setLeftSiblingKey(final long key) {
-    mLeftSibling = key;
-  }
+	@Override
+	public void setRightSiblingKey(final long key) {
+		mRightSibling = key;
+	}
 
-  @Override
-  public void setFirstChildKey(final long key) {
-    mFirstChild = key;
-  }
+	@Override
+	public void setLeftSiblingKey(final long key) {
+		mLeftSibling = key;
+	}
 
-  @Override
-  public void decrementChildCount() {
-    mChildCount--;
-  }
+	@Override
+	public void setFirstChildKey(final long key) {
+		mFirstChild = key;
+	}
 
-  @Override
-  public void incrementChildCount() {
-    mChildCount++;
-  }
+	@Override
+	public void decrementChildCount() {
+		mChildCount--;
+	}
 
-  @Override
-  public VisitResultType acceptVisitor(final @Nonnull Visitor pVisitor) {
-    return mDelegate.acceptVisitor(pVisitor);
-  }
+	@Override
+	public void incrementChildCount() {
+		mChildCount++;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mChildCount, mDelegate, mFirstChild, mLeftSibling,
-      mRightSibling, mDescendantCount);
-  }
+	@Override
+	public VisitResultType acceptVisitor(final @Nonnull Visitor pVisitor) {
+		return mDelegate.acceptVisitor(pVisitor);
+	}
 
-  @Override
-  public boolean equals(final Object obj) {
-    if (obj instanceof StructNodeDelegate) {
-      final StructNodeDelegate other = (StructNodeDelegate)obj;
-      return Objects.equal(mChildCount, other.mChildCount)
-        && Objects.equal(mDelegate, other.mDelegate)
-        && Objects.equal(mFirstChild, other.mFirstChild)
-        && Objects.equal(mLeftSibling, other.mLeftSibling)
-        && Objects.equal(mRightSibling, other.mRightSibling)
-        && Objects.equal(mDescendantCount, other.mDescendantCount);
-    }
-    return false;
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mChildCount, mDelegate, mFirstChild, mLeftSibling,
+				mRightSibling, mDescendantCount);
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("first child", getFirstChildKey())
-      .add("left sib", getLeftSiblingKey()).add("right sib",
-        getRightSiblingKey()).add("first child", getFirstChildKey()).add(
-        "child count", getChildCount()).add("descendant count",
-        getDescendantCount()).toString();
-  }
+	@Override
+	public boolean equals(final Object obj) {
+		if (obj instanceof StructNodeDelegate) {
+			final StructNodeDelegate other = (StructNodeDelegate) obj;
+			return Objects.equal(mChildCount, other.mChildCount)
+					&& Objects.equal(mDelegate, other.mDelegate)
+					&& Objects.equal(mFirstChild, other.mFirstChild)
+					&& Objects.equal(mLeftSibling, other.mLeftSibling)
+					&& Objects.equal(mRightSibling, other.mRightSibling)
+					&& Objects.equal(mDescendantCount, other.mDescendantCount);
+		}
+		return false;
+	}
 
-  @Override
-  public long getDescendantCount() {
-    return mDescendantCount;
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("first child", getFirstChildKey())
+				.add("left sib", getLeftSiblingKey())
+				.add("right sib", getRightSiblingKey())
+				.add("first child", getFirstChildKey())
+				.add("child count", getChildCount())
+				.add("descendant count", getDescendantCount()).toString();
+	}
 
-  @Override
-  public void decrementDescendantCount() {
-    mDescendantCount--;
-  }
+	@Override
+	public long getDescendantCount() {
+		return mDescendantCount;
+	}
 
-  @Override
-  public void incrementDescendantCount() {
-    mDescendantCount++;
-  }
+	@Override
+	public void decrementDescendantCount() {
+		mDescendantCount--;
+	}
 
-  @Override
-  public void setDescendantCount(final @Nonnegative long descendantCount) {
-    checkArgument(descendantCount >= 0, "pDescendantCount must be >= 0!");
-    mDescendantCount = descendantCount;
-  }
+	@Override
+	public void incrementDescendantCount() {
+		mDescendantCount++;
+	}
 
-  @Override
-  public boolean isSameItem(@Nullable final Node other) {
-    return mDelegate.isSameItem(other);
-  }
+	@Override
+	public void setDescendantCount(final @Nonnegative long descendantCount) {
+		checkArgument(descendantCount >= 0, "pDescendantCount must be >= 0!");
+		mDescendantCount = descendantCount;
+	}
 
-  @Override
-  protected NodeDelegate delegate() {
-    return mDelegate;
-  }
+	@Override
+	public boolean isSameItem(@Nullable final Node other) {
+		return mDelegate.isSameItem(other);
+	}
+
+	@Override
+	protected NodeDelegate delegate() {
+		return mDelegate;
+	}
 }

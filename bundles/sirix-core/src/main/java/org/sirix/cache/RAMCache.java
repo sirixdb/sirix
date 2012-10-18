@@ -45,63 +45,63 @@ import org.sirix.utils.FastWeakHashMap;
  */
 public final class RAMCache<K, V> implements Cache<K, V> {
 
-  /**
-   * Local instance.
-   */
-  private final FastWeakHashMap<K, V> mMap;
+	/**
+	 * Local instance.
+	 */
+	private final FastWeakHashMap<K, V> mMap;
 
-  /**
-   * Simple constructor.
-   */
-  public RAMCache() {
-    mMap = new FastWeakHashMap<>();
-  }
+	/**
+	 * Simple constructor.
+	 */
+	public RAMCache() {
+		mMap = new FastWeakHashMap<>();
+	}
 
-  @Override
-  public void clear() {
-    mMap.clear();
-  }
+	@Override
+	public void clear() {
+		mMap.clear();
+	}
 
-  @Override
-  public V get(final @Nonnull K key) {
-    return mMap.get(key);
-  }
+	@Override
+	public V get(final @Nonnull K key) {
+		return mMap.get(key);
+	}
 
-  @Override
-  public void put(final @Nonnull K key, final @Nonnull V page) {
-    mMap.put(key, page);
-  }
+	@Override
+	public void put(final @Nonnull K key, final @Nonnull V page) {
+		mMap.put(key, page);
+	}
 
-  @Override
-  public String toString() {
-    return mMap.toString();
-  }
+	@Override
+	public String toString() {
+		return mMap.toString();
+	}
 
-  @Override
-  public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> keys) {
-    final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
-    for (final K key : keys) {
-      if (mMap.get(key) != null) {
-        builder.put(key, mMap.get(key));
-      }
-    }
-    return builder.build();
-  }
+	@Override
+	public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> keys) {
+		final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
+		for (final K key : keys) {
+			if (mMap.get(key) != null) {
+				builder.put(key, mMap.get(key));
+			}
+		}
+		return builder.build();
+	}
 
-  @Override
-  public void putAll(final @Nonnull Map<K, V> map) {
-    mMap.putAll(checkNotNull(map));
-  }
-  
-  @Override
-  public void toSecondCache() {
-    throw new UnsupportedOperationException();
-  }
-  
-  @Override
-  public void remove(final @Nonnull K key) {
-    mMap.remove(key);
-  }
+	@Override
+	public void putAll(final @Nonnull Map<K, V> map) {
+		mMap.putAll(checkNotNull(map));
+	}
+
+	@Override
+	public void toSecondCache() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public void remove(final @Nonnull K key) {
+		mMap.remove(key);
+	}
 
 	@Override
 	public void close() {

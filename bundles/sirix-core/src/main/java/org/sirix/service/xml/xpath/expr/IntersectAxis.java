@@ -39,96 +39,98 @@ import org.sirix.service.xml.xpath.XPathError.ErrorType;
 /**
  * <h1>IntersectAxis</h1>
  * <p>
- * Returns an intersection of two operands. This axis takes two node sequences as operands and returns a
- * sequence containing all the nodes that occur in both operands.
+ * Returns an intersection of two operands. This axis takes two node sequences
+ * as operands and returns a sequence containing all the nodes that occur in
+ * both operands.
  * </p>
  */
 public class IntersectAxis extends AbstractAxis {
 
-  /** First operand sequence. */
-  private final Axis mOp1;
+	/** First operand sequence. */
+	private final Axis mOp1;
 
-  /** Second operand sequence. */
-  private final Axis mOp2;
+	/** Second operand sequence. */
+	private final Axis mOp2;
 
-  /** Set to decide, if an item is contained in both sequences. */
-  private final Set<Long> mDupSet;
+	/** Set to decide, if an item is contained in both sequences. */
+	private final Set<Long> mDupSet;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param mOperand1
-   *          First operand
-   * @param mOperand2
-   *          Second operand
-   */
-  public IntersectAxis(final NodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2) {
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param rtx
+	 *          Exclusive (immutable) trx to iterate with.
+	 * @param mOperand1
+	 *          First operand
+	 * @param mOperand2
+	 *          Second operand
+	 */
+	public IntersectAxis(final NodeReadTrx rtx, final Axis mOperand1,
+			final Axis mOperand2) {
 
-    super(rtx);
-    mOp1 = mOperand1;
-    mOp2 = mOperand2;
-    mDupSet = new HashSet<Long>();
+		super(rtx);
+		mOp1 = mOperand1;
+		mOp2 = mOperand2;
+		mDupSet = new HashSet<Long>();
 
-  }
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void reset(final long mNodeKey) {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void reset(final long mNodeKey) {
 
-    super.reset(mNodeKey);
+		super.reset(mNodeKey);
 
-    if (mDupSet != null) {
-      mDupSet.clear();
-    }
+		if (mDupSet != null) {
+			mDupSet.clear();
+		}
 
-    if (mOp1 != null) {
-      mOp1.reset(mNodeKey);
-    }
-    if (mOp2 != null) {
-      mOp2.reset(mNodeKey);
-    }
-  }
+		if (mOp1 != null) {
+			mOp1.reset(mNodeKey);
+		}
+		if (mOp2 != null) {
+			mOp2.reset(mNodeKey);
+		}
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public boolean hasNext() {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public boolean hasNext() {
 
-    resetToLastKey();
+		resetToLastKey();
 
-    // store all item keys of the first sequence to the set.
-    while (mOp1.hasNext()) {
-      mKey = mOp1.next();
-      if (getTrx().getNodeKey() < 0) { // only nodes are
-        // allowed
-        throw new XPathError(ErrorType.XPTY0004);
-      }
+		// store all item keys of the first sequence to the set.
+		while (mOp1.hasNext()) {
+			mKey = mOp1.next();
+			if (getTrx().getNodeKey() < 0) { // only nodes are
+				// allowed
+				throw new XPathError(ErrorType.XPTY0004);
+			}
 
-      mDupSet.add(getTrx().getNodeKey());
-    }
+			mDupSet.add(getTrx().getNodeKey());
+		}
 
-    while (mOp2.hasNext()) {
-      mKey = mOp2.next();
+		while (mOp2.hasNext()) {
+			mKey = mOp2.next();
 
-      if (getTrx().getNodeKey() < 0) { // only nodes are
-        // allowed
-        throw new XPathError(ErrorType.XPTY0004);
-      }
+			if (getTrx().getNodeKey() < 0) { // only nodes are
+				// allowed
+				throw new XPathError(ErrorType.XPTY0004);
+			}
 
-      // return true, if item key is already in the set -> item is
-      // contained in
-      // both input sequences.
-      if (!mDupSet.add(getTrx().getNodeKey())) {
-        return true;
-      }
-    }
+			// return true, if item key is already in the set -> item is
+			// contained in
+			// both input sequences.
+			if (!mDupSet.add(getTrx().getNodeKey())) {
+				return true;
+			}
+		}
 
-    return false;
-  }
+		return false;
+	}
 
 }

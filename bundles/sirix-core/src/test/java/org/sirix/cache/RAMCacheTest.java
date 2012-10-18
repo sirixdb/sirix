@@ -42,31 +42,31 @@ import org.sirix.exception.SirixException;
  */
 public class RAMCacheTest {
 
-  private Cache<Long, NodePageContainer> cache;
+	private Cache<Long, NodePageContainer> cache;
 
-  @Before
-  public void setUp() throws SirixException {
-    cache = new RAMCache();
-    CacheTestHelper.setUp(cache);
-  }
+	@Before
+	public void setUp() throws SirixException {
+		cache = new RAMCache();
+		CacheTestHelper.setUp(cache);
+	}
 
-  @Test
-  public void test() {
-    boolean foundAtLeastOne = false;
-    for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
-      if (cache.get((long)i) != null) {
-        foundAtLeastOne = true;
-      }
-    }
-    assertTrue(foundAtLeastOne);
-    cache.clear();
-    foundAtLeastOne = false;
-    for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
-      if (cache.get((long)i) != null) {
-        foundAtLeastOne = true;
-      }
-    }
-    assertFalse(foundAtLeastOne);
-  }
+	@Test
+	public void test() {
+		boolean foundAtLeastOne = false;
+		for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
+			if (cache.get((long) i) != null) {
+				foundAtLeastOne = true;
+			}
+		}
+		assertTrue(foundAtLeastOne);
+		cache.clear();
+		foundAtLeastOne = false;
+		for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
+			if (cache.get((long) i) != null) {
+				foundAtLeastOne = true;
+			}
+		}
+		assertFalse(foundAtLeastOne);
+	}
 
 }

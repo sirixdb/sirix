@@ -23,80 +23,78 @@ import org.sirix.exception.SirixIOException;
  */
 public class Encryptor implements ByteHandler {
 
-  /** Algorithm to use. */
-  private static final String ALGORITHM = "AES";
+	/** Algorithm to use. */
+	private static final String ALGORITHM = "AES";
 
-  /** Iterations. */
-  private static final int ITERATIONS = 2;
+	/** Iterations. */
+	private static final int ITERATIONS = 2;
 
-  /** Cipher to perform encryption and decryption operations. */
-  private final Cipher mCipher;
+	/** Cipher to perform encryption and decryption operations. */
+	private final Cipher mCipher;
 
-  /** Key for access data. */
-  private final Key mKey;
+	/** Key for access data. */
+	private final Key mKey;
 
-  /** 128bit key. */
-  private static final byte[] KEYVALUE = new byte[] {
-    'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k',
-    'k'
-  };
+	/** 128bit key. */
+	private static final byte[] KEYVALUE = new byte[] { 'k', 'k', 'k', 'k', 'k',
+			'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k', 'k' };
 
-  /**
-   * Constructor.
-   * 
-   * @throws SirixIOException
-   *           if an I/O error occurs
-   */
-  public Encryptor() {
-    try {
-      mCipher = Cipher.getInstance(ALGORITHM);
-      mKey = new SecretKeySpec(KEYVALUE, "AES");
-    } catch (final NoSuchAlgorithmException e) {
-      throw new IllegalStateException(e);
-    } catch (final NoSuchPaddingException e) {
-      throw new IllegalStateException(e);
-    }
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	public Encryptor() {
+		try {
+			mCipher = Cipher.getInstance(ALGORITHM);
+			mKey = new SecretKeySpec(KEYVALUE, "AES");
+		} catch (final NoSuchAlgorithmException e) {
+			throw new IllegalStateException(e);
+		} catch (final NoSuchPaddingException e) {
+			throw new IllegalStateException(e);
+		}
+	}
 
-  @Override
-  public byte[] serialize(@Nonnull final byte[] toSerialize)
-    throws SirixIOException {
-    try {
-      mCipher.init(Cipher.ENCRYPT_MODE, mKey);
+	@Override
+	public byte[] serialize(@Nonnull final byte[] toSerialize)
+			throws SirixIOException {
+		try {
+			mCipher.init(Cipher.ENCRYPT_MODE, mKey);
 
-      byte[] toEncrypt = toSerialize;
-      for (int i = 0; i < ITERATIONS; i++) {
-        byte[] encValue = mCipher.doFinal(toEncrypt);
-        toEncrypt = encValue;
-      }
-      return toEncrypt;
-    } catch (final GeneralSecurityException e) {
-      throw new SirixIOException(e);
-    }
-  }
+			byte[] toEncrypt = toSerialize;
+			for (int i = 0; i < ITERATIONS; i++) {
+				byte[] encValue = mCipher.doFinal(toEncrypt);
+				toEncrypt = encValue;
+			}
+			return toEncrypt;
+		} catch (final GeneralSecurityException e) {
+			throw new SirixIOException(e);
+		}
+	}
 
-  @Override
-  public byte[] deserialize(@Nonnull final byte[] toDeserialize)
-    throws SirixIOException {
-    try {
-      mCipher.init(Cipher.DECRYPT_MODE, mKey);
+	@Override
+	public byte[] deserialize(@Nonnull final byte[] toDeserialize)
+			throws SirixIOException {
+		try {
+			mCipher.init(Cipher.DECRYPT_MODE, mKey);
 
-      byte[] toDecrypt = toDeserialize;
-      for (int i = 0; i < ITERATIONS; i++) {
-        byte[] decValue = mCipher.doFinal(toDecrypt);
-        toDecrypt = decValue;
-      }
-      return toDecrypt;
+			byte[] toDecrypt = toDeserialize;
+			for (int i = 0; i < ITERATIONS; i++) {
+				byte[] decValue = mCipher.doFinal(toDecrypt);
+				toDecrypt = decValue;
+			}
+			return toDecrypt;
 
-    } catch (final InvalidKeyException e) {
-      throw new SirixIOException(e);
-    } catch (final GeneralSecurityException e) {
-      throw new SirixIOException(e);
-    }
-  }
-  
-  @Override
-  public ByteHandler getInstance() {
-    return new Encryptor();
-  }
+		} catch (final InvalidKeyException e) {
+			throw new SirixIOException(e);
+		} catch (final GeneralSecurityException e) {
+			throw new SirixIOException(e);
+		}
+	}
+
+	@Override
+	public ByteHandler getInstance() {
+		return new Encryptor();
+	}
 }

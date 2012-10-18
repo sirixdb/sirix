@@ -39,32 +39,32 @@ import org.sirix.page.interfaces.Page;
  */
 public interface Reader {
 
-  /**
-   * Getting the first reference of the {@code Uberpage}.
-   * 
-   * @return a {@link PageReference} with link to the first reference
-   * @throws SirixIOException
-   *           if something bad happens
-   */
-  PageReference readFirstReference() throws SirixIOException;
+	/**
+	 * Getting the first reference of the {@code Uberpage}.
+	 * 
+	 * @return a {@link PageReference} with link to the first reference
+	 * @throws SirixIOException
+	 *           if something bad happens
+	 */
+	PageReference readFirstReference() throws SirixIOException;
 
-  /**
-   * Getting a reference for the given pointer.
-   * 
-   * @param key
-   *          the reference for the page to be determined
-   * @return a {@link PageDelegate} as the base for a page
-   * @throws SirixIOException
-   *           if something bad happens during read
-   */
-  Page read(final long key) throws SirixIOException;
+	/**
+	 * Getting a reference for the given pointer.
+	 * 
+	 * @param key
+	 *          the reference for the page to be determined
+	 * @return a {@link PageDelegate} as the base for a page
+	 * @throws SirixIOException
+	 *           if something bad happens during read
+	 */
+	Page read(final long key) throws SirixIOException;
 
-  /**
-   * Closing the storage.
-   * 
-   * @throws SirixIOException
-   *           if something bad happens while access
-   */
-  void close() throws SirixIOException;
+	/**
+	 * Closing the storage.
+	 * 
+	 * @throws SirixIOException
+	 *           if something bad happens while access
+	 */
+	void close() throws SirixIOException;
 
 }

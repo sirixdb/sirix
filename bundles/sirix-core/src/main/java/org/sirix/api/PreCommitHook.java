@@ -11,9 +11,9 @@ public interface PreCommitHook {
 	 * Pre commit hook. Called before a revision is commited.
 	 * 
 	 * @param rtx
-	 * 				Sirix {@link NodeReadTrx}
+	 *          Sirix {@link NodeReadTrx}
 	 * @throws NullPointerException
-	 * 				if {@code rtx} is {@code null}
+	 *           if {@code rtx} is {@code null}
 	 */
-  void preCommit(final NodeReadTrx rtx);
+	void preCommit(final NodeReadTrx rtx);
 }

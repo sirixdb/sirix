@@ -46,187 +46,185 @@ import org.sirix.page.NodePage;
  */
 public enum Revisioning {
 
-  /**
-   * FullDump, just dumping the complete older revision.
-   */
-  FULL {
-    @Override
-    public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
-      @Nonnegative final int pRevToRestore) {
-      assert pPages.length == 1 : "Only one version of the page!";
-      return pPages[0];
-    }
+	/**
+	 * FullDump, just dumping the complete older revision.
+	 */
+	FULL {
+		@Override
+		public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
+				@Nonnegative final int pRevToRestore) {
+			assert pPages.length == 1 : "Only one version of the page!";
+			return pPages[0];
+		}
 
-    @Override
-    public NodePageContainer combineNodePagesForModification(
-      @Nonnull final NodePage[] pPages,
-      @Nonnegative final int pMileStoneRevision) {
-      final long nodePageKey = pPages[0].getNodePageKey();
-      final NodePage[] returnVal =
-        {
-          new NodePage(nodePageKey, pPages[0].getRevision() + 1),
-          new NodePage(nodePageKey, pPages[0].getRevision() + 1)
-        };
+		@Override
+		public NodePageContainer combineNodePagesForModification(
+				@Nonnull final NodePage[] pPages,
+				@Nonnegative final int pMileStoneRevision) {
+			final long nodePageKey = pPages[0].getNodePageKey();
+			final NodePage[] returnVal = {
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1),
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1) };
 
-      for (final NodeBase nodes : pPages[0].values()) {
-        returnVal[0].setNode(nodes);
-        returnVal[1].setNode(nodes);
-      }
+			for (final NodeBase nodes : pPages[0].values()) {
+				returnVal[0].setNode(nodes);
+				returnVal[1].setNode(nodes);
+			}
 
-      final NodePageContainer cont = new NodePageContainer(returnVal[0], returnVal[1]);
-      return cont;
-    }
-  },
+			final NodePageContainer cont = new NodePageContainer(returnVal[0],
+					returnVal[1]);
+			return cont;
+		}
+	},
 
-  /**
-   * Differential. Only the diffs are stored related to the last milestone
-   * revision.
-   */
-  DIFFERENTIAL {
-    @Override
-    public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
-      @Nonnegative final int pRevToRestore) {
-      assert pPages.length <= 2;
-      final long nodePageKey = pPages[0].getNodePageKey();
-      final NodePage returnVal =
-        new NodePage(nodePageKey, pPages[0].getRevision());
-      final NodePage latest = pPages[0];
-      NodePage fullDump = pPages.length == 1 ? pPages[0] : pPages[1];
+	/**
+	 * Differential. Only the diffs are stored related to the last milestone
+	 * revision.
+	 */
+	DIFFERENTIAL {
+		@Override
+		public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
+				@Nonnegative final int pRevToRestore) {
+			assert pPages.length <= 2;
+			final long nodePageKey = pPages[0].getNodePageKey();
+			final NodePage returnVal = new NodePage(nodePageKey,
+					pPages[0].getRevision());
+			final NodePage latest = pPages[0];
+			NodePage fullDump = pPages.length == 1 ? pPages[0] : pPages[1];
 
-      assert latest.getNodePageKey() == nodePageKey;
-      assert fullDump.getNodePageKey() == nodePageKey;
+			assert latest.getNodePageKey() == nodePageKey;
+			assert fullDump.getNodePageKey() == nodePageKey;
 
-      for (final NodeBase node : fullDump.values()) {
-        returnVal.setNode(node);
-      }
+			for (final NodeBase node : fullDump.values()) {
+				returnVal.setNode(node);
+			}
 
-      for (final NodeBase node : latest.values()) {
-        returnVal.setNode(node);
-      }
-      return returnVal;
-    }
+			for (final NodeBase node : latest.values()) {
+				returnVal.setNode(node);
+			}
+			return returnVal;
+		}
 
-    @Override
-    public NodePageContainer combineNodePagesForModification(
-      @Nonnull final NodePage[] pPages, @Nonnegative final int pRevToRestore) {
-      assert pPages.length <= 2;
-      final long nodePageKey = pPages[0].getNodePageKey();
-      final NodePage[] returnVal =
-        {
-          new NodePage(nodePageKey, pPages[0].getRevision() + 1),
-          new NodePage(nodePageKey, pPages[0].getRevision() + 1)
-        };
+		@Override
+		public NodePageContainer combineNodePagesForModification(
+				@Nonnull final NodePage[] pPages, @Nonnegative final int pRevToRestore) {
+			assert pPages.length <= 2;
+			final long nodePageKey = pPages[0].getNodePageKey();
+			final NodePage[] returnVal = {
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1),
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1) };
 
-      final NodePage latest = pPages[0];
-      NodePage fullDump = pPages.length == 1 ? pPages[0] : pPages[1];
-      
-      for (final NodeBase node : fullDump.values()) {
-        returnVal[0].setNode(node);
+			final NodePage latest = pPages[0];
+			NodePage fullDump = pPages.length == 1 ? pPages[0] : pPages[1];
 
-        if ((latest.getRevision() + 1) % pRevToRestore == 0) {
-          // Fulldump.
-          returnVal[1].setNode(node);
-        }
-      }
+			for (final NodeBase node : fullDump.values()) {
+				returnVal[0].setNode(node);
 
-      // iterate through all nodes
-      for (final NodeBase node : latest.values()) {
-        returnVal[0].setNode(node);
-        returnVal[1].setNode(node);
-      }
+				if ((latest.getRevision() + 1) % pRevToRestore == 0) {
+					// Fulldump.
+					returnVal[1].setNode(node);
+				}
+			}
 
-      final NodePageContainer cont = new NodePageContainer(returnVal[0], returnVal[1]);
-      return cont;
-    }
-  },
+			// iterate through all nodes
+			for (final NodeBase node : latest.values()) {
+				returnVal[0].setNode(node);
+				returnVal[1].setNode(node);
+			}
 
-  /**
-   * Incremental Revisioning. Each Revision can be reconstructed with the help
-   * of the last full-dump plus the incremental steps between.
-   */
-  INCREMENTAL {
-    @Override
-    public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
-      @Nonnegative final int pRevToRestore) {
-      assert pPages.length <= pRevToRestore;
-      final long nodePageKey = pPages[0].getNodePageKey();
-      final NodePage returnVal =
-        new NodePage(nodePageKey, pPages[0].getRevision());
+			final NodePageContainer cont = new NodePageContainer(returnVal[0],
+					returnVal[1]);
+			return cont;
+		}
+	},
 
-      for (final NodePage page : pPages) {
-        assert page.getNodePageKey() == nodePageKey;
-        for (final Entry<Long, NodeBase> node : page.entrySet()) {
-          final long nodeKey = node.getKey();
-          if (returnVal.getNode(nodeKey) == null) {
-            returnVal.setNode(node.getValue());
-          }
-        }
+	/**
+	 * Incremental Revisioning. Each Revision can be reconstructed with the help
+	 * of the last full-dump plus the incremental steps between.
+	 */
+	INCREMENTAL {
+		@Override
+		public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
+				@Nonnegative final int pRevToRestore) {
+			assert pPages.length <= pRevToRestore;
+			final long nodePageKey = pPages[0].getNodePageKey();
+			final NodePage returnVal = new NodePage(nodePageKey,
+					pPages[0].getRevision());
 
-        if (page.getRevision() % pRevToRestore == 0) {
-          break;
-        }
-      }
+			for (final NodePage page : pPages) {
+				assert page.getNodePageKey() == nodePageKey;
+				for (final Entry<Long, NodeBase> node : page.entrySet()) {
+					final long nodeKey = node.getKey();
+					if (returnVal.getNode(nodeKey) == null) {
+						returnVal.setNode(node.getValue());
+					}
+				}
 
-      return returnVal;
-    }
+				if (page.getRevision() % pRevToRestore == 0) {
+					break;
+				}
+			}
 
-    @Override
-    public NodePageContainer combineNodePagesForModification(
-      @Nonnull final NodePage[] pPages, final int pRevToRestore) {
-      final long nodePageKey = pPages[0].getNodePageKey();
-      final NodePage[] returnVal =
-        {
-          new NodePage(nodePageKey, pPages[0].getRevision() + 1),
-          new NodePage(nodePageKey, pPages[0].getRevision() + 1)
-        };
+			return returnVal;
+		}
 
-      for (final NodePage page : pPages) {
-        assert page.getNodePageKey() == nodePageKey;
+		@Override
+		public NodePageContainer combineNodePagesForModification(
+				@Nonnull final NodePage[] pPages, final int pRevToRestore) {
+			final long nodePageKey = pPages[0].getNodePageKey();
+			final NodePage[] returnVal = {
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1),
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1) };
 
-        for (final Entry<Long, NodeBase> node : page.entrySet()) {
-          // Caching the complete page.
-          final long nodeKey = node.getKey();
-          if (node != null && returnVal[0].getNode(nodeKey) == null) {
-            returnVal[0].setNode(node.getValue());
+			for (final NodePage page : pPages) {
+				assert page.getNodePageKey() == nodePageKey;
 
-            if (returnVal[1].getNode(node.getKey()) == null
-              && returnVal[0].getRevision() % pRevToRestore == 0) {
-              returnVal[1].setNode(node.getValue());
-            }
-          }
-        }
-      }
+				for (final Entry<Long, NodeBase> node : page.entrySet()) {
+					// Caching the complete page.
+					final long nodeKey = node.getKey();
+					if (node != null && returnVal[0].getNode(nodeKey) == null) {
+						returnVal[0].setNode(node.getValue());
 
-      final NodePageContainer cont = new NodePageContainer(returnVal[0], returnVal[1]);
-      return cont;
-    }
-  };
+						if (returnVal[1].getNode(node.getKey()) == null
+								&& returnVal[0].getRevision() % pRevToRestore == 0) {
+							returnVal[1].setNode(node.getValue());
+						}
+					}
+				}
+			}
 
-  /**
-   * Method to reconstruct a complete {@link NodePage} with the help of partly filled
-   * pages plus a revision-delta which determines the necessary steps back.
-   * 
-   * @param pPages
-   *          the base of the complete {@link NodePage}
-   * @param pRevToRestore
-   *          the revision needed to build up the complete milestone
-   * @return the complete {@link NodePage}
-   */
-  public abstract NodePage combineNodePages(@Nonnull final NodePage[] pPages,
-    @Nonnegative final int pRevToRestore);
+			final NodePageContainer cont = new NodePageContainer(returnVal[0],
+					returnVal[1]);
+			return cont;
+		}
+	};
 
-  /**
-   * Method to reconstruct a complete {@link NodePage} for reading as well as a
-   * NodePage for serializing with the Nodes to write already on there.
-   * 
-   * @param pPages
-   *          the base of the complete {@link NodePage}
-   * @param pMileStoneRevision
-   *          the revision needed to build up the complete milestone
-   * @return a {@link NodePageContainer} holding a complete {@link NodePage} for reading and one
-   *         for writing
-   */
-  public abstract NodePageContainer
-    combineNodePagesForModification(@Nonnull final NodePage[] pPages,
-      @Nonnegative final int pMileStoneRevision);
+	/**
+	 * Method to reconstruct a complete {@link NodePage} with the help of partly
+	 * filled pages plus a revision-delta which determines the necessary steps
+	 * back.
+	 * 
+	 * @param pPages
+	 *          the base of the complete {@link NodePage}
+	 * @param pRevToRestore
+	 *          the revision needed to build up the complete milestone
+	 * @return the complete {@link NodePage}
+	 */
+	public abstract NodePage combineNodePages(@Nonnull final NodePage[] pPages,
+			@Nonnegative final int pRevToRestore);
+
+	/**
+	 * Method to reconstruct a complete {@link NodePage} for reading as well as a
+	 * NodePage for serializing with the Nodes to write already on there.
+	 * 
+	 * @param pPages
+	 *          the base of the complete {@link NodePage}
+	 * @param pMileStoneRevision
+	 *          the revision needed to build up the complete milestone
+	 * @return a {@link NodePageContainer} holding a complete {@link NodePage} for
+	 *         reading and one for writing
+	 */
+	public abstract NodePageContainer combineNodePagesForModification(
+			@Nonnull final NodePage[] pPages,
+			@Nonnegative final int pMileStoneRevision);
 }

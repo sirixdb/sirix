@@ -37,33 +37,33 @@ import org.sirix.exception.SirixException;
 
 public class NameFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testIFilterConvetions() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testIFilterConvetions() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveTo(9L);
-    IFilterTest.testIFilterConventions(new NameFilter(rtx, "b"), true);
+		rtx.moveTo(9L);
+		IFilterTest.testIFilterConventions(new NameFilter(rtx, "b"), true);
 
-    rtx.moveTo(4L);
-    IFilterTest.testIFilterConventions(new NameFilter(rtx, "b"), false);
+		rtx.moveTo(4L);
+		IFilterTest.testIFilterConventions(new NameFilter(rtx, "b"), false);
 
-    rtx.moveTo(7L);
-    IFilterTest.testIFilterConventions(new NameFilter(rtx, "b"), false);
-  }
+		rtx.moveTo(7L);
+		IFilterTest.testIFilterConventions(new NameFilter(rtx, "b"), false);
+	}
 
 }

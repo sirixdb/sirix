@@ -42,29 +42,29 @@ import org.sirix.page.interfaces.Page;
  */
 public final class PagePersistenter {
 
-  /**
-   * Deserialize page.
-   * 
-   * @param source
-   *          source to read from
-   * @return the created {@link Page}
-   */
-  public static @Nonnull
-  Page deserializePage(final @Nonnull ByteArrayDataInput source) {
-    return PageKind.getKind(source.readByte()).deserializePage(source);
-  }
+	/**
+	 * Deserialize page.
+	 * 
+	 * @param source
+	 *          source to read from
+	 * @return the created {@link Page}
+	 */
+	public static @Nonnull
+	Page deserializePage(final @Nonnull ByteArrayDataInput source) {
+		return PageKind.getKind(source.readByte()).deserializePage(source);
+	}
 
-  /**
-   * Serialize page.
-   * 
-   * @param sink
-   *          output sink
-   * @param page
-   *          the {@link Page} to serialize
-   */
-  public static void serializePage(final @Nonnull ByteArrayDataOutput sink,
-    final @Nonnull Page page) {
-    PageKind.getKind(page.getClass()).serializePage(sink, page);
-  }
+	/**
+	 * Serialize page.
+	 * 
+	 * @param sink
+	 *          output sink
+	 * @param page
+	 *          the {@link Page} to serialize
+	 */
+	public static void serializePage(final @Nonnull ByteArrayDataOutput sink,
+			final @Nonnull Page page) {
+		PageKind.getKind(page.getClass()).serializePage(sink, page);
+	}
 
 }

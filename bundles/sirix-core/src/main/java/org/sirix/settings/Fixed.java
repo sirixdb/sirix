@@ -34,52 +34,52 @@ package org.sirix.settings;
  */
 public enum Fixed {
 
-  // --- File Version
-  // ----------------------------------------------------------------
-  /** Major version number of this release. */
-  VERSION_MAJOR(5),
-  
-  /** Minor version number of this release. */
-  VERSION_MINOR(1),
-  
-  /** Last major version to which this version is binary compatible. */
-  LAST_VERSION_MAJOR(5),
-  
-  /** Last minor version to which this version is binary compatible. */
-  LAST_VERSION_MINOR(1),
+	// --- File Version
+	// ----------------------------------------------------------------
+	/** Major version number of this release. */
+	VERSION_MAJOR(5),
 
-  // --- Keys
-  // -------------------------------------------------------------
-  /** Root node page key constant. */
-  ROOT_PAGE_KEY(0L),
-    
-  /** Document node key constant. */
-  DOCUMENT_NODE_KEY(0L),
-  
-  /** Null key for nodes. */
-  NULL_NODE_KEY(-1L);
+	/** Minor version number of this release. */
+	VERSION_MINOR(1),
 
-  /**
-   * Standard property.
-   */
-  private final long mStandardProperty;
+	/** Last major version to which this version is binary compatible. */
+	LAST_VERSION_MAJOR(5),
 
-  /**
-   * Private constructor.
-   * 
-   * @param property
-   *          property to set
-   */
-  private Fixed(final long property) {
-    mStandardProperty = property;
-  }
+	/** Last minor version to which this version is binary compatible. */
+	LAST_VERSION_MINOR(1),
 
-  /**
-   * Getting the property.
-   * 
-   * @return the prop
-   */
-  public long getStandardProperty() {
-    return mStandardProperty;
-  }
+	// --- Keys
+	// -------------------------------------------------------------
+	/** Root node page key constant. */
+	ROOT_PAGE_KEY(0L),
+
+	/** Document node key constant. */
+	DOCUMENT_NODE_KEY(0L),
+
+	/** Null key for nodes. */
+	NULL_NODE_KEY(-1L);
+
+	/**
+	 * Standard property.
+	 */
+	private final long mStandardProperty;
+
+	/**
+	 * Private constructor.
+	 * 
+	 * @param property
+	 *          property to set
+	 */
+	private Fixed(final long property) {
+		mStandardProperty = property;
+	}
+
+	/**
+	 * Getting the property.
+	 * 
+	 * @return the prop
+	 */
+	public long getStandardProperty() {
+		return mStandardProperty;
+	}
 }

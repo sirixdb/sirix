@@ -39,149 +39,147 @@ import org.sirix.node.Kind;
  * <h1>PrecedingAxis</h1>
  * 
  * <p>
- * Iterate over all preceding nodes of kind ELEMENT or TEXT starting at a given node. Self is not included.
- * Note that the nodes are retrieved in reverse document order.
+ * Iterate over all preceding nodes of kind ELEMENT or TEXT starting at a given
+ * node. Self is not included. Note that the nodes are retrieved in reverse
+ * document order.
  * </p>
  */
 public final class PrecedingAxis extends AbstractAxis {
 
-  /** Determines if it's the first call or not. */
-  private boolean mIsFirst;
+	/** Determines if it's the first call or not. */
+	private boolean mIsFirst;
 
-  /** Stack to save nodeKeys. */
-  private Deque<Long> mStack;
+	/** Stack to save nodeKeys. */
+	private Deque<Long> mStack;
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param rtx
-   *          exclusive (immutable) trx to iterate with
-   */
-  public PrecedingAxis(final @Nonnull NodeReadTrx rtx) {
-    super(rtx);
-    mIsFirst = true;
-    mStack = new ArrayDeque<>();
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param rtx
+	 *          exclusive (immutable) trx to iterate with
+	 */
+	public PrecedingAxis(final @Nonnull NodeReadTrx rtx) {
+		super(rtx);
+		mIsFirst = true;
+		mStack = new ArrayDeque<>();
+	}
 
-  @Override
-  public void reset(final long nodeKey) {
-    super.reset(nodeKey);
-    mIsFirst = true;
-    mStack = new ArrayDeque<>();
-  }
-  
-  @Override
-  protected long nextKey() {
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
+		mIsFirst = true;
+		mStack = new ArrayDeque<>();
+	}
+
+	@Override
+	protected long nextKey() {
 		final NodeReadTrx rtx = getTrx();
-		
-    // Assure, that preceding is not evaluated on an attribute or a namespace.
-    if (mIsFirst) {
-      mIsFirst = false;
-      if (rtx.getKind() == Kind.ATTRIBUTE
-        || rtx.getKind() == Kind.NAMESPACE) {
-        return done();
-      }
-    }
 
-    // Current node key.
-    final long key = rtx.getNodeKey();
+		// Assure, that preceding is not evaluated on an attribute or a namespace.
+		if (mIsFirst) {
+			mIsFirst = false;
+			if (rtx.getKind() == Kind.ATTRIBUTE || rtx.getKind() == Kind.NAMESPACE) {
+				return done();
+			}
+		}
 
-    if (!mStack.isEmpty()) {
-      // Return all nodes of the current subtree in reverse document order.
-      return mStack.pop();
-    }
+		// Current node key.
+		final long key = rtx.getNodeKey();
 
-    if (rtx.hasLeftSibling()) {
-      getTrx().moveToLeftSibling();
-      /*
-       * Because this axis return the precedings in reverse document
-       * order, we need to iterate to the node in the subtree, that comes last in
-       * document order.
-       */
-      getLastChild();
-      final long nodeKey = rtx.getNodeKey();
-      getTrx().moveTo(key);
-      return nodeKey;
-    }
+		if (!mStack.isEmpty()) {
+			// Return all nodes of the current subtree in reverse document order.
+			return mStack.pop();
+		}
 
-    while (rtx.hasParent()) {
-      // Ancestors are not part of the preceding set.
-      getTrx().moveToParent();
-      if (rtx.hasLeftSibling()) {
-        getTrx().moveToLeftSibling();
-        // Move to last node in the subtree.
-        getLastChild();
-        final long nodeKey = rtx.getNodeKey();
-        getTrx().moveTo(key);
-        return nodeKey;
-      }
-    }
-    
-    return done();
-  }
+		if (rtx.hasLeftSibling()) {
+			getTrx().moveToLeftSibling();
+			/*
+			 * Because this axis return the precedings in reverse document order, we
+			 * need to iterate to the node in the subtree, that comes last in document
+			 * order.
+			 */
+			getLastChild();
+			final long nodeKey = rtx.getNodeKey();
+			getTrx().moveTo(key);
+			return nodeKey;
+		}
 
-  /**
-   * Moves the transaction to the node in the current subtree, that is last in
-   * document order and pushes all other node key on a stack. At the end the
-   * stack contains all node keys except for the last one in reverse document
-   * order.
-   */
-  private void getLastChild() {
-  	final NodeReadTrx rtx = getTrx();
-  	
-    // Nodekey of the root of the current subtree.
-    final long parent = rtx.getNodeKey();
+		while (rtx.hasParent()) {
+			// Ancestors are not part of the preceding set.
+			getTrx().moveToParent();
+			if (rtx.hasLeftSibling()) {
+				getTrx().moveToLeftSibling();
+				// Move to last node in the subtree.
+				getLastChild();
+				final long nodeKey = rtx.getNodeKey();
+				getTrx().moveTo(key);
+				return nodeKey;
+			}
+		}
 
-    /*
-     * Traverse tree in pre order to the leftmost leaf of the subtree and
-     * push all nodes to the stack
-     */
-    if (rtx.hasFirstChild()) {
-      while (rtx.hasFirstChild()) {
-        mStack.push(rtx.getNodeKey());
-        getTrx().moveToFirstChild();
-      }
+		return done();
+	}
 
-      /*
-       * Traverse all the siblings of the leftmost leave and all their
-       * descendants and push all of them to the stack
-       */
-      while (rtx.hasRightSibling()) {
-        mStack.push(rtx.getNodeKey());
-        getTrx().moveToRightSibling();
-        getLastChild();
-      }
+	/**
+	 * Moves the transaction to the node in the current subtree, that is last in
+	 * document order and pushes all other node key on a stack. At the end the
+	 * stack contains all node keys except for the last one in reverse document
+	 * order.
+	 */
+	private void getLastChild() {
+		final NodeReadTrx rtx = getTrx();
 
-      /*
-       * Step up the path till the root of the current subtree and process
-       * all right siblings and their descendants on each step.
-       */
-      if (rtx.hasParent()
-        && (rtx.getParentKey() != parent)) {
+		// Nodekey of the root of the current subtree.
+		final long parent = rtx.getNodeKey();
 
-        mStack.push(rtx.getNodeKey());
-        while (rtx.hasParent()
-          && (rtx.getParentKey() != parent)) {
+		/*
+		 * Traverse tree in pre order to the leftmost leaf of the subtree and push
+		 * all nodes to the stack
+		 */
+		if (rtx.hasFirstChild()) {
+			while (rtx.hasFirstChild()) {
+				mStack.push(rtx.getNodeKey());
+				getTrx().moveToFirstChild();
+			}
 
-          getTrx().moveToParent();
+			/*
+			 * Traverse all the siblings of the leftmost leave and all their
+			 * descendants and push all of them to the stack
+			 */
+			while (rtx.hasRightSibling()) {
+				mStack.push(rtx.getNodeKey());
+				getTrx().moveToRightSibling();
+				getLastChild();
+			}
 
-          /*
-           * Traverse all the siblings of the leftmost leave and all
-           * their descendants and push all of them to the stack
-           */
-          while (rtx.hasRightSibling()) {
-            getTrx().moveToRightSibling();
-            getLastChild();
-            mStack.push(rtx.getNodeKey());
-          }
-        }
+			/*
+			 * Step up the path till the root of the current subtree and process all
+			 * right siblings and their descendants on each step.
+			 */
+			if (rtx.hasParent() && (rtx.getParentKey() != parent)) {
 
-        /*
-         * Set transaction to the node in the subtree that is last in
-         * document order.
-         */
-        getTrx().moveTo(mStack.pop());
-      }
-    }
-  }
+				mStack.push(rtx.getNodeKey());
+				while (rtx.hasParent() && (rtx.getParentKey() != parent)) {
+
+					getTrx().moveToParent();
+
+					/*
+					 * Traverse all the siblings of the leftmost leave and all their
+					 * descendants and push all of them to the stack
+					 */
+					while (rtx.hasRightSibling()) {
+						getTrx().moveToRightSibling();
+						getLastChild();
+						mStack.push(rtx.getNodeKey());
+					}
+				}
+
+				/*
+				 * Set transaction to the node in the subtree that is last in document
+				 * order.
+				 */
+				getTrx().moveTo(mStack.pop());
+			}
+		}
+	}
 }

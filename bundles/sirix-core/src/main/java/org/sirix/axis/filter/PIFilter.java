@@ -41,19 +41,19 @@ import org.sirix.node.Kind;
  */
 public class PIFilter extends AbstractFilter {
 
-  /**
-   * Default constructor.
-   * 
-   * @param rtx
-   *          transaction this filter is bound to
-   */
-  public PIFilter(final @Nonnull NodeReadTrx rtx) {
-    super(rtx);
-  }
+	/**
+	 * Default constructor.
+	 * 
+	 * @param rtx
+	 *          transaction this filter is bound to
+	 */
+	public PIFilter(final @Nonnull NodeReadTrx rtx) {
+		super(rtx);
+	}
 
-  @Override
-  public final boolean filter() {
-    return getTrx().getKind() == Kind.PROCESSING;
-  }
+	@Override
+	public final boolean filter() {
+		return getTrx().getKind() == Kind.PROCESSING;
+	}
 
 }

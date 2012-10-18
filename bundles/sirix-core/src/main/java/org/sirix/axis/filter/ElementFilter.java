@@ -41,18 +41,18 @@ import org.sirix.node.Kind;
  */
 public class ElementFilter extends AbstractFilter {
 
-  /**
-   * Default constructor.
-   * 
-   * @param rtx
-   *          {@link NodeReadTrx} this filter is bound to
-   */
-  public ElementFilter(@Nonnull final NodeReadTrx pRtx) {
-    super(pRtx);
-  }
+	/**
+	 * Default constructor.
+	 * 
+	 * @param rtx
+	 *          {@link NodeReadTrx} this filter is bound to
+	 */
+	public ElementFilter(@Nonnull final NodeReadTrx pRtx) {
+		super(pRtx);
+	}
 
-  @Override
-  public final boolean filter() {
-    return getTrx().getKind() == Kind.ELEMENT;
-  }
+	@Override
+	public final boolean filter() {
+		return getTrx().getKind() == Kind.ELEMENT;
+	}
 }

@@ -5,7 +5,7 @@ package org.sirix.api.visitor;
  * specified in {@link VisitResultType} to guide the traversal.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
 public interface VisitResult {
 }

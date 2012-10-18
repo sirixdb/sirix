@@ -50,7 +50,8 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TransactionLogCache implements Cache<Long, NodePageContainer> {
+public final class TransactionLogCache implements
+		Cache<Long, NodePageContainer> {
 
 	/** RAM-Based first cache. */
 	private final LRUCache<Long, NodePageContainer> mFirstCache;
@@ -78,7 +79,7 @@ public final class TransactionLogCache implements Cache<Long, NodePageContainer>
 	 * @param pRevision
 	 *          revision number
 	 * @throws SirixIOException
-	 * 					if a database error occurs
+	 *           if a database error occurs
 	 */
 	public TransactionLogCache(final @Nonnull File pFile,
 			final @Nonnegative int pRevision, final @Nonnull String pLogType)
@@ -86,7 +87,7 @@ public final class TransactionLogCache implements Cache<Long, NodePageContainer>
 		mSecondCache = new BerkeleyPersistenceCache(pFile, pRevision, pLogType);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
-	
+
 	@Override
 	public void close() {
 		mFirstCache.close();
@@ -140,7 +141,8 @@ public final class TransactionLogCache implements Cache<Long, NodePageContainer>
 	}
 
 	@Override
-	public void put(final @Nonnull Long pKey, final @Nonnull NodePageContainer pValue) {
+	public void put(final @Nonnull Long pKey,
+			final @Nonnull NodePageContainer pValue) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(pKey, pValue);

@@ -12,13 +12,14 @@ import org.slf4j.LoggerFactory;
 public final class Util {
 
 	/** Logger. */
-	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(Util.class));
-	
+	private static final LogWrapper LOGGER = new LogWrapper(
+			LoggerFactory.getLogger(Util.class));
+
 	/**
 	 * Get next key.
 	 * 
 	 * @param pAxis
-	 * 					the {@link Axis}
+	 *          the {@link Axis}
 	 * @return the next result of the axis. If the axis has no next result, the
 	 *         null node key is returned.
 	 */

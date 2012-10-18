@@ -41,169 +41,168 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * An LRU cache, based on {@code LinkedHashMap}. This cache can hold an
- * possible second cache as a second layer for example for storing data in a
- * persistent way.
+ * An LRU cache, based on {@code LinkedHashMap}. This cache can hold an possible
+ * second cache as a second layer for example for storing data in a persistent
+ * way.
  * 
  * @author Sebastian Graf, University of Konstanz
  */
 public final class LRUCache<K, V> implements Cache<K, V> {
 
-  /**
-   * Capacity of the cache. Number of stored pages.
-   */
-  static final int CACHE_CAPACITY = 1500;
+	/**
+	 * Capacity of the cache. Number of stored pages.
+	 */
+	static final int CACHE_CAPACITY = 1500;
 
-  /**
-   * The collection to hold the maps.
-   */
-  private final Map<K, V> mMap;
+	/**
+	 * The collection to hold the maps.
+	 */
+	private final Map<K, V> mMap;
 
-  /**
-   * The reference to the second cache.
-   */
-  private final Cache<K, V> mSecondCache;
+	/**
+	 * The reference to the second cache.
+	 */
+	private final Cache<K, V> mSecondCache;
 
-  /**
-   * Creates a new LRU cache.
-   * 
-   * @param secondCache
-   *          the reference to the second {@link Cache} where the data is stored
-   *          when it gets removed from the first one.
-   */
-  public LRUCache(final @Nonnull Cache<K, V> secondCache) {
-  	assert secondCache != null;
-    mSecondCache = secondCache;
-    mMap = new LinkedHashMap<K, V>(CACHE_CAPACITY) {
-      private static final long serialVersionUID = 1;
+	/**
+	 * Creates a new LRU cache.
+	 * 
+	 * @param secondCache
+	 *          the reference to the second {@link Cache} where the data is stored
+	 *          when it gets removed from the first one.
+	 */
+	public LRUCache(final @Nonnull Cache<K, V> secondCache) {
+		assert secondCache != null;
+		mSecondCache = secondCache;
+		mMap = new LinkedHashMap<K, V>(CACHE_CAPACITY) {
+			private static final long serialVersionUID = 1;
 
-      @Override
-      protected boolean removeEldestEntry(
-        @Nullable final Map.Entry<K, V> pEldest) {
-        boolean returnVal = false;
-        if (size() > CACHE_CAPACITY) {
-          if (pEldest != null) {
-            final K key = pEldest.getKey();
-            final V value = pEldest.getValue();
-            if (key != null && value != null) {
-              mSecondCache.put(key, value);
-            }
-          }
-          returnVal = true;
-        }
-        return returnVal;
-      }
-    };
-  }
+			@Override
+			protected boolean removeEldestEntry(
+					@Nullable final Map.Entry<K, V> pEldest) {
+				boolean returnVal = false;
+				if (size() > CACHE_CAPACITY) {
+					if (pEldest != null) {
+						final K key = pEldest.getKey();
+						final V value = pEldest.getValue();
+						if (key != null && value != null) {
+							mSecondCache.put(key, value);
+						}
+					}
+					returnVal = true;
+				}
+				return returnVal;
+			}
+		};
+	}
 
-  public LRUCache() {
-    this(new EmptyCache<K, V>());
-  }
+	public LRUCache() {
+		this(new EmptyCache<K, V>());
+	}
 
-  /**
-   * Retrieves an entry from the cache.<br>
-   * The retrieved entry becomes the MRU (most recently used) entry.
-   * 
-   * @param key
-   *          the key whose associated value is to be returned.
-   * @return the value associated to this key, or {@code null} if no value with this
-   *         key exists in the cache
-   */
-  @Override
-  public V get(final @Nonnull K key) {
-    V page = mMap.get(key);
-    if (page == null) {
-      page = mSecondCache.get(key);
-    }
-    return page;
-  }
+	/**
+	 * Retrieves an entry from the cache.<br>
+	 * The retrieved entry becomes the MRU (most recently used) entry.
+	 * 
+	 * @param key
+	 *          the key whose associated value is to be returned.
+	 * @return the value associated to this key, or {@code null} if no value with
+	 *         this key exists in the cache
+	 */
+	@Override
+	public V get(final @Nonnull K key) {
+		V page = mMap.get(key);
+		if (page == null) {
+			page = mSecondCache.get(key);
+		}
+		return page;
+	}
 
-  /**
-   * 
-   * Adds an entry to this cache. If the cache is full, the LRU (least
-   * recently used) entry is dropped.
-   * 
-   * @param key
-   *          the key with which the specified value is to be associated
-   * @param value
-   *          a value to be associated with the specified key
-   */
-  @Override
-  public void put(final @Nonnull K key, final @Nonnull V value) {
-    mMap.put(key, value);
-  }
+	/**
+	 * 
+	 * Adds an entry to this cache. If the cache is full, the LRU (least recently
+	 * used) entry is dropped.
+	 * 
+	 * @param key
+	 *          the key with which the specified value is to be associated
+	 * @param value
+	 *          a value to be associated with the specified key
+	 */
+	@Override
+	public void put(final @Nonnull K key, final @Nonnull V value) {
+		mMap.put(key, value);
+	}
 
-  /**
-   * Clears the cache.
-   */
-  @Override
-  public void clear() {
-    mMap.clear();
-    mSecondCache.clear();
-  }
+	/**
+	 * Clears the cache.
+	 */
+	@Override
+	public void clear() {
+		mMap.clear();
+		mSecondCache.clear();
+	}
 
-  /**
-   * Returns the number of used entries in the cache.
-   * 
-   * @return the number of entries currently in the cache.
-   */
-  public int usedEntries() {
-    return mMap.size();
-  }
+	/**
+	 * Returns the number of used entries in the cache.
+	 * 
+	 * @return the number of entries currently in the cache.
+	 */
+	public int usedEntries() {
+		return mMap.size();
+	}
 
-  /**
-   * Returns a {@code Collection} that contains a copy of all cache
-   * entries.
-   * 
-   * @return a {@code Collection} with a copy of the cache content
-   */
-  public Collection<Map.Entry<K, V>> getAll() {
-    return new ArrayList<>(mMap.entrySet());
-  }
+	/**
+	 * Returns a {@code Collection} that contains a copy of all cache entries.
+	 * 
+	 * @return a {@code Collection} with a copy of the cache content
+	 */
+	public Collection<Map.Entry<K, V>> getAll() {
+		return new ArrayList<>(mMap.entrySet());
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("First Cache", mMap).add(
-      "Second Cache", mSecondCache).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("First Cache", mMap)
+				.add("Second Cache", mSecondCache).toString();
+	}
 
-  @Override
-  public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> keys) {
-    final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
-    for (final K key : keys) {
-      if (mMap.get(key) != null) {
-        builder.put(key, mMap.get(key));
-      }
-    }
-    return builder.build();
-  }
+	@Override
+	public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> keys) {
+		final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
+		for (final K key : keys) {
+			if (mMap.get(key) != null) {
+				builder.put(key, mMap.get(key));
+			}
+		}
+		return builder.build();
+	}
 
-  @Override
-  public void putAll(final @Nonnull Map<K, V> map) {
-    mMap.putAll(checkNotNull(map));
-  }
+	@Override
+	public void putAll(final @Nonnull Map<K, V> map) {
+		mMap.putAll(checkNotNull(map));
+	}
 
-  @Override
-  public void toSecondCache() {
-    mSecondCache.putAll(mMap);
-  }
+	@Override
+	public void toSecondCache() {
+		mSecondCache.putAll(mMap);
+	}
 
-  /**
-   * Get a view of the underlying map.
-   * 
-   * @return an unmodifiable view of all entries in the cache
-   */
-  public Map<K, V> getMap() {
-    return Collections.unmodifiableMap(mMap);
-  }
-  
-  @Override
-  public void remove(final @Nonnull K key) {
-    mMap.remove(key);
-    if (mSecondCache.get(key) != null) {
-      mSecondCache.remove(key);
-    }
-  }
+	/**
+	 * Get a view of the underlying map.
+	 * 
+	 * @return an unmodifiable view of all entries in the cache
+	 */
+	public Map<K, V> getMap() {
+		return Collections.unmodifiableMap(mMap);
+	}
+
+	@Override
+	public void remove(final @Nonnull K key) {
+		mMap.remove(key);
+		if (mSecondCache.get(key) != null) {
+			mSecondCache.remove(key);
+		}
+	}
 
 	@Override
 	public void close() {

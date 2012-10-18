@@ -26,39 +26,44 @@ import org.junit.Test;
  */
 public class NodeEncryptionTest {
 
-  @Test
-  public final void testEncrypt() {
+	@Test
+	public final void testEncrypt() {
 
-    final String aString = "This is a example string for en- and decryption testing";
+		final String aString = "This is a example string for en- and decryption testing";
 
-    final byte[] bytesString = aString.getBytes();
+		final byte[] bytesString = aString.getBytes();
 
-    // final byte[] bytesEncrypt = NodeEncryption.getInstance().encrypt(bytesString);
-    //
-    // final byte[] bytesDecrypt = NodeEncryption.getInstance().decrypt(bytesEncrypt);
+		// final byte[] bytesEncrypt =
+		// NodeEncryption.getInstance().encrypt(bytesString);
+		//
+		// final byte[] bytesDecrypt =
+		// NodeEncryption.getInstance().decrypt(bytesEncrypt);
 
-    // StringBuilder sb = new StringBuilder();
-    // for(byte aByte: bytesString){
-    // sb.append(aByte+ " "+ (aByte&0xff)+" "+Integer.toBinaryString(aByte & 0xff) );
-    // }
-    // System.out.println("Orginal: "+ sb);
-    //
-    // sb = new StringBuilder();
-    // for(byte aByte: bytesEncrypt){
-    // sb.append(aByte+ " "+ (aByte&0xff)+" "+Integer.toBinaryString(aByte & 0xff) );
-    // }
-    // System.out.println("Encrypted: "+ sb);
-    //
-    //
-    //
-    // sb = new StringBuilder();
-    // for(byte aByte: bytesDecrypt){
-    // sb.append(aByte+ " "+ (aByte&0xff)+" "+Integer.toBinaryString(aByte & 0xff) );
-    // }
-    // System.out.println("Decrypted: "+ sb);
+		// StringBuilder sb = new StringBuilder();
+		// for(byte aByte: bytesString){
+		// sb.append(aByte+ " "+ (aByte&0xff)+" "+Integer.toBinaryString(aByte &
+		// 0xff) );
+		// }
+		// System.out.println("Orginal: "+ sb);
+		//
+		// sb = new StringBuilder();
+		// for(byte aByte: bytesEncrypt){
+		// sb.append(aByte+ " "+ (aByte&0xff)+" "+Integer.toBinaryString(aByte &
+		// 0xff) );
+		// }
+		// System.out.println("Encrypted: "+ sb);
+		//
+		//
+		//
+		// sb = new StringBuilder();
+		// for(byte aByte: bytesDecrypt){
+		// sb.append(aByte+ " "+ (aByte&0xff)+" "+Integer.toBinaryString(aByte &
+		// 0xff) );
+		// }
+		// System.out.println("Decrypted: "+ sb);
 
-    // assertArrayEquals(bytesString, bytesDecrypt);
+		// assertArrayEquals(bytesString, bytesDecrypt);
 
-  }
+	}
 
 }

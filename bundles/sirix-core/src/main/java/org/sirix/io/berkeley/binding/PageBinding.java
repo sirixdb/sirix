@@ -53,54 +53,54 @@ import org.slf4j.LoggerFactory;
  */
 public final class PageBinding extends TupleBinding<Page> {
 
-  /** Logger. */
-  private static final Logger LOGGER = LoggerFactory
-    .getLogger(PageBinding.class);
+	/** Logger. */
+	private static final Logger LOGGER = LoggerFactory
+			.getLogger(PageBinding.class);
 
-  /** {@link ByteHandlePipeline} reference. */
-  private final ByteHandlePipeline mByteHandler;
+	/** {@link ByteHandlePipeline} reference. */
+	private final ByteHandlePipeline mByteHandler;
 
-  /**
-   * Copy constructor.
-   * 
-   * @param pageBinding
-   *          page binding
-   */
-  public PageBinding(final @Nonnull PageBinding pageBinding) {
-    mByteHandler = new ByteHandlePipeline(pageBinding.mByteHandler);
-  }
+	/**
+	 * Copy constructor.
+	 * 
+	 * @param pageBinding
+	 *          page binding
+	 */
+	public PageBinding(final @Nonnull PageBinding pageBinding) {
+		mByteHandler = new ByteHandlePipeline(pageBinding.mByteHandler);
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param byteHandler
-   *          byte handler pipleine
-   */
-  public PageBinding(final @Nonnull ByteHandlePipeline byteHandler) {
-    mByteHandler = checkNotNull(byteHandler);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param byteHandler
+	 *          byte handler pipleine
+	 */
+	public PageBinding(final @Nonnull ByteHandlePipeline byteHandler) {
+		mByteHandler = checkNotNull(byteHandler);
+	}
 
-  @Override
-  public Page entryToObject(final TupleInput input) {
-    byte[] deserialized = new byte[0];
-    try {
-      deserialized = mByteHandler.deserialize(input.getBufferBytes());
-    } catch (final SirixIOException e) {
-      LOGGER.error(e.getMessage(), e);
-    }
-    return PagePersistenter.deserializePage(ByteStreams
-      .newDataInput(deserialized));
-  }
+	@Override
+	public Page entryToObject(final TupleInput input) {
+		byte[] deserialized = new byte[0];
+		try {
+			deserialized = mByteHandler.deserialize(input.getBufferBytes());
+		} catch (final SirixIOException e) {
+			LOGGER.error(e.getMessage(), e);
+		}
+		return PagePersistenter.deserializePage(ByteStreams
+				.newDataInput(deserialized));
+	}
 
-  @Override
-  public void objectToEntry(final Page page, final TupleOutput output) {
-    final ByteArrayDataOutput outputData = ByteStreams.newDataOutput();
-    PagePersistenter.serializePage(outputData, page);
-    try {
-      output.write(mByteHandler.serialize(outputData.toByteArray()));
-    } catch (final SirixIOException e) {
-      LOGGER.error(e.getMessage(), e);
-    }
-  }
+	@Override
+	public void objectToEntry(final Page page, final TupleOutput output) {
+		final ByteArrayDataOutput outputData = ByteStreams.newDataOutput();
+		PagePersistenter.serializePage(outputData, page);
+		try {
+			output.write(mByteHandler.serialize(outputData.toByteArray()));
+		} catch (final SirixIOException e) {
+			LOGGER.error(e.getMessage(), e);
+		}
+	}
 
 }

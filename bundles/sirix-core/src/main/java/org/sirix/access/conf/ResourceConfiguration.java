@@ -69,7 +69,7 @@ import com.google.gson.stream.JsonWriter;
  * @author Sebastian Graf, University of Konstanz
  */
 public final class ResourceConfiguration {
-	
+
 	/**
 	 * Paths for a {@link SessionImpl}. Each resource has the same folder layout.
 	 */
@@ -238,7 +238,7 @@ public final class ResourceConfiguration {
 		mID = id;
 		return this;
 	}
-	
+
 	/**
 	 * Get the unique ID.
 	 * 

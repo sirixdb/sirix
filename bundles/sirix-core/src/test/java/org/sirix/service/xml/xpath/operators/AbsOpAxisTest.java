@@ -44,43 +44,47 @@ import org.sirix.service.xml.xpath.types.Type;
 
 public class AbsOpAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.deleteEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.deleteEverything();
+	}
 
-  @Test
-  public final void testHasNext() throws SirixException {
+	@Test
+	public final void testHasNext() throws SirixException {
 
-    final AtomicValue item1 = new AtomicValue(1.0, Type.DOUBLE);
-    final AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
+		final AtomicValue item1 = new AtomicValue(1.0, Type.DOUBLE);
+		final AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
-    AbstractAxis op1 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item1));
-    AbstractAxis op2 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item2));
-    AbstractObAxis axis = new DivOpAxis(holder.getRtx(), op1, op2);
+		AbstractAxis op1 = new LiteralExpr(holder.getRtx(), holder.getRtx()
+				.getItemList().addItem(item1));
+		AbstractAxis op2 = new LiteralExpr(holder.getRtx(), holder.getRtx()
+				.getItemList().addItem(item2));
+		AbstractObAxis axis = new DivOpAxis(holder.getRtx(), op1, op2);
 
-    assertEquals(true, axis.hasNext());
-    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getTypeKey());
-    assertEquals(false, axis.hasNext());
+		assertEquals(true, axis.hasNext());
+		assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx()
+				.getTypeKey());
+		assertEquals(false, axis.hasNext());
 
-    // here both operands are the empty sequence
-    axis = new DivOpAxis(holder.getRtx(), op1, op2);
-    assertEquals(true, axis.hasNext());
-    axis.next();
-    assertThat(Double.NaN, is(Double.parseDouble(holder.getRtx().getValue())));
-    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getTypeKey());
-    assertEquals(false, axis.hasNext());
+		// here both operands are the empty sequence
+		axis = new DivOpAxis(holder.getRtx(), op1, op2);
+		assertEquals(true, axis.hasNext());
+		axis.next();
+		assertThat(Double.NaN, is(Double.parseDouble(holder.getRtx().getValue())));
+		assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx()
+				.getTypeKey());
+		assertEquals(false, axis.hasNext());
 
-  }
+	}
 
 }

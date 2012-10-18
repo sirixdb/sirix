@@ -38,50 +38,45 @@ import org.sirix.settings.Fixed;
 
 public class DocumentNodeAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.deleteEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.deleteEverything();
+	}
 
-  @Test
-  public void testIterate() throws SirixException {
+	@Test
+	public void testIterate() throws SirixException {
 
-    holder.getRtx().moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {
-      Fixed.ROOT_PAGE_KEY.getStandardProperty()
-    });
+		holder.getRtx().moveTo(1L);
+		AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()),
+				new long[] { Fixed.ROOT_PAGE_KEY.getStandardProperty() });
 
-    holder.getRtx().moveTo(5L);
-    AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {
-      Fixed.ROOT_PAGE_KEY.getStandardProperty()
-    });
+		holder.getRtx().moveTo(5L);
+		AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()),
+				new long[] { Fixed.ROOT_PAGE_KEY.getStandardProperty() });
 
-    holder.getRtx().moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {
-      Fixed.ROOT_PAGE_KEY.getStandardProperty()
-    });
+		holder.getRtx().moveTo(9L);
+		AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()),
+				new long[] { Fixed.ROOT_PAGE_KEY.getStandardProperty() });
 
-    holder.getRtx().moveTo(9L);
-    holder.getRtx().moveToAttribute(0);
-    AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {
-      Fixed.ROOT_PAGE_KEY.getStandardProperty()
-    });
+		holder.getRtx().moveTo(9L);
+		holder.getRtx().moveToAttribute(0);
+		AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()),
+				new long[] { Fixed.ROOT_PAGE_KEY.getStandardProperty() });
 
-    holder.getRtx().moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()), new long[] {
-      Fixed.ROOT_PAGE_KEY.getStandardProperty()
-    });
+		holder.getRtx().moveTo(13L);
+		AbsAxisTest.testIAxisConventions(new DocumentNodeAxis(holder.getRtx()),
+				new long[] { Fixed.ROOT_PAGE_KEY.getStandardProperty() });
 
-  }
+	}
 
 }

@@ -9,6 +9,6 @@ import org.sirix.api.visitor.Visitor;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 enum LocalVisitResult implements VisitResult {
-  /** Pop from the right sibling stack. */
-  SKIPSUBTREEPOPSTACK
+	/** Pop from the right sibling stack. */
+	SKIPSUBTREEPOPSTACK
 }

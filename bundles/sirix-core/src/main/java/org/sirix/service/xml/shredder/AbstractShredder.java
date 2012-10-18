@@ -85,7 +85,8 @@ public abstract class AbstractShredder implements Shredder<String, QName> {
 	}
 
 	@Override
-	public void processText(final @Nonnull String textValue) throws SirixException {
+	public void processText(final @Nonnull String textValue)
+			throws SirixException {
 		final String text = checkNotNull(textValue);
 		long key;
 		if (!text.isEmpty()) {
@@ -101,7 +102,8 @@ public abstract class AbstractShredder implements Shredder<String, QName> {
 	}
 
 	@Override
-	public void processStartTag(final @Nonnull QName elementName) throws SirixException {
+	public void processStartTag(final @Nonnull QName elementName)
+			throws SirixException {
 		final QName name = checkNotNull(elementName);
 		long key = -1;
 		switch (mInsertLocation) {

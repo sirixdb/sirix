@@ -37,37 +37,37 @@ import org.sirix.exception.SirixException;
 
 public class AttributeFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testIFilterConvetions() throws SirixException {
-    final NodeReadTrx wtx = holder.getRtx();
-    wtx.moveTo(9L);
-    IFilterTest.testIFilterConventions(new AttributeFilter(wtx), false);
+	@Test
+	public void testIFilterConvetions() throws SirixException {
+		final NodeReadTrx wtx = holder.getRtx();
+		wtx.moveTo(9L);
+		IFilterTest.testIFilterConventions(new AttributeFilter(wtx), false);
 
-    wtx.moveTo(4L);
-    IFilterTest.testIFilterConventions(new AttributeFilter(wtx), false);
+		wtx.moveTo(4L);
+		IFilterTest.testIFilterConventions(new AttributeFilter(wtx), false);
 
-    wtx.moveTo(1L);
-    wtx.moveToAttribute(0);
-    IFilterTest.testIFilterConventions(new AttributeFilter(wtx), true);
+		wtx.moveTo(1L);
+		wtx.moveToAttribute(0);
+		IFilterTest.testIFilterConventions(new AttributeFilter(wtx), true);
 
-    wtx.moveTo(9L);
-    wtx.moveToAttribute(0);
-    IFilterTest.testIFilterConventions(new AttributeFilter(wtx), true);
-  }
+		wtx.moveTo(9L);
+		wtx.moveToAttribute(0);
+		IFilterTest.testIFilterConventions(new AttributeFilter(wtx), true);
+	}
 
 }

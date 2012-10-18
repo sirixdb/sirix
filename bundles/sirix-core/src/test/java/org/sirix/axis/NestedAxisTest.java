@@ -41,86 +41,90 @@ import org.sirix.exception.SirixException;
 
 public class NestedAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testNestedAxisTest() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testNestedAxisTest() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    // Find descendants starting from nodeKey 0L (root).
-    rtx.moveToDocumentRoot();
+		// Find descendants starting from nodeKey 0L (root).
+		rtx.moveToDocumentRoot();
 
-    // XPath expression /p:a/b/text()
-    // Part: /p:a
-    final AbstractAxis childA = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "p:a"));
-    // Part: /b
-    final AbstractAxis childB = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "b"));
-    // Part: /text()
-    final AbstractAxis text = new FilterAxis(new ChildAxis(rtx), new TextFilter(rtx));
-    // Part: /p:a/b/text()
-    final AbstractAxis axis = new NestedAxis(new NestedAxis(childA, childB), text);
+		// XPath expression /p:a/b/text()
+		// Part: /p:a
+		final AbstractAxis childA = new FilterAxis(new ChildAxis(rtx),
+				new NameFilter(rtx, "p:a"));
+		// Part: /b
+		final AbstractAxis childB = new FilterAxis(new ChildAxis(rtx),
+				new NameFilter(rtx, "b"));
+		// Part: /text()
+		final AbstractAxis text = new FilterAxis(new ChildAxis(rtx),
+				new TextFilter(rtx));
+		// Part: /p:a/b/text()
+		final AbstractAxis axis = new NestedAxis(new NestedAxis(childA, childB),
+				text);
 
-    AbsAxisTest.testIAxisConventions(axis, new long[] {
-      6L, 12L
-    });
-  }
+		AbsAxisTest.testIAxisConventions(axis, new long[] { 6L, 12L });
+	}
 
-  @Test
-  public void testNestedAxisTest2() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testNestedAxisTest2() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    // Find descendants starting from nodeKey 0L (root).
-    rtx.moveToDocumentRoot();
+		// Find descendants starting from nodeKey 0L (root).
+		rtx.moveToDocumentRoot();
 
-    // XPath expression /[:a/b/@p:x]
-    // Part: /p:a
-    final AbstractAxis childA = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "p:a"));
-    // Part: /b
-    final AbstractAxis childB = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "b"));
-    // Part: /@x
-    final AbstractAxis attributeX = new FilterAxis(new AttributeAxis(rtx), new NameFilter(rtx, "p:x"));
-    // Part: /p:a/b/@p:x
-    final AbstractAxis axis = new NestedAxis(new NestedAxis(childA, childB), attributeX);
+		// XPath expression /[:a/b/@p:x]
+		// Part: /p:a
+		final AbstractAxis childA = new FilterAxis(new ChildAxis(rtx),
+				new NameFilter(rtx, "p:a"));
+		// Part: /b
+		final AbstractAxis childB = new FilterAxis(new ChildAxis(rtx),
+				new NameFilter(rtx, "b"));
+		// Part: /@x
+		final AbstractAxis attributeX = new FilterAxis(new AttributeAxis(rtx),
+				new NameFilter(rtx, "p:x"));
+		// Part: /p:a/b/@p:x
+		final AbstractAxis axis = new NestedAxis(new NestedAxis(childA, childB),
+				attributeX);
 
-    AbsAxisTest.testIAxisConventions(axis, new long[] {
-      10L
-    });
+		AbsAxisTest.testIAxisConventions(axis, new long[] { 10L });
 
-  }
+	}
 
-  @Test
-  public void testNestedAxisTest3() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testNestedAxisTest3() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    // Find desceFndants starting from nodeKey 0L (root).
-    rtx.moveToDocumentRoot();
+		// Find desceFndants starting from nodeKey 0L (root).
+		rtx.moveToDocumentRoot();
 
-    // XPath expression p:a/node():
-    // Part: /p:a
-    final AbstractAxis childA = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "p:a"));
+		// XPath expression p:a/node():
+		// Part: /p:a
+		final AbstractAxis childA = new FilterAxis(new ChildAxis(rtx),
+				new NameFilter(rtx, "p:a"));
 
-    // Part: /node()
-    final AbstractAxis childNode = new FilterAxis(new ChildAxis(rtx), new NodeFilter(rtx));
+		// Part: /node()
+		final AbstractAxis childNode = new FilterAxis(new ChildAxis(rtx),
+				new NodeFilter(rtx));
 
-    // Part: /p:a/node():
-    final AbstractAxis axis = new NestedAxis(childA, childNode);
+		// Part: /p:a/node():
+		final AbstractAxis axis = new NestedAxis(childA, childNode);
 
-    AbsAxisTest.testIAxisConventions(axis, new long[] {
-      4L, 5L, 8L, 9L, 13L
-    });
+		AbsAxisTest.testIAxisConventions(axis, new long[] { 4L, 5L, 8L, 9L, 13L });
 
-  }
+	}
 }

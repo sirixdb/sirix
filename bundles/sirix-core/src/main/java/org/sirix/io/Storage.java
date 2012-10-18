@@ -30,54 +30,55 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandler;
 
 /**
- * Interface to generate access to the storage. The storage is flexible as long as {@link Reader} and
- * {@link Writer}-implementations are provided. Utility methods for common interaction with
- * the storage are provided via {@code EStorage}.
+ * Interface to generate access to the storage. The storage is flexible as long
+ * as {@link Reader} and {@link Writer}-implementations are provided. Utility
+ * methods for common interaction with the storage are provided via
+ * {@code EStorage}.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
 public interface Storage {
 
-  /**
-   * Getting a writer.
-   * 
-   * @return an {@link Writer} instance
-   * @throws SirixIOException
-   *           if the initialization fails
-   */
-  Writer getWriter() throws SirixIOException;
+	/**
+	 * Getting a writer.
+	 * 
+	 * @return an {@link Writer} instance
+	 * @throws SirixIOException
+	 *           if the initialization fails
+	 */
+	Writer getWriter() throws SirixIOException;
 
-  /**
-   * Getting a reader.
-   * 
-   * @return an {@link Reader} instance
-   * @throws SirixIOException
-   *           if the initialization fails
-   */
-  Reader getReader() throws SirixIOException;
+	/**
+	 * Getting a reader.
+	 * 
+	 * @return an {@link Reader} instance
+	 * @throws SirixIOException
+	 *           if the initialization fails
+	 */
+	Reader getReader() throws SirixIOException;
 
-  /**
-   * Closing this storage.
-   * 
-   * @throws SirixIOException
-   *           if an I/O error occurs
-   */
-  void close() throws SirixIOException;
+	/**
+	 * Closing this storage.
+	 * 
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	void close() throws SirixIOException;
 
-  /**
-   * Check if storage exists.
-   * 
-   * @return true if storage holds data, false otherwise
-   * @throws SirixIOException
-   *           if storage is not accessible
-   */
-  boolean exists() throws SirixIOException;
+	/**
+	 * Check if storage exists.
+	 * 
+	 * @return true if storage holds data, false otherwise
+	 * @throws SirixIOException
+	 *           if storage is not accessible
+	 */
+	boolean exists() throws SirixIOException;
 
-  /**
-   * Get the byte handler pipeline.
-   * 
-   * @return byte handler pipeline
-   */
-  ByteHandler getByteHandler();
+	/**
+	 * Get the byte handler pipeline.
+	 * 
+	 * @return byte handler pipeline
+	 */
+	ByteHandler getByteHandler();
 }

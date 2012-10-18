@@ -77,25 +77,25 @@ public final class LabelFMSEVisitor extends AbstractVisitor {
 	}
 
 	@Override
-  public VisitResultType visit(@Nonnull final ImmutableElement pNode) {
-    final long nodeKey = pNode.getNodeKey();
-    mRtx.moveTo(nodeKey);
-    for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
-      mRtx.moveToNamespace(i);
-      addLeafLabel();
-      mRtx.moveTo(nodeKey);
-    }
-    for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
-      mRtx.moveToAttribute(i);
-      addLeafLabel();
-      mRtx.moveTo(nodeKey);
-    }
-    if (!mLabels.containsKey(pNode.getKind())) {
-      mLabels.put(pNode.getKind(), new ArrayList<Long>());
-    }
-    mLabels.get(pNode.getKind()).add(pNode.getNodeKey());
-    return VisitResultType.CONTINUE;
-  }
+	public VisitResultType visit(@Nonnull final ImmutableElement pNode) {
+		final long nodeKey = pNode.getNodeKey();
+		mRtx.moveTo(nodeKey);
+		for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
+			mRtx.moveToNamespace(i);
+			addLeafLabel();
+			mRtx.moveTo(nodeKey);
+		}
+		for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
+			mRtx.moveToAttribute(i);
+			addLeafLabel();
+			mRtx.moveTo(nodeKey);
+		}
+		if (!mLabels.containsKey(pNode.getKind())) {
+			mLabels.put(pNode.getKind(), new ArrayList<Long>());
+		}
+		mLabels.get(pNode.getKind()).add(pNode.getNodeKey());
+		return VisitResultType.CONTINUE;
+	}
 
 	@Override
 	public VisitResultType visit(@Nonnull final ImmutableText pNode) {

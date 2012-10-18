@@ -44,56 +44,48 @@ import org.sirix.service.xml.xpath.XPathAxis;
  */
 public class IntersectAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testIntersect() throws SirixException {
+	@Test
+	public void testIntersect() throws SirixException {
 
-    holder.getRtx().moveTo(1L);
+		holder.getRtx().moveTo(1L);
 
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "child::node() intersect b"), new long[] {
-      5L, 9L
-    });
+		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(),
+				"child::node() intersect b"), new long[] { 5L, 9L });
 
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(),
-      "child::node() intersect b intersect child::node()[@p:x]"), new long[] {
-      9L
-    });
+		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(),
+				"child::node() intersect b intersect child::node()[@p:x]"),
+				new long[] { 9L });
 
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(),
-      "child::node() intersect child::node()[attribute::p:x]"), new long[] {
-      9L
-    });
+		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(),
+				"child::node() intersect child::node()[attribute::p:x]"),
+				new long[] { 9L });
 
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(),
-      "child::node()/parent::node() intersect self::node()"), new long[] {
-      1L
-    });
+		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(),
+				"child::node()/parent::node() intersect self::node()"),
+				new long[] { 1L });
 
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "//node() intersect //text()"),
-      new long[] {
-        4L, 8L, 13L, 6L, 12L
-      });
+		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(),
+				"//node() intersect //text()"), new long[] { 4L, 8L, 13L, 6L, 12L });
 
-    holder.getRtx().moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(), "b/preceding::node() intersect text()"),
-      new long[] {
-        4L, 8L
-      });
+		holder.getRtx().moveTo(1L);
+		AbsAxisTest.testIAxisConventions(new XPathAxis(holder.getRtx(),
+				"b/preceding::node() intersect text()"), new long[] { 4L, 8L });
 
-  }
+	}
 
 }

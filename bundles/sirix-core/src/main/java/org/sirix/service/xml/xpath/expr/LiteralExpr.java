@@ -39,25 +39,25 @@ import org.sirix.api.NodeReadTrx;
  */
 public class LiteralExpr extends AbstractExpression {
 
-  private final long mLiteralKey;
+	private final long mLiteralKey;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with
-   * @param mItemKey
-   *          itemKey of the literal
-   */
-  public LiteralExpr(@Nonnull final NodeReadTrx pRtx, final long pItemKey) {
-    super(pRtx);
-    mLiteralKey = pItemKey;
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pRtx
+	 *          exclusive (immutable) trx to iterate with
+	 * @param mItemKey
+	 *          itemKey of the literal
+	 */
+	public LiteralExpr(@Nonnull final NodeReadTrx pRtx, final long pItemKey) {
+		super(pRtx);
+		mLiteralKey = pItemKey;
+	}
 
-  @Override
-  public void evaluate() {
-    // Set transaction to literal.
-    mKey = mLiteralKey;
-  }
+	@Override
+	public void evaluate() {
+		// Set transaction to literal.
+		mKey = mLiteralKey;
+	}
 
 }

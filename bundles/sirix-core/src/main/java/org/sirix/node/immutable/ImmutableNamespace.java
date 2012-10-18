@@ -16,7 +16,7 @@ import org.sirix.node.interfaces.Node;
  * Immutable namespace node wrapper.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
 public class ImmutableNamespace implements NameNode {
 
@@ -32,7 +32,7 @@ public class ImmutableNamespace implements NameNode {
 	private ImmutableNamespace(final @Nonnull NamespaceNode node) {
 		mNode = checkNotNull(node);
 	}
-	
+
 	/**
 	 * Get an immutable namespace node instance.
 	 * 

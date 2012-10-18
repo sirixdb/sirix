@@ -29,8 +29,8 @@ package org.sirix.service.xml.xpath.parser;
 
 public interface XPathToken {
 
-  String getContent();
+	String getContent();
 
-  TokenType getType();
+	TokenType getType();
 
 }

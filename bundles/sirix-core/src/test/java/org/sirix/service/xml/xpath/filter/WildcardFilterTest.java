@@ -39,46 +39,53 @@ import org.sirix.exception.SirixException;
 
 public class WildcardFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.deleteEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.deleteEverything();
+	}
 
-  @Test
-  public void testIFilterConvetions() throws SirixException {
-    holder.getRtx().moveTo(9L);
-    IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "b", EType.LOCALNAME), true);
-    holder.getRtx().moveToAttribute(0);
-    // try {
-    IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "p", EType.PREFIX), true);
-    // fail("Expected an Exception, because attributes are not supported.");
-    // } catch (IllegalStateException e) {
-    // assertThat(e.getMessage(), is("Wildcards are not supported in attribute names yet."));
-    //
-    // }
-    // IFilterTest.testIFilterConventions(new
-    // WildcardFilter(holder.getRtx(), "b",
-    // true), true);
+	@Test
+	public void testIFilterConvetions() throws SirixException {
+		holder.getRtx().moveTo(9L);
+		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "b",
+				EType.LOCALNAME), true);
+		holder.getRtx().moveToAttribute(0);
+		// try {
+		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "p",
+				EType.PREFIX), true);
+		// fail("Expected an Exception, because attributes are not supported.");
+		// } catch (IllegalStateException e) {
+		// assertThat(e.getMessage(),
+		// is("Wildcards are not supported in attribute names yet."));
+		//
+		// }
+		// IFilterTest.testIFilterConventions(new
+		// WildcardFilter(holder.getRtx(), "b",
+		// true), true);
 
-    // holder.getRtx().moveTo(3L);
-    // IFilterTest.testIFilterConventions(new ItemFilter(holder.getRtx()),
-    // true);
+		// holder.getRtx().moveTo(3L);
+		// IFilterTest.testIFilterConventions(new ItemFilter(holder.getRtx()),
+		// true);
 
-    holder.getRtx().moveTo(1L);
-    IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "p", EType.PREFIX), true);
-    IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "a", EType.LOCALNAME), true);
-    IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "c", EType.LOCALNAME), false);
-    IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "b", EType.PREFIX), false);
+		holder.getRtx().moveTo(1L);
+		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "p",
+				EType.PREFIX), true);
+		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "a",
+				EType.LOCALNAME), true);
+		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "c",
+				EType.LOCALNAME), false);
+		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "b",
+				EType.PREFIX), false);
 
-  }
+	}
 }

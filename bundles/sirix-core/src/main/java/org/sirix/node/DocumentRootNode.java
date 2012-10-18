@@ -45,69 +45,69 @@ import com.google.common.base.Objects;
  * <h1>DocumentNode</h1>
  * 
  * <p>
- * Node representing the root of a document. This node is guaranteed to exist in revision 0 and can not be
- * removed.
+ * Node representing the root of a document. This node is guaranteed to exist in
+ * revision 0 and can not be removed.
  * </p>
  */
-public final class DocumentRootNode extends AbstructStructForwardingNode implements
-  StructNode {
+public final class DocumentRootNode extends AbstructStructForwardingNode
+		implements StructNode {
 
-  /** {@link NodeDelegate} reference. */
-  private final NodeDelegate mNodeDel;
+	/** {@link NodeDelegate} reference. */
+	private final NodeDelegate mNodeDel;
 
-  /** {@link StructNodeDelegate} reference. */
-  private final StructNodeDelegate mStructNodeDel;
+	/** {@link StructNodeDelegate} reference. */
+	private final StructNodeDelegate mStructNodeDel;
 
-  /**
-   * Constructor.
-   * 
-   * @param nodeDel
-   *          {@link NodeDelegate} reference
-   * @param structDel
-   *          {@link StructNodeDelegate} reference
-   */
-  public DocumentRootNode(final @Nonnull NodeDelegate nodeDel,
-    @Nonnull final StructNodeDelegate structDel) {
-    mNodeDel = checkNotNull(nodeDel);
-    mStructNodeDel = checkNotNull(structDel);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param nodeDel
+	 *          {@link NodeDelegate} reference
+	 * @param structDel
+	 *          {@link StructNodeDelegate} reference
+	 */
+	public DocumentRootNode(final @Nonnull NodeDelegate nodeDel,
+			@Nonnull final StructNodeDelegate structDel) {
+		mNodeDel = checkNotNull(nodeDel);
+		mStructNodeDel = checkNotNull(structDel);
+	}
 
-  @Override
-  public Kind getKind() {
-    return Kind.DOCUMENT_ROOT;
-  }
+	@Override
+	public Kind getKind() {
+		return Kind.DOCUMENT_ROOT;
+	}
 
-  @Override
-  public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
-  	return visitor.visit(ImmutableDocument.of(this));
-  }
-  
-  @Override
-  public int hashCode() {
-  	return Objects.hashCode(mNodeDel);
-  }
+	@Override
+	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+		return visitor.visit(ImmutableDocument.of(this));
+	}
 
-  @Override
-  public boolean equals(@Nullable final Object obj) {
-    if (obj instanceof DocumentRootNode) {
-      final DocumentRootNode other = (DocumentRootNode)obj;
-      return Objects.equal(mNodeDel, other.mNodeDel);
-    }
-    return false;
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mNodeDel);
+	}
 
-  @Override
-  public String toString() {
-    return super.toString();
-  }
+	@Override
+	public boolean equals(@Nullable final Object obj) {
+		if (obj instanceof DocumentRootNode) {
+			final DocumentRootNode other = (DocumentRootNode) obj;
+			return Objects.equal(mNodeDel, other.mNodeDel);
+		}
+		return false;
+	}
 
-  @Override
-  protected NodeDelegate delegate() {
-    return mNodeDel;
-  }
+	@Override
+	public String toString() {
+		return super.toString();
+	}
 
-  @Override
-  protected StructNodeDelegate structDelegate() {
-    return mStructNodeDel;
-  }
+	@Override
+	protected NodeDelegate delegate() {
+		return mNodeDel;
+	}
+
+	@Override
+	protected StructNodeDelegate structDelegate() {
+		return mStructNodeDel;
+	}
 }

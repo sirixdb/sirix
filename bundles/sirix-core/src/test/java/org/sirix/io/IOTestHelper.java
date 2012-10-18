@@ -47,7 +47,7 @@ public final class IOTestHelper {
 
 	/** Private constructor. */
 	private IOTestHelper() {
-  }
+	}
 
 	/**
 	 * Static method to get {@link ResourceConfiguration}

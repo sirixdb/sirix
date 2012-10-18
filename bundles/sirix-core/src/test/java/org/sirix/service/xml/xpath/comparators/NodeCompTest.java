@@ -45,87 +45,83 @@ import org.sirix.service.xml.xpath.types.Type;
 
 public class NodeCompTest {
 
-  private AbstractComparator comparator;
-  private Holder holder;
+	private AbstractComparator comparator;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-    comparator =
-      new NodeComp(holder.getRtx(), new LiteralExpr(holder.getRtx(), -2),
-        new LiteralExpr(holder.getRtx(), -1), CompKind.IS);
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+		comparator = new NodeComp(holder.getRtx(), new LiteralExpr(holder.getRtx(),
+				-2), new LiteralExpr(holder.getRtx(), -1), CompKind.IS);
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testCompare() throws SirixXPathException {
+	@Test
+	public void testCompare() throws SirixXPathException {
 
-    AtomicValue[] op1 = {
-      new AtomicValue(2, Type.INTEGER)
-    };
-    AtomicValue[] op2 = {
-      new AtomicValue(3, Type.INTEGER)
-    };
-    AtomicValue[] op3 = {
-      new AtomicValue(3, Type.INTEGER)
-    };
+		AtomicValue[] op1 = { new AtomicValue(2, Type.INTEGER) };
+		AtomicValue[] op2 = { new AtomicValue(3, Type.INTEGER) };
+		AtomicValue[] op3 = { new AtomicValue(3, Type.INTEGER) };
 
-    assertEquals(false, comparator.compare(op1, op2));
-    assertEquals(true, comparator.compare(op3, op2));
+		assertEquals(false, comparator.compare(op1, op2));
+		assertEquals(true, comparator.compare(op3, op2));
 
-    try {
-      comparator =
-        new NodeComp(holder.getRtx(), new LiteralExpr(holder.getRtx(), -2), new LiteralExpr(holder.getRtx(),
-          -1), CompKind.PRE);
-      comparator.compare(op1, op2);
-      fail("Expexcted not yet implemented exception.");
-    } catch (IllegalStateException e) {
-      assertEquals("Evaluation of node comparisons not possible", e.getMessage());
-    }
+		try {
+			comparator = new NodeComp(holder.getRtx(), new LiteralExpr(
+					holder.getRtx(), -2), new LiteralExpr(holder.getRtx(), -1),
+					CompKind.PRE);
+			comparator.compare(op1, op2);
+			fail("Expexcted not yet implemented exception.");
+		} catch (IllegalStateException e) {
+			assertEquals("Evaluation of node comparisons not possible",
+					e.getMessage());
+		}
 
-    try {
-      comparator =
-        new NodeComp(holder.getRtx(), new LiteralExpr(holder.getRtx(), -2), new LiteralExpr(holder.getRtx(),
-          -1), CompKind.FO);
-      comparator.compare(op1, op2);
-      fail("Expexcted not yet implemented exception.");
-    } catch (IllegalStateException e) {
-      assertEquals("Evaluation of node comparisons not possible", e.getMessage());
-    }
+		try {
+			comparator = new NodeComp(holder.getRtx(), new LiteralExpr(
+					holder.getRtx(), -2), new LiteralExpr(holder.getRtx(), -1),
+					CompKind.FO);
+			comparator.compare(op1, op2);
+			fail("Expexcted not yet implemented exception.");
+		} catch (IllegalStateException e) {
+			assertEquals("Evaluation of node comparisons not possible",
+					e.getMessage());
+		}
 
-  }
+	}
 
-  @Test
-  public void testAtomize() throws SirixXPathException {
-    Axis axis = new LiteralExpr(holder.getRtx(), -2);
-    axis.hasNext();
-    axis.next();
-    AtomicValue[] value = comparator.atomize(axis);
-    assertEquals(value.length, 1);
-    assertEquals(holder.getRtx().getNodeKey(), value[0].getNodeKey());
-    assertEquals("xs:integer", value[0].getType());
+	@Test
+	public void testAtomize() throws SirixXPathException {
+		Axis axis = new LiteralExpr(holder.getRtx(), -2);
+		axis.hasNext();
+		axis.next();
+		AtomicValue[] value = comparator.atomize(axis);
+		assertEquals(value.length, 1);
+		assertEquals(holder.getRtx().getNodeKey(), value[0].getNodeKey());
+		assertEquals("xs:integer", value[0].getType());
 
-    try {
-      axis = new DescendantAxis(holder.getRtx());
-      axis.hasNext();
-      comparator.atomize(axis);
-    } catch (SirixXPathException e) {
-      assertEquals("err:XPTY0004 The type is not appropriate the expression or"
-        + " the typedoes not match a required type as specified by the " + "matching rules. ", e.getMessage());
-    }
+		try {
+			axis = new DescendantAxis(holder.getRtx());
+			axis.hasNext();
+			comparator.atomize(axis);
+		} catch (SirixXPathException e) {
+			assertEquals("err:XPTY0004 The type is not appropriate the expression or"
+					+ " the typedoes not match a required type as specified by the "
+					+ "matching rules. ", e.getMessage());
+		}
 
-  }
+	}
 
-  @Test
-  public void testGetType() throws SirixXPathException {
+	@Test
+	public void testGetType() throws SirixXPathException {
 
-    assertEquals(Type.INTEGER, comparator.getType(123, 2435));
-  }
+		assertEquals(Type.INTEGER, comparator.getType(123, 2435));
+	}
 }

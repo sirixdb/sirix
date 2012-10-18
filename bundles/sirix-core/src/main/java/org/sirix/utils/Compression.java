@@ -48,105 +48,110 @@ import org.slf4j.LoggerFactory;
  */
 public class Compression {
 
-  /** Logger. */
-  private static final Logger LOGWRAPPER = LoggerFactory.getLogger(Compression.class);
-  
-  /** Buffer size. */
-  public static final int BUFFER_SIZE = 1024;
-  
+	/** Logger. */
+	private static final Logger LOGWRAPPER = LoggerFactory
+			.getLogger(Compression.class);
 
-  /** Compressor. */
-  private static final Deflater mCompressor = new Deflater();
+	/** Buffer size. */
+	public static final int BUFFER_SIZE = 1024;
 
-  /** Decompressor. */
-  private static final Inflater mDecompressor = new Inflater();
+	/** Compressor. */
+	private static final Deflater mCompressor = new Deflater();
 
-  /**
-   * Compress data based on the {@link Deflater}.
-   * 
-   * @param pToCompress
-   *          input byte-array
-   * @param pLevel
-   *          compression level (between -1 and 9 whereas 0 is the weakest and -1 is default)
-   * @return compressed byte-array
-   * @throws NullPointerException
-   *           if {@code pToCompress} is {@code null}
-   */
-  public static byte[] compress(@Nonnull final byte[] pToCompress, final int pLevel) {
-    checkNotNull(pToCompress);
-    checkArgument(pLevel >= -1 && pLevel <= 9, "pLevel must be between 0 and 9!");
+	/** Decompressor. */
+	private static final Inflater mDecompressor = new Inflater();
 
-    // Compressed result.
-    byte[] compressed = new byte[] {};
+	/**
+	 * Compress data based on the {@link Deflater}.
+	 * 
+	 * @param pToCompress
+	 *          input byte-array
+	 * @param pLevel
+	 *          compression level (between -1 and 9 whereas 0 is the weakest and
+	 *          -1 is default)
+	 * @return compressed byte-array
+	 * @throws NullPointerException
+	 *           if {@code pToCompress} is {@code null}
+	 */
+	public static byte[] compress(@Nonnull final byte[] pToCompress,
+			final int pLevel) {
+		checkNotNull(pToCompress);
+		checkArgument(pLevel >= -1 && pLevel <= 9,
+				"pLevel must be between 0 and 9!");
 
-    // Set compression level.
-    mCompressor.setLevel(pLevel);
+		// Compressed result.
+		byte[] compressed = new byte[] {};
 
-    // Give the compressor the data to compress.
-    mCompressor.reset();
-    mCompressor.setInput(pToCompress);
-    mCompressor.finish();
+		// Set compression level.
+		mCompressor.setLevel(pLevel);
 
-    /*
-     * Create an expandable byte array to hold the compressed data.
-     * You cannot use an array that's the same size as the orginal because
-     * there is no guarantee that the compressed data will be smaller than
-     * the uncompressed data.
-     */
-    try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(pToCompress.length)) {
-      // Compress the data.
-      final byte[] buf = new byte[BUFFER_SIZE];
-      while (!mCompressor.finished()) {
-        final int count = mCompressor.deflate(buf);
-        bos.write(buf, 0, count);
-      }
+		// Give the compressor the data to compress.
+		mCompressor.reset();
+		mCompressor.setInput(pToCompress);
+		mCompressor.finish();
 
-      // Get the compressed data.
-      compressed = bos.toByteArray();
-    } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
+		/*
+		 * Create an expandable byte array to hold the compressed data. You cannot
+		 * use an array that's the same size as the orginal because there is no
+		 * guarantee that the compressed data will be smaller than the uncompressed
+		 * data.
+		 */
+		try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(
+				pToCompress.length)) {
+			// Compress the data.
+			final byte[] buf = new byte[BUFFER_SIZE];
+			while (!mCompressor.finished()) {
+				final int count = mCompressor.deflate(buf);
+				bos.write(buf, 0, count);
+			}
 
-    return compressed;
-  }
+			// Get the compressed data.
+			compressed = bos.toByteArray();
+		} catch (final IOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
 
-  /**
-   * Decompress data based on the {@link Inflater}.
-   * 
-   * @param pCompressed
-   *          input string
-   * @return compressed byte-array
-   * @throws NullPointerException
-   *           if {@code pCompressed} is {@code null}
-   */
-  public static byte[] decompress(@Nonnull final byte[] pCompressed) {
-    checkNotNull(pCompressed);
+		return compressed;
+	}
 
-    // Reset the decompressor and give it the data to compress.
-    mDecompressor.reset();
-    mDecompressor.setInput(pCompressed);
+	/**
+	 * Decompress data based on the {@link Inflater}.
+	 * 
+	 * @param pCompressed
+	 *          input string
+	 * @return compressed byte-array
+	 * @throws NullPointerException
+	 *           if {@code pCompressed} is {@code null}
+	 */
+	public static byte[] decompress(@Nonnull final byte[] pCompressed) {
+		checkNotNull(pCompressed);
 
-    byte[] decompressed = new byte[] {};
+		// Reset the decompressor and give it the data to compress.
+		mDecompressor.reset();
+		mDecompressor.setInput(pCompressed);
 
-    // Create an expandable byte array to hold the decompressed data.
-    try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(pCompressed.length)) {
-      // Decompress the data.
-      final byte[] buf = new byte[BUFFER_SIZE];
-      while (!mDecompressor.finished()) {
-        try {
-          final int count = mDecompressor.inflate(buf);
-          bos.write(buf, 0, count);
-        } catch (final DataFormatException e) {
-          LOGWRAPPER.error(e.getMessage(), e);
-          throw new RuntimeException(e);
-        }
-      }
-      // Get the decompressed data.
-      decompressed = bos.toByteArray();
-    } catch (final IOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
+		byte[] decompressed = new byte[] {};
 
-    return decompressed;
-  }
+		// Create an expandable byte array to hold the decompressed data.
+		try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(
+				pCompressed.length)) {
+			// Decompress the data.
+			final byte[] buf = new byte[BUFFER_SIZE];
+			while (!mDecompressor.finished()) {
+				try {
+					final int count = mDecompressor.inflate(buf);
+					bos.write(buf, 0, count);
+				} catch (final DataFormatException e) {
+					LOGWRAPPER.error(e.getMessage(), e);
+					throw new RuntimeException(e);
+				}
+			}
+			// Get the decompressed data.
+			decompressed = bos.toByteArray();
+		} catch (final IOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+
+		return decompressed;
+	}
 }

@@ -40,37 +40,37 @@ import org.sirix.api.NodeReadTrx;
  */
 public class TypeFilter extends AbstractFilter {
 
-  /** Type information. */
-  private final int mType;
+	/** Type information. */
+	private final int mType;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pRtx
-   *          transaction this filter is bound to
-   * @param pType
-   *          type to match
-   */
-  public TypeFilter(final @Nonnull NodeReadTrx pRtx, final int pType) {
-    super(pRtx);
-    mType = pType;
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pRtx
+	 *          transaction this filter is bound to
+	 * @param pType
+	 *          type to match
+	 */
+	public TypeFilter(final @Nonnull NodeReadTrx pRtx, final int pType) {
+		super(pRtx);
+		mType = pType;
+	}
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pRtx
-   *          transaction this filter is bound to
-   * @param pTypeName
-   *          name of the type to match
-   */
-  public TypeFilter(final NodeReadTrx pRtx, final @Nonnull String pTypeName) {
-    this(pRtx, pRtx.keyForName(pTypeName));
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pRtx
+	 *          transaction this filter is bound to
+	 * @param pTypeName
+	 *          name of the type to match
+	 */
+	public TypeFilter(final NodeReadTrx pRtx, final @Nonnull String pTypeName) {
+		this(pRtx, pRtx.keyForName(pTypeName));
+	}
 
-  @Override
-  public final boolean filter() {
-    return getTrx().getTypeKey() == mType;
-  }
+	@Override
+	public final boolean filter() {
+		return getTrx().getTypeKey() == mType;
+	}
 
 }

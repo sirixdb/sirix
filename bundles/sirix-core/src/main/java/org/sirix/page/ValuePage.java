@@ -45,54 +45,54 @@ import com.google.common.io.ByteArrayDataInput;
  */
 public class ValuePage extends AbstractForwardingPage {
 
-  /** {@link PageDelegate} instance. */
-  private final PageDelegate mDelegate;
+	/** {@link PageDelegate} instance. */
+	private final PageDelegate mDelegate;
 
-  /** Offset of indirect page reference. */
-  private static final int INDIRECT_REFERENCE_OFFSET = 0;
+	/** Offset of indirect page reference. */
+	private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
-  /**
-   * Metadata for the revision.
-   * 
-   * @param revision
-   *          revision number
-   * @throws IllegalArgumentException
-   *           if {@code pRevision} < 0
-   */
-  public ValuePage(final @Nonnegative int revision) {
-    checkArgument(revision >= 0, "pRevision must be >= 0!");
-    mDelegate = new PageDelegate(1, revision);
-  }
+	/**
+	 * Metadata for the revision.
+	 * 
+	 * @param revision
+	 *          revision number
+	 * @throws IllegalArgumentException
+	 *           if {@code pRevision} < 0
+	 */
+	public ValuePage(final @Nonnegative int revision) {
+		checkArgument(revision >= 0, "pRevision must be >= 0!");
+		mDelegate = new PageDelegate(1, revision);
+	}
 
-  /**
-   * Get indirect page reference.
-   * 
-   * @return indirect page reference
-   */
-  public PageReference getIndirectPageReference() {
-    return getReference(INDIRECT_REFERENCE_OFFSET);
-  }
+	/**
+	 * Get indirect page reference.
+	 * 
+	 * @return indirect page reference
+	 */
+	public PageReference getIndirectPageReference() {
+		return getReference(INDIRECT_REFERENCE_OFFSET);
+	}
 
-  /**
-   * Read meta page.
-   * 
-   * @param in
-   *          input bytes to read from
-   */
-  protected ValuePage(final @Nonnull ByteArrayDataInput in) {
-    mDelegate = new PageDelegate(1, in);
-  }
+	/**
+	 * Read meta page.
+	 * 
+	 * @param in
+	 *          input bytes to read from
+	 */
+	protected ValuePage(final @Nonnull ByteArrayDataInput in) {
+		mDelegate = new PageDelegate(1, in);
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("mDelegate", mDelegate).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("mDelegate", mDelegate).toString();
+	}
 
-  @Override
-  protected Page delegate() {
-    return mDelegate;
-  }
-  
+	@Override
+	protected Page delegate() {
+		return mDelegate;
+	}
+
 	@Override
 	public Page setDirty(final boolean pDirty) {
 		mDelegate.setDirty(pDirty);

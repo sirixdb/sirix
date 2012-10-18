@@ -38,22 +38,22 @@ import org.sirix.diff.DiffFactory.DiffType;
  * 
  */
 public interface DiffObserver {
-  /**
-   * Called for every node comparsion.
-   * 
-   * @param diffType
-   *          the {@link DiffType} type
-   * @param pNewNode
-   *          node key of node in new revision
-   * @param pOldNode
-   *          node key of node in old revision
-   * @param depth
-   *          current {@link DiffDepth} instance
-   */
+	/**
+	 * Called for every node comparsion.
+	 * 
+	 * @param diffType
+	 *          the {@link DiffType} type
+	 * @param pNewNode
+	 *          node key of node in new revision
+	 * @param pOldNode
+	 *          node key of node in old revision
+	 * @param depth
+	 *          current {@link DiffDepth} instance
+	 */
 	void diffListener(@Nonnull final DiffType diffType,
 			@Nonnull final long newNodeKey, @Nonnull final long pOldNodeKey,
-    @Nonnull final DiffDepth depth);
+			@Nonnull final DiffDepth depth);
 
-  /** Signals that the diff calculation is done. */
-  void diffDone();
+	/** Signals that the diff calculation is done. */
+	void diffDone();
 }

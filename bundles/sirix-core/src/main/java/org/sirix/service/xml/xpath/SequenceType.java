@@ -32,97 +32,100 @@ import org.sirix.api.Filter;
 /**
  * <h1>SequenceType</h1>
  * <p>
- * A sequence type defines a type a the items in a sequnce can have. It consists of either an
- * empty-sequence-test, or an ItemType(kind test, item() or atomic value) and an optional wildcard (*, ?, +)
+ * A sequence type defines a type a the items in a sequnce can have. It consists
+ * of either an empty-sequence-test, or an ItemType(kind test, item() or atomic
+ * value) and an optional wildcard (*, ?, +)
  * </p>
  */
 public class SequenceType {
 
-  private final boolean mIsEmptySequence;
+	private final boolean mIsEmptySequence;
 
-  private final Filter mFilter;
+	private final Filter mFilter;
 
-  private final boolean mHasWildcard;
+	private final boolean mHasWildcard;
 
-  private final char mWildcard;
+	private final char mWildcard;
 
-  /**
-   * Constructor with no arguments means, the sequence type is the empty
-   * sequence.
-   */
-  public SequenceType() {
+	/**
+	 * Constructor with no arguments means, the sequence type is the empty
+	 * sequence.
+	 */
+	public SequenceType() {
 
-    mIsEmptySequence = true;
-    mHasWildcard = false;
-    mWildcard = ' ';
-    mFilter = null;
-  }
+		mIsEmptySequence = true;
+		mHasWildcard = false;
+		mWildcard = ' ';
+		mFilter = null;
+	}
 
-  /**
-   * Constructor. Sequence type is an ItemType.
-   * 
-   * @param mFilter
-   *          item type filter
-   */
-  public SequenceType(final Filter mFilter) {
+	/**
+	 * Constructor. Sequence type is an ItemType.
+	 * 
+	 * @param mFilter
+	 *          item type filter
+	 */
+	public SequenceType(final Filter mFilter) {
 
-    mIsEmptySequence = false;
-    this.mFilter = mFilter;
-    mHasWildcard = false;
-    mWildcard = ' ';
-  }
+		mIsEmptySequence = false;
+		this.mFilter = mFilter;
+		mHasWildcard = false;
+		mWildcard = ' ';
+	}
 
-  /**
-   * Constructor. Sequence type is an ItemType with an wildcard. <li>'ItemType ?' means the sequence has zero
-   * or one items that are of the ItemType</li> <li>'ItemType +' means the sequence one or more items that are
-   * of the ItemType</li> <li>'ItemType *' means the sequence has zero or more items that are of the ItemType</li>
-   * 
-   * @param filter
-   *          item type filter
-   * @param mWildcard
-   *          either '*', '?' or '+'
-   */
-  public SequenceType(final Filter filter, final char mWildcard) {
+	/**
+	 * Constructor. Sequence type is an ItemType with an wildcard. <li>'ItemType
+	 * ?' means the sequence has zero or one items that are of the ItemType</li>
+	 * <li>'ItemType +' means the sequence one or more items that are of the
+	 * ItemType</li> <li>'ItemType *' means the sequence has zero or more items
+	 * that are of the ItemType</li>
+	 * 
+	 * @param filter
+	 *          item type filter
+	 * @param mWildcard
+	 *          either '*', '?' or '+'
+	 */
+	public SequenceType(final Filter filter, final char mWildcard) {
 
-    mIsEmptySequence = false;
-    this.mFilter = filter;
-    mHasWildcard = true;
-    this.mWildcard = mWildcard;
-  }
+		mIsEmptySequence = false;
+		this.mFilter = filter;
+		mHasWildcard = true;
+		this.mWildcard = mWildcard;
+	}
 
-  /**
-   * 
-   * @return true, if sequence is the empty sequence
-   */
-  public boolean isEmptySequence() {
+	/**
+	 * 
+	 * @return true, if sequence is the empty sequence
+	 */
+	public boolean isEmptySequence() {
 
-    return mIsEmptySequence;
-  }
+		return mIsEmptySequence;
+	}
 
-  /**
-   * @return the ItemType test
-   */
-  public Filter getFilter() {
+	/**
+	 * @return the ItemType test
+	 */
+	public Filter getFilter() {
 
-    return mFilter;
-  }
+		return mFilter;
+	}
 
-  /**
-   * @return true, if a wildcard is present
-   */
-  public boolean hasWildcard() {
+	/**
+	 * @return true, if a wildcard is present
+	 */
+	public boolean hasWildcard() {
 
-    return mHasWildcard;
-  }
+		return mHasWildcard;
+	}
 
-  /**
-   * Returns the wildcard's char representation.
-   * 
-   * @return wildcard sign
-   */
-  public char getWildcard() {
+	/**
+	 * Returns the wildcard's char representation.
+	 * 
+	 * @return wildcard sign
+	 */
+	public char getWildcard() {
 
-    return mWildcard;
-  }
+		return mWildcard;
+	}
 
 }

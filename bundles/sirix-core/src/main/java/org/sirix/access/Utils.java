@@ -12,8 +12,8 @@ import javax.xml.namespace.QName;
 public class Utils {
 
 	/**
-	 * Building name consisting of a prefix and a name. The namespace-URI is not used
-	 * over here.
+	 * Building name consisting of a prefix and a name. The namespace-URI is not
+	 * used over here.
 	 * 
 	 * @param pQName
 	 *          the {@link QName} of an element

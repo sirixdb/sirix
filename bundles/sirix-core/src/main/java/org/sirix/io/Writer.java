@@ -41,33 +41,35 @@ import org.sirix.page.PageReference;
  */
 public interface Writer extends Reader {
 
-  /**
-   * Writing a page related to the reference.
-   * 
-   * @param pageReference
-   *          that points to a page
-   * @throws SirixIOException
-   *           execption to be thrown if something bad happens
-   */
-  long write(@Nonnull final PageReference pageReference) throws SirixIOException;
+	/**
+	 * Writing a page related to the reference.
+	 * 
+	 * @param pageReference
+	 *          that points to a page
+	 * @throws SirixIOException
+	 *           execption to be thrown if something bad happens
+	 */
+	long write(@Nonnull final PageReference pageReference)
+			throws SirixIOException;
 
-  /**
-   * Write Beacon for the first reference.
-   * 
-   * @param pageReference
-   *          that points to the beacon
-   * @throws SirixIOException
-   *           exception if something bad happens
-   */
-  void writeFirstReference(@Nonnull final PageReference pageReference) throws SirixIOException;
+	/**
+	 * Write Beacon for the first reference.
+	 * 
+	 * @param pageReference
+	 *          that points to the beacon
+	 * @throws SirixIOException
+	 *           exception if something bad happens
+	 */
+	void writeFirstReference(@Nonnull final PageReference pageReference)
+			throws SirixIOException;
 
-  /**
-   * Closing the write access.
-   * 
-   * @throws SirixIOException
-   *           if closing fails
-   */
-  @Override
-  void close() throws SirixIOException;
+	/**
+	 * Closing the write access.
+	 * 
+	 * @throws SirixIOException
+	 *           if closing fails
+	 */
+	@Override
+	void close() throws SirixIOException;
 
 }

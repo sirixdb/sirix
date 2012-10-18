@@ -39,117 +39,107 @@ import org.sirix.settings.Fixed;
 
 public class DescendantAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testIterate() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testIterate() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] {
-      1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
-    });
+		rtx.moveToDocumentRoot();
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] { 1L,
+				4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
 
-    rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] {
-      4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
-    });
+		rtx.moveTo(1L);
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] { 4L,
+				5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
 
-    rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] {
-      11L, 12L
-    });
+		rtx.moveTo(9L);
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] { 11L,
+				12L });
 
-    rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] {});
-  }
+		rtx.moveTo(13L);
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx), new long[] {});
+	}
 
-  @Test
-  public void testIterateIncludingSelf() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
-    rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES), new long[] {
-      Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
-    });
+	@Test
+	public void testIterateIncludingSelf() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
+		rtx.moveToDocumentRoot();
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES),
+				new long[] { Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L,
+						6L, 7L, 8L, 9L, 11L, 12L, 13L });
 
-    rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES), new long[] {
-      1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
-    });
+		rtx.moveTo(1L);
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES),
+				new long[] { 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
 
-    rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES), new long[] {
-      9L, 11L, 12L
-    });
+		rtx.moveTo(9L);
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES),
+				new long[] { 9L, 11L, 12L });
 
-    rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES), new long[] {
-      13L
-    });
+		rtx.moveTo(13L);
+		AbsAxisTest.testIAxisConventions(new DescendantAxis(rtx, IncludeSelf.YES),
+				new long[] { 13L });
 
-  }
+	}
 
-  @Test
-  public void testIterateVisitor() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testIterateVisitor() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).build(), new long[] {
-      1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
-    });
+		rtx.moveToDocumentRoot();
+		AbsAxisTest.testIAxisConventions(
+				new VisitorDescendantAxis.Builder(rtx).build(), new long[] { 1L, 4L,
+						5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
 
-    rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).build(), new long[] {
-      4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
-    });
+		rtx.moveTo(1L);
+		AbsAxisTest.testIAxisConventions(
+				new VisitorDescendantAxis.Builder(rtx).build(), new long[] { 4L, 5L,
+						6L, 7L, 8L, 9L, 11L, 12L, 13L });
 
-    rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).build(), new long[] {
-      11L, 12L
-    });
+		rtx.moveTo(9L);
+		AbsAxisTest
+				.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).build(),
+						new long[] { 11L, 12L });
 
-    rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).build(), new long[] {});
-  }
+		rtx.moveTo(13L);
+		AbsAxisTest.testIAxisConventions(
+				new VisitorDescendantAxis.Builder(rtx).build(), new long[] {});
+	}
 
-  @Test
-  public void testIterateIncludingSelfVisitor() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
-    rtx.moveToDocumentRoot();
-    AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
-      new long[] {
-        Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
-      });
+	@Test
+	public void testIterateIncludingSelfVisitor() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
+		rtx.moveToDocumentRoot();
+		AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx)
+				.includeSelf().build(),
+				new long[] { Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L,
+						6L, 7L, 8L, 9L, 11L, 12L, 13L });
 
-    rtx.moveTo(1L);
-    AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
-      new long[] {
-        1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
-      });
+		rtx.moveTo(1L);
+		AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx)
+				.includeSelf().build(), new long[] { 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L,
+				12L, 13L });
 
-    rtx.moveTo(9L);
-    AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
-      new long[] {
-        9L, 11L, 12L
-      });
+		rtx.moveTo(9L);
+		AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx)
+				.includeSelf().build(), new long[] { 9L, 11L, 12L });
 
-    rtx.moveTo(13L);
-    AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
-      new long[] {
-        13L
-      });
-  }
+		rtx.moveTo(13L);
+		AbsAxisTest.testIAxisConventions(new VisitorDescendantAxis.Builder(rtx)
+				.includeSelf().build(), new long[] { 13L });
+	}
 }

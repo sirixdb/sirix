@@ -45,57 +45,58 @@ import org.sirix.service.xml.xpath.XPathAxis;
  */
 public class VarRefExprTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testEveryExpr() throws SirixException {
+	@Test
+	public void testEveryExpr() throws SirixException {
 
-    final AbstractAxis axis = new XPathAxis(holder.getRtx(), "for $a in b return $a");
+		final AbstractAxis axis = new XPathAxis(holder.getRtx(),
+				"for $a in b return $a");
 
-    final VariableAxis variable = new VariableAxis(holder.getRtx(), axis);
+		final VariableAxis variable = new VariableAxis(holder.getRtx(), axis);
 
-    final VarRefExpr axis1 = new VarRefExpr(holder.getRtx(), variable);
-    // assertEquals(false, axis1.hasNext());
-    axis1.update(5L);
-    assertEquals(true, axis1.hasNext());
-    axis1.next();
-    assertEquals(5L, holder.getRtx().getNodeKey());
-    axis1.update(13L);
-    assertEquals(true, axis1.hasNext());
-    axis1.next();
-    assertEquals(13L, holder.getRtx().getNodeKey());
-    axis1.update(1L);
-    assertEquals(true, axis1.hasNext());
-    axis1.next();
-    assertEquals(1L, holder.getRtx().getNodeKey());
-    assertEquals(false, axis1.hasNext());
+		final VarRefExpr axis1 = new VarRefExpr(holder.getRtx(), variable);
+		// assertEquals(false, axis1.hasNext());
+		axis1.update(5L);
+		assertEquals(true, axis1.hasNext());
+		axis1.next();
+		assertEquals(5L, holder.getRtx().getNodeKey());
+		axis1.update(13L);
+		assertEquals(true, axis1.hasNext());
+		axis1.next();
+		assertEquals(13L, holder.getRtx().getNodeKey());
+		axis1.update(1L);
+		assertEquals(true, axis1.hasNext());
+		axis1.next();
+		assertEquals(1L, holder.getRtx().getNodeKey());
+		assertEquals(false, axis1.hasNext());
 
-    final VarRefExpr axis2 = new VarRefExpr(holder.getRtx(), variable);
-    // assertEquals(false, axis2.hasNext());
-    axis2.update(13L);
-    assertEquals(true, axis2.hasNext());
-    axis2.next();
-    assertEquals(13L, holder.getRtx().getNodeKey());
-    assertEquals(false, axis2.hasNext());
-    axis2.update(12L);
-    assertEquals(true, axis2.hasNext());
-    axis2.next();
-    assertEquals(12L, holder.getRtx().getNodeKey());
-    assertEquals(false, axis2.hasNext());
+		final VarRefExpr axis2 = new VarRefExpr(holder.getRtx(), variable);
+		// assertEquals(false, axis2.hasNext());
+		axis2.update(13L);
+		assertEquals(true, axis2.hasNext());
+		axis2.next();
+		assertEquals(13L, holder.getRtx().getNodeKey());
+		assertEquals(false, axis2.hasNext());
+		axis2.update(12L);
+		assertEquals(true, axis2.hasNext());
+		axis2.next();
+		assertEquals(12L, holder.getRtx().getNodeKey());
+		assertEquals(false, axis2.hasNext());
 
-  }
+	}
 
 }

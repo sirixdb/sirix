@@ -13,29 +13,30 @@ import org.sirix.node.Kind;
  * Path filter for {@link PathSummary}, filtering specific path types.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
- *
+ * 
  */
 public class PathKindFilter extends AbstractFilter {
 
-  /** Type to filter. */
-  private Kind mType;
+	/** Type to filter. */
+	private Kind mType;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pRtx
-   *          transaction this filter is bound to
-   * @param pType
-   *          type to match
-   */
-  public PathKindFilter(final @Nonnull NodeReadTrx pRtx, final @Nonnull Kind pType) {
-    super(pRtx);
-    checkArgument(pRtx instanceof PathSummary);
-    mType = pType;
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pRtx
+	 *          transaction this filter is bound to
+	 * @param pType
+	 *          type to match
+	 */
+	public PathKindFilter(final @Nonnull NodeReadTrx pRtx,
+			final @Nonnull Kind pType) {
+		super(pRtx);
+		checkArgument(pRtx instanceof PathSummary);
+		mType = pType;
+	}
 
-  @Override
-  public boolean filter() {
-    return mType == getTrx().getPathKind();
-  }
+	@Override
+	public boolean filter() {
+		return mType == getTrx().getPathKind();
+	}
 }

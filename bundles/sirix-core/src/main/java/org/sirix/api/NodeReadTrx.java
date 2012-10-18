@@ -45,10 +45,11 @@ import org.sirix.service.xml.xpath.AtomicValue;
  * <h2>Description</h2>
  * 
  * <p>
- * Interface to access nodes based on the Key/ParentKey/FirstChildKey/LeftSiblingKey
+ * Interface to access nodes based on the
+ * Key/ParentKey/FirstChildKey/LeftSiblingKey
  * /RightSiblingKey/ChildCount/DescendantCount encoding. This encoding keeps the
- * children ordered but has no knowledge of the global node ordering. The underlying 
- * tree is accessed in a cursor-like fashion.
+ * children ordered but has no knowledge of the global node ordering. The
+ * underlying tree is accessed in a cursor-like fashion.
  * </p>
  * 
  * <h2>Convention</h2>
@@ -395,21 +396,21 @@ public interface NodeReadTrx extends NodeCursor {
 	 *         given index is available
 	 */
 	long getAttributeKey(@Nonnegative int index);
-	
+
 	/**
 	 * Determines if current node has children.
 	 * 
 	 * @return {@code true} if it has children, {@code false} otherwise
 	 */
 	boolean hasChildren();
-	
+
 	/**
-	 * Determines if current node has attributes (only elements might have attributes).
+	 * Determines if current node has attributes (only elements might have
+	 * attributes).
 	 * 
 	 * @return {@code true} if it has attributes, {@code false} otherwise
 	 */
 	boolean hasAttributes();
-
 
 	/**
 	 * Get the path node key of the currently selected node. Make sure to check if
@@ -436,7 +437,7 @@ public interface NodeReadTrx extends NodeCursor {
 	 * @return {@code true} if it is a structural node, {@code false} otherwise
 	 */
 	boolean isStructuralNode();
-	
+
 	/**
 	 * Determines if current node is a {@link ValNode}.
 	 * 

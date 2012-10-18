@@ -40,30 +40,31 @@ import org.sirix.api.NodeReadTrx;
  */
 public class NestedFilter extends AbstractFilter {
 
-  /** Tests to apply. */
-  private final Filter[] mFilter;
+	/** Tests to apply. */
+	private final Filter[] mFilter;
 
-  /**
-   * Default constructor.
-   * 
-   * @param rtx
-   *          {@link NodeReadTrx} this filter is bound to
-   * @param axisTest
-   *          test to perform for each node found with axis
-   */
-  public NestedFilter(@Nonnull final NodeReadTrx pRtx, @Nonnull final Filter... pAxisTest) {
-    super(pRtx);
-    mFilter = pAxisTest;
-  }
+	/**
+	 * Default constructor.
+	 * 
+	 * @param rtx
+	 *          {@link NodeReadTrx} this filter is bound to
+	 * @param axisTest
+	 *          test to perform for each node found with axis
+	 */
+	public NestedFilter(@Nonnull final NodeReadTrx pRtx,
+			@Nonnull final Filter... pAxisTest) {
+		super(pRtx);
+		mFilter = pAxisTest;
+	}
 
-  @Override
-  public final boolean filter() {
-    boolean filterResult = true;
+	@Override
+	public final boolean filter() {
+		boolean filterResult = true;
 
-    for (final Filter filter : mFilter) {
-      filterResult = filterResult && filter.filter();
-    }
+		for (final Filter filter : mFilter) {
+			filterResult = filterResult && filter.filter();
+		}
 
-    return filterResult;
-  }
+		return filterResult;
+	}
 }

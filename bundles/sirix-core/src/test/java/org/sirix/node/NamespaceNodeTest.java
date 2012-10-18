@@ -37,30 +37,30 @@ import org.sirix.node.delegates.NodeDelegate;
 
 public class NamespaceNodeTest {
 
-  @Test
-  public void testNamespaceNode() {
-    final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 15, 14, 1);
-    // Create empty node.
-    final NamespaceNode node1 = new NamespaceNode(nodeDel, nameDel);
+	@Test
+	public void testNamespaceNode() {
+		final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 15, 14, 1);
+		// Create empty node.
+		final NamespaceNode node1 = new NamespaceNode(nodeDel, nameDel);
 
-    // Serialize and deserialize node.
-    final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-    node1.getKind().serialize(out, node1);
-    final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-    final NamespaceNode node2 = (NamespaceNode)Kind.NAMESPACE.deserialize(in);
-    check(node2);
-  }
+		// Serialize and deserialize node.
+		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
+		node1.getKind().serialize(out, node1);
+		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
+		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(in);
+		check(node2);
+	}
 
-  private final static void check(final NamespaceNode node) {
-    // Now compare.
-    assertEquals(99L, node.getNodeKey());
-    assertEquals(13L, node.getParentKey());
+	private final static void check(final NamespaceNode node) {
+		// Now compare.
+		assertEquals(99L, node.getNodeKey());
+		assertEquals(13L, node.getParentKey());
 
-    assertEquals(14, node.getURIKey());
-    assertEquals(15, node.getNameKey());
-    assertEquals(Kind.NAMESPACE, node.getKind());
-    assertEquals(true, node.hasParent());
-  }
+		assertEquals(14, node.getURIKey());
+		assertEquals(15, node.getNameKey());
+		assertEquals(Kind.NAMESPACE, node.getKind());
+		assertEquals(true, node.hasParent());
+	}
 
 }

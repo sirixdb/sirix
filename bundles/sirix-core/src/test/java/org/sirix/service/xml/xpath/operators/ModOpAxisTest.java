@@ -47,94 +47,111 @@ import org.sirix.service.xml.xpath.types.Type;
 
 public class ModOpAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.deleteEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.deleteEverything();
+	}
 
-  @Test
-  public final void testOperate() throws SirixException {
-    AtomicValue item1 = new AtomicValue(3.0, Type.DOUBLE);
-    AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
+	@Test
+	public final void testOperate() throws SirixException {
+		AtomicValue item1 = new AtomicValue(3.0, Type.DOUBLE);
+		AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
-    AbstractAxis op1 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item1));
-    AbstractAxis op2 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item2));
-    AbstractObAxis axis = new ModOpAxis(holder.getRtx(), op1, op2);
+		AbstractAxis op1 = new LiteralExpr(holder.getRtx(), holder.getRtx()
+				.getItemList().addItem(item1));
+		AbstractAxis op2 = new LiteralExpr(holder.getRtx(), holder.getRtx()
+				.getItemList().addItem(item2));
+		AbstractObAxis axis = new ModOpAxis(holder.getRtx(), op1, op2);
 
-    assertEquals(true, axis.hasNext());
-    axis.next();
-    assertThat(1.0, is(Double.parseDouble(holder.getRtx().getValue())));
-    assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getTypeKey());
-    assertEquals(false, axis.hasNext());
-  }
+		assertEquals(true, axis.hasNext());
+		axis.next();
+		assertThat(1.0, is(Double.parseDouble(holder.getRtx().getValue())));
+		assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx()
+				.getTypeKey());
+		assertEquals(false, axis.hasNext());
+	}
 
-  @Test
-  public final void testGetReturnType() throws SirixException {
+	@Test
+	public final void testGetReturnType() throws SirixException {
 
-    AbstractAxis op1 = new SequenceAxis(holder.getRtx());
-    AbstractAxis op2 = new SequenceAxis(holder.getRtx());
-    AbstractObAxis axis = new ModOpAxis(holder.getRtx(), op1, op2);
+		AbstractAxis op1 = new SequenceAxis(holder.getRtx());
+		AbstractAxis op2 = new SequenceAxis(holder.getRtx());
+		AbstractObAxis axis = new ModOpAxis(holder.getRtx(), op1, op2);
 
-    assertEquals(Type.DOUBLE, axis.getReturnType(holder.getRtx().keyForName("xs:double"), holder.getRtx()
-      .keyForName("xs:double")));
-    assertEquals(Type.DOUBLE, axis.getReturnType(holder.getRtx().keyForName("xs:decimal"), holder.getRtx()
-      .keyForName("xs:double")));
-    assertEquals(Type.FLOAT, axis.getReturnType(holder.getRtx().keyForName("xs:float"), holder.getRtx()
-      .keyForName("xs:decimal")));
-    assertEquals(Type.DECIMAL, axis.getReturnType(holder.getRtx().keyForName("xs:decimal"), holder.getRtx()
-      .keyForName("xs:integer")));
-    // assertEquals(Type.INTEGER,
-    // axis.getReturnType(holder.getRtx().keyForName("xs:integer"),
-    // holder.getRtx().keyForName("xs:integer")));
+		assertEquals(Type.DOUBLE, axis.getReturnType(
+				holder.getRtx().keyForName("xs:double"),
+				holder.getRtx().keyForName("xs:double")));
+		assertEquals(Type.DOUBLE, axis.getReturnType(
+				holder.getRtx().keyForName("xs:decimal"),
+				holder.getRtx().keyForName("xs:double")));
+		assertEquals(Type.FLOAT, axis.getReturnType(
+				holder.getRtx().keyForName("xs:float"),
+				holder.getRtx().keyForName("xs:decimal")));
+		assertEquals(Type.DECIMAL, axis.getReturnType(
+				holder.getRtx().keyForName("xs:decimal"),
+				holder.getRtx().keyForName("xs:integer")));
+		// assertEquals(Type.INTEGER,
+		// axis.getReturnType(holder.getRtx().keyForName("xs:integer"),
+		// holder.getRtx().keyForName("xs:integer")));
 
-    try {
+		try {
 
-      axis.getReturnType(holder.getRtx().keyForName("xs:dateTime"), holder.getRtx().keyForName(
-        "xs:yearMonthDuration"));
-      fail("Expected an XPathError-Exception.");
-    } catch (XPathError e) {
-      assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
-        + "typedoes not match a required type as specified by the matching rules."));
-    }
+			axis.getReturnType(holder.getRtx().keyForName("xs:dateTime"), holder
+					.getRtx().keyForName("xs:yearMonthDuration"));
+			fail("Expected an XPathError-Exception.");
+		} catch (XPathError e) {
+			assertThat(
+					e.getMessage(),
+					is("err:XPTY0004 The type is not appropriate the expression or the "
+							+ "typedoes not match a required type as specified by the matching rules."));
+		}
 
-    try {
+		try {
 
-      axis.getReturnType(holder.getRtx().keyForName("xs:dateTime"), holder.getRtx().keyForName("xs:double"));
-      fail("Expected an XPathError-Exception.");
-    } catch (XPathError e) {
-      assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
-        + "typedoes not match a required type as specified by the matching rules."));
-    }
+			axis.getReturnType(holder.getRtx().keyForName("xs:dateTime"), holder
+					.getRtx().keyForName("xs:double"));
+			fail("Expected an XPathError-Exception.");
+		} catch (XPathError e) {
+			assertThat(
+					e.getMessage(),
+					is("err:XPTY0004 The type is not appropriate the expression or the "
+							+ "typedoes not match a required type as specified by the matching rules."));
+		}
 
-    try {
+		try {
 
-      axis.getReturnType(holder.getRtx().keyForName("xs:string"), holder.getRtx().keyForName(
-        "xs:yearMonthDuration"));
-      fail("Expected an XPathError-Exception.");
-    } catch (XPathError e) {
-      assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
-        + "typedoes not match a required type as specified by the matching rules."));
-    }
+			axis.getReturnType(holder.getRtx().keyForName("xs:string"), holder
+					.getRtx().keyForName("xs:yearMonthDuration"));
+			fail("Expected an XPathError-Exception.");
+		} catch (XPathError e) {
+			assertThat(
+					e.getMessage(),
+					is("err:XPTY0004 The type is not appropriate the expression or the "
+							+ "typedoes not match a required type as specified by the matching rules."));
+		}
 
-    try {
+		try {
 
-      axis.getReturnType(holder.getRtx().keyForName("xs:dateTime"), holder.getRtx().keyForName("xs:IDREF"));
-      fail("Expected an XPathError-Exception.");
-    } catch (XPathError e) {
-      assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
-        + "typedoes not match a required type as specified by the matching rules."));
-    }
+			axis.getReturnType(holder.getRtx().keyForName("xs:dateTime"), holder
+					.getRtx().keyForName("xs:IDREF"));
+			fail("Expected an XPathError-Exception.");
+		} catch (XPathError e) {
+			assertThat(
+					e.getMessage(),
+					is("err:XPTY0004 The type is not appropriate the expression or the "
+							+ "typedoes not match a required type as specified by the matching rules."));
+		}
 
-  }
+	}
 
 }

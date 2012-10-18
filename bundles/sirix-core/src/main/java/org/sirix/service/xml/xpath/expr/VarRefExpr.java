@@ -39,35 +39,36 @@ import org.sirix.api.NodeReadTrx;
  */
 public class VarRefExpr extends AbstractExpression implements IObserver {
 
-  /** Key of the item the variable is set to at the moment. */
-  private long mVarKey;
+	/** Key of the item the variable is set to at the moment. */
+	private long mVarKey;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with
-   * @param pVariable
-   *          reference the variable expression that computes the items the
-   *          variable holds
-   */
-  public VarRefExpr(@Nonnull final NodeReadTrx pRtx, @Nonnull final VariableAxis pVariable) {
-    super(pRtx);
-    pVariable.addObserver(this);
-    mVarKey = -1;
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pRtx
+	 *          exclusive (immutable) trx to iterate with
+	 * @param pVariable
+	 *          reference the variable expression that computes the items the
+	 *          variable holds
+	 */
+	public VarRefExpr(@Nonnull final NodeReadTrx pRtx,
+			@Nonnull final VariableAxis pVariable) {
+		super(pRtx);
+		pVariable.addObserver(this);
+		mVarKey = -1;
+	}
 
-  @Override
-  public void update(final long pVarKey) {
-    mVarKey = pVarKey;
-    reset(mVarKey);
-  }
+	@Override
+	public void update(final long pVarKey) {
+		mVarKey = pVarKey;
+		reset(mVarKey);
+	}
 
-  @Override
-  public void evaluate() {
-    // Assure that the transaction is set to the current context item of the
-    // variable's binding sequence.
-    mKey = mVarKey;
-  }
+	@Override
+	public void evaluate() {
+		// Assure that the transaction is set to the current context item of the
+		// variable's binding sequence.
+		mKey = mVarKey;
+	}
 
 }

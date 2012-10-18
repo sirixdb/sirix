@@ -21,63 +21,63 @@ import org.sirix.exception.SirixIOException;
 public class DeflateCompressor implements ByteHandler {
 
 	/** {@link Deflater} instance. */
-  private final Deflater mCompressor;
+	private final Deflater mCompressor;
 
-  /** {@link Inflater} instance. */
-  private final Inflater mDecompressor;
+	/** {@link Inflater} instance. */
+	private final Inflater mDecompressor;
 
-  private final byte[] mTmp;
+	private final byte[] mTmp;
 
-  /** {@link ByteArrayOutputStream} instance. */
-  private final ByteArrayOutputStream mOut;
+	/** {@link ByteArrayOutputStream} instance. */
+	private final ByteArrayOutputStream mOut;
 
-  /**
-   * Constructor.
-   */
-  public DeflateCompressor() {
-    mCompressor = new Deflater();
-    mDecompressor = new Inflater();
-    mTmp = new byte[32767];
-    mOut = new ByteArrayOutputStream();
-  }
+	/**
+	 * Constructor.
+	 */
+	public DeflateCompressor() {
+		mCompressor = new Deflater();
+		mDecompressor = new Inflater();
+		mTmp = new byte[32767];
+		mOut = new ByteArrayOutputStream();
+	}
 
-  @Override
-  public byte[] serialize(@Nonnull final byte[] pToSerialize)
-    throws SirixIOException {
-    mCompressor.reset();
-    mOut.reset();
-    mCompressor.setInput(pToSerialize);
-    mCompressor.finish();
-    int count;
-    while (!mCompressor.finished()) {
-      count = mCompressor.deflate(mTmp);
-      mOut.write(mTmp, 0, count);
-    }
-    final byte[] result = mOut.toByteArray();
-    return result;
-  }
+	@Override
+	public byte[] serialize(@Nonnull final byte[] pToSerialize)
+			throws SirixIOException {
+		mCompressor.reset();
+		mOut.reset();
+		mCompressor.setInput(pToSerialize);
+		mCompressor.finish();
+		int count;
+		while (!mCompressor.finished()) {
+			count = mCompressor.deflate(mTmp);
+			mOut.write(mTmp, 0, count);
+		}
+		final byte[] result = mOut.toByteArray();
+		return result;
+	}
 
-  @Override
-  public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
-    throws SirixIOException {
-    mDecompressor.reset();
-    mOut.reset();
-    mDecompressor.setInput(pToDeserialize);
-    int count;
-    while (!mDecompressor.finished()) {
-      try {
-        count = mDecompressor.inflate(mTmp);
-      } catch (final DataFormatException e) {
-        throw new SirixIOException(e);
-      }
-      mOut.write(mTmp, 0, count);
-    }
-    final byte[] result = mOut.toByteArray();
-    return result;
-  }
-  
-  @Override
-  public ByteHandler getInstance() {
-    return new DeflateCompressor();
-  }
+	@Override
+	public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
+			throws SirixIOException {
+		mDecompressor.reset();
+		mOut.reset();
+		mDecompressor.setInput(pToDeserialize);
+		int count;
+		while (!mDecompressor.finished()) {
+			try {
+				count = mDecompressor.inflate(mTmp);
+			} catch (final DataFormatException e) {
+				throw new SirixIOException(e);
+			}
+			mOut.write(mTmp, 0, count);
+		}
+		final byte[] result = mOut.toByteArray();
+		return result;
+	}
+
+	@Override
+	public ByteHandler getInstance() {
+		return new DeflateCompressor();
+	}
 }

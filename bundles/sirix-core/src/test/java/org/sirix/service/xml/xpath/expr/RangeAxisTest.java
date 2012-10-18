@@ -42,60 +42,60 @@ import org.sirix.exception.SirixException;
 @Deprecated
 public class RangeAxisTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testRangeExpr() throws SirixException {
-    // // Build simple test tree.
-    // final IDatabase database =
-    // TestHelper.getDatabase(PATHS.PATH1.getFile());
-    // final ISession session = database.getSession();
-    // final IWriteTransaction wtx = session.beginWriteTransaction();
-    // DocumentCreater.create(wtx);
-    // wtx.commit();
-    // IReadTransaction rtx = session.beginReadTransaction();
-    //
-    // // TODO: tests are false, because the integers are not converted
-    // // correctly
-    // // from the byte array
-    // // final IAxis axis1 = new XPathAxis(rtx, "1 to 4");
-    // // assertEquals(true, axis1.hasNext());
-    // // assertEquals(1, TypedValue.parseInt(rtx.getRawValue()));
-    // // assertEquals(true, axis1.hasNext());
-    // // assertEquals(2, TypedValue.parseInt(rtx.getRawValue()));
-    // // assertEquals(true, axis1.hasNext());
-    // // assertEquals(3, TypedValue.parseInt(rtx.getRawValue()));
-    // // assertEquals(true, axis1.hasNext());
-    // // assertEquals(4, TypedValue.parseInt(rtx.getRawValue()));
-    // // assertEquals(false, axis1.hasNext());
-    // //
-    // // final IAxis axis2 = new XPathAxis(rtx, "10 to 10");
-    // // assertEquals(true, axis2.hasNext());
-    // // assertEquals(10, TypedValue.parseInt(rtx.getRawValue()));
-    // // assertEquals(false, axis2.hasNext());
-    //
-    // rtx.moveTo(1L);
-    // final AbsAxis axis3 = new XPathAxis(rtx, "15 to 10");
-    // assertEquals(false, axis3.hasNext());
-    //
-    // rtx.close();
-    // wtx.abort();
-    // wtx.close();
-    // session.close();
-    // database.close();
-  }
+	@Test
+	public void testRangeExpr() throws SirixException {
+		// // Build simple test tree.
+		// final IDatabase database =
+		// TestHelper.getDatabase(PATHS.PATH1.getFile());
+		// final ISession session = database.getSession();
+		// final IWriteTransaction wtx = session.beginWriteTransaction();
+		// DocumentCreater.create(wtx);
+		// wtx.commit();
+		// IReadTransaction rtx = session.beginReadTransaction();
+		//
+		// // TODO: tests are false, because the integers are not converted
+		// // correctly
+		// // from the byte array
+		// // final IAxis axis1 = new XPathAxis(rtx, "1 to 4");
+		// // assertEquals(true, axis1.hasNext());
+		// // assertEquals(1, TypedValue.parseInt(rtx.getRawValue()));
+		// // assertEquals(true, axis1.hasNext());
+		// // assertEquals(2, TypedValue.parseInt(rtx.getRawValue()));
+		// // assertEquals(true, axis1.hasNext());
+		// // assertEquals(3, TypedValue.parseInt(rtx.getRawValue()));
+		// // assertEquals(true, axis1.hasNext());
+		// // assertEquals(4, TypedValue.parseInt(rtx.getRawValue()));
+		// // assertEquals(false, axis1.hasNext());
+		// //
+		// // final IAxis axis2 = new XPathAxis(rtx, "10 to 10");
+		// // assertEquals(true, axis2.hasNext());
+		// // assertEquals(10, TypedValue.parseInt(rtx.getRawValue()));
+		// // assertEquals(false, axis2.hasNext());
+		//
+		// rtx.moveTo(1L);
+		// final AbsAxis axis3 = new XPathAxis(rtx, "15 to 10");
+		// assertEquals(false, axis3.hasNext());
+		//
+		// rtx.close();
+		// wtx.abort();
+		// wtx.close();
+		// session.close();
+		// database.close();
+	}
 
 }

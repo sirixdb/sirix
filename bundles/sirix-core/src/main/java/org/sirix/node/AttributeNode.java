@@ -52,8 +52,8 @@ import com.google.common.base.Objects;
  * Node representing an attribute.
  * </p>
  */
-public final class AttributeNode extends AbstractForwardingNode implements ValNode,
-		NameNode {
+public final class AttributeNode extends AbstractForwardingNode implements
+		ValNode, NameNode {
 
 	/** Delegate for name node information. */
 	private final NameNodeDelegate mNameDel;

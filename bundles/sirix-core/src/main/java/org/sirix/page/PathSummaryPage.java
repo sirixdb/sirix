@@ -44,58 +44,58 @@ import org.sirix.page.interfaces.Page;
  */
 public class PathSummaryPage extends AbstractForwardingPage {
 
-  /** {@link PageDelegate} instance. */
-  private final PageDelegate mDelegate;
+	/** {@link PageDelegate} instance. */
+	private final PageDelegate mDelegate;
 
-  /** Offset of node page reference. */
-  private static final int INDIRECT_REFERENCE_OFFSET = 0;
+	/** Offset of node page reference. */
+	private static final int INDIRECT_REFERENCE_OFFSET = 0;
 
-  /**
-   * Path summary page.
-   * 
-   * @param revision
-   *          revision number
-   * @throws IllegalArgumentException
-   *           if {@code pRevision} < 0
-   */
-  public PathSummaryPage(final @Nonnegative int revision) {
-    checkArgument(revision >= 0, "pRevision must be >= 0!");
-    mDelegate = new PageDelegate(1, revision);
-  }
+	/**
+	 * Path summary page.
+	 * 
+	 * @param revision
+	 *          revision number
+	 * @throws IllegalArgumentException
+	 *           if {@code pRevision} < 0
+	 */
+	public PathSummaryPage(final @Nonnegative int revision) {
+		checkArgument(revision >= 0, "pRevision must be >= 0!");
+		mDelegate = new PageDelegate(1, revision);
+	}
 
-  /**
-   * Get indirect page reference.
-   * 
-   * @return indirect page reference
-   */
-  public PageReference getIndirectPageReference() {
-    return getReference(INDIRECT_REFERENCE_OFFSET);
-  }
+	/**
+	 * Get indirect page reference.
+	 * 
+	 * @return indirect page reference
+	 */
+	public PageReference getIndirectPageReference() {
+		return getReference(INDIRECT_REFERENCE_OFFSET);
+	}
 
-  /**
-   * Read meta page.
-   * 
-   * @param in
-   *          input bytes to read from
-   */
-  protected PathSummaryPage(final @Nonnull ByteArrayDataInput in) {
-    mDelegate = new PageDelegate(1, in);
-  }
+	/**
+	 * Read meta page.
+	 * 
+	 * @param in
+	 *          input bytes to read from
+	 */
+	protected PathSummaryPage(final @Nonnull ByteArrayDataInput in) {
+		mDelegate = new PageDelegate(1, in);
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("mDelegate", mDelegate).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("mDelegate", mDelegate).toString();
+	}
 
-  @Override
-  protected Page delegate() {
-    return mDelegate;
-  }
-  
+	@Override
+	protected Page delegate() {
+		return mDelegate;
+	}
+
 	@Override
 	public Page setDirty(final boolean pDirty) {
 		mDelegate.setDirty(pDirty);
 		return this;
 	}
-  
+
 }

@@ -96,8 +96,7 @@ public class ValueFilter extends AbstractFilter {
 
 	@Override
 	public final boolean filter() {
-		return (getTrx().getKind() == Kind.TEXT || getTrx()
-				.getKind() == Kind.ATTRIBUTE)
+		return (getTrx().getKind() == Kind.TEXT || getTrx().getKind() == Kind.ATTRIBUTE)
 				&& (TypedValue.equals(getTrx().getValue(), mValue));
 	}
 

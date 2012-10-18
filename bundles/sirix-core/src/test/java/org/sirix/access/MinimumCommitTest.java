@@ -41,48 +41,48 @@ import org.sirix.utils.DocumentCreater;
 
 public class MinimumCommitTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    holder = Holder.generateWtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		holder = Holder.generateWtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void test() throws SirixException {
-    assertEquals(0L, holder.getWtx().getRevisionNumber());
-    holder.getWtx().commit();
-    holder.close();
+	@Test
+	public void test() throws SirixException {
+		assertEquals(0L, holder.getWtx().getRevisionNumber());
+		holder.getWtx().commit();
+		holder.close();
 
-    holder = Holder.generateWtx();
-    assertEquals(1L, holder.getWtx().getRevisionNumber());
-    DocumentCreater.create(holder.getWtx());
-    holder.getWtx().commit();
-    holder.close();
+		holder = Holder.generateWtx();
+		assertEquals(1L, holder.getWtx().getRevisionNumber());
+		DocumentCreater.create(holder.getWtx());
+		holder.getWtx().commit();
+		holder.close();
 
-    holder = Holder.generateWtx();
-    assertEquals(2L, holder.getWtx().getRevisionNumber());
-    holder.getWtx().commit();
-    holder.close();
+		holder = Holder.generateWtx();
+		assertEquals(2L, holder.getWtx().getRevisionNumber());
+		holder.getWtx().commit();
+		holder.close();
 
-    holder = Holder.generateRtx();
-    assertEquals(2L, holder.getRtx().getRevisionNumber());
-  }
+		holder = Holder.generateRtx();
+		assertEquals(2L, holder.getRtx().getRevisionNumber());
+	}
 
-  @Test
-  public void testTimestamp() throws SirixException {
-    assertEquals(0L, holder.getWtx().getRevisionTimestamp());
-    holder.getWtx().commit();
+	@Test
+	public void testTimestamp() throws SirixException {
+		assertEquals(0L, holder.getWtx().getRevisionTimestamp());
+		holder.getWtx().commit();
 
-    final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
-    assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
-    rtx.close();
-  }
+		final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
+		assertTrue(rtx.getRevisionTimestamp() < (System.currentTimeMillis() + 1));
+		rtx.close();
+	}
 }

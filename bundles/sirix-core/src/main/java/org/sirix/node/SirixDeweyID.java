@@ -98,12 +98,10 @@ public class SirixDeweyID implements java.io.Serializable,
 			maxDivisionValue[i] = 1 << divisionLengthArray[i];
 
 			// for 0-reasons the 000 cannot be used
-			if (i == 0)
-				maxDivisionValue[i] -= 1;
+			if (i == 0) maxDivisionValue[i] -= 1;
 
 			// Because Division-Value 0 is allowed
-			if (i == 0)
-				maxDivisionValue[i] -= 1;
+			if (i == 0) maxDivisionValue[i] -= 1;
 
 			if (i != 0) {
 				if (maxDivisionValue[i] < 0) {
@@ -209,8 +207,7 @@ public class SirixDeweyID implements java.io.Serializable,
 	private static int calcLevel(int[] divisionValues) {
 		int level = 0;
 		for (int i = 0; i < divisionValues.length; i++) {
-			if (divisionValues[i] % 2 == 1)
-				level++;
+			if (divisionValues[i] % 2 == 1) level++;
 		}
 		return level;
 	}
@@ -299,8 +296,7 @@ public class SirixDeweyID implements java.io.Serializable,
 						}
 
 						tempDivision[tempDivisionLength++] = suffix;
-						if (suffix % 2 == 1)
-							currentLevel++;
+						if (suffix % 2 == 1) currentLevel++;
 					}
 
 					prefixBit = true;
@@ -402,8 +398,7 @@ public class SirixDeweyID implements java.io.Serializable,
 						}
 
 						tempDivision[tempDivisionLength++] = suffix;
-						if (suffix % 2 == 1)
-							currentLevel++;
+						if (suffix % 2 == 1) currentLevel++;
 					}
 
 					prefixBit = true;
@@ -468,24 +463,15 @@ public class SirixDeweyID implements java.io.Serializable,
 	// calculates the number of bits, that are needed to store the choosen
 	// division-value
 	private int getDivisionBits(int division) {
-		if (divisionValues[division] <= maxDivisionValue[0])
-			return completeDivisionLengthArray[0];
-		else if (divisionValues[division] <= maxDivisionValue[1])
-			return completeDivisionLengthArray[1];
-		else if (divisionValues[division] <= maxDivisionValue[2])
-			return completeDivisionLengthArray[2];
-		else if (divisionValues[division] <= maxDivisionValue[3])
-			return completeDivisionLengthArray[3];
-		else if (divisionValues[division] <= maxDivisionValue[4])
-			return completeDivisionLengthArray[4];
-		else if (divisionValues[division] <= maxDivisionValue[5])
-			return completeDivisionLengthArray[5];
-		else if (divisionValues[division] <= maxDivisionValue[6])
-			return completeDivisionLengthArray[6];
-		else if (divisionValues[division] <= maxDivisionValue[7])
-			return completeDivisionLengthArray[7];
-		else
-			return completeDivisionLengthArray[8];
+		if (divisionValues[division] <= maxDivisionValue[0]) return completeDivisionLengthArray[0];
+		else if (divisionValues[division] <= maxDivisionValue[1]) return completeDivisionLengthArray[1];
+		else if (divisionValues[division] <= maxDivisionValue[2]) return completeDivisionLengthArray[2];
+		else if (divisionValues[division] <= maxDivisionValue[3]) return completeDivisionLengthArray[3];
+		else if (divisionValues[division] <= maxDivisionValue[4]) return completeDivisionLengthArray[4];
+		else if (divisionValues[division] <= maxDivisionValue[5]) return completeDivisionLengthArray[5];
+		else if (divisionValues[division] <= maxDivisionValue[6]) return completeDivisionLengthArray[6];
+		else if (divisionValues[division] <= maxDivisionValue[7]) return completeDivisionLengthArray[7];
+		else return completeDivisionLengthArray[8];
 	}
 
 	// sets the bits in the byteArray for the given division, which has to write
@@ -628,24 +614,15 @@ public class SirixDeweyID implements java.io.Serializable,
 
 		// starting at second division, because the first "1" can be optimized
 		for (int i = 1; i < divisionValues.length; i++) {
-			if (divisionValues[i] <= maxDivisionValue[0])
-				numberOfDivisionBits += completeDivisionLengthArray[0];
-			else if (divisionValues[i] <= maxDivisionValue[1])
-				numberOfDivisionBits += completeDivisionLengthArray[1];
-			else if (divisionValues[i] <= maxDivisionValue[2])
-				numberOfDivisionBits += completeDivisionLengthArray[2];
-			else if (divisionValues[i] <= maxDivisionValue[3])
-				numberOfDivisionBits += completeDivisionLengthArray[3];
-			else if (divisionValues[i] <= maxDivisionValue[4])
-				numberOfDivisionBits += completeDivisionLengthArray[4];
-			else if (divisionValues[i] <= maxDivisionValue[5])
-				numberOfDivisionBits += completeDivisionLengthArray[5];
-			else if (divisionValues[i] <= maxDivisionValue[6])
-				numberOfDivisionBits += completeDivisionLengthArray[6];
-			else if (divisionValues[i] <= maxDivisionValue[7])
-				numberOfDivisionBits += completeDivisionLengthArray[7];
-			else
-				numberOfDivisionBits += completeDivisionLengthArray[8];
+			if (divisionValues[i] <= maxDivisionValue[0]) numberOfDivisionBits += completeDivisionLengthArray[0];
+			else if (divisionValues[i] <= maxDivisionValue[1]) numberOfDivisionBits += completeDivisionLengthArray[1];
+			else if (divisionValues[i] <= maxDivisionValue[2]) numberOfDivisionBits += completeDivisionLengthArray[2];
+			else if (divisionValues[i] <= maxDivisionValue[3]) numberOfDivisionBits += completeDivisionLengthArray[3];
+			else if (divisionValues[i] <= maxDivisionValue[4]) numberOfDivisionBits += completeDivisionLengthArray[4];
+			else if (divisionValues[i] <= maxDivisionValue[5]) numberOfDivisionBits += completeDivisionLengthArray[5];
+			else if (divisionValues[i] <= maxDivisionValue[6]) numberOfDivisionBits += completeDivisionLengthArray[6];
+			else if (divisionValues[i] <= maxDivisionValue[7]) numberOfDivisionBits += completeDivisionLengthArray[7];
+			else numberOfDivisionBits += completeDivisionLengthArray[8];
 		}
 
 		byte[] deweyIDbytes;
@@ -1009,10 +986,8 @@ public class SirixDeweyID implements java.io.Serializable,
 		int common_length = 0;
 		int length = Math.min(divisionValues.length, id.divisionValues.length);
 		for (int i = 0; i < length; i++) {
-			if (id.divisionValues[i] == divisionValues[i])
-				common_length++;
-			else
-				break;
+			if (id.divisionValues[i] == divisionValues[i]) common_length++;
+			else break;
 		}
 		while (divisionValues[common_length - 1] % 2 == 0)
 			common_length--;
@@ -1102,8 +1077,7 @@ public class SirixDeweyID implements java.io.Serializable,
 					divisionValues[j] = deweyID2.divisionValues[j];
 				divisionValues[i] = deweyID2.divisionValues[i] / 2;
 				// make sure last division is odd
-				if (divisionValues[i] % 2 == 0)
-					divisionValues[i]++;
+				if (divisionValues[i] % 2 == 0) divisionValues[i]++;
 			}
 
 			SirixDeweyID newID = new SirixDeweyID(Arrays.copyOf(divisionValues,

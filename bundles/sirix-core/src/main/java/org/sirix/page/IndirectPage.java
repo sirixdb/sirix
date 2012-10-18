@@ -46,49 +46,50 @@ import org.sirix.settings.Constants;
  */
 public final class IndirectPage extends AbstractForwardingPage {
 
-  /** {@link PageDelegate} reference. */
-  private final PageDelegate mDelegate;
+	/** {@link PageDelegate} reference. */
+	private final PageDelegate mDelegate;
 
-  /**
-   * Create indirect page.
-   * 
-   * @param revision
-   *          revision number
-   */
-  public IndirectPage(final @Nonnegative int revision) {
-    checkArgument(revision >= 0, "pRevision must be >= 0!");
-    mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, revision);
-    
-  }
+	/**
+	 * Create indirect page.
+	 * 
+	 * @param revision
+	 *          revision number
+	 */
+	public IndirectPage(final @Nonnegative int revision) {
+		checkArgument(revision >= 0, "pRevision must be >= 0!");
+		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, revision);
 
-  /**
-   * Read indirect page.
-   * 
-   * @param in
-   *          input source
-   */
-  protected IndirectPage(final @Nonnull ByteArrayDataInput in) {
-    mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
-  }
+	}
 
-  /**
-   * Clone indirect page.
-   * 
-   * @param page
-   *          {@link IndirectPage} to clone
-   * @param revisionToUse
-   *          revision number to use
-   */
-  public IndirectPage(final @Nonnull IndirectPage page, final @Nonnegative int revisionToUse) {
-    checkArgument(revisionToUse >= 0, "pRevisionToUse must be >= 0!");
-    mDelegate = new PageDelegate(page, revisionToUse);
-  }
+	/**
+	 * Read indirect page.
+	 * 
+	 * @param in
+	 *          input source
+	 */
+	protected IndirectPage(final @Nonnull ByteArrayDataInput in) {
+		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
+	}
 
-  @Override
-  protected Page delegate() {
-    return mDelegate;
-  }
-  
+	/**
+	 * Clone indirect page.
+	 * 
+	 * @param page
+	 *          {@link IndirectPage} to clone
+	 * @param revisionToUse
+	 *          revision number to use
+	 */
+	public IndirectPage(final @Nonnull IndirectPage page,
+			final @Nonnegative int revisionToUse) {
+		checkArgument(revisionToUse >= 0, "pRevisionToUse must be >= 0!");
+		mDelegate = new PageDelegate(page, revisionToUse);
+	}
+
+	@Override
+	protected Page delegate() {
+		return mDelegate;
+	}
+
 	@Override
 	public Page setDirty(final boolean isDirty) {
 		mDelegate.setDirty(isDirty);

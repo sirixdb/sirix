@@ -37,47 +37,50 @@ import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.StructNode;
 
 /**
- * Implements {@link DiffObservable}, which can be used for all classes, which implement the {@link IDiff}
- * interface.
+ * Implements {@link DiffObservable}, which can be used for all classes, which
+ * implement the {@link IDiff} interface.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 abstract class AbstractDiffObservable implements DiffObservable {
 
-  /** {@link Set} of observers, which want to be notified of the encountered differences. */
-  private final Set<DiffObserver> mDiffObservers;
+	/**
+	 * {@link Set} of observers, which want to be notified of the encountered
+	 * differences.
+	 */
+	private final Set<DiffObserver> mDiffObservers;
 
-  /**
-   * Default constructor.
-   */
-  AbstractDiffObservable() {
-    mDiffObservers = new HashSet<>();
-  }
+	/**
+	 * Default constructor.
+	 */
+	AbstractDiffObservable() {
+		mDiffObservers = new HashSet<>();
+	}
 
-  @Override
-  public final void fireDiff(@Nonnull final DiffType pDiff,
-    @Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
-    @Nonnull final DiffDepth pDepth) {
-    for (final DiffObserver observer : mDiffObservers) {
-      observer.diffListener(pDiff, pNewNodeKey, pOldNodeKey, pDepth);
-    }
-  }
+	@Override
+	public final void fireDiff(@Nonnull final DiffType pDiff,
+			@Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
+			@Nonnull final DiffDepth pDepth) {
+		for (final DiffObserver observer : mDiffObservers) {
+			observer.diffListener(pDiff, pNewNodeKey, pOldNodeKey, pDepth);
+		}
+	}
 
-  @Override
-  public final void done() throws SirixException {
-    for (final DiffObserver observer : mDiffObservers) {
-      observer.diffDone();
-    }
-  }
+	@Override
+	public final void done() throws SirixException {
+		for (final DiffObserver observer : mDiffObservers) {
+			observer.diffDone();
+		}
+	}
 
-  @Override
-  public final void addObserver(@Nonnull final DiffObserver pObserver) {
-    mDiffObservers.add(pObserver);
-  }
+	@Override
+	public final void addObserver(@Nonnull final DiffObserver pObserver) {
+		mDiffObservers.add(pObserver);
+	}
 
-  @Override
-  public final void removeObserver(@Nonnull final DiffObserver pObserver) {
-    mDiffObservers.remove(pObserver);
-  }
+	@Override
+	public final void removeObserver(@Nonnull final DiffObserver pObserver) {
+		mDiffObservers.remove(pObserver);
+	}
 }

@@ -50,223 +50,222 @@ import org.sirix.page.interfaces.Page;
  */
 public final class NamePage implements Page {
 
-  /** Attribute names. */
-  private final Names mAttributes;
+	/** Attribute names. */
+	private final Names mAttributes;
 
-  /** Element names. */
-  private final Names mElements;
+	/** Element names. */
+	private final Names mElements;
 
-  /** Namespace URIs. */
-  private final Names mNamespaces;
-  
-  /** Processing instruction names. */
-  private final Names mPIs;
+	/** Namespace URIs. */
+	private final Names mNamespaces;
 
-  /** Revision number. */
-  private final int mRevision;
-  
+	/** Processing instruction names. */
+	private final Names mPIs;
+
+	/** Revision number. */
+	private final int mRevision;
+
 	/** Determine if name page has been modified. */
 	private boolean mIsDirty;
 
-  /**
-   * Create name page.
-   * 
-   * @param revision
-   *          revision number
-   */
-  public NamePage(final @Nonnegative int revision) {
-    checkArgument(revision >= 0, "pRevision must be >= 0!");
-    mRevision = revision;
-    mAttributes = Names.getInstance();
-    mElements = Names.getInstance();
-    mNamespaces = Names.getInstance();
-    mPIs = Names.getInstance();
-    mIsDirty = true;
-  }
+	/**
+	 * Create name page.
+	 * 
+	 * @param revision
+	 *          revision number
+	 */
+	public NamePage(final @Nonnegative int revision) {
+		checkArgument(revision >= 0, "pRevision must be >= 0!");
+		mRevision = revision;
+		mAttributes = Names.getInstance();
+		mElements = Names.getInstance();
+		mNamespaces = Names.getInstance();
+		mPIs = Names.getInstance();
+		mIsDirty = true;
+	}
 
-  /**
-   * Read name page.
-   * 
-   * @param in
-   *          input bytes to read from
-   */
-  protected NamePage(final @Nonnull ByteArrayDataInput in) {
-    mRevision = in.readInt();
-    mElements = Names.clone(in);
-    mNamespaces = Names.clone(in);
-    mAttributes = Names.clone(in);
-    mPIs = Names.clone(in);
-  }
+	/**
+	 * Read name page.
+	 * 
+	 * @param in
+	 *          input bytes to read from
+	 */
+	protected NamePage(final @Nonnull ByteArrayDataInput in) {
+		mRevision = in.readInt();
+		mElements = Names.clone(in);
+		mNamespaces = Names.clone(in);
+		mAttributes = Names.clone(in);
+		mPIs = Names.clone(in);
+	}
 
-  /**
-   * Get raw name belonging to name key.
-   * 
-   * @param key
-   *          name key identifying name
-   * @return raw name of name key
-   */
-  public byte[] getRawName(final int key, final @Nonnull Kind nodeKind) {
-    byte[] rawName = new byte[] {};
-    switch (nodeKind) {
-    case ELEMENT:
-      rawName = mElements.getRawName(key);
-      break;
-    case NAMESPACE:
-      rawName = mNamespaces.getRawName(key);
-      break;
-    case ATTRIBUTE:
-      rawName = mAttributes.getRawName(key);
-      break;
-    case PROCESSING:
-      rawName = mPIs.getRawName(key);
-      break;
-    default:
-      throw new IllegalStateException("No other node types supported!");
-    }
-    return rawName;
-  }
+	/**
+	 * Get raw name belonging to name key.
+	 * 
+	 * @param key
+	 *          name key identifying name
+	 * @return raw name of name key
+	 */
+	public byte[] getRawName(final int key, final @Nonnull Kind nodeKind) {
+		byte[] rawName = new byte[] {};
+		switch (nodeKind) {
+		case ELEMENT:
+			rawName = mElements.getRawName(key);
+			break;
+		case NAMESPACE:
+			rawName = mNamespaces.getRawName(key);
+			break;
+		case ATTRIBUTE:
+			rawName = mAttributes.getRawName(key);
+			break;
+		case PROCESSING:
+			rawName = mPIs.getRawName(key);
+			break;
+		default:
+			throw new IllegalStateException("No other node types supported!");
+		}
+		return rawName;
+	}
 
-  /**
-   * Get raw name belonging to name key.
-   * 
-   * @param key
-   *          name key identifying name
-   * @return raw name of name key, or {@code null} if not present
-   */
-  public String getName(final int key, @Nonnull final Kind nodeKind) {
-    String name;
-    switch (nodeKind) {
-    case ELEMENT:
-      name = mElements.getName(key);
-      break;
-    case NAMESPACE:
-      name = mNamespaces.getName(key);
-      break;
-    case ATTRIBUTE:
-      name = mAttributes.getName(key);
-      break;
-    case PROCESSING:
-    	name = mPIs.getName(key);
-    	break;
-    default:
-      throw new IllegalStateException("No other node types supported!");
-    }
-    return name;
-  }
+	/**
+	 * Get raw name belonging to name key.
+	 * 
+	 * @param key
+	 *          name key identifying name
+	 * @return raw name of name key, or {@code null} if not present
+	 */
+	public String getName(final int key, @Nonnull final Kind nodeKind) {
+		String name;
+		switch (nodeKind) {
+		case ELEMENT:
+			name = mElements.getName(key);
+			break;
+		case NAMESPACE:
+			name = mNamespaces.getName(key);
+			break;
+		case ATTRIBUTE:
+			name = mAttributes.getName(key);
+			break;
+		case PROCESSING:
+			name = mPIs.getName(key);
+			break;
+		default:
+			throw new IllegalStateException("No other node types supported!");
+		}
+		return name;
+	}
 
-  /**
-   * Get number of nodes with the given name key.
-   * 
-   * @param key
-   *          name key identifying name
-   * @return number of nodes with the given name key
-   */
-  public int getCount(final int key, @Nonnull final Kind nodeKind) {
-    int count;
-    switch (nodeKind) {
-    case ELEMENT:
-      count = mElements.getCount(key);
-      break;
-    case NAMESPACE:
-      count = mNamespaces.getCount(key);
-      break;
-    case ATTRIBUTE:
-      count = mAttributes.getCount(key);
-      break;
-    case PROCESSING:
-    	count = mPIs.getCount(key);
-    	break;
-    default:
-      throw new IllegalStateException("No other node types supported!");
-    }
-    return count;
-  }
+	/**
+	 * Get number of nodes with the given name key.
+	 * 
+	 * @param key
+	 *          name key identifying name
+	 * @return number of nodes with the given name key
+	 */
+	public int getCount(final int key, @Nonnull final Kind nodeKind) {
+		int count;
+		switch (nodeKind) {
+		case ELEMENT:
+			count = mElements.getCount(key);
+			break;
+		case NAMESPACE:
+			count = mNamespaces.getCount(key);
+			break;
+		case ATTRIBUTE:
+			count = mAttributes.getCount(key);
+			break;
+		case PROCESSING:
+			count = mPIs.getCount(key);
+			break;
+		default:
+			throw new IllegalStateException("No other node types supported!");
+		}
+		return count;
+	}
 
-  /**
-   * Create name key given a name.
-   * 
-   * @param key
-   *          key for given name
-   * @param name
-   *          name to create key for
-   * @param pNodeKind
-   * 					kind of node
-   */
-  public void setName(final int key, final @Nonnull String name,
-    final @Nonnull Kind pNodeKind) {
-    switch (pNodeKind) {
-    case ELEMENT:
-      mElements.setName(key, name);
-      break;
-    case NAMESPACE:
-      mNamespaces.setName(key, name);
-      break;
-    case ATTRIBUTE:
-      mAttributes.setName(key, name);
-      break;
-    case PROCESSING:
-      mPIs.setName(key, name);
-      break;
-    default:
-      throw new IllegalStateException("No other node types supported!");
-    }
-  }
+	/**
+	 * Create name key given a name.
+	 * 
+	 * @param key
+	 *          key for given name
+	 * @param name
+	 *          name to create key for
+	 * @param pNodeKind
+	 *          kind of node
+	 */
+	public void setName(final int key, final @Nonnull String name,
+			final @Nonnull Kind pNodeKind) {
+		switch (pNodeKind) {
+		case ELEMENT:
+			mElements.setName(key, name);
+			break;
+		case NAMESPACE:
+			mNamespaces.setName(key, name);
+			break;
+		case ATTRIBUTE:
+			mAttributes.setName(key, name);
+			break;
+		case PROCESSING:
+			mPIs.setName(key, name);
+			break;
+		default:
+			throw new IllegalStateException("No other node types supported!");
+		}
+	}
 
-  @Override
-  public void serialize(final @Nonnull ByteArrayDataOutput out) {
-    out.writeInt(mRevision);
-    mElements.serialize(out);
-    mNamespaces.serialize(out);
-    mAttributes.serialize(out);
-    mPIs.serialize(out);
-  }
+	@Override
+	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+		out.writeInt(mRevision);
+		mElements.serialize(out);
+		mNamespaces.serialize(out);
+		mAttributes.serialize(out);
+		mPIs.serialize(out);
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("revision", mRevision).add(
-      "elements", mElements).add("attributes", mAttributes).add("URIs",
-      mNamespaces).add("PIs", mPIs).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("revision", mRevision)
+				.add("elements", mElements).add("attributes", mAttributes)
+				.add("URIs", mNamespaces).add("PIs", mPIs).toString();
+	}
 
-  /**
-   * Remove an attribute-name.
-   * 
-   * @param key
-   *          the key to remove
-   */
-  public void removeName(final int key, final @Nonnull Kind nodeKind) {
-    switch (nodeKind) {
-    case ELEMENT:
-      mElements.removeName(key);
-      break;
-    case NAMESPACE:
-      mNamespaces.removeName(key);
-      break;
-    case ATTRIBUTE:
-      mAttributes.removeName(key);
-      break;
-    case PROCESSING:
-      mPIs.removeName(key);
-      break;
-    default:
-      throw new IllegalStateException("No other node types supported!");
-    }
-  }
+	/**
+	 * Remove an attribute-name.
+	 * 
+	 * @param key
+	 *          the key to remove
+	 */
+	public void removeName(final int key, final @Nonnull Kind nodeKind) {
+		switch (nodeKind) {
+		case ELEMENT:
+			mElements.removeName(key);
+			break;
+		case NAMESPACE:
+			mNamespaces.removeName(key);
+			break;
+		case ATTRIBUTE:
+			mAttributes.removeName(key);
+			break;
+		case PROCESSING:
+			mPIs.removeName(key);
+			break;
+		default:
+			throw new IllegalStateException("No other node types supported!");
+		}
+	}
 
-  @Override
-  public int getRevision() {
-    return mRevision;
-  }
+	@Override
+	public int getRevision() {
+		return mRevision;
+	}
 
-  @Override
-  public PageReference[] getReferences() {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public PageReference[] getReferences() {
+		throw new UnsupportedOperationException();
+	}
 
-  @Override
-  public void commit(PageWriteTrx pageWriteTrx)
-    throws SirixException {
-  }
+	@Override
+	public void commit(PageWriteTrx pageWriteTrx) throws SirixException {
+	}
 
 	@Override
 	public PageReference getReference(int offset) {

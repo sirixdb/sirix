@@ -110,10 +110,10 @@ public abstract class AbstractAxis implements Axis {
 	public final Iterator<Long> iterator() {
 		return this;
 	}
-	
+
 	/**
-	 * Signals that axis traversal is done, that is {@code hasNext()} must return false.
-	 * Can be called from subclasses to signal that axis is done.
+	 * Signals that axis traversal is done, that is {@code hasNext()} must return
+	 * false. Can be called from subclasses to signal that axis is done.
 	 * 
 	 * @return null node key
 	 */
@@ -124,11 +124,15 @@ public abstract class AbstractAxis implements Axis {
 	/**
 	 * {@inheritDoc}
 	 * 
-	 * <p>During the last call to {@code hasNext()}, that is {@code hasNext()}
-	 * returns false, the transaction is reset to the start key.</p>
+	 * <p>
+	 * During the last call to {@code hasNext()}, that is {@code hasNext()}
+	 * returns false, the transaction is reset to the start key.
+	 * </p>
 	 * 
-	 * <p><strong>Implementors should implement {@code nextKey()} instead which is a template
-	 * method called from this {@code hasNext()} method.</strong></p>
+	 * <p>
+	 * <strong>Implementors should implement {@code nextKey()} instead which is a
+	 * template method called from this {@code hasNext()} method.</strong>
+	 * </p>
 	 */
 	@Override
 	public boolean hasNext() {
@@ -273,7 +277,7 @@ public abstract class AbstractAxis implements Axis {
 	public final IncludeSelf isSelfIncluded() {
 		return mIncludeSelf;
 	}
-	
+
 	@Override
 	public Long peek() {
 		return null;

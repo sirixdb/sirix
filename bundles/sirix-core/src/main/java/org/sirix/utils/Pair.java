@@ -37,46 +37,46 @@ import javax.annotation.Nullable;
  *          second reference
  */
 public class Pair<U, V> {
-  /** The first reference. */
-  private final U mFirst;
-  
-  /** The second reference. */
-  private final V mSecond;
-  
-  /**
-   * Constructs the pair.
-   * 
-   * @param pFirst
-   *          first reference
-   * @param pSecond
-   *          second reference
-   * */
-  public Pair(@Nullable final U pFirst, @Nullable final V pSecond) {
-    mFirst = pFirst;
-    mSecond = pSecond;
-  }
+	/** The first reference. */
+	private final U mFirst;
 
-  /**
-   * Get the first reference.
-   * 
-   * @return first reference
-   */
-  public U getFirst() {
-    return mFirst;
-  }
+	/** The second reference. */
+	private final V mSecond;
 
-  /**
-   * Get the second reference.
-   * 
-   * @return second reference
-   */
-  public V getSecond() {
-    return mSecond;
-  }
+	/**
+	 * Constructs the pair.
+	 * 
+	 * @param pFirst
+	 *          first reference
+	 * @param pSecond
+	 *          second reference
+	 * */
+	public Pair(@Nullable final U pFirst, @Nullable final V pSecond) {
+		mFirst = pFirst;
+		mSecond = pSecond;
+	}
 
-  @Override
-  public String toString() {
-    return new StringBuilder("first: ").append(mFirst.toString()).append(" second: ").append(
-      mSecond.toString()).toString();
-  }
+	/**
+	 * Get the first reference.
+	 * 
+	 * @return first reference
+	 */
+	public U getFirst() {
+		return mFirst;
+	}
+
+	/**
+	 * Get the second reference.
+	 * 
+	 * @return second reference
+	 */
+	public V getSecond() {
+		return mSecond;
+	}
+
+	@Override
+	public String toString() {
+		return new StringBuilder("first: ").append(mFirst.toString())
+				.append(" second: ").append(mSecond.toString()).toString();
+	}
 }

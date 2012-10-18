@@ -39,42 +39,41 @@ import org.sirix.utils.NamePageHash;
 
 public class AttributeNodeTest {
 
-  @Test
-  public void testAttributeNode() {
-    final byte[] value = {
-      (byte)17, (byte)18
-    };
+	@Test
+	public void testAttributeNode() {
+		final byte[] value = { (byte) 17, (byte) 18 };
 
-    final NodeDelegate del = new NodeDelegate(99, 13, 0, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(del, 14, 15, 1);
-    final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
+		final NodeDelegate del = new NodeDelegate(99, 13, 0, 0);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 14, 15, 1);
+		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 
-    final AttributeNode node1 = new AttributeNode(del, nameDel, valDel);
+		final AttributeNode node1 = new AttributeNode(del, nameDel, valDel);
 
-    // Create empty node.
-    check(node1);
+		// Create empty node.
+		check(node1);
 
-    // Serialize and deserialize node.
-    final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-    node1.getKind().serialize(out, node1);
-    final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-    final AttributeNode node2 = (AttributeNode)Kind.ATTRIBUTE.deserialize(in);
-    check(node2);
+		// Serialize and deserialize node.
+		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
+		node1.getKind().serialize(out, node1);
+		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
+		final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(in);
+		check(node2);
 
-  }
+	}
 
-  private final static void check(final AttributeNode node) {
-    // Now compare.
-    assertEquals(99L, node.getNodeKey());
-    assertEquals(13L, node.getParentKey());
+	private final static void check(final AttributeNode node) {
+		// Now compare.
+		assertEquals(99L, node.getNodeKey());
+		assertEquals(13L, node.getParentKey());
 
-    assertEquals(14, node.getNameKey());
-    assertEquals(15, node.getURIKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node.getTypeKey());
-    assertEquals(2, node.getRawValue().length);
-    assertEquals(Kind.ATTRIBUTE, node.getKind());
-    assertEquals(true, node.hasParent());
-    assertEquals(Kind.ATTRIBUTE, node.getKind());
-  }
+		assertEquals(14, node.getNameKey());
+		assertEquals(15, node.getURIKey());
+		assertEquals(NamePageHash.generateHashForString("xs:untyped"),
+				node.getTypeKey());
+		assertEquals(2, node.getRawValue().length);
+		assertEquals(Kind.ATTRIBUTE, node.getKind());
+		assertEquals(true, node.hasParent());
+		assertEquals(Kind.ATTRIBUTE, node.getKind());
+	}
 
 }

@@ -71,7 +71,8 @@ import org.xml.sax.helpers.DefaultHandler;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SAXSerializer extends AbstractSerializer implements XMLReader {
+public final class SAXSerializer extends AbstractSerializer implements
+		XMLReader {
 
 	/** {@link LogWrapper} reference. */
 	private final LogWrapper LOGGER = new LogWrapper(
@@ -323,15 +324,15 @@ public final class SAXSerializer extends AbstractSerializer implements XMLReader
 
 	/* Implements XMLReader method. */
 	@Override
-	public boolean getFeature(String name)
-			throws SAXNotRecognizedException, SAXNotSupportedException {
+	public boolean getFeature(String name) throws SAXNotRecognizedException,
+			SAXNotSupportedException {
 		throw new SAXNotSupportedException();
 	}
 
 	/* Implements XMLReader method. */
 	@Override
-	public Object getProperty(String name)
-			throws SAXNotRecognizedException, SAXNotSupportedException {
+	public Object getProperty(String name) throws SAXNotRecognizedException,
+			SAXNotSupportedException {
 		throw new SAXNotSupportedException();
 	}
 

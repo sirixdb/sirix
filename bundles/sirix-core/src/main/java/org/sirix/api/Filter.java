@@ -40,10 +40,10 @@ package org.sirix.api;
  * 
  * <p>
  * <ol>
- * <li><strong>Precondition</strong> before each call to <code>IFilter.filter()</code>:
- * <code>NodeReadTrx.getKey() == n</code>.</li>
- * <li><strong>Postcondition</strong> after each call to <code>IFilter.filter()</code>:
- * <code>NodeReadTrx.getKey() == n</code>.</li>
+ * <li><strong>Precondition</strong> before each call to
+ * <code>IFilter.filter()</code>: <code>NodeReadTrx.getKey() == n</code>.</li>
+ * <li><strong>Postcondition</strong> after each call to
+ * <code>IFilter.filter()</code>: <code>NodeReadTrx.getKey() == n</code>.</li>
  * </ol>
  * </p>
  * 
@@ -66,15 +66,15 @@ package org.sirix.api;
  * // Must extend &lt;code&gt;AbstractFilter&lt;/code&gt; and implement &lt;code&gt;Filter&lt;/code&gt;.
  * public final class ExampleFilter extends AbstractFilter {
  * 
- *   public ExampleFilter(final @Nonnull INodeReadTrx pRtx) {
- *     // Must be called as first.
- *     super(pRtx);
- *   }
+ * 	public ExampleFilter(final @Nonnull INodeReadTrx pRtx) {
+ * 		// Must be called as first.
+ * 		super(pRtx);
+ * 	}
  * 
- *   public final boolean filter() {
- *     // Do not move cursor.
- *     return (getTrx().isStructuralNode());
- *   }
+ * 	public final boolean filter() {
+ * 		// Do not move cursor.
+ * 		return (getTrx().isStructuralNode());
+ * 	}
  * }
  * </pre>
  * 
@@ -82,18 +82,18 @@ package org.sirix.api;
  */
 public interface Filter {
 
-  /**
-   * Apply filter on current node of transaction.
-   * 
-   * @return {@code true} if node passes filter, {@code false} otherwise
-   */
-  boolean filter();
-  
-  /**
-   * Getting the transaction of this filter
-   * 
-   * @return the transaction of this filter
-   */
-  NodeReadTrx getTrx();
+	/**
+	 * Apply filter on current node of transaction.
+	 * 
+	 * @return {@code true} if node passes filter, {@code false} otherwise
+	 */
+	boolean filter();
+
+	/**
+	 * Getting the transaction of this filter
+	 * 
+	 * @return the transaction of this filter
+	 */
+	NodeReadTrx getTrx();
 
 }

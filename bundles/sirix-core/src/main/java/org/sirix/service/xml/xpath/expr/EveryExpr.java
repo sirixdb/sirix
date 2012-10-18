@@ -40,78 +40,79 @@ import org.sirix.utils.TypedValue;
  * IAxis that represents the quantified expression "every".
  * </p>
  * <p>
- * The quantified expression is true if every evaluation of the test expression has the effective boolean
- * value true; otherwise the quantified expression is false. This rule implies that, if the in-clauses
- * generate zero binding tuples, the value of the quantified expression is true.
+ * The quantified expression is true if every evaluation of the test expression
+ * has the effective boolean value true; otherwise the quantified expression is
+ * false. This rule implies that, if the in-clauses generate zero binding
+ * tuples, the value of the quantified expression is true.
  * </p>
  */
 public class EveryExpr extends AbstractExpression {
 
-  private final List<Axis> mVars;
+	private final List<Axis> mVars;
 
-  private final Axis mSatisfy;
+	private final Axis mSatisfy;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param mVars
-   *          Variables for which the condition must be satisfied
-   * @param mSatisfy
-   *          condition every item of the variable results must satisfy in
-   *          order to evaluate expression to true
-   */
-  public EveryExpr(final NodeReadTrx rtx, final List<Axis> mVars, final Axis mSatisfy) {
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param rtx
+	 *          Exclusive (immutable) trx to iterate with.
+	 * @param mVars
+	 *          Variables for which the condition must be satisfied
+	 * @param mSatisfy
+	 *          condition every item of the variable results must satisfy in order
+	 *          to evaluate expression to true
+	 */
+	public EveryExpr(final NodeReadTrx rtx, final List<Axis> mVars,
+			final Axis mSatisfy) {
 
-    super(rtx);
-    this.mVars = mVars;
-    this.mSatisfy = mSatisfy;
-  }
+		super(rtx);
+		this.mVars = mVars;
+		this.mSatisfy = mSatisfy;
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void reset(final long mNodeKey) {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void reset(final long mNodeKey) {
 
-    super.reset(mNodeKey);
-    if (mVars != null) {
-      for (final Axis axis : mVars) {
-        axis.reset(mNodeKey);
-      }
-    }
+		super.reset(mNodeKey);
+		if (mVars != null) {
+			for (final Axis axis : mVars) {
+				axis.reset(mNodeKey);
+			}
+		}
 
-    if (mSatisfy != null) {
-      mSatisfy.reset(mNodeKey);
-    }
-  }
+		if (mSatisfy != null) {
+			mSatisfy.reset(mNodeKey);
+		}
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void evaluate() {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void evaluate() {
 
-    boolean satisfiesCond = true;
+		boolean satisfiesCond = true;
 
-    for (final Axis axis : mVars) {
-      while (axis.hasNext()) {
-        axis.next();
-        if (!mSatisfy.hasNext()) {
-          // condition is not satisfied for this item -> expression is
-          // false
-          satisfiesCond = false;
-          break;
-        }
-      }
-    }
-    final int mItemKey =
-      getTrx().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)), getTrx().keyForName(
-          "xs:boolean")));
-    mKey = mItemKey;
+		for (final Axis axis : mVars) {
+			while (axis.hasNext()) {
+				axis.next();
+				if (!mSatisfy.hasNext()) {
+					// condition is not satisfied for this item -> expression is
+					// false
+					satisfiesCond = false;
+					break;
+				}
+			}
+		}
+		final int mItemKey = getTrx().getItemList().addItem(
+				new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
+						getTrx().keyForName("xs:boolean")));
+		mKey = mItemKey;
 
-  }
+	}
 
 }

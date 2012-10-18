@@ -678,8 +678,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 * @throws SirixException
 	 *           if anything in sirix fails
 	 */
-	private long emitInsert(final long child, final long parent,
-			final int pos, final NodeWriteTrx wtx, final NodeReadTrx rtx) {
+	private long emitInsert(final long child, final long parent, final int pos,
+			final NodeWriteTrx wtx, final NodeReadTrx rtx) {
 		assert child >= 0;
 		assert parent >= 0;
 		assert wtx != null;
@@ -754,8 +754,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 						oldKey = wtx.copySubtreeAsRightSibling(rtx).getNodeKey();
 						break;
 					case TEXT:
-						oldKey = wtx.insertTextAsRightSibling(rtx.getValue())
-								.getNodeKey();
+						oldKey = wtx.insertTextAsRightSibling(rtx.getValue()).getNodeKey();
 						break;
 					default:
 						// Already inserted.
@@ -1097,7 +1096,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 * @throws SirixException
 	 *           if anything in sirix fails
 	 */
-	private void init(final @Nonnull NodeReadTrx rtx, final @Nonnull Visitor visitor) {
+	private void init(final @Nonnull NodeReadTrx rtx,
+			final @Nonnull Visitor visitor) {
 		assert visitor != null;
 
 		final long nodeKey = rtx.getNodeKey();
@@ -1122,7 +1122,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 * @param visitor
 	 *          {@link LabelFMSEVisitor} used to save node type/list
 	 */
-	private void getLabels(final @Nonnull NodeReadTrx rtx, final @Nonnull LabelFMSEVisitor visitor) {
+	private void getLabels(final @Nonnull NodeReadTrx rtx,
+			final @Nonnull LabelFMSEVisitor visitor) {
 		assert rtx != null;
 		assert visitor != null;
 

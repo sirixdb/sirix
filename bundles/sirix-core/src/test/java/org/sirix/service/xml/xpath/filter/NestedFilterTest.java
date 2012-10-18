@@ -44,40 +44,46 @@ import org.sirix.exception.SirixException;
 
 public class NestedFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.deleteEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.deleteEverything();
+	}
 
-  @Test
-  public void testIFilterConvetions() throws SirixException {
+	@Test
+	public void testIFilterConvetions() throws SirixException {
 
-    holder.getRtx().moveTo(9L);
-    IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(), new ItemFilter(holder.getRtx()),
-      new ElementFilter(holder.getRtx()), new NameFilter(holder.getRtx(), "b")), true);
-    IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(), new ItemFilter(holder.getRtx()),
-      new AttributeFilter(holder.getRtx()), new NameFilter(holder.getRtx(), "b")), false);
+		holder.getRtx().moveTo(9L);
+		IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(),
+				new ItemFilter(holder.getRtx()), new ElementFilter(holder.getRtx()),
+				new NameFilter(holder.getRtx(), "b")), true);
+		IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(),
+				new ItemFilter(holder.getRtx()), new AttributeFilter(holder.getRtx()),
+				new NameFilter(holder.getRtx(), "b")), false);
 
-    holder.getRtx().moveTo(4L);
-    IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(), new NodeFilter(holder.getRtx()),
-      new ElementFilter(holder.getRtx())), false);
-    IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(), new NodeFilter(holder.getRtx()),
-      new TextFilter(holder.getRtx())), true);
+		holder.getRtx().moveTo(4L);
+		IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(),
+				new NodeFilter(holder.getRtx()), new ElementFilter(holder.getRtx())),
+				false);
+		IFilterTest
+				.testIFilterConventions(new NestedFilter(holder.getRtx(),
+						new NodeFilter(holder.getRtx()), new TextFilter(holder.getRtx())),
+						true);
 
-    holder.getRtx().moveTo(1L);
-    holder.getRtx().moveToAttribute(0);
-    IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(),
-      new AttributeFilter(holder.getRtx()), new NameFilter(holder.getRtx(), "i")), true);
+		holder.getRtx().moveTo(1L);
+		holder.getRtx().moveToAttribute(0);
+		IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(),
+				new AttributeFilter(holder.getRtx()), new NameFilter(holder.getRtx(),
+						"i")), true);
 
-  }
+	}
 }

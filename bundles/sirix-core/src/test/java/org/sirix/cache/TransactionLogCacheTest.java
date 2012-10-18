@@ -34,30 +34,30 @@ import org.sirix.TestHelper;
 import org.sirix.exception.SirixException;
 
 public class TransactionLogCacheTest {
-  private Cache<Long, NodePageContainer> cache;
+	private Cache<Long, NodePageContainer> cache;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
 
-    // cache = new TransactionLogCache(TestHelper.PATHS.PATH1.getFile(), 1);
-    // CacheTestHelper.setUp(cache);
-  }
+		// cache = new TransactionLogCache(TestHelper.PATHS.PATH1.getFile(), 1);
+		// CacheTestHelper.setUp(cache);
+	}
 
-  @Test
-  public void test() {
-    // for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
-    // final NodePageContainer cont = cache.get((long)i);
-    // final NodePage current = cont.getComplete();
-    // assertEquals(CacheTestHelper.PAGES[i][0], current);
-    // }
-    //
-    // cache.clear();
-  }
+	@Test
+	public void test() {
+		// for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
+		// final NodePageContainer cont = cache.get((long)i);
+		// final NodePage current = cont.getComplete();
+		// assertEquals(CacheTestHelper.PAGES[i][0], current);
+		// }
+		//
+		// cache.clear();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		TestHelper.closeEverything();
+	}
 }

@@ -38,80 +38,84 @@ import org.sirix.axis.AbstractAxis;
 /**
  * <h1>PredicateFilterAxis</h1>
  * <p>
- * The PredicateAxis evaluates a predicate (in the form of an axis) and returns true, if the predicates has a
- * value (axis.hasNext == true) and this value if not the boolean value false. Otherwise false is returned.
- * Since a predicate is a kind of filter, the transaction that has been altered by means of the predicate's
- * evaluation has to be reset to the key that it was set to before the evaluation.
+ * The PredicateAxis evaluates a predicate (in the form of an axis) and returns
+ * true, if the predicates has a value (axis.hasNext == true) and this value if
+ * not the boolean value false. Otherwise false is returned. Since a predicate
+ * is a kind of filter, the transaction that has been altered by means of the
+ * predicate's evaluation has to be reset to the key that it was set to before
+ * the evaluation.
  * </p>
  */
 public class PredicateFilterAxis extends AbstractAxis {
 
 	/** First run. */
-  private boolean mIsFirst;
+	private boolean mIsFirst;
 
-  /** Predicate axis. */
-  private final Axis mPredicate;
+	/** Predicate axis. */
+	private final Axis mPredicate;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param pPredicate
-   *          predicate expression
-   */
-  public PredicateFilterAxis(@Nonnull final NodeReadTrx pRtx, @Nonnull final Axis pPredicate) {
-    super(pRtx);
-    mIsFirst = true;
-    mPredicate = checkNotNull(pPredicate);
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param rtx
+	 *          Exclusive (immutable) trx to iterate with.
+	 * @param pPredicate
+	 *          predicate expression
+	 */
+	public PredicateFilterAxis(@Nonnull final NodeReadTrx pRtx,
+			@Nonnull final Axis pPredicate) {
+		super(pRtx);
+		mIsFirst = true;
+		mPredicate = checkNotNull(pPredicate);
+	}
 
-  @Override
-  public final void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    if (mPredicate != null) {
-      mPredicate.reset(pNodeKey);
-    }
-    mIsFirst = true;
-  }
-  
-  @Override
-  protected long nextKey() {
-    // A predicate has to evaluate to true only once.
-    if (mIsFirst) {
-      mIsFirst = false;
-      
-      final long currKey = getTrx().getNodeKey();
-      mPredicate.reset(currKey);
+	@Override
+	public final void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		if (mPredicate != null) {
+			mPredicate.reset(pNodeKey);
+		}
+		mIsFirst = true;
+	}
 
-      if (mPredicate.hasNext()) {
-        mPredicate.next();
-        if (isBooleanFalse()) {
-          return done();
-        }
-        return currKey;
-      }
-    }
-    return done();
-  }
+	@Override
+	protected long nextKey() {
+		// A predicate has to evaluate to true only once.
+		if (mIsFirst) {
+			mIsFirst = false;
 
-  /**
-   * Tests whether current item is an atomic value with boolean value "false".
-   * 
-   * @return {@code true}, if item is boolean typed atomic value with type "false".
-   */
-  private boolean isBooleanFalse() {
-    if (getTrx().getNodeKey() >= 0) {
-      return false;
-    } else { // is AtomicValue
-      if (getTrx().getTypeKey() == getTrx().keyForName("xs:boolean")) {
-        // atomic value of type boolean
-        // return true, if atomic values's value is false
-        return !(Boolean.parseBoolean(getTrx().getValue()));
-      } else {
-        return false;
-      }
-    }
-  }
+			final long currKey = getTrx().getNodeKey();
+			mPredicate.reset(currKey);
+
+			if (mPredicate.hasNext()) {
+				mPredicate.next();
+				if (isBooleanFalse()) {
+					return done();
+				}
+				return currKey;
+			}
+		}
+		return done();
+	}
+
+	/**
+	 * Tests whether current item is an atomic value with boolean value "false".
+	 * 
+	 * @return {@code true}, if item is boolean typed atomic value with type
+	 *         "false".
+	 */
+	private boolean isBooleanFalse() {
+		if (getTrx().getNodeKey() >= 0) {
+			return false;
+		} else { // is AtomicValue
+			if (getTrx().getTypeKey() == getTrx().keyForName("xs:boolean")) {
+				// atomic value of type boolean
+				// return true, if atomic values's value is false
+				return !(Boolean.parseBoolean(getTrx().getValue()));
+			} else {
+				return false;
+			}
+		}
+	}
 
 }

@@ -207,8 +207,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
 		if (mNodePageCon == null
 				|| (mNodeLog.get(nodePageKey).equals(NodePageContainer.EMPTY_INSTANCE)
-						&& mPathLog.get(nodePageKey).equals(NodePageContainer.EMPTY_INSTANCE) && mValueLog
-						.get(nodePageKey).equals(NodePageContainer.EMPTY_INSTANCE))) {
+						&& mPathLog.get(nodePageKey).equals(
+								NodePageContainer.EMPTY_INSTANCE) && mValueLog.get(nodePageKey)
+						.equals(NodePageContainer.EMPTY_INSTANCE))) {
 			throw new IllegalStateException();
 		}
 
@@ -261,22 +262,22 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public void removeNode(@Nonnull final long pNodeKey, @Nonnull final PageKind pPage)
-			throws SirixIOException {
+	public void removeNode(@Nonnull final long pNodeKey,
+			@Nonnull final PageKind pPage) throws SirixIOException {
 		final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
 		prepareNodePage(nodePageKey, pPage);
 		final Optional<NodeBase> node = getNode(pNodeKey, pPage);
 		if (node.isPresent()) {
 			final NodeBase nodeToDel = node.get();
-			final Node delNode = new DeletedNode(new NodeDelegate(nodeToDel.getNodeKey(),
-					-1, -1, -1));
+			final Node delNode = new DeletedNode(new NodeDelegate(
+					nodeToDel.getNodeKey(), -1, -1, -1));
 			mNodePageCon.getModified().setNode(delNode);
 			mNodePageCon.getComplete().setNode(delNode);
 			finishNodeModification(pNodeKey, pPage);
 		} else {
 			throw new IllegalStateException("Node not found!");
 		}
-		
+
 	}
 
 	@Override
@@ -382,27 +383,27 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		if (pReference != null) {
 			// First, try to get one from the transaction log.
 			final long nodePageKey = pReference.getNodePageKey();
-			final NodePageContainer cont = nodePageKey == -1 ? null : getPageContainer(
-					pReference.getPageKind(), nodePageKey);
+			final NodePageContainer cont = nodePageKey == -1 ? null
+					: getPageContainer(pReference.getPageKind(), nodePageKey);
 			if (cont != null) {
 				page = cont.getModified();
 			}
 
 			// If none is in the log.
-//			if (page == null) {
-				// // Then try to get one from the page cache.
-				// if (nodePageKey == -1 && pReference.getKey() != IConstants.NULL_ID) {
-				// page = mPageLog.get(pReference.getKey());
-				// }
+			// if (page == null) {
+			// // Then try to get one from the page cache.
+			// if (nodePageKey == -1 && pReference.getKey() != IConstants.NULL_ID) {
+			// page = mPageLog.get(pReference.getKey());
+			// }
+			if (page == null) {
+				// Test if one is instantiated, if so, get
+				// the one from the reference.
+				page = pReference.getPage();
 				if (page == null) {
-					// Test if one is instantiated, if so, get
-					// the one from the reference.
-					page = pReference.getPage();
-					if (page == null) {
-						return;
-					}
+					return;
 				}
-//			}
+			}
+			// }
 
 			pReference.setPage(page);
 			if (pReference.getPageKind() == null) {
@@ -441,32 +442,32 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	public UberPage commit(final @Nonnull MultipleWriteTrx pMultipleWriteTrx)
 			throws SirixException {
 		mPageRtx.assertNotClosed();
-			mPageRtx.mSession.mCommitLock.lock();
-			mMultipleWriteTrx = checkNotNull(pMultipleWriteTrx);
+		mPageRtx.mSession.mCommitLock.lock();
+		mMultipleWriteTrx = checkNotNull(pMultipleWriteTrx);
 
-			// Forcefully flush write-ahead transaction logs to persistent storage.
-			// Make
-			// this optional!
-			// mNodeLog.toSecondCache();
-			// mPathLog.toSecondCache();
-			// mValueLog.toSecondCache();
-			// mPageLog.toSecondCache();
+		// Forcefully flush write-ahead transaction logs to persistent storage.
+		// Make
+		// this optional!
+		// mNodeLog.toSecondCache();
+		// mPathLog.toSecondCache();
+		// mValueLog.toSecondCache();
+		// mPageLog.toSecondCache();
 
-			final PageReference uberPageReference = new PageReference();
-			final UberPage uberPage = getUberPage();
-			uberPageReference.setPage(uberPage);
-			uberPageReference.setPageKind(PageKind.UBERPAGE);
+		final PageReference uberPageReference = new PageReference();
+		final UberPage uberPage = getUberPage();
+		uberPageReference.setPage(uberPage);
+		uberPageReference.setPageKind(PageKind.UBERPAGE);
 
-			// Recursively write indirectely referenced pages.
-			uberPage.commit(this);
+		// Recursively write indirectely referenced pages.
+		uberPage.commit(this);
 
-			uberPageReference.setPage(uberPage);
-			mPageWriter.writeFirstReference(uberPageReference);
-			uberPageReference.setPage(null);
+		uberPageReference.setPage(uberPage);
+		mPageWriter.writeFirstReference(uberPageReference);
+		uberPageReference.setPage(null);
 
-			mPageRtx.mSession.waitForFinishedSync(mTransactionID);
-			mPageRtx.mSession.mCommitLock.unlock();
-			return uberPage;
+		mPageRtx.mSession.waitForFinishedSync(mTransactionID);
+		mPageRtx.mSession.mCommitLock.unlock();
+		return uberPage;
 	}
 
 	@Override

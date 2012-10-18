@@ -37,7 +37,8 @@ import org.sirix.service.xml.xpath.AbstractAxis;
 /**
  * <h1>SequenceAxis</h1>
  * <p>
- * Axis that represents a sequence of singleExpressions, normally separated by a ','.
+ * Axis that represents a sequence of singleExpressions, normally separated by a
+ * ','.
  * </p>
  * <p>
  * Calling hasNext() returns the results of the singleExpressions consecutively.
@@ -46,73 +47,73 @@ import org.sirix.service.xml.xpath.AbstractAxis;
  */
 public class SequenceAxis extends AbstractAxis {
 
-  private final List<Axis> mSeq;
-  private Axis mCurrent;
-  private int mNum;
+	private final List<Axis> mSeq;
+	private Axis mCurrent;
+	private int mNum;
 
-  /**
-   * 
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param axis
-   *          The singleExpressions contained by the sequence
-   */
-  public SequenceAxis(final NodeReadTrx rtx, final Axis... axis) {
+	/**
+	 * 
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param rtx
+	 *          Exclusive (immutable) trx to iterate with.
+	 * @param axis
+	 *          The singleExpressions contained by the sequence
+	 */
+	public SequenceAxis(final NodeReadTrx rtx, final Axis... axis) {
 
-    super(rtx);
-    mSeq = Arrays.asList(axis);
-    mNum = 0;
-  }
+		super(rtx);
+		mSeq = Arrays.asList(axis);
+		mNum = 0;
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void reset(final long mNodeKey) {
-    super.reset(mNodeKey);
-    if (mSeq != null) {
-      for (Axis ax : mSeq) {
-        ax.reset(mNodeKey);
-      }
-    }
-    mCurrent = null;
-    mNum = 0;
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void reset(final long mNodeKey) {
+		super.reset(mNodeKey);
+		if (mSeq != null) {
+			for (Axis ax : mSeq) {
+				ax.reset(mNodeKey);
+			}
+		}
+		mCurrent = null;
+		mNum = 0;
 
-  }
+	}
 
-  @Override
-  public boolean hasNext() {
+	@Override
+	public boolean hasNext() {
 
-    resetToLastKey();
+		resetToLastKey();
 
-    if (mCurrent != null) {
-      if (mCurrent.hasNext()) {
-        mKey = mCurrent.next();
-        return true;
-      } else {
-        // // necessary, because previous hasNext() changes state
-        // resetToLastKey();
-        // mKey =
-      }
-    }
+		if (mCurrent != null) {
+			if (mCurrent.hasNext()) {
+				mKey = mCurrent.next();
+				return true;
+			} else {
+				// // necessary, because previous hasNext() changes state
+				// resetToLastKey();
+				// mKey =
+			}
+		}
 
-    while (mNum < mSeq.size()) {
-      mCurrent = mSeq.get(mNum++);
+		while (mNum < mSeq.size()) {
+			mCurrent = mSeq.get(mNum++);
 
-      // mCurrent.getTransaction().moveTo(getTransaction().getKey());
-      mCurrent.reset(getTrx().getNodeKey());
-      // mCurrent.resetToLastKey();
-      if (mCurrent.hasNext()) {
-        mKey = mCurrent.next();
-        return true;
-      }
-    }
+			// mCurrent.getTransaction().moveTo(getTransaction().getKey());
+			mCurrent.reset(getTrx().getNodeKey());
+			// mCurrent.resetToLastKey();
+			if (mCurrent.hasNext()) {
+				mKey = mCurrent.next();
+				return true;
+			}
+		}
 
-    resetToStartKey();
-    return false;
+		resetToStartKey();
+		return false;
 
-  }
+	}
 
 }

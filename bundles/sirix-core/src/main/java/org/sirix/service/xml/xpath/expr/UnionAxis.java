@@ -40,75 +40,76 @@ import org.sirix.service.xml.xpath.XPathError.ErrorType;
 /**
  * <h1>UnionAxis</h1>
  * <p>
- * Returns an union of two operands. This axis takes two node sequences as operands and returns a sequence
- * containing all the items that occur in either of the operands. A union of two sequences may lead to a
- * sequence containing duplicates. These duplicates can be removed by wrapping the UnionAxis with a
+ * Returns an union of two operands. This axis takes two node sequences as
+ * operands and returns a sequence containing all the items that occur in either
+ * of the operands. A union of two sequences may lead to a sequence containing
+ * duplicates. These duplicates can be removed by wrapping the UnionAxis with a
  * DupFilterAxis. The resulting sequence may also be out of document order.
  * </p>
  */
 public class UnionAxis extends AbstractAxis {
 
-  /** First operand sequence. */
-  private final Axis mOp1;
+	/** First operand sequence. */
+	private final Axis mOp1;
 
-  /** Second operand sequence. */
-  private final Axis mOp2;
+	/** Second operand sequence. */
+	private final Axis mOp2;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with
-   * @param pOperand1
-   *          first operand
-   * @param pOperand2
-   *          second operand
-   */
-  public UnionAxis(@Nonnull final NodeReadTrx pRtx,
-    @Nonnull final Axis pOperand1, @Nonnull final Axis pOperand2) {
-    super(pRtx);
-    mOp1 = checkNotNull(pOperand1);
-    mOp2 = checkNotNull(pOperand2);
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pRtx
+	 *          exclusive (immutable) trx to iterate with
+	 * @param pOperand1
+	 *          first operand
+	 * @param pOperand2
+	 *          second operand
+	 */
+	public UnionAxis(@Nonnull final NodeReadTrx pRtx,
+			@Nonnull final Axis pOperand1, @Nonnull final Axis pOperand2) {
+		super(pRtx);
+		mOp1 = checkNotNull(pOperand1);
+		mOp2 = checkNotNull(pOperand2);
+	}
 
-  @Override
-  public void reset(final long mNodeKey) {
-    super.reset(mNodeKey);
+	@Override
+	public void reset(final long mNodeKey) {
+		super.reset(mNodeKey);
 
-    if (mOp1 != null) {
-      mOp1.reset(mNodeKey);
-    }
-    if (mOp2 != null) {
-      mOp2.reset(mNodeKey);
-    }
-  }
+		if (mOp1 != null) {
+			mOp1.reset(mNodeKey);
+		}
+		if (mOp2 != null) {
+			mOp2.reset(mNodeKey);
+		}
+	}
 
-  @Override
-  public boolean hasNext() {
-    resetToLastKey();
-    // first return all values of the first operand
-    while (mOp1.hasNext()) {
-      mKey = mOp1.next();
+	@Override
+	public boolean hasNext() {
+		resetToLastKey();
+		// first return all values of the first operand
+		while (mOp1.hasNext()) {
+			mKey = mOp1.next();
 
-      if (getTrx().getNodeKey() < 0) { // only nodes are
-        // allowed
-        throw new XPathError(ErrorType.XPTY0004);
-      }
-      return true;
-    }
+			if (getTrx().getNodeKey() < 0) { // only nodes are
+				// allowed
+				throw new XPathError(ErrorType.XPTY0004);
+			}
+			return true;
+		}
 
-    // then all values of the second operand.
-    while (mOp2.hasNext()) {
-      mKey = mOp2.next();
+		// then all values of the second operand.
+		while (mOp2.hasNext()) {
+			mKey = mOp2.next();
 
-      if (getTrx().getNodeKey() < 0) { // only nodes are
-        // allowed
-        throw new XPathError(ErrorType.XPTY0004);
-      }
-      return true;
-    }
+			if (getTrx().getNodeKey() < 0) { // only nodes are
+				// allowed
+				throw new XPathError(ErrorType.XPTY0004);
+			}
+			return true;
+		}
 
-    return false;
-  }
+		return false;
+	}
 
 }

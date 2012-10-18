@@ -155,7 +155,7 @@ public interface NodeCursor extends AutoCloseable {
 	 * @return {@link VisitResultType} value
 	 */
 	VisitResult acceptVisitor(@Nonnull Visitor visitor);
-	
+
 	/**
 	 * Get the node where the cursor currently is located.
 	 * 

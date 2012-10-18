@@ -8,7 +8,7 @@ import org.sirix.api.NodeCursor;
  * Determines that a {@link NodeCursor} hasn't moved to the node.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
 public class NotMoved extends Move<NodeCursor> {
 	/** Singleton instance. */

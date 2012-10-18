@@ -54,110 +54,110 @@ import com.google.common.base.Objects;
  */
 public class ValNodeDelegate extends AbstractForwardingNode implements ValNode {
 
-  /** Delegate for common node information. */
-  private NodeDelegate mDelegate;
+	/** Delegate for common node information. */
+	private NodeDelegate mDelegate;
 
-  /** Storing the value. */
-  private byte[] mVal;
+	/** Storing the value. */
+	private byte[] mVal;
 
-  /** Determines if input has been compressed. */
-  private boolean mCompressed;
+	/** Determines if input has been compressed. */
+	private boolean mCompressed;
 
-  /**
-   * Constructor
-   * 
-   * @param nodeDel
-   *          {@link NodeDelegate} reference
-   * @param val
-   *          the value
-   * @param compressed
-   * 					compress value or not
-   */
-  public ValNodeDelegate(@Nonnull final NodeDelegate nodeDel,
-    @Nonnull final byte[] val, final boolean compressed) {
-    mDelegate = checkNotNull(nodeDel);
-    mVal = checkNotNull(val);
-    mCompressed = compressed;
-  }
+	/**
+	 * Constructor
+	 * 
+	 * @param nodeDel
+	 *          {@link NodeDelegate} reference
+	 * @param val
+	 *          the value
+	 * @param compressed
+	 *          compress value or not
+	 */
+	public ValNodeDelegate(@Nonnull final NodeDelegate nodeDel,
+			@Nonnull final byte[] val, final boolean compressed) {
+		mDelegate = checkNotNull(nodeDel);
+		mVal = checkNotNull(val);
+		mCompressed = compressed;
+	}
 
-  @Override
-  public VisitResultType acceptVisitor(@Nonnull final Visitor visitor) {
-    return mDelegate.acceptVisitor(visitor);
-  }
+	@Override
+	public VisitResultType acceptVisitor(@Nonnull final Visitor visitor) {
+		return mDelegate.acceptVisitor(visitor);
+	}
 
-  @Override
-  public byte[] getRawValue() {
-    return mCompressed ? Compression.decompress(mVal) : mVal;
-  }
+	@Override
+	public byte[] getRawValue() {
+		return mCompressed ? Compression.decompress(mVal) : mVal;
+	}
 
-  /**
-   * Get value which might be compressed.
-   * 
-   * @return {@code value} which might be compressed
-   */
-  public byte[] getCompressed() {
-    return mVal;
-  }
+	/**
+	 * Get value which might be compressed.
+	 * 
+	 * @return {@code value} which might be compressed
+	 */
+	public byte[] getCompressed() {
+		return mVal;
+	}
 
-  @Override
-  public void setValue(@Nonnull final byte[] value) {
-    mCompressed = new String(value).length() > 10 ? true : false;
-    mVal =
-      mCompressed ? Compression.compress(value, Deflater.DEFAULT_COMPRESSION)
-        : value;
-  }
+	@Override
+	public void setValue(@Nonnull final byte[] value) {
+		mCompressed = new String(value).length() > 10 ? true : false;
+		mVal = mCompressed ? Compression.compress(value,
+				Deflater.DEFAULT_COMPRESSION) : value;
+	}
 
-  /**
-   * Determine if input value has been compressed.
-   * 
-   * @return {@code true}, if it has been compressed, {@code false} otherwise
-   */
-  public boolean isCompressed() {
-    return mCompressed;
-  }
+	/**
+	 * Determine if input value has been compressed.
+	 * 
+	 * @return {@code true}, if it has been compressed, {@code false} otherwise
+	 */
+	public boolean isCompressed() {
+		return mCompressed;
+	}
 
-  /**
-   * Set compression.
-   * 
-   * @param compressed
-   *          determines if value is compressed or not
-   */
-  public void setCompressed(final boolean compressed) {
-    mCompressed = compressed;
-  }
+	/**
+	 * Set compression.
+	 * 
+	 * @param compressed
+	 *          determines if value is compressed or not
+	 */
+	public void setCompressed(final boolean compressed) {
+		mCompressed = compressed;
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mDelegate, mVal);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mDelegate, mVal);
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof ValNodeDelegate) {
-      final ValNodeDelegate other = (ValNodeDelegate)obj;
-      return Objects.equal(mDelegate, other.mDelegate)
-        && Arrays.equals(mVal, other.mVal);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof ValNodeDelegate) {
+			final ValNodeDelegate other = (ValNodeDelegate) obj;
+			return Objects.equal(mDelegate, other.mDelegate)
+					&& Arrays.equals(mVal, other.mVal);
+		}
+		return false;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("value", new String(mVal)).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("value", new String(mVal))
+				.toString();
+	}
 
-  @Override
-  public boolean isSameItem(final @Nullable Node other) {
-    return mDelegate.isSameItem(other);
-  }
+	@Override
+	public boolean isSameItem(final @Nullable Node other) {
+		return mDelegate.isSameItem(other);
+	}
 
-  @Override
-  public Kind getKind() {
-    return Kind.UNKNOWN;
-  }
+	@Override
+	public Kind getKind() {
+		return Kind.UNKNOWN;
+	}
 
-  @Override
-  protected NodeDelegate delegate() {
-    return mDelegate;
-  }
+	@Override
+	protected NodeDelegate delegate() {
+		return mDelegate;
+	}
 }

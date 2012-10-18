@@ -41,30 +41,30 @@ import org.sirix.page.NodePage;
  */
 public class LRUCacheTest {
 
-  private Cache<Long, NodePageContainer> cache;
+	private Cache<Long, NodePageContainer> cache;
 
-  @Before
-  public void setUp() throws SirixException {
-    cache = new LRUCache<>();
-    CacheTestHelper.setUp(cache);
-  }
-  
-  @After
-  public void tearDown() throws SirixException {
-    cache = null;
-  }
+	@Before
+	public void setUp() throws SirixException {
+		cache = new LRUCache<>();
+		CacheTestHelper.setUp(cache);
+	}
 
-  @Test
-  public void test() {
-    for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
-      final NodePageContainer cont = cache.get((long)i);
-      final NodePage current = (NodePage)cont.getComplete();
-      assertEquals(CacheTestHelper.PAGES[i][0], current);
-    }
+	@After
+	public void tearDown() throws SirixException {
+		cache = null;
+	}
 
-    final NodePageContainer page = cache.get(0L);
-    assertNull(page);
+	@Test
+	public void test() {
+		for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
+			final NodePageContainer cont = cache.get((long) i);
+			final NodePage current = (NodePage) cont.getComplete();
+			assertEquals(CacheTestHelper.PAGES[i][0], current);
+		}
 
-  }
+		final NodePageContainer page = cache.get(0L);
+		assertNull(page);
+
+	}
 
 }

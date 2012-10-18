@@ -54,109 +54,110 @@ import org.sirix.page.interfaces.Page;
  */
 public final class FileWriter implements Writer {
 
-  /** Random access to work on. */
-  private final RandomAccessFile mFile;
+	/** Random access to work on. */
+	private final RandomAccessFile mFile;
 
-  /** {@link FileReader} reference for this writer. */
-  private final FileReader mReader;
+	/** {@link FileReader} reference for this writer. */
+	private final FileReader mReader;
 
-  /**
-   * Constructor.
-   * 
-   * 
-   * @param storage
-   *          the concrete storage
-   * @throws SirixIOException
-   *           if an I/O error occurs
-   */
-  public FileWriter(final @Nonnull File storage, final @Nonnull ByteHandler handler) throws SirixIOException {
-    try {
-      mFile = new RandomAccessFile(storage, "rw");
-    } catch (final FileNotFoundException fileExc) {
-      throw new SirixIOException(fileExc);
-    }
-    mReader = new FileReader(storage, handler);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * 
+	 * @param storage
+	 *          the concrete storage
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	public FileWriter(final @Nonnull File storage,
+			final @Nonnull ByteHandler handler) throws SirixIOException {
+		try {
+			mFile = new RandomAccessFile(storage, "rw");
+		} catch (final FileNotFoundException fileExc) {
+			throw new SirixIOException(fileExc);
+		}
+		mReader = new FileReader(storage, handler);
+	}
 
-  /**
-   * Write page contained in page reference to storage.
-   * 
-   * @param pageReference
-   *          Page reference to write.
-   * @throws SirixIOException
-   *           due to errors during writing.
-   */
-  @Override
-  public long write(@Nonnull final PageReference pPageReference)
-    throws SirixIOException {
-    // Serialise page.
-    final Page page = pPageReference.getPage();
-    assert page != null;
-    final ByteArrayDataOutput output = ByteStreams.newDataOutput();
-    PagePersistenter.serializePage(output, page);
+	/**
+	 * Write page contained in page reference to storage.
+	 * 
+	 * @param pageReference
+	 *          Page reference to write.
+	 * @throws SirixIOException
+	 *           due to errors during writing.
+	 */
+	@Override
+	public long write(@Nonnull final PageReference pPageReference)
+			throws SirixIOException {
+		// Serialise page.
+		final Page page = pPageReference.getPage();
+		assert page != null;
+		final ByteArrayDataOutput output = ByteStreams.newDataOutput();
+		PagePersistenter.serializePage(output, page);
 
-    // Perform byte operations.
-    try {
-      final byte[] decryptedPage =
-        mReader.mByteHandler.serialize(output.toByteArray());
+		// Perform byte operations.
+		try {
+			final byte[] decryptedPage = mReader.mByteHandler.serialize(output
+					.toByteArray());
 
-      final byte[] writtenPage =
-        new byte[decryptedPage.length + FileReader.OTHER_BEACON];
-      final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
-      buffer.putInt(decryptedPage.length);
-      buffer.put(decryptedPage);
-      buffer.position(0);
-      buffer.get(writtenPage, 0, writtenPage.length);
+			final byte[] writtenPage = new byte[decryptedPage.length
+					+ FileReader.OTHER_BEACON];
+			final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
+			buffer.putInt(decryptedPage.length);
+			buffer.put(decryptedPage);
+			buffer.position(0);
+			buffer.get(writtenPage, 0, writtenPage.length);
 
-      // Getting actual offset and appending to the end of the current
-      // file
-      final long fileSize = mFile.length();
-      final long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
-      mFile.seek(offset);
-      mFile.write(writtenPage);
+			// Getting actual offset and appending to the end of the current
+			// file
+			final long fileSize = mFile.length();
+			final long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
+			mFile.seek(offset);
+			mFile.write(writtenPage);
 
-      // Remember page coordinates.
-      pPageReference.setKey(offset);
-      return offset;
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
-  }
+			// Remember page coordinates.
+			pPageReference.setKey(offset);
+			return offset;
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
+	}
 
-  @Override
-  public void close() throws SirixIOException {
-    try {
-      if (mFile != null) {
-        mFile.close();
-      }
-      if (mReader != null) {
-        mReader.close();
-      }
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
-    }
-  }
+	@Override
+	public void close() throws SirixIOException {
+		try {
+			if (mFile != null) {
+				mFile.close();
+			}
+			if (mReader != null) {
+				mReader.close();
+			}
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
+	}
 
-  @Override
-  public void writeFirstReference(@Nonnull final PageReference pPageReference)
-    throws SirixIOException {
-    try {
-      write(pPageReference);
-      mFile.seek(0);
-      mFile.writeLong(pPageReference.getKey());
-    } catch (final IOException exc) {
-      throw new SirixIOException(exc);
-    }
-  }
+	@Override
+	public void writeFirstReference(@Nonnull final PageReference pPageReference)
+			throws SirixIOException {
+		try {
+			write(pPageReference);
+			mFile.seek(0);
+			mFile.writeLong(pPageReference.getKey());
+		} catch (final IOException exc) {
+			throw new SirixIOException(exc);
+		}
+	}
 
-  @Override
-  public Page read(final long pKey) throws SirixIOException {
-    return mReader.read(pKey);
-  }
+	@Override
+	public Page read(final long pKey) throws SirixIOException {
+		return mReader.read(pKey);
+	}
 
-  @Override
-  public PageReference readFirstReference() throws SirixIOException {
-    return mReader.readFirstReference();
-  }
+	@Override
+	public PageReference readFirstReference() throws SirixIOException {
+		return mReader.readFirstReference();
+	}
 
 }

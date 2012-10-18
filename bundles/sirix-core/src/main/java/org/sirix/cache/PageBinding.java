@@ -44,24 +44,24 @@ import org.sirix.page.interfaces.Page;
  */
 public class PageBinding extends TupleBinding<Page> {
 
-  @Override
-  public Page entryToObject(final @Nullable TupleInput input) {
-    if (input == null) {
-      return null;
-    }
-    final ByteArrayDataInput source =
-      ByteStreams.newDataInput(input.getBufferBytes());
-    return PagePersistenter.deserializePage(source);
-  }
+	@Override
+	public Page entryToObject(final @Nullable TupleInput input) {
+		if (input == null) {
+			return null;
+		}
+		final ByteArrayDataInput source = ByteStreams.newDataInput(input
+				.getBufferBytes());
+		return PagePersistenter.deserializePage(source);
+	}
 
-  @Override
-  public void objectToEntry(final @Nullable Page page,
-    final @Nullable TupleOutput output) {
-    if (page != null && output != null) {
-      final ByteArrayDataOutput target = ByteStreams.newDataOutput();
-      final byte[] bytes = output.getBufferBytes();
-      target.write(bytes, 0, bytes.length);
-      page.serialize(target);
-    }
-  }
+	@Override
+	public void objectToEntry(final @Nullable Page page,
+			final @Nullable TupleOutput output) {
+		if (page != null && output != null) {
+			final ByteArrayDataOutput target = ByteStreams.newDataOutput();
+			final byte[] bytes = output.getBufferBytes();
+			target.write(bytes, 0, bytes.length);
+			page.serialize(target);
+		}
+	}
 }

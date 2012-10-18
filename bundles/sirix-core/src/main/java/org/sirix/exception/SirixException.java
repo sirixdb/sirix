@@ -35,65 +35,64 @@ package org.sirix.exception;
  */
 public class SirixException extends Exception {
 
-  /** General ID. */
-  private static final long serialVersionUID = 1L;
+	/** General ID. */
+	private static final long serialVersionUID = 1L;
 
-  /**
-   * Constructor to encapsulate parsing.
-   * 
-   * @param pThrowable
-   *          to encapsulate
-   */
-  public SirixException(final Throwable pThrowable) {
-    super(pThrowable);
-  }
+	/**
+	 * Constructor to encapsulate parsing.
+	 * 
+	 * @param pThrowable
+	 *          to encapsulate
+	 */
+	public SirixException(final Throwable pThrowable) {
+		super(pThrowable);
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param pMessage
-   *          message
-   */
-  private SirixException(final StringBuilder pMessage) {
-    super(pMessage.toString());
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pMessage
+	 *          message
+	 */
+	private SirixException(final StringBuilder pMessage) {
+		super(pMessage.toString());
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param pMessage
-   *          message as string, they are concatenated with spaces in
-   *          between
-   */
-  public SirixException(final String... pMessage) {
-    this(concat(pMessage));
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pMessage
+	 *          message as string, they are concatenated with spaces in between
+	 */
+	public SirixException(final String... pMessage) {
+		this(concat(pMessage));
+	}
 
-  /**
-   * Constructor
-   * 
-   * @param pMessage
-   *            message as string
-   * @param pThrowable
-   */
-  public SirixException(final String pMessage, final Throwable pThrowable) {
-    super(pMessage, pThrowable);
-  }
+	/**
+	 * Constructor
+	 * 
+	 * @param pMessage
+	 *          message as string
+	 * @param pThrowable
+	 */
+	public SirixException(final String pMessage, final Throwable pThrowable) {
+		super(pMessage, pThrowable);
+	}
 
-  /**
-   * Util method to provide StringBuilder functionality.
-   * 
-   * @param message
-   *          to be concatenated
-   * @return the StringBuilder for the combined string
-   */
-  public static StringBuilder concat(final String... pMessage) {
-    final StringBuilder builder = new StringBuilder();
-    for (final String mess : pMessage) {
-      builder.append(mess);
-      builder.append(" ");
-    }
-    return builder;
-  }
+	/**
+	 * Util method to provide StringBuilder functionality.
+	 * 
+	 * @param message
+	 *          to be concatenated
+	 * @return the StringBuilder for the combined string
+	 */
+	public static StringBuilder concat(final String... pMessage) {
+		final StringBuilder builder = new StringBuilder();
+		for (final String mess : pMessage) {
+			builder.append(mess);
+			builder.append(" ");
+		}
+		return builder;
+	}
 
 }

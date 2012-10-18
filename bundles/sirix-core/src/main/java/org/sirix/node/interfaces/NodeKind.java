@@ -9,7 +9,7 @@ import javax.annotation.Nonnull;
  * Node kind interface.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
 public interface NodeKind {
 	/**

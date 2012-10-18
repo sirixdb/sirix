@@ -14,8 +14,8 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbstructStructForwardingNode extends AbstractForwardingNode
-		implements StructNode {
+public abstract class AbstructStructForwardingNode extends
+		AbstractForwardingNode implements StructNode {
 
 	/** Constructor for use by subclasses. */
 	protected AbstructStructForwardingNode() {

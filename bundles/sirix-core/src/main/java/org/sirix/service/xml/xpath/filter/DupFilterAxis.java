@@ -43,83 +43,84 @@ import org.sirix.service.xml.xpath.expr.UnionAxis;
  * Duplicate Filter. Assures that the resulting node set contains no duplicates.
  * </p>
  * <p>
- * Encapsulates a given XPath axis and only passes on those items that have not already been passed. This does
- * not break the pipeline since every intermediary result is immediately passed on, as long as it is not
- * already in the set (which indicates that it was already returned).
+ * Encapsulates a given XPath axis and only passes on those items that have not
+ * already been passed. This does not break the pipeline since every
+ * intermediary result is immediately passed on, as long as it is not already in
+ * the set (which indicates that it was already returned).
  * </p>
  */
 public class DupFilterAxis extends AbstractAxis {
 
-  /** Sequence that may contain duplicates. */
-  private final Axis mAxis;
+	/** Sequence that may contain duplicates. */
+	private final Axis mAxis;
 
-  /** Set that stores all already returned item keys. */
-  private final Set<Long> mDupSet;
+	/** Set that stores all already returned item keys. */
+	private final Set<Long> mDupSet;
 
-  /**
-   * Defines whether next() has to be called for the dupAxis after calling
-   * hasNext(). In some cases next() has already been called by another axis.
-   */
-  private final boolean mCallNext;
+	/**
+	 * Defines whether next() has to be called for the dupAxis after calling
+	 * hasNext(). In some cases next() has already been called by another axis.
+	 */
+	private final boolean mCallNext;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param mDupAxis
-   *          Sequence that may return duplicates.
-   */
-  public DupFilterAxis(final NodeReadTrx rtx, final Axis pDupAxis) {
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param rtx
+	 *          Exclusive (immutable) trx to iterate with.
+	 * @param mDupAxis
+	 *          Sequence that may return duplicates.
+	 */
+	public DupFilterAxis(final NodeReadTrx rtx, final Axis pDupAxis) {
 
-    super(rtx);
-    mAxis = pDupAxis;
-    mDupSet = new HashSet<Long>();
-    // if the dupAxis is not one of the specified axis, 'next()' has
-    // explicitly
-    // be called for those axis after calling 'hasNext()'. For all other
-    // axis
-    // next() has already been called by another axis.
-    mCallNext = !(mAxis instanceof FilterAxis || mAxis instanceof NestedAxis || mAxis instanceof UnionAxis);
+		super(rtx);
+		mAxis = pDupAxis;
+		mDupSet = new HashSet<Long>();
+		// if the dupAxis is not one of the specified axis, 'next()' has
+		// explicitly
+		// be called for those axis after calling 'hasNext()'. For all other
+		// axis
+		// next() has already been called by another axis.
+		mCallNext = !(mAxis instanceof FilterAxis || mAxis instanceof NestedAxis || mAxis instanceof UnionAxis);
 
-  }
+	}
 
-  @Override
-  public final void reset(final long mNodeKey) {
+	@Override
+	public final void reset(final long mNodeKey) {
 
-    super.reset(mNodeKey);
-    if (mAxis != null) {
-      mAxis.reset(mNodeKey);
-    }
-  }
+		super.reset(mNodeKey);
+		if (mAxis != null) {
+			mAxis.reset(mNodeKey);
+		}
+	}
 
-  @Override
-  public final boolean hasNext() {
-    if (isNext()) {
-      return true;
-    } else {
-      resetToLastKey();
+	@Override
+	public final boolean hasNext() {
+		if (isNext()) {
+			return true;
+		} else {
+			resetToLastKey();
 
-      while (mAxis.hasNext()) {
-        // call next(), if it was not already called for that axis.
-//        if (((IAxis)mAxis).isNext()) {
-//        	mKey = mAxis.next();
-//        } else {
-      	mAxis.next();
-        	mKey = mAxis.getTrx().getNodeKey();
-//        }
+			while (mAxis.hasNext()) {
+				// call next(), if it was not already called for that axis.
+				// if (((IAxis)mAxis).isNext()) {
+				// mKey = mAxis.next();
+				// } else {
+				mAxis.next();
+				mKey = mAxis.getTrx().getNodeKey();
+				// }
 
-        // add current item key to the set. If true is returned the item is
-        // no
-        // duplicate and can be returned by the duplicate filter.
-        if (mDupSet.add(getTrx().getNodeKey())) {
-          return true;
-        }
-      }
+				// add current item key to the set. If true is returned the item is
+				// no
+				// duplicate and can be returned by the duplicate filter.
+				if (mDupSet.add(getTrx().getNodeKey())) {
+					return true;
+				}
+			}
 
-      resetToStartKey();
-      return false;
-    }
-  }
+			resetToStartKey();
+			return false;
+		}
+	}
 
 }

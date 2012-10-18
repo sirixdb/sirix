@@ -33,46 +33,48 @@ import org.sirix.node.interfaces.Node;
 /**
  * <h1>ItemList</h1>
  * <p>
- * Data structure to store <a href="http://www.w3.org/TR/xpath-datamodel/#dt-item"> XDM items</a>.
+ * Data structure to store <a
+ * href="http://www.w3.org/TR/xpath-datamodel/#dt-item"> XDM items</a>.
  * </p>
  * <p>
- * This structure is used to store atomic values that are needed for the evaluation of a query. They can be
- * results of a query expression or be specified directly in the query e.g. as literals perform an arithmetic
+ * This structure is used to store atomic values that are needed for the
+ * evaluation of a query. They can be results of a query expression or be
+ * specified directly in the query e.g. as literals perform an arithmetic
  * operation or a comparison.
  * </p>
  * <p>
- * Since these items have to be distinguishable from nodes their key will be a negative long value (node key
- * is always a positive long value). This value is retrieved by negate their index in the internal data
- * structure.
+ * Since these items have to be distinguishable from nodes their key will be a
+ * negative long value (node key is always a positive long value). This value is
+ * retrieved by negate their index in the internal data structure.
  * </p>
  */
 public interface ItemList<T extends Node> {
 
-  /**
-   * Adds an item to the item list and assigns a unique item key to the item
-   * and return it. The item key is the negatived index of the item in the
-   * item list. The key is negatived to make it distinguishable from a node.
-   * 
-   * @param pNode
-   *          the item to add
-   * @return the item key
-   */
-  int addItem(final T pNode);
+	/**
+	 * Adds an item to the item list and assigns a unique item key to the item and
+	 * return it. The item key is the negatived index of the item in the item
+	 * list. The key is negatived to make it distinguishable from a node.
+	 * 
+	 * @param pNode
+	 *          the item to add
+	 * @return the item key
+	 */
+	int addItem(final T pNode);
 
-  /**
-   * Returns the item at a given index in the item list. If the given index is
-   * the item key, it has to be negated before.
-   * 
-   * @param pKey
-   *          key of the item, that should be returned
-   * @return item at the given index
-   */
-  Optional<T> getItem(final long pKey);
+	/**
+	 * Returns the item at a given index in the item list. If the given index is
+	 * the item key, it has to be negated before.
+	 * 
+	 * @param pKey
+	 *          key of the item, that should be returned
+	 * @return item at the given index
+	 */
+	Optional<T> getItem(final long pKey);
 
-  /**
-   * Determines how many items are in the list.
-   * 
-   * @return list size
-   */
-  int size();
+	/**
+	 * Determines how many items are in the list.
+	 * 
+	 * @return list size
+	 */
+	int size();
 }

@@ -141,7 +141,8 @@ public final class SessionImpl implements Session {
 	 * Package private constructor.
 	 * 
 	 * @param pDatabase
-	 *          {@link DatabaseImpl} for centralized operations on related sessions
+	 *          {@link DatabaseImpl} for centralized operations on related
+	 *          sessions
 	 * @param pDatabaseConf
 	 *          {@link DatabaseConfiguration} for general setting about the
 	 *          storage
@@ -335,9 +336,9 @@ public final class SessionImpl implements Session {
 		final int lastCommitedRev = mLastCommittedUberPage.get()
 				.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage.get()
 				.getLastCommitedRevisionNumber() : 0;
-		return new PageWriteTrxImpl(this, new UberPage(mLastCommittedUberPage.get(),
-				pStoreRevision + 1), writer, pId, pRepresentRevision, pStoreRevision,
-				lastCommitedRev);
+		return new PageWriteTrxImpl(this, new UberPage(
+				mLastCommittedUberPage.get(), pStoreRevision + 1), writer, pId,
+				pRepresentRevision, pStoreRevision, lastCommitedRev);
 	}
 
 	@Override
@@ -583,7 +584,8 @@ public final class SessionImpl implements Session {
 		 *          page type
 		 */
 		LogSyncer(final @Nonnull PageWriteTrx pPageWriteTransaction,
-				final @Nonnull NodePageContainer pNodePageCont, final @Nonnull PageKind pPage) {
+				final @Nonnull NodePageContainer pNodePageCont,
+				final @Nonnull PageKind pPage) {
 			mPageWriteTrx = checkNotNull(pPageWriteTransaction);
 			mCont = checkNotNull(pNodePageCont);
 			mPage = checkNotNull(pPage);

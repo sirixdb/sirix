@@ -70,9 +70,10 @@ public class IPageTest {
 		final IndirectPage indirectPage = new IndirectPage(0);
 		// RevisionRootPage setup.
 		// final RevisionRootPage revRootPage = new RevisionRootPage();
-		
+
 		// NodePage setup.
-		final NodePage nodePage = new NodePage(TestHelper.random.nextInt(Integer.MAX_VALUE),
+		final NodePage nodePage = new NodePage(
+				TestHelper.random.nextInt(Integer.MAX_VALUE),
 				TestHelper.random.nextInt(Integer.MAX_VALUE));
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 			nodePage.setNode(TestHelper.generateOne());

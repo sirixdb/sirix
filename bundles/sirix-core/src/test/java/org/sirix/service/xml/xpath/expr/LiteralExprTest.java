@@ -45,46 +45,48 @@ import org.sirix.service.xml.xpath.types.Type;
  */
 public class LiteralExprTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testLiteralExpr() throws SirixException {
-    // Build simple test tree.
-    final AtomicValue item1 = new AtomicValue(false);
-    final AtomicValue item2 = new AtomicValue(14, Type.INTEGER);
+	@Test
+	public void testLiteralExpr() throws SirixException {
+		// Build simple test tree.
+		final AtomicValue item1 = new AtomicValue(false);
+		final AtomicValue item2 = new AtomicValue(14, Type.INTEGER);
 
-    final int key1 = holder.getRtx().getItemList().addItem(item1);
-    final int key2 = holder.getRtx().getItemList().addItem(item2);
+		final int key1 = holder.getRtx().getItemList().addItem(item1);
+		final int key2 = holder.getRtx().getItemList().addItem(item2);
 
-    final AbstractAxis axis1 = new LiteralExpr(holder.getRtx(), key1);
-    assertEquals(true, axis1.hasNext());
-    axis1.next();
-    assertEquals(key1, holder.getRtx().getNodeKey());
-    assertEquals(holder.getRtx().keyForName("xs:boolean"), holder.getRtx().getTypeKey());
-    assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
-    assertEquals(false, axis1.hasNext());
+		final AbstractAxis axis1 = new LiteralExpr(holder.getRtx(), key1);
+		assertEquals(true, axis1.hasNext());
+		axis1.next();
+		assertEquals(key1, holder.getRtx().getNodeKey());
+		assertEquals(holder.getRtx().keyForName("xs:boolean"), holder.getRtx()
+				.getTypeKey());
+		assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
+		assertEquals(false, axis1.hasNext());
 
-    final AbstractAxis axis2 = new LiteralExpr(holder.getRtx(), key2);
-    assertEquals(true, axis2.hasNext());
-    axis2.next();
-    assertEquals(key2, holder.getRtx().getNodeKey());
-    assertEquals(holder.getRtx().keyForName("xs:integer"), holder.getRtx().getTypeKey());
-    assertEquals(14, Integer.parseInt(holder.getRtx().getValue()));
-    assertEquals(false, axis2.hasNext());
+		final AbstractAxis axis2 = new LiteralExpr(holder.getRtx(), key2);
+		assertEquals(true, axis2.hasNext());
+		axis2.next();
+		assertEquals(key2, holder.getRtx().getNodeKey());
+		assertEquals(holder.getRtx().keyForName("xs:integer"), holder.getRtx()
+				.getTypeKey());
+		assertEquals(14, Integer.parseInt(holder.getRtx().getValue()));
+		assertEquals(false, axis2.hasNext());
 
-  }
+	}
 
 }

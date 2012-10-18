@@ -57,118 +57,118 @@ import java.util.concurrent.ConcurrentHashMap;
 @SuppressWarnings("unchecked")
 public final class FastWeakHashMap<K, V> extends AbstractMap<K, V> {
 
-  /** The internal HashMap that will hold the WeakReference. */
-  private final Map<K, WeakReference<V>> mInternalMap;
+	/** The internal HashMap that will hold the WeakReference. */
+	private final Map<K, WeakReference<V>> mInternalMap;
 
-  /** Reference queue for cleared WeakReference objects. */
-  private final ReferenceQueue mQueue;
+	/** Reference queue for cleared WeakReference objects. */
+	private final ReferenceQueue mQueue;
 
-  /**
-   * Default constructor internally using 32 strong references.
-   */
-  public FastWeakHashMap() {
-    mInternalMap = new ConcurrentHashMap();
-    mQueue = new ReferenceQueue();
-  }
+	/**
+	 * Default constructor internally using 32 strong references.
+	 */
+	public FastWeakHashMap() {
+		mInternalMap = new ConcurrentHashMap();
+		mQueue = new ReferenceQueue();
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public V get(final Object mKey) {
-    V value = null;
-    final WeakReference<V> weakReference = mInternalMap.get(mKey);
-    if (weakReference != null) {
-      // Weak reference was garbage collected.
-      value = weakReference.get();
-      if (value == null) {
-        // Reflect garbage collected weak reference in internal hash
-        // map.
-        mInternalMap.remove(mKey);
-      }
-    }
-    return value;
-  }
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public V get(final Object mKey) {
+		V value = null;
+		final WeakReference<V> weakReference = mInternalMap.get(mKey);
+		if (weakReference != null) {
+			// Weak reference was garbage collected.
+			value = weakReference.get();
+			if (value == null) {
+				// Reflect garbage collected weak reference in internal hash
+				// map.
+				mInternalMap.remove(mKey);
+			}
+		}
+		return value;
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public V put(final K mKey, final V mValue) {
-    processQueue();
-    mInternalMap.put(mKey, new WeakValue<V>(mValue, mKey, mQueue));
-    return null;
-  }
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public V put(final K mKey, final V mValue) {
+		processQueue();
+		mInternalMap.put(mKey, new WeakValue<V>(mValue, mKey, mQueue));
+		return null;
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public V remove(final Object mKey) {
-    processQueue();
-    mInternalMap.remove(mKey);
-    return null;
-  }
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public V remove(final Object mKey) {
+		processQueue();
+		mInternalMap.remove(mKey);
+		return null;
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public synchronized void clear() {
-    processQueue();
-    mInternalMap.clear();
-  }
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public synchronized void clear() {
+		processQueue();
+		mInternalMap.clear();
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public int size() {
-    processQueue();
-    return mInternalMap.size();
-  }
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public int size() {
+		processQueue();
+		return mInternalMap.size();
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public Set<Map.Entry<K, V>> entrySet() {
-    throw new UnsupportedOperationException();
-  }
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public Set<Map.Entry<K, V>> entrySet() {
+		throw new UnsupportedOperationException();
+	}
 
-  /**
-   * Remove garbage collected weak values with the help of the reference
-   * queue.
-   * 
-   */
-  private void processQueue() {
-    WeakValue<V> weakValue;
-    while ((weakValue = (WeakValue<V>)mQueue.poll()) != null) {
-      mInternalMap.remove(weakValue.mKey);
-    }
-  }
+	/**
+	 * Remove garbage collected weak values with the help of the reference queue.
+	 * 
+	 */
+	private void processQueue() {
+		WeakValue<V> weakValue;
+		while ((weakValue = (WeakValue<V>) mQueue.poll()) != null) {
+			mInternalMap.remove(weakValue.mKey);
+		}
+	}
 
-  /**
-   * Internal subclass to store keys and values for more convenient lookups.
-   */
-  @SuppressWarnings("hiding")
-  private final class WeakValue<V> extends WeakReference<V> {
-    private final K mKey;
+	/**
+	 * Internal subclass to store keys and values for more convenient lookups.
+	 */
+	@SuppressWarnings("hiding")
+	private final class WeakValue<V> extends WeakReference<V> {
+		private final K mKey;
 
-    /**
-     * Constructor.
-     * 
-     * @param mInitValue
-     *          Value wrapped as weak reference.
-     * @param mInitKey
-     *          Key for given value.
-     * @param mInitReferenceQueue
-     *          Reference queue for cleanup.
-     */
-    private WeakValue(final V mInitValue, final K mInitKey, final ReferenceQueue mInitReferenceQueue) {
-      super(mInitValue, mInitReferenceQueue);
-      mKey = mInitKey;
-    }
-  }
+		/**
+		 * Constructor.
+		 * 
+		 * @param mInitValue
+		 *          Value wrapped as weak reference.
+		 * @param mInitKey
+		 *          Key for given value.
+		 * @param mInitReferenceQueue
+		 *          Reference queue for cleanup.
+		 */
+		private WeakValue(final V mInitValue, final K mInitKey,
+				final ReferenceQueue mInitReferenceQueue) {
+			super(mInitValue, mInitReferenceQueue);
+			mKey = mInitKey;
+		}
+	}
 
 }

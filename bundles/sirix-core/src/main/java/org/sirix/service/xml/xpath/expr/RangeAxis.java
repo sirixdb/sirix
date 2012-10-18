@@ -37,96 +37,100 @@ import org.sirix.utils.TypedValue;
 /**
  * <h1>RangeExpr</h1>
  * <p>
- * A range expression can be used to construct a sequence of consecutive integers.
+ * A range expression can be used to construct a sequence of consecutive
+ * integers.
  * </p>
  * <p>
- * If either operand is an empty sequence, or if the integer derived from the first operand is greater than
- * the integer derived from the second operand, the result of the range expression is an empty sequence.
+ * If either operand is an empty sequence, or if the integer derived from the
+ * first operand is greater than the integer derived from the second operand,
+ * the result of the range expression is an empty sequence.
  * </p>
  * <p>
- * If the two operands convert to the same integer, the result of the range expression is that integer.
- * Otherwise, the result is a sequence containing the two integer operands and every integer between the two
- * operands, in increasing order.
+ * If the two operands convert to the same integer, the result of the range
+ * expression is that integer. Otherwise, the result is a sequence containing
+ * the two integer operands and every integer between the two operands, in
+ * increasing order.
  * </p>
  */
 public class RangeAxis extends AbstractAxis {
 
-  /** The expression the range starts from. */
-  private final Axis mFrom;
+	/** The expression the range starts from. */
+	private final Axis mFrom;
 
-  /** The expression the range ends. */
-  private final Axis mTo;
+	/** The expression the range ends. */
+	private final Axis mTo;
 
-  /** Is it the first run of range axis? */
-  private boolean mFirst;
+	/** Is it the first run of range axis? */
+	private boolean mFirst;
 
-  /** The integer value the expression starts from. */
-  private int mStart;
+	/** The integer value the expression starts from. */
+	private int mStart;
 
-  /** The integer value the expression ends. */
-  private int mEnd;
+	/** The integer value the expression ends. */
+	private int mEnd;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param mFrom
-   *          start of the range
-   * @param mTo
-   *          the end of the range
-   */
-  public RangeAxis(final NodeReadTrx rtx, final Axis mFrom, final Axis mTo) {
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param rtx
+	 *          Exclusive (immutable) trx to iterate with.
+	 * @param mFrom
+	 *          start of the range
+	 * @param mTo
+	 *          the end of the range
+	 */
+	public RangeAxis(final NodeReadTrx rtx, final Axis mFrom, final Axis mTo) {
 
-    super(rtx);
-    this.mFrom = mFrom;
-    this.mTo = mTo;
-    mFirst = true;
-  }
+		super(rtx);
+		this.mFrom = mFrom;
+		this.mTo = mTo;
+		mFirst = true;
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public boolean hasNext() {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public boolean hasNext() {
 
-    resetToLastKey();
+		resetToLastKey();
 
-    if (mFirst) {
-      mFirst = false;
-      if (mFrom.hasNext()
-        && Type.getType(mFrom.getTrx().getTypeKey()).derivesFrom(Type.INTEGER)) {
-        mStart = Integer.parseInt(mFrom.getTrx().getValue());
+		if (mFirst) {
+			mFirst = false;
+			if (mFrom.hasNext()
+					&& Type.getType(mFrom.getTrx().getTypeKey())
+							.derivesFrom(Type.INTEGER)) {
+				mStart = Integer.parseInt(mFrom.getTrx().getValue());
 
-        if (mTo.hasNext()
-          && Type.getType(mTo.getTrx().getTypeKey()).derivesFrom(Type.INTEGER)) {
+				if (mTo.hasNext()
+						&& Type.getType(mTo.getTrx().getTypeKey())
+								.derivesFrom(Type.INTEGER)) {
 
-          mEnd = Integer.parseInt(mTo.getTrx().getValue());
+					mEnd = Integer.parseInt(mTo.getTrx().getValue());
 
-        } else {
-          // at least one operand is the empty sequence
-          resetToStartKey();
-          return false;
-        }
-      } else {
-        // at least one operand is the empty sequence
-        resetToStartKey();
-        return false;
-      }
-    }
+				} else {
+					// at least one operand is the empty sequence
+					resetToStartKey();
+					return false;
+				}
+			} else {
+				// at least one operand is the empty sequence
+				resetToStartKey();
+				return false;
+			}
+		}
 
-    if (mStart <= mEnd) {
-      final int itemKey =
-        getTrx().getItemList().addItem(
-          new AtomicValue(TypedValue.getBytes(Integer.toString(mStart)), getTrx().keyForName(
-            "xs:integer")));
-      mKey = itemKey;
-      mStart++;
-      return true;
-    } else {
-      resetToStartKey();
-      return false;
-    }
-  }
+		if (mStart <= mEnd) {
+			final int itemKey = getTrx().getItemList().addItem(
+					new AtomicValue(TypedValue.getBytes(Integer.toString(mStart)),
+							getTrx().keyForName("xs:integer")));
+			mKey = itemKey;
+			mStart++;
+			return true;
+		} else {
+			resetToStartKey();
+			return false;
+		}
+	}
 
 }

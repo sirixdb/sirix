@@ -44,9 +44,9 @@ import org.sirix.node.immutable.ImmutableText;
  * <h1>AbstractVisitor</h1>
  * 
  * <p>
- * Inspired by the dom4j approach {@code AbsVisitor} is an abstract base class which is useful for
- * implementing inheritance or when using anonymous inner classes to create simple {@link Visitor}
- * implementations.
+ * Inspired by the dom4j approach {@code AbsVisitor} is an abstract base class
+ * which is useful for implementing inheritance or when using anonymous inner
+ * classes to create simple {@link Visitor} implementations.
  * </p>
  * 
  * <h2>Usage Examples:</h2>
@@ -75,38 +75,38 @@ import org.sirix.node.immutable.ImmutableText;
  * 
  */
 public abstract class AbstractVisitor implements Visitor {
-  @Override
-  public VisitResult visit(@Nonnull final ImmutablePI node) {
-    return VisitResultType.CONTINUE;
-  }
-  
-  @Override
-  public VisitResult visit(@Nonnull final ImmutableComment node) {
-    return VisitResultType.CONTINUE;
-  }
-  
-  @Override
-  public VisitResult visit(@Nonnull final ImmutableElement node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(@Nonnull final ImmutablePI node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResult visit(@Nonnull final ImmutableText node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(@Nonnull final ImmutableComment node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResult visit(@Nonnull final ImmutableDocument node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(@Nonnull final ImmutableElement node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResult visit(@Nonnull final ImmutableAttribute node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(@Nonnull final ImmutableText node) {
+		return VisitResultType.CONTINUE;
+	}
 
-  @Override
-  public VisitResult visit(@Nonnull final ImmutableNamespace node) {
-    return VisitResultType.CONTINUE;
-  }
+	@Override
+	public VisitResult visit(@Nonnull final ImmutableDocument node) {
+		return VisitResultType.CONTINUE;
+	}
+
+	@Override
+	public VisitResult visit(@Nonnull final ImmutableAttribute node) {
+		return VisitResultType.CONTINUE;
+	}
+
+	@Override
+	public VisitResult visit(@Nonnull final ImmutableNamespace node) {
+		return VisitResultType.CONTINUE;
+	}
 }

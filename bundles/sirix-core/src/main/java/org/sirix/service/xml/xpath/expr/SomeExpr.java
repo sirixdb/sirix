@@ -44,73 +44,73 @@ import org.sirix.utils.TypedValue;
  * IAxis that represents the quantified expression "some".
  * </p>
  * <p>
- * The quantified expression is true if at least one evaluation of the test expression has the effective
- * boolean value true; otherwise the quantified expression is false. This rule implies that, if the in-clauses
- * generate zero binding tuples, the value of the quantified expression is false.
+ * The quantified expression is true if at least one evaluation of the test
+ * expression has the effective boolean value true; otherwise the quantified
+ * expression is false. This rule implies that, if the in-clauses generate zero
+ * binding tuples, the value of the quantified expression is false.
  * </p>
  */
 public class SomeExpr extends AbstractExpression {
 
-  private final List<Axis> mVars;
+	private final List<Axis> mVars;
 
-  private final Axis mSatisfy;
+	private final Axis mSatisfy;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) trx to iterate with.
-   * @param pVars
-   *          variables for which the condition must be satisfied
-   * @param pSatisfy
-   *          condition that must be satisfied by at least one item of the
-   *          variable results in order to evaluate expression to true
-   */
-  public SomeExpr(@Nonnull final NodeReadTrx pRtx,
-    @Nonnull final List<Axis> pVars, @Nonnull final Axis pSatisfy) {
-    super(pRtx);
-    mVars = checkNotNull(pVars);
-    mSatisfy = checkNotNull(pSatisfy);
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param pRtx
+	 *          exclusive (immutable) trx to iterate with.
+	 * @param pVars
+	 *          variables for which the condition must be satisfied
+	 * @param pSatisfy
+	 *          condition that must be satisfied by at least one item of the
+	 *          variable results in order to evaluate expression to true
+	 */
+	public SomeExpr(@Nonnull final NodeReadTrx pRtx,
+			@Nonnull final List<Axis> pVars, @Nonnull final Axis pSatisfy) {
+		super(pRtx);
+		mVars = checkNotNull(pVars);
+		mSatisfy = checkNotNull(pSatisfy);
+	}
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    if (mVars != null) {
-      for (final Axis var : mVars) {
-        var.reset(pNodeKey);
-      }
-    }
+	@Override
+	public void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		if (mVars != null) {
+			for (final Axis var : mVars) {
+				var.reset(pNodeKey);
+			}
+		}
 
-    if (mSatisfy != null) {
-      mSatisfy.reset(pNodeKey);
-    }
-  }
+		if (mSatisfy != null) {
+			mSatisfy.reset(pNodeKey);
+		}
+	}
 
-  @Override
-  public void evaluate() {
-    boolean satisfiesCond = false;
+	@Override
+	public void evaluate() {
+		boolean satisfiesCond = false;
 
-    for (final Axis axis : mVars) {
-      while (axis.hasNext()) {
-        mKey = axis.next();
-        mSatisfy.reset(mKey);
-        if (mSatisfy.hasNext()) {
-          mKey = mSatisfy.next();
-          // condition is satisfied for this item -> expression is
-          // true
-          satisfiesCond = true;
-          break;
-        }
-      }
-    }
+		for (final Axis axis : mVars) {
+			while (axis.hasNext()) {
+				mKey = axis.next();
+				mSatisfy.reset(mKey);
+				if (mSatisfy.hasNext()) {
+					mKey = mSatisfy.next();
+					// condition is satisfied for this item -> expression is
+					// true
+					satisfiesCond = true;
+					break;
+				}
+			}
+		}
 
-    final int itemKey =
-      getTrx().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
-          getTrx().keyForName("xs:boolean")));
-    mKey = itemKey;
+		final int itemKey = getTrx().getItemList().addItem(
+				new AtomicValue(TypedValue.getBytes(Boolean.toString(satisfiesCond)),
+						getTrx().keyForName("xs:boolean")));
+		mKey = itemKey;
 
-  }
+	}
 
 }

@@ -38,22 +38,22 @@ import org.sirix.io.StorageType;
 import org.sirix.io.IOTestHelper;
 
 public class FileTest {
-  private ResourceConfiguration resourceConf;
+	private ResourceConfiguration resourceConf;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    Holder.generateSession().close();
-    resourceConf = IOTestHelper.registerIO(StorageType.FILE);
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		Holder.generateSession().close();
+		resourceConf = IOTestHelper.registerIO(StorageType.FILE);
+	}
 
-  @Test
-  public void testFirstRef() throws SirixException {
-    IOTestHelper.testReadWriteFirstRef(resourceConf);
-  }
+	@Test
+	public void testFirstRef() throws SirixException {
+		IOTestHelper.testReadWriteFirstRef(resourceConf);
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    IOTestHelper.clean();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		IOTestHelper.clean();
+	}
 }

@@ -118,7 +118,7 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * @throws SirixException
 	 *           if Sirix fails to commit
 	 * @throws NullPointerException
-	 * 					 if {@code multipleWriteTrx} is {@code null}
+	 *           if {@code multipleWriteTrx} is {@code null}
 	 */
 	UberPage commit(@Nonnull MultipleWriteTrx multipleWriteTrx)
 			throws SirixException;
@@ -131,7 +131,7 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * @param page
 	 *          type of page
 	 * @throws NullPointerException
-	 * 					if {@code nodePageCont} or {@code page} is {@code null}
+	 *           if {@code nodePageCont} or {@code page} is {@code null}
 	 */
 	void updateDateContainer(@Nonnull NodePageContainer nodePageCont,
 			@Nonnull PageKind page);
@@ -145,7 +145,7 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * @throws SirixException
 	 *           if the write fails
 	 * @throws NullPointerException
-	 * 					 if {@code reference} is {@code null}
+	 *           if {@code reference} is {@code null}
 	 */
 	void commit(@Nonnull PageReference reference) throws SirixException;
 
@@ -156,7 +156,7 @@ public interface PageWriteTrx extends PageReadTrx {
 	 *          determines if this page write trx must restore a previous failed
 	 *          trx
 	 * @throws NullPointerException
-	 * 				  if {@code restore} is {@code null}
+	 *           if {@code restore} is {@code null}
 	 */
 	void restore(@Nonnull Restore restore);
 }

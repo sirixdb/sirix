@@ -37,57 +37,57 @@ import org.sirix.exception.SirixException;
 
 public class DocumentRootNodeFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testIFilterConvetions() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
+	@Test
+	public void testIFilterConvetions() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
 
-    rtx.moveTo(0L);
-    IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), true);
+		rtx.moveTo(0L);
+		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), true);
 
-    rtx.moveTo(1L);
-    IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		rtx.moveTo(1L);
+		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
-    rtx.moveTo(1L);
-    rtx.moveToAttribute(0);
-    IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		rtx.moveTo(1L);
+		rtx.moveToAttribute(0);
+		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
-    rtx.moveTo(3L);
-    IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		rtx.moveTo(3L);
+		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
-    rtx.moveTo(4L);
-    IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		rtx.moveTo(4L);
+		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
-    rtx.moveTo(5L);
-    IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		rtx.moveTo(5L);
+		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
-    rtx.moveTo(9L);
-    IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		rtx.moveTo(9L);
+		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
-    rtx.moveTo(9L);
-    rtx.moveToAttribute(0);
-    IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		rtx.moveTo(9L);
+		rtx.moveToAttribute(0);
+		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
-    rtx.moveTo(12L);
-    IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		rtx.moveTo(12L);
+		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
-    rtx.moveTo(13L);
-    rtx.moveToDocumentRoot();
-    IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), true);
-  }
+		rtx.moveTo(13L);
+		rtx.moveToDocumentRoot();
+		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), true);
+	}
 
 }

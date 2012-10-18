@@ -237,7 +237,7 @@ public final class DocumentCreater {
 		pWtx.insertTextAsFirstChild("foo");
 		pWtx.insertElementAsRightSibling(new QName("c"));
 		assertTrue(pWtx.moveToParent().hasMoved());
-//		assertEquals(2l, pWtx.getDescendantCount());
+		// assertEquals(2l, pWtx.getDescendantCount());
 
 		pWtx.insertTextAsRightSibling("oops2");
 

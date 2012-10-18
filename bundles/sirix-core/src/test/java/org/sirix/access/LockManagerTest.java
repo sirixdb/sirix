@@ -29,193 +29,202 @@ package org.sirix.access;
 
 public class LockManagerTest {
 
-  // private static Long[] nodes;
-  //
-  // private Holder holder;
-  //
-  // @After
-  // public void tearDown() throws AbsTTException {
-  // holder.close();
-  // TestHelper.closeEverything();
-  // }
-  //
-  // @Before
-  // public void setUp() throws AbsTTException {
-  // TestHelper.deleteEverything();
-  //
-  // holder = Holder.generateWtx();
-  // final IWriteTransaction wtx = holder.getWtx();
-  //
-  // nodes = new Long[13];
-  // nodes[0] = Long.valueOf("0");
-  //
-  // wtx.insertElementAsFirstChild(new QName("1"));
-  // nodes[1] = wtx.getItem().getKey();
-  //
-  // wtx.insertElementAsRightSibling(new QName("2"));
-  // nodes[2] = wtx.getItem().getKey();
-  // wtx.insertElementAsRightSibling(new QName("3"));
-  // nodes[3] = wtx.getItem().getKey();
-  // wtx.moveToLeftSibling();
-  // wtx.moveToLeftSibling();
-  //
-  // wtx.insertElementAsFirstChild(new QName("4"));
-  // nodes[4] = wtx.getItem().getKey();
-  //
-  // wtx.insertElementAsRightSibling(new QName("5"));
-  // nodes[5] = wtx.getItem().getKey();
-  // wtx.insertElementAsRightSibling(new QName("6"));
-  // nodes[6] = wtx.getItem().getKey();
-  // wtx.moveToParent();
-  // wtx.moveToRightSibling();
-  //
-  // wtx.insertElementAsFirstChild(new QName("7"));
-  // nodes[7] = wtx.getItem().getKey();
-  // wtx.insertElementAsRightSibling(new QName("8"));
-  // nodes[8] = wtx.getItem().getKey();
-  // wtx.insertElementAsRightSibling(new QName("9"));
-  // nodes[9] = wtx.getItem().getKey();
-  // wtx.moveToParent();
-  // wtx.moveToRightSibling();
-  //
-  // wtx.insertElementAsFirstChild(new QName("10"));
-  // nodes[10] = wtx.getItem().getKey();
-  // wtx.insertElementAsRightSibling(new QName("11"));
-  // nodes[11] = wtx.getItem().getKey();
-  // wtx.insertElementAsRightSibling(new QName("12"));
-  // nodes[12] = wtx.getItem().getKey();
-  // wtx.commit();
-  // wtx.close();
-  // }
-  //
-  // @Ignore
-  // @Test
-  // /**
-  // * Simply locking an available subtree without interference
-  // */
-  // public void basicLockingTest() throws AbsTTException {
-  // final IWriteTransaction wtx = holder.getWtx();
-  // LockManager lock = LockManager.getLockManager();
-  // try {
-  // lock.getWritePermission(wtx.getItem().getKey(), (SynchWriteTransaction)wtx);
-  // } catch (Exception e) {
-  // TestCase.fail();
-  // }
-  // wtx.close();
-  // }
-  //
-  // @Ignore
-  // @Test
-  // /**
-  // * Locking an available subtree with other wtx holding locks on different subtrees
-  // */
-  // public void permitLockingInFreeSubtreeTest() throws AbsTTException {
-  // final IWriteTransaction wtx = holder.getWtx();
-  // final IWriteTransaction wtx2 = holder.getSession().beginWriteTransaction();
-  //
-  // LockManager lock = LockManager.getLockManager();
-  // try {
-  // lock.getWritePermission(nodes[4], (SynchWriteTransaction)wtx);
-  // lock.getWritePermission(nodes[7], (SynchWriteTransaction)wtx2);
-  // } catch (Exception e) {
-  // TestCase.fail();
-  // }
-  // }
-  //
-  // @Ignore
-  // @Test
-  // /**
-  // * Trying to lock a subtree blocked by a foreign transaction root node has to fail
-  // */
-  // public void denyLockingOnForeignTrnTest() throws AbsTTException {
-  // final IWriteTransaction wtx = holder.getWtx();
-  // final IWriteTransaction wtx2 = holder.getSession().beginWriteTransaction();
-  //
-  // LockManager lock = LockManager.getLockManager();
-  // lock.getWritePermission(wtx.getItem().getKey(), (SynchWriteTransaction)wtx);
-  // try {
-  // lock.getWritePermission(wtx2.getItem().getKey(), (SynchWriteTransaction)wtx2);
-  // TestCase.fail();
-  // } catch (Exception e) {
-  // TestCase.assertTrue(true); // has to fail
-  // }
-  // }
-  //
-  // @Ignore
-  // @Test
-  // /**
-  // * Trying to lock a subtree which is part of a blocked subtree (has parent which is trn
-  // * of a foreign transaction) has to fail
-  // */
-  // public void denyLockingUnderForeignTrnTest() throws AbsTTException {
-  // final IWriteTransaction wtx = holder.getWtx();
-  // final IWriteTransaction wtx2 = holder.getSession().beginWriteTransaction();
-  // ;
-  // LockManager lock = LockManager.getLockManager();
-  // lock.getWritePermission(nodes[1], (SynchWriteTransaction)wtx);
-  // try {
-  // lock.getWritePermission(nodes[4], (SynchWriteTransaction)wtx2);
-  // TestCase.fail();
-  // } catch (Exception e) {
-  // TestCase.assertTrue(true); // has to fail
-  // }
-  // }
-  //
-  // @Ignore
-  // @Test
-  // /**
-  // * Trying to lock a subtree which would contain a blocked subtree (has ancestor which is trn
-  // * of a foreign transaction) has to fail
-  // */
-  // public void denyLockingAboveForeignTrnTest() throws AbsTTException {
-  // final IWriteTransaction wtx = holder.getWtx();
-  // final IWriteTransaction wtx2 = holder.getSession().beginWriteTransaction();
-  // LockManager lock = LockManager.getLockManager();
-  // lock.getWritePermission(nodes[4], (SynchWriteTransaction)wtx);
-  // try {
-  // lock.getWritePermission(nodes[1], (SynchWriteTransaction)wtx2);
-  // TestCase.fail();
-  // } catch (Exception e) {
-  // TestCase.assertTrue(true); // has to fail
-  // }
-  // }
-  //
-  // @Ignore
-  // @Test
-  // /**
-  // * Locking a subtree which would contain one or more subtrees previously locked by the same
-  // * transaction is permitted
-  // */
-  // public void permitLockingAboveMultipleOwnTrnTest() throws AbsTTException {
-  // final IWriteTransaction wtx = holder.getWtx();
-  // LockManager lock = LockManager.getLockManager();
-  // lock.getWritePermission(nodes[4], (SynchWriteTransaction)wtx);
-  // lock.getWritePermission(nodes[7], (SynchWriteTransaction)wtx);
-  // lock.getWritePermission(nodes[10], (SynchWriteTransaction)wtx);
-  // try {
-  // lock.getWritePermission(nodes[0], (SynchWriteTransaction)wtx);
-  // } catch (Exception e) {
-  // TestCase.fail();
-  // }
-  // }
-  //
-  // @Ignore
-  // @Test
-  // /**
-  // * Locking a subtree which has been blocked and afterwards released by a foreign
-  // * transaction is possible
-  // */
-  // public void conquerReleasedSubtreeTest() throws AbsTTException {
-  // final IWriteTransaction wtx = holder.getWtx();
-  // final IWriteTransaction wtx2 = holder.getSession().beginWriteTransaction();
-  // LockManager lock = LockManager.getLockManager();
-  // lock.getWritePermission(nodes[1], (SynchWriteTransaction)wtx);
-  // lock.releaseWritePermission((SynchWriteTransaction)wtx);
-  // try {
-  // lock.getWritePermission(nodes[1], (SynchWriteTransaction)wtx2);
-  // } catch (Exception e) {
-  // TestCase.fail();
-  // }
-  // }
+	// private static Long[] nodes;
+	//
+	// private Holder holder;
+	//
+	// @After
+	// public void tearDown() throws AbsTTException {
+	// holder.close();
+	// TestHelper.closeEverything();
+	// }
+	//
+	// @Before
+	// public void setUp() throws AbsTTException {
+	// TestHelper.deleteEverything();
+	//
+	// holder = Holder.generateWtx();
+	// final IWriteTransaction wtx = holder.getWtx();
+	//
+	// nodes = new Long[13];
+	// nodes[0] = Long.valueOf("0");
+	//
+	// wtx.insertElementAsFirstChild(new QName("1"));
+	// nodes[1] = wtx.getItem().getKey();
+	//
+	// wtx.insertElementAsRightSibling(new QName("2"));
+	// nodes[2] = wtx.getItem().getKey();
+	// wtx.insertElementAsRightSibling(new QName("3"));
+	// nodes[3] = wtx.getItem().getKey();
+	// wtx.moveToLeftSibling();
+	// wtx.moveToLeftSibling();
+	//
+	// wtx.insertElementAsFirstChild(new QName("4"));
+	// nodes[4] = wtx.getItem().getKey();
+	//
+	// wtx.insertElementAsRightSibling(new QName("5"));
+	// nodes[5] = wtx.getItem().getKey();
+	// wtx.insertElementAsRightSibling(new QName("6"));
+	// nodes[6] = wtx.getItem().getKey();
+	// wtx.moveToParent();
+	// wtx.moveToRightSibling();
+	//
+	// wtx.insertElementAsFirstChild(new QName("7"));
+	// nodes[7] = wtx.getItem().getKey();
+	// wtx.insertElementAsRightSibling(new QName("8"));
+	// nodes[8] = wtx.getItem().getKey();
+	// wtx.insertElementAsRightSibling(new QName("9"));
+	// nodes[9] = wtx.getItem().getKey();
+	// wtx.moveToParent();
+	// wtx.moveToRightSibling();
+	//
+	// wtx.insertElementAsFirstChild(new QName("10"));
+	// nodes[10] = wtx.getItem().getKey();
+	// wtx.insertElementAsRightSibling(new QName("11"));
+	// nodes[11] = wtx.getItem().getKey();
+	// wtx.insertElementAsRightSibling(new QName("12"));
+	// nodes[12] = wtx.getItem().getKey();
+	// wtx.commit();
+	// wtx.close();
+	// }
+	//
+	// @Ignore
+	// @Test
+	// /**
+	// * Simply locking an available subtree without interference
+	// */
+	// public void basicLockingTest() throws AbsTTException {
+	// final IWriteTransaction wtx = holder.getWtx();
+	// LockManager lock = LockManager.getLockManager();
+	// try {
+	// lock.getWritePermission(wtx.getItem().getKey(),
+	// (SynchWriteTransaction)wtx);
+	// } catch (Exception e) {
+	// TestCase.fail();
+	// }
+	// wtx.close();
+	// }
+	//
+	// @Ignore
+	// @Test
+	// /**
+	// * Locking an available subtree with other wtx holding locks on different
+	// subtrees
+	// */
+	// public void permitLockingInFreeSubtreeTest() throws AbsTTException {
+	// final IWriteTransaction wtx = holder.getWtx();
+	// final IWriteTransaction wtx2 = holder.getSession().beginWriteTransaction();
+	//
+	// LockManager lock = LockManager.getLockManager();
+	// try {
+	// lock.getWritePermission(nodes[4], (SynchWriteTransaction)wtx);
+	// lock.getWritePermission(nodes[7], (SynchWriteTransaction)wtx2);
+	// } catch (Exception e) {
+	// TestCase.fail();
+	// }
+	// }
+	//
+	// @Ignore
+	// @Test
+	// /**
+	// * Trying to lock a subtree blocked by a foreign transaction root node has
+	// to fail
+	// */
+	// public void denyLockingOnForeignTrnTest() throws AbsTTException {
+	// final IWriteTransaction wtx = holder.getWtx();
+	// final IWriteTransaction wtx2 = holder.getSession().beginWriteTransaction();
+	//
+	// LockManager lock = LockManager.getLockManager();
+	// lock.getWritePermission(wtx.getItem().getKey(),
+	// (SynchWriteTransaction)wtx);
+	// try {
+	// lock.getWritePermission(wtx2.getItem().getKey(),
+	// (SynchWriteTransaction)wtx2);
+	// TestCase.fail();
+	// } catch (Exception e) {
+	// TestCase.assertTrue(true); // has to fail
+	// }
+	// }
+	//
+	// @Ignore
+	// @Test
+	// /**
+	// * Trying to lock a subtree which is part of a blocked subtree (has parent
+	// which is trn
+	// * of a foreign transaction) has to fail
+	// */
+	// public void denyLockingUnderForeignTrnTest() throws AbsTTException {
+	// final IWriteTransaction wtx = holder.getWtx();
+	// final IWriteTransaction wtx2 = holder.getSession().beginWriteTransaction();
+	// ;
+	// LockManager lock = LockManager.getLockManager();
+	// lock.getWritePermission(nodes[1], (SynchWriteTransaction)wtx);
+	// try {
+	// lock.getWritePermission(nodes[4], (SynchWriteTransaction)wtx2);
+	// TestCase.fail();
+	// } catch (Exception e) {
+	// TestCase.assertTrue(true); // has to fail
+	// }
+	// }
+	//
+	// @Ignore
+	// @Test
+	// /**
+	// * Trying to lock a subtree which would contain a blocked subtree (has
+	// ancestor which is trn
+	// * of a foreign transaction) has to fail
+	// */
+	// public void denyLockingAboveForeignTrnTest() throws AbsTTException {
+	// final IWriteTransaction wtx = holder.getWtx();
+	// final IWriteTransaction wtx2 = holder.getSession().beginWriteTransaction();
+	// LockManager lock = LockManager.getLockManager();
+	// lock.getWritePermission(nodes[4], (SynchWriteTransaction)wtx);
+	// try {
+	// lock.getWritePermission(nodes[1], (SynchWriteTransaction)wtx2);
+	// TestCase.fail();
+	// } catch (Exception e) {
+	// TestCase.assertTrue(true); // has to fail
+	// }
+	// }
+	//
+	// @Ignore
+	// @Test
+	// /**
+	// * Locking a subtree which would contain one or more subtrees previously
+	// locked by the same
+	// * transaction is permitted
+	// */
+	// public void permitLockingAboveMultipleOwnTrnTest() throws AbsTTException {
+	// final IWriteTransaction wtx = holder.getWtx();
+	// LockManager lock = LockManager.getLockManager();
+	// lock.getWritePermission(nodes[4], (SynchWriteTransaction)wtx);
+	// lock.getWritePermission(nodes[7], (SynchWriteTransaction)wtx);
+	// lock.getWritePermission(nodes[10], (SynchWriteTransaction)wtx);
+	// try {
+	// lock.getWritePermission(nodes[0], (SynchWriteTransaction)wtx);
+	// } catch (Exception e) {
+	// TestCase.fail();
+	// }
+	// }
+	//
+	// @Ignore
+	// @Test
+	// /**
+	// * Locking a subtree which has been blocked and afterwards released by a
+	// foreign
+	// * transaction is possible
+	// */
+	// public void conquerReleasedSubtreeTest() throws AbsTTException {
+	// final IWriteTransaction wtx = holder.getWtx();
+	// final IWriteTransaction wtx2 = holder.getSession().beginWriteTransaction();
+	// LockManager lock = LockManager.getLockManager();
+	// lock.getWritePermission(nodes[1], (SynchWriteTransaction)wtx);
+	// lock.releaseWritePermission((SynchWriteTransaction)wtx);
+	// try {
+	// lock.getWritePermission(nodes[1], (SynchWriteTransaction)wtx2);
+	// } catch (Exception e) {
+	// TestCase.fail();
+	// }
+	// }
 
 }

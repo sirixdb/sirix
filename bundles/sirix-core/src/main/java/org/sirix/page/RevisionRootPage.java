@@ -273,7 +273,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	protected Page delegate() {
 		return mDelegate;
 	}
-	
+
 	@Override
 	public Page setDirty(final boolean pDirty) {
 		mDelegate.setDirty(pDirty);

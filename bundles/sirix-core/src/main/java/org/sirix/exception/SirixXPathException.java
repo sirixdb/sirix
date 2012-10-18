@@ -32,14 +32,14 @@ package org.sirix.exception;
  */
 public class SirixXPathException extends SirixException {
 
-  /**
-   * Constructor.
-   * 
-   * @param paramMessage
-   *          message of the XPath Error.
-   */
-  public SirixXPathException(final String paramMessage) {
-    super(paramMessage);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param paramMessage
+	 *          message of the XPath Error.
+	 */
+	public SirixXPathException(final String paramMessage) {
+		super(paramMessage);
+	}
 
 }

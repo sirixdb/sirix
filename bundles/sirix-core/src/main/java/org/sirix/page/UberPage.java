@@ -154,7 +154,7 @@ public final class UberPage extends AbstractForwardingPage {
 	 * @param reference
 	 *          reference from revision root
 	 * @param pageKind
-	 * 					the page kind
+	 *          the page kind
 	 */
 	private void createTree(@Nonnull PageReference reference,
 			final @Nonnull PageKind pageKind) {

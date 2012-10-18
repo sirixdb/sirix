@@ -36,26 +36,26 @@ import org.sirix.diff.DiffFactory.DiffType;
  * 
  */
 enum EFoundEqualNode {
-  /** Node found. */
-  TRUE {
-    @Override
-    DiffType kindOfDiff() {
-      return DiffType.DELETED;
-    }
-  },
+	/** Node found. */
+	TRUE {
+		@Override
+		DiffType kindOfDiff() {
+			return DiffType.DELETED;
+		}
+	},
 
-  /** Node not found. */
-  FALSE {
-    @Override
-    DiffType kindOfDiff() {
-      return DiffType.INSERTED;
-    }
-  };
+	/** Node not found. */
+	FALSE {
+		@Override
+		DiffType kindOfDiff() {
+			return DiffType.INSERTED;
+		}
+	};
 
-  /**
-   * Kind of difference between two nodes.
-   * 
-   * @return kind of difference
-   */
-  abstract DiffType kindOfDiff();
+	/**
+	 * Kind of difference between two nodes.
+	 * 
+	 * @return kind of difference
+	 */
+	abstract DiffType kindOfDiff();
 }

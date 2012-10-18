@@ -46,30 +46,30 @@ import com.google.common.base.Predicate;
  */
 public abstract class AbstractFilter implements Filter, Predicate<Long> {
 
-  /** Iterate over transaction exclusive to this step. */
-  private NodeReadTrx mRtx;
+	/** Iterate over transaction exclusive to this step. */
+	private NodeReadTrx mRtx;
 
-  /**
-   * Bind axis step to transaction.
-   * 
-   * @param pRtx
-   *          transaction to operate with
-   */
-  protected AbstractFilter(final @Nonnull NodeReadTrx pRtx) {
-    mRtx = checkNotNull(pRtx);
-  }
+	/**
+	 * Bind axis step to transaction.
+	 * 
+	 * @param pRtx
+	 *          transaction to operate with
+	 */
+	protected AbstractFilter(final @Nonnull NodeReadTrx pRtx) {
+		mRtx = checkNotNull(pRtx);
+	}
 
-  @Override
-  public final NodeReadTrx getTrx() {
-    return mRtx;
-  }
+	@Override
+	public final NodeReadTrx getTrx() {
+		return mRtx;
+	}
 
-  @Override
-  public abstract boolean filter();
-  
-  @Override
-  public boolean apply(final @Nullable Long pNodeKey) {
-  	mRtx.moveTo(checkNotNull(pNodeKey));
-  	return filter();
-  }
+	@Override
+	public abstract boolean filter();
+
+	@Override
+	public boolean apply(final @Nullable Long pNodeKey) {
+		mRtx.moveTo(checkNotNull(pNodeKey));
+		return filter();
+	}
 }

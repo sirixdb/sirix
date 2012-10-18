@@ -39,26 +39,27 @@ import org.sirix.page.NodePage;
  */
 public class CacheTestHelper {
 
-  protected static NodePage[][] PAGES;
+	protected static NodePage[][] PAGES;
 
-  public static void setUp(final Cache<Long, NodePageContainer> cache) throws SirixException {
-    PAGES = new NodePage[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
-    for (int i = 0; i < PAGES.length; i++) {
-      final NodePage page = new NodePage(i, 0);
-      final NodePage[] revs = new NodePage[ResourceConfiguration.VERSIONSTORESTORE];
+	public static void setUp(final Cache<Long, NodePageContainer> cache)
+			throws SirixException {
+		PAGES = new NodePage[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
+		for (int i = 0; i < PAGES.length; i++) {
+			final NodePage page = new NodePage(i, 0);
+			final NodePage[] revs = new NodePage[ResourceConfiguration.VERSIONSTORESTORE];
 
-      for (int j = 0; j < ResourceConfiguration.VERSIONSTORESTORE; j++) {
-        PAGES[i][j + 1] = new NodePage(i, 0);
-        revs[j] = PAGES[i][j + 1];
-      }
-      PAGES[i][0] = page;
-      cache.put((long)i, new NodePageContainer(page));
-    }
-  }
+			for (int j = 0; j < ResourceConfiguration.VERSIONSTORESTORE; j++) {
+				PAGES[i][j + 1] = new NodePage(i, 0);
+				revs[j] = PAGES[i][j + 1];
+			}
+			PAGES[i][0] = page;
+			cache.put((long) i, new NodePageContainer(page));
+		}
+	}
 
-  @Test
-  public void dummy() {
-    // Only for dummy purposes.
-  }
+	@Test
+	public void dummy() {
+		// Only for dummy purposes.
+	}
 
 }

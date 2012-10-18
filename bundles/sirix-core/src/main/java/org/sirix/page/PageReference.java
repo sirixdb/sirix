@@ -39,124 +39,125 @@ import org.sirix.settings.Constants;
  * <h1>PageReference</h1>
  * 
  * <p>
- * Page reference pointing to a page. This might be on stable storage pointing to the start byte in a file,
- * including the length in bytes, and the checksum of the serialized page. Or it might be an immediate
- * reference to an in-memory instance of the deserialized page.
+ * Page reference pointing to a page. This might be on stable storage pointing
+ * to the start byte in a file, including the length in bytes, and the checksum
+ * of the serialized page. Or it might be an immediate reference to an in-memory
+ * instance of the deserialized page.
  * </p>
  */
 public final class PageReference {
 
-  /** Page kind. */
-  private PageKind mPageKind;
+	/** Page kind. */
+	private PageKind mPageKind;
 
-  /** In-memory deserialized page instance. */
-  private Page mPage;
+	/** In-memory deserialized page instance. */
+	private Page mPage;
 
-  /** Corresponding mKey of the related node page. */
-  private long mNodePageKey = -1;
+	/** Corresponding mKey of the related node page. */
+	private long mNodePageKey = -1;
 
-  /** Key in persistent storage. */
-  private long mKey = Constants.NULL_ID;;
+	/** Key in persistent storage. */
+	private long mKey = Constants.NULL_ID;;
 
-  /**
-   * Default constructor setting up an uninitialized page reference.
-   */
-  public PageReference() {
-  }
-  
-  /**
-   * Copy constructor.
-   * 
-   * @param reference
-   * 					{@link PageReference} to copy
-   */
-  public PageReference(final @Nonnull PageReference reference) {
-  	mPageKind = reference.mPageKind;
-  	mPage = reference.mPage;
-  	mNodePageKey = reference.mNodePageKey;
-  	mKey = reference.mKey;
-  }
+	/**
+	 * Default constructor setting up an uninitialized page reference.
+	 */
+	public PageReference() {
+	}
 
-  /**
-   * Get in-memory instance of deserialized page.
-   * 
-   * @return in-memory instance of deserialized page
-   */
-  public Page getPage() {
-    return mPage;
-  }
+	/**
+	 * Copy constructor.
+	 * 
+	 * @param reference
+	 *          {@link PageReference} to copy
+	 */
+	public PageReference(final @Nonnull PageReference reference) {
+		mPageKind = reference.mPageKind;
+		mPage = reference.mPage;
+		mNodePageKey = reference.mNodePageKey;
+		mKey = reference.mKey;
+	}
 
-  /**
-   * Set in-memory instance of deserialized page.
-   * 
-   * @param page
-   *          deserialized page
-   */
-  public void setPage(final @Nullable Page page) {
-    mPage = page;
-  }
+	/**
+	 * Get in-memory instance of deserialized page.
+	 * 
+	 * @return in-memory instance of deserialized page
+	 */
+	public Page getPage() {
+		return mPage;
+	}
 
-  /**
-   * Get start byte offset in file.
-   * 
-   * @return start offset in file
-   */
-  public long getKey() {
-    return mKey;
-  }
+	/**
+	 * Set in-memory instance of deserialized page.
+	 * 
+	 * @param page
+	 *          deserialized page
+	 */
+	public void setPage(final @Nullable Page page) {
+		mPage = page;
+	}
 
-  /**
-   * Set start byte offset in file.
-   * 
-   * @param key
-   *          key of this reference set by the persistent storage
-   */
-  public void setKey(final long key) {
-    mKey = key;
-  }
+	/**
+	 * Get start byte offset in file.
+	 * 
+	 * @return start offset in file
+	 */
+	public long getKey() {
+		return mKey;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("nodePageKey", mNodePageKey).add(
-      "key", mKey).add("page", mPage).toString();
-  }
+	/**
+	 * Set start byte offset in file.
+	 * 
+	 * @param key
+	 *          key of this reference set by the persistent storage
+	 */
+	public void setKey(final long key) {
+		mKey = key;
+	}
 
-  /**
-   * Set nodepage key.
-   * 
-   * @param nodePageKey
-   *          the nodePageKey to set
-   */
-  public void setNodePageKey(final long nodePageKey) {
-    mNodePageKey = nodePageKey;
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("nodePageKey", mNodePageKey)
+				.add("key", mKey).add("page", mPage).toString();
+	}
 
-  /**
-   * Get nodepage key.
-   * 
-   * @return the nodePageKey
-   */
-  public long getNodePageKey() {
-    return mNodePageKey;
-  }
+	/**
+	 * Set nodepage key.
+	 * 
+	 * @param nodePageKey
+	 *          the nodePageKey to set
+	 */
+	public void setNodePageKey(final long nodePageKey) {
+		mNodePageKey = nodePageKey;
+	}
 
-  /**
-   * Set the kind of page to which is referenced.
-   * 
-   * @param pageKind
-   *          the page kind
-   */
-  public void setPageKind(final @Nonnull PageKind pageKind) {
-    mPageKind = pageKind;
-  }
+	/**
+	 * Get nodepage key.
+	 * 
+	 * @return the nodePageKey
+	 */
+	public long getNodePageKey() {
+		return mNodePageKey;
+	}
 
-  /**
-   * Get the kind of page to which a reference is provided.
-   * 
-   * @return the page kind
-   */
-  public PageKind getPageKind() {
-    return mPageKind;
-  }
+	/**
+	 * Set the kind of page to which is referenced.
+	 * 
+	 * @param pageKind
+	 *          the page kind
+	 */
+	public void setPageKind(final @Nonnull PageKind pageKind) {
+		mPageKind = pageKind;
+	}
+
+	/**
+	 * Get the kind of page to which a reference is provided.
+	 * 
+	 * @return the page kind
+	 */
+	public PageKind getPageKind() {
+		return mPageKind;
+	}
 
 }

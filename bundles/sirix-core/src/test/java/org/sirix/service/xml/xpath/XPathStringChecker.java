@@ -40,55 +40,56 @@ import org.sirix.exception.SirixException;
 
 public class XPathStringChecker {
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		TestHelper.closeEverything();
+	}
 
-  public static void testIAxisConventions(final Axis axis, final String[] expectedValues) {
+	public static void testIAxisConventions(final Axis axis,
+			final String[] expectedValues) {
 
-    final NodeReadTrx rtx = axis.getTrx();
+		final NodeReadTrx rtx = axis.getTrx();
 
-    // IAxis Convention 1.
-    final long startKey = rtx.getNodeKey();
+		// IAxis Convention 1.
+		final long startKey = rtx.getNodeKey();
 
-    final String[] strValues = new String[expectedValues.length];
-    int offset = 0;
-    while (axis.hasNext()) {
-      axis.next();
-      // IAxis results.
-      if (offset >= expectedValues.length) {
-        fail("More nodes found than expected.");
-      }
-      if (!("".equals(rtx.getValue()))) {
-        strValues[offset++] = rtx.getValue();
-      } else {
-        strValues[offset++] = rtx.getName().toString();
-      }
+		final String[] strValues = new String[expectedValues.length];
+		int offset = 0;
+		while (axis.hasNext()) {
+			axis.next();
+			// IAxis results.
+			if (offset >= expectedValues.length) {
+				fail("More nodes found than expected.");
+			}
+			if (!("".equals(rtx.getValue()))) {
+				strValues[offset++] = rtx.getValue();
+			} else {
+				strValues[offset++] = rtx.getName().toString();
+			}
 
-      // // IAxis Convention 2.
-      // try {
-      // axis.next();
-      // fail("Should only allow to call next() once.");
-      // } catch (Exception e) {
-      // // Must throw exception.
-      // }
+			// // IAxis Convention 2.
+			// try {
+			// axis.next();
+			// fail("Should only allow to call next() once.");
+			// } catch (Exception e) {
+			// // Must throw exception.
+			// }
 
-      // IAxis Convention 3.
-      rtx.moveToDocumentRoot();
+			// IAxis Convention 3.
+			rtx.moveToDocumentRoot();
 
-    }
+		}
 
-    // IAxis Convention 5.
-    assertEquals(startKey, rtx.getNodeKey());
+		// IAxis Convention 5.
+		assertEquals(startKey, rtx.getNodeKey());
 
-    // IAxis results.
-    assertArrayEquals(expectedValues, strValues);
+		// IAxis results.
+		assertArrayEquals(expectedValues, strValues);
 
-  }
+	}
 }

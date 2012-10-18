@@ -47,60 +47,61 @@ import org.sirix.exception.SirixException;
 
 public class ThreadTest {
 
-  public static final int WORKER_COUNT = 50;
+	public static final int WORKER_COUNT = 50;
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateSession();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateSession();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testThreads() throws Exception {
-    final ExecutorService taskExecutor = Executors.newFixedThreadPool(WORKER_COUNT);
-    long newKey = 10L;
-    for (int i = 0; i < WORKER_COUNT; i++) {
-      taskExecutor.submit(new Task(holder.getSession().beginNodeReadTrx(i)));
-      final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-      wtx.moveTo(newKey);
-      wtx.setValue("value" + i);
-      newKey = wtx.getNodeKey();
-      wtx.commit();
-      wtx.close();
-    }
-    taskExecutor.shutdown();
-    taskExecutor.awaitTermination(1000000, TimeUnit.SECONDS);
-  }
+	@Test
+	public void testThreads() throws Exception {
+		final ExecutorService taskExecutor = Executors
+				.newFixedThreadPool(WORKER_COUNT);
+		long newKey = 10L;
+		for (int i = 0; i < WORKER_COUNT; i++) {
+			taskExecutor.submit(new Task(holder.getSession().beginNodeReadTrx(i)));
+			final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
+			wtx.moveTo(newKey);
+			wtx.setValue("value" + i);
+			newKey = wtx.getNodeKey();
+			wtx.commit();
+			wtx.close();
+		}
+		taskExecutor.shutdown();
+		taskExecutor.awaitTermination(1000000, TimeUnit.SECONDS);
+	}
 
-  private class Task implements Callable<Void> {
+	private class Task implements Callable<Void> {
 
-    private NodeReadTrx mRTX;
+		private NodeReadTrx mRTX;
 
-    public Task(final NodeReadTrx rtx) {
-      mRTX = rtx;
-    }
+		public Task(final NodeReadTrx rtx) {
+			mRTX = rtx;
+		}
 
-    @Override
-    public Void call() throws Exception {
-      final Axis axis = new DescendantAxis(mRTX);
-      while (axis.hasNext()) {
-        axis.next();
-      }
+		@Override
+		public Void call() throws Exception {
+			final Axis axis = new DescendantAxis(mRTX);
+			while (axis.hasNext()) {
+				axis.next();
+			}
 
-      mRTX.moveTo(12L);
-      assertEquals("bar", mRTX.getValue());
-      mRTX.close();
-      return null;
-    }
-  }
+			mRTX.moveTo(12L);
+			assertEquals("bar", mRTX.getValue());
+			mRTX.close();
+			return null;
+		}
+	}
 
 }

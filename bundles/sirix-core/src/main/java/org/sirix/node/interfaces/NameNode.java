@@ -30,7 +30,7 @@ package org.sirix.node.interfaces;
  * Node with a name.
  * 
  * @author Sebastian Graf, University of Konstanz
- *
+ * 
  */
 public interface NameNode extends Node {
 	/**

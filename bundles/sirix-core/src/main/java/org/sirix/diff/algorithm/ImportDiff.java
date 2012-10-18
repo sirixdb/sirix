@@ -37,24 +37,25 @@ import org.sirix.exception.SirixException;
  * 
  */
 public interface ImportDiff {
-  /**
-   * Do the diff.
-   * 
-   * @param wtx
-   *          on resource to update
-   * @param rtx
-   *          on new revision
-   * @throws NullPointerException
-   *           if {@code pWtx} or {@code pRtx} is {@code null}
-   * @throws SirixException
-   *           if something in sirix went wrong
-   */
-  void diff(final NodeWriteTrx wtx, final NodeReadTrx rtx) throws SirixException;
+	/**
+	 * Do the diff.
+	 * 
+	 * @param wtx
+	 *          on resource to update
+	 * @param rtx
+	 *          on new revision
+	 * @throws NullPointerException
+	 *           if {@code pWtx} or {@code pRtx} is {@code null}
+	 * @throws SirixException
+	 *           if something in sirix went wrong
+	 */
+	void diff(final NodeWriteTrx wtx, final NodeReadTrx rtx)
+			throws SirixException;
 
-  /**
-   * Name of algorithm.
-   * 
-   * @return name
-   */
-  String getName();
+	/**
+	 * Name of algorithm.
+	 * 
+	 * @return name
+	 */
+	String getName();
 }

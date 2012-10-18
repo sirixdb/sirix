@@ -37,12 +37,13 @@ import org.sirix.utils.TypedValue;
 /**
  * <h1>Logical And Expression</h1>
  * <p>
- * The logical and expression performs a logical conjunction of the boolean values of two input sequences. If
- * a logical expression does not raise an error, its value is always one of the boolean values true or false.
+ * The logical and expression performs a logical conjunction of the boolean
+ * values of two input sequences. If a logical expression does not raise an
+ * error, its value is always one of the boolean values true or false.
  * </p>
  * <p>
- * The value of an and-expression is determined by the effective boolean values of its operands, as shown in
- * the following table:
+ * The value of an and-expression is determined by the effective boolean values
+ * of its operands, as shown in the following table:
  * <table>
  * <tr>
  * <th>AND</th>
@@ -72,66 +73,66 @@ import org.sirix.utils.TypedValue;
  */
 public class AndExpr extends AbstractExpression {
 
-  /** First operand of the logical expression. */
-  private final Axis mOp1;
+	/** First operand of the logical expression. */
+	private final Axis mOp1;
 
-  /** Second operand of the logical expression. */
-  private final Axis mOp2;
+	/** Second operand of the logical expression. */
+	private final Axis mOp2;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx
-   *          Exclusive (immutable) transaction to iterate with.
-   * @param mOperand1
-   *          First operand
-   * @param mOperand2
-   *          Second operand
-   */
-  public AndExpr(final NodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2) {
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param rtx
+	 *          Exclusive (immutable) transaction to iterate with.
+	 * @param mOperand1
+	 *          First operand
+	 * @param mOperand2
+	 *          Second operand
+	 */
+	public AndExpr(final NodeReadTrx rtx, final Axis mOperand1,
+			final Axis mOperand2) {
 
-    super(rtx);
-    mOp1 = mOperand1;
-    mOp2 = mOperand2;
+		super(rtx);
+		mOp1 = mOperand1;
+		mOp2 = mOperand2;
 
-  }
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void reset(final long mNodeKey) {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void reset(final long mNodeKey) {
 
-    super.reset(mNodeKey);
-    if (mOp1 != null) {
-      mOp1.reset(mNodeKey);
-    }
-    if (mOp2 != null) {
-      mOp2.reset(mNodeKey);
-    }
-  }
+		super.reset(mNodeKey);
+		if (mOp1 != null) {
+			mOp1.reset(mNodeKey);
+		}
+		if (mOp2 != null) {
+			mOp2.reset(mNodeKey);
+		}
+	}
 
-  /**
-   * {@inheritDoc}
-   * 
-   * @throws SirixXPathException
-   */
-  @Override
-  public void evaluate() throws SirixXPathException {
+	/**
+	 * {@inheritDoc}
+	 * 
+	 * @throws SirixXPathException
+	 */
+	@Override
+	public void evaluate() throws SirixXPathException {
 
-    // first find the effective boolean values of the two operands, then
-    // determine value of the and-expression and store it in an item
-    final boolean result = Function.ebv(mOp1) && Function.ebv(mOp2);
-    // note: the error handling is implicitly done by the fnBoolean()
-    // function.
+		// first find the effective boolean values of the two operands, then
+		// determine value of the and-expression and store it in an item
+		final boolean result = Function.ebv(mOp1) && Function.ebv(mOp2);
+		// note: the error handling is implicitly done by the fnBoolean()
+		// function.
 
-    // add result item to list and set the item as the current item
-    final int itemKey =
-      getTrx().getItemList().addItem(
-        new AtomicValue(TypedValue.getBytes(Boolean.toString(result)), getTrx().keyForName(
-          "xs:boolean")));
-    mKey = itemKey;
+		// add result item to list and set the item as the current item
+		final int itemKey = getTrx().getItemList().addItem(
+				new AtomicValue(TypedValue.getBytes(Boolean.toString(result)), getTrx()
+						.keyForName("xs:boolean")));
+		mKey = itemKey;
 
-  }
+	}
 
 }

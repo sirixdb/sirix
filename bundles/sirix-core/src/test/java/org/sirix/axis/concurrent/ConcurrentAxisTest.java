@@ -126,11 +126,11 @@ public class ConcurrentAxisTest {
 		try {
 			final int resultNumber = 55;
 			final Axis axis = new NestedAxis(new NestedAxis(new FilterAxis(
-					new DescendantAxis(holder.getRtx(), IncludeSelf.YES),
-					new NameFilter(holder.getRtx(), "regions")), new FilterAxis(
-					new ChildAxis(holder.getRtx()), new NameFilter(holder.getRtx(),
-							"africa"))), new FilterAxis(new DescendantAxis(holder.getRtx(),
-					IncludeSelf.YES), new NameFilter(holder.getRtx(), "location")));
+					new DescendantAxis(holder.getRtx(), IncludeSelf.YES), new NameFilter(
+							holder.getRtx(), "regions")), new FilterAxis(new ChildAxis(
+					holder.getRtx()), new NameFilter(holder.getRtx(), "africa"))),
+					new FilterAxis(new DescendantAxis(holder.getRtx(), IncludeSelf.YES),
+							new NameFilter(holder.getRtx(), "location")));
 
 			for (int i = 0; i < resultNumber; i++) {
 				assertEquals(true, axis.hasNext());
@@ -228,12 +228,12 @@ public class ConcurrentAxisTest {
 			final NodeReadTrx firstConcurrRtx = holder.getSession()
 					.beginNodeReadTrx();
 			final Axis axis = new NestedAxis(new NestedAxis(new FilterAxis(
-					new DescendantAxis(firstConcurrRtx, IncludeSelf.YES),
-					new NameFilter(firstConcurrRtx, "regions")), new FilterAxis(
-					new ChildAxis(firstConcurrRtx), new NameFilter(firstConcurrRtx,
-							"africa"))), new ConcurrentAxis(firstConcurrRtx, new FilterAxis(
-					new DescendantAxis(holder.getRtx(), IncludeSelf.YES),
-					new NameFilter(holder.getRtx(), "location"))));
+					new DescendantAxis(firstConcurrRtx, IncludeSelf.YES), new NameFilter(
+							firstConcurrRtx, "regions")), new FilterAxis(new ChildAxis(
+					firstConcurrRtx), new NameFilter(firstConcurrRtx, "africa"))),
+					new ConcurrentAxis(firstConcurrRtx, new FilterAxis(
+							new DescendantAxis(holder.getRtx(), IncludeSelf.YES),
+							new NameFilter(holder.getRtx(), "location"))));
 
 			for (int i = 0; i < resultNumber; i++) {
 				assertEquals(true, axis.hasNext());

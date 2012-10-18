@@ -41,32 +41,32 @@ import org.sirix.settings.Fixed;
  */
 public class DocumentNodeAxis extends AbstractAxis {
 
-  /** Track number of calls of next. */
-  private boolean mFirst;
+	/** Track number of calls of next. */
+	private boolean mFirst;
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param pRtx
-   *          exclusive (immutable) transaction to iterate with
-   */
-  public DocumentNodeAxis(@Nonnull final NodeReadTrx pRtx) {
-    super(pRtx);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param pRtx
+	 *          exclusive (immutable) transaction to iterate with
+	 */
+	public DocumentNodeAxis(@Nonnull final NodeReadTrx pRtx) {
+		super(pRtx);
+	}
 
-  @Override
-  public final void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    mFirst = true;
-  }
-  
-  @Override
-  protected long nextKey() {
-    if (mFirst) {
-      mFirst = false;
-      return Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
-    }
-    
-    return done();
-  }
+	@Override
+	public final void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		mFirst = true;
+	}
+
+	@Override
+	protected long nextKey() {
+		if (mFirst) {
+			mFirst = false;
+			return Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
+		}
+
+		return done();
+	}
 }

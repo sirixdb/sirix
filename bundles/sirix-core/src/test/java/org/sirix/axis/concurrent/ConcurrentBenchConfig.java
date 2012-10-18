@@ -43,41 +43,39 @@ import org.perfidix.ouput.AbstractOutput;
  */
 public class ConcurrentBenchConfig extends AbstractConfig {
 
-  /**
-   * Number of runs.
-   */
-  private final static int RUNS = 50;
+	/**
+	 * Number of runs.
+	 */
+	private final static int RUNS = 50;
 
-  /**
-   * Test units of time and memory.
-   */
-  private final static AbstractMeter[] METERS = {
-    new TimeMeter(Time.Seconds), new MemMeter(Memory.Mebibyte)
-  };
+	/**
+	 * Test units of time and memory.
+	 */
+	private final static AbstractMeter[] METERS = { new TimeMeter(Time.Seconds),
+			new MemMeter(Memory.Mebibyte) };
 
-  /**
-   * Kind of output result viewer.
-   */
-  private static final AbstractOutput[] OUTPUT = {/*
-                                                   * new
-                                                   * TabularSummaryOutput()
-                                                   */};
-  /**
-   * Kind of arrangement.
-   */
-  private final static KindOfArrangement ARRAN = KindOfArrangement.SequentialMethodArrangement;
+	/**
+	 * Kind of output result viewer.
+	 */
+	private static final AbstractOutput[] OUTPUT = {/*
+																									 * new TabularSummaryOutput()
+																									 */};
+	/**
+	 * Kind of arrangement.
+	 */
+	private final static KindOfArrangement ARRAN = KindOfArrangement.SequentialMethodArrangement;
 
-  /**
-   * Member gcProb.
-   */
-  private final static double GCPROB = 1.0d;
+	/**
+	 * Member gcProb.
+	 */
+	private final static double GCPROB = 1.0d;
 
-  /**
-   * Constructor to set settings.
-   */
-  public ConcurrentBenchConfig() {
-    super(RUNS, METERS, OUTPUT, ARRAN, GCPROB);
+	/**
+	 * Constructor to set settings.
+	 */
+	public ConcurrentBenchConfig() {
+		super(RUNS, METERS, OUTPUT, ARRAN, GCPROB);
 
-  }
+	}
 
 }

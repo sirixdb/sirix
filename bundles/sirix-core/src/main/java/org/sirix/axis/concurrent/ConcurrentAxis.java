@@ -47,121 +47,127 @@ import org.slf4j.LoggerFactory;
 /**
  * <h1>ConcurrentAxis</h1>
  * <p>
- * Realizes in combination with the <code>ConurrentAxisHelper</code> the concurrent evaluation of pipeline
- * steps. The given axis is uncoupled from the main thread by embedding it in a Runnable that uses its one
- * transaction and stores all the results to a queue. The ConcurrentAxis gets the computed results from that
- * queue one by one on every hasNext() call and sets the main-transaction to it. As soon as the end of the
- * computed result sequence is reached (marked by the NULL_NODE_KEY), the ConcurrentAxis returns
+ * Realizes in combination with the <code>ConurrentAxisHelper</code> the
+ * concurrent evaluation of pipeline steps. The given axis is uncoupled from the
+ * main thread by embedding it in a Runnable that uses its one transaction and
+ * stores all the results to a queue. The ConcurrentAxis gets the computed
+ * results from that queue one by one on every hasNext() call and sets the
+ * main-transaction to it. As soon as the end of the computed result sequence is
+ * reached (marked by the NULL_NODE_KEY), the ConcurrentAxis returns
  * <code>false</code>.
  * </p>
  * <p>
- * This framework is working according to the producer-consumer-principle, where the ConcurrentAxisHelper and
- * its encapsulated axis is the producer and the ConcurrentAxis with its callees is the consumer. This can be
- * used by any class that implements the IAxis interface. Note: Make sure that the used class is thread-safe.
+ * This framework is working according to the producer-consumer-principle, where
+ * the ConcurrentAxisHelper and its encapsulated axis is the producer and the
+ * ConcurrentAxis with its callees is the consumer. This can be used by any
+ * class that implements the IAxis interface. Note: Make sure that the used
+ * class is thread-safe.
  * </p>
  */
 public class ConcurrentAxis extends AbstractAxis {
 
 	/** Logger. */
-	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxis.class));
-	
-  /** Axis that is running in an own thread and produces results for this axis. */
-  private final Axis mProducer;
+	private static final LogWrapper LOGGER = new LogWrapper(
+			LoggerFactory.getLogger(ConcurrentAxis.class));
 
-  /**
-   * Queue that stores result keys already computed by the producer. End of
-   * the result sequence is marked by the NULL_NODE_KEY.
-   */
-  private final BlockingQueue<Long> mResults;
+	/** Axis that is running in an own thread and produces results for this axis. */
+	private final Axis mProducer;
 
-  /** Capacity of the mResults queue. */
-  private final int M_CAPACITY = 200;
+	/**
+	 * Queue that stores result keys already computed by the producer. End of the
+	 * result sequence is marked by the NULL_NODE_KEY.
+	 */
+	private final BlockingQueue<Long> mResults;
 
-  /** Has axis already been called? */
-  private boolean mFirst;
+	/** Capacity of the mResults queue. */
+	private final int M_CAPACITY = 200;
 
-  /** Runnable in which the producer is running. */
-  private Runnable task;
+	/** Has axis already been called? */
+	private boolean mFirst;
 
-  /** Is axis already finished and has no results left? */
-  private boolean mFinished;
+	/** Runnable in which the producer is running. */
+	private Runnable task;
 
-  /** Executor Service holding the execution plan for future tasks. */
-  public final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+	/** Is axis already finished and has no results left? */
+	private boolean mFinished;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx
-   *          exclusive (immutable) trx to iterate with
-   * @param childAxis
-   *          producer axis
-   */
-  public ConcurrentAxis(final @Nonnull NodeReadTrx rtx,
-    final @Nonnull Axis childAxis) {
-    super(rtx);
-    mResults = new ArrayBlockingQueue<>(M_CAPACITY);
-    mFirst = true;
-    mProducer = checkNotNull(childAxis);
-    task = new ConcurrentAxisHelper(mProducer, mResults);
-    mFinished = false;
-  }
+	/** Executor Service holding the execution plan for future tasks. */
+	public final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
 
-  @Override
-  public synchronized void reset(final @Nonnegative long nodeKey) {
-    super.reset(nodeKey);
-    mFirst = true;
-    mFinished = false;
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param rtx
+	 *          exclusive (immutable) trx to iterate with
+	 * @param childAxis
+	 *          producer axis
+	 */
+	public ConcurrentAxis(final @Nonnull NodeReadTrx rtx,
+			final @Nonnull Axis childAxis) {
+		super(rtx);
+		mResults = new ArrayBlockingQueue<>(M_CAPACITY);
+		mFirst = true;
+		mProducer = checkNotNull(childAxis);
+		task = new ConcurrentAxisHelper(mProducer, mResults);
+		mFinished = false;
+	}
 
-    if (mProducer != null) {
-      mProducer.reset(nodeKey);
-    }
-    if (mResults != null) {
-      mResults.clear();
-    }
+	@Override
+	public synchronized void reset(final @Nonnegative long nodeKey) {
+		super.reset(nodeKey);
+		mFirst = true;
+		mFinished = false;
 
-    if (task != null) {
-      task = new ConcurrentAxisHelper(mProducer, mResults);
-    }
-  }
-  
-  @Override
-  protected long nextKey() {
-    // Start producer on first call.
-    if (mFirst) {
-      mFirst = false;
-      EXECUTOR.submit(task);
-    }
+		if (mProducer != null) {
+			mProducer.reset(nodeKey);
+		}
+		if (mResults != null) {
+			mResults.clear();
+		}
 
-    if (mFinished) {
-    	return done();
-    }
+		if (task != null) {
+			task = new ConcurrentAxisHelper(mProducer, mResults);
+		}
+	}
 
-    long result = Fixed.NULL_NODE_KEY.getStandardProperty();
+	@Override
+	protected long nextKey() {
+		// Start producer on first call.
+		if (mFirst) {
+			mFirst = false;
+			EXECUTOR.submit(task);
+		}
 
-    try {
-      // Get result from producer as soon as it is available.
-      result = mResults.take();
-    } catch (final InterruptedException e) {
-    	LOGGER.warn(e.getMessage(), e);
-    }
+		if (mFinished) {
+			return done();
+		}
 
-    // NULL_NODE_KEY marks end of the sequence computed by the producer.
-    if (result != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-      return result;
-    }
+		long result = Fixed.NULL_NODE_KEY.getStandardProperty();
 
-    mFinished = true;
-    return done();
-  }
+		try {
+			// Get result from producer as soon as it is available.
+			result = mResults.take();
+		} catch (final InterruptedException e) {
+			LOGGER.warn(e.getMessage(), e);
+		}
 
-  /**
-   * Determines if axis has more results to deliver or not.
-   * 
-   * @return {@code true}, if axis still has results left, {@code false} otherwise
-   */
-  public boolean isFinished() {
-    return mFinished;
-  }
+		// NULL_NODE_KEY marks end of the sequence computed by the producer.
+		if (result != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+			return result;
+		}
+
+		mFinished = true;
+		return done();
+	}
+
+	/**
+	 * Determines if axis has more results to deliver or not.
+	 * 
+	 * @return {@code true}, if axis still has results left, {@code false}
+	 *         otherwise
+	 */
+	public boolean isFinished() {
+		return mFinished;
+	}
 
 }

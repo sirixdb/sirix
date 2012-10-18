@@ -42,33 +42,33 @@ import org.sirix.page.NodePage;
 
 public class BerkeleyPersistentCacheTest {
 
-  private Cache<Long, NodePageContainer> cache;
-  
-  private Holder holder;
+	private Cache<Long, NodePageContainer> cache;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateSession();
-    cache =
-      new BerkeleyPersistenceCache(new File(new File(TestHelper.PATHS.PATH1.getFile(),
-        DatabaseConfiguration.Paths.DATA.getFile().getName()), TestHelper.RESOURCE), 1, "log");
-    CacheTestHelper.setUp(cache);
-  }
+	private Holder holder;
 
-  @Test
-  public void test() {
-    for (long i = 0; i < CacheTestHelper.PAGES.length; i++) {
-      final NodePageContainer cont = cache.get(i);
-      final NodePage current = (NodePage)cont.getComplete();
-      assertEquals(CacheTestHelper.PAGES[(int)i][0], current);
-    }
-    cache.clear();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateSession();
+		cache = new BerkeleyPersistenceCache(new File(new File(
+				TestHelper.PATHS.PATH1.getFile(), DatabaseConfiguration.Paths.DATA
+						.getFile().getName()), TestHelper.RESOURCE), 1, "log");
+		CacheTestHelper.setUp(cache);
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
-  }
+	@Test
+	public void test() {
+		for (long i = 0; i < CacheTestHelper.PAGES.length; i++) {
+			final NodePageContainer cont = cache.get(i);
+			final NodePage current = (NodePage) cont.getComplete();
+			assertEquals(CacheTestHelper.PAGES[(int) i][0], current);
+		}
+		cache.clear();
+	}
+
+	@After
+	public void tearDown() throws SirixException {
+		TestHelper.closeEverything();
+	}
 }

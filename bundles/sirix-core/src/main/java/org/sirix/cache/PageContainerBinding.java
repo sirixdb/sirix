@@ -43,24 +43,26 @@ import org.sirix.page.PagePersistenter;
  */
 public class PageContainerBinding extends TupleBinding<NodePageContainer> {
 
-  @Override
-  public NodePageContainer entryToObject(final @Nullable TupleInput pInput) {
-    if (pInput == null) {
-      return NodePageContainer.EMPTY_INSTANCE;
-    }
-    final ByteArrayDataInput source =
-      ByteStreams.newDataInput(pInput.getBufferBytes());
-    final NodePage current = (NodePage) PagePersistenter.deserializePage(source);
-    final NodePage modified = (NodePage) PagePersistenter.deserializePage(source);
-    final NodePageContainer container = new NodePageContainer(current, modified);
-    return container;
-  }
+	@Override
+	public NodePageContainer entryToObject(final @Nullable TupleInput pInput) {
+		if (pInput == null) {
+			return NodePageContainer.EMPTY_INSTANCE;
+		}
+		final ByteArrayDataInput source = ByteStreams.newDataInput(pInput
+				.getBufferBytes());
+		final NodePage current = (NodePage) PagePersistenter
+				.deserializePage(source);
+		final NodePage modified = (NodePage) PagePersistenter
+				.deserializePage(source);
+		final NodePageContainer container = new NodePageContainer(current, modified);
+		return container;
+	}
 
-  @Override
-  public void objectToEntry(final @Nullable NodePageContainer pPageContainer,
-    final @Nullable TupleOutput pOutput) {
-    if (pPageContainer != null && pOutput != null) {
-      pPageContainer.serialize(pOutput);
-    }
-  }
+	@Override
+	public void objectToEntry(final @Nullable NodePageContainer pPageContainer,
+			final @Nullable TupleOutput pOutput) {
+		if (pPageContainer != null && pOutput != null) {
+			pPageContainer.serialize(pOutput);
+		}
+	}
 }

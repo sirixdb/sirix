@@ -33,52 +33,51 @@ import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 
 /**
- * Observable class to fire diffs for interested observers, which implement the {@link DiffObserver}
- * interface.
+ * Observable class to fire diffs for interested observers, which implement the
+ * {@link DiffObserver} interface.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 interface DiffObservable {
-  /**
-   * Fire a diff for exactly one node comparsion. Must call the diffListener(EDiff) method defined in the
-   * {@link DiffObserver} interface.
-   * 
-   * @param diff
-   *          the encountered diff
-   * @param newNodeKey
-   *          node key of current node in new revision
-   * @param oldNodeKey
-   *          node key of current node in old revision
-   * @param depth
-   *          current {@link DiffDepth} instance
-   */
-  void fireDiff(final @Nonnull DiffType diff,
-    final @Nonnull long newNodeKey, final @Nonnull long oldNodeKey,
-    final @Nonnull DiffDepth depth);
+	/**
+	 * Fire a diff for exactly one node comparsion. Must call the
+	 * diffListener(EDiff) method defined in the {@link DiffObserver} interface.
+	 * 
+	 * @param diff
+	 *          the encountered diff
+	 * @param newNodeKey
+	 *          node key of current node in new revision
+	 * @param oldNodeKey
+	 *          node key of current node in old revision
+	 * @param depth
+	 *          current {@link DiffDepth} instance
+	 */
+	void fireDiff(final @Nonnull DiffType diff, final @Nonnull long newNodeKey,
+			final @Nonnull long oldNodeKey, final @Nonnull DiffDepth depth);
 
-  /**
-   * Diff computation done, thus inform listeners.
-   * 
-   * @throws SirixException
-   *           if closing transactions failes
-   */
-  void done() throws SirixException;
+	/**
+	 * Diff computation done, thus inform listeners.
+	 * 
+	 * @throws SirixException
+	 *           if closing transactions failes
+	 */
+	void done() throws SirixException;
 
-  /**
-   * Add an observer. This means add an instance of a class which implements the {@link DiffObserver}
-   * interface.
-   * 
-   * @param observer
-   *          instance of the class which implements {@link DiffObserver}
-   */
-  void addObserver(final @Nonnull DiffObserver observer);
+	/**
+	 * Add an observer. This means add an instance of a class which implements the
+	 * {@link DiffObserver} interface.
+	 * 
+	 * @param observer
+	 *          instance of the class which implements {@link DiffObserver}
+	 */
+	void addObserver(final @Nonnull DiffObserver observer);
 
-  /**
-   * Remove an observer.
-   * 
-   * @param observer
-   *          instance of the class which implements {@link DiffObserver}
-   */
-  void removeObserver(final @Nonnull DiffObserver observer);
+	/**
+	 * Remove an observer.
+	 * 
+	 * @param observer
+	 *          instance of the class which implements {@link DiffObserver}
+	 */
+	void removeObserver(final @Nonnull DiffObserver observer);
 }

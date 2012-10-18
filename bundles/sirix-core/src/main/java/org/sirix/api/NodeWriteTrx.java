@@ -65,10 +65,10 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * <ol>
  * <li>Only a single thread accesses the single INodeWriteTransaction instance.</li>
  * <li><strong>Precondition</strong> before moving cursor:
- * <code>INodeWriteTransaction.getKey() == n</code>.</li>
+ * <code>NodeWriteTrx.getKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after modifying the cursor:
- * <code>(IWriteTransaction.insertX() == m &&
- *       IWriteTransaction.getKey() == m)</code>.</li>
+ * <code>(NodeWriteTrx.insertX() == m &&
+ *       NodeWriteTrx.getKey() == m)</code>.</li>
  * </ol>
  * </p>
  * 
@@ -78,13 +78,13 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * 
  * <pre>
  * // Without auto commit.
- * final INodeWriteTransaction wtx = session.beginNodeWriteTrx();
+ * final NodeWriteTrx wtx = session.beginNodeWriteTrx();
  * wtx.insertElementAsFirstChild(&quot;foo&quot;);
  * wtx.commit();
  * wtx.close();
  * 
  * // With auto commit after every 10th modification.
- * final INodeWriteTransaction wtx = session.beginNodeWriteTrx(10,
+ * final NodeWriteTrx wtx = session.beginNodeWriteTrx(10,
  * 		TimeUnit.MINUTES, 0);
  * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
  * // 9 other modifications.
@@ -92,7 +92,7 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * wtx.close();
  * 
  * // With auto commit after every minute.
- * final INodeWriteTransaction wtx = session.beginNodeWriteTrx(0,
+ * final NodeWriteTrx wtx = session.beginNodeWriteTrx(0,
  * 		TimeUnit.MINUTES, 1);
  * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
  * ...
@@ -101,7 +101,7 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * wtx.close();
  * 
  * // With auto commit after every 10th modification and every second.
- * final INodeWriteTransaction wtx = session.beginNodeWriteTrx(10,
+ * final NodeWriteTrx wtx = session.beginNodeWriteTrx(10,
  * 		TimeUnit.SECONDS, 1);
  * wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
  * ...
@@ -117,7 +117,7 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * <p>
  * 
  * <pre>
- *   public final void someIWriteTransactionMethod() {
+ *   public final void someNodeWriteTrxMethod() {
  *     // This must be called to make sure the transaction is not closed.
  *     assertNotClosed();
  *     // This must be called to track the modifications.
@@ -522,7 +522,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws SirixException
 	 *           if attribute couldn't be inserted
 	 * @throws NullPointerException
-	 * 					 if {@code name} or {@code move} is null
+	 *           if {@code name} or {@code move} is null
 	 */
 	NodeWriteTrx insertNamespace(@Nonnull QName name, @Nonnull Movement move)
 			throws SirixException;

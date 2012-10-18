@@ -53,7 +53,8 @@ import org.sirix.node.interfaces.NameNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class NameNodeDelegate extends AbstractForwardingNode implements NameNode {
+public class NameNodeDelegate extends AbstractForwardingNode implements
+		NameNode {
 
 	/** Node delegate, containing basic node information. */
 	private final NodeDelegate mDelegate;

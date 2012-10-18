@@ -41,122 +41,124 @@ import org.sirix.diff.DiffFactory.DiffType;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple> {
+public final class EditScript implements Iterator<DiffTuple>,
+		Iterable<DiffTuple> {
 
-  /** Preserves the order of changes and is used to iterate over all changes. */
-  private final List<DiffTuple> mChanges;
+	/** Preserves the order of changes and is used to iterate over all changes. */
+	private final List<DiffTuple> mChanges;
 
-  /** To do a lookup; we use node/object identities. */
-  private final IdentityHashMap<Long, DiffTuple> mChangeByNode;
+	/** To do a lookup; we use node/object identities. */
+	private final IdentityHashMap<Long, DiffTuple> mChangeByNode;
 
-  /** Index in the {@link List} of {@link DiffTuple}s. */
-  private transient int mIndex;
+	/** Index in the {@link List} of {@link DiffTuple}s. */
+	private transient int mIndex;
 
-  /**
-   * Constructor.
-   */
-  public EditScript() {
-    mChanges = new ArrayList<DiffTuple>();
-    mChangeByNode = new IdentityHashMap<Long, DiffTuple>();
-    mIndex = 0;
-  }
+	/**
+	 * Constructor.
+	 */
+	public EditScript() {
+		mChanges = new ArrayList<DiffTuple>();
+		mChangeByNode = new IdentityHashMap<Long, DiffTuple>();
+		mIndex = 0;
+	}
 
-  /**
-   * Calculates the size of the edit script. This can be used to
-   * estimate the amicability of an algorithm.
-   * 
-   * @return number of changes
-   */
-  public int size() {
-    return mChanges.size();
-  }
+	/**
+	 * Calculates the size of the edit script. This can be used to estimate the
+	 * amicability of an algorithm.
+	 * 
+	 * @return number of changes
+	 */
+	public int size() {
+		return mChanges.size();
+	}
 
-  /**
-   * Checks if the edit script is empty.
-   * 
-   * @return true if empty
-   */
-  public boolean isEmpty() {
-    return mChanges.isEmpty();
-  }
+	/**
+	 * Checks if the edit script is empty.
+	 * 
+	 * @return true if empty
+	 */
+	public boolean isEmpty() {
+		return mChanges.isEmpty();
+	}
 
-  /**
-   * Checks if a node has been added(changed).
-   * 
-   * @param key
-   *          key of node
-   * @return true if the changes {@link List} already contains the nodeKey, false otherwise
-   */
-  public boolean containsNode(final long key) {
-    if (key < 0) {
-      throw new IllegalArgumentException("paramKey may not be < 0!");
-    }
-    return mChangeByNode.containsKey(key);
-  }
+	/**
+	 * Checks if a node has been added(changed).
+	 * 
+	 * @param key
+	 *          key of node
+	 * @return true if the changes {@link List} already contains the nodeKey,
+	 *         false otherwise
+	 */
+	public boolean containsNode(final long key) {
+		if (key < 0) {
+			throw new IllegalArgumentException("paramKey may not be < 0!");
+		}
+		return mChangeByNode.containsKey(key);
+	}
 
-  /**
-   * Clears the edit script.
-   */
-  public void clear() {
-    mChanges.clear();
-    mChangeByNode.clear();
-  }
+	/**
+	 * Clears the edit script.
+	 */
+	public void clear() {
+		mChanges.clear();
+		mChangeByNode.clear();
+	}
 
-  /**
-   * Look up a change for the given nodeKey.
-   * 
-   * @param paramKey
-   *          (not) changed key of node
-   * @return the change assigned to the node or null
-   */
-  public DiffTuple get(final long paramKey) {
-    return mChangeByNode.get(paramKey);
-  }
+	/**
+	 * Look up a change for the given nodeKey.
+	 * 
+	 * @param paramKey
+	 *          (not) changed key of node
+	 * @return the change assigned to the node or null
+	 */
+	public DiffTuple get(final long paramKey) {
+		return mChangeByNode.get(paramKey);
+	}
 
-  /**
-   * Adds a change to the edit script.
-   * 
-   * @param change
-   *          {@link DiffTuple} reference
-   * @return the change
-   */
-  public DiffTuple add(final DiffTuple change) {
-    assert change != null;
-    final long nodeKey =
-      change.getDiff() == DiffType.DELETED ? change.getOldNodeKey() : change.getNewNodeKey();
-    if (mChangeByNode.containsKey(nodeKey)) {
-      return change;
-    }
+	/**
+	 * Adds a change to the edit script.
+	 * 
+	 * @param change
+	 *          {@link DiffTuple} reference
+	 * @return the change
+	 */
+	public DiffTuple add(final DiffTuple change) {
+		assert change != null;
+		final long nodeKey = change.getDiff() == DiffType.DELETED ? change
+				.getOldNodeKey() : change.getNewNodeKey();
+		if (mChangeByNode.containsKey(nodeKey)) {
+			return change;
+		}
 
-    mChanges.add(change);
-    return mChangeByNode.put(nodeKey, change);
-  }
+		mChanges.add(change);
+		return mChangeByNode.put(nodeKey, change);
+	}
 
-  @Override
-  public Iterator<DiffTuple> iterator() {
-    return mChanges.iterator();
-  }
+	@Override
+	public Iterator<DiffTuple> iterator() {
+		return mChanges.iterator();
+	}
 
-  @Override
-  public boolean hasNext() {
-    if (mIndex < mChanges.size() - 1) {
-      return true;
-    }
-    return false;
-  }
+	@Override
+	public boolean hasNext() {
+		if (mIndex < mChanges.size() - 1) {
+			return true;
+		}
+		return false;
+	}
 
-  @Override
-  public DiffTuple next() {
-    if (mIndex < mChanges.size()) {
-      return mChanges.get(mIndex++);
-    } else {
-      throw new NoSuchElementException("No more elements in the change list!");
-    }
-  }
+	@Override
+	public DiffTuple next() {
+		if (mIndex < mChanges.size()) {
+			return mChanges.get(mIndex++);
+		} else {
+			throw new NoSuchElementException("No more elements in the change list!");
+		}
+	}
 
-  @Override
-  public void remove() {
-    throw new UnsupportedOperationException("Remove is not supported!");
-  }
+	@Override
+	public void remove() {
+		throw new UnsupportedOperationException("Remove is not supported!");
+	}
 
 }

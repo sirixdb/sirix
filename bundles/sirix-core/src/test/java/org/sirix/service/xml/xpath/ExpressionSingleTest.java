@@ -48,77 +48,77 @@ import org.sirix.service.xml.xpath.filter.DupFilterAxis;
 
 public class ExpressionSingleTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testAdd() throws SirixException {
-    // Verify.
-    final ExpressionSingle builder = new ExpressionSingle();
+	@Test
+	public void testAdd() throws SirixException {
+		// Verify.
+		final ExpressionSingle builder = new ExpressionSingle();
 
-    // test one axis
-    AbstractAxis self = new SelfAxis(holder.getRtx());
-    builder.add(self);
-    assertEquals(builder.getExpr(), self);
+		// test one axis
+		AbstractAxis self = new SelfAxis(holder.getRtx());
+		builder.add(self);
+		assertEquals(builder.getExpr(), self);
 
-    // test 2 axis
-    AbstractAxis axis1 = new SelfAxis(holder.getRtx());
-    AbstractAxis axis2 = new SelfAxis(holder.getRtx());
-    builder.add(axis1);
-    builder.add(axis2);
-    assertTrue(builder.getExpr() instanceof NestedAxis);
-  }
+		// test 2 axis
+		AbstractAxis axis1 = new SelfAxis(holder.getRtx());
+		AbstractAxis axis2 = new SelfAxis(holder.getRtx());
+		builder.add(axis1);
+		builder.add(axis2);
+		assertTrue(builder.getExpr() instanceof NestedAxis);
+	}
 
-  @Test
-  public void testDup() throws SirixException {
-    ExpressionSingle builder = new ExpressionSingle();
-    builder.add(new ChildAxis(holder.getRtx()));
-    builder.add(new DescendantAxis(holder.getRtx()));
-    assertTrue(builder.getExpr() instanceof NestedAxis);
+	@Test
+	public void testDup() throws SirixException {
+		ExpressionSingle builder = new ExpressionSingle();
+		builder.add(new ChildAxis(holder.getRtx()));
+		builder.add(new DescendantAxis(holder.getRtx()));
+		assertTrue(builder.getExpr() instanceof NestedAxis);
 
-    builder = new ExpressionSingle();
-    builder.add(new ChildAxis(holder.getRtx()));
-    builder.add(new DescendantAxis(holder.getRtx()));
-    assertEquals(true, builder.isOrdered());
-    assertTrue(builder.getExpr() instanceof NestedAxis);
+		builder = new ExpressionSingle();
+		builder.add(new ChildAxis(holder.getRtx()));
+		builder.add(new DescendantAxis(holder.getRtx()));
+		assertEquals(true, builder.isOrdered());
+		assertTrue(builder.getExpr() instanceof NestedAxis);
 
-    builder = new ExpressionSingle();
-    builder.add(new ChildAxis(holder.getRtx()));
-    builder.add(new DescendantAxis(holder.getRtx()));
-    builder.add(new ChildAxis(holder.getRtx()));
-    assertEquals(false, builder.isOrdered());
+		builder = new ExpressionSingle();
+		builder.add(new ChildAxis(holder.getRtx()));
+		builder.add(new DescendantAxis(holder.getRtx()));
+		builder.add(new ChildAxis(holder.getRtx()));
+		assertEquals(false, builder.isOrdered());
 
-    builder = new ExpressionSingle();
-    builder = new ExpressionSingle();
-    builder.add(new ChildAxis(holder.getRtx()));
-    builder.add(new DescendantAxis(holder.getRtx()));
-    builder.add(new ChildAxis(holder.getRtx()));
-    builder.add(new ParentAxis(holder.getRtx()));
-    assertEquals(true, builder.isOrdered());
+		builder = new ExpressionSingle();
+		builder = new ExpressionSingle();
+		builder.add(new ChildAxis(holder.getRtx()));
+		builder.add(new DescendantAxis(holder.getRtx()));
+		builder.add(new ChildAxis(holder.getRtx()));
+		builder.add(new ParentAxis(holder.getRtx()));
+		assertEquals(true, builder.isOrdered());
 
-    builder = new ExpressionSingle();
-    builder.add(new ChildAxis(holder.getRtx()));
-    builder.add(new DescendantAxis(holder.getRtx()));
-    builder.add(new FollowingSiblingAxis(holder.getRtx()));
-    assertEquals(false, builder.isOrdered());
+		builder = new ExpressionSingle();
+		builder.add(new ChildAxis(holder.getRtx()));
+		builder.add(new DescendantAxis(holder.getRtx()));
+		builder.add(new FollowingSiblingAxis(holder.getRtx()));
+		assertEquals(false, builder.isOrdered());
 
-    builder = new ExpressionSingle();
-    builder.add(new UnionAxis(holder.getRtx(), new DescendantAxis(holder.getRtx()), new ParentAxis(holder
-      .getRtx())));
-    assertEquals(false, builder.isOrdered());
-    assertTrue(builder.getExpr() instanceof DupFilterAxis);
+		builder = new ExpressionSingle();
+		builder.add(new UnionAxis(holder.getRtx(), new DescendantAxis(holder
+				.getRtx()), new ParentAxis(holder.getRtx())));
+		assertEquals(false, builder.isOrdered());
+		assertTrue(builder.getExpr() instanceof DupFilterAxis);
 
-  }
+	}
 }

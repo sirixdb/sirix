@@ -40,45 +40,41 @@ import org.sirix.utils.NamePageHash;
 
 public class TextNodeTest {
 
-  @Test
-  public void testTextRootNode() {
-    // Create empty node.
-    final byte[] value = {
-      (byte)17, (byte)18
-    };
-    final NodeDelegate del =
-      new NodeDelegate(13, 14, 0, 0);
-    final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
-    final StructNodeDelegate strucDel =
-      new StructNodeDelegate(del, Fixed.NULL_NODE_KEY.getStandardProperty(),
-        16l, 15l, 0l, 0l);
-    final TextNode node1 = new TextNode(valDel, strucDel);
-    check(node1);
+	@Test
+	public void testTextRootNode() {
+		// Create empty node.
+		final byte[] value = { (byte) 17, (byte) 18 };
+		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0);
+		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
+		final StructNodeDelegate strucDel = new StructNodeDelegate(del,
+				Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
+		final TextNode node1 = new TextNode(valDel, strucDel);
+		check(node1);
 
-    // Serialize and deserialize node.
-    final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-    node1.getKind().serialize(out, node1);
-    final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-    final TextNode node2 = (TextNode)Kind.TEXT.deserialize(in);
-    check(node2);
-  }
+		// Serialize and deserialize node.
+		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
+		node1.getKind().serialize(out, node1);
+		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
+		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(in);
+		check(node2);
+	}
 
-  private final static void check(final TextNode node) {
-    // Now compare.
-    assertEquals(13L, node.getNodeKey());
-    assertEquals(14L, node.getParentKey());
-    assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node
-      .getFirstChildKey());
-    assertEquals(15L, node.getLeftSiblingKey());
-    assertEquals(16L, node.getRightSiblingKey());
-    assertEquals(NamePageHash.generateHashForString("xs:untyped"), node
-      .getTypeKey());
-    assertEquals(2, node.getRawValue().length);
-    assertEquals(Kind.TEXT, node.getKind());
-    assertEquals(false, node.hasFirstChild());
-    assertEquals(true, node.hasParent());
-    assertEquals(true, node.hasLeftSibling());
-    assertEquals(true, node.hasRightSibling());
-  }
+	private final static void check(final TextNode node) {
+		// Now compare.
+		assertEquals(13L, node.getNodeKey());
+		assertEquals(14L, node.getParentKey());
+		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(),
+				node.getFirstChildKey());
+		assertEquals(15L, node.getLeftSiblingKey());
+		assertEquals(16L, node.getRightSiblingKey());
+		assertEquals(NamePageHash.generateHashForString("xs:untyped"),
+				node.getTypeKey());
+		assertEquals(2, node.getRawValue().length);
+		assertEquals(Kind.TEXT, node.getKind());
+		assertEquals(false, node.hasFirstChild());
+		assertEquals(true, node.hasParent());
+		assertEquals(true, node.hasLeftSibling());
+		assertEquals(true, node.hasRightSibling());
+	}
 
 }

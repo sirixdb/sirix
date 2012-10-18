@@ -53,86 +53,85 @@ import org.testng.annotations.Test;
 
 public class IStorageTest {
 
-  @BeforeMethod
-  public void setUp() throws SirixException, IOException {
-    TestHelper.closeEverything();
-    TestHelper.deleteEverything();
-    TestHelper.PATHS.PATH1.getFile().mkdirs();
-    new File(TestHelper.PATHS.PATH1.getFile(), new StringBuilder(
-      ResourceConfiguration.Paths.Data.getFile().getName()).toString())
-      .mkdirs();
-    new File(TestHelper.PATHS.PATH1.getFile(), new StringBuilder(
-      ResourceConfiguration.Paths.Data.getFile().getName()).append(
-      File.separator).append("tt.tnk").toString()).createNewFile();
-  }
+	@BeforeMethod
+	public void setUp() throws SirixException, IOException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+		TestHelper.PATHS.PATH1.getFile().mkdirs();
+		new File(TestHelper.PATHS.PATH1.getFile(), new StringBuilder(
+				ResourceConfiguration.Paths.Data.getFile().getName()).toString())
+				.mkdirs();
+		new File(TestHelper.PATHS.PATH1.getFile(), new StringBuilder(
+				ResourceConfiguration.Paths.Data.getFile().getName())
+				.append(File.separator).append("tt.tnk").toString()).createNewFile();
+	}
 
-  @AfterMethod
-  public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
-    TestHelper.deleteEverything();
-  }
+	@AfterMethod
+	public void tearDown() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+	}
 
-  /**
-   * Test method for {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and for
-   * {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
-   * 
-   * @throws SirixIOException
-   */
-  @Test(dataProvider = "instantiateStorages")
-  public void testFirstRef(final @Nonnull Class<Storage> pClass,
-    final @Nonnull Storage[] pStorages) throws SirixException {
-    for (final Storage handler : pStorages) {
-      final PageReference pageRef1 = new PageReference();
-      final UberPage page1 = new UberPage();
-      pageRef1.setPage(page1);
+	/**
+	 * Test method for
+	 * {@link org.ByteHandler.io.bytepipe.IByteHandler#deserialize(byte[])} and
+	 * for {@link org.ByteHandler.io.bytepipe.IByteHandler#serialize(byte[])}.
+	 * 
+	 * @throws SirixIOException
+	 */
+	@Test(dataProvider = "instantiateStorages")
+	public void testFirstRef(final @Nonnull Class<Storage> pClass,
+			final @Nonnull Storage[] pStorages) throws SirixException {
+		for (final Storage handler : pStorages) {
+			final PageReference pageRef1 = new PageReference();
+			final UberPage page1 = new UberPage();
+			pageRef1.setPage(page1);
 
-      // same instance check
-      final Writer writer = handler.getWriter();
-      writer.writeFirstReference(pageRef1);
-      final PageReference pageRef2 = writer.readFirstReference();
-      assertEquals(new StringBuilder("Check for ").append(handler.getClass())
-        .append(" failed.").toString(), pageRef1.getNodePageKey(), pageRef2
-        .getNodePageKey());
-      assertEquals(new StringBuilder("Check for ").append(handler.getClass())
-        .append(" failed.").toString(), ((UberPage)pageRef1.getPage())
-        .getRevisionCount(), ((UberPage)pageRef2.getPage()).getRevisionCount());
-      writer.close();
+			// same instance check
+			final Writer writer = handler.getWriter();
+			writer.writeFirstReference(pageRef1);
+			final PageReference pageRef2 = writer.readFirstReference();
+			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
+					.append(" failed.").toString(), pageRef1.getNodePageKey(),
+					pageRef2.getNodePageKey());
+			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
+					.append(" failed.").toString(),
+					((UberPage) pageRef1.getPage()).getRevisionCount(),
+					((UberPage) pageRef2.getPage()).getRevisionCount());
+			writer.close();
 
-      // new instance check
-      final Reader reader = handler.getReader();
-      final PageReference pageRef3 = reader.readFirstReference();
-      assertEquals(new StringBuilder("Check for ").append(handler.getClass())
-        .append(" failed.").toString(), pageRef1.getNodePageKey(), pageRef3
-        .getNodePageKey());
-      assertEquals(new StringBuilder("Check for ").append(handler.getClass())
-        .append(" failed.").toString(), ((UberPage)pageRef1.getPage())
-        .getRevisionCount(), ((UberPage)pageRef3.getPage()).getRevisionCount());
-      reader.close();
-      handler.close();
-    }
-  }
+			// new instance check
+			final Reader reader = handler.getReader();
+			final PageReference pageRef3 = reader.readFirstReference();
+			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
+					.append(" failed.").toString(), pageRef1.getNodePageKey(),
+					pageRef3.getNodePageKey());
+			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
+					.append(" failed.").toString(),
+					((UberPage) pageRef1.getPage()).getRevisionCount(),
+					((UberPage) pageRef3.getPage()).getRevisionCount());
+			reader.close();
+			handler.close();
+		}
+	}
 
-  /**
-   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test class.
-   * 
-   * @return different classes of the {@link ByteHandler}
-   * @throws SirixIOException
-   */
-  @DataProvider(name = "instantiateStorages")
-  public Object[][] instantiateStorages() throws SirixIOException {
-    final ByteHandlePipeline byteHandler =
-      new ByteHandlePipeline(new Encryptor(), new SnappyCompressor());
-    Object[][] returnVal =
-      {
-        {
-          Storage.class,
-          new Storage[] {
-            new FileStorage(TestHelper.PATHS.PATH1.getFile(), byteHandler),
-            new BerkeleyStorage(TestHelper.PATHS.PATH1.getFile(), byteHandler)
-          }
-        }
-      };
-    return returnVal;
-  }
+	/**
+	 * Providing different implementations of the {@link ByteHandler} as
+	 * Dataprovider to the test class.
+	 * 
+	 * @return different classes of the {@link ByteHandler}
+	 * @throws SirixIOException
+	 */
+	@DataProvider(name = "instantiateStorages")
+	public Object[][] instantiateStorages() throws SirixIOException {
+		final ByteHandlePipeline byteHandler = new ByteHandlePipeline(
+				new Encryptor(), new SnappyCompressor());
+		Object[][] returnVal = { {
+				Storage.class,
+				new Storage[] {
+						new FileStorage(TestHelper.PATHS.PATH1.getFile(), byteHandler),
+						new BerkeleyStorage(TestHelper.PATHS.PATH1.getFile(), byteHandler) } } };
+		return returnVal;
+	}
 
 }

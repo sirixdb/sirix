@@ -166,8 +166,8 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 	 * @throws SirixIOException
 	 *           if something odd happens
 	 */
-	public abstract void putPersistent(final @Nonnull K key,
-			final @Nonnull V page) throws SirixIOException;
+	public abstract void putPersistent(final @Nonnull K key, final @Nonnull V page)
+			throws SirixIOException;
 
 	/**
 	 * Getting a NodePage from the persistent cache.
@@ -178,7 +178,6 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 	 * @throws SirixIOException
 	 *           if something odd happens.
 	 */
-	public abstract V getPersistent(final @Nonnull K key)
-			throws SirixIOException;
+	public abstract V getPersistent(final @Nonnull K key) throws SirixIOException;
 
 }

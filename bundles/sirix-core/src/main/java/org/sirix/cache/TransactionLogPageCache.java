@@ -85,7 +85,7 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 		mSecondCache = new BerkeleyPersistencePageCache(file, revision, logType);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
-	
+
 	@Override
 	public void close() {
 		mFirstCache.close();

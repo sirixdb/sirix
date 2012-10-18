@@ -37,37 +37,37 @@ import org.sirix.exception.SirixException;
 
 public class PIFilterTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testIFilterConvetions() throws SirixException {
-    final NodeReadTrx rtx = holder.getRtx();
-    rtx.moveTo(8L);
-    IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
+	@Test
+	public void testIFilterConvetions() throws SirixException {
+		final NodeReadTrx rtx = holder.getRtx();
+		rtx.moveTo(8L);
+		IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
 
-    rtx.moveTo(3L);
-    IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
+		rtx.moveTo(3L);
+		IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
 
-    rtx.moveTo(1L);
-    rtx.moveToAttribute(0);
-    IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
+		rtx.moveTo(1L);
+		rtx.moveToAttribute(0);
+		IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
 
-    rtx.moveTo(9L);
-    rtx.moveToAttribute(0);
-    IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
-  }
+		rtx.moveTo(9L);
+		rtx.moveToAttribute(0);
+		IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
+	}
 
 }

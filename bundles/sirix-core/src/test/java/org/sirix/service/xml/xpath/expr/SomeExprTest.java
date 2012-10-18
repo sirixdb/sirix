@@ -43,43 +43,44 @@ import org.sirix.service.xml.xpath.XPathAxis;
  */
 public class SomeExprTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testEveryExpr() throws SirixException {
-    final AbstractAxis axis1 = new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/@i");
-    assertEquals(true, axis1.hasNext());
-    axis1.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
-    assertEquals(false, axis1.hasNext());
+	@Test
+	public void testEveryExpr() throws SirixException {
+		final AbstractAxis axis1 = new XPathAxis(holder.getRtx(),
+				"some $child in child::node() satisfies $child/@i");
+		assertEquals(true, axis1.hasNext());
+		axis1.next();
+		assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
+		assertEquals(false, axis1.hasNext());
 
-    final AbstractAxis axis2 =
-      new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/@abc");
-    assertEquals(true, axis2.hasNext());
-    axis2.next();
-    assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
-    assertEquals(false, axis2.hasNext());
+		final AbstractAxis axis2 = new XPathAxis(holder.getRtx(),
+				"some $child in child::node() satisfies $child/@abc");
+		assertEquals(true, axis2.hasNext());
+		axis2.next();
+		assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
+		assertEquals(false, axis2.hasNext());
 
-    holder.getRtx().moveTo(1L);
-    final AbstractAxis axis3 =
-      new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/attribute::attribute()");
-    assertEquals(true, axis3.hasNext());
-    axis3.next();
-    assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
-    assertEquals(false, axis3.hasNext());
-  }
+		holder.getRtx().moveTo(1L);
+		final AbstractAxis axis3 = new XPathAxis(holder.getRtx(),
+				"some $child in child::node() satisfies $child/attribute::attribute()");
+		assertEquals(true, axis3.hasNext());
+		axis3.next();
+		assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
+		assertEquals(false, axis3.hasNext());
+	}
 
 }

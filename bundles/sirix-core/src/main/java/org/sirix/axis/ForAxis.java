@@ -37,79 +37,82 @@ import org.sirix.api.Axis;
  * Axis that handles a for expression.
  * </p>
  * <p>
- * This Axis represents only the single-variable for expression. A multiple variables for expression is
- * created by wrap for-Axes by first expanding the expression to a set of nested for expressions, each of
- * which uses only one variable. For example, the expression for $x in X, $y in Y return $x + $y is expanded
- * to for $x in X return for $y in Y return $x + $y.
+ * This Axis represents only the single-variable for expression. A multiple
+ * variables for expression is created by wrap for-Axes by first expanding the
+ * expression to a set of nested for expressions, each of which uses only one
+ * variable. For example, the expression for $x in X, $y in Y return $x + $y is
+ * expanded to for $x in X return for $y in Y return $x + $y.
  * </p>
  * <p>
- * In a single-variable for expression, the variable is called the range variable, the value of the expression
- * that follows the 'in' keyword is called the binding sequence, and the expression that follows the 'return'
- * keyword is called the return expression. The result of the for expression is obtained by evaluating the
- * return expression once for each item in the binding sequence, with the range variable bound to that item.
- * The resulting sequences are concatenated (as if by the comma operator) in the order of the items in the
+ * In a single-variable for expression, the variable is called the range
+ * variable, the value of the expression that follows the 'in' keyword is called
+ * the binding sequence, and the expression that follows the 'return' keyword is
+ * called the return expression. The result of the for expression is obtained by
+ * evaluating the return expression once for each item in the binding sequence,
+ * with the range variable bound to that item. The resulting sequences are
+ * concatenated (as if by the comma operator) in the order of the items in the
  * binding sequence from which they were derived.
  * </p>
  */
 public final class ForAxis extends AbstractAxis {
 
-  /** The range expression. */
-  private final Axis mRange;
+	/** The range expression. */
+	private final Axis mRange;
 
-  /** The result expression. */
-  private final Axis mReturn;
+	/** The result expression. */
+	private final Axis mReturn;
 
-  /** Defines, whether is first call of hasNext(). */
-  private boolean mIsFirst;
+	/** Defines, whether is first call of hasNext(). */
+	private boolean mIsFirst;
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param range
-   *          the range variable that holds the binding sequence
-   * @param returnExpr
-   *          the return expression of the for expression
-   */
-  public ForAxis(@Nonnull final Axis range, @Nonnull final Axis returnExpr) {
-    super(range.getTrx());
-    mRange = range;
-    mReturn = returnExpr;
-    mIsFirst = true;
-  }
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param range
+	 *          the range variable that holds the binding sequence
+	 * @param returnExpr
+	 *          the return expression of the for expression
+	 */
+	public ForAxis(@Nonnull final Axis range, @Nonnull final Axis returnExpr) {
+		super(range.getTrx());
+		mRange = range;
+		mReturn = returnExpr;
+		mIsFirst = true;
+	}
 
-  @Override
-  public void reset(final long nodeKey) {
-    super.reset(nodeKey);
-    mIsFirst = true;
-    if (mRange != null) {
-      mRange.reset(nodeKey);
-    }
-  }
-  
-  @Override
-  protected long nextKey() {
-    if (mIsFirst) {
-      /*
-       * Makes sure, that mRange.hasNext() is called before the return
-       * statement, on the first call.
-       */
-      mIsFirst = false;
-    } else {
-      if (mReturn.hasNext()) {
-        return mReturn.next();
-      }
-    }
+	@Override
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
+		mIsFirst = true;
+		if (mRange != null) {
+			mRange.reset(nodeKey);
+		}
+	}
 
-    // Check for more items in the binding sequence.
-    while (mRange.hasNext()) {
-      mRange.next();
+	@Override
+	protected long nextKey() {
+		if (mIsFirst) {
+			/*
+			 * Makes sure, that mRange.hasNext() is called before the return
+			 * statement, on the first call.
+			 */
+			mIsFirst = false;
+		} else {
+			if (mReturn.hasNext()) {
+				return mReturn.next();
+			}
+		}
 
-      mReturn.reset(getStartKey());
-      if (mReturn.hasNext()) {
-        return mReturn.next();
-      }
-    }
-    
-    return done();
-  }
+		// Check for more items in the binding sequence.
+		while (mRange.hasNext()) {
+			mRange.next();
+
+			mReturn.reset(getStartKey());
+			if (mReturn.hasNext()) {
+				return mReturn.next();
+			}
+		}
+
+		return done();
+	}
 }

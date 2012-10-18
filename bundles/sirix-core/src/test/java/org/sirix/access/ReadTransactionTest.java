@@ -100,8 +100,8 @@ public class ReadTransactionTest {
 				.hasMoved());
 		assertEquals(key, holder.getRtx().getNodeKey());
 
-		assertEquals(holder.getRtx().hasFirstChild(), holder
-				.getRtx().moveToFirstChild().hasMoved());
+		assertEquals(holder.getRtx().hasFirstChild(), holder.getRtx()
+				.moveToFirstChild().hasMoved());
 		assertEquals(1L, holder.getRtx().getNodeKey());
 
 		assertEquals(false, holder.getRtx().moveTo(Integer.MAX_VALUE).hasMoved());
@@ -126,7 +126,8 @@ public class ReadTransactionTest {
 				.moveToLeftSibling().hasMoved());
 		assertEquals(4L, holder.getRtx().getNodeKey());
 
-		assertEquals(holder.getRtx().hasParent(), holder.getRtx().moveToParent().hasMoved());
+		assertEquals(holder.getRtx().hasParent(), holder.getRtx().moveToParent()
+				.hasMoved());
 		assertEquals(1L, holder.getRtx().getNodeKey());
 
 		holder.getRtx().close();

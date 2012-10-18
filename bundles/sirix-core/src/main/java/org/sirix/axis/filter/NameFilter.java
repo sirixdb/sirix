@@ -41,28 +41,29 @@ import org.sirix.node.interfaces.NameNode;
  */
 public class NameFilter extends AbstractFilter {
 
-  /** Key of name to test. */
-  private final int mLocalPartKey;
+	/** Key of name to test. */
+	private final int mLocalPartKey;
 
-  /**
-   * Default constructor.
-   * 
-   * @param pRtx
-   *          {@link NodeReadTrx} this filter is bound to
-   * @param pLocalPart
-   *          local part to check
-   */
-  public NameFilter(@Nonnull final NodeReadTrx pRtx, @Nonnull final String pLocalPart) {
-    super(pRtx);
-    mLocalPartKey = pRtx.keyForName(pLocalPart);
-  }
+	/**
+	 * Default constructor.
+	 * 
+	 * @param pRtx
+	 *          {@link NodeReadTrx} this filter is bound to
+	 * @param pLocalPart
+	 *          local part to check
+	 */
+	public NameFilter(@Nonnull final NodeReadTrx pRtx,
+			@Nonnull final String pLocalPart) {
+		super(pRtx);
+		mLocalPartKey = pRtx.keyForName(pLocalPart);
+	}
 
-  @Override
-  public final boolean filter() {
-    boolean returnVal = false;
-    if (getTrx().isNameNode()) {
-      returnVal = (getTrx().getNameKey() == mLocalPartKey);
-    }
-    return returnVal;
-  }
+	@Override
+	public final boolean filter() {
+		boolean returnVal = false;
+		if (getTrx().isNameNode()) {
+			returnVal = (getTrx().getNameKey() == mLocalPartKey);
+		}
+		return returnVal;
+	}
 }

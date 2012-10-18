@@ -47,125 +47,129 @@ import org.sirix.settings.Fixed;
 public final class OverallTest extends TestCase {
 
 	/** Used for random number generator. */
-  private static int NUM_CHARS = 3;
-  
-  /** Modification number of nodes. */
-  private static int ELEMENTS = 1000;
-  
-  /** Percentage of commits. */
-  private static int COMMITPERCENTAGE = 20;
-  
-  /** Percentage of nodes to remove. */
-  private static int REMOVEPERCENTAGE = 20;
-  
-  /** Random number generator. */
-  private static final Random ran = new Random(0l);
-  
-  /** Some characters. */
-  public static String chars = "abcdefghijklm";
+	private static int NUM_CHARS = 3;
 
-  /** {@link Holder} instance. */
-  private Holder holder;
+	/** Modification number of nodes. */
+	private static int ELEMENTS = 1000;
 
-  @Override
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    holder = Holder.generateWtx();
-  }
+	/** Percentage of commits. */
+	private static int COMMITPERCENTAGE = 20;
 
-  @Test
-  public void testJustEverything() throws SirixException {
-    holder.getWtx().insertElementAsFirstChild(new QName(getString()));
-    holder.getWtx().insertElementAsFirstChild(new QName(getString()));
-    for (int i = 0; i < ELEMENTS; i++) {
-      if (ran.nextBoolean()) {
-        switch (holder.getWtx().getKind()) {
-        case ELEMENT:
-          holder.getWtx().setQName(new QName(getString()));
-          break;
-        case ATTRIBUTE:
-          holder.getWtx().setQName(new QName(getString()));
-          holder.getWtx().setValue(getString());
-          break;
-        case NAMESPACE:
-          holder.getWtx().setQName(new QName(getString()));
-          break;
-        case TEXT:
-          holder.getWtx().setValue(getString());
-          break;
-        default:
-        }
-      } else {
-        if (holder.getWtx().getKind() == Kind.ELEMENT) {
-          if (holder.getWtx().getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-            assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
-            assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
-          }
-          if (ran.nextBoolean()) {
-            holder.getWtx().insertElementAsFirstChild(new QName(getString()));
-          } else {
-            holder.getWtx().insertElementAsRightSibling(new QName(getString()));
-          }
-          if (ran.nextBoolean()) {
-            holder.getWtx().insertAttribute(new QName(getString()), getString());
-            holder.getWtx().moveToParent();
-          }
-          if (ran.nextBoolean()) {
-            holder.getWtx().insertNamespace(new QName(getString(), getString()));
-            holder.getWtx().moveToParent();
-          }
-        }
+	/** Percentage of nodes to remove. */
+	private static int REMOVEPERCENTAGE = 20;
 
-        if (ran.nextInt(100) < REMOVEPERCENTAGE) {
-          holder.getWtx().remove();
-        }
+	/** Random number generator. */
+	private static final Random ran = new Random(0l);
 
-        if (ran.nextInt(100) < COMMITPERCENTAGE) {
-          holder.getWtx().commit();
-        }
-        do {
-          final int newKey = ran.nextInt(i + 1) + 1;
+	/** Some characters. */
+	public static String chars = "abcdefghijklm";
 
-          if (newKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-            holder.getWtx().moveToFirstChild();
-            holder.getWtx().moveToFirstChild();
-          } else {
-            holder.getWtx().moveTo(newKey);
-            if (holder.getWtx().getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-              holder.getWtx().moveToFirstChild();
-            }
-          }
-        } while (holder.getWtx() == null);
-        if (holder.getWtx().getKind() != Kind.ELEMENT) {
-          holder.getWtx().moveToParent();
-        }
-      }
-    }
-    final long key = holder.getWtx().getNodeKey();
-    holder.getWtx().remove();
-    holder.getWtx().insertElementAsFirstChild(new QName(getString()));
-    holder.getWtx().moveTo(key);
-    holder.getWtx().commit();
-    holder.getWtx().close();
-  }
+	/** {@link Holder} instance. */
+	private Holder holder;
 
-  @Override
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@Override
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		holder = Holder.generateWtx();
+	}
 
-  /** Get a random string. */
-  private static String getString() {
-    char[] buf = new char[NUM_CHARS];
+	@Test
+	public void testJustEverything() throws SirixException {
+		holder.getWtx().insertElementAsFirstChild(new QName(getString()));
+		holder.getWtx().insertElementAsFirstChild(new QName(getString()));
+		for (int i = 0; i < ELEMENTS; i++) {
+			if (ran.nextBoolean()) {
+				switch (holder.getWtx().getKind()) {
+				case ELEMENT:
+					holder.getWtx().setQName(new QName(getString()));
+					break;
+				case ATTRIBUTE:
+					holder.getWtx().setQName(new QName(getString()));
+					holder.getWtx().setValue(getString());
+					break;
+				case NAMESPACE:
+					holder.getWtx().setQName(new QName(getString()));
+					break;
+				case TEXT:
+					holder.getWtx().setValue(getString());
+					break;
+				default:
+				}
+			} else {
+				if (holder.getWtx().getKind() == Kind.ELEMENT) {
+					if (holder.getWtx().getParentKey() == Fixed.DOCUMENT_NODE_KEY
+							.getStandardProperty()) {
+						assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
+						assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
+					}
+					if (ran.nextBoolean()) {
+						holder.getWtx().insertElementAsFirstChild(new QName(getString()));
+					} else {
+						holder.getWtx().insertElementAsRightSibling(new QName(getString()));
+					}
+					if (ran.nextBoolean()) {
+						holder.getWtx()
+								.insertAttribute(new QName(getString()), getString());
+						holder.getWtx().moveToParent();
+					}
+					if (ran.nextBoolean()) {
+						holder.getWtx()
+								.insertNamespace(new QName(getString(), getString()));
+						holder.getWtx().moveToParent();
+					}
+				}
 
-    for (int i = 0; i < buf.length; i++) {
-      buf[i] = chars.charAt(ran.nextInt(chars.length()));
-    }
+				if (ran.nextInt(100) < REMOVEPERCENTAGE) {
+					holder.getWtx().remove();
+				}
 
-    return new String(buf);
-  }
+				if (ran.nextInt(100) < COMMITPERCENTAGE) {
+					holder.getWtx().commit();
+				}
+				do {
+					final int newKey = ran.nextInt(i + 1) + 1;
+
+					if (newKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+						holder.getWtx().moveToFirstChild();
+						holder.getWtx().moveToFirstChild();
+					} else {
+						holder.getWtx().moveTo(newKey);
+						if (holder.getWtx().getParentKey() == Fixed.DOCUMENT_NODE_KEY
+								.getStandardProperty()) {
+							holder.getWtx().moveToFirstChild();
+						}
+					}
+				} while (holder.getWtx() == null);
+				if (holder.getWtx().getKind() != Kind.ELEMENT) {
+					holder.getWtx().moveToParent();
+				}
+			}
+		}
+		final long key = holder.getWtx().getNodeKey();
+		holder.getWtx().remove();
+		holder.getWtx().insertElementAsFirstChild(new QName(getString()));
+		holder.getWtx().moveTo(key);
+		holder.getWtx().commit();
+		holder.getWtx().close();
+	}
+
+	@Override
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
+
+	/** Get a random string. */
+	private static String getString() {
+		char[] buf = new char[NUM_CHARS];
+
+		for (int i = 0; i < buf.length; i++) {
+			buf[i] = chars.charAt(ran.nextInt(chars.length()));
+		}
+
+		return new String(buf);
+	}
 
 }

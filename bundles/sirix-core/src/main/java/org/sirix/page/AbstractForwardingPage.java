@@ -38,8 +38,8 @@ import org.sirix.exception.SirixException;
 import org.sirix.page.interfaces.Page;
 
 /**
- * Forwarding the implementation of all methods in the {@link Page} interface
- * to a delegate.
+ * Forwarding the implementation of all methods in the {@link Page} interface to
+ * a delegate.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -79,7 +79,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
 		delegate().serialize(checkNotNull(out));
 	}
-	
+
 	@Override
 	public boolean isDirty() {
 		return delegate().isDirty();

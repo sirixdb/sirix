@@ -59,8 +59,7 @@ public final class FilterAxis extends AbstractAxis {
 	 *          tests to perform for each node found with axis
 	 */
 	public FilterAxis(final @Nonnull Axis pAxis,
-			final @Nonnull Filter pFirstAxisTest,
-			final @Nonnull Filter... pAxisTest) {
+			final @Nonnull Filter pFirstAxisTest, final @Nonnull Filter... pAxisTest) {
 		super(pAxis.getTrx());
 		mAxis = pAxis;
 		final int length = pAxisTest.length == 0 ? 1 : pAxisTest.length + 1;

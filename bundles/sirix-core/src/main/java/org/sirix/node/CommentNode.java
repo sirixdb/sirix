@@ -22,13 +22,14 @@ import com.google.common.base.Objects;
  * Comment node implementation.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
-public class CommentNode extends AbstructStructForwardingNode implements ValNode {
+public class CommentNode extends AbstructStructForwardingNode implements
+		ValNode {
 
 	/** {@link StructNodeDelegate} reference. */
 	private final StructNodeDelegate mStructNodeDel;
-	
+
 	/** {@link ValNodeDelegate} reference. */
 	private final ValNodeDelegate mValDel;
 
@@ -132,7 +133,7 @@ public class CommentNode extends AbstructStructForwardingNode implements ValNode
 				.add("node delegate", mStructNodeDel.getNodeDelegate())
 				.add("value delegate", mValDel).toString();
 	}
-	
+
 	public ValNodeDelegate getValNodeDelegate() {
 		return mValDel;
 	}

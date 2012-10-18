@@ -49,7 +49,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public void close() throws SirixException {
 		delegate().close();
 	}
-	
+
 	@Override
 	public String getNamespaceURI() {
 		return delegate().getNamespaceURI();
@@ -133,8 +133,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToNamespace(
-			@Nonnegative int index) {
+	public Move<? extends NodeReadTrx> moveToNamespace(@Nonnegative int index) {
 		return delegate().moveToNamespace(index);
 	}
 
@@ -174,8 +173,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public int getNameCount(@Nonnull String name,
-			@Nonnull Kind kind) {
+	public int getNameCount(@Nonnull String name, @Nonnull Kind kind) {
 		return delegate().getNameCount(name, kind);
 	}
 
@@ -288,22 +286,22 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public VisitResult acceptVisitor(@Nonnull Visitor visitor) {
 		return delegate().acceptVisitor(visitor);
 	}
-	
+
 	@Override
 	public boolean isValueNode() {
 		return delegate().isValueNode();
 	}
-	
+
 	@Override
 	public boolean hasAttributes() {
 		return delegate().hasAttributes();
 	}
-	
+
 	@Override
 	public boolean hasChildren() {
 		return delegate().hasChildren();
 	}
-	
+
 	@Override
 	public Node getNode() {
 		return delegate().getNode();
@@ -348,62 +346,62 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public long getDescendantCount() {
 		return delegate().getDescendantCount();
 	}
-	
+
 	@Override
 	public Kind getFirstChildKind() {
 		return delegate().getFirstChildKind();
 	}
-	
+
 	@Override
 	public Kind getLastChildKind() {
 		return delegate().getLastChildKind();
 	}
-	
+
 	@Override
 	public Kind getLeftSiblingKind() {
 		return delegate().getLeftSiblingKind();
 	}
-	
+
 	@Override
 	public Kind getRightSiblingKind() {
 		return delegate().getRightSiblingKind();
 	}
-	
+
 	@Override
 	public Kind getParentKind() {
 		return delegate().getParentKind();
 	}
-	
+
 	@Override
 	public boolean isAttribute() {
 		return delegate().isAttribute();
 	}
-	
+
 	@Override
 	public boolean isComment() {
 		return delegate().isComment();
 	}
-	
+
 	@Override
 	public boolean isDocumentRoot() {
 		return delegate().isDocumentRoot();
 	}
-	
+
 	@Override
 	public boolean isElement() {
 		return delegate().isElement();
 	}
-	
+
 	@Override
 	public boolean isNamespace() {
 		return delegate().isNamespace();
 	}
-	
+
 	@Override
 	public boolean isPI() {
 		return delegate().isPI();
 	}
-	
+
 	@Override
 	public boolean isText() {
 		return delegate().isText();

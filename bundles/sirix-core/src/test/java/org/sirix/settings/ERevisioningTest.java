@@ -39,81 +39,84 @@ import org.sirix.page.NodePage;
 
 public class ERevisioningTest {
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		TestHelper.closeEverything();
+	}
 
-////  @Test(expected = AssertionError.class)
-//  @Test
-//  public void testFulldumpCombinePages() {
-//    final NodePage[] pages = new NodePage[1];
-//    pages[0] = getNodePage(1, 0, 128, 0);
-////    pages[1] = getNodePage(0, 0, 128, 0);
-//
-//    final NodePage page = ERevisioning.FULL.combineNodePages(pages, ResourceConfiguration.VERSIONSTORESTORE);
-//
-//    for (int j = 0; j < page.getNodes().length; j++) {
-//      assertEquals(pages[0].getNode(j), page.getNode(j));
-//    }
-//
-//  }
-//
-//  @Test
-//  public void testDifferentialCombinePages() {
-//    final NodePage[] pages = prepareNormal(2);
-//    final NodePage page =
-//      ERevisioning.DIFFERENTIAL.combineNodePages(pages, ResourceConfiguration.VERSIONSTORESTORE);
-//
-//    for (int j = 0; j < 32; j++) {
-//      assertEquals(pages[0].getNode(j), page.getNode(j));
-//    }
-//    for (int j = 32; j < page.getNodes().length; j++) {
-//      assertEquals(pages[1].getNode(j), page.getNode(j));
-//    }
-//
-//  }
-//
-//  @Test
-//  public void testIncrementalCombinePages() {
-//    final NodePage[] pages = prepareNormal(4);
-//    final NodePage page =
-//      ERevisioning.INCREMENTAL.combineNodePages(pages, 4);
-//    checkCombined(pages, page);
-//  }
-//
-//  private static NodePage[] prepareNormal(final int length) {
-//    final NodePage[] pages = new NodePage[length];
-//    pages[pages.length - 1] = getNodePage(0, 0, 128, 0);
-//    for (int i = 0; i < pages.length - 1; i++) {
-//      pages[i] = getNodePage(pages.length - i - 1, i * 32, (i * 32) + 32, 0);
-//    }
-//    return pages;
-//  }
-//
-//  // private static NodePage[] prepareOverlapping(final int length) {
-//  // final NodePage[] pages = new NodePage[length];
-//  // final int[] borders = new int[4];
-//  // pages[pages.length - 1] = getNodePage(0, 0, 128);
-//  // for (int i = 0; i < pages.length - 1; i++) {
-//  // borders[i] = random.nextInt(32) + ((i) * 32);
-//  // pages[i] = getNodePage(pages.length - i, borders[i], (i * 32) + 32);
-//  // }
-//  // return pages;
-//  //
-//  // }
-//
-//  private static void checkCombined(final NodePage[] toCheck, final NodePage page) {
-//    for (int i = 0; i < 4; i++) {
-//      for (int j = i * 32; j < (i * 32) + 32; j++) {
-//        assertEquals(toCheck[i].getNode(j), page.getNode(j));
-//      }
-//    }
-//  }
+	// // @Test(expected = AssertionError.class)
+	// @Test
+	// public void testFulldumpCombinePages() {
+	// final NodePage[] pages = new NodePage[1];
+	// pages[0] = getNodePage(1, 0, 128, 0);
+	// // pages[1] = getNodePage(0, 0, 128, 0);
+	//
+	// final NodePage page = ERevisioning.FULL.combineNodePages(pages,
+	// ResourceConfiguration.VERSIONSTORESTORE);
+	//
+	// for (int j = 0; j < page.getNodes().length; j++) {
+	// assertEquals(pages[0].getNode(j), page.getNode(j));
+	// }
+	//
+	// }
+	//
+	// @Test
+	// public void testDifferentialCombinePages() {
+	// final NodePage[] pages = prepareNormal(2);
+	// final NodePage page =
+	// ERevisioning.DIFFERENTIAL.combineNodePages(pages,
+	// ResourceConfiguration.VERSIONSTORESTORE);
+	//
+	// for (int j = 0; j < 32; j++) {
+	// assertEquals(pages[0].getNode(j), page.getNode(j));
+	// }
+	// for (int j = 32; j < page.getNodes().length; j++) {
+	// assertEquals(pages[1].getNode(j), page.getNode(j));
+	// }
+	//
+	// }
+	//
+	// @Test
+	// public void testIncrementalCombinePages() {
+	// final NodePage[] pages = prepareNormal(4);
+	// final NodePage page =
+	// ERevisioning.INCREMENTAL.combineNodePages(pages, 4);
+	// checkCombined(pages, page);
+	// }
+	//
+	// private static NodePage[] prepareNormal(final int length) {
+	// final NodePage[] pages = new NodePage[length];
+	// pages[pages.length - 1] = getNodePage(0, 0, 128, 0);
+	// for (int i = 0; i < pages.length - 1; i++) {
+	// pages[i] = getNodePage(pages.length - i - 1, i * 32, (i * 32) + 32, 0);
+	// }
+	// return pages;
+	// }
+	//
+	// // private static NodePage[] prepareOverlapping(final int length) {
+	// // final NodePage[] pages = new NodePage[length];
+	// // final int[] borders = new int[4];
+	// // pages[pages.length - 1] = getNodePage(0, 0, 128);
+	// // for (int i = 0; i < pages.length - 1; i++) {
+	// // borders[i] = random.nextInt(32) + ((i) * 32);
+	// // pages[i] = getNodePage(pages.length - i, borders[i], (i * 32) + 32);
+	// // }
+	// // return pages;
+	// //
+	// // }
+	//
+	// private static void checkCombined(final NodePage[] toCheck, final NodePage
+	// page) {
+	// for (int i = 0; i < 4; i++) {
+	// for (int j = i * 32; j < (i * 32) + 32; j++) {
+	// assertEquals(toCheck[i].getNode(j), page.getNode(j));
+	// }
+	// }
+	// }
 
 }

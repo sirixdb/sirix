@@ -45,125 +45,129 @@ import org.sirix.utils.TypedValue;
  */
 public class DivOpAxis extends AbstractObAxis {
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param mOp1
-   *          First value of the operation
-   * @param mOp2
-   *          Second value of the operation
-   */
-  public DivOpAxis(final NodeReadTrx rtx, final Axis mOp1, final Axis mOp2) {
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param rtx
+	 *          Exclusive (immutable) trx to iterate with.
+	 * @param mOp1
+	 *          First value of the operation
+	 * @param mOp2
+	 *          Second value of the operation
+	 */
+	public DivOpAxis(final NodeReadTrx rtx, final Axis mOp1, final Axis mOp2) {
 
-    super(rtx, mOp1, mOp2);
-  }
+		super(rtx, mOp1, mOp2);
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2) throws SirixXPathException {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public Node operate(final AtomicValue mOperand1, final AtomicValue mOperand2)
+			throws SirixXPathException {
 
-    final Type returnType = getReturnType(mOperand1.getTypeKey(), mOperand2.getTypeKey());
-    final int typeKey = getTrx().keyForName(returnType.getStringRepr());
+		final Type returnType = getReturnType(mOperand1.getTypeKey(),
+				mOperand2.getTypeKey());
+		final int typeKey = getTrx().keyForName(returnType.getStringRepr());
 
-    final byte[] value;
+		final byte[] value;
 
-    switch (returnType) {
-    case DECIMAL:
-    case FLOAT:
-    case DOUBLE:
-      final double aD = Double.parseDouble(new String(mOperand1.getRawValue()));
-      final double dValue;
+		switch (returnType) {
+		case DECIMAL:
+		case FLOAT:
+		case DOUBLE:
+			final double aD = Double.parseDouble(new String(mOperand1.getRawValue()));
+			final double dValue;
 
-      if (aD == 0.0 || aD == -0.0) {
-        dValue = Double.NaN;
-      } else {
-        dValue = aD / Double.parseDouble(new String(mOperand2.getRawValue()));
-      }
+			if (aD == 0.0 || aD == -0.0) {
+				dValue = Double.NaN;
+			} else {
+				dValue = aD / Double.parseDouble(new String(mOperand2.getRawValue()));
+			}
 
-      value = TypedValue.getBytes(dValue);
-      return new AtomicValue(value, typeKey);
+			value = TypedValue.getBytes(dValue);
+			return new AtomicValue(value, typeKey);
 
-    case INTEGER:
-      try {
-        final int iValue =
-          (int)Double.parseDouble(new String(mOperand1.getRawValue()))
-            / (int)Double.parseDouble(new String(mOperand2.getRawValue()));
-        value = TypedValue.getBytes(iValue);
-        return new AtomicValue(value, typeKey);
-      } catch (final ArithmeticException e) {
-        throw new XPathError(ErrorType.FOAR0001);
-      }
-    case YEAR_MONTH_DURATION:
-    case DAY_TIME_DURATION:
-      throw new IllegalStateException("Add operator is not implemented for the type "
-        + returnType.getStringRepr() + " yet.");
-    default:
-      throw new XPathError(ErrorType.XPTY0004);
+		case INTEGER:
+			try {
+				final int iValue = (int) Double.parseDouble(new String(mOperand1
+						.getRawValue()))
+						/ (int) Double.parseDouble(new String(mOperand2.getRawValue()));
+				value = TypedValue.getBytes(iValue);
+				return new AtomicValue(value, typeKey);
+			} catch (final ArithmeticException e) {
+				throw new XPathError(ErrorType.FOAR0001);
+			}
+		case YEAR_MONTH_DURATION:
+		case DAY_TIME_DURATION:
+			throw new IllegalStateException(
+					"Add operator is not implemented for the type "
+							+ returnType.getStringRepr() + " yet.");
+		default:
+			throw new XPathError(ErrorType.XPTY0004);
 
-    }
+		}
 
-  }
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  protected Type getReturnType(final int mOp1, final int mOp2) throws SirixXPathException {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected Type getReturnType(final int mOp1, final int mOp2)
+			throws SirixXPathException {
 
-    Type type1;
-    Type type2;
-    try {
-      type1 = Type.getType(mOp1).getPrimitiveBaseType();
-      type2 = Type.getType(mOp2).getPrimitiveBaseType();
-    } catch (final IllegalStateException e) {
-      throw new XPathError(ErrorType.XPTY0004);
-    }
+		Type type1;
+		Type type2;
+		try {
+			type1 = Type.getType(mOp1).getPrimitiveBaseType();
+			type2 = Type.getType(mOp2).getPrimitiveBaseType();
+		} catch (final IllegalStateException e) {
+			throw new XPathError(ErrorType.XPTY0004);
+		}
 
-    if (type1.isNumericType() && type2.isNumericType()) {
+		if (type1.isNumericType() && type2.isNumericType()) {
 
-      // if both have the same numeric type, return it
-      if (type1 == type2) {
-        return type1;
-      }
+			// if both have the same numeric type, return it
+			if (type1 == type2) {
+				return type1;
+			}
 
-      if (type1 == Type.DOUBLE || type2 == Type.DOUBLE) {
-        return Type.DOUBLE;
-      } else if (type1 == Type.FLOAT || type2 == Type.FLOAT) {
-        return Type.FLOAT;
-      } else {
-        assert (type1 == Type.DECIMAL || type2 == Type.DECIMAL);
-        return Type.DECIMAL;
-      }
+			if (type1 == Type.DOUBLE || type2 == Type.DOUBLE) {
+				return Type.DOUBLE;
+			} else if (type1 == Type.FLOAT || type2 == Type.FLOAT) {
+				return Type.FLOAT;
+			} else {
+				assert (type1 == Type.DECIMAL || type2 == Type.DECIMAL);
+				return Type.DECIMAL;
+			}
 
-    } else {
+		} else {
 
-      switch (type1) {
+			switch (type1) {
 
-      case YEAR_MONTH_DURATION:
-        if (type2 == Type.YEAR_MONTH_DURATION) {
-          return Type.DECIMAL;
-        }
-        if (type2.isNumericType()) {
-          return type1;
-        }
-        break;
-      case DAY_TIME_DURATION:
-        if (type2 == Type.DAY_TIME_DURATION) {
-          return Type.DECIMAL;
-        }
-        if (type2.isNumericType()) {
-          return type1;
-        }
-        break;
-      default:
-        throw new XPathError(ErrorType.XPTY0004);
-      }
-      throw new XPathError(ErrorType.XPTY0004);
-    }
-  }
+			case YEAR_MONTH_DURATION:
+				if (type2 == Type.YEAR_MONTH_DURATION) {
+					return Type.DECIMAL;
+				}
+				if (type2.isNumericType()) {
+					return type1;
+				}
+				break;
+			case DAY_TIME_DURATION:
+				if (type2 == Type.DAY_TIME_DURATION) {
+					return Type.DECIMAL;
+				}
+				if (type2.isNumericType()) {
+					return type1;
+				}
+				break;
+			default:
+				throw new XPathError(ErrorType.XPTY0004);
+			}
+			throw new XPathError(ErrorType.XPTY0004);
+		}
+	}
 
 }

@@ -40,106 +40,108 @@ import org.sirix.settings.Fixed;
  * <h1>DescendantAxis</h1>
  * 
  * <p>
- * Iterate over all structural descendants starting at a given node. Self is not included.
+ * Iterate over all structural descendants starting at a given node. Self is not
+ * included.
  * </p>
  */
 public final class DescendantAxis extends AbstractAxis {
 
-  /** Stack for remembering next nodeKey in document order. */
-  private Deque<Long> mRightSiblingKeyStack;
+	/** Stack for remembering next nodeKey in document order. */
+	private Deque<Long> mRightSiblingKeyStack;
 
-  /** Determines if it's the first call to hasNext(). */
-  private boolean mFirst;
+	/** Determines if it's the first call to hasNext(). */
+	private boolean mFirst;
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param rtx
-   *          exclusive (immutable) trx to iterate with
-   */
-  public DescendantAxis(final @Nonnull NodeReadTrx rtx) {
-    super(rtx);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param rtx
+	 *          exclusive (immutable) trx to iterate with
+	 */
+	public DescendantAxis(final @Nonnull NodeReadTrx rtx) {
+		super(rtx);
+	}
 
-  /**
-   * Constructor initializing internal state.
-   * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param includeSelf
-   *          Is self included?
-   */
-  public DescendantAxis(final @Nonnull NodeReadTrx rtx,
-    final @Nonnull IncludeSelf includeSelf) {
-    super(rtx, includeSelf);
-  }
+	/**
+	 * Constructor initializing internal state.
+	 * 
+	 * @param rtx
+	 *          Exclusive (immutable) trx to iterate with.
+	 * @param includeSelf
+	 *          Is self included?
+	 */
+	public DescendantAxis(final @Nonnull NodeReadTrx rtx,
+			final @Nonnull IncludeSelf includeSelf) {
+		super(rtx, includeSelf);
+	}
 
-  @Override
-  public void reset(final long pNodeKey) {
-    super.reset(pNodeKey);
-    mFirst = true;
-    mRightSiblingKeyStack = new ArrayDeque<>();
-  }
+	@Override
+	public void reset(final long pNodeKey) {
+		super.reset(pNodeKey);
+		mFirst = true;
+		mRightSiblingKeyStack = new ArrayDeque<>();
+	}
 
-  @Override
-  protected long nextKey() {
-  	long key = Fixed.NULL_NODE_KEY.getStandardProperty();
- 
-    // Determines if first call to hasNext().
-    if (mFirst) {
-      mFirst = false;
+	@Override
+	protected long nextKey() {
+		long key = Fixed.NULL_NODE_KEY.getStandardProperty();
 
-      if (isSelfIncluded() == IncludeSelf.YES) {
-      	key = getTrx().getNodeKey();
-      } else {
-      	key = getTrx().getFirstChildKey();
-      }
+		// Determines if first call to hasNext().
+		if (mFirst) {
+			mFirst = false;
 
-      return key;
-    }
+			if (isSelfIncluded() == IncludeSelf.YES) {
+				key = getTrx().getNodeKey();
+			} else {
+				key = getTrx().getFirstChildKey();
+			}
 
-    // Always follow first child if there is one.
-    if (getTrx().hasFirstChild()) {
-    	key = getTrx().getFirstChildKey();
-      if (getTrx().hasRightSibling()) {
-        mRightSiblingKeyStack.push(getTrx().getRightSiblingKey());
-      }
-      return key;
-    }
+			return key;
+		}
 
-    // Then follow right sibling if there is one.
-    if (getTrx().hasRightSibling()) {
-      final long currKey = getTrx().getNodeKey();
-      key = getTrx().getRightSiblingKey();
-      return hasNextNode(key, currKey);
-    }
+		// Always follow first child if there is one.
+		if (getTrx().hasFirstChild()) {
+			key = getTrx().getFirstChildKey();
+			if (getTrx().hasRightSibling()) {
+				mRightSiblingKeyStack.push(getTrx().getRightSiblingKey());
+			}
+			return key;
+		}
 
-    // Then follow right sibling on stack.
-    if (mRightSiblingKeyStack.size() > 0) {
-      final long currKey = getTrx().getNodeKey();
-      key = mRightSiblingKeyStack.pop();
-      return hasNextNode(key, currKey);
-    }
-    
-    return done();
-  }
+		// Then follow right sibling if there is one.
+		if (getTrx().hasRightSibling()) {
+			final long currKey = getTrx().getNodeKey();
+			key = getTrx().getRightSiblingKey();
+			return hasNextNode(key, currKey);
+		}
 
-  /**
-   * Determines if the subtree-traversal is finished.
-   * 
-   * @param pKey
-   * 					next key
-   * @param pCurrKey
-   *          current node key
-   * @return {@code false} if finished, {@code true} if not
-   */
-  private long hasNextNode(@Nonnegative long pKey, final @Nonnegative long pCurrKey) {
-    getTrx().moveTo(pKey);
-    if (getTrx().getLeftSiblingKey() == getStartKey()) {
-      return done();
-    } else {
-      getTrx().moveTo(pCurrKey);
-      return pKey;
-    }
-  }
+		// Then follow right sibling on stack.
+		if (mRightSiblingKeyStack.size() > 0) {
+			final long currKey = getTrx().getNodeKey();
+			key = mRightSiblingKeyStack.pop();
+			return hasNextNode(key, currKey);
+		}
+
+		return done();
+	}
+
+	/**
+	 * Determines if the subtree-traversal is finished.
+	 * 
+	 * @param pKey
+	 *          next key
+	 * @param pCurrKey
+	 *          current node key
+	 * @return {@code false} if finished, {@code true} if not
+	 */
+	private long hasNextNode(@Nonnegative long pKey,
+			final @Nonnegative long pCurrKey) {
+		getTrx().moveTo(pKey);
+		if (getTrx().getLeftSiblingKey() == getStartKey()) {
+			return done();
+		} else {
+			getTrx().moveTo(pCurrKey);
+			return pKey;
+		}
+	}
 }

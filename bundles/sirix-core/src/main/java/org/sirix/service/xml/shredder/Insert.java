@@ -34,18 +34,18 @@ package org.sirix.service.xml.shredder;
  * 
  */
 public enum Insert {
-  /** Subtree should be added as first child of the current node. */
-  ASFIRSTCHILD,
+	/** Subtree should be added as first child of the current node. */
+	ASFIRSTCHILD,
 
-  /**
-   * Subtree should be added as a right sibling of the current node. This is not possible
-   * when the {@code IWriteTransaction} is on root node.
-   */
-  ASRIGHTSIBLING,
-  
-  /**
-   * Subtree should be added as a left sibling of the current node. This is not possible
-   * when the {@code IWriteTransaction} is on root node.
-   */
-  ASLEFTSIBLING,
+	/**
+	 * Subtree should be added as a right sibling of the current node. This is not
+	 * possible when the {@code IWriteTransaction} is on root node.
+	 */
+	ASRIGHTSIBLING,
+
+	/**
+	 * Subtree should be added as a left sibling of the current node. This is not
+	 * possible when the {@code IWriteTransaction} is on root node.
+	 */
+	ASLEFTSIBLING,
 }

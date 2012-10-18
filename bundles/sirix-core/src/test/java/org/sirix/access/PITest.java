@@ -14,27 +14,28 @@ import org.sirix.utils.DocumentCreater;
 
 /** Processing instruction test. */
 public class PITest {
-	
+
 	/** {@link Holder} reference. */
-  private Holder mHolder;
+	private Holder mHolder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createPICommentTestDocument();
-    mHolder = Holder.generateWtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createPICommentTestDocument();
+		mHolder = Holder.generateWtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    mHolder.close();
-    TestHelper.closeEverything();
-  }
-  
+	@After
+	public void tearDown() throws SirixException {
+		mHolder.close();
+		TestHelper.closeEverything();
+	}
+
 	@Test
 	public void testPI() throws SirixException {
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		final XMLSerializer serializer = new XMLSerializer.XMLSerializerBuilder(mHolder.getSession(), out).build();
+		final XMLSerializer serializer = new XMLSerializer.XMLSerializerBuilder(
+				mHolder.getSession(), out).build();
 		serializer.call();
 		System.out.println(out);
 	}

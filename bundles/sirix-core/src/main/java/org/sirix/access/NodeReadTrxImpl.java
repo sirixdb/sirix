@@ -127,7 +127,8 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 		mPageReadTrx = checkNotNull(pageReadTransaction);
 		@SuppressWarnings("unchecked")
 		final Optional<? extends Node> node = (Optional<? extends Node>) mPageReadTrx
-				.getNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.NODEPAGE);
+				.getNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+						PageKind.NODEPAGE);
 		if (node.isPresent()) {
 			mCurrentNode = node.get();
 		} else {
@@ -185,9 +186,9 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public Move<? extends NodeReadTrx> moveTo(final long nodeKey) {
 		assertNotClosed();
-//		if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-//			return Move.notMoved();
-//		}
+		// if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+		// return Move.notMoved();
+		// }
 
 		// Remember old node and fetch new one.
 		final Node oldNode = mCurrentNode;
@@ -201,8 +202,8 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 					newNode = Optional.absent();
 				}
 			} else {
-				final Optional<? extends NodeBase> node = mPageReadTrx.getNode(
-						nodeKey, PageKind.NODEPAGE);
+				final Optional<? extends NodeBase> node = mPageReadTrx.getNode(nodeKey,
+						PageKind.NODEPAGE);
 				newNode = node;
 			}
 		} catch (final SirixIOException e) {

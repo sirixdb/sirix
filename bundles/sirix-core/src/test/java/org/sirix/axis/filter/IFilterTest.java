@@ -39,30 +39,31 @@ import org.sirix.exception.SirixException;
 
 public class IFilterTest {
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+	}
 
-  public static void testIFilterConventions(final Filter filter, final boolean expected) {
-    final NodeReadTrx rtx = ((AbstractFilter)filter).getTrx();
+	public static void testIFilterConventions(final Filter filter,
+			final boolean expected) {
+		final NodeReadTrx rtx = ((AbstractFilter) filter).getTrx();
 
-    // IFilter Convention 1.
-    final long startKey = rtx.getNodeKey();
+		// IFilter Convention 1.
+		final long startKey = rtx.getNodeKey();
 
-    assertEquals(expected, filter.filter());
+		assertEquals(expected, filter.filter());
 
-    // IAxis Convention 2.
-    assertEquals(startKey, rtx.getNodeKey());
-  }
+		// IAxis Convention 2.
+		assertEquals(startKey, rtx.getNodeKey());
+	}
 
-  @Test
-  public void testIFilterExample() {
-    // Do nothing. This class is only used with other test cases.
-  }
+	@Test
+	public void testIFilterExample() {
+		// Do nothing. This class is only used with other test cases.
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		TestHelper.closeEverything();
+	}
 }

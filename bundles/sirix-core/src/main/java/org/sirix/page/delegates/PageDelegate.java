@@ -55,7 +55,7 @@ public class PageDelegate implements Page {
 
 	/** Revision of this page. */
 	private final int mRevision;
-	
+
 	/** Determines if page is new or changed. */
 	private boolean mIsDirty;
 
@@ -166,9 +166,9 @@ public class PageDelegate implements Page {
 	 */
 	@Override
 	public final PageReference[] getReferences() {
-//		final PageReference[] copiedRefs = new PageReference[mReferences.length];
-//		System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
-//		return copiedRefs;
+		// final PageReference[] copiedRefs = new PageReference[mReferences.length];
+		// System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
+		// return copiedRefs;
 		return mReferences;
 	}
 
@@ -195,7 +195,7 @@ public class PageDelegate implements Page {
 	public boolean isDirty() {
 		return mIsDirty;
 	}
-	
+
 	@Override
 	public Page setDirty(final boolean pDirty) {
 		mIsDirty = pDirty;

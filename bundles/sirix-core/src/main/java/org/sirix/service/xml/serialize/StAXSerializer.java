@@ -154,8 +154,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @param pCloseRtx
 	 *          Determines if rtx should be closed afterwards.
 	 */
-	public StAXSerializer(final @Nonnull NodeReadTrx pRtx,
-			final boolean pCloseRtx) {
+	public StAXSerializer(final @Nonnull NodeReadTrx pRtx, final boolean pCloseRtx) {
 		mNextTag = false;
 		mAxis = new DescendantAxis(checkNotNull(pRtx), IncludeSelf.YES);
 		mCloseRtx = pCloseRtx;
@@ -175,8 +174,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 */
 	private void emitEndTag(final @Nonnull NodeReadTrx rtx) {
 		final long nodeKey = rtx.getNodeKey();
-		mEvent = mFac
-				.createEndElement(rtx.getName(), new NamespaceIterator(rtx));
+		mEvent = mFac.createEndElement(rtx.getName(), new NamespaceIterator(rtx));
 		rtx.moveTo(nodeKey);
 	}
 
@@ -561,8 +559,7 @@ public final class StAXSerializer implements XMLEventReader {
 		private final long mNodeKey;
 
 		/** Factory to create nodes {@link XMLEventFactory}. */
-		private final XMLEventFactory mFac = XMLEventFactory
-				.newInstance();
+		private final XMLEventFactory mFac = XMLEventFactory.newInstance();
 
 		/**
 		 * Constructor.

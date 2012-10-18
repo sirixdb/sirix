@@ -45,59 +45,60 @@ import org.sirix.node.immutable.ImmutableText;
  * 
  */
 public interface Visitor {
-  /**
-   * Do something when visiting a {@link ImmutablePI}.
-   * 
-   * @param node
-   *          the {@link ImmutablePI}
-   */
-  VisitResult visit(@Nonnull final ImmutablePI node);
-  
-  /**
-   * Do something when visiting a {@link ImmutableComment}.
-   * 
-   * @param node
-   *          the {@link ImmutableComment}
-   */
-  VisitResult visit(@Nonnull final ImmutableComment node);
-	
-  /**
-   * Do something when visiting an {@link ImmutableElement}.
-   * 
-   * @param node
-   *          the {@link ImmutableElement}
-   */
-  VisitResult visit(@Nonnull final ImmutableElement node);
+	/**
+	 * Do something when visiting a {@link ImmutablePI}.
+	 * 
+	 * @param node
+	 *          the {@link ImmutablePI}
+	 */
+	VisitResult visit(@Nonnull final ImmutablePI node);
 
-  /**
-   * Do something when visiting a {@link ImmutableAttribute}.
-   * 
-   * @param node
-   *          the {@link ImmutableAttribute}
-   */
-  VisitResult visit(@Nonnull final ImmutableAttribute node);
+	/**
+	 * Do something when visiting a {@link ImmutableComment}.
+	 * 
+	 * @param node
+	 *          the {@link ImmutableComment}
+	 */
+	VisitResult visit(@Nonnull final ImmutableComment node);
 
-  /**ImmutableDocumentRoot
-   * Do something when visiting a {@link ImmutableNamespace}.
-   * 
-   * @param node
-   *          the {@link ImmutableNamespace}
-   */
-  VisitResult visit(@Nonnull final ImmutableNamespace node);
+	/**
+	 * Do something when visiting an {@link ImmutableElement}.
+	 * 
+	 * @param node
+	 *          the {@link ImmutableElement}
+	 */
+	VisitResult visit(@Nonnull final ImmutableElement node);
 
-  /**
-   * Do something when visiting a {@link ImmutableText}.
-   * 
-   * @param node
-   *          the {@link ImmutableText}
-   */
-  VisitResult visit(@Nonnull final ImmutableText node);
+	/**
+	 * Do something when visiting a {@link ImmutableAttribute}.
+	 * 
+	 * @param node
+	 *          the {@link ImmutableAttribute}
+	 */
+	VisitResult visit(@Nonnull final ImmutableAttribute node);
 
-  /**
-   * Do something when visiting the {@link ImmutableDocument}.
-   * 
-   * @param node
-   *          the {@link ImmutableDocument}
-   */
-  VisitResult visit(@Nonnull final ImmutableDocument node);
+	/**
+	 * ImmutableDocumentRoot Do something when visiting a
+	 * {@link ImmutableNamespace}.
+	 * 
+	 * @param node
+	 *          the {@link ImmutableNamespace}
+	 */
+	VisitResult visit(@Nonnull final ImmutableNamespace node);
+
+	/**
+	 * Do something when visiting a {@link ImmutableText}.
+	 * 
+	 * @param node
+	 *          the {@link ImmutableText}
+	 */
+	VisitResult visit(@Nonnull final ImmutableText node);
+
+	/**
+	 * Do something when visiting the {@link ImmutableDocument}.
+	 * 
+	 * @param node
+	 *          the {@link ImmutableDocument}
+	 */
+	VisitResult visit(@Nonnull final ImmutableDocument node);
 }

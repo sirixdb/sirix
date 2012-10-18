@@ -38,18 +38,18 @@ import javax.annotation.Nonnull;
  * 
  */
 public interface ValNode extends Node {
-  /**
-   * Return a byte array representation of the item's value.
-   * 
-   * @return the value of the node
-   */
-  byte[] getRawValue();
+	/**
+	 * Return a byte array representation of the item's value.
+	 * 
+	 * @return the value of the node
+	 */
+	byte[] getRawValue();
 
-  /**
-   * Setting the value key.
-   * 
-   * @param value
-   *          the value to be set
-   */
-  void setValue(@Nonnull byte[] value);
+	/**
+	 * Setting the value key.
+	 * 
+	 * @param value
+	 *          the value to be set
+	 */
+	void setValue(@Nonnull byte[] value);
 }

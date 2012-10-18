@@ -39,19 +39,19 @@ import org.sirix.node.Kind;
  */
 public class DocumentRootNodeFilter extends AbstractFilter {
 
-  /**
-   * Default constructor.
-   * 
-   * @param rtx
-   *          Transaction this filter is bound to.
-   */
-  public DocumentRootNodeFilter(final NodeReadTrx rtx) {
-    super(rtx);
-  }
+	/**
+	 * Default constructor.
+	 * 
+	 * @param rtx
+	 *          Transaction this filter is bound to.
+	 */
+	public DocumentRootNodeFilter(final NodeReadTrx rtx) {
+		super(rtx);
+	}
 
-  @Override
-  public final boolean filter() {
-    return getTrx().getKind() == Kind.DOCUMENT_ROOT;
-  }
+	@Override
+	public final boolean filter() {
+		return getTrx().getKind() == Kind.DOCUMENT_ROOT;
+	}
 
 }

@@ -38,21 +38,21 @@ import org.perfidix.result.BenchmarkResult;
  */
 public class ConcurrentBenchTestMain {
 
-  public static void main(String[] args) {
-    /*
-     * Get config settings from config class and add a class to test.
-     */
-    final Benchmark bench = new Benchmark(new ConcurrentBenchConfig());
-    bench.add(ConcurrentAxisTest.class);
+	public static void main(String[] args) {
+		/*
+		 * Get config settings from config class and add a class to test.
+		 */
+		final Benchmark bench = new Benchmark(new ConcurrentBenchConfig());
+		bench.add(ConcurrentAxisTest.class);
 
-    /*
-     * Start test.
-     */
-    final BenchmarkResult res = bench.run();
-    /*
-     * Output test results.
-     */
-    new TabularSummaryOutput().visitBenchmark(res);
-  }
+		/*
+		 * Start test.
+		 */
+		final BenchmarkResult res = bench.run();
+		/*
+		 * Output test results.
+		 */
+		new TabularSummaryOutput().visitBenchmark(res);
+	}
 
 }

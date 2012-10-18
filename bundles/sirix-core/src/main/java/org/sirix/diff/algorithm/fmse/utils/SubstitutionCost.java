@@ -40,9 +40,8 @@
 package org.sirix.diff.algorithm.fmse.utils;
 
 /**
- * Package: costfunctions Description: InterfaceSubstitutionCost is an interface for a cost function d(i,j).
- * Date:
- * 24-Mar-2004 Time: 13:26:21
+ * Package: costfunctions Description: InterfaceSubstitutionCost is an interface
+ * for a cost function d(i,j). Date: 24-Mar-2004 Time: 13:26:21
  * 
  * @author Sam Chapman <a href="http://www.dcs.shef.ac.uk/~sam/">Website</a>, <a
  *         href="mailto:sam@dcs.shef.ac.uk">Email</a>.
@@ -50,40 +49,41 @@ package org.sirix.diff.algorithm.fmse.utils;
  */
 public interface SubstitutionCost {
 
-  /**
-   * returns the name of the cost function.
-   * 
-   * @return the name of the cost function
-   */
-  public String getShortDescriptionString();
+	/**
+	 * returns the name of the cost function.
+	 * 
+	 * @return the name of the cost function
+	 */
+	public String getShortDescriptionString();
 
-  /**
-   * get cost between characters.
-   * 
-   * @param str1
-   *          - the string1 to evaluate the cost
-   * @param string1Index
-   *          - the index within the string1 to test
-   * @param str2
-   *          - the string2 to evaluate the cost
-   * @param string2Index
-   *          - the index within the string2 to test
-   * 
-   * @return the cost of a given subsitution d(i,j)
-   */
-  public float getCost(String str1, int string1Index, String str2, int string2Index);
+	/**
+	 * get cost between characters.
+	 * 
+	 * @param str1
+	 *          - the string1 to evaluate the cost
+	 * @param string1Index
+	 *          - the index within the string1 to test
+	 * @param str2
+	 *          - the string2 to evaluate the cost
+	 * @param string2Index
+	 *          - the index within the string2 to test
+	 * 
+	 * @return the cost of a given subsitution d(i,j)
+	 */
+	public float getCost(String str1, int string1Index, String str2,
+			int string2Index);
 
-  /**
-   * returns the maximum possible cost.
-   * 
-   * @return the maximum possible cost
-   */
-  public float getMaxCost();
+	/**
+	 * returns the maximum possible cost.
+	 * 
+	 * @return the maximum possible cost
+	 */
+	public float getMaxCost();
 
-  /**
-   * returns the minimum possible cost.
-   * 
-   * @return the minimum possible cost
-   */
-  public float getMinCost();
+	/**
+	 * returns the minimum possible cost.
+	 * 
+	 * @return the minimum possible cost
+	 */
+	public float getMinCost();
 }

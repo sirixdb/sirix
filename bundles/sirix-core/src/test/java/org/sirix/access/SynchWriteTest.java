@@ -49,120 +49,121 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 
 public class SynchWriteTest {
-  Exchanger<Boolean> threadsFinished = new Exchanger<Boolean>();
-  Exchanger<Boolean> verify = new Exchanger<Boolean>();
+	Exchanger<Boolean> threadsFinished = new Exchanger<Boolean>();
+	Exchanger<Boolean> verify = new Exchanger<Boolean>();
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    holder = Holder.generateWtx();
-    holder.getWtx().moveToDocumentRoot();
-    holder.getWtx().insertElementAsFirstChild(new QName(""));
-    holder.getWtx().insertElementAsRightSibling(new QName(""));
-    holder.getWtx().moveToLeftSibling();
-    holder.getWtx().insertElementAsFirstChild(new QName(""));
-    holder.getWtx().moveToParent();
-    holder.getWtx().moveToRightSibling();
-    holder.getWtx().insertElementAsFirstChild(new QName(""));
-    holder.getWtx().commit();
-    holder.getWtx().close();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		holder = Holder.generateWtx();
+		holder.getWtx().moveToDocumentRoot();
+		holder.getWtx().insertElementAsFirstChild(new QName(""));
+		holder.getWtx().insertElementAsRightSibling(new QName(""));
+		holder.getWtx().moveToLeftSibling();
+		holder.getWtx().insertElementAsFirstChild(new QName(""));
+		holder.getWtx().moveToParent();
+		holder.getWtx().moveToRightSibling();
+		holder.getWtx().insertElementAsFirstChild(new QName(""));
+		holder.getWtx().commit();
+		holder.getWtx().close();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.getSession().close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.getSession().close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  @Ignore
-  /**
-   * Two threads are launched which access the file concurrently, performing changes 
-   * that have to persist.
-   */
-  public void testConcurrentWrite() throws SirixException, InterruptedException, ExecutionException {
-    final Semaphore semaphore = new Semaphore(1);
-    final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-    final NodeWriteTrx wtx2 = holder.getSession().beginNodeWriteTrx();
-    final ExecutorService exec = Executors.newFixedThreadPool(2);
-    final Callable<Void> c1 = new Wtx1(wtx, semaphore);
-    final Callable<Void> c2 = new Wtx2(wtx2, semaphore);
-    final Future<Void> r1 = exec.submit(c1);
-    final Future<Void> r2 = exec.submit(c2);
-    exec.shutdown();
+	@Test
+	@Ignore
+	/**
+	 * Two threads are launched which access the file concurrently, performing changes 
+	 * that have to persist.
+	 */
+	public void testConcurrentWrite() throws SirixException,
+			InterruptedException, ExecutionException {
+		final Semaphore semaphore = new Semaphore(1);
+		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
+		final NodeWriteTrx wtx2 = holder.getSession().beginNodeWriteTrx();
+		final ExecutorService exec = Executors.newFixedThreadPool(2);
+		final Callable<Void> c1 = new Wtx1(wtx, semaphore);
+		final Callable<Void> c2 = new Wtx2(wtx2, semaphore);
+		final Future<Void> r1 = exec.submit(c1);
+		final Future<Void> r2 = exec.submit(c2);
+		exec.shutdown();
 
-    r1.get();
-    r2.get();
+		r1.get();
+		r2.get();
 
-    final NodeReadTrx rtx = holder.getSession().beginNodeWriteTrx();
-    Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
-    Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
-    Assert.assertFalse(rtx.moveToRightSibling().hasMoved());
-    Assert.assertTrue(rtx.moveToParent().hasMoved());
-    Assert.assertTrue(rtx.moveToRightSibling().hasMoved());
-    Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
-    Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
-    rtx.close();
-  }
+		final NodeReadTrx rtx = holder.getSession().beginNodeWriteTrx();
+		Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
+		Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
+		Assert.assertFalse(rtx.moveToRightSibling().hasMoved());
+		Assert.assertTrue(rtx.moveToParent().hasMoved());
+		Assert.assertTrue(rtx.moveToRightSibling().hasMoved());
+		Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
+		Assert.assertTrue(rtx.moveToFirstChild().hasMoved());
+		rtx.close();
+	}
 }
 
 class Wtx1 implements Callable<Void> {
-  final NodeWriteTrx wtx;
-  final Semaphore mSemaphore;
+	final NodeWriteTrx wtx;
+	final Semaphore mSemaphore;
 
-  Wtx1(final NodeWriteTrx swtx, final Semaphore semaphore) {
-    this.wtx = swtx;
-    mSemaphore = semaphore;
-  }
+	Wtx1(final NodeWriteTrx swtx, final Semaphore semaphore) {
+		this.wtx = swtx;
+		mSemaphore = semaphore;
+	}
 
-  @Override
-  public Void call() throws Exception {
-    wtx.moveToFirstChild();
-    wtx.moveToFirstChild();
-    mSemaphore.acquire();
-    wtx.insertElementAsFirstChild(new QName("a"));
-    mSemaphore.release();
-    mSemaphore.acquire();
-    wtx.insertElementAsRightSibling(new QName("a"));
-    mSemaphore.release();
-    mSemaphore.acquire();
-    wtx.moveToLeftSibling();
-    wtx.remove();
-    mSemaphore.release();
-    wtx.commit();
-    wtx.close();
-    return null;
-  }
+	@Override
+	public Void call() throws Exception {
+		wtx.moveToFirstChild();
+		wtx.moveToFirstChild();
+		mSemaphore.acquire();
+		wtx.insertElementAsFirstChild(new QName("a"));
+		mSemaphore.release();
+		mSemaphore.acquire();
+		wtx.insertElementAsRightSibling(new QName("a"));
+		mSemaphore.release();
+		mSemaphore.acquire();
+		wtx.moveToLeftSibling();
+		wtx.remove();
+		mSemaphore.release();
+		wtx.commit();
+		wtx.close();
+		return null;
+	}
 
 }
 
 class Wtx2 implements Callable<Void> {
 
-  final NodeWriteTrx wtx;
-  final Semaphore mSemaphore;
+	final NodeWriteTrx wtx;
+	final Semaphore mSemaphore;
 
-  Wtx2(final NodeWriteTrx swtx, final Semaphore semaphore) {
-    this.wtx = swtx;
-    mSemaphore = semaphore;
-  }
+	Wtx2(final NodeWriteTrx swtx, final Semaphore semaphore) {
+		this.wtx = swtx;
+		mSemaphore = semaphore;
+	}
 
-  @Override
-  public Void call() throws Exception {
-    wtx.moveToFirstChild();
-    wtx.moveToRightSibling();
-    wtx.moveToFirstChild();
-    mSemaphore.acquire();
-    wtx.insertElementAsFirstChild(new QName("a"));
-    mSemaphore.release();
-    mSemaphore.acquire();
-    wtx.moveToParent();
-    wtx.insertElementAsFirstChild(new QName("a"));
-    mSemaphore.release();
-    wtx.commit();
-    wtx.close();
-    return null;
-  }
+	@Override
+	public Void call() throws Exception {
+		wtx.moveToFirstChild();
+		wtx.moveToRightSibling();
+		wtx.moveToFirstChild();
+		mSemaphore.acquire();
+		wtx.insertElementAsFirstChild(new QName("a"));
+		mSemaphore.release();
+		mSemaphore.acquire();
+		wtx.moveToParent();
+		wtx.insertElementAsFirstChild(new QName("a"));
+		mSemaphore.release();
+		wtx.commit();
+		wtx.close();
+		return null;
+	}
 
 }

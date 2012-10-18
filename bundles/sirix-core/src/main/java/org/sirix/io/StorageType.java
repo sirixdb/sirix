@@ -44,51 +44,56 @@ import org.sirix.io.file.FileStorage;
  */
 public enum StorageType {
 	/** {@link RandomAccessFile} backend. */
-  FILE {
-    @Override
-    public Storage getInstance(
-      final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {
-      return new FileStorage(pResourceConf.mPath, new ByteHandlePipeline(
-        pResourceConf.mByteHandler));
-    }
-  },
+	FILE {
+		@Override
+		public Storage getInstance(
+				final @Nonnull ResourceConfiguration pResourceConf)
+				throws SirixIOException {
+			return new FileStorage(pResourceConf.mPath, new ByteHandlePipeline(
+					pResourceConf.mByteHandler));
+		}
+	},
 
-  /** BerkeleyDB backend. */
-  BERKELEY_DB {
-    @Override
-    public Storage getInstance(
-      final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {
-      return new BerkeleyStorage(pResourceConf.mPath, new ByteHandlePipeline(
-        pResourceConf.mByteHandler));
-    }
-  };
+	/** BerkeleyDB backend. */
+	BERKELEY_DB {
+		@Override
+		public Storage getInstance(
+				final @Nonnull ResourceConfiguration pResourceConf)
+				throws SirixIOException {
+			return new BerkeleyStorage(pResourceConf.mPath, new ByteHandlePipeline(
+					pResourceConf.mByteHandler));
+		}
+	};
 
-  /**
-   * Get an instance of the storage backend.
-   * 
-   * @param pResourceConf
-   *          {@link ResourceConfiguration} reference
-   * @return instance of a storage backend specified within the {@link ResourceConfiguration}
-   * @throws SirixIOException
-   *           if an IO-error occured
-   */
-  public abstract Storage getInstance(
-    final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException;
+	/**
+	 * Get an instance of the storage backend.
+	 * 
+	 * @param pResourceConf
+	 *          {@link ResourceConfiguration} reference
+	 * @return instance of a storage backend specified within the
+	 *         {@link ResourceConfiguration}
+	 * @throws SirixIOException
+	 *           if an IO-error occured
+	 */
+	public abstract Storage getInstance(
+			final @Nonnull ResourceConfiguration pResourceConf)
+			throws SirixIOException;
 
-  /**
-   * Factory method to retrieve suitable {@link Storage} instances based upon
-   * the suitable {@link ResourceConfiguration}.
-   * 
-   * @param pResourceConf
-   *          determining the storage
-   * @return an implementation of the {@link Storage} interface
-   * @throws SirixIOException
-   *           if an IO-error occurs
-   * @throws NullPointerException
-   *           if {@code pResourceConf} is {@code null}
-   */
-  public static final Storage getStorage(
-    final @Nonnull ResourceConfiguration pResourceConf) throws SirixIOException {
-    return pResourceConf.mStorage.getInstance(pResourceConf);
-  }
+	/**
+	 * Factory method to retrieve suitable {@link Storage} instances based upon
+	 * the suitable {@link ResourceConfiguration}.
+	 * 
+	 * @param pResourceConf
+	 *          determining the storage
+	 * @return an implementation of the {@link Storage} interface
+	 * @throws SirixIOException
+	 *           if an IO-error occurs
+	 * @throws NullPointerException
+	 *           if {@code pResourceConf} is {@code null}
+	 */
+	public static final Storage getStorage(
+			final @Nonnull ResourceConfiguration pResourceConf)
+			throws SirixIOException {
+		return pResourceConf.mStorage.getInstance(pResourceConf);
+	}
 }

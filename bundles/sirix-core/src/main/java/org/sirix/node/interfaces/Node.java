@@ -42,75 +42,75 @@ import org.sirix.api.visitor.Visitor;
  */
 public interface Node extends NodeBase {
 
-  /**
-   * Gets value type of the item.
-   * 
-   * @return value type
-   */
-  int getTypeKey();
+	/**
+	 * Gets value type of the item.
+	 * 
+	 * @return value type
+	 */
+	int getTypeKey();
 
-  /**
-   * Setting the type key.
-   * 
-   * @param typeKey
-   *          the type to set
-   */
-  void setTypeKey(int typeKey);
-  
-  /**
-   * Determines if {@code pOther} is the same item.
-   * 
-   * @param other
-   *          the other node
-   * @return {@code true}, if it is the same item, {@code false} otherwise
-   */
-  boolean isSameItem(@Nullable Node other);
-  
-  /**
-   * Accept a visitor and use double dispatching to invoke the visitor method.
-   * 
-   * @param visitor
-   *          implementation of the {@link Visitor} interface
-   * @return the result of a visit
-   */
-  VisitResult acceptVisitor(@Nonnull Visitor visitor);
-  
-  /**
-   * Setting the actual hash of the structure. The hash of one node should
-   * have the entire integrity of the related subtree.
-   * 
-   * @param pHash
-   *          hash to be set for this node
-   * 
-   */
-  void setHash(long hash);
+	/**
+	 * Setting the type key.
+	 * 
+	 * @param typeKey
+	 *          the type to set
+	 */
+	void setTypeKey(int typeKey);
 
-  /**
-   * Getting the persistent stored hash.
-   * 
-   * @return the hash of this node
-   */
-  long getHash();
+	/**
+	 * Determines if {@code pOther} is the same item.
+	 * 
+	 * @param other
+	 *          the other node
+	 * @return {@code true}, if it is the same item, {@code false} otherwise
+	 */
+	boolean isSameItem(@Nullable Node other);
 
-  /**
-   * Setting the parent key.
-   * 
-   * @param pNodeKey
-   *          the parent to be set
-   */
-  void setParentKey(long nodeKey);
-  
-  /**
-   * Gets key of the context item's parent.
-   * 
-   * @return parent key
-   */
-  long getParentKey();
+	/**
+	 * Accept a visitor and use double dispatching to invoke the visitor method.
+	 * 
+	 * @param visitor
+	 *          implementation of the {@link Visitor} interface
+	 * @return the result of a visit
+	 */
+	VisitResult acceptVisitor(@Nonnull Visitor visitor);
 
-  /**
-   * Declares, whether the item has a parent.
-   * 
-   * @return {@code true}, if item has a parent, {@code false} otherwise
-   */
-  boolean hasParent();
+	/**
+	 * Setting the actual hash of the structure. The hash of one node should have
+	 * the entire integrity of the related subtree.
+	 * 
+	 * @param pHash
+	 *          hash to be set for this node
+	 * 
+	 */
+	void setHash(long hash);
+
+	/**
+	 * Getting the persistent stored hash.
+	 * 
+	 * @return the hash of this node
+	 */
+	long getHash();
+
+	/**
+	 * Setting the parent key.
+	 * 
+	 * @param pNodeKey
+	 *          the parent to be set
+	 */
+	void setParentKey(long nodeKey);
+
+	/**
+	 * Gets key of the context item's parent.
+	 * 
+	 * @return parent key
+	 */
+	long getParentKey();
+
+	/**
+	 * Declares, whether the item has a parent.
+	 * 
+	 * @return {@code true}, if item has a parent, {@code false} otherwise
+	 */
+	boolean hasParent();
 }

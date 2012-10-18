@@ -38,7 +38,8 @@ import org.sirix.utils.TypedValue;
  * <h1>FNPosition</h1>
  * <p>
  * IAxis that represents the function fn:position specified in <a
- * href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0 Functions and Operators</a>.
+ * href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0
+ * Functions and Operators</a>.
  * </p>
  * <p>
  * The function returns position of the item in the expression result set.
@@ -46,42 +47,43 @@ import org.sirix.utils.TypedValue;
  */
 public class FNPosition extends AbstractFunction {
 
-  /**
-   * Constructor.
-   * 
-   * Initializes internal state and do a statical analysis concerning the
-   * function's arguments.
-   * 
-   * @param rtx
-   *          Transaction to operate on
-   * @param args
-   *          List of function arguments
-   * @param min
-   *          min number of allowed function arguments
-   * @param max
-   *          max number of allowed function arguments
-   * @param returnType
-   *          the type that the function's result will have
-   * @throws SirixXPathException
-   *           if function check fails
-   */
-  public FNPosition(final NodeReadTrx rtx, final List<Axis> args, final int min, final int max,
-    final int returnType) throws SirixXPathException {
-    super(rtx, args, min, max, returnType);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * Initializes internal state and do a statical analysis concerning the
+	 * function's arguments.
+	 * 
+	 * @param rtx
+	 *          Transaction to operate on
+	 * @param args
+	 *          List of function arguments
+	 * @param min
+	 *          min number of allowed function arguments
+	 * @param max
+	 *          max number of allowed function arguments
+	 * @param returnType
+	 *          the type that the function's result will have
+	 * @throws SirixXPathException
+	 *           if function check fails
+	 */
+	public FNPosition(final NodeReadTrx rtx, final List<Axis> args,
+			final int min, final int max, final int returnType)
+			throws SirixXPathException {
+		super(rtx, args, min, max, returnType);
+	}
 
-  @Override
-  protected byte[] computeResult() {
-    Integer position = 0;
-    final long currentNode = getTrx().getNodeKey();
-    getTrx().moveToParent();
-    getTrx().moveToFirstChild();
-    do {
-      position++;
-      getTrx().moveToRightSibling();
-    } while (getTrx().getNodeKey() != currentNode);
+	@Override
+	protected byte[] computeResult() {
+		Integer position = 0;
+		final long currentNode = getTrx().getNodeKey();
+		getTrx().moveToParent();
+		getTrx().moveToFirstChild();
+		do {
+			position++;
+			getTrx().moveToRightSibling();
+		} while (getTrx().getNodeKey() != currentNode);
 
-    return TypedValue.getBytes(position.toString());
-  }
+		return TypedValue.getBytes(position.toString());
+	}
 
 }

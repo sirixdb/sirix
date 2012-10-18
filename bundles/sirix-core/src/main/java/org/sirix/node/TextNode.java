@@ -52,7 +52,8 @@ import com.google.common.base.Objects;
  * Node representing a text node.
  * </p>
  */
-public final class TextNode extends AbstructStructForwardingNode implements ValNode {
+public final class TextNode extends AbstructStructForwardingNode implements
+		ValNode {
 
 	/** Delegate for common value node information. */
 	private final ValNodeDelegate mValDel;
@@ -160,7 +161,7 @@ public final class TextNode extends AbstructStructForwardingNode implements ValN
 				.add("node delegate", mStructNodeDel.getNodeDelegate())
 				.add("value delegate", mValDel).toString();
 	}
-	
+
 	public ValNodeDelegate getValNodeDelegate() {
 		return mValDel;
 	}

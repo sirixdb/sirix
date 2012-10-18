@@ -147,8 +147,8 @@ public final class ModificationVisitor extends AbstractVisitor {
 		try {
 			final long nodeKey = mWtx.getNodeKey();
 			boolean removeTextNode = false;
-			if (mWtx.getLeftSiblingKind() == Kind.TEXT &&
-					mWtx.getRightSiblingKind() == Kind.TEXT) {
+			if (mWtx.getLeftSiblingKind() == Kind.TEXT
+					&& mWtx.getRightSiblingKind() == Kind.TEXT) {
 				removeTextNode = true;
 			}
 			mWtx.moveTo(nodeKey);

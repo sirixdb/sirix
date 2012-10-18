@@ -61,7 +61,7 @@ public class TextValue implements Comparable<NodeBase>, NodeBase {
 		final TextValue value = (TextValue) other;
 		return new String(mValue).compareTo(new String(value.mValue));
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return Arrays.hashCode(mValue);

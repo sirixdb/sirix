@@ -156,7 +156,8 @@ public final class WikipediaImport implements Import<StartElement> {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
 
-		final DatabaseConfiguration config = new DatabaseConfiguration(sirixDatabase);
+		final DatabaseConfiguration config = new DatabaseConfiguration(
+				sirixDatabase);
 		Databases.createDatabase(config);
 		mDatabase = Databases.openDatabase(sirixDatabase);
 		mDatabase.createResource(new ResourceConfiguration.Builder("shredded",
@@ -202,8 +203,7 @@ public final class WikipediaImport implements Import<StartElement> {
 	 *          </dl>
 	 */
 	@Override
-	public void importData(final DateBy dateRange,
-			final List<StartElement> data) {
+	public void importData(final DateBy dateRange, final List<StartElement> data) {
 		// Some checks.
 		checkNotNull(dateRange);
 		checkNotNull(data);
@@ -366,8 +366,8 @@ public final class WikipediaImport implements Import<StartElement> {
 	 */
 	private void parseStartTag(final XMLEvent startTagEvent,
 			final StartElement timestamp, final StartElement wikiPage,
-			final StartElement revision, final StartElement pageID, final DateBy dateRange)
-			throws XMLStreamException, SirixException {
+			final StartElement revision, final StartElement pageID,
+			final DateBy dateRange) throws XMLStreamException, SirixException {
 		XMLEvent event = startTagEvent;
 
 		if (checkStAXStartElement(event.asStartElement(), pageID)) {
@@ -435,8 +435,7 @@ public final class WikipediaImport implements Import<StartElement> {
 	 *          the timestamp to parse
 	 * @return parsed and truncated String
 	 */
-	private String parseTimestamp(final DateBy dateRange,
-			final String timestamp) {
+	private String parseTimestamp(final DateBy dateRange, final String timestamp) {
 		final StringBuilder sb = new StringBuilder();
 
 		switch (dateRange) {
@@ -491,8 +490,7 @@ public final class WikipediaImport implements Import<StartElement> {
 		if ("".equals(name.getPrefix())) {
 			retVal.append(name.getLocalPart());
 		} else {
-			retVal.append(name.getPrefix()).append(":")
-					.append(name.getLocalPart());
+			retVal.append(name.getPrefix()).append(":").append(name.getLocalPart());
 		}
 		return retVal.toString();
 	}

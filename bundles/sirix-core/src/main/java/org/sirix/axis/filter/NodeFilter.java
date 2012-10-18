@@ -53,8 +53,7 @@ public class NodeFilter extends AbstractFilter {
 
 	@Override
 	public final boolean filter() {
-		return (getTrx().getKind() == Kind.ELEMENT || getTrx()
-				.getKind() == Kind.TEXT);
+		return (getTrx().getKind() == Kind.ELEMENT || getTrx().getKind() == Kind.TEXT);
 	}
 
 }

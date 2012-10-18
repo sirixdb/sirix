@@ -42,103 +42,107 @@ import org.sirix.utils.TypedValue;
 /**
  * <h1>FNString</h1>
  * <p>
- * IAxis that represents the function fn:count specified in <a href="http://www.w3.org/TR/xquery-operators/">
- * XQuery 1.0 and XPath 2.0 Functions and Operators</a>.
+ * IAxis that represents the function fn:count specified in <a
+ * href="http://www.w3.org/TR/xquery-operators/"> XQuery 1.0 and XPath 2.0
+ * Functions and Operators</a>.
  * </p>
  * <p>
- * The function returns the string value of the current node or the argument nodes.
+ * The function returns the string value of the current node or the argument
+ * nodes.
  * </p>
  */
 public class FNString extends AbstractFunction {
 
-  /**
-   * Constructor. Initializes internal state and do a statical analysis
-   * concerning the function's arguments.
-   * 
-   * @param rtx
-   *          Transaction to operate on
-   * @param args
-   *          List of function arguments
-   * @param min
-   *          min number of allowed function arguments
-   * @param max
-   *          max number of allowed function arguments
-   * @param returnType
-   *          the type that the function's result will have
-   * @throws SirixXPathException
-   *           if function check fails
-   */
-  public FNString(final NodeReadTrx rtx, final List<Axis> args, final int min, final int max,
-    final int returnType) throws SirixXPathException {
+	/**
+	 * Constructor. Initializes internal state and do a statical analysis
+	 * concerning the function's arguments.
+	 * 
+	 * @param rtx
+	 *          Transaction to operate on
+	 * @param args
+	 *          List of function arguments
+	 * @param min
+	 *          min number of allowed function arguments
+	 * @param max
+	 *          max number of allowed function arguments
+	 * @param returnType
+	 *          the type that the function's result will have
+	 * @throws SirixXPathException
+	 *           if function check fails
+	 */
+	public FNString(final NodeReadTrx rtx, final List<Axis> args, final int min,
+			final int max, final int returnType) throws SirixXPathException {
 
-    super(rtx, args, min, max, returnType);
-  }
+		super(rtx, args, min, max, returnType);
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  protected byte[] computeResult() {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected byte[] computeResult() {
 
-    String value;
+		String value;
 
-    if (getArgs().size() == 0) {
-      value = getStrValue();
-    } else {
-      final Axis axis = getArgs().get(0);
-      final StringBuilder val = new StringBuilder();
-      while (axis.hasNext()) {
-        axis.next();
-        String nodeValue = getStrValue();
-        if (!nodeValue.equals("")) {
-          if (val.length() > 0) {
-            val.append(" ");
-          }
-          val.append(nodeValue);
-        }
-      }
-      value = val.toString();
-    }
+		if (getArgs().size() == 0) {
+			value = getStrValue();
+		} else {
+			final Axis axis = getArgs().get(0);
+			final StringBuilder val = new StringBuilder();
+			while (axis.hasNext()) {
+				axis.next();
+				String nodeValue = getStrValue();
+				if (!nodeValue.equals("")) {
+					if (val.length() > 0) {
+						val.append(" ");
+					}
+					val.append(nodeValue);
+				}
+			}
+			value = val.toString();
+		}
 
-    return TypedValue.getBytes(value);
+		return TypedValue.getBytes(value);
 
-  }
+	}
 
-  /**
-   * Returns the string value of an item. If the item is the empty sequence,
-   * the zero-length string is returned. If the item is a node, the function
-   * returns the string-value of the node, as obtained using the
-   * dm:string-value accessor defined in the <a
-   * href="http://www.w3.org/TR/xpath-datamodel/#dm-string-value">Section 5.13
-   * string-value AccessorDM</a>. If the item is an atomic value, then the
-   * function returns the same string as is returned by the expression " $arg
-   * cast as xs:string " (see 17 Casting).
-   * 
-   * @return the context item's string value.
-   */
-  private String getStrValue() {
-    final StringBuilder value = new StringBuilder();
+	/**
+	 * Returns the string value of an item. If the item is the empty sequence, the
+	 * zero-length string is returned. If the item is a node, the function returns
+	 * the string-value of the node, as obtained using the dm:string-value
+	 * accessor defined in the <a
+	 * href="http://www.w3.org/TR/xpath-datamodel/#dm-string-value">Section 5.13
+	 * string-value AccessorDM</a>. If the item is an atomic value, then the
+	 * function returns the same string as is returned by the expression " $arg
+	 * cast as xs:string " (see 17 Casting).
+	 * 
+	 * @return the context item's string value.
+	 */
+	private String getStrValue() {
+		final StringBuilder value = new StringBuilder();
 
-    if (getTrx().getNodeKey() >= 0) { // is node
-      if (getTrx().getKind() == Kind.ATTRIBUTE || getTrx().getKind() == Kind.TEXT) {
-        value.append(getTrx().getValue());
-      } else if (getTrx().getKind() == Kind.DOCUMENT_ROOT || getTrx().getKind() == Kind.ELEMENT) {
-        final Axis axis =
-          new FilterAxis(new DescendantAxis(getTrx()), new TextFilter(getTrx()));
-        while (axis.hasNext()) {
-          axis.next();
-          if (value.length() > 0) {
-            value.append(" ");
-          }
-          value.append(getTrx().getValue());
-        }
-      } else {
-        throw new IllegalStateException();
-      }
-    } else {
-      value.append(getTrx().getValue());
-    }
+		if (getTrx().getNodeKey() >= 0) { // is node
+			if (getTrx().getKind() == Kind.ATTRIBUTE
+					|| getTrx().getKind() == Kind.TEXT) {
+				value.append(getTrx().getValue());
+			} else if (getTrx().getKind() == Kind.DOCUMENT_ROOT
+					|| getTrx().getKind() == Kind.ELEMENT) {
+				final Axis axis = new FilterAxis(new DescendantAxis(getTrx()),
+						new TextFilter(getTrx()));
+				while (axis.hasNext()) {
+					axis.next();
+					if (value.length() > 0) {
+						value.append(" ");
+					}
+					value.append(getTrx().getValue());
+				}
+			} else {
+				throw new IllegalStateException();
+			}
+		} else {
+			value.append(getTrx().getValue());
+		}
 
-    return value.toString();
-  }
+		return value.toString();
+	}
 }

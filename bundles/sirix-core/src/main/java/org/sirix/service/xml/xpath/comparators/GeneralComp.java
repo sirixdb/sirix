@@ -42,161 +42,164 @@ import org.sirix.service.xml.xpath.types.Type;
 /**
  * <h1>GeneralComp</h1>
  * <p>
- * General comparisons are existentially quantified comparisons that may be applied to operand sequences of
- * any length.
+ * General comparisons are existentially quantified comparisons that may be
+ * applied to operand sequences of any length.
  * </p>
  */
 public class GeneralComp extends AbstractComparator {
 
-  /**
-   * Constructor. Initializes the internal state.
-   * 
-   * @param rtx
-   *          Exclusive (immutable) trx to iterate with.
-   * @param mOperand1
-   *          First value of the comparison
-   * @param mOperand2
-   *          Second value of the comparison
-   * @param mCom
-   *          comparison kind
-   */
-  public GeneralComp(final NodeReadTrx rtx, final Axis mOperand1, final Axis mOperand2, final CompKind mCom) {
+	/**
+	 * Constructor. Initializes the internal state.
+	 * 
+	 * @param rtx
+	 *          Exclusive (immutable) trx to iterate with.
+	 * @param mOperand1
+	 *          First value of the comparison
+	 * @param mOperand2
+	 *          Second value of the comparison
+	 * @param mCom
+	 *          comparison kind
+	 */
+	public GeneralComp(final NodeReadTrx rtx, final Axis mOperand1,
+			final Axis mOperand2, final CompKind mCom) {
 
-    super(rtx, mOperand1, mOperand2, mCom);
-  }
+		super(rtx, mOperand1, mOperand2, mCom);
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2)
-    throws SirixXPathException {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected boolean compare(final AtomicValue[] mOperand1,
+			final AtomicValue[] mOperand2) throws SirixXPathException {
 
-    assert mOperand1.length >= 1 && mOperand2.length >= 1;
+		assert mOperand1.length >= 1 && mOperand2.length >= 1;
 
-    for (AtomicValue op1 : mOperand1) {
-      for (AtomicValue op2 : mOperand2) {
-        String value1 = new String(op1.getRawValue());
-        String value2 = new String(op2.getRawValue());
-        if (getCompKind().compare(value1, value2, getType(op1.getTypeKey(), op2.getTypeKey()))) {
-          return true;
-        }
-      }
-    }
+		for (AtomicValue op1 : mOperand1) {
+			for (AtomicValue op2 : mOperand2) {
+				String value1 = new String(op1.getRawValue());
+				String value2 = new String(op2.getRawValue());
+				if (getCompKind().compare(value1, value2,
+						getType(op1.getTypeKey(), op2.getTypeKey()))) {
+					return true;
+				}
+			}
+		}
 
-    return false;
-  }
+		return false;
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  protected AtomicValue[] atomize(final Axis mOperand) {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected AtomicValue[] atomize(final Axis mOperand) {
 
-    final NodeReadTrx rtx = getTrx();
-    final List<AtomicValue> op = new ArrayList<AtomicValue>();
-    AtomicValue atomized;
-    // cast to double, if compatible with XPath 1.0 and <, >, >=, <=
-    final boolean convert = !(!XPATH_10_COMP || getCompKind() == CompKind.EQ || getCompKind() == CompKind.EQ);
+		final NodeReadTrx rtx = getTrx();
+		final List<AtomicValue> op = new ArrayList<AtomicValue>();
+		AtomicValue atomized;
+		// cast to double, if compatible with XPath 1.0 and <, >, >=, <=
+		final boolean convert = !(!XPATH_10_COMP || getCompKind() == CompKind.EQ || getCompKind() == CompKind.EQ);
 
-    boolean first = true;
-    do {
-      if (first) {
-        first = false;
-      } else {
-        mOperand.next();
-      }
-      if (convert) { // cast to double
-        Function.fnnumber(rtx);
-      }
-      atomized = new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey());
-      op.add(atomized);
-    } while (mOperand.hasNext());
+		boolean first = true;
+		do {
+			if (first) {
+				first = false;
+			} else {
+				mOperand.next();
+			}
+			if (convert) { // cast to double
+				Function.fnnumber(rtx);
+			}
+			atomized = new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey());
+			op.add(atomized);
+		} while (mOperand.hasNext());
 
-    return op.toArray(new AtomicValue[op.size()]);
-  }
+		return op.toArray(new AtomicValue[op.size()]);
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  protected Type getType(final int mKey1, final int mKey2) throws SirixXPathException {
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	protected Type getType(final int mKey1, final int mKey2)
+			throws SirixXPathException {
 
-    final Type mType1 = Type.getType(mKey1).getPrimitiveBaseType();
-    final Type mType2 = Type.getType(mKey2).getPrimitiveBaseType();
+		final Type mType1 = Type.getType(mKey1).getPrimitiveBaseType();
+		final Type mType2 = Type.getType(mKey2).getPrimitiveBaseType();
 
-    if (XPATH_10_COMP) {
-      if (mType1.isNumericType() || mType2.isNumericType()) {
-        return Type.DOUBLE;
-      }
+		if (XPATH_10_COMP) {
+			if (mType1.isNumericType() || mType2.isNumericType()) {
+				return Type.DOUBLE;
+			}
 
-      if (mType1 == Type.STRING || mType2 == Type.STRING
-        || (mType1 == Type.UNTYPED_ATOMIC && mType2 == Type.UNTYPED_ATOMIC)) {
-        return Type.STRING;
-      }
+			if (mType1 == Type.STRING || mType2 == Type.STRING
+					|| (mType1 == Type.UNTYPED_ATOMIC && mType2 == Type.UNTYPED_ATOMIC)) {
+				return Type.STRING;
+			}
 
-      if (mType1 == Type.UNTYPED_ATOMIC || mType2 == Type.UNTYPED_ATOMIC) {
-        return Type.UNTYPED_ATOMIC;
+			if (mType1 == Type.UNTYPED_ATOMIC || mType2 == Type.UNTYPED_ATOMIC) {
+				return Type.UNTYPED_ATOMIC;
 
-      }
+			}
 
-    } else {
-      if (mType1 == Type.UNTYPED_ATOMIC) {
-        switch (mType2) {
-        case UNTYPED_ATOMIC:
-        case STRING:
-          return Type.STRING;
-        case INTEGER:
-        case DECIMAL:
-        case FLOAT:
-        case DOUBLE:
-          return Type.DOUBLE;
+		} else {
+			if (mType1 == Type.UNTYPED_ATOMIC) {
+				switch (mType2) {
+				case UNTYPED_ATOMIC:
+				case STRING:
+					return Type.STRING;
+				case INTEGER:
+				case DECIMAL:
+				case FLOAT:
+				case DOUBLE:
+					return Type.DOUBLE;
 
-        default:
-          return mType2;
-        }
-      }
+				default:
+					return mType2;
+				}
+			}
 
-      if (mType2 == Type.UNTYPED_ATOMIC) {
-        switch (mType1) {
-        case UNTYPED_ATOMIC:
-        case STRING:
-          return Type.STRING;
-        case INTEGER:
-        case DECIMAL:
-        case FLOAT:
-        case DOUBLE:
-          return Type.DOUBLE;
+			if (mType2 == Type.UNTYPED_ATOMIC) {
+				switch (mType1) {
+				case UNTYPED_ATOMIC:
+				case STRING:
+					return Type.STRING;
+				case INTEGER:
+				case DECIMAL:
+				case FLOAT:
+				case DOUBLE:
+					return Type.DOUBLE;
 
-        default:
-          return mType1;
-        }
-      }
+				default:
+					return mType1;
+				}
+			}
 
-    }
+		}
 
-    return Type.getLeastCommonType(mType1, mType2);
+		return Type.getLeastCommonType(mType1, mType2);
 
-  }
+	}
 
-  // protected void hook(final AtomicValue[] operand1, final AtomicValue[]
-  // operand2) {
-  //
-  // if (operand1.length == 1
-  // && operand1[0].getTypeKey() == getTransaction()
-  // .keyForName("xs:boolean")) {
-  // operand2 = new AtomicValue[1];
-  // getOperand2().reset(startKey);
-  // operand2[0] = new AtomicValue(Function.ebv(getOperand1()));
-  // } else {
-  // if (operand2.length == 1
-  // && operand2[0].getTypeKey() == getTransaction().keyForName(
-  // "xs:boolean")) {
-  // operand1 = new AtomicValue[1];
-  // getOperand1().reset(startKey);
-  // operand1[0] = new AtomicValue(Function.ebv(getOperand2()));
-  // }
-  // }
-  // }
+	// protected void hook(final AtomicValue[] operand1, final AtomicValue[]
+	// operand2) {
+	//
+	// if (operand1.length == 1
+	// && operand1[0].getTypeKey() == getTransaction()
+	// .keyForName("xs:boolean")) {
+	// operand2 = new AtomicValue[1];
+	// getOperand2().reset(startKey);
+	// operand2[0] = new AtomicValue(Function.ebv(getOperand1()));
+	// } else {
+	// if (operand2.length == 1
+	// && operand2[0].getTypeKey() == getTransaction().keyForName(
+	// "xs:boolean")) {
+	// operand1 = new AtomicValue[1];
+	// getOperand1().reset(startKey);
+	// operand1[0] = new AtomicValue(Function.ebv(getOperand2()));
+	// }
+	// }
+	// }
 
 }

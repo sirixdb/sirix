@@ -69,7 +69,7 @@ public class NodePage implements Page {
 
 	/** {@link PageDelegate} reference. */
 	private final int mRevision;
-	
+
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
 
@@ -126,7 +126,7 @@ public class NodePage implements Page {
 	 *          node key
 	 * @return node with given node key, or {@code null} if not present
 	 * @throws IllegalArgumentException
-	 * 					if {@code key < 0}
+	 *           if {@code key < 0}
 	 */
 	public NodeBase getNode(final @Nonnegative long key) {
 		checkArgument(key >= 0, "pKey must not be negative!");
@@ -220,7 +220,7 @@ public class NodePage implements Page {
 	public PageReference getReference(int offset) {
 		throw new UnsupportedOperationException();
 	}
-	
+
 	@Override
 	public boolean isDirty() {
 		return mIsDirty;

@@ -39,42 +39,43 @@ import org.sirix.node.ElementNode;
 
 public class AttributeAndNamespaceTest {
 
-  private Holder holder;
+	private Holder holder;
 
-  @Before
-  public void setUp() throws SirixException {
-    TestHelper.deleteEverything();
-    TestHelper.createTestDocument();
-    holder = Holder.generateRtx();
-  }
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
+		holder = Holder.generateRtx();
+	}
 
-  @After
-  public void tearDown() throws SirixException {
-    holder.close();
-    TestHelper.closeEverything();
-  }
+	@After
+	public void tearDown() throws SirixException {
+		holder.close();
+		TestHelper.closeEverything();
+	}
 
-  @Test
-  public void testAttribute() throws SirixException {
-    holder.getRtx().moveTo(1L);
-    assertEquals(1, holder.getRtx().getAttributeCount());
-    holder.getRtx().moveToAttribute(0);
-    assertEquals("i", holder.getRtx().getName().getLocalPart());
+	@Test
+	public void testAttribute() throws SirixException {
+		holder.getRtx().moveTo(1L);
+		assertEquals(1, holder.getRtx().getAttributeCount());
+		holder.getRtx().moveToAttribute(0);
+		assertEquals("i", holder.getRtx().getName().getLocalPart());
 
-    holder.getRtx().moveTo(9L);
-    assertEquals(1, holder.getRtx().getAttributeCount());
-    holder.getRtx().moveToAttribute(0);
-    assertEquals("p:x", new StringBuilder(holder.getRtx().getName().getPrefix()).append(":")
-      .append(holder.getRtx().getName().getLocalPart()).toString());
-    assertEquals("ns", holder.getRtx().getName().getNamespaceURI());
-  }
+		holder.getRtx().moveTo(9L);
+		assertEquals(1, holder.getRtx().getAttributeCount());
+		holder.getRtx().moveToAttribute(0);
+		assertEquals("p:x",
+				new StringBuilder(holder.getRtx().getName().getPrefix()).append(":")
+						.append(holder.getRtx().getName().getLocalPart()).toString());
+		assertEquals("ns", holder.getRtx().getName().getNamespaceURI());
+	}
 
-  @Test
-  public void testNamespace() throws SirixException {
-    holder.getRtx().moveTo(1L);
-    assertEquals(1, holder.getRtx().getNamespaceCount());
-    holder.getRtx().moveToNamespace(0);
-    assertEquals("p", holder.getRtx().getName().getLocalPart());
-    assertEquals("ns", holder.getRtx().getName().getNamespaceURI());
-  }
+	@Test
+	public void testNamespace() throws SirixException {
+		holder.getRtx().moveTo(1L);
+		assertEquals(1, holder.getRtx().getNamespaceCount());
+		holder.getRtx().moveToNamespace(0);
+		assertEquals("p", holder.getRtx().getName().getLocalPart());
+		assertEquals("ns", holder.getRtx().getName().getNamespaceURI());
+	}
 }

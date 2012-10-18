@@ -38,37 +38,37 @@ import java.util.concurrent.ExecutionException;
  */
 public final class SirixThreadedException extends SirixException {
 
-  /** Generated ID. */
-  private static final long serialVersionUID = -2891221683798924769L;
+	/** Generated ID. */
+	private static final long serialVersionUID = -2891221683798924769L;
 
-  /**
-   * Constructor for threaded exceptions.
-   * 
-   * @param mExc
-   *          tp be stored
-   */
-  public SirixThreadedException(final InterruptedException mExc) {
-    super(mExc);
-  }
+	/**
+	 * Constructor for threaded exceptions.
+	 * 
+	 * @param mExc
+	 *          tp be stored
+	 */
+	public SirixThreadedException(final InterruptedException mExc) {
+		super(mExc);
+	}
 
-  /**
-   * Exception for weird thread behaviour.
-   * 
-   * @param message
-   *          to be stored
-   */
-  public SirixThreadedException(final String... message) {
-    super(message);
-  }
+	/**
+	 * Exception for weird thread behaviour.
+	 * 
+	 * @param message
+	 *          to be stored
+	 */
+	public SirixThreadedException(final String... message) {
+		super(message);
+	}
 
-  /**
-   * Constructor for execution exception exceptions.
-   * 
-   * @param mExc
-   *          to be stored
-   */
-  public SirixThreadedException(final ExecutionException mExc) {
-    super(mExc);
-  }
+	/**
+	 * Constructor for execution exception exceptions.
+	 * 
+	 * @param mExc
+	 *          to be stored
+	 */
+	public SirixThreadedException(final ExecutionException mExc) {
+		super(mExc);
+	}
 
 }

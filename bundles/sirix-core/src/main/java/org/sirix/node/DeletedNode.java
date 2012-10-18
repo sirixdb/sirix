@@ -46,58 +46,58 @@ import org.sirix.node.interfaces.Node;
  */
 public final class DeletedNode extends AbstractForwardingNode {
 
-  /**
-   * Delegate for common data.
-   */
-  private final NodeDelegate mDel;
+	/**
+	 * Delegate for common data.
+	 */
+	private final NodeDelegate mDel;
 
-  /**
-   * Constructor.
-   * 
-   * @param nodeDel
-   *          node delegate
-   */
-  public DeletedNode(@Nonnull final NodeDelegate nodeDel) {
-    mDel = checkNotNull(nodeDel);
-  }
-  
-  @Override
-  public Kind getKind() {
-    return Kind.DELETE;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param nodeDel
+	 *          node delegate
+	 */
+	public DeletedNode(@Nonnull final NodeDelegate nodeDel) {
+		mDel = checkNotNull(nodeDel);
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mDel);
-  }
+	@Override
+	public Kind getKind() {
+		return Kind.DELETE;
+	}
 
-  @Override
-  public boolean equals(final Object obj) {
-    if (obj instanceof DeletedNode) {
-      final DeletedNode other = (DeletedNode)obj;
-      return Objects.equal(mDel, other.mDel);
-    }
-    return false;
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mDel);
+	}
 
-  @Override
-  public String toString() {
-    return mDel.toString();
-  }
-  
-  @Override
-  public boolean isSameItem(final @Nullable Node other) {
-    return mDel.isSameItem(other);
-  }
+	@Override
+	public boolean equals(final Object obj) {
+		if (obj instanceof DeletedNode) {
+			final DeletedNode other = (DeletedNode) obj;
+			return Objects.equal(mDel, other.mDel);
+		}
+		return false;
+	}
 
-  @Override
-  protected NodeDelegate delegate() {
-    return mDel;
-  }
+	@Override
+	public String toString() {
+		return mDel.toString();
+	}
 
-  @Override
-  public VisitResultType acceptVisitor(Visitor visitor) {
-    throw new UnsupportedOperationException();
-  }
+	@Override
+	public boolean isSameItem(final @Nullable Node other) {
+		return mDel.isSameItem(other);
+	}
+
+	@Override
+	protected NodeDelegate delegate() {
+		return mDel;
+	}
+
+	@Override
+	public VisitResultType acceptVisitor(Visitor visitor) {
+		throw new UnsupportedOperationException();
+	}
 
 }

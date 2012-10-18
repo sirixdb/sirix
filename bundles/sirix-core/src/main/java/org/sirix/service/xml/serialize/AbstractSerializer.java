@@ -74,11 +74,10 @@ public abstract class AbstractSerializer implements Callable<Void> {
 	 * @param revisions
 	 *          revisions to serialize
 	 */
-	public AbstractSerializer(final @Nonnull Session session, final @Nonnegative int revision,
-			final int... revisions) {
+	public AbstractSerializer(final @Nonnull Session session,
+			final @Nonnegative int revision, final int... revisions) {
 		mStack = new ArrayDeque<>();
-		mRevisions = revisions == null ? new int[1]
-				: new int[revisions.length + 1];
+		mRevisions = revisions == null ? new int[1] : new int[revisions.length + 1];
 		initialize(revision, revisions);
 		mSession = checkNotNull(session);
 		mNodeKey = 0;
@@ -100,8 +99,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
 			final @Nonnegative long key, final @Nonnegative int revision,
 			final int... revisions) {
 		mStack = new ArrayDeque<>();
-		mRevisions = revisions == null ? new int[1]
-				: new int[revisions.length + 1];
+		mRevisions = revisions == null ? new int[1] : new int[revisions.length + 1];
 		initialize(revision, revisions);
 		mSession = checkNotNull(session);
 		mNodeKey = key;
@@ -179,15 +177,13 @@ public abstract class AbstractSerializer implements Callable<Void> {
 
 					// Push end element to stack if we are a start element with
 					// children.
-					if (rtx.getKind() == Kind.ELEMENT
-							&& rtx.hasFirstChild()) {
+					if (rtx.getKind() == Kind.ELEMENT && rtx.hasFirstChild()) {
 						mStack.push(rtx.getNodeKey());
 					}
 
 					// Remember to emit all pending end elements from stack if
 					// required.
-					if (!rtx.hasFirstChild()
-							&& !rtx.hasRightSibling()) {
+					if (!rtx.hasFirstChild() && !rtx.hasRightSibling()) {
 						closeElements = true;
 					}
 
