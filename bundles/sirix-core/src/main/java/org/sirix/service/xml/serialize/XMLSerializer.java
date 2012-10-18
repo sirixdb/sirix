@@ -70,7 +70,7 @@ import org.slf4j.LoggerFactory;
  * class.
  * </p>
  */
-public final class XMLSerializer extends AbsSerializer {
+public final class XMLSerializer extends AbstractSerializer {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(

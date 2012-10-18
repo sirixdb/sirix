@@ -43,7 +43,7 @@ import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -409,7 +409,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 */
 	private void markOutOfOrder(final NodeReadTrx rtx,
 			final Map<Long, Boolean> inOrder) {
-		for (final AbsAxis axis = new ChildAxis(rtx); axis.hasNext();) {
+		for (final AbstractAxis axis = new ChildAxis(rtx); axis.hasNext();) {
 			axis.next();
 			inOrder.put(axis.getTrx().getNodeKey(), false);
 		}
@@ -1127,7 +1127,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 		assert visitor != null;
 
 		final long nodeKey = rtx.getNodeKey();
-		for (final AbsAxis axis = new PostOrderAxis(rtx); axis.hasNext();) {
+		for (final AbstractAxis axis = new PostOrderAxis(rtx); axis.hasNext();) {
 			axis.next();
 			if (axis.getTrx().getNodeKey() == nodeKey) {
 				break;

@@ -41,7 +41,7 @@ import org.sirix.service.xml.xpath.types.Type;
  * </p>
  * 
  */
-public class ValueComp extends AbsComparator {
+public class ValueComp extends AbstractComparator {
 
   /**
    * Constructor. Initializes the internal state.

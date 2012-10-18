@@ -40,7 +40,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.settings.Fixed;
@@ -59,7 +59,7 @@ import com.google.common.base.Optional;
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public final class VisitorDescendantAxis extends AbsAxis {
+public final class VisitorDescendantAxis extends AbstractAxis {
 
 	/** Stack for remembering next nodeKey in document order. */
 	private Deque<Long> mRightSiblingKeyStack;

@@ -39,7 +39,7 @@ import org.sirix.settings.Fixed;
  * Iterate over the whole tree starting with the last node.
  * </p>
  */
-public final class PostOrderAxis extends AbsAxis {
+public final class PostOrderAxis extends AbstractAxis {
 
 	/** Determines if transaction moved to the parent before. */
 	private boolean mMovedToParent;

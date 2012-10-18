@@ -30,7 +30,7 @@ package org.sirix.gui.view.sunburst;
 import javax.swing.JPopupMenu;
 
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.gui.view.model.AbsModel;
+import org.sirix.gui.view.model.AbstractModel;
 import org.sirix.gui.view.model.interfaces.Model;
 
 import controlP5.ControlGroup;
@@ -49,7 +49,7 @@ public final class SunburstPopupMenu extends JPopupMenu {
   private static final long serialVersionUID = -3346902332490335444L;
 
   /** Model which implements {@link Model}. */
-  private final AbsModel<?, ?> mModel;
+  private final AbstractModel<?, ?> mModel;
 
   /** sirix {@link NodeWriteTrx}. */
   private static NodeWriteTrx mWtx;
@@ -70,7 +70,7 @@ public final class SunburstPopupMenu extends JPopupMenu {
    * @param paramCtrl
    *          control group for XML input
    */
-  private SunburstPopupMenu(final AbsModel<?, ?> paramModel, final NodeWriteTrx paramWtx,
+  private SunburstPopupMenu(final AbstractModel<?, ?> paramModel, final NodeWriteTrx paramWtx,
     final ControlGroup<?> paramCtrl) {
     mModel = paramModel;
     mWtx = paramWtx;
@@ -91,7 +91,7 @@ public final class SunburstPopupMenu extends JPopupMenu {
    * Singleton factory.
    * 
    * @param paramModel
-   *          the {@link AbsModel} model
+   *          the {@link AbstractModel} model
    * @param paramGUI
    *          {@link SunburstGUI} instance
    * @param paramWtx
@@ -100,7 +100,7 @@ public final class SunburstPopupMenu extends JPopupMenu {
    *          control group for XML input
    * @return singleton {@link SunburstPopupMenu} instance
    */
-  public static synchronized SunburstPopupMenu getInstance(final AbsModel<?, ?> paramModel,
+  public static synchronized SunburstPopupMenu getInstance(final AbstractModel<?, ?> paramModel,
     final NodeWriteTrx paramWtx, final ControlGroup<?> paramCtrl) {
     if (mSunburstPopupMenu == null || !paramWtx.equals(mWtx)) {
       mSunburstPopupMenu = new SunburstPopupMenu(paramModel, paramWtx, paramCtrl);

@@ -107,7 +107,7 @@ public class AttributeAxisTest {
     Assert.assertEquals(new QName("foo2"), wtx.getName());
 
     Assert.assertEquals(true, wtx.moveTo(nodeKey).hasMoved());
-    final AbsAxis axis = new AttributeAxis(wtx);
+    final AbstractAxis axis = new AttributeAxis(wtx);
 
     Assert.assertEquals(true, axis.hasNext());
     axis.next();

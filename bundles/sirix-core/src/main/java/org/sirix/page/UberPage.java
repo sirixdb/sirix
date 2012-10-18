@@ -50,7 +50,7 @@ import org.sirix.settings.Constants;
  * Uber page holds a reference to the static revision root page tree.
  * </p>
  */
-public final class UberPage extends AbsForwardingPage {
+public final class UberPage extends AbstractForwardingPage {
 
 	/** Offset of indirect page reference. */
 	private static final int INDIRECT_REFERENCE_OFFSET = 0;

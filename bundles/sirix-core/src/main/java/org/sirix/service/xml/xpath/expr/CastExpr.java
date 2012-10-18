@@ -49,7 +49,7 @@ import org.sirix.service.xml.xpath.types.Type;
  * optional occurrence indicator "?" denotes that an empty sequence is permitted.
  * </p>
  */
-public class CastExpr extends AbsExpression {
+public class CastExpr extends AbstractExpression {
 
   /** The input expression to cast to a specified target expression. */
   private final Axis mSourceExpr;

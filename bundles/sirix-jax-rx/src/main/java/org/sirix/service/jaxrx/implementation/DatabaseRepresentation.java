@@ -239,7 +239,7 @@ public class DatabaseRepresentation {
 	public StreamingOutput getResourcesNames() throws JaxRxException {
 		final List<String> availResources = new ArrayList<String>();
 		final File[] files = new File(mStoragePath,
-				DatabaseConfiguration.Paths.Data.getFile().getName()).listFiles();
+				DatabaseConfiguration.Paths.DATA.getFile().getName()).listFiles();
 		if (files != null) {
 			for (final File file : files) {
 				if (file.isDirectory()) {

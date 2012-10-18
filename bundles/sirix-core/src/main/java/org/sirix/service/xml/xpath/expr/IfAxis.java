@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.functions.Function;
 
@@ -46,7 +46,7 @@ import org.sirix.service.xml.xpath.functions.Function;
  * </p>
  * 
  */
-public class IfAxis extends AbsAxis {
+public class IfAxis extends AbstractAxis {
 
   private final Axis mIf;
   private final Axis mThen;

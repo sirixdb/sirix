@@ -40,67 +40,72 @@ import com.google.common.base.Optional;
  * Data structure to store XPath items.
  * </p>
  * <p>
- * This structure is used for atomic values that are needed for the evaluation of a query. They can be results
- * of a query expression or be specified directly in the query e.g. as literals perform an arithmetic
- * operation or a comparison.
+ * This structure is used for atomic values that are needed for the evaluation
+ * of a query. They can be results of a query expression or be specified
+ * directly in the query e.g. as literals perform an arithmetic operation or a
+ * comparison.
  * </p>
  * <p>
- * Since these items have to be distinguishable from nodes their key will be a negative long value (node key
- * is always a positive long value). This value is retrieved by negate their index in the internal data
- * structure.
+ * Since these items have to be distinguishable from nodes their key will be a
+ * negative long value (node key is always a positive long value). This value is
+ * retrieved by negate their index in the internal data structure.
  * </p>
  */
 public final class ItemListImpl implements ItemList<AtomicValue> {
 
-  /**
-   * Internal storage of items.
-   */
-  private final List<AtomicValue> mList;
+	/**
+	 * Internal storage of items.
+	 */
+	private final List<AtomicValue> mList;
 
-  /**
-   * Constructor. Initializes the list.
-   */
-  public ItemListImpl() {
-    mList = new ArrayList<>();
-  }
+	/**
+	 * Constructor. Initializes the list.
+	 */
+	public ItemListImpl() {
+		mList = new ArrayList<>();
+	}
 
-  @Override
-  public int addItem(final AtomicValue pItem) {
-    final int key = mList.size();
-    pItem.setNodeKey(key);
-    // TODO: +2 is necessary, because key -1 is the NULL_NODE
-    final int itemKey = (key + 2) * (-1);
-    pItem.setNodeKey(itemKey);
+	@Override
+	public int addItem(final AtomicValue pItem) {
+		final int key = mList.size();
+		pItem.setNodeKey(key);
+		// TODO: +2 is necessary, because key -1 is the NULL_NODE
+		final int itemKey = (key + 2) * (-1);
+		pItem.setNodeKey(itemKey);
 
-    mList.add(pItem);
-    return itemKey;
-  }
+		mList.add(pItem);
+		return itemKey;
+	}
 
-  @Override
-  public Optional<AtomicValue> getItem(final long mKey) {
-    assert mKey <= Integer.MAX_VALUE;
+	@Override
+	public Optional<AtomicValue> getItem(final long mKey) {
+		assert mKey <= Integer.MAX_VALUE;
 
-    int index = (int)mKey; // cast to integer, because the list only
-                           // accepts
-    // int
+		int index = (int) mKey; // cast to integer, because the list only
+														// accepts
+		// int
 
-    if (index < 0) {
-      index = index * (-1);
-    }
+		if (index < 0) {
+			index = index * (-1);
+		}
 
-    // TODO: This is necessary, because key -1 is the NULL_NODE
-    index = index - 2;
+		// TODO: This is necessary, because key -1 is the NULL_NODE
+		index = index - 2;
 
-    return Optional.of(mList.get(index));
-  }
+		if (index >= 0 && index < mList.size()) {
+			return Optional.of(mList.get(index));
+		} else {
+			return Optional.absent();
+		}
+	}
 
-  public int size() {
-    return mList.size();
-  }
+	public int size() {
+		return mList.size();
+	}
 
-  @Override
-  public String toString() {
-    return new StringBuilder("ItemList: ").append(mList.toString()).toString();
-  }
+	@Override
+	public String toString() {
+		return new StringBuilder("ItemList: ").append(mList.toString()).toString();
+	}
 
 }

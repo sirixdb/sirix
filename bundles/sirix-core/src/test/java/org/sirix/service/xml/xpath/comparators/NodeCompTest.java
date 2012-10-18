@@ -45,7 +45,7 @@ import org.sirix.service.xml.xpath.types.Type;
 
 public class NodeCompTest {
 
-  private AbsComparator comparator;
+  private AbstractComparator comparator;
   private Holder holder;
 
   @Before

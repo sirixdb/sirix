@@ -32,7 +32,7 @@ import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.xpath.functions.AbsFunction;
+import org.sirix.service.xml.xpath.functions.AbstractFunction;
 import org.sirix.utils.TypedValue;
 
 /**
@@ -45,7 +45,7 @@ import org.sirix.utils.TypedValue;
  * The function returns the number of given arguments.
  * </p>
  */
-public class FNCount extends AbsFunction {
+public class FNCount extends AbstractFunction {
 
   /**
    * Constructor.

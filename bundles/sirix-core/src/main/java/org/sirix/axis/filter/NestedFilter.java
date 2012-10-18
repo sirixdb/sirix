@@ -38,7 +38,7 @@ import org.sirix.api.NodeReadTrx;
  * Nests two or more IFilters.
  * </p>
  */
-public class NestedFilter extends AbsFilter {
+public class NestedFilter extends AbstractFilter {
 
   /** Tests to apply. */
   private final Filter[] mFilter;

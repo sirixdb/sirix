@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 
@@ -60,7 +60,7 @@ public class XPathParserTest {
 
     holder.getRtx().moveTo(2L);
 
-    AbsAxis axis;
+    AbstractAxis axis;
 
     axis = new XPathAxis(holder.getRtx(), "\"12.5\"");
     assertEquals(true, axis.hasNext());

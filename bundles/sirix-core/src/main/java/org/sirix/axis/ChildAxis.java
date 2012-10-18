@@ -38,7 +38,7 @@ import org.sirix.api.NodeReadTrx;
  * Iterate over all children of kind ELEMENT or TEXT starting at a given node. Self is not included.
  * </p>
  */
-public final class ChildAxis extends AbsAxis {
+public final class ChildAxis extends AbstractAxis {
 
   /** Has another child node. */
   private boolean mFirst;

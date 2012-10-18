@@ -43,7 +43,7 @@ import org.sirix.settings.Fixed;
  * Iterate over all structural descendants starting at a given node. Self is not included.
  * </p>
  */
-public final class DescendantAxis extends AbsAxis {
+public final class DescendantAxis extends AbstractAxis {
 
   /** Stack for remembering next nodeKey in document order. */
   private Deque<Long> mRightSiblingKeyStack;

@@ -37,7 +37,7 @@ import javax.swing.JPopupMenu;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.view.VisualItemAxis;
-import org.sirix.gui.view.model.AbsModel;
+import org.sirix.gui.view.model.AbstractModel;
 import org.sirix.gui.view.sunburst.SunburstView.Embedded;
 import org.sirix.service.xml.shredder.Insert;
 
@@ -55,7 +55,7 @@ enum Menu {
   /** Insert XML fragment as first child. */
   INSERT_FRAGMENT_AS_FIRST_CHILD {
     @Override
-    void createMenuItem(final AbsModel<?, ?> pModel, final JPopupMenu pMenu, final NodeWriteTrx pWtx,
+    void createMenuItem(final AbstractModel<?, ?> pModel, final JPopupMenu pMenu, final NodeWriteTrx pWtx,
       final ControlGroup<?> pCtrl) {
       // Create and add a menu item
       final JMenuItem item = new JMenuItem("insert as first child");
@@ -75,7 +75,7 @@ enum Menu {
   /** Insert XML fragment as right sibling. */
   INSERT_FRAGMENT_AS_RIGHT_SIBLING {
     @Override
-    void createMenuItem(final AbsModel<?, ?> pModel, final JPopupMenu pMenu, final NodeWriteTrx pWtx,
+    void createMenuItem(final AbstractModel<?, ?> pModel, final JPopupMenu pMenu, final NodeWriteTrx pWtx,
       final ControlGroup<?> pCtrl) {
       // Create and add a menu item
       final JMenuItem item = new JMenuItem("insert as right sibling");
@@ -94,7 +94,7 @@ enum Menu {
   /** Delete node. */
   DELETE {
     @Override
-    void createMenuItem(final AbsModel<?, ?> pModel, final JPopupMenu pMenu, final NodeWriteTrx pWtx,
+    void createMenuItem(final AbstractModel<?, ?> pModel, final JPopupMenu pMenu, final NodeWriteTrx pWtx,
       final ControlGroup<?> pCtrl) {
       // Create and add a menu item
       final JMenuItem item = new JMenuItem("delete node");
@@ -134,6 +134,6 @@ enum Menu {
    * @p pWtx {@link NodeWriteTrx} reference to delete a subtree
    * @p pCtrl {@link ControlGroup} to add XML fragments
    */
-  abstract void createMenuItem(final AbsModel<?, ?> pModel, final JPopupMenu pMenu, final NodeWriteTrx pWtx,
+  abstract void createMenuItem(final AbstractModel<?, ?> pModel, final JPopupMenu pMenu, final NodeWriteTrx pWtx,
     final ControlGroup<?> pCtrl);
 }

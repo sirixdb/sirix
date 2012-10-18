@@ -41,9 +41,9 @@ package org.sirix.api;
  * <p>
  * <ol>
  * <li><strong>Precondition</strong> before each call to <code>IFilter.filter()</code>:
- * <code>INodeReadTrx.getKey() == n</code>.</li>
+ * <code>NodeReadTrx.getKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after each call to <code>IFilter.filter()</code>:
- * <code>INodeReadTrx.getKey() == n</code>.</li>
+ * <code>NodeReadTrx.getKey() == n</code>.</li>
  * </ol>
  * </p>
  * 
@@ -63,7 +63,7 @@ package org.sirix.api;
  * <p>
  * 
  * <pre>
- * // Must extend &lt;code&gt;AbstractFilter&lt;/code&gt; and implement &lt;code&gt;IFilter&lt;/code&gt;.
+ * // Must extend &lt;code&gt;AbstractFilter&lt;/code&gt; and implement &lt;code&gt;Filter&lt;/code&gt;.
  * public final class ExampleFilter extends AbstractFilter {
  * 
  *   public ExampleFilter(final @Nonnull INodeReadTrx pRtx) {

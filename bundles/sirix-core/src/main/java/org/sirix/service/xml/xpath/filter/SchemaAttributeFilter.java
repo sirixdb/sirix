@@ -28,7 +28,7 @@
 package org.sirix.service.xml.xpath.filter;
 
 import org.sirix.api.NodeReadTrx;
-import org.sirix.axis.filter.AbsFilter;
+import org.sirix.axis.filter.AbstractFilter;
 
 /**
  * <h1>SchemaAttributeFilter</h1>
@@ -49,7 +49,7 @@ import org.sirix.axis.filter.AbsFilter;
  * declarations, a static error is raised [err:XPST0008].
  * </p>
  */
-public class SchemaAttributeFilter extends AbsFilter {
+public class SchemaAttributeFilter extends AbstractFilter {
 
   // /** The specified name for the attribute. */
   // private final String attributeName;

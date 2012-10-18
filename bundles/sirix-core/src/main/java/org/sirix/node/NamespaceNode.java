@@ -49,7 +49,7 @@ import com.google.common.base.Objects;
  * Node representing a namespace.
  * </p>
  */
-public final class NamespaceNode extends AbsForwardingNode implements NameNode {
+public final class NamespaceNode extends AbstractForwardingNode implements NameNode {
 
   /** Delegate for name node information. */
   private final NameNodeDelegate mNameDel;

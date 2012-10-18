@@ -44,7 +44,7 @@ import org.sirix.node.interfaces.Node;
  * @author Sebastian Graf
  * 
  */
-public final class DeletedNode extends AbsForwardingNode {
+public final class DeletedNode extends AbstractForwardingNode {
 
   /**
    * Delegate for common data.

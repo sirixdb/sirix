@@ -71,7 +71,7 @@ import org.xml.sax.helpers.DefaultHandler;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SAXSerializer extends AbsSerializer implements XMLReader {
+public final class SAXSerializer extends AbstractSerializer implements XMLReader {
 
 	/** {@link LogWrapper} reference. */
 	private final LogWrapper LOGGER = new LogWrapper(

@@ -43,7 +43,7 @@ import org.sirix.utils.TypedValue;
  * Performs an arithmetic multiplication on two input operators.
  * </p>
  */
-public class MulOpAxis extends AbsObAxis {
+public class MulOpAxis extends AbstractObAxis {
 
   /**
    * Constructor. Initializes the internal state.

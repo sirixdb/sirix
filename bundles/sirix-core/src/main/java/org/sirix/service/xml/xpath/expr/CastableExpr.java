@@ -52,7 +52,7 @@ import org.sirix.utils.TypedValue;
  * given value.
  * </p>
  */
-public class CastableExpr extends AbsExpression {
+public class CastableExpr extends AbstractExpression {
 
   /** The input expression to cast to a specified target expression. */
   private final Axis mSourceExpr;

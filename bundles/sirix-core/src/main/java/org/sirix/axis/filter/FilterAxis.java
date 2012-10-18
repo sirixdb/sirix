@@ -31,7 +31,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 
 /**
  * <h1>TestAxis</h1>
@@ -40,7 +40,7 @@ import org.sirix.axis.AbsAxis;
  * Perform a test on a given axis.
  * </p>
  */
-public final class FilterAxis extends AbsAxis {
+public final class FilterAxis extends AbstractAxis {
 
 	/** Axis to test. */
 	private final Axis mAxis;

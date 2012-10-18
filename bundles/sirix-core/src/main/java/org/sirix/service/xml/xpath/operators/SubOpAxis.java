@@ -43,7 +43,7 @@ import org.sirix.utils.TypedValue;
  * Performs an arithmetic subtraction on two input operators.
  * </p>
  */
-public class SubOpAxis extends AbsObAxis {
+public class SubOpAxis extends AbstractObAxis {
 
   /**
    * Constructor. Initializes the internal state.

@@ -62,11 +62,11 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
-import org.sirix.gui.view.model.AbsModel;
-import org.sirix.gui.view.model.AbsTraverseModel;
+import org.sirix.gui.view.model.AbstractModel;
+import org.sirix.gui.view.model.AbstractTraverseModel;
 import org.sirix.gui.view.model.interfaces.ChangeModel;
 import org.sirix.gui.view.model.interfaces.Container;
-import org.sirix.gui.view.sunburst.AbsSunburstGUI;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
 import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.NodeRelations;
@@ -97,7 +97,7 @@ import processing.core.PConstants;
  * 
  */
 public final class SunburstModel extends
-		AbsModel<SunburstContainer, SunburstItem> implements ChangeModel {
+		AbstractModel<SunburstContainer, SunburstItem> implements ChangeModel {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
@@ -142,7 +142,7 @@ public final class SunburstModel extends
 	}
 
 	/** Traverse a tree (single revision). */
-	private static final class TraverseTree extends AbsTraverseModel implements
+	private static final class TraverseTree extends AbstractTraverseModel implements
 			Callable<Void> {
 
 		/** Key from which to start traversal. */
@@ -185,7 +185,7 @@ public final class SunburstModel extends
 		private transient boolean mPruned;
 
 		/** GUI which extends the {@link SunburstGUI}. */
-		private final AbsSunburstGUI mGUI;
+		private final AbstractSunburstGUI mGUI;
 
 		/**
 		 * Constructor.
@@ -200,7 +200,7 @@ public final class SunburstModel extends
 		 *          GUI which extends the {@link SunburstGUI}
 		 */
 		private TraverseTree(@Nonnegative final long pKey,
-				@Nonnull final Pruning pPruning, @Nonnull final AbsSunburstGUI pGUI,
+				@Nonnull final Pruning pPruning, @Nonnull final AbstractSunburstGUI pGUI,
 				@Nonnull final SunburstModel pModel) throws SirixException {
 			assert pKey >= 0;
 			assert pModel != null;

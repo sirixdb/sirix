@@ -31,7 +31,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
-import org.sirix.settings.Fixed;
 
 /**
  * <h1>AttributeAxis</h1>
@@ -40,7 +39,7 @@ import org.sirix.settings.Fixed;
  * Iterate over all attibutes of a given node.
  * </p>
  */
-public final class AttributeAxis extends AbsAxis {
+public final class AttributeAxis extends AbstractAxis {
 
   /** Remember next key to visit. */
   private int mNextIndex;

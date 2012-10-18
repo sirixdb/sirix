@@ -36,7 +36,7 @@ import org.sirix.api.NodeReadTrx;
  * Match any item type (nodes and atomic values).
  * </p>
  */
-public class ItemFilter extends AbsFilter {
+public class ItemFilter extends AbstractFilter {
 
   /**
    * Default constructor.

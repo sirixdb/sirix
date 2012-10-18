@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 
@@ -66,39 +66,39 @@ public class FunctionAxisTest {
 
     holder.getRtx().moveTo(1L);
 
-    final AbsAxis axis1 = new XPathAxis(holder.getRtx(), "fn:count(text())");
+    final AbstractAxis axis1 = new XPathAxis(holder.getRtx(), "fn:count(text())");
     assertEquals(true, axis1.hasNext());
     axis1.next();
     assertEquals(3, Integer.parseInt(holder.getRtx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbsAxis axis2 = new XPathAxis(holder.getRtx(), "fn:count(//node())");
+    final AbstractAxis axis2 = new XPathAxis(holder.getRtx(), "fn:count(//node())");
     assertEquals(true, axis2.hasNext());
     axis2.next();
     assertEquals(10, Integer.parseInt(holder.getRtx().getValue()));
     assertEquals(false, axis2.hasNext());
 
-    final AbsAxis axis3 = new XPathAxis(holder.getRtx(), "fn:string(//node())");
+    final AbstractAxis axis3 = new XPathAxis(holder.getRtx(), "fn:string(//node())");
     assertEquals(true, axis3.hasNext());
     axis3.next();
     assertEquals("oops1 foo oops2 bar oops3 oops1 foo oops2 bar oops3 foo bar", holder.getRtx()
       .getValue());
     assertEquals(false, axis3.hasNext());
 
-    final AbsAxis axis4 = new XPathAxis(holder.getRtx(), "fn:string()");
+    final AbstractAxis axis4 = new XPathAxis(holder.getRtx(), "fn:string()");
     assertEquals(true, axis4.hasNext());
     axis4.next();
     assertEquals("oops1 foo oops2 bar oops3", holder.getRtx().getValue());
     assertEquals(false, axis4.hasNext());
 
-    final AbsAxis axis5 = new XPathAxis(holder.getRtx(), "fn:string(./attribute::attribute())");
+    final AbstractAxis axis5 = new XPathAxis(holder.getRtx(), "fn:string(./attribute::attribute())");
     assertEquals(true, axis5.hasNext());
     axis5.next();
     assertEquals("j", holder.getRtx().getValue());
     assertEquals(false, axis5.hasNext());
 
     holder.getRtx().moveToAttribute(0);
-    final AbsAxis axis6 = new XPathAxis(holder.getRtx(), "fn:string()");
+    final AbstractAxis axis6 = new XPathAxis(holder.getRtx(), "fn:string()");
     assertEquals(true, axis6.hasNext());
     axis6.next();
     assertEquals("j", holder.getRtx().getValue());

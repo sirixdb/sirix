@@ -39,7 +39,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 import org.slf4j.LoggerFactory;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.gui.view.model.interfaces.TraverseModel;
 import org.sirix.gui.view.sunburst.Moved;
@@ -55,7 +55,7 @@ import processing.core.PConstants;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SunburstDescendantAxis extends AbsAxis implements PropertyChangeListener {
+public final class SunburstDescendantAxis extends AbstractAxis implements PropertyChangeListener {
 
   /** {@link LogWrapper}. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory

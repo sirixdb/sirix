@@ -40,7 +40,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
@@ -107,7 +107,7 @@ public class MultipleCommitTest {
     holder.getWtx().commit();
     holder.getWtx().moveToDocumentRoot();
 
-    final AbsAxis postorderAxis = new PostOrderAxis(holder.getWtx());
+    final AbstractAxis postorderAxis = new PostOrderAxis(holder.getWtx());
     while (postorderAxis.hasNext()) {
       postorderAxis.next();
       if (holder.getWtx().getKind() == Kind.ELEMENT

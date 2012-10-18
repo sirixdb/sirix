@@ -37,7 +37,7 @@ import org.sirix.node.Kind;
  * Only match comment nodes.
  * </p>
  */
-public class CommentFilter extends AbsFilter {
+public class CommentFilter extends AbstractFilter {
 
   /**
    * Default constructor.

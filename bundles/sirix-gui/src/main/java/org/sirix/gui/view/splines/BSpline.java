@@ -3,12 +3,12 @@ package org.sirix.gui.view.splines;
 import java.util.LinkedList;
 import java.util.List;
 
-import org.sirix.gui.view.sunburst.AbsSunburstGUI;
-import org.sirix.gui.view.sunburst.AbsSunburstGUI.EDrawLine;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI.EDrawLine;
 import processing.core.PGraphics;
 import processing.core.PVector;
 
-public class BSpline implements ISpline {
+public class BSpline implements Spline {
 
   // The basis function for a cubic B spline.
   @Override
@@ -41,7 +41,7 @@ public class BSpline implements ISpline {
   private final int STEPS = 12;
 
   @Override
-  public void draw(final AbsSunburstGUI pGUI, final PGraphics pGraphic, final List<PVector> pPath) {
+  public void draw(final AbstractSunburstGUI pGUI, final PGraphics pGraphic, final List<PVector> pPath) {
     final List<PVector> path = new LinkedList<>();
     PVector q = new PVector(pPath.get(0).x, pPath.get(0).y);
     path.add(q);

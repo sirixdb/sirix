@@ -5,12 +5,12 @@ package org.sirix.access;
  */
 public enum HashKind {
   /** Rolling hash, only nodes on ancestor axis are touched. */
-  Rolling,
+  ROLLING,
   /**
    * Postorder hash, all nodes on ancestor plus postorder are at least
    * read.
    */
-  Postorder,
+  POSTORDER,
   /** No hash structure after all. */
-  None;
+  NONE;
 }

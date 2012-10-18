@@ -43,7 +43,7 @@ import com.google.common.io.ByteArrayDataInput;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class ValuePage extends AbsForwardingPage {
+public class ValuePage extends AbstractForwardingPage {
 
   /** {@link PageDelegate} instance. */
   private final PageDelegate mDelegate;

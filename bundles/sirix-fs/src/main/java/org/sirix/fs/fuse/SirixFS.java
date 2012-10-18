@@ -42,7 +42,7 @@ import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.filter.NameFilter;

@@ -59,7 +59,7 @@ import com.sleepycat.je.OperationStatus;
  * 
  */
 public final class BerkeleyPersistencePageCache extends
-		AbsPersistenceCache<Long, Page> {
+		AbstractPersistenceCache<Long, Page> {
 
 	/**
 	 * Flush after defined value.

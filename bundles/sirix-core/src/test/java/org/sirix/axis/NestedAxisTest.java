@@ -65,13 +65,13 @@ public class NestedAxisTest {
 
     // XPath expression /p:a/b/text()
     // Part: /p:a
-    final AbsAxis childA = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "p:a"));
+    final AbstractAxis childA = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "p:a"));
     // Part: /b
-    final AbsAxis childB = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "b"));
+    final AbstractAxis childB = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "b"));
     // Part: /text()
-    final AbsAxis text = new FilterAxis(new ChildAxis(rtx), new TextFilter(rtx));
+    final AbstractAxis text = new FilterAxis(new ChildAxis(rtx), new TextFilter(rtx));
     // Part: /p:a/b/text()
-    final AbsAxis axis = new NestedAxis(new NestedAxis(childA, childB), text);
+    final AbstractAxis axis = new NestedAxis(new NestedAxis(childA, childB), text);
 
     AbsAxisTest.testIAxisConventions(axis, new long[] {
       6L, 12L
@@ -87,13 +87,13 @@ public class NestedAxisTest {
 
     // XPath expression /[:a/b/@p:x]
     // Part: /p:a
-    final AbsAxis childA = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "p:a"));
+    final AbstractAxis childA = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "p:a"));
     // Part: /b
-    final AbsAxis childB = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "b"));
+    final AbstractAxis childB = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "b"));
     // Part: /@x
-    final AbsAxis attributeX = new FilterAxis(new AttributeAxis(rtx), new NameFilter(rtx, "p:x"));
+    final AbstractAxis attributeX = new FilterAxis(new AttributeAxis(rtx), new NameFilter(rtx, "p:x"));
     // Part: /p:a/b/@p:x
-    final AbsAxis axis = new NestedAxis(new NestedAxis(childA, childB), attributeX);
+    final AbstractAxis axis = new NestedAxis(new NestedAxis(childA, childB), attributeX);
 
     AbsAxisTest.testIAxisConventions(axis, new long[] {
       10L
@@ -110,13 +110,13 @@ public class NestedAxisTest {
 
     // XPath expression p:a/node():
     // Part: /p:a
-    final AbsAxis childA = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "p:a"));
+    final AbstractAxis childA = new FilterAxis(new ChildAxis(rtx), new NameFilter(rtx, "p:a"));
 
     // Part: /node()
-    final AbsAxis childNode = new FilterAxis(new ChildAxis(rtx), new NodeFilter(rtx));
+    final AbstractAxis childNode = new FilterAxis(new ChildAxis(rtx), new NodeFilter(rtx));
 
     // Part: /p:a/node():
-    final AbsAxis axis = new NestedAxis(childA, childNode);
+    final AbstractAxis axis = new NestedAxis(childA, childNode);
 
     AbsAxisTest.testIAxisConventions(axis, new long[] {
       4L, 5L, 8L, 9L, 13L

@@ -37,7 +37,7 @@ import org.sirix.node.Kind;
  * Only match ROOT nodes.
  * </p>
  */
-public class DocumentRootNodeFilter extends AbsFilter {
+public class DocumentRootNodeFilter extends AbstractFilter {
 
   /**
    * Default constructor.

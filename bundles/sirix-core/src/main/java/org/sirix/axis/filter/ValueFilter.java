@@ -40,7 +40,7 @@ import org.sirix.utils.TypedValue;
  * Only match nodes of kind TEXT whoms value matches.
  * </p>
  */
-public class ValueFilter extends AbsFilter {
+public class ValueFilter extends AbstractFilter {
 
 	/** Value test to do. */
 	private final byte[] mValue;

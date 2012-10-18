@@ -44,7 +44,7 @@ import org.sirix.settings.Fixed;
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public final class PrecedingSiblingAxis extends AbsAxis {
+public final class PrecedingSiblingAxis extends AbstractAxis {
 
 	/** Determines if it's the first call. */
 	private boolean mIsFirst;

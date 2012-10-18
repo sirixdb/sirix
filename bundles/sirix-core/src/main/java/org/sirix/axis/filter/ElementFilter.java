@@ -39,7 +39,7 @@ import org.sirix.node.Kind;
  * Only match ELEMENTnodes.
  * </p>
  */
-public class ElementFilter extends AbsFilter {
+public class ElementFilter extends AbstractFilter {
 
   /**
    * Default constructor.

@@ -37,7 +37,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.axis.AbsAxisTest;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.shredder.XMLShredder;
@@ -84,7 +84,7 @@ public class XPathAxisWideTest {
         14L
       });
 
-    final AbsAxis axis5 = new XPathAxis(holder.getRtx(), "mondial/lake/node()");
+    final AbstractAxis axis5 = new XPathAxis(holder.getRtx(), "mondial/lake/node()");
     for (int i = 0; i < 61; i++) {
       assertEquals(true, axis5.hasNext());
       axis5.next();
@@ -92,14 +92,14 @@ public class XPathAxisWideTest {
     // assertEquals(29891L, axis5.next());
     assertEquals(false, axis5.hasNext());
 
-    final AbsAxis axis6 = new XPathAxis(holder.getRtx(), "mondial/country/religions/node()");
+    final AbstractAxis axis6 = new XPathAxis(holder.getRtx(), "mondial/country/religions/node()");
     for (int i = 0; i < 446; i++) {
       assertEquals(true, axis6.hasNext());
       axis6.next();
     }
     assertEquals(false, axis6.hasNext());
 
-    final AbsAxis axis7 = new XPathAxis(holder.getRtx(), "child::mondial/child::lake/child::node()");
+    final AbstractAxis axis7 = new XPathAxis(holder.getRtx(), "child::mondial/child::lake/child::node()");
     for (int i = 0; i < 60; i++) {
       assertEquals(true, axis7.hasNext());
       axis7.next();
@@ -109,21 +109,21 @@ public class XPathAxisWideTest {
     axis7.next();
     assertEquals(false, axis7.hasNext());
 
-    final AbsAxis axis8 = new XPathAxis(holder.getRtx(), "//*[@id]");
+    final AbstractAxis axis8 = new XPathAxis(holder.getRtx(), "//*[@id]");
     for (int i = 0; i < 5562; i++) {
       assertEquals(true, axis8.hasNext());
       axis8.next();
     }
     assertEquals(false, axis8.hasNext());
 
-    final AbsAxis axis9 = new XPathAxis(holder.getRtx(), "/mondial/country/attribute::car_code");
+    final AbstractAxis axis9 = new XPathAxis(holder.getRtx(), "/mondial/country/attribute::car_code");
     for (int i = 0; i < 194; i++) {
       assertEquals(true, axis9.hasNext());
       axis9.next();
     }
     assertEquals(false, axis9.hasNext());
 
-    final AbsAxis axis10 = new XPathAxis(holder.getRtx(), "//country[@*]");
+    final AbstractAxis axis10 = new XPathAxis(holder.getRtx(), "//country[@*]");
     for (int i = 0; i < 231; i++) {
       assertEquals(true, axis10.hasNext());
       axis10.next();

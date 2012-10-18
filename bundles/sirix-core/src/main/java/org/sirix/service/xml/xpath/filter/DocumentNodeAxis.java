@@ -30,7 +30,7 @@ package org.sirix.service.xml.xpath.filter;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 
 /**
@@ -39,7 +39,7 @@ import org.sirix.settings.Fixed;
  * Iterate to document node starting at a given node.
  * </p>
  */
-public class DocumentNodeAxis extends AbsAxis {
+public class DocumentNodeAxis extends AbstractAxis {
 
   /** Track number of calls of next. */
   private boolean mFirst;

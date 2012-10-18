@@ -44,11 +44,11 @@ import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewUtilities;
 import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.smallmultiple.SmallmultipleView.Embedded;
-import org.sirix.gui.view.sunburst.AbsSunburstGUI;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
 import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
-import org.sirix.gui.view.sunburst.control.AbsSunburstControl;
+import org.sirix.gui.view.sunburst.control.AbstractSunburstControl;
 import org.sirix.utils.LogWrapper;
 import processing.core.PApplet;
 import processing.core.PConstants;
@@ -59,7 +59,7 @@ import processing.core.PConstants;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class SmallmultipleControl extends AbsSunburstControl {
+public class SmallmultipleControl extends AbstractSunburstControl {
 
   /** {@link LogWrapper}. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
@@ -267,7 +267,7 @@ public class SmallmultipleControl extends AbsSunburstControl {
   }
 
   @Override
-  protected AbsSunburstGUI getGUIInstance() {
+  protected AbstractSunburstGUI getGUIInstance() {
     return SmallmultipleGUI.getInstance(mParent, this, mDb);
   }
 

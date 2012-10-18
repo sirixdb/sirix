@@ -58,7 +58,7 @@ import com.sleepycat.je.OperationStatus;
  * 
  */
 public final class BerkeleyPersistenceCache extends
-		AbsPersistenceCache<Long, NodePageContainer> {
+		AbstractPersistenceCache<Long, NodePageContainer> {
 
 	/**
 	 * Flush after defined value.
@@ -111,7 +111,7 @@ public final class BerkeleyPersistenceCache extends
 	public BerkeleyPersistenceCache(final @Nonnull File file,
 			final @Nonnegative int revision, final @Nonnull String logType)
 			throws SirixIOException {
-		super(checkNotNull(file), revision, logType);
+		super(file, revision, logType);
 		try {
 			// Create a new, transactional database environment.
 			final EnvironmentConfig config = new EnvironmentConfig();

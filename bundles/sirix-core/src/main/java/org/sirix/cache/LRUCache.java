@@ -71,8 +71,9 @@ public final class LRUCache<K, V> implements Cache<K, V> {
    *          the reference to the second {@link Cache} where the data is stored
    *          when it gets removed from the first one.
    */
-  public LRUCache(@Nonnull final Cache<K, V> secondCache) {
-    mSecondCache = checkNotNull(secondCache);
+  public LRUCache(final @Nonnull Cache<K, V> secondCache) {
+  	assert secondCache != null;
+    mSecondCache = secondCache;
     mMap = new LinkedHashMap<K, V>(CACHE_CAPACITY) {
       private static final long serialVersionUID = 1;
 
@@ -109,7 +110,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
    *         key exists in the cache
    */
   @Override
-  public V get(@Nonnull final K key) {
+  public V get(final @Nonnull K key) {
     V page = mMap.get(key);
     if (page == null) {
       page = mSecondCache.get(key);
@@ -128,7 +129,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
    *          a value to be associated with the specified key
    */
   @Override
-  public void put(@Nonnull final K key, @Nonnull final V value) {
+  public void put(final @Nonnull K key, final @Nonnull V value) {
     mMap.put(key, value);
   }
 

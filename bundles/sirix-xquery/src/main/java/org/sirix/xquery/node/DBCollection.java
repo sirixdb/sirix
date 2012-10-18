@@ -31,8 +31,8 @@ import org.sirix.exception.SirixIOException;
  * @param <E>
  *          generic parameter, usually a {@link DBNode}
  */
-public class DBCollection<E extends AbsTemporalNode> extends
-		AbstractCollection<AbsTemporalNode> implements AutoCloseable {
+public class DBCollection<E extends AbstractTemporalNode> extends
+		AbstractCollection<AbstractTemporalNode> implements AutoCloseable {
 
 	/** ID sequence. */
 	private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
@@ -93,7 +93,7 @@ public class DBCollection<E extends AbsTemporalNode> extends
 	}
 
 	@Override
-	public AbsTemporalNode getDocument() throws DocumentException {
+	public AbstractTemporalNode getDocument() throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		if (resources.length > 1) {
 			throw new DocumentException("More than one document stored!");
@@ -110,7 +110,7 @@ public class DBCollection<E extends AbsTemporalNode> extends
 	}
 
 	@Override
-	public Stream<? extends AbsTemporalNode> getDocuments()
+	public Stream<? extends AbstractTemporalNode> getDocuments()
 			throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		final List<DBNode> documents = new ArrayList<>(resources.length);
@@ -125,12 +125,12 @@ public class DBCollection<E extends AbsTemporalNode> extends
 				throw new DocumentException(e.getCause());
 			}
 		}
-		return new ArrayStream<AbsTemporalNode>(
+		return new ArrayStream<AbstractTemporalNode>(
 				documents.toArray(new DBNode[documents.size()]));
 	}
 
 	@Override
-	public AbsTemporalNode add(final SubtreeParser parser)
+	public AbstractTemporalNode add(final SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
 		return null;
 	}

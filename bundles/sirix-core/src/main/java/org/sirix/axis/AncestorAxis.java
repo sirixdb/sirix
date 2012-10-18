@@ -42,7 +42,7 @@ import org.sirix.settings.Fixed;
  * node. Self is not included.
  * </p>
  */
-public final class AncestorAxis extends AbsAxis {
+public final class AncestorAxis extends AbstractAxis {
 
 	/**
 	 * First touch of node.

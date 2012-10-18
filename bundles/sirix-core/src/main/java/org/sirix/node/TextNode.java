@@ -52,7 +52,7 @@ import com.google.common.base.Objects;
  * Node representing a text node.
  * </p>
  */
-public final class TextNode extends AbsStructForwardingNode implements ValNode {
+public final class TextNode extends AbstructStructForwardingNode implements ValNode {
 
 	/** Delegate for common value node information. */
 	private final ValNodeDelegate mValDel;

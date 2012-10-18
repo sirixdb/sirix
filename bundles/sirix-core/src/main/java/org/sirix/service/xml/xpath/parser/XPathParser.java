@@ -33,7 +33,7 @@ import java.util.NoSuchElementException;
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
@@ -902,9 +902,9 @@ public final class XPathParser {
    * 
    * @return FilterAxis
    */
-  private AbsAxis parseAbbrevForwardStep() {
+  private AbstractAxis parseAbbrevForwardStep() {
 
-    AbsAxis axis;
+    AbstractAxis axis;
     boolean isAttribute;
 
     if (is(TokenType.AT, true) || mToken.getContent().equals("attribute")
@@ -935,7 +935,7 @@ public final class XPathParser {
    */
   private void parseReverceStep() {
 
-    AbsAxis axis;
+    AbstractAxis axis;
     if (mToken.getType() == TokenType.PARENT) {
       axis = parseAbbrevReverseStep();
 
@@ -954,9 +954,9 @@ public final class XPathParser {
    * 
    * @return axis
    */
-  private AbsAxis parseReverceAxis() {
+  private AbstractAxis parseReverceAxis() {
 
-    AbsAxis axis;
+    AbstractAxis axis;
     if (is("parent", true)) {
 
       axis = new ParentAxis(getTransaction());
@@ -995,7 +995,7 @@ public final class XPathParser {
    * 
    * @return ParentAxis
    */
-  private AbsAxis parseAbbrevReverseStep() {
+  private AbstractAxis parseAbbrevReverseStep() {
 
     consume(TokenType.PARENT, true);
     return new ParentAxis(getTransaction());

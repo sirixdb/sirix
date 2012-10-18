@@ -36,7 +36,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.XPathError;
@@ -66,14 +66,14 @@ public class CastableExprTest {
   @Test
   public void testCastableExpr() throws SirixException {
 
-    final AbsAxis axis1 = new XPathAxis(holder.getRtx(), "1 castable as xs:decimal");
+    final AbstractAxis axis1 = new XPathAxis(holder.getRtx(), "1 castable as xs:decimal");
     assertEquals(true, axis1.hasNext());
     axis1.next();
     assertEquals(holder.getRtx().keyForName("xs:boolean"), holder.getRtx().getTypeKey());
     assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbsAxis axis2 = new XPathAxis(holder.getRtx(), "10.0 castable as xs:anyAtomicType");
+    final AbstractAxis axis2 = new XPathAxis(holder.getRtx(), "10.0 castable as xs:anyAtomicType");
     try {
       assertEquals(true, axis2.hasNext());
       axis2.next();
@@ -90,7 +90,7 @@ public class CastableExprTest {
     // assertEquals(true, holder.getRtx().getValueAsBoolean());
     // assertEquals(false, axis3.hasNext());
 
-    final AbsAxis axis4 = new XPathAxis(holder.getRtx(), "\"hello\" castable as xs:string");
+    final AbstractAxis axis4 = new XPathAxis(holder.getRtx(), "\"hello\" castable as xs:string");
     assertEquals(true, axis4.hasNext());
     axis4.next();
     assertEquals(holder.getRtx().keyForName("xs:boolean"), holder.getRtx().getTypeKey());

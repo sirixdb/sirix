@@ -33,7 +33,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 
 /**
  * <h1>PredicateFilterAxis</h1>
@@ -44,7 +44,7 @@ import org.sirix.axis.AbsAxis;
  * evaluation has to be reset to the key that it was set to before the evaluation.
  * </p>
  */
-public class PredicateFilterAxis extends AbsAxis {
+public class PredicateFilterAxis extends AbstractAxis {
 
 	/** First run. */
   private boolean mIsFirst;

@@ -38,7 +38,7 @@ import org.sirix.api.NodeReadTrx;
  * Only match nodes with the specified value type.
  * </p>
  */
-public class TypeFilter extends AbsFilter {
+public class TypeFilter extends AbstractFilter {
 
   /** Type information. */
   private final int mType;

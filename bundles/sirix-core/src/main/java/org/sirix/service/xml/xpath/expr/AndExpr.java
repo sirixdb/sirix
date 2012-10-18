@@ -70,7 +70,7 @@ import org.sirix.utils.TypedValue;
  * </tr>
  * </table>
  */
-public class AndExpr extends AbsExpression {
+public class AndExpr extends AbstractExpression {
 
   /** First operand of the logical expression. */
   private final Axis mOp1;

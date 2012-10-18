@@ -48,7 +48,7 @@ import com.google.common.io.ByteArrayDataOutput;
  * node page tree.
  * </p>
  */
-public final class RevisionRootPage extends AbsForwardingPage {
+public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/** Offset of name page reference. */
 	private static final int NAME_REFERENCE_OFFSET = 0;

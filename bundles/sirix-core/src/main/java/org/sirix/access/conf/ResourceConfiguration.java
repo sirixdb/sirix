@@ -163,7 +163,7 @@ public final class ResourceConfiguration {
 	public static final Revisioning VERSIONING = Revisioning.INCREMENTAL;
 
 	/** Type of hashing. */
-	public static final HashKind HASHKIND = HashKind.Rolling;
+	public static final HashKind HASHKIND = HashKind.NONE;
 
 	/** Versions to restore. */
 	public static final int VERSIONSTORESTORE = 3;
@@ -222,7 +222,7 @@ public final class ResourceConfiguration {
 		mCompression = builder.mCompression;
 		mIndexes = builder.mIndexes;
 		mPath = new File(new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.Data.getFile().getName()),
+				DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				builder.mResource);
 	}
 
@@ -475,7 +475,7 @@ public final class ResourceConfiguration {
 		private final DatabaseConfiguration mDBConfig;
 
 		/** Determines if text-compression should be used or not (default is true). */
-		private boolean mCompression;
+		private boolean mCompression = true;
 
 		/** Indexes to use. */
 		private Set<EIndexes> mIndexes = INDEXES;

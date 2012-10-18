@@ -49,7 +49,7 @@ import org.sirix.utils.TypedValue;
  * The function returns the string value of the current node or the argument nodes.
  * </p>
  */
-public class FNString extends AbsFunction {
+public class FNString extends AbstractFunction {
 
   /**
    * Constructor. Initializes internal state and do a statical analysis

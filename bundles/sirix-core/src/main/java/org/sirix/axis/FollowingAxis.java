@@ -41,7 +41,7 @@ import org.sirix.api.NodeReadTrx;
  * Iterate over all following nodes of kind ELEMENT or TEXT starting at a given node. Self is not included.
  * </p>
  */
-public final class FollowingAxis extends AbsAxis {
+public final class FollowingAxis extends AbstractAxis {
 
   /** Determines if it's the first node. */
   private boolean mIsFirst;

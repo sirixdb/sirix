@@ -33,7 +33,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.types.Type;
@@ -69,7 +69,7 @@ public class LiteralExprTest {
     final int key1 = holder.getRtx().getItemList().addItem(item1);
     final int key2 = holder.getRtx().getItemList().addItem(item2);
 
-    final AbsAxis axis1 = new LiteralExpr(holder.getRtx(), key1);
+    final AbstractAxis axis1 = new LiteralExpr(holder.getRtx(), key1);
     assertEquals(true, axis1.hasNext());
     axis1.next();
     assertEquals(key1, holder.getRtx().getNodeKey());
@@ -77,7 +77,7 @@ public class LiteralExprTest {
     assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbsAxis axis2 = new LiteralExpr(holder.getRtx(), key2);
+    final AbstractAxis axis2 = new LiteralExpr(holder.getRtx(), key2);
     assertEquals(true, axis2.hasNext());
     axis2.next();
     assertEquals(key2, holder.getRtx().getNodeKey());

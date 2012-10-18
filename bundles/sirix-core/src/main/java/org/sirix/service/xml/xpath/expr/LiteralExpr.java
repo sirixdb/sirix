@@ -37,7 +37,7 @@ import org.sirix.api.NodeReadTrx;
  * Expression that holds a literal.
  * </p>
  */
-public class LiteralExpr extends AbsExpression {
+public class LiteralExpr extends AbstractExpression {
 
   private final long mLiteralKey;
 

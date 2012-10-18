@@ -46,7 +46,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz.
  * 
  */
-public final class TreeModel extends AbsTreeModel {
+public final class TreeModel extends AbstractTreeModel {
 
 	/** Logger. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(

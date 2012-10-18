@@ -9,7 +9,7 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.node.AbsStructForwardingNode;
+import org.sirix.node.AbstructStructForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -24,7 +24,7 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger
  * 
  */
-public class PathNode extends AbsStructForwardingNode implements NameNode {
+public class PathNode extends AbstructStructForwardingNode implements NameNode {
 
 	/** {@link NodeDelegate} instance. */
 	private final NodeDelegate mNodeDel;

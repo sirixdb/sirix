@@ -164,7 +164,7 @@ public final class DiffFactory {
 		transient DiffAlgorithm mDiffKind;
 
 		/** Kind of hash. */
-		transient HashKind mHashKind = HashKind.Rolling;
+		transient HashKind mHashKind = HashKind.ROLLING;
 
 		/** Set if the GUI is used. */
 		transient boolean mIsGUI = true;

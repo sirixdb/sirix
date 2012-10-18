@@ -44,7 +44,7 @@ import org.sirix.utils.TypedValue;
  * The function returns position of the item in the expression result set.
  * </p>
  */
-public class FNPosition extends AbsFunction {
+public class FNPosition extends AbstractFunction {
 
   /**
    * Constructor.

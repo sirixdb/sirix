@@ -30,12 +30,11 @@ package org.sirix.axis;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
-import org.sirix.settings.Fixed;
 
 /**
  * <h1>ForAxis</h1>
  * <p>
- * IAxis that handles a for expression.
+ * Axis that handles a for expression.
  * </p>
  * <p>
  * This Axis represents only the single-variable for expression. A multiple variables for expression is
@@ -52,7 +51,7 @@ import org.sirix.settings.Fixed;
  * binding sequence from which they were derived.
  * </p>
  */
-public final class ForAxis extends AbsAxis {
+public final class ForAxis extends AbstractAxis {
 
   /** The range expression. */
   private final Axis mRange;

@@ -46,7 +46,7 @@ import org.sirix.service.xml.xpath.types.Type;
  * any length.
  * </p>
  */
-public class GeneralComp extends AbsComparator {
+public class GeneralComp extends AbstractComparator {
 
   /**
    * Constructor. Initializes the internal state.

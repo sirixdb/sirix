@@ -29,7 +29,7 @@ package org.sirix.axis.concurrent;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 
 /**
@@ -41,7 +41,7 @@ import org.sirix.settings.Fixed;
  * duplicate free.
  * </p>
  */
-public final class ConcurrentIntersectAxis extends AbsAxis {
+public final class ConcurrentIntersectAxis extends AbstractAxis {
 
 	/** First operand sequence. */
 	private final ConcurrentAxis mOp1;

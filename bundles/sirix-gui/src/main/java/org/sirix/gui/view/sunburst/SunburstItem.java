@@ -159,7 +159,7 @@ public final class SunburstItem implements VisualItem {
 	private transient XPathState mXPathState = XPathState.ISNOTFOUND;
 
 	/** Singleton {@link SunburstGUI} instance. */
-	private transient AbsSunburstGUI mGUI;
+	private transient AbstractSunburstGUI mGUI;
 
 	/** Text string. */
 	private final String mText;
@@ -256,8 +256,8 @@ public final class SunburstItem implements VisualItem {
 		/** Modification count. */
 		private transient int mModifications;
 
-		/** GUI which extends {@link AbsSunburstGUI}. */
-		private transient AbsSunburstGUI mGUI;
+		/** GUI which extends {@link AbstractSunburstGUI}. */
+		private transient AbstractSunburstGUI mGUI;
 
 		/** {@link List} of {@link Attribute}s. */
 		private List<Attribute> mAttributes = Collections.emptyList();
@@ -286,13 +286,13 @@ public final class SunburstItem implements VisualItem {
 		 * @param pReadDB
 		 *          {@link ReadDB} instance
 		 * @param pGUI
-		 *          GUI which extends {@link AbsSunburstGUI}
+		 *          GUI which extends {@link AbstractSunburstGUI}
 		 */
 		public Builder(@Nonnull final PApplet pApplet,
 				@Nonnegative final float pAngleStart,
 				@Nonnegative final float pExtension,
 				@Nonnull final NodeRelations pRelations, @Nonnull final ReadDB pReadDB,
-				@Nonnull final AbsSunburstGUI pGUI) {
+				@Nonnull final AbstractSunburstGUI pGUI) {
 			mParent = pApplet;
 			mAngleStart = pAngleStart;
 			mExtension = pExtension;
@@ -1786,7 +1786,7 @@ public final class SunburstItem implements VisualItem {
 	 * 
 	 * @return GUI instance associated with the item
 	 */
-	public AbsSunburstGUI getGUI() {
+	public AbstractSunburstGUI getGUI() {
 		return mGUI;
 	}
 

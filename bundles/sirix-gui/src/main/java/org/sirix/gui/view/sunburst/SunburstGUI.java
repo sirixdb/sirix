@@ -64,7 +64,7 @@ import controlP5.Toggle;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class SunburstGUI extends AbsSunburstGUI {
+public class SunburstGUI extends AbstractSunburstGUI {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(SunburstGUI.class));

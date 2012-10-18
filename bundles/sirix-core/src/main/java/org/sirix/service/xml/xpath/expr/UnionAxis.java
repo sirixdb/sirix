@@ -33,7 +33,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
 
@@ -46,7 +46,7 @@ import org.sirix.service.xml.xpath.XPathError.ErrorType;
  * DupFilterAxis. The resulting sequence may also be out of document order.
  * </p>
  */
-public class UnionAxis extends AbsAxis {
+public class UnionAxis extends AbstractAxis {
 
   /** First operand sequence. */
   private final Axis mOp1;

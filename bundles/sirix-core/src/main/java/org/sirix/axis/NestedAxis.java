@@ -40,7 +40,7 @@ import org.sirix.api.Axis;
  * Chains two axis operations.
  * </p>
  */
-public final class NestedAxis extends AbsAxis {
+public final class NestedAxis extends AbstractAxis {
 
   /** Parent axis. */
   private final Axis mParentAxis;

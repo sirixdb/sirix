@@ -44,8 +44,8 @@ import org.sirix.gui.ProgressGlassPane;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.smallmultiple.SmallmultipleModel;
-import org.sirix.gui.view.sunburst.AbsSunburstGUI;
-import org.sirix.gui.view.sunburst.AbsSunburstGUI.GlassPaneListener;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI.GlassPaneListener;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.model.SunburstCompareModel;
@@ -173,11 +173,11 @@ public final class ViewUtilities {
    * Legend of a SunburstView.
    * 
    * @param pGUI
-   *          GUI which provides a SunburstView and therefore extends {@link AbsSunburstGUI}
+   *          GUI which provides a SunburstView and therefore extends {@link AbstractSunburstGUI}
    * @param applet
    *          Processing {@link applet} reference
    */
-  public static void legend(@Nonnull final AbsSunburstGUI pGUI,
+  public static void legend(@Nonnull final AbstractSunburstGUI pGUI,
     final Model<SunburstContainer, SunburstItem> pModel) {
     final PApplet applet = pGUI.getApplet();
     // applet.translate(0, 0);
@@ -225,9 +225,9 @@ public final class ViewUtilities {
    * Fill color which changes to white or black depending on the background brightness.
    * 
    * @param pGUI
-   *          GUI which provides a SunburstView and therefore extends {@link AbsSunburstGUI}
+   *          GUI which provides a SunburstView and therefore extends {@link AbstractSunburstGUI}
    */
-  public static void color(@Nonnull final AbsSunburstGUI pGUI) {
+  public static void color(@Nonnull final AbstractSunburstGUI pGUI) {
     final PApplet applet = pGUI.getApplet();
     if (pGUI.getBackgroundBrightness() > 40f) {
       applet.fill(0, 0, 0);
@@ -240,9 +240,9 @@ public final class ViewUtilities {
    * Compare legend.
    * 
    * @param pGUI
-   *          GUI which provides a SunburstView and therefore extends {@link AbsSunburstGUI}
+   *          GUI which provides a SunburstView and therefore extends {@link AbstractSunburstGUI}
    */
-  public static void compareLegend(@Nonnull final AbsSunburstGUI pGUI) {
+  public static void compareLegend(@Nonnull final AbstractSunburstGUI pGUI) {
     if (pGUI.getDotSize() > 0) {
       final PApplet applet = pGUI.getApplet();
       applet.textAlign(PConstants.LEFT, PConstants.TOP);

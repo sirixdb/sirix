@@ -42,7 +42,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.gui.ReadDB;
-import org.sirix.gui.view.model.AbsModel;
+import org.sirix.gui.view.model.AbstractModel;
 import org.sirix.gui.view.model.interfaces.Container;
 import org.sirix.gui.view.sunburst.Draw;
 import org.sirix.gui.view.sunburst.EGreyState;
@@ -58,7 +58,7 @@ import processing.core.PApplet;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class SmallmultipleModel extends AbsModel<SunburstContainer, SunburstItem> implements
+public class SmallmultipleModel extends AbstractModel<SunburstContainer, SunburstItem> implements
   PropertyChangeListener {
 
   /** Thread pool. */

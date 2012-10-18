@@ -40,7 +40,7 @@ import org.sirix.exception.SirixException;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-final class FullDiff extends AbsDiff {
+final class FullDiff extends AbstractDiff {
 
 	/**
 	 * Constructor.

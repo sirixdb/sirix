@@ -10,7 +10,7 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLStreamException;
 
-import org.sirix.access.AbsVisitor;
+import org.sirix.access.AbstractVisitor;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.VisitResult;
@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class ModificationVisitor extends AbsVisitor {
+public final class ModificationVisitor extends AbstractVisitor {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(

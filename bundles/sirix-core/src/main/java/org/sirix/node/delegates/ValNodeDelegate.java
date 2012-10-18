@@ -36,7 +36,7 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.node.AbsForwardingNode;
+import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValNode;
@@ -52,7 +52,7 @@ import com.google.common.base.Objects;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class ValNodeDelegate extends AbsForwardingNode implements ValNode {
+public class ValNodeDelegate extends AbstractForwardingNode implements ValNode {
 
   /** Delegate for common node information. */
   private NodeDelegate mDelegate;

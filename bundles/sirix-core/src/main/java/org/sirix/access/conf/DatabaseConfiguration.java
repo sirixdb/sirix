@@ -34,7 +34,6 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -64,11 +63,11 @@ public final class DatabaseConfiguration {
 	public enum Paths {
 
 		/** File to store db settings. */
-		ConfigBinary(new File("dbsetting.obj"), false),
+		CONFIGBINARY(new File("dbsetting.obj"), false),
 		/** File to store encryption db settings. */
 		KEYSELECTOR(new File("keyselector"), true),
 		/** File to store the data. */
-		Data(new File("resources"), true),
+		DATA(new File("resources"), true),
 		/** Lock file. */
 		LOCK(new File(".lock"), false);
 
@@ -149,24 +148,24 @@ public final class DatabaseConfiguration {
 	/**
 	 * Constructor with the path to be set.
 	 * 
-	 * @param pFile
+	 * @param file
 	 *          file to be set
 	 */
-	public DatabaseConfiguration(final @Nonnull File pFile) {
+	public DatabaseConfiguration(final @Nonnull File file) {
 		mBinaryVersion = BINARY;
-		mFile = pFile.getAbsoluteFile();
+		mFile = file.getAbsoluteFile();
 	}
 
 	/**
 	 * Set unique maximum resource ID.
 	 * 
-	 * @param pID
+	 * @param id
 	 *          maximum resource ID
 	 * @return this {@link DatabaseConfiguration} reference
 	 */
-	public DatabaseConfiguration setMaximumResourceID(final long pID) {
-		checkArgument(pID >= 0, "pID must be >= 0!");
-		mMaxResourceID = pID;
+	public DatabaseConfiguration setMaximumResourceID(final long id) {
+		checkArgument(id >= 0, "pID must be >= 0!");
+		mMaxResourceID = id;
 		return this;
 	}
 
@@ -215,7 +214,7 @@ public final class DatabaseConfiguration {
 	 * @return configuration file
 	 */
 	public File getConfigFile() {
-		return new File(mFile, Paths.ConfigBinary.getFile().getName());
+		return new File(mFile, Paths.CONFIGBINARY.getFile().getName());
 	}
 
 	/**
@@ -252,7 +251,7 @@ public final class DatabaseConfiguration {
 	public static DatabaseConfiguration deserialize(final @Nonnull File file)
 			throws SirixIOException {
 		try (final FileReader fileReader = new FileReader(new File(file,
-				Paths.ConfigBinary.getFile().getName()));
+				Paths.CONFIGBINARY.getFile().getName()));
 				final JsonReader jsonReader = new JsonReader(fileReader);) {
 			jsonReader.beginObject();
 			final String fileName = jsonReader.nextName();

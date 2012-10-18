@@ -40,7 +40,7 @@ import javax.annotation.Nullable;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewUtilities;
 import org.sirix.gui.view.smallmultiple.SmallmultipleView.Embedded;
-import org.sirix.gui.view.sunburst.AbsSunburstGUI;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
 import org.sirix.gui.view.sunburst.Draw;
 import org.sirix.gui.view.sunburst.EGreyState;
 import org.sirix.gui.view.sunburst.ViewType;
@@ -60,7 +60,7 @@ import processing.core.PImage;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class SmallmultipleGUI extends AbsSunburstGUI implements PropertyChangeListener {
+public class SmallmultipleGUI extends AbstractSunburstGUI implements PropertyChangeListener {
   /** Instance of this class. */
   private static volatile SmallmultipleGUI mGUI;
 

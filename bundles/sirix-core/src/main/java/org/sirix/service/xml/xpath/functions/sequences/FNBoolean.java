@@ -33,7 +33,7 @@ import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
-import org.sirix.service.xml.xpath.functions.AbsFunction;
+import org.sirix.service.xml.xpath.functions.AbstractFunction;
 import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.utils.TypedValue;
 
@@ -47,7 +47,7 @@ import org.sirix.utils.TypedValue;
  * The function returns the effective boolean value of given arguments.
  * </p>
  */
-public class FNBoolean extends AbsFunction {
+public class FNBoolean extends AbstractFunction {
 
   /**
    * Constructor. Initializes internal state and do a statical analysis

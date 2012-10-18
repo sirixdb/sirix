@@ -13,7 +13,7 @@ import org.sirix.index.path.PathSummary;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class PathLevelFilter extends AbsFilter {
+public class PathLevelFilter extends AbstractFilter {
 
   /** Node level to filter. */
   private int mLevel;

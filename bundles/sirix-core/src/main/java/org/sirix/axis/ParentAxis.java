@@ -40,7 +40,7 @@ import org.sirix.settings.Fixed;
  * Iterate to parent node starting at a given node. Self is not included.
  * </p>
  */
-public final class ParentAxis extends AbsAxis {
+public final class ParentAxis extends AbstractAxis {
   /** Track number of calls of next. */
   private boolean mFirst;
 

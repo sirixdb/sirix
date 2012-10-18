@@ -15,7 +15,7 @@ import org.sirix.node.Kind;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public class PathKindFilter extends AbsFilter {
+public class PathKindFilter extends AbstractFilter {
 
   /** Type to filter. */
   private Kind mType;

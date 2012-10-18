@@ -16,7 +16,7 @@ import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.AbsShredder;
+import org.sirix.service.xml.shredder.AbstractShredder;
 import org.sirix.service.xml.shredder.Insert;
 
 /**
@@ -25,13 +25,13 @@ import org.sirix.service.xml.shredder.Insert;
  * @author Johannes Lichtenberger
  * 
  * @param <E>
- *          temporal node which extends {@link AbsTemporalNode}
+ *          temporal node which extends {@link AbstractTemporalNode}
  */
-public final class SubtreeBuilder<E extends AbsTemporalNode> extends
-		AbsShredder implements SubtreeHandler {
+public final class SubtreeBuilder<E extends AbstractTemporalNode> extends
+		AbstractShredder implements SubtreeHandler {
 
 	/** {@link SubtreeProcessor} for listeners. */
-	private final SubtreeProcessor<AbsTemporalNode> mSubtreeProcessor;
+	private final SubtreeProcessor<AbstractTemporalNode> mSubtreeProcessor;
 
 	/** Sirix {@link NodeWriteTrx}. */
 	private final NodeWriteTrx mWtx;
@@ -40,7 +40,7 @@ public final class SubtreeBuilder<E extends AbsTemporalNode> extends
 	private final Deque<DBNode> mParents;
 
 	/** Collection. */
-	private final DBCollection<? extends AbsTemporalNode> mCollection;
+	private final DBCollection<? extends AbstractTemporalNode> mCollection;
 	
 	/** First element. */
 	private boolean mFirst;
@@ -63,13 +63,13 @@ public final class SubtreeBuilder<E extends AbsTemporalNode> extends
 	 *           new reading transaction failed (might indicate that a few
 	 */
 	public SubtreeBuilder(
-			final @Nonnull DBCollection<? extends AbsTemporalNode> collection,
+			final @Nonnull DBCollection<? extends AbstractTemporalNode> collection,
 			final @Nonnull NodeWriteTrx wtx, final @Nonnull Insert insertPos,
-			final @Nonnull List<SubtreeListener<? super AbsTemporalNode>> listeners)
+			final @Nonnull List<SubtreeListener<? super AbstractTemporalNode>> listeners)
 			throws SirixException {
 		super(wtx, insertPos);
 		mCollection = checkNotNull(collection);
-		mSubtreeProcessor = new SubtreeProcessor<AbsTemporalNode>(
+		mSubtreeProcessor = new SubtreeProcessor<AbstractTemporalNode>(
 				checkNotNull(listeners));
 		mWtx = checkNotNull(wtx);
 		mParents = new ArrayDeque<>();

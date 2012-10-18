@@ -12,7 +12,7 @@ import com.sleepycat.persist.EntityStore;
 import com.sleepycat.persist.PrimaryIndex;
 import com.sleepycat.persist.StoreConfig;
 
-import org.sirix.access.AbsKeyDatabase;
+import org.sirix.access.AbstractKeyDatabase;
 import org.sirix.exception.SirixIOException;
 
 /**
@@ -21,7 +21,7 @@ import org.sirix.exception.SirixIOException;
  * 
  * @author Patrick Lang, University of Konstanz
  */
-public class KeyMaterialDatabase extends AbsKeyDatabase {
+public class KeyMaterialDatabase extends AbstractKeyDatabase {
 
   /**
    * Berkeley Environment for the database.

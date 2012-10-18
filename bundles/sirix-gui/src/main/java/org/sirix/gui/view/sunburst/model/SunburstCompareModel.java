@@ -52,7 +52,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.VisualItemAxis;
-import org.sirix.gui.view.model.AbsModel;
+import org.sirix.gui.view.model.AbstractModel;
 import org.sirix.gui.view.model.TraverseCompareTree;
 import org.sirix.gui.view.model.interfaces.Container;
 import org.sirix.gui.view.sunburst.XPathState;
@@ -73,7 +73,7 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SunburstCompareModel extends AbsModel<SunburstContainer, SunburstItem> implements
+public final class SunburstCompareModel extends AbstractModel<SunburstContainer, SunburstItem> implements
   PropertyChangeListener {
 
   /** {@link LogWrapper}. */

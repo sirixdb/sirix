@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 
@@ -63,7 +63,7 @@ public class VarRefExprTest {
   @Test
   public void testEveryExpr() throws SirixException {
 
-    final AbsAxis axis = new XPathAxis(holder.getRtx(), "for $a in b return $a");
+    final AbstractAxis axis = new XPathAxis(holder.getRtx(), "for $a in b return $a");
 
     final VariableAxis variable = new VariableAxis(holder.getRtx(), axis);
 

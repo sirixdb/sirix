@@ -74,8 +74,8 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	/** Determines if pruning should be enabled or not. */
 	private transient Pruning mPruning = Pruning.NO;
 
-	/** GUI which extends {@link AbsSunburstGUI}. */
-	private transient AbsSunburstGUI mGUI;
+	/** GUI which extends {@link AbstractSunburstGUI}. */
+	private transient AbstractSunburstGUI mGUI;
 
 	/**
 	 * Lock, such that the GUI doesn't receive notifications from many Models at
@@ -102,11 +102,11 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 * Constructor.
 	 * 
 	 * @param paramGUI
-	 *          GUI which extends {@link AbsSunburstGUI}
+	 *          GUI which extends {@link AbstractSunburstGUI}
 	 * @param paramModel
 	 *          {@link Model} implementation
 	 */
-	public SunburstContainer(final AbsSunburstGUI paramGUI,
+	public SunburstContainer(final AbstractSunburstGUI paramGUI,
 			final Model<SunburstContainer, SunburstItem> paramModel) {
 		mGUI = checkNotNull(paramGUI);
 		mModel = checkNotNull(paramModel);
@@ -140,10 +140,10 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 * Set the GUI.
 	 * 
 	 * @param paramGUI
-	 *          GUI which extends {@link AbsSunburstGUI}
+	 *          GUI which extends {@link AbstractSunburstGUI}
 	 * @return instance of this class
 	 * */
-	public SunburstContainer setGUI(final AbsSunburstGUI paramGUI) {
+	public SunburstContainer setGUI(final AbstractSunburstGUI paramGUI) {
 		mGUI = checkNotNull(paramGUI);
 		return this;
 	}
@@ -151,9 +151,9 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	/**
 	 * Get GUI.
 	 * 
-	 * @return GUI which extends {@link AbsSunburstGUI}
+	 * @return GUI which extends {@link AbstractSunburstGUI}
 	 */
-	public AbsSunburstGUI getGUI() {
+	public AbstractSunburstGUI getGUI() {
 		return mGUI;
 	}
 

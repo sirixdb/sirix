@@ -53,7 +53,7 @@ public class BerkeleyPersistentCacheTest {
     holder = Holder.generateSession();
     cache =
       new BerkeleyPersistenceCache(new File(new File(TestHelper.PATHS.PATH1.getFile(),
-        DatabaseConfiguration.Paths.Data.getFile().getName()), TestHelper.RESOURCE), 1, "log");
+        DatabaseConfiguration.Paths.DATA.getFile().getName()), TestHelper.RESOURCE), 1, "log");
     CacheTestHelper.setUp(cache);
   }
 

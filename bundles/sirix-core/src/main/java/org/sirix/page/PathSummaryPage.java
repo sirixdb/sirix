@@ -42,7 +42,7 @@ import org.sirix.page.interfaces.Page;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class PathSummaryPage extends AbsForwardingPage {
+public class PathSummaryPage extends AbstractForwardingPage {
 
   /** {@link PageDelegate} instance. */
   private final PageDelegate mDelegate;

@@ -40,7 +40,7 @@ import org.sirix.api.NodeWriteTrx;
  * 
  * Currently not used because of tail recursion which isn't optimized in Java.
  */
-class InsertSubtreeVisitor extends AbsVisitor {
+class InsertSubtreeVisitor extends AbstractVisitor {
 
 	/** Read-transaction which implements the {@link NodeReadTrx} interface. */
 	private final NodeReadTrx mRtx;

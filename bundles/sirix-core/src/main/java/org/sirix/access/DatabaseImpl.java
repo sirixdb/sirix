@@ -108,7 +108,7 @@ public final class DatabaseImpl implements Database {
 			final @Nonnull ResourceConfiguration resConfig) throws SirixIOException {
 		boolean returnVal = true;
 		final File path = new File(new File(mDBConfig.getFile().getAbsoluteFile(),
-				DatabaseConfiguration.Paths.Data.getFile().getName()),
+				DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				resConfig.mPath.getName());
 		// If file is existing, skip.
 		if (path.exists()) {
@@ -154,7 +154,7 @@ public final class DatabaseImpl implements Database {
 	@Override
 	public synchronized Database truncateResource(final @Nonnull String name) {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.Data.getFile().getName()), name);
+				DatabaseConfiguration.Paths.DATA.getFile().getName()), name);
 		// Check that database must be closed beforehand.
 		if (!mSessions.containsKey(resourceFile)) {
 			// If file is existing and folder is a tt-dataplace, delete it.
@@ -203,7 +203,7 @@ public final class DatabaseImpl implements Database {
 	public synchronized Session getSession(
 			final @Nonnull SessionConfiguration pSessionConf) throws SirixException {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.Data.getFile().getName()),
+				DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				pSessionConf.getResource());
 		SessionImpl returnVal = mSessions.get(resourceFile);
 
@@ -251,7 +251,7 @@ public final class DatabaseImpl implements Database {
 	@Override
 	public synchronized boolean existsResource(final @Nonnull String pResourceName) {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
-				DatabaseConfiguration.Paths.Data.getFile().getName()), pResourceName);
+				DatabaseConfiguration.Paths.DATA.getFile().getName()), pResourceName);
 		return resourceFile.exists()
 				&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0 ? true
 				: false;
@@ -259,7 +259,7 @@ public final class DatabaseImpl implements Database {
 
 	@Override
 	public String[] listResources() {
-		return new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.Data
+		return new File(mDBConfig.getFile(), DatabaseConfiguration.Paths.DATA
 				.getFile().getName()).list();
 	}
 

@@ -32,7 +32,7 @@ import java.util.Set;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
@@ -48,7 +48,7 @@ import org.sirix.service.xml.xpath.expr.UnionAxis;
  * already in the set (which indicates that it was already returned).
  * </p>
  */
-public class DupFilterAxis extends AbsAxis {
+public class DupFilterAxis extends AbstractAxis {
 
   /** Sequence that may contain duplicates. */
   private final Axis mAxis;

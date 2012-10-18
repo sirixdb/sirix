@@ -59,37 +59,37 @@ public class HashTest {
 
 	@Test
 	public void testPostorderInsertRemove() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.Postorder);
+		final NodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
 		testHashTreeWithInsertAndRemove(wtx);
 	}
 
 	@Test
 	public void testPostorderDeep() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.Postorder);
+		final NodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
 		testDeepTree(wtx);
 	}
 
 	@Test
 	public void testPostorderSetter() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.Postorder);
+		final NodeWriteTrx wtx = createWtx(HashKind.POSTORDER);
 		testSetter(wtx);
 	}
 
 	@Test
 	public void testRollingInsertRemove() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.Rolling);
+		final NodeWriteTrx wtx = createWtx(HashKind.ROLLING);
 		testHashTreeWithInsertAndRemove(wtx);
 	}
 
 	@Test
 	public void testRollingDeep() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.Rolling);
+		final NodeWriteTrx wtx = createWtx(HashKind.ROLLING);
 		testDeepTree(wtx);
 	}
 
 	@Test
 	public void testRollingSetter() throws SirixException {
-		final NodeWriteTrx wtx = createWtx(HashKind.Rolling);
+		final NodeWriteTrx wtx = createWtx(HashKind.ROLLING);
 		testSetter(wtx);
 	}
 

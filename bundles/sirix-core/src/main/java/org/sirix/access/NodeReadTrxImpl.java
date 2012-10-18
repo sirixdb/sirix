@@ -118,9 +118,9 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	NodeReadTrxImpl(@Nonnull final SessionImpl session,
-			@Nonnegative final long transactionID,
-			@Nonnull final PageReadTrx pageReadTransaction) throws SirixIOException {
+	NodeReadTrxImpl(final @Nonnull SessionImpl session,
+			final @Nonnegative long transactionID,
+			final @Nonnull PageReadTrx pageReadTransaction) throws SirixIOException {
 		mSession = checkNotNull(session);
 		checkArgument(transactionID >= 0);
 		mId = transactionID;
@@ -185,9 +185,9 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public Move<? extends NodeReadTrx> moveTo(final long nodeKey) {
 		assertNotClosed();
-		if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-			return Move.notMoved();
-		}
+//		if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+//			return Move.notMoved();
+//		}
 
 		// Remember old node and fetch new one.
 		final Node oldNode = mCurrentNode;
@@ -349,7 +349,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public int keyForName(@Nonnull final String name) {
+	public int keyForName(final @Nonnull String name) {
 		assertNotClosed();
 		return NamePageHash.generateHashForString(name);
 	}
@@ -513,7 +513,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToAttributeByName(
-			@Nonnull final QName name) {
+			final @Nonnull QName name) {
 		assertNotClosed();
 		if (mCurrentNode.getKind() == Kind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);

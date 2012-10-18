@@ -33,7 +33,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 
@@ -60,13 +60,13 @@ public class SomeExprTest {
 
   @Test
   public void testEveryExpr() throws SirixException {
-    final AbsAxis axis1 = new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/@i");
+    final AbstractAxis axis1 = new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/@i");
     assertEquals(true, axis1.hasNext());
     axis1.next();
     assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbsAxis axis2 =
+    final AbstractAxis axis2 =
       new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/@abc");
     assertEquals(true, axis2.hasNext());
     axis2.next();
@@ -74,7 +74,7 @@ public class SomeExprTest {
     assertEquals(false, axis2.hasNext());
 
     holder.getRtx().moveTo(1L);
-    final AbsAxis axis3 =
+    final AbstractAxis axis3 =
       new XPathAxis(holder.getRtx(), "some $child in child::node() satisfies $child/attribute::attribute()");
     assertEquals(true, axis3.hasNext());
     axis3.next();

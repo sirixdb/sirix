@@ -44,7 +44,7 @@ import org.sirix.node.Kind;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class LevelOrderAxis extends AbsAxis {
+public final class LevelOrderAxis extends AbstractAxis {
 
 	/**
 	 * Determines if structural or structural and non structural nodes should be

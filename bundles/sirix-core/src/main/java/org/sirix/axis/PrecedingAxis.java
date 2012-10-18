@@ -43,7 +43,7 @@ import org.sirix.node.Kind;
  * Note that the nodes are retrieved in reverse document order.
  * </p>
  */
-public final class PrecedingAxis extends AbsAxis {
+public final class PrecedingAxis extends AbstractAxis {
 
   /** Determines if it's the first call or not. */
   private boolean mIsFirst;

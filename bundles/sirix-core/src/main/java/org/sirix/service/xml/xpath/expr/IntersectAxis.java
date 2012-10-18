@@ -32,7 +32,7 @@ import java.util.Set;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
 
@@ -43,7 +43,7 @@ import org.sirix.service.xml.xpath.XPathError.ErrorType;
  * sequence containing all the nodes that occur in both operands.
  * </p>
  */
-public class IntersectAxis extends AbsAxis {
+public class IntersectAxis extends AbstractAxis {
 
   /** First operand sequence. */
   private final Axis mOp1;

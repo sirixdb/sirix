@@ -67,14 +67,14 @@ import org.sirix.gui.view.DiffDatabase;
 import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.model.interfaces.TraverseModel;
 import org.sirix.gui.view.smallmultiple.ECompare;
-import org.sirix.gui.view.sunburst.AbsSunburstGUI;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
 import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.NodeRelations;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.SunburstItem.EStructType;
-import org.sirix.gui.view.sunburst.axis.AbsSunburstAxis;
+import org.sirix.gui.view.sunburst.axis.AbstractSunburstAxis;
 import org.sirix.gui.view.sunburst.axis.DiffSunburstAxis;
 import org.sirix.gui.view.sunburst.model.Modification;
 import org.sirix.gui.view.sunburst.model.Modifications;
@@ -100,7 +100,7 @@ import com.sleepycat.je.DatabaseException;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TraverseCompareTree extends AbsTraverseModel implements
+public final class TraverseCompareTree extends AbstractTraverseModel implements
 		Callable<Void>, DiffObserver, TraverseModel {
 
 	/** {@link LogWrapper} reference. */
@@ -204,10 +204,10 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 	private boolean mIsPruned;
 
 	/** {@link DiffSunburstAxis} instance. */
-	private AbsSunburstAxis mAxis;
+	private AbstractSunburstAxis mAxis;
 
-	/** GUI which extends {@link AbsSunburstGUI}. */
-	private final AbsSunburstGUI mGUI;
+	/** GUI which extends {@link AbstractSunburstGUI}. */
+	private final AbstractSunburstGUI mGUI;
 
 	/** Determines how to compare the two trees. */
 	private final ECompare mCompare;
@@ -294,7 +294,7 @@ public final class TraverseCompareTree extends AbsTraverseModel implements
 		mDiffs = new LinkedHashMap<>(1500);
 		mStart = new CountDownLatch(2);
 		mItems = new ArrayList<>();
-		mParent = ((AbsModel<?, ?>) mModel).getParent();
+		mParent = ((AbstractModel<?, ?>) mModel).getParent();
 		mDepth = pContainer.getDepth();
 		mOldRtx.moveTo(pContainer.getNewStartKey());
 		if (mOldRtx.getKind() == Kind.DOCUMENT_ROOT) {

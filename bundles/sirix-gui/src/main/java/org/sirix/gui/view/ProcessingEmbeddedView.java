@@ -36,7 +36,7 @@ import javax.swing.JComponent;
 import javax.swing.JMenuBar;
 
 import org.sirix.gui.view.controls.Control;
-import org.sirix.gui.view.sunburst.AbsSunburstGUI.EResetZoomer;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI.EResetZoomer;
 
 import processing.core.PApplet;
 

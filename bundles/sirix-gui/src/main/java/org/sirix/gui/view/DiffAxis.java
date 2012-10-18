@@ -4,7 +4,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffFactory.DiffType;
 
-public class DiffAxis extends AbsDiffAxis {
+public class DiffAxis extends AbstractDiffAxis {
 
   /** {@link VisualItemAxis} reference. */
   private final VisualItemAxis mAxis;

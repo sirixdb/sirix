@@ -39,7 +39,7 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.node.AbsForwardingNode;
+import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NameNode;
 
@@ -53,7 +53,7 @@ import org.sirix.node.interfaces.NameNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class NameNodeDelegate extends AbsForwardingNode implements NameNode {
+public class NameNodeDelegate extends AbstractForwardingNode implements NameNode {
 
 	/** Node delegate, containing basic node information. */
 	private final NodeDelegate mDelegate;

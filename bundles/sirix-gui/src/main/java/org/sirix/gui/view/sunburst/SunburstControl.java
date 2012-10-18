@@ -45,9 +45,9 @@ import org.sirix.gui.view.ViewNotifier;
 import org.sirix.gui.view.ViewUtilities;
 import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.gui.view.model.interfaces.Model;
-import org.sirix.gui.view.sunburst.AbsSunburstGUI.EResetZoomer;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI.EResetZoomer;
 import org.sirix.gui.view.sunburst.SunburstView.Embedded;
-import org.sirix.gui.view.sunburst.control.AbsSunburstControl;
+import org.sirix.gui.view.sunburst.control.AbstractSunburstControl;
 import org.sirix.gui.view.sunburst.model.SunburstCompareModel;
 import org.sirix.gui.view.sunburst.model.SunburstModel;
 import org.sirix.utils.LogWrapper;
@@ -68,7 +68,7 @@ import controlP5.Toggle;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SunburstControl extends AbsSunburstControl {
+public final class SunburstControl extends AbstractSunburstControl {
 
   /** {@link LogWrapper} reference. */
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(SunburstControl.class));
@@ -132,7 +132,7 @@ public final class SunburstControl extends AbsSunburstControl {
   }
 
   @Override
-  protected AbsSunburstGUI getGUIInstance() {
+  protected AbstractSunburstGUI getGUIInstance() {
     return SunburstGUI.getInstance((Embedded)mParent, this, mDb);
   }
 

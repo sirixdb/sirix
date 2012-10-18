@@ -42,7 +42,7 @@ import org.sirix.axis.ForAxis;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.PredicateFilterAxis;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.xpath.comparators.AbsComparator;
+import org.sirix.service.xml.xpath.comparators.AbstractComparator;
 import org.sirix.service.xml.xpath.comparators.CompKind;
 import org.sirix.service.xml.xpath.expr.AndExpr;
 import org.sirix.service.xml.xpath.expr.CastExpr;
@@ -61,7 +61,7 @@ import org.sirix.service.xml.xpath.expr.UnionAxis;
 import org.sirix.service.xml.xpath.expr.VarRefExpr;
 import org.sirix.service.xml.xpath.expr.VariableAxis;
 import org.sirix.service.xml.xpath.filter.DupFilterAxis;
-import org.sirix.service.xml.xpath.functions.AbsFunction;
+import org.sirix.service.xml.xpath.functions.AbstractFunction;
 import org.sirix.service.xml.xpath.functions.FuncDef;
 import org.sirix.service.xml.xpath.operators.AddOpAxis;
 import org.sirix.service.xml.xpath.operators.DivOpAxis;
@@ -274,7 +274,7 @@ public final class PipelineBuilder {
     final Axis paramOperandOne = getPipeStack().pop().getExpr();
 
     final CompKind kind = CompKind.fromString(mComp);
-    final Axis axis = AbsComparator.getComparator(rtx, paramOperandOne, paramOperandTwo, kind, mComp);
+    final Axis axis = AbstractComparator.getComparator(rtx, paramOperandOne, paramOperandTwo, kind, mComp);
 
     // // TODO: use typeswitch of JAVA 7
     // if (mComp.equals("eq")) {
@@ -756,7 +756,7 @@ public final class PipelineBuilder {
     }
 
     // get function class
-    final Class<? extends AbsFunction> function = func.getFunc();
+    final Class<? extends AbstractFunction> function = func.getFunc();
     final Integer min = func.getMin();
     final Integer max = func.getMax();
     final Integer returnType = mTransaction.keyForName(func.getReturnType());

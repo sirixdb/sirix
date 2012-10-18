@@ -22,7 +22,7 @@ import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.AbsShredder;
+import org.sirix.service.xml.shredder.AbstractShredder;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
  * 
  */
 @Nonnull
-public class HierarchyFileVisitor extends AbsShredder implements AutoCloseable, FileVisitor<Path> {
+public class HierarchyFileVisitor extends AbstractShredder implements AutoCloseable, FileVisitor<Path> {
 
   /**
    * Mapping of {@link Database} to {@link HierarchyFileVisitor} shared among all

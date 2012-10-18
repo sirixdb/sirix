@@ -44,7 +44,7 @@ import org.sirix.settings.Constants;
  * Indirect page holds a set of references to build a reference tree.
  * </p>
  */
-public final class IndirectPage extends AbsForwardingPage {
+public final class IndirectPage extends AbstractForwardingPage {
 
   /** {@link PageDelegate} reference. */
   private final PageDelegate mDelegate;

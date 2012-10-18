@@ -9,7 +9,7 @@ import java.util.List;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.access.AbsVisitor;
+import org.sirix.access.AbstractVisitor;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
@@ -32,7 +32,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class DeleteFMSEVisitor extends AbsVisitor {
+public class DeleteFMSEVisitor extends AbstractVisitor {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(

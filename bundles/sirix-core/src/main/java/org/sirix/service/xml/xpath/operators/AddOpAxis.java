@@ -42,7 +42,7 @@ import org.sirix.utils.TypedValue;
  * Performs an arithmetic addition on two input operators.
  * </p>
  */
-public class AddOpAxis extends AbsObAxis {
+public class AddOpAxis extends AbstractObAxis {
 
   /**
    * Constructor. Initializes the internal state.

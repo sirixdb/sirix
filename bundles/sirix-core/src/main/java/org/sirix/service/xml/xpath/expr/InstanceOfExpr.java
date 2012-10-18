@@ -40,7 +40,7 @@ import org.sirix.utils.TypedValue;
  * in its second operand, according to the rules for SequenceType matching; otherwise it returns false.
  * </p>
  */
-public class InstanceOfExpr extends AbsExpression {
+public class InstanceOfExpr extends AbstractExpression {
 
   /** The sequence to test. */
   private final Axis mInputExpr;

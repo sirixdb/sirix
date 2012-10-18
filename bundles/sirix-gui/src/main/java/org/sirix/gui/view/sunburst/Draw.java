@@ -52,13 +52,13 @@ public enum Draw {
 	/** Draw directly. */
 	DRAW {
 		@Override
-		public void drawStrategy(final AbsSunburstGUI pGUI,
+		public void drawStrategy(final AbstractSunburstGUI pGUI,
 				final SunburstItem pItem, final EDrawSunburst pDraw) {
 			pDraw.drawStrategy(pGUI, pItem, this);
 		}
 
 		@Override
-		public void drawRings(final AbsSunburstGUI pGUI) {
+		public void drawRings(final AbstractSunburstGUI pGUI) {
 			if (pGUI.mParent.recorder != null) {
 				drawStaticRings(pGUI, pGUI.mParent.recorder);
 			}
@@ -66,22 +66,22 @@ public enum Draw {
 		}
 
 		@Override
-		public void update(final AbsSunburstGUI pGUI, final SunburstItem pItem) {
+		public void update(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
 			pItem.update(this, pGUI.getMappingMode(), pGUI.mParent.g);
 		}
 
 		@Override
-		public void drawOldRevision(final AbsSunburstGUI pGUI) {
+		public void drawOldRevision(final AbstractSunburstGUI pGUI) {
 			drawStaticOldRevision(pGUI, pGUI.mParent.g);
 		}
 
 		@Override
-		public void drawNewRevision(final AbsSunburstGUI pGUI) {
+		public void drawNewRevision(final AbstractSunburstGUI pGUI) {
 			drawStaticNewRevision(pGUI, pGUI.mParent.g);
 		}
 
 		@Override
-		public void drawModificationRel(final AbsSunburstGUI pGUI,
+		public void drawModificationRel(final AbstractSunburstGUI pGUI,
 				final SunburstItem pItem) {
 			if (pGUI.mParent.recorder != null) {
 				drawStaticModifcationRel(pGUI, pItem, pGUI.mParent.recorder);
@@ -90,7 +90,7 @@ public enum Draw {
 		}
 
 		@Override
-		public void drawLabel(final AbsSunburstGUI pGUI, final SunburstItem pItem) {
+		public void drawLabel(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
 			if (pGUI.isShowArcs()
 					&& (!pGUI.isShowLines() || pItem.getLineWeight() <= 0.5f)) {
 				if (pGUI.mParent.recorder != null) {
@@ -102,7 +102,7 @@ public enum Draw {
 		}
 
 		@Override
-		public void drawHover(final AbsSunburstGUI pGUI, final SunburstItem pItem) {
+		public void drawHover(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
 			if (!pGUI.mInit && pItem.getGreyState() == EGreyState.NO) {
 				if (pGUI.mParent.recorder != null) {
 					pItem.hover(pGUI.mParent.recorder);
@@ -123,13 +123,13 @@ public enum Draw {
 	/** Draw into buffer. */
 	UPDATEBUFFER {
 		@Override
-		public void drawStrategy(final AbsSunburstGUI pGUI,
+		public void drawStrategy(final AbstractSunburstGUI pGUI,
 				final SunburstItem pItem, final EDrawSunburst pDraw) {
 			pDraw.drawStrategy(pGUI, pItem, this);
 		}
 
 		@Override
-		public void drawRings(final AbsSunburstGUI pGUI) {
+		public void drawRings(final AbstractSunburstGUI pGUI) {
 			if (pGUI.mParent.recorder != null) {
 				drawStaticRings(pGUI, pGUI.mParent.recorder);
 			}
@@ -137,22 +137,22 @@ public enum Draw {
 		}
 
 		@Override
-		public void update(final AbsSunburstGUI pGUI, final SunburstItem pItem) {
+		public void update(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
 			pItem.update(this, pGUI.getMappingMode(), pGUI.getBuffer());
 		}
 
 		@Override
-		public void drawOldRevision(final AbsSunburstGUI pGUI) {
+		public void drawOldRevision(final AbstractSunburstGUI pGUI) {
 			drawStaticOldRevision(pGUI, pGUI.getBuffer());
 		}
 
 		@Override
-		public void drawNewRevision(final AbsSunburstGUI pGUI) {
+		public void drawNewRevision(final AbstractSunburstGUI pGUI) {
 			drawStaticNewRevision(pGUI, pGUI.getBuffer());
 		}
 
 		@Override
-		public void drawModificationRel(final AbsSunburstGUI pGUI,
+		public void drawModificationRel(final AbstractSunburstGUI pGUI,
 				final SunburstItem pItem) {
 			if (pGUI.mParent.recorder != null) {
 				drawStaticModifcationRel(pGUI, pItem, pGUI.mParent.recorder);
@@ -161,7 +161,7 @@ public enum Draw {
 		}
 
 		@Override
-		public void drawLabel(AbsSunburstGUI pGUI, SunburstItem pItem) {
+		public void drawLabel(AbstractSunburstGUI pGUI, SunburstItem pItem) {
 			if (pGUI.isShowArcs()
 					&& (!pGUI.isShowLines() || pItem.getLineWeight() <= 0.5f)) {
 				if (pGUI.mParent.recorder != null) {
@@ -174,7 +174,7 @@ public enum Draw {
 		}
 
 		@Override
-		public void drawHover(final AbsSunburstGUI pGUI, final SunburstItem pItem) {
+		public void drawHover(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
 			if (pGUI.mParent.recorder != null) {
 				pItem.hover(pGUI.mParent.recorder);
 				drawStaticLabel(pGUI, pGUI.mParent.recorder, pItem, EHovered.YES,
@@ -240,7 +240,7 @@ public enum Draw {
 	 * Draw a label.
 	 * 
 	 * @param pGUI
-	 *          the GUI ({@link AbsSunburstGUI})
+	 *          the GUI ({@link AbstractSunburstGUI})
 	 * @param pGraphic
 	 *          {@link PGraphics} reference
 	 * @param pItem
@@ -248,7 +248,7 @@ public enum Draw {
 	 * @param pHovered
 	 *          {@link EHovered} value
 	 */
-	private static void drawStaticLabel(final AbsSunburstGUI pGUI,
+	private static void drawStaticLabel(final AbstractSunburstGUI pGUI,
 			final PGraphics pGraphic, final SunburstItem pItem,
 			final EHovered pHovered, final Draw pDraw) {
 		assert pGUI != null;
@@ -354,7 +354,7 @@ public enum Draw {
 	 * @param pGraphic
 	 *          {@link PGraphics} instance
 	 */
-	private static void drawStaticOldRevision(final AbsSunburstGUI pGUI,
+	private static void drawStaticOldRevision(final AbstractSunburstGUI pGUI,
 			final PGraphics pGraphic) {
 		assert pGraphic != null;
 		if (pGUI.mDepthMax <= pGUI.mOldDepthMax) {
@@ -400,7 +400,7 @@ public enum Draw {
 	 *           if {@code pGUI} or {@code pGraphic} is {@code null} and the "-ea"
 	 *           VM p is set
 	 */
-	private static void drawStaticNewRevision(final AbsSunburstGUI pGUI,
+	private static void drawStaticNewRevision(final AbstractSunburstGUI pGUI,
 			final PGraphics pGraphic) {
 		assert pGraphic != null;
 		if (pGUI.mDepthMax > pGUI.mOldDepthMax + 1) {
@@ -440,7 +440,7 @@ public enum Draw {
 	 * @param pGraphic
 	 *          {@link PGraphics} instance
 	 */
-	private static void drawStaticModifcationRel(final AbsSunburstGUI pGUI,
+	private static void drawStaticModifcationRel(final AbstractSunburstGUI pGUI,
 			final SunburstItem pItem, final PGraphics pGraphic) {
 		assert pItem != null;
 		assert pGraphic != null;
@@ -510,7 +510,7 @@ public enum Draw {
 	 * @param pGraphic
 	 *          {@link PGraphics} instance
 	 */
-	private static void drawStaticRings(final AbsSunburstGUI pGUI,
+	private static void drawStaticRings(final AbstractSunburstGUI pGUI,
 			final PGraphics pGraphic) {
 		assert pGUI != null;
 		assert pGraphic != null;
@@ -601,7 +601,7 @@ public enum Draw {
 	 *          {@link PGraphics} instance
 	 * @return calculated radius
 	 */
-	private static float calculateOldRadius(final AbsSunburstGUI pGUI,
+	private static float calculateOldRadius(final AbstractSunburstGUI pGUI,
 			final PGraphics pGraphic) {
 		assert pGUI != null;
 		assert pGraphic != null;
@@ -626,7 +626,7 @@ public enum Draw {
 	 *          {@link PGraphics} instance
 	 * @return calculated radius
 	 */
-	private static float calculateNewRadius(final AbsSunburstGUI pGUI,
+	private static float calculateNewRadius(final AbstractSunburstGUI pGUI,
 			final PGraphics pGraphic) {
 		assert pGraphic != null;
 
@@ -652,7 +652,7 @@ public enum Draw {
 	 * @param pArcRadius
 	 *          arc radius
 	 */
-	private static void drawRevision(final AbsSunburstGUI pGUI,
+	private static void drawRevision(final AbstractSunburstGUI pGUI,
 			final PGraphics pGraphic, final float pArcRadius) {
 		assert pGUI != null;
 		assert pArcRadius >= 0;
@@ -669,7 +669,7 @@ public enum Draw {
 	 * @param pItem
 	 *          {@link SunburstItem} instance
 	 */
-	protected void drawArc(final AbsSunburstGUI pGUI, final SunburstItem pItem) {
+	protected void drawArc(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
 		assert pGUI != null;
 		assert pItem != null;
 		if (pGUI.isShowArcs()) {
@@ -693,7 +693,7 @@ public enum Draw {
 	 * @throws NullPointerException
 	 *           if {@code pGUI} or {@code pItem} is {@code null}
 	 */
-	void drawRelation(final AbsSunburstGUI pGUI, final SunburstItem pItem) {
+	void drawRelation(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
 		checkNotNull(pGUI);
 		checkNotNull(pItem);
 		if (pGUI.isShowLines()) {
@@ -723,7 +723,7 @@ public enum Draw {
 	 * @param pItem
 	 *          {@link SunburstItem} to update
 	 */
-	public abstract void update(final AbsSunburstGUI pGUI,
+	public abstract void update(final AbstractSunburstGUI pGUI,
 			final SunburstItem pItem);
 
 	/**
@@ -735,7 +735,7 @@ public enum Draw {
 	 *          {@link SunburstItem} to draw
 	 * @param pDraw
 	 */
-	public abstract void drawStrategy(final AbsSunburstGUI pGUI,
+	public abstract void drawStrategy(final AbstractSunburstGUI pGUI,
 			final SunburstItem pItem, final EDrawSunburst pDraw);
 
 	/**
@@ -747,7 +747,7 @@ public enum Draw {
 	 *          {@link SunburstItem} to draw
 	 * @param pDraw
 	 */
-	public abstract void drawHover(final AbsSunburstGUI pGUI,
+	public abstract void drawHover(final AbstractSunburstGUI pGUI,
 			final SunburstItem pItem);
 
 	/**
@@ -756,7 +756,7 @@ public enum Draw {
 	 * @param pGUI
 	 *          {@link SunburstGUI} instance
 	 */
-	public abstract void drawOldRevision(final AbsSunburstGUI pGUI);
+	public abstract void drawOldRevision(final AbstractSunburstGUI pGUI);
 
 	/**
 	 * Draw new revision ring.
@@ -764,7 +764,7 @@ public enum Draw {
 	 * @param pGUI
 	 *          {@link SunburstGUI} instance
 	 */
-	public abstract void drawNewRevision(final AbsSunburstGUI pGUI);
+	public abstract void drawNewRevision(final AbstractSunburstGUI pGUI);
 
 	/**
 	 * Draw label.
@@ -772,9 +772,9 @@ public enum Draw {
 	 * @param pItem
 	 *          {@link SunburstItem} instance
 	 * @param pGUI
-	 *          {@link AbsSunburstGUI} reference
+	 *          {@link AbstractSunburstGUI} reference
 	 */
-	public abstract void drawLabel(final AbsSunburstGUI pGUI,
+	public abstract void drawLabel(final AbstractSunburstGUI pGUI,
 			final SunburstItem pItem);
 
 	/**
@@ -783,7 +783,7 @@ public enum Draw {
 	 * @param pGUI
 	 *          {@link SunburstGUI} reference
 	 */
-	public abstract void drawRings(final AbsSunburstGUI pGUI);
+	public abstract void drawRings(final AbstractSunburstGUI pGUI);
 
 	/**
 	 * Draw modification relation to the root change.
@@ -793,7 +793,7 @@ public enum Draw {
 	 * @param pItem
 	 *          {@link SunburstItem} reference
 	 */
-	public abstract void drawModificationRel(final AbsSunburstGUI pGUI,
+	public abstract void drawModificationRel(final AbstractSunburstGUI pGUI,
 			final SunburstItem pItem);
 
 	/**
@@ -811,7 +811,7 @@ public enum Draw {
 		NORMAL {
 			/** {@inheritDoc} */
 			@Override
-			void drawStrategy(final AbsSunburstGUI pGUI, final SunburstItem pItem,
+			void drawStrategy(final AbstractSunburstGUI pGUI, final SunburstItem pItem,
 					final Draw pDraw) {
 				pDraw.drawArc(pGUI, pItem);
 				pDraw.drawRelation(pGUI, pItem);
@@ -823,7 +823,7 @@ public enum Draw {
 		COMPARE {
 			/** {@inheritDoc} */
 			@Override
-			void drawStrategy(final AbsSunburstGUI pGUI, final SunburstItem pItem,
+			void drawStrategy(final AbstractSunburstGUI pGUI, final SunburstItem pItem,
 					final Draw pDraw) {
 				pDraw.drawArc(pGUI, pItem);
 			}
@@ -840,7 +840,7 @@ public enum Draw {
 		 *          determines if it has to be drawn into an offscreen buffer or
 		 *          directly to the screen
 		 */
-		abstract void drawStrategy(final AbsSunburstGUI pGUI,
+		abstract void drawStrategy(final AbstractSunburstGUI pGUI,
 				final SunburstItem pItem, final Draw pDraw);
 	}
 

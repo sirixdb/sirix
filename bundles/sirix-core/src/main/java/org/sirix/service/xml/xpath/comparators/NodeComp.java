@@ -41,7 +41,7 @@ import org.sirix.utils.TypedValue;
  * Node comparisons are used to compare two nodes, by their identity or by their document order.
  * </p>
  */
-public class NodeComp extends AbsComparator {
+public class NodeComp extends AbstractComparator {
 
   /**
    * Constructor. Initializes the internal state.

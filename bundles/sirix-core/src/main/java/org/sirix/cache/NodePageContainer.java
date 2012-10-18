@@ -44,15 +44,17 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * <h1>PageContainer</h1>
  * 
  * <p>
- * This class acts as a container for revisioned {@link NodePage}s. Each {@link NodePage} is stored in a
- * versioned manner. If modifications occur, the versioned {@link NodePage}s are dereferenced and
- * reconstructed. Afterwards, this container is used to store a complete {@link NodePage} as well as one for
- * upcoming modifications.
+ * This class acts as a container for revisioned {@link NodePage}s. Each
+ * {@link NodePage} is stored in a versioned manner. If modifications occur, the
+ * versioned {@link NodePage}s are dereferenced and reconstructed. Afterwards,
+ * this container is used to store a complete {@link NodePage} as well as one
+ * for upcoming modifications.
  * </p>
  * 
  * <p>
- * Both {@link NodePage}s can differ since the complete one is mainly used for read access and the modifying one
- * for write access (and therefore mostly lazy dereferenced).
+ * Both {@link NodePage}s can differ since the complete one is mainly used for
+ * read access and the modifying one for write access (and therefore mostly lazy
+ * dereferenced).
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz
@@ -61,92 +63,97 @@ import com.sleepycat.bind.tuple.TupleOutput;
  */
 public final class NodePageContainer {
 
-  /** {@link NodePage} reference, which references the complete node page. */
-  private final NodePage mComplete;
+	/** {@link NodePage} reference, which references the complete node page. */
+	private final NodePage mComplete;
 
-  /** {@link NodePage} reference, which references the modified node page. */
-  private final NodePage mModified;
+	/** {@link NodePage} reference, which references the modified node page. */
+	private final NodePage mModified;
 
-  /** Empty instance. */
-  public static final NodePageContainer EMPTY_INSTANCE = new NodePageContainer();
+	/** Empty instance. */
+	public static final NodePageContainer EMPTY_INSTANCE = new NodePageContainer();
 
-  /** Private constructor for empty instance. */
-  private NodePageContainer() {
-    mComplete = null;
-    mModified = null;
-  }
+	/** Private constructor for empty instance. */
+	private NodePageContainer() {
+		mComplete = null;
+		mModified = null;
+	}
 
-  /**
-   * Constructor with complete page and lazy instantiated modifying page.
-   * 
-   * @param pComplete
-   *          to be used as a base for this container
-   */
-  public NodePageContainer(final @Nonnull NodePage pComplete) {
-    this(pComplete, new NodePage(pComplete.getNodePageKey(), pComplete.getRevision()));
-  }
+	/**
+	 * Constructor with complete page and lazy instantiated modifying page.
+	 * 
+	 * @param pComplete
+	 *          to be used as a base for this container
+	 */
+	public NodePageContainer(final @Nonnull NodePage pComplete) {
+		this(pComplete, new NodePage(pComplete.getNodePageKey(),
+				pComplete.getRevision()));
+	}
 
-  /**
-   * Constructor with both, complete and modifying page.
-   * 
-   * @param pComplete
-   *          to be used as a base for this container
-   * @param pModifying
-   *          to be used as a base for this container
-   */
-  public NodePageContainer(final @Nonnull NodePage pComplete, final @Nonnull NodePage pModifying) {
-    mComplete = checkNotNull(pComplete);
-    mModified = checkNotNull(pModifying);
-  }
+	/**
+	 * Constructor with both, complete and modifying page.
+	 * 
+	 * @param complete
+	 *          to be used as a base for this container
+	 * @param modifying
+	 *          to be used as a base for this container
+	 */
+	public NodePageContainer(final @Nonnull NodePage complete,
+			final @Nonnull NodePage modifying) {
+		assert complete != null;
+		assert modifying != null;
+		mComplete = complete;
+		mModified = modifying;
+	}
 
-  /**
-   * Getting the complete page.
-   * 
-   * @return the complete page
-   */
-  public NodePage getComplete() {
-    return mComplete;
-  }
+	/**
+	 * Getting the complete page.
+	 * 
+	 * @return the complete page
+	 */
+	public NodePage getComplete() {
+		return mComplete;
+	}
 
-  /**
-   * Getting the modified page.
-   * 
-   * @return the modified page
-   */
-  public NodePage getModified() {
-    return mModified;
-  }
+	/**
+	 * Getting the modified page.
+	 * 
+	 * @return the modified page
+	 */
+	public NodePage getModified() {
+		return mModified;
+	}
 
-  /**
-   * Serializing the container to the cache.
-   * 
-   * @param out
-   *          for serialization
-   */
+	/**
+	 * Serializing the container to the cache.
+	 * 
+	 * @param out
+	 *          for serialization
+	 */
 	public void serialize(final @Nonnull TupleOutput out) {
-    final ByteArrayDataOutput sink = ByteStreams.newDataOutput();
-    PagePersistenter.serializePage(sink, mComplete);
-    PagePersistenter.serializePage(sink, mModified);
-    out.write(sink.toByteArray());
-  }
+		final ByteArrayDataOutput sink = ByteStreams.newDataOutput();
+		PagePersistenter.serializePage(sink, mComplete);
+		PagePersistenter.serializePage(sink, mModified);
+		out.write(sink.toByteArray());
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mComplete, mModified);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mComplete, mModified);
+	}
 
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof NodePageContainer) {
-      final NodePageContainer other = (NodePageContainer) obj;
-      return Objects.equal(mComplete, other.mComplete) && Objects.equal(mModified, other.mModified);
-    }
-    return false;
-  }
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof NodePageContainer) {
+			final NodePageContainer other = (NodePageContainer) obj;
+			return Objects.equal(mComplete, other.mComplete)
+					&& Objects.equal(mModified, other.mModified);
+		}
+		return false;
+	}
 
-  @Override
-  public String toString() {
-    return Objects.toStringHelper(this).add("complete page",
-      mComplete).add("modified page", mModified).toString();
-  }
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("complete page", mComplete)
+				.add("modified page", mModified).toString();
+	}
 }

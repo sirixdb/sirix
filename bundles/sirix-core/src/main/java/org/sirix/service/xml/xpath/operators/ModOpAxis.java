@@ -43,7 +43,7 @@ import org.sirix.utils.TypedValue;
  * Performs a modulo operation using two input operators.
  * </p>
  */
-public class ModOpAxis extends AbsObAxis {
+public class ModOpAxis extends AbstractObAxis {
 
   /**
    * Constructor. Initializes the internal state.

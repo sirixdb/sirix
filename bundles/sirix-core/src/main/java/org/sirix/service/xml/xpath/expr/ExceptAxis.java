@@ -32,7 +32,7 @@ import java.util.Set;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.XPathError.ErrorType;
 
@@ -44,7 +44,7 @@ import org.sirix.service.xml.xpath.XPathError.ErrorType;
  * the second operand.
  * </p>
  */
-public class ExceptAxis extends AbsAxis {
+public class ExceptAxis extends AbstractAxis {
 
   /** First operand sequence. */
   private final Axis mOp1;

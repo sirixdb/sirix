@@ -35,7 +35,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.FollowingSiblingAxis;
@@ -69,13 +69,13 @@ public class ExpressionSingleTest {
     final ExpressionSingle builder = new ExpressionSingle();
 
     // test one axis
-    AbsAxis self = new SelfAxis(holder.getRtx());
+    AbstractAxis self = new SelfAxis(holder.getRtx());
     builder.add(self);
     assertEquals(builder.getExpr(), self);
 
     // test 2 axis
-    AbsAxis axis1 = new SelfAxis(holder.getRtx());
-    AbsAxis axis2 = new SelfAxis(holder.getRtx());
+    AbstractAxis axis1 = new SelfAxis(holder.getRtx());
+    AbstractAxis axis2 = new SelfAxis(holder.getRtx());
     builder.add(axis1);
     builder.add(axis2);
     assertTrue(builder.getExpr() instanceof NestedAxis);

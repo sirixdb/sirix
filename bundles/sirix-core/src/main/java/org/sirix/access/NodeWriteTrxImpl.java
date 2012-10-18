@@ -123,7 +123,7 @@ import com.google.common.hash.Hashing;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
+final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		NodeWriteTrx {
 
 	/**
@@ -2311,7 +2311,7 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 	private void addParentHash(final @Nonnull Node startNode)
 			throws SirixIOException {
 		switch (mHashKind) {
-		case Rolling:
+		case ROLLING:
 			long hashToAdd = mHash.hashLong(startNode.hashCode()).asLong();
 			Node node = (Node) getPageTransaction().prepareNodeForModification(
 					mNodeRtx.getCurrentNode().getNodeKey(), PageKind.NODEPAGE);
@@ -2324,7 +2324,7 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 			getPageTransaction().finishNodeModification(node.getNodeKey(),
 					PageKind.NODEPAGE);
 			break;
-		case Postorder:
+		case POSTORDER:
 			break;
 		default:
 		}
@@ -2333,7 +2333,7 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 	/** Add a hash and the descendant count. */
 	private void addHashAndDescendantCount() throws SirixIOException {
 		switch (mHashKind) {
-		case Rolling:
+		case ROLLING:
 			// Setup.
 			final Node startNode = getCurrentNode();
 			final long oldDescendantCount = mNodeRtx.getStructuralNode()
@@ -2362,7 +2362,7 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 
 			mNodeRtx.setCurrentNode(startNode);
 			break;
-		case Postorder:
+		case POSTORDER:
 			postorderAdd();
 			break;
 		default:
@@ -2579,10 +2579,10 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 	private void adaptHashesWithAdd() throws SirixIOException {
 		if (!mBulkInsert) {
 			switch (mHashKind) {
-			case Rolling:
+			case ROLLING:
 				rollingAdd();
 				break;
-			case Postorder:
+			case POSTORDER:
 				postorderAdd();
 				break;
 			default:
@@ -2599,10 +2599,10 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 	private void adaptHashesWithRemove() throws SirixIOException {
 		if (!mBulkInsert) {
 			switch (mHashKind) {
-			case Rolling:
+			case ROLLING:
 				rollingRemove();
 				break;
-			case Postorder:
+			case POSTORDER:
 				postorderRemove();
 				break;
 			default:
@@ -2622,10 +2622,10 @@ final class NodeWriteTrxImpl extends AbsForwardingNodeReadTrx implements
 			throws SirixIOException {
 		if (!mBulkInsert) {
 			switch (mHashKind) {
-			case Rolling:
+			case ROLLING:
 				rollingUpdate(pOldHash);
 				break;
-			case Postorder:
+			case POSTORDER:
 				postorderAdd();
 				break;
 			default:

@@ -40,7 +40,7 @@ import org.sirix.node.interfaces.NameNode;
  * namespace prefix, or the local name.
  * </p>
  */
-public class WildcardFilter extends AbsFilter {
+public class WildcardFilter extends AbstractFilter {
 
 	/** Type. */
 	public enum EType {

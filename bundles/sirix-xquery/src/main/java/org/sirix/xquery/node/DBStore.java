@@ -82,7 +82,7 @@ public class DBStore implements Store, AutoCloseable {
 			try {
 				final Database database = Databases.openDatabase(dbConf.getFile());
 				mDatabases.add(database);
-				return new DBCollection<AbsTemporalNode>(name, database, mUpdating);
+				return new DBCollection<AbstractTemporalNode>(name, database, mUpdating);
 			} catch (final SirixException e) {
 				throw new DocumentException(e.getCause());
 			}
@@ -102,7 +102,7 @@ public class DBStore implements Store, AutoCloseable {
 
 			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
-			return new DBCollection<AbsTemporalNode>(name, database, mUpdating);
+			return new DBCollection<AbstractTemporalNode>(name, database, mUpdating);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
 		}
@@ -128,7 +128,7 @@ public class DBStore implements Store, AutoCloseable {
 					database, mUpdating);
 			parser.parse(new SubtreeBuilder<DBNode>(collection, wtx,
 					Insert.ASFIRSTCHILD, Collections
-							.<SubtreeListener<? super AbsTemporalNode>> emptyList()));
+							.<SubtreeListener<? super AbstractTemporalNode>> emptyList()));
 			wtx.commit();
 			wtx.close();
 			return collection;
@@ -170,7 +170,7 @@ public class DBStore implements Store, AutoCloseable {
 										name, database, mUpdating);
 								nextParser.parse(new SubtreeBuilder<DBNode>(collection, wtx,
 										Insert.ASFIRSTCHILD, Collections
-												.<SubtreeListener<? super AbsTemporalNode>> emptyList()));
+												.<SubtreeListener<? super AbstractTemporalNode>> emptyList()));
 								wtx.commit();
 								wtx.close();
 								return null;

@@ -32,7 +32,7 @@ import java.util.List;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixXPathException;
-import org.sirix.service.xml.xpath.functions.AbsFunction;
+import org.sirix.service.xml.xpath.functions.AbstractFunction;
 import org.sirix.utils.TypedValue;
 
 /**
@@ -45,7 +45,7 @@ import org.sirix.utils.TypedValue;
  * The function returns the sum of all input item values.
  * </p>
  */
-public class FNSum extends AbsFunction {
+public class FNSum extends AbstractFunction {
 
   /**
    * Constructor.

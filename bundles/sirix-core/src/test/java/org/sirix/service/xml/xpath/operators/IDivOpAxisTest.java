@@ -37,7 +37,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.XPathError;
@@ -67,9 +67,9 @@ public class IDivOpAxisTest {
     AtomicValue item1 = new AtomicValue(3.0, Type.DOUBLE);
     AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
-    AbsAxis op1 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item1));
-    AbsAxis op2 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item2));
-    AbsObAxis axis = new IDivOpAxis(holder.getRtx(), op1, op2);
+    AbstractAxis op1 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item1));
+    AbstractAxis op2 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item2));
+    AbstractObAxis axis = new IDivOpAxis(holder.getRtx(), op1, op2);
 
     assertEquals(true, axis.hasNext());
     axis.next();
@@ -84,9 +84,9 @@ public class IDivOpAxisTest {
   @Test
   public final void testGetReturnType() throws SirixException {
 
-    AbsAxis op1 = new SequenceAxis(holder.getRtx());
-    AbsAxis op2 = new SequenceAxis(holder.getRtx());
-    AbsObAxis axis = new IDivOpAxis(holder.getRtx(), op1, op2);
+    AbstractAxis op1 = new SequenceAxis(holder.getRtx());
+    AbstractAxis op2 = new SequenceAxis(holder.getRtx());
+    AbstractObAxis axis = new IDivOpAxis(holder.getRtx(), op1, op2);
 
     assertEquals(Type.INTEGER, axis.getReturnType(holder.getRtx().keyForName("xs:double"), holder.getRtx()
       .keyForName("xs:double")));

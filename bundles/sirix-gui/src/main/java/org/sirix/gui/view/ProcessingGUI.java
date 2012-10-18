@@ -5,7 +5,7 @@ package org.sirix.gui.view;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.gui.view.sunburst.AbsSunburstGUI.EResetZoomer;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI.EResetZoomer;
 
 import processing.core.PApplet;
 

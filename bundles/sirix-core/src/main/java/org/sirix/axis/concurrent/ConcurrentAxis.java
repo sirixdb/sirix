@@ -39,7 +39,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -60,7 +60,7 @@ import org.slf4j.LoggerFactory;
  * used by any class that implements the IAxis interface. Note: Make sure that the used class is thread-safe.
  * </p>
  */
-public class ConcurrentAxis extends AbsAxis {
+public class ConcurrentAxis extends AbstractAxis {
 
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxis.class));

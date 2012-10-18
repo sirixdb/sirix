@@ -39,7 +39,7 @@ import org.sirix.node.Kind;
  * Iterate over all following siblings of kind ELEMENT or TEXT starting at a given node. Self is not included.
  * </p>
  */
-public final class FollowingSiblingAxis extends AbsAxis {
+public final class FollowingSiblingAxis extends AbstractAxis {
 
   /** Determines if it's the first call to hasNext(). */
   private boolean mIsFirst;

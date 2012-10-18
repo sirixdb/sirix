@@ -65,7 +65,7 @@ import processing.core.PConstants;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class DiffSunburstAxis extends AbsSunburstAxis {
+public final class DiffSunburstAxis extends AbstractSunburstAxis {
 
   /** {@link LogWrapper}. */
   private static final LogWrapper LOGWRAPPER =

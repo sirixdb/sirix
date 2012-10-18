@@ -36,7 +36,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 
 /**
  * <h1>VariableAxis</h1>
@@ -46,7 +46,7 @@ import org.sirix.service.xml.xpath.AbsAxis;
  * evaluated.
  * </p>
  */
-public class VariableAxis extends AbsAxis {
+public class VariableAxis extends AbstractAxis {
 
   /** Sequence that defines the values, the variable is bound to. */
   private final Axis mBindingSeq;

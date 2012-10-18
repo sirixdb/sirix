@@ -49,7 +49,7 @@ import org.sirix.utils.TypedValue;
  * generate zero binding tuples, the value of the quantified expression is false.
  * </p>
  */
-public class SomeExpr extends AbsExpression {
+public class SomeExpr extends AbstractExpression {
 
   private final List<Axis> mVars;
 

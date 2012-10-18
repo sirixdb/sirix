@@ -32,7 +32,7 @@ import java.util.List;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 
 /**
  * <h1>SequenceAxis</h1>
@@ -44,7 +44,7 @@ import org.sirix.service.xml.xpath.AbsAxis;
  * </p>
  * 
  */
-public class SequenceAxis extends AbsAxis {
+public class SequenceAxis extends AbstractAxis {
 
   private final List<Axis> mSeq;
   private Axis mCurrent;

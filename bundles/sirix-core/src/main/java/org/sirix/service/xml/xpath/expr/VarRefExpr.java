@@ -37,7 +37,7 @@ import org.sirix.api.NodeReadTrx;
  * Reference to the current item of the variable expression.
  * </p>
  */
-public class VarRefExpr extends AbsExpression implements IObserver {
+public class VarRefExpr extends AbstractExpression implements IObserver {
 
   /** Key of the item the variable is set to at the moment. */
   private long mVarKey;

@@ -58,7 +58,7 @@ import com.google.common.collect.BiMap;
  * Node representing an XML element.
  * </p>
  */
-public final class ElementNode extends AbsStructForwardingNode implements
+public final class ElementNode extends AbstructStructForwardingNode implements
 		NameNode {
 
 	/** Delegate for name node information. */

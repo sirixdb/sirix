@@ -38,7 +38,7 @@ import javax.swing.JComponent;
 
 import org.sirix.gui.GUIProp;
 import org.sirix.gui.ProgressGlassPane;
-import org.sirix.gui.view.AbsView;
+import org.sirix.gui.view.AbstractView;
 import org.sirix.gui.view.ProcessingView;
 import org.sirix.gui.view.View;
 import org.sirix.gui.view.VisualItem;
@@ -46,7 +46,7 @@ import org.sirix.gui.view.ProcessingEmbeddedView;
 import org.sirix.gui.view.ViewNotifier;
 import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.gui.view.model.interfaces.Model;
-import org.sirix.gui.view.sunburst.AbsSunburstGUI;
+import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
 import org.sirix.gui.view.sunburst.SunburstView;
 import org.sirix.gui.view.sunburst.model.SunburstModel;
 import processing.core.PApplet;
@@ -58,7 +58,7 @@ import processing.core.PConstants;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class SmallmultipleView extends AbsView implements View {
+public class SmallmultipleView extends AbstractView implements View {
 
   /**
    * SerialUID.
@@ -280,7 +280,7 @@ public class SmallmultipleView extends AbsView implements View {
     }
 
     @Override
-    public AbsSunburstGUI getGUI() {
+    public AbstractSunburstGUI getGUI() {
       return mControl.getGUIInstance();
     }
 

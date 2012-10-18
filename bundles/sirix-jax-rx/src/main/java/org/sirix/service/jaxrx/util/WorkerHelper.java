@@ -124,7 +124,7 @@ public final class WorkerHelper {
 	public static boolean checkExistingResource(final File storagePath,
 			final String resource) {
 		final File resourceFile = new File(new File(storagePath,
-				DatabaseConfiguration.Paths.Data.getFile().getName()), resource);
+				DatabaseConfiguration.Paths.DATA.getFile().getName()), resource);
 
 		boolean isExisting;
 		if (resourceFile.getTotalSpace() > 0) {

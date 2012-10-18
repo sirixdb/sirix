@@ -39,7 +39,7 @@ import org.sirix.node.interfaces.NameNode;
  * Match local part of ELEMENT or ATTRIBUTE by key.
  * </p>
  */
-public class NameFilter extends AbsFilter {
+public class NameFilter extends AbstractFilter {
 
   /** Key of name to test. */
   private final int mLocalPartKey;

@@ -32,7 +32,7 @@ import java.util.Map;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.AbsVisitor;
+import org.sirix.access.AbstractVisitor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
 import org.sirix.api.visitor.VisitResultType;
@@ -50,7 +50,7 @@ import org.sirix.node.interfaces.Node;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class FMSEVisitor extends AbsVisitor {
+public final class FMSEVisitor extends AbstractVisitor {
 
 	/** {@link NodeReadTrx} reference. */
 	private final NodeReadTrx mRtx;

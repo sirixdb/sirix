@@ -37,7 +37,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.XPathAxis;
@@ -71,30 +71,30 @@ public class AndExprTest {
     long iTrue = holder.getRtx().getItemList().addItem(new AtomicValue(true));
     long iFalse = holder.getRtx().getItemList().addItem(new AtomicValue(false));
 
-    AbsAxis trueLit1 = new LiteralExpr(holder.getRtx(), iTrue);
-    AbsAxis trueLit2 = new LiteralExpr(holder.getRtx(), iTrue);
-    AbsAxis falseLit1 = new LiteralExpr(holder.getRtx(), iFalse);
-    AbsAxis falseLit2 = new LiteralExpr(holder.getRtx(), iFalse);
+    AbstractAxis trueLit1 = new LiteralExpr(holder.getRtx(), iTrue);
+    AbstractAxis trueLit2 = new LiteralExpr(holder.getRtx(), iTrue);
+    AbstractAxis falseLit1 = new LiteralExpr(holder.getRtx(), iFalse);
+    AbstractAxis falseLit2 = new LiteralExpr(holder.getRtx(), iFalse);
 
-    AbsAxis axis1 = new AndExpr(holder.getRtx(), trueLit1, trueLit2);
+    AbstractAxis axis1 = new AndExpr(holder.getRtx(), trueLit1, trueLit2);
     assertEquals(true, axis1.hasNext());
     axis1.next();
     assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    AbsAxis axis2 = new AndExpr(holder.getRtx(), trueLit1, falseLit1);
+    AbstractAxis axis2 = new AndExpr(holder.getRtx(), trueLit1, falseLit1);
     assertEquals(true, axis2.hasNext());
     axis2.next();
     assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis2.hasNext());
 
-    AbsAxis axis3 = new AndExpr(holder.getRtx(), falseLit1, trueLit1);
+    AbstractAxis axis3 = new AndExpr(holder.getRtx(), falseLit1, trueLit1);
     assertEquals(true, axis3.hasNext());
     axis3.next();
     assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis3.hasNext());
 
-    AbsAxis axis4 = new AndExpr(holder.getRtx(), falseLit1, falseLit2);
+    AbstractAxis axis4 = new AndExpr(holder.getRtx(), falseLit1, falseLit2);
     assertEquals(true, axis4.hasNext());
     axis4.next();
     assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
@@ -107,38 +107,38 @@ public class AndExprTest {
 
     holder.getRtx().moveTo(1L);
 
-    final AbsAxis axis1 = new XPathAxis(holder.getRtx(), "text() and node()");
+    final AbstractAxis axis1 = new XPathAxis(holder.getRtx(), "text() and node()");
     assertEquals(true, axis1.hasNext());
     axis1.next();
     assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbsAxis axis2 = new XPathAxis(holder.getRtx(), "comment() and node()");
+    final AbstractAxis axis2 = new XPathAxis(holder.getRtx(), "comment() and node()");
     assertEquals(true, axis2.hasNext());
     axis2.next();
     assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis2.hasNext());
 
-    final AbsAxis axis3 = new XPathAxis(holder.getRtx(), "1 eq 1 and 2 eq 2");
+    final AbstractAxis axis3 = new XPathAxis(holder.getRtx(), "1 eq 1 and 2 eq 2");
     assertEquals(true, axis3.hasNext());
     axis3.next();
     assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis3.hasNext());
 
-    final AbsAxis axis4 = new XPathAxis(holder.getRtx(), "1 eq 1 and 2 eq 3");
+    final AbstractAxis axis4 = new XPathAxis(holder.getRtx(), "1 eq 1 and 2 eq 3");
     assertEquals(true, axis4.hasNext());
     axis4.next();
     assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis4.hasNext());
 
     // is never evaluated.
-    final AbsAxis axis5 = new XPathAxis(holder.getRtx(), "1 eq 2 and (3 idiv 0 = 1)");
+    final AbstractAxis axis5 = new XPathAxis(holder.getRtx(), "1 eq 2 and (3 idiv 0 = 1)");
     assertEquals(true, axis5.hasNext());
     axis5.next();
     assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis5.hasNext());
 
-    final AbsAxis axis6 = new XPathAxis(holder.getRtx(), "1 eq 1 and 3 idiv 0 = 1");
+    final AbstractAxis axis6 = new XPathAxis(holder.getRtx(), "1 eq 1 and 3 idiv 0 = 1");
     try {
       assertEquals(true, axis6.hasNext());
       axis6.next();

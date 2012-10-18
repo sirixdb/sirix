@@ -43,7 +43,7 @@ import org.sirix.api.NodeReadTrx;
  * 
  * @author Johannes Lichtenberger
  */
-public final class NonStructuralWrapperAxis extends AbsAxis {
+public final class NonStructuralWrapperAxis extends AbstractAxis {
 
 	/** Parent axis. */
 	private final Axis mParentAxis;

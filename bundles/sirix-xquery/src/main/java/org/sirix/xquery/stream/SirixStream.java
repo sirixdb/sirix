@@ -8,7 +8,7 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.xquery.node.AbsTemporalNode;
+import org.sirix.xquery.node.AbstractTemporalNode;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
 
@@ -23,7 +23,7 @@ public class SirixStream implements Stream<DBNode> {
 	private final Axis mAxis;
 
 	/** {@link DBCollection} the nodes belong to. */
-	private final DBCollection<? extends AbsTemporalNode> mCollection;
+	private final DBCollection<? extends AbstractTemporalNode> mCollection;
 
 	/** Sirix {@link NodeReadTrx}. */
 	private final NodeReadTrx mRtx;
@@ -37,7 +37,7 @@ public class SirixStream implements Stream<DBNode> {
 	 *          {@link DBCollection} the nodes belong to
 	 */
 	public SirixStream(final @Nonnull Axis axis,
-			final @Nonnull DBCollection<? extends AbsTemporalNode> collection) {
+			final @Nonnull DBCollection<? extends AbstractTemporalNode> collection) {
 		mAxis = checkNotNull(axis);
 		mRtx = mAxis.getTrx();
 		mCollection = checkNotNull(collection);

@@ -35,7 +35,7 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.node.AbsForwardingNode;
+import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
@@ -53,7 +53,7 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class StructNodeDelegate extends AbsForwardingNode implements StructNode {
+public class StructNodeDelegate extends AbstractForwardingNode implements StructNode {
 
   /** Pointer to the first child of the current node. */
   private long mFirstChild;

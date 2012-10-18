@@ -29,7 +29,7 @@ package org.sirix.service.xml.xpath.expr;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.utils.TypedValue;
@@ -49,7 +49,7 @@ import org.sirix.utils.TypedValue;
  * operands, in increasing order.
  * </p>
  */
-public class RangeAxis extends AbsAxis {
+public class RangeAxis extends AbstractAxis {
 
   /** The expression the range starts from. */
   private final Axis mFrom;

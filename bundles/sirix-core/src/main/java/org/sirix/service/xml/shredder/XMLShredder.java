@@ -77,7 +77,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class XMLShredder extends AbsShredder implements Callable<Long> {
+public final class XMLShredder extends AbstractShredder implements Callable<Long> {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(

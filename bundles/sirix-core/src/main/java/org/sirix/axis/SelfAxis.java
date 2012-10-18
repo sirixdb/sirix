@@ -38,7 +38,7 @@ import org.sirix.api.NodeReadTrx;
  * Iterate to parent node starting at a given node. Self is not included.
  * </p>
  */
-public final class SelfAxis extends AbsAxis {
+public final class SelfAxis extends AbstractAxis {
 
 	/** Track number of calls of next. */
 	private boolean mFirst;

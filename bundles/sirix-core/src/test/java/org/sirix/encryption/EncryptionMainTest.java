@@ -35,7 +35,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixEncryptionException;
 import org.sirix.service.xml.shredder.XMLShredder;

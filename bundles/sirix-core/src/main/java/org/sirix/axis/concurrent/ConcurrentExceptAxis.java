@@ -31,7 +31,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.axis.AbsAxis;
+import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
 
 /**
@@ -43,7 +43,7 @@ import org.sirix.settings.Fixed;
  * in the second operand. Document order is preserved.
  * </p>
  */
-public final class ConcurrentExceptAxis extends AbsAxis {
+public final class ConcurrentExceptAxis extends AbstractAxis {
 
 	/** First operand sequence. */
 	private final ConcurrentAxis mOp1;

@@ -81,7 +81,7 @@ import org.sirix.settings.Fixed;
  * 
  * </p>
  */
-public final class XPathAxis extends AbsAxis {
+public final class XPathAxis extends AbstractAxis {
 
 	/** Declares if the evaluation is compatible to XPath 1.0 or not. */
 	public static final boolean XPATH_10_COMP = true;

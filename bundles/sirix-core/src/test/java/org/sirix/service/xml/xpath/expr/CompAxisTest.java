@@ -34,7 +34,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
 
@@ -63,19 +63,19 @@ public class CompAxisTest {
   @Test
   public void testComp() throws SirixException {
 
-    final AbsAxis axis1 = new XPathAxis(holder.getRtx(), "1.0 = 1.0");
+    final AbstractAxis axis1 = new XPathAxis(holder.getRtx(), "1.0 = 1.0");
     assertEquals(true, axis1.hasNext());
     axis1.next();
     assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbsAxis axis2 = new XPathAxis(holder.getRtx(), "(1, 2, 3) < (2, 3)");
+    final AbstractAxis axis2 = new XPathAxis(holder.getRtx(), "(1, 2, 3) < (2, 3)");
     assertEquals(true, axis2.hasNext());
     axis2.next();
     assertEquals(true, Boolean.parseBoolean(holder.getRtx().getValue()));
     assertEquals(false, axis2.hasNext());
 
-    final AbsAxis axis3 = new XPathAxis(holder.getRtx(), "(1, 2, 3) > (3, 4)");
+    final AbstractAxis axis3 = new XPathAxis(holder.getRtx(), "(1, 2, 3) > (3, 4)");
     assertEquals(true, axis3.hasNext());
     axis3.next();
     assertEquals(false, Boolean.parseBoolean(holder.getRtx().getValue()));

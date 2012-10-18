@@ -44,7 +44,7 @@ import org.sirix.utils.TypedValue;
  * The function inverted boolean value of the argument.
  * </p>
  */
-public class FNNot extends AbsFunction {
+public class FNNot extends AbstractFunction {
 
   /**
    * Constructor.

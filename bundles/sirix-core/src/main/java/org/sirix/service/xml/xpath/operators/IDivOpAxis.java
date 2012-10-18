@@ -43,7 +43,7 @@ import org.sirix.utils.TypedValue;
  * Performs an arithmetic integer division on two input operators.
  * </p>
  */
-public class IDivOpAxis extends AbsObAxis {
+public class IDivOpAxis extends AbstractObAxis {
 
   /**
    * Constructor. Initializes the internal state.

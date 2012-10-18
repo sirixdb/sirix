@@ -35,7 +35,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbsAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Node;
 import org.sirix.service.xml.xpath.AtomicValue;
@@ -65,9 +65,9 @@ public class AbsOpAxisTest {
     final AtomicValue item1 = new AtomicValue(1.0, Type.DOUBLE);
     final AtomicValue item2 = new AtomicValue(2.0, Type.DOUBLE);
 
-    AbsAxis op1 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item1));
-    AbsAxis op2 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item2));
-    AbsObAxis axis = new DivOpAxis(holder.getRtx(), op1, op2);
+    AbstractAxis op1 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item1));
+    AbstractAxis op2 = new LiteralExpr(holder.getRtx(), holder.getRtx().getItemList().addItem(item2));
+    AbstractObAxis axis = new DivOpAxis(holder.getRtx(), op1, op2);
 
     assertEquals(true, axis.hasNext());
     assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx().getTypeKey());

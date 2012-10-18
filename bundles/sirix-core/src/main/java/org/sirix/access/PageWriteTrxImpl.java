@@ -75,7 +75,7 @@ import com.google.common.base.Optional;
  * to the persistent storage layer.
  * </p>
  */
-final class PageWriteTrxImpl extends AbsForwardingPageReadTrx implements
+final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		PageWriteTrx {
 
 	/** Page writer to serialize. */
