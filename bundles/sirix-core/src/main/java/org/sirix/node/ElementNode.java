@@ -27,8 +27,6 @@
 
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.Collections;
 import java.util.List;
 
@@ -57,6 +55,8 @@ import com.google.common.collect.BiMap;
  * <p>
  * Node representing an XML element.
  * </p>
+ * 
+ * <strong>This class is not part of the public API and might change.</strong>
  */
 public final class ElementNode extends AbstructStructForwardingNode implements
 		NameNode {
@@ -87,19 +87,24 @@ public final class ElementNode extends AbstructStructForwardingNode implements
 	 *          list of attribute keys
 	 * @param attributes
 	 *          attribute nameKey / nodeKey mapping in both directions
-	 * @param pNamespaceKeys
+	 * @param namespaceKeys
 	 *          keys of namespaces to be set
 	 */
-	public ElementNode(@Nonnull final StructNodeDelegate structDel,
-			@Nonnull final NameNodeDelegate nameDel,
-			@Nonnull final List<Long> attributeKeys,
-			@Nonnull final BiMap<Integer, Long> attributes,
-			@Nonnull final List<Long> pNamespaceKeys) {
-		mStructNodeDel = checkNotNull(structDel);
-		mNameDel = checkNotNull(nameDel);
-		mAttributeKeys = checkNotNull(attributeKeys);
-		mAttributes = checkNotNull(attributes);
-		mNamespaceKeys = checkNotNull(pNamespaceKeys);
+	public ElementNode(final @Nonnull StructNodeDelegate structDel,
+			final @Nonnull NameNodeDelegate nameDel,
+			final @Nonnull List<Long> attributeKeys,
+			final @Nonnull BiMap<Integer, Long> attributes,
+			final @Nonnull List<Long> namespaceKeys) {
+		assert structDel != null;
+		mStructNodeDel = structDel;
+		assert nameDel != null;
+		mNameDel = nameDel;
+		assert attributeKeys != null;
+		mAttributeKeys = attributeKeys;
+		assert attributes != null;
+		mAttributes = attributes;
+		assert namespaceKeys != null;
+		mNamespaceKeys = namespaceKeys;
 	}
 
 	/**
@@ -157,7 +162,8 @@ public final class ElementNode extends AbstructStructForwardingNode implements
 	 * @param nameIndex
 	 *          index mapping to name string
 	 */
-	public void insertAttribute(final long attrKey, final int nameIndex) {
+	public void insertAttribute(final @Nonnegative long attrKey,
+			final int nameIndex) {
 		mAttributeKeys.add(attrKey);
 		mAttributes.put(nameIndex, attrKey);
 	}
@@ -166,9 +172,9 @@ public final class ElementNode extends AbstructStructForwardingNode implements
 	 * Removing an attribute.
 	 * 
 	 * @param attrKey
-	 *          the key of the attribute to be removed
+	 *          the key of the attribute to be removed@Nonnegative@Nonnegative
 	 */
-	public void removeAttribute(final long attrKey) {
+	public void removeAttribute(final @Nonnegative long attrKey) {
 		mAttributeKeys.remove(attrKey);
 		mAttributes.inverse().remove(attrKey);
 	}

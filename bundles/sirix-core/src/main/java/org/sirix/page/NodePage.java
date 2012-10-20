@@ -81,10 +81,10 @@ public class NodePage implements Page {
 	 * @param revision
 	 *          revision the page belongs to
 	 */
-	public NodePage(@Nonnegative final long nodePageKey,
-			@Nonnegative final int revision) {
-		checkArgument(nodePageKey >= 0, "pNodePageKey must not be negative!");
-		checkArgument(revision >= 0, "pRevision must not be negative!");
+	public NodePage(final @Nonnegative long nodePageKey,
+			final @Nonnegative int revision) {
+		assert nodePageKey >= 0 : "pNodePageKey must not be negative!";
+		assert revision >= 0 : "pRevision must not be negative!";
 		mRevision = revision;
 		mNodePageKey = nodePageKey;
 		mNodes = new HashMap<>();
@@ -129,7 +129,7 @@ public class NodePage implements Page {
 	 *           if {@code key < 0}
 	 */
 	public NodeBase getNode(final @Nonnegative long key) {
-		checkArgument(key >= 0, "pKey must not be negative!");
+		assert key >= 0 : "pKey must not be negative!";
 		return mNodes.get(key);
 	}
 
@@ -142,7 +142,8 @@ public class NodePage implements Page {
 	 *          node to store at given nodeOffset
 	 */
 	public void setNode(final @Nonnull NodeBase node) {
-		mNodes.put(node.getNodeKey(), checkNotNull(node));
+		assert node != null : "node must not be null!";
+		mNodes.put(node.getNodeKey(), node);
 	}
 
 	@Override
@@ -203,7 +204,7 @@ public class NodePage implements Page {
 	}
 
 	@Override
-	public void commit(@Nonnull final PageWriteTrx pPageWriteTrx)
+	public void commit(final @Nonnull PageWriteTrx pPageWriteTrx)
 			throws SirixException {
 	}
 

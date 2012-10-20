@@ -106,7 +106,7 @@ public final class BerkeleyStorage implements Storage {
 	public BerkeleyStorage(final @Nonnull File file,
 			final @Nonnull ByteHandlePipeline handler) throws SirixIOException {
 		final File repoFile = new File(checkNotNull(file),
-				ResourceConfiguration.Paths.Data.getFile().getName());
+				ResourceConfiguration.Paths.DATA.getFile().getName());
 		if (!repoFile.exists()) {
 			repoFile.mkdirs();
 		}

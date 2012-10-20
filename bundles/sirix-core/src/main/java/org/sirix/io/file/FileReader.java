@@ -47,7 +47,7 @@ import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteStreams;
 
 /**
- * File Reader. Used for ReadTransaction to provide read only access on a
+ * File Reader. Used for {@link PageReadTrx} to provide read only access on a
  * RandomAccessFile.
  * 
  * @author Marc Kramis, Seabix

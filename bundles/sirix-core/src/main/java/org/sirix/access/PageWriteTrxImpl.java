@@ -52,17 +52,17 @@ import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
-import org.sirix.page.PageKind;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.NodePage;
+import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.Revisioning;
-import org.sirix.settings.Constants;
 import org.sirix.utils.NamePageHash;
 
 import com.google.common.base.Optional;
@@ -80,6 +80,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	/** Page writer to serialize. */
 	private final Writer mPageWriter;
+
+	/** Persistent BerkeleyDB page log for all page types != NodePage. */
+	private final Cache<Long, Page> mPageLog;
 
 	/** Cache to store the changes in this transaction log. */
 	private final Cache<Long, NodePageContainer> mNodeLog;
@@ -111,55 +114,64 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/** Determines if a log must be replayed or not. */
 	private Restore mRestore = Restore.NO;
 
-	/** Persistent BerkeleyDB page log for all page types != NodePage. */
-	private final TransactionLogPageCache mPageLog;
-
 	/** Determines if transaction is closed. */
 	private boolean mIsClosed;
+
+	private Set<EIndexes> mIndexes;
 
 	/**
 	 * Standard constructor.
 	 * 
-	 * @param pSession
+	 * @param session
 	 *          {@link ISessionConfiguration} this page write trx is bound to
-	 * @param pUberPage
+	 * @param uberPage
 	 *          root of revision
-	 * @param pWriter
+	 * @param writer
 	 *          writer where this transaction should write to
-	 * @param pId
+	 * @param id
 	 *          ID
-	 * @param pRepresentRev
+	 * @param representRev
 	 *          revision represent
-	 * @param pLastStoredRev
+	 * @param lastStoredRev
 	 *          last store revision
 	 * @throws AbsTTException
 	 *           if an error occurs
 	 */
-	PageWriteTrxImpl(final @Nonnull SessionImpl pSession,
-			final @Nonnull UberPage pUberPage, final @Nonnull Writer pWriter,
-			final @Nonnegative long pId, final @Nonnegative int pRepresentRev,
-			final @Nonnegative int pLastStoredRev,
+	PageWriteTrxImpl(final @Nonnull SessionImpl session,
+			final @Nonnull UberPage uberPage, final @Nonnull Writer writer,
+			final @Nonnegative long id, final @Nonnegative int representRev,
+			final @Nonnegative int lastStoredRev,
 			final @Nonnegative int pLastCommitedRev) throws SirixException {
-		final int revision = pUberPage.isBootstrap() ? 0 : pRepresentRev + 1;
-		mPageLog = new TransactionLogPageCache(pSession.mResourceConfig.mPath,
+		// Page read trx.
+		mPageRtx = new PageReadTrxImpl(session, uberPage, representRev, writer);
+
+		final int revision = uberPage.isBootstrap() ? 0 : representRev + 1;
+		mIndexes = session.mResourceConfig.mIndexes;
+		mPageLog = new TransactionLogPageCache(session.mResourceConfig.mPath,
 				revision, "page");
-		mNodeLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
-				revision, "node");
-		mPathLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
-				revision, "path");
-		mValueLog = new TransactionLogCache(pSession.mResourceConfig.mPath,
-				revision, "value");
-		mPageWriter = pWriter;
-		mTransactionID = pId;
-		mPageRtx = new PageReadTrxImpl(pSession, pUberPage, pRepresentRev, pWriter,
-				Optional.of(mPageLog));
+		mNodeLog = new TransactionLogCache(session.mResourceConfig.mPath, revision,
+				"node");
+		if (mIndexes.contains(EIndexes.PATH)) {
+			mPathLog = new TransactionLogCache(session.mResourceConfig.mPath,
+					revision, "path");
+		} else {
+			mPathLog = null;
+		}
+		if (mIndexes.contains(EIndexes.VALUE)) {
+			mValueLog = new TransactionLogCache(session.mResourceConfig.mPath,
+					revision, "value");
+		} else {
+			mValueLog = null;
+		}
+		mPageWriter = writer;
+		mTransactionID = id;
 
 		final RevisionRootPage lastCommitedRoot = preparePreviousRevisionRootPage(
-				pRepresentRev, pLastCommitedRev);
-		mNewRoot = preparePreviousRevisionRootPage(pRepresentRev, pLastStoredRev);
+				representRev, pLastCommitedRev);
+		mNewRoot = preparePreviousRevisionRootPage(representRev, lastStoredRev);
 		mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
 
-		final Set<EIndexes> indexes = pSession.getResourceConfig().mIndexes;
+		final Set<EIndexes> indexes = session.getResourceConfig().mIndexes;
 		if (indexes.contains(EIndexes.PATH)) {
 			mNewRoot.setMaxPathNodeKey(lastCommitedRoot.getMaxPathNodeKey());
 		}
@@ -478,8 +490,12 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			mPageRtx.closeCaches();
 			mNodeLog.close();
 			mPageLog.close();
-			mPathLog.close();
-			mValueLog.close();
+			if (mPathLog != null) {
+				mPathLog.close();
+			}
+			if (mValueLog != null) {
+				mValueLog.close();
+			}
 			mPageWriter.close();
 			mIsClosed = true;
 		}
@@ -708,7 +724,12 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mPageRtx.assertNotClosed();
 		mPageLog.clear();
 		mNodeLog.clear();
-		mPathLog.clear();
-		mValueLog.clear();
+
+		if (mPathLog != null) {
+			mPathLog.clear();
+		}
+		if (mValueLog != null) {
+			mValueLog.clear();
+		}
 	}
 }

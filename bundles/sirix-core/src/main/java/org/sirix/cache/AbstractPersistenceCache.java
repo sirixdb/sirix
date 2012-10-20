@@ -34,7 +34,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 
 import com.sleepycat.je.Environment;
@@ -72,7 +71,7 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 	protected AbstractPersistenceCache(final @Nonnull File file,
 			final @Nonnegative int revision, final @Nonnull String logType) {
 		mPlace = new File(new File(new File(file,
-				ResourceConfiguration.Paths.TransactionLog.getFile().getName()),
+				ResourceConfiguration.Paths.TRANSACTION_LOG.getFile().getName()),
 				Integer.toString(revision)), logType);
 		mCreated = mPlace.mkdirs();
 	}
@@ -179,5 +178,4 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 	 *           if something odd happens.
 	 */
 	public abstract V getPersistent(final @Nonnull K key) throws SirixIOException;
-
 }

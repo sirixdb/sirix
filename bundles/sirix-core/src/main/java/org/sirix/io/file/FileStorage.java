@@ -95,7 +95,7 @@ public final class FileStorage implements Storage {
 	 * @return the concrete storage for this database
 	 */
 	private File getConcreteStorage() {
-		return new File(mFile, new StringBuilder(ResourceConfiguration.Paths.Data
+		return new File(mFile, new StringBuilder(ResourceConfiguration.Paths.DATA
 				.getFile().getName()).append(File.separator).append(FILENAME)
 				.toString());
 	}

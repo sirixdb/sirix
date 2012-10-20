@@ -1369,7 +1369,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 *           if one of the ancestors is the node/subtree rooted at the node to
 	 *           move
 	 */
-	private void checkAncestors(final Node node) {
+	private void checkAncestors(final @Nonnull Node node) {
 		assert node != null;
 		final Node item = getCurrentNode();
 		while (getCurrentNode().hasParent()) {
@@ -2185,6 +2185,14 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			// Remember succesfully committed uber page in session.
 			mNodeRtx.mSession.setLastCommittedUberPage(uberPage);
 
+			// Delete commit file which denotes that a commit must write the log in
+			// the data file.
+			try {
+				Files.delete(commitFile.toPath());
+			} catch (final IOException e) {
+				throw new SirixIOException(e.getCause());
+			}
+			
 			final long trxID = getTransactionID();
 			final int revNumber = getRevisionNumber();
 
@@ -2198,13 +2206,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			hook.postCommit(trx);
 		}
 
-		// Delete commit file which denotes that a commit must write the log in
-		// the data file.
-		try {
-			Files.delete(commitFile.toPath());
-		} catch (final IOException e) {
-			throw new SirixIOException(e.getCause());
-		}
 		// } catch (final SirixException e) {
 		// e.printStackTrace();
 		// }

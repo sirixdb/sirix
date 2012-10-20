@@ -62,15 +62,14 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.cache.NodePageContainer;
-import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.path.PathSummary;
-import org.sirix.io.StorageType;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;
+import org.sirix.io.StorageType;
 import org.sirix.io.Writer;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
@@ -216,12 +215,10 @@ public final class SessionImpl implements Session {
 			throw new SirixThreadedException(e);
 		}
 
-		final Optional<TransactionLogPageCache> log = getLog(pRevisionKey);
-
 		// Create new read transaction.
 		final NodeReadTrx rtx = new NodeReadTrxImpl(this,
 				mNodeTrxIDCounter.incrementAndGet(), new PageReadTrxImpl(this,
-						mLastCommittedUberPage.get(), pRevisionKey, mFac.getReader(), log));
+						mLastCommittedUberPage.get(), pRevisionKey, mFac.getReader()));
 
 		// Remember transaction for debugging and safe close.
 		if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
@@ -229,24 +226,6 @@ public final class SessionImpl implements Session {
 					"ID generation is bogus because of duplicate ID.");
 		}
 		return rtx;
-	}
-
-	/**
-	 * Get an optional page log cache.
-	 * 
-	 * @param pRevision
-	 *          the revision number
-	 * @return an optional {@link TransactionLogPageCache} instance
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	private Optional<TransactionLogPageCache> getLog(
-			final @Nonnegative int pRevision) throws SirixIOException {
-		commitFile(pRevision);
-		final Optional<TransactionLogPageCache> log = mCommitFile.exists() ? Optional
-				.of(new TransactionLogPageCache(mResourceConfig.mPath, pRevision,
-						"page")) : Optional.<TransactionLogPageCache> absent();
-		return log;
 	}
 
 	/**
@@ -260,7 +239,7 @@ public final class SessionImpl implements Session {
 		final int revision = mLastCommittedUberPage.get().isBootstrap() ? 0
 				: pRevision + 1;
 		mCommitFile = new File(mResourceConfig.mPath, new File(
-				ResourceConfiguration.Paths.TransactionLog.getFile(), new File(
+				ResourceConfiguration.Paths.TRANSACTION_LOG.getFile(), new File(
 						new File(String.valueOf(revision)), ".commit").getPath()).getPath());
 	}
 
@@ -625,7 +604,7 @@ public final class SessionImpl implements Session {
 
 		return PathSummary.getInstance(
 				new PageReadTrxImpl(this, mLastCommittedUberPage.get(), pRev, mFac
-						.getReader(), Optional.<TransactionLogPageCache> absent()), this);
+						.getReader()), this);
 	}
 
 	@Override
@@ -642,7 +621,7 @@ public final class SessionImpl implements Session {
 	public synchronized PageReadTrx beginPageReadTrx(@Nonnegative int pRev)
 			throws SirixException {
 		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), pRev,
-				mFac.getReader(), Optional.<TransactionLogPageCache> absent());
+				mFac.getReader());
 	}
 
 	@Override

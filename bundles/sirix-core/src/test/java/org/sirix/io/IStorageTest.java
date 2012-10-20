@@ -59,10 +59,10 @@ public class IStorageTest {
 		TestHelper.deleteEverything();
 		TestHelper.PATHS.PATH1.getFile().mkdirs();
 		new File(TestHelper.PATHS.PATH1.getFile(), new StringBuilder(
-				ResourceConfiguration.Paths.Data.getFile().getName()).toString())
+				ResourceConfiguration.Paths.DATA.getFile().getName()).toString())
 				.mkdirs();
 		new File(TestHelper.PATHS.PATH1.getFile(), new StringBuilder(
-				ResourceConfiguration.Paths.Data.getFile().getName())
+				ResourceConfiguration.Paths.DATA.getFile().getName())
 				.append(File.separator).append("tt.tnk").toString()).createNewFile();
 	}
 

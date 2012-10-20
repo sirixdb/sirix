@@ -76,13 +76,13 @@ public final class ResourceConfiguration {
 	public enum Paths {
 
 		/** Folder for storage of data. */
-		Data(new File("data"), true),
+		DATA(new File("data"), true),
 
 		/** Folder for transaction log. */
-		TransactionLog(new File("log"), true),
+		TRANSACTION_LOG(new File("log"), true),
 
 		/** File to store the resource settings. */
-		ConfigBinary(new File("ressetting.obj"), false);
+		CONFIG_BINARY(new File("ressetting.obj"), false);
 
 		/** Location of the file. */
 		private final File mFile;
@@ -290,7 +290,7 @@ public final class ResourceConfiguration {
 	 * @return configuration file
 	 */
 	public File getConfigFile() {
-		return new File(mPath, Paths.ConfigBinary.getFile().getName());
+		return new File(mPath, Paths.CONFIG_BINARY.getFile().getName());
 	}
 
 	/**
@@ -366,7 +366,7 @@ public final class ResourceConfiguration {
 	public static ResourceConfiguration deserialize(final @Nonnull File pFile)
 			throws SirixIOException {
 		try {
-			final File configFiler = new File(pFile, Paths.ConfigBinary.getFile()
+			final File configFiler = new File(pFile, Paths.CONFIG_BINARY.getFile()
 					.getName());
 			final FileReader fileReader = new FileReader(configFiler);
 			final JsonReader jsonReader = new JsonReader(fileReader);

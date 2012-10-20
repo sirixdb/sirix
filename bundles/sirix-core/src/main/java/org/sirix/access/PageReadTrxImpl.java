@@ -30,6 +30,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -54,26 +55,24 @@ import org.sirix.io.Reader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NodeBase;
-import org.sirix.page.PageKind;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.NodePage;
+import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.ValuePage;
 import org.sirix.page.interfaces.Page;
-import org.sirix.settings.Revisioning;
 import org.sirix.settings.Constants;
+import org.sirix.settings.Revisioning;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.google.common.cache.RemovalListener;
-import com.google.common.cache.RemovalNotification;
 
 /**
  * <h1>PageReadTransaction</h1>
@@ -123,78 +122,77 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * Optional page transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogPageCache> mPageLog;
+	final Optional<TransactionLogPageCache> mPageLog;
 
 	/**
 	 * Optional path transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache> mPathLog;
+	final Optional<TransactionLogCache> mPathLog;
 
 	/**
 	 * Optional value transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache> mValueLog;
+	final Optional<TransactionLogCache> mValueLog;
 
 	/**
 	 * Optional node transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache> mNodeLog;
+	final Optional<TransactionLogCache> mNodeLog;
 
 	/**
 	 * Standard constructor.
 	 * 
-	 * @param pSession
+	 * @param session
 	 *          current {@link SessionImpl} instance
-	 * @param pUberPage
+	 * @param uberPage
 	 *          {@link UberPage} to start reading from
-	 * @param pRevision
+	 * @param revision
 	 *          key of revision to read from uber page
-	 * @param pReader
+	 * @param reader
 	 *          reader to read stored pages for this transaction
-	 * @param pPersistentCache
+	 * @param persistentCache
 	 *          optional persistent cache
 	 * @throws SirixIOException
 	 *           if reading of the persistent storage fails
 	 */
-	PageReadTrxImpl(final @Nonnull SessionImpl pSession,
-			final @Nonnull UberPage pUberPage, @Nonnegative final int pRevision,
-			final @Nonnull Reader pReader,
-			final @Nonnull Optional<TransactionLogPageCache> pPersistentCache)
-			throws SirixIOException {
-		checkArgument(pRevision >= 0, "Revision must be >= 0!");
-		mIndexes = pSession.mResourceConfig.mIndexes;
+	PageReadTrxImpl(final @Nonnull SessionImpl session,
+			final @Nonnull UberPage uberPage, final @Nonnegative int revision,
+			final @Nonnull Reader reader) throws SirixIOException {
+		checkArgument(revision >= 0, "Revision must be >= 0!");
+		mIndexes = session.mResourceConfig.mIndexes;
 
 		// Transaction logs which might have to be read because the data hasn't been
 		// commited to the data-file.
 		// =======================================================
-		// final boolean isCreated = pPersistentCache.isPresent()
-		// && !pPersistentCache.get().isCreated();
-		// mPageLog = !isCreated ? pPersistentCache : Optional
-		// .<TransactionLogPageCache> absent();
-		// mNodeLog = !isCreated ? Optional.of(new TransactionLogCache(
-		// pSession.mResourceConfig.mPath, pRevision, "node")) : Optional
-		// .<TransactionLogCache> absent();
-		// if (mIndexes.contains(EIndexes.PATH)) {
-		// mPathLog = !isCreated ? Optional.of(new TransactionLogCache(
-		// pSession.mResourceConfig.mPath, pRevision, "path")) : Optional
-		// .<TransactionLogCache> absent();
-		// } else {
+		final File commitFile = session.mCommitFile;
+		final boolean doesExist = commitFile != null && commitFile.exists();
+		mPageLog = doesExist ? Optional.of(new TransactionLogPageCache(
+				session.mResourceConfig.mPath, revision, "page")) : Optional
+				.<TransactionLogPageCache> absent();
+		mNodeLog = doesExist ? Optional.of(new TransactionLogCache(
+				session.mResourceConfig.mPath, revision, "node")) : Optional
+				.<TransactionLogCache> absent();
+		if (mIndexes.contains(EIndexes.PATH)) {
+			mPathLog = doesExist ? Optional.of(new TransactionLogCache(
+					session.mResourceConfig.mPath, revision, "path")) : Optional
+					.<TransactionLogCache> absent();
+		} else {
+			mPathLog = Optional.<TransactionLogCache> absent();
+		}
+		if (mIndexes.contains(EIndexes.VALUE)) {
+			mValueLog = doesExist ? Optional.of(new TransactionLogCache(
+					session.mResourceConfig.mPath, revision, "value")) : Optional
+					.<TransactionLogCache> absent();
+		} else {
+			mValueLog = Optional.<TransactionLogCache> absent();
+		}
+		// mPageLog = Optional.<TransactionLogPageCache> absent();
+		// mNodeLog = Optional.<TransactionLogCache> absent();
 		// mPathLog = Optional.<TransactionLogCache> absent();
-		// }
-		// if (mIndexes.contains(EIndexes.VALUE)) {
-		// mValueLog = !isCreated ? Optional.of(new TransactionLogCache(
-		// pSession.mResourceConfig.mPath, pRevision, "value")) : Optional
-		// .<TransactionLogCache> absent();
-		// } else {
 		// mValueLog = Optional.<TransactionLogCache> absent();
-		// }
-		mPageLog = Optional.<TransactionLogPageCache> absent();
-		mNodeLog = Optional.<TransactionLogCache> absent();
-		mPathLog = Optional.<TransactionLogCache> absent();
-		mValueLog = Optional.<TransactionLogCache> absent();
 
 		// In memory caches from data directory.
 		// =========================================================
@@ -247,17 +245,17 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 		final CacheBuilder<Object, Object> pageCacheBuilder = CacheBuilder
 				.newBuilder();
-		if (pPersistentCache.isPresent()) {
-			pageCacheBuilder.removalListener(new RemovalListener<Long, Page>() {
-				@Override
-				public void onRemoval(final RemovalNotification<Long, Page> pRemoval) {
-					// final IPage page = pRemoval.getValue();
-					// if (page.isDirty()) {
-					// pPersistentCache.get().put(pRemoval.getKey(), page);
-					// }
-				}
-			});
-		}
+		// if (persistentCache.isPresent()) {
+		// pageCacheBuilder.removalListener(new RemovalListener<Long, Page>() {
+		// @Override
+		// public void onRemoval(final RemovalNotification<Long, Page> pRemoval) {
+		// final Page page = pRemoval.getValue();
+		// if (page.isDirty()) {
+		// persistentCache.get().put(pRemoval.getKey(), page);
+		// }
+		// }
+		// });
+		// }
 
 		mPageCache = pageCacheBuilder.build(new CacheLoader<Long, Page>() {
 			public Page load(final Long pKey) throws SirixException {
@@ -270,12 +268,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 				}
 			}
 		});
-		mSession = checkNotNull(pSession);
-		mPageReader = checkNotNull(pReader);
-		mUberPage = checkNotNull(pUberPage);
-		mRootPage = loadRevRoot(pRevision);
+		mSession = checkNotNull(session);
+		mPageReader = checkNotNull(reader);
+		mUberPage = checkNotNull(uberPage);
+		mRootPage = loadRevRoot(revision);
 		assert mRootPage != null : "root page must not be null!";
 		mNamePage = getNamePage();
+		mClosed = false;
 		final PageReference ref = mRootPage.getPathSummaryPageReference();
 		if (ref.getPage() == null) {
 			try {
@@ -284,7 +283,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 				throw new SirixIOException(e);
 			}
 		}
-		mClosed = false;
 	}
 
 	@Override
@@ -302,7 +300,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public Optional<NodeBase> getNode(@Nonnegative final long pNodeKey,
+	public Optional<NodeBase> getNode(final @Nonnegative long pNodeKey,
 			final @Nonnull PageKind pPage) throws SirixIOException {
 		checkArgument(pNodeKey >= 0);
 		checkNotNull(pPage);
@@ -696,7 +694,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *          node key to find node page key for
 	 * @return node page key
 	 */
-	final long nodePageKey(@Nonnegative final long pNodeKey) {
+	final long nodePageKey(final @Nonnegative long pNodeKey) {
 		checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
 		return pNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
 	}
@@ -708,7 +706,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	// * node key to find offset for
 	// * @return offset into node page
 	// */
-	// final int nodePageOffset(@Nonnegative final long pNodeKey) {
+	// final int nodePageOffset(final @Nonnegative long pNodeKey) {
 	// checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
 	// final long shift =
 	// ((pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT) <<
