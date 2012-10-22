@@ -53,7 +53,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceConfiguration.EIndexes;
+import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
@@ -172,10 +172,10 @@ public final class SessionImpl implements Session {
 		mFac = StorageType.getStorage(mResourceConfig);
 		if (mFac.exists()) {
 			final Reader reader = mFac.getReader();
-			final PageReference firstRef = reader.readFirstReference();
+			final PageReference firstRef = reader.readFirstReference(mResourceConfig);
 			if (firstRef.getPage() == null) {
 				mLastCommittedUberPage = new AtomicReference<>(
-						(UberPage) reader.read(firstRef.getKey()));
+						(UberPage) reader.read(firstRef.getKey(), mResourceConfig));
 			} else {
 				mLastCommittedUberPage = new AtomicReference<>(
 						(UberPage) firstRef.getPage());
@@ -183,13 +183,13 @@ public final class SessionImpl implements Session {
 			reader.close();
 		} else {
 			// Bootstrap uber page and make sure there already is a root node.
-			mLastCommittedUberPage = new AtomicReference<>(new UberPage());
+			mLastCommittedUberPage = new AtomicReference<>(new UberPage(mResourceConfig));
 
-			final Set<EIndexes> indexes = mResourceConfig.mIndexes;
-			if (indexes.contains(EIndexes.PATH)) {
+			final Set<Indexes> indexes = mResourceConfig.mIndexes;
+			if (indexes.contains(Indexes.PATH)) {
 				mLastCommittedUberPage.get().createPathSummaryTree();
 			}
-			if (indexes.contains(EIndexes.VALUE)) {
+			if (indexes.contains(Indexes.VALUE)) {
 				mLastCommittedUberPage.get().createValueTree();
 			}
 		}

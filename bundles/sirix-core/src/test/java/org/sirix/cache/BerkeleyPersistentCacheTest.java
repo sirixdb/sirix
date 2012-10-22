@@ -37,6 +37,7 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.page.NodePage;
 
@@ -45,15 +46,19 @@ public class BerkeleyPersistentCacheTest {
 	private Cache<Long, NodePageContainer> cache;
 
 	private Holder holder;
+	
+	private ResourceConfiguration mResourceConfig;
 
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
 		TestHelper.createTestDocument();
 		holder = Holder.generateSession();
+		mResourceConfig = new ResourceConfiguration.Builder(
+				"", new DatabaseConfiguration(new File(""))).build();
 		cache = new BerkeleyPersistenceCache(new File(new File(
 				TestHelper.PATHS.PATH1.getFile(), DatabaseConfiguration.Paths.DATA
-						.getFile().getName()), TestHelper.RESOURCE), 1, "log");
+						.getFile().getName()), TestHelper.RESOURCE), 1, "log", mResourceConfig);
 		CacheTestHelper.setUp(cache);
 	}
 

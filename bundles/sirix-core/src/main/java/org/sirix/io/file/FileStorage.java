@@ -50,7 +50,7 @@ import org.sirix.io.bytepipe.ByteHandler;
 public final class FileStorage implements Storage {
 
 	/** File name. */
-	private static final String FILENAME = "tt.tnk";
+	private static final String FILENAME = "data.sirix";
 
 	/** Instance to storage. */
 	private final File mFile;
@@ -66,10 +66,10 @@ public final class FileStorage implements Storage {
 	 * @param byteHandler
 	 *          byte handler pipeline
 	 */
-	public FileStorage(final @Nonnull File file,
-			final @Nonnull ByteHandlePipeline byteHandler) {
-		mFile = checkNotNull(file);
-		mByteHandler = checkNotNull(byteHandler);
+	public FileStorage(final @Nonnull ResourceConfiguration resourceConfig) {
+		assert resourceConfig != null : "resourceConfig must not be null!";
+		mFile = resourceConfig.mPath;
+		mByteHandler = resourceConfig.mByteHandler;
 	}
 
 	@Override

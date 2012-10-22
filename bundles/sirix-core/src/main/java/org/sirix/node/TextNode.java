@@ -40,7 +40,7 @@ import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.immutable.ImmutableText;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.interfaces.ValNode;
+import org.sirix.node.interfaces.ValueNode;
 import org.sirix.settings.Fixed;
 
 import com.google.common.base.Objects;
@@ -53,7 +53,7 @@ import com.google.common.base.Objects;
  * </p>
  */
 public final class TextNode extends AbstructStructForwardingNode implements
-		ValNode {
+		ValueNode {
 
 	/** Delegate for common value node information. */
 	private final ValNodeDelegate mValDel;
@@ -70,7 +70,7 @@ public final class TextNode extends AbstructStructForwardingNode implements
 	 * @param pDel
 	 *          delegate for {@link Node} implementation
 	 * @param valDel
-	 *          delegate for {@link ValNode} implementation
+	 *          delegate for {@link ValueNode} implementation
 	 * @param structDel
 	 *          delegate for {@link StructNode} implementation
 	 */

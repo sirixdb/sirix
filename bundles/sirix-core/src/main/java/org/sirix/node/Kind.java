@@ -35,6 +35,7 @@ import java.util.Set;
 
 import javax.annotation.Nonnull;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.index.path.PathNode;
 import org.sirix.index.value.AVLNode;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -47,6 +48,7 @@ import org.sirix.page.NodePage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Fixed;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.io.ByteArrayDataInput;
@@ -64,9 +66,11 @@ public enum Kind implements NodeKind {
 	/** Node kind is element. */
 	ELEMENT((byte) 1, ElementNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			// Node delegate.
-			final NodeDelegate nodeDel = deserializeNodeDelegate(source);
+			final NodeDelegate nodeDel = deserializeNodeDelegate(source,
+					resourceConfig);
 
 			// Struct delegate.
 			final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
@@ -96,9 +100,10 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final ElementNode node = (ElementNode) toSerialize;
-			serializeDelegate(node.getNodeDelegate(), sink);
+			serializeDelegate(node.getNodeDelegate(), sink, resourceConfig);
 			serializeStrucDelegate(node.getStructNodeDelegate(), sink);
 			serializeNameDelegate(node.getNameNodeDelegate(), sink);
 			sink.writeInt(node.getAttributeCount());
@@ -117,9 +122,11 @@ public enum Kind implements NodeKind {
 	/** Node kind is attribute. */
 	ATTRIBUTE((byte) 2, AttributeNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			// Node delegate.
-			final NodeDelegate nodeDel = deserializeNodeDelegate(source);
+			final NodeDelegate nodeDel = deserializeNodeDelegate(source,
+					resourceConfig);
 
 			// Name delegate.
 			final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
@@ -137,9 +144,10 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final AttributeNode node = (AttributeNode) toSerialize;
-			serializeDelegate(node.getNodeDelegate(), sink);
+			serializeDelegate(node.getNodeDelegate(), sink, resourceConfig);
 			serializeNameDelegate(node.getNameNodeDelegate(), sink);
 			serializeValDelegate(node.getValNodeDelegate(), sink);
 		}
@@ -148,9 +156,11 @@ public enum Kind implements NodeKind {
 	/** Node kind is namespace. */
 	NAMESPACE((byte) 13, NamespaceNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			// Node delegate.
-			final NodeDelegate nodeDel = deserializeNodeDelegate(source);
+			final NodeDelegate nodeDel = deserializeNodeDelegate(source,
+					resourceConfig);
 
 			// Name delegate.
 			final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
@@ -160,9 +170,10 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final NamespaceNode node = (NamespaceNode) toSerialize;
-			serializeDelegate(node.getNodeDelegate(), sink);
+			serializeDelegate(node.getNodeDelegate(), sink, resourceConfig);
 			serializeNameDelegate(node.getNameNodeDelegate(), sink);
 		}
 	},
@@ -170,9 +181,11 @@ public enum Kind implements NodeKind {
 	/** Node kind is text. */
 	TEXT((byte) 3, TextNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			// Node delegate.
-			final NodeDelegate nodeDel = deserializeNodeDelegate(source);
+			final NodeDelegate nodeDel = deserializeNodeDelegate(source,
+					resourceConfig);
 
 			// Val delegate.
 			final boolean isCompressed = source.readByte() == (byte) 1 ? true : false;
@@ -193,9 +206,10 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final TextNode node = (TextNode) toSerialize;
-			serializeDelegate(node.getNodeDelegate(), sink);
+			serializeDelegate(node.getNodeDelegate(), sink, resourceConfig);
 			serializeValDelegate(node.getValNodeDelegate(), sink);
 			final StructNodeDelegate del = node.getStructNodeDelegate();
 			final long nodeKey = node.getNodeKey();
@@ -207,9 +221,11 @@ public enum Kind implements NodeKind {
 	/** Node kind is processing instruction. */
 	PROCESSING((byte) 7, PINode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			// Node delegate.
-			final NodeDelegate nodeDel = deserializeNodeDelegate(source);
+			final NodeDelegate nodeDel = deserializeNodeDelegate(source,
+					resourceConfig);
 
 			// Struct delegate.
 			final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
@@ -230,9 +246,10 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput pSink,
-				final @Nonnull NodeBase pToSerialize) {
+				final @Nonnull NodeBase pToSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final PINode node = (PINode) pToSerialize;
-			serializeDelegate(node.getNodeDelegate(), pSink);
+			serializeDelegate(node.getNodeDelegate(), pSink, resourceConfig);
 			serializeStrucDelegate(node.getStructNodeDelegate(), pSink);
 			serializeNameDelegate(node.getNameNodeDelegate(), pSink);
 			serializeValDelegate(node.getValNodeDelegate(), pSink);
@@ -242,9 +259,11 @@ public enum Kind implements NodeKind {
 	/** Node kind is comment. */
 	COMMENT((byte) 8, CommentNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			// Node delegate.
-			final NodeDelegate nodeDel = deserializeNodeDelegate(source);
+			final NodeDelegate nodeDel = deserializeNodeDelegate(source,
+					resourceConfig);
 
 			// Val delegate.
 			final boolean isCompressed = source.readByte() == (byte) 1 ? true : false;
@@ -265,9 +284,10 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final CommentNode node = (CommentNode) toSerialize;
-			serializeDelegate(node.getNodeDelegate(), sink);
+			serializeDelegate(node.getNodeDelegate(), sink, resourceConfig);
 			serializeValDelegate(node.getValNodeDelegate(), sink);
 			final StructNodeDelegate del = node.getStructNodeDelegate();
 			final long nodeKey = node.getNodeKey();
@@ -280,11 +300,12 @@ public enum Kind implements NodeKind {
 	// Virtualize document root node?
 	DOCUMENT_ROOT((byte) 9, DocumentRootNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final NodeDelegate nodeDel = new NodeDelegate(
 					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
 					Fixed.NULL_NODE_KEY.getStandardProperty(), source.readLong(),
-					getLong(source));
+					getLong(source), Optional.of(SirixDeweyID.newRootID()));
 			final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
 					getLong(source), Fixed.NULL_NODE_KEY.getStandardProperty(),
 					Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -294,7 +315,8 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput pSink,
-				final @Nonnull NodeBase pToSerialize) {
+				final @Nonnull NodeBase pToSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final DocumentRootNode node = (DocumentRootNode) pToSerialize;
 			pSink.writeLong(node.getHash());
 			putLong(pSink, node.getRevision());
@@ -307,13 +329,15 @@ public enum Kind implements NodeKind {
 	/** Whitespace text. */
 	WHITESPACE((byte) 4, null) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase pToSerialize) {
+				final @Nonnull NodeBase pToSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			throw new UnsupportedOperationException();
 		}
 	},
@@ -321,14 +345,17 @@ public enum Kind implements NodeKind {
 	/** Node kind is deleted node. */
 	DELETE((byte) 5, DeletedNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
-			final NodeDelegate delegate = new NodeDelegate(getLong(source), 0, 0, 0);
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
+			final NodeDelegate delegate = new NodeDelegate(getLong(source), 0, 0, 0,
+					Optional.<SirixDeweyID> absent());
 			return new DeletedNode(delegate);
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase pToSerialize) {
+				final @Nonnull NodeBase pToSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			DeletedNode node = (DeletedNode) pToSerialize;
 			putLong(sink, node.getNodeKey());
 		}
@@ -337,13 +364,15 @@ public enum Kind implements NodeKind {
 	/** NullNode to support the Null Object pattern. */
 	NULL((byte) 6, NullNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput ink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			throw new UnsupportedOperationException();
 		}
 	},
@@ -351,14 +380,16 @@ public enum Kind implements NodeKind {
 	/** Dumb node for testing. */
 	DUMB((byte) 20, DumbNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final long nodeKey = getLong(source);
 			return new DumbNode(nodeKey);
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			putLong(sink, toSerialize.getNodeKey());
 		}
 	},
@@ -366,13 +397,15 @@ public enum Kind implements NodeKind {
 	/** AtomicKind. */
 	ATOMIC((byte) 15, AtomicValue.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase pToSerialize) {
+				final @Nonnull NodeBase pToSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			throw new UnsupportedOperationException();
 		}
 	},
@@ -380,9 +413,11 @@ public enum Kind implements NodeKind {
 	/** Node kind is path node. */
 	PATH((byte) 16, PathNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			// Node delegate.
-			final NodeDelegate nodeDel = deserializeNodeDelegate(source);
+			final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source,
+					resourceConfig);
 
 			// Struct delegate.
 			final StructNodeDelegate structDel = deserializeStructDel(nodeDel, source);
@@ -396,9 +431,10 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final PathNode node = (PathNode) toSerialize;
-			serializeDelegate(node.getNodeDelegate(), sink);
+			serializeDelegate(node.getNodeDelegate(), sink, resourceConfig);
 			serializeStrucDelegate(node.getStructNodeDelegate(), sink);
 			serializeNameDelegate(node.getNameNodeDelegate(), sink);
 			sink.writeByte(node.getPathKind().getId());
@@ -410,7 +446,8 @@ public enum Kind implements NodeKind {
 	/** Node kind is an AVL node. */
 	AVL((byte) 17, AVLNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final int size = source.readInt();
 			final byte[] value = new byte[size];
 			source.readFully(value, 0, size);
@@ -421,7 +458,8 @@ public enum Kind implements NodeKind {
 			}
 			final long referencesNodeKey = getLong(source);
 			// Node delegate.
-			final NodeDelegate nodeDel = deserializeNodeDelegate(source);
+			final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source,
+					resourceConfig);
 			final long leftChild = getLong(source);
 			final long rightChild = getLong(source);
 			final long pathNodeKey = getLong(source);
@@ -437,7 +475,8 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			@SuppressWarnings("unchecked")
 			final AVLNode<TextValue, TextReferences> node = (AVLNode<TextValue, TextReferences>) toSerialize;
 			final TextValue key = node.getKey();
@@ -452,7 +491,7 @@ public enum Kind implements NodeKind {
 				sink.writeLong(nodeKey);
 			}
 			putLong(sink, value.getNodeKey());
-			serializeDelegate(node.getNodeDelegate(), sink);
+			serializeDelegate(node.getNodeDelegate(), sink, resourceConfig);
 			putLong(sink, node.getLeftChildKey());
 			putLong(sink, node.getRightChildKey());
 			putLong(sink, key.getPathNodeKey());
@@ -463,7 +502,8 @@ public enum Kind implements NodeKind {
 	/** Node is a text value. */
 	TEXT_VALUE((byte) 18, TextValue.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final long nodeKey = getLong(source);
 			final long pathNodeKey = getLong(source);
 			final byte[] value = new byte[source.readInt()];
@@ -473,7 +513,8 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final TextValue node = (TextValue) toSerialize;
 			putLong(sink, node.getNodeKey());
 			putLong(sink, node.getPathNodeKey());
@@ -486,7 +527,8 @@ public enum Kind implements NodeKind {
 	/** Node includes text node references. */
 	TEXT_REFERENCES((byte) 19, TextReferences.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final long nodeKey = source.readLong();
 			final int size = source.readInt();
 			final Set<Long> nodeKeys = new HashSet<>(size);
@@ -498,7 +540,8 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			final TextReferences node = (TextReferences) toSerialize;
 			sink.writeLong(node.getNodeKey());
 			final Set<Long> nodeKeys = node.getNodeKeys();
@@ -512,13 +555,15 @@ public enum Kind implements NodeKind {
 	/** Node type not known. */
 	UNKNOWN((byte) 21, null) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source) {
+		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize) {
+				final @Nonnull NodeBase toSerialize,
+				final @Nonnull ResourceConfiguration resourceConfig) {
 			throw new UnsupportedOperationException();
 		}
 	};
@@ -588,22 +633,49 @@ public enum Kind implements NodeKind {
 	}
 
 	/**
-	 * Deserialize node delegate.
+	 * Deserialize node delegate without stored dewey IDs.
 	 * 
-	 * @param pUsePCR
-	 *          determines if PCR is saved (for attributes, namespaces and
-	 *          elements) or not
 	 * @param source
 	 *          source to read from
+	 * @param resourceConfig
+	 * 					resource configuration
 	 * @return {@link NodeDelegate} instance
 	 */
-	private static final NodeDelegate deserializeNodeDelegate(
-			final @Nonnull ByteArrayDataInput source) {
+	private static final NodeDelegate deserializeNodeDelegateWithoutIDs(
+			final @Nonnull ByteArrayDataInput source,
+			final @Nonnull ResourceConfiguration resourceConfig) {
 		final long nodeKey = getLong(source);
 		final long parentKey = nodeKey - getLong(source);
 		final long hash = source.readLong();
 		final long revision = getLong(source);
-		return new NodeDelegate(nodeKey, parentKey, hash, revision);
+		return new NodeDelegate(nodeKey, parentKey, hash, revision, Optional.<SirixDeweyID> absent());
+	}
+
+	
+	/**
+	 * Deserialize node delegate.
+	 * 
+	 * @param source
+	 *          source to read from
+	 * @param resourceConfig
+	 * 					resource configuration
+	 * @return {@link NodeDelegate} instance
+	 */
+	private static final NodeDelegate deserializeNodeDelegate(
+			final @Nonnull ByteArrayDataInput source,
+			final @Nonnull ResourceConfiguration resourceConfig) {
+		final long nodeKey = getLong(source);
+		final long parentKey = nodeKey - getLong(source);
+		final long hash = source.readLong();
+		final long revision = getLong(source);
+		Optional<SirixDeweyID> id = Optional.<SirixDeweyID> absent();
+		if (resourceConfig.mDeweyIDsStored) {
+			final int deweyIDLength = source.readInt();
+			final byte[] deweyID = new byte[deweyIDLength];
+			source.readFully(deweyID, 0, deweyIDLength);
+			id = Optional.of(new SirixDeweyID(deweyID));
+		}
+		return new NodeDelegate(nodeKey, parentKey, hash, revision, id);
 	}
 
 	/**
@@ -613,14 +685,24 @@ public enum Kind implements NodeKind {
 	 *          to be serialize
 	 * @param sink
 	 *          to serialize to
+	 * @param {@link ResourceConfiguration} instance
 	 */
 	private static final void serializeDelegate(
 			final @Nonnull NodeDelegate nodeDel,
-			final @Nonnull ByteArrayDataOutput sink) {
+			final @Nonnull ByteArrayDataOutput sink,
+			final @Nonnull ResourceConfiguration resourceConfig) {
 		putLong(sink, nodeDel.getNodeKey());
 		putLong(sink, nodeDel.getNodeKey() - nodeDel.getParentKey());
 		sink.writeLong(nodeDel.getHash());
 		putLong(sink, nodeDel.getRevision());
+		if (resourceConfig.mDeweyIDsStored) {
+			final Optional<SirixDeweyID> id = nodeDel.getDeweyID();
+			if (id.isPresent()) {
+				final byte[] deweyID = nodeDel.getDeweyID().get().toBytes();
+				sink.writeInt(deweyID.length);
+				sink.write(deweyID);
+			}
+		}
 	}
 
 	/**
@@ -717,7 +799,7 @@ public enum Kind implements NodeKind {
 	}
 
 	/**
-	 * Store a compressed long value.
+	 * Store a "compressed" variable-length long value.
 	 * 
 	 * @param pOutput
 	 *          {@link ByteArrayDataOutput} reference
@@ -734,7 +816,7 @@ public enum Kind implements NodeKind {
 	}
 
 	/**
-	 * Get a compressed long value.
+	 * Get a "compressed" variable-length long value.
 	 * 
 	 * @param input
 	 *          {@link ByteArrayDataInput} reference

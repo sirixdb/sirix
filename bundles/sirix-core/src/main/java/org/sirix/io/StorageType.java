@@ -26,6 +26,8 @@
  */
 package org.sirix.io;
 
+import java.io.RandomAccessFile;
+
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
@@ -46,29 +48,25 @@ public enum StorageType {
 	/** {@link RandomAccessFile} backend. */
 	FILE {
 		@Override
-		public Storage getInstance(
-				final @Nonnull ResourceConfiguration pResourceConf)
+		public Storage getInstance(final @Nonnull ResourceConfiguration resourceConf)
 				throws SirixIOException {
-			return new FileStorage(pResourceConf.mPath, new ByteHandlePipeline(
-					pResourceConf.mByteHandler));
+			return new FileStorage(resourceConf);
 		}
 	},
 
 	/** BerkeleyDB backend. */
 	BERKELEY_DB {
 		@Override
-		public Storage getInstance(
-				final @Nonnull ResourceConfiguration pResourceConf)
+		public Storage getInstance(final @Nonnull ResourceConfiguration resourceConf)
 				throws SirixIOException {
-			return new BerkeleyStorage(pResourceConf.mPath, new ByteHandlePipeline(
-					pResourceConf.mByteHandler));
+			return new BerkeleyStorage(resourceConf);
 		}
 	};
 
 	/**
 	 * Get an instance of the storage backend.
 	 * 
-	 * @param pResourceConf
+	 * @param resourceConf
 	 *          {@link ResourceConfiguration} reference
 	 * @return instance of a storage backend specified within the
 	 *         {@link ResourceConfiguration}
@@ -76,14 +74,14 @@ public enum StorageType {
 	 *           if an IO-error occured
 	 */
 	public abstract Storage getInstance(
-			final @Nonnull ResourceConfiguration pResourceConf)
+			final @Nonnull ResourceConfiguration resourceConf)
 			throws SirixIOException;
 
 	/**
 	 * Factory method to retrieve suitable {@link Storage} instances based upon
 	 * the suitable {@link ResourceConfiguration}.
 	 * 
-	 * @param pResourceConf
+	 * @param resourceConf
 	 *          determining the storage
 	 * @return an implementation of the {@link Storage} interface
 	 * @throws SirixIOException
@@ -92,8 +90,8 @@ public enum StorageType {
 	 *           if {@code pResourceConf} is {@code null}
 	 */
 	public static final Storage getStorage(
-			final @Nonnull ResourceConfiguration pResourceConf)
+			final @Nonnull ResourceConfiguration resourceConf)
 			throws SirixIOException {
-		return pResourceConf.mStorage.getInstance(pResourceConf);
+		return resourceConf.mStorage.getInstance(resourceConf);
 	}
 }

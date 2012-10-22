@@ -8,9 +8,12 @@ import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 
+import java.io.File;
 import java.util.Arrays;
 
 import org.sirix.TestHelper;
+import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.node.Kind;
@@ -26,7 +29,7 @@ import org.testng.annotations.Test;
  * @auhtor Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class IPageTest {
+public class PageTest {
 
 	/**
 	 * Test method for {@link org.Page.page.IPage#IPage(long)} and
@@ -47,8 +50,10 @@ public class IPageTest {
 			final ByteArrayDataInput input = ByteStreams.newDataInput(pageBytes);
 
 			final ByteArrayDataOutput serializedOutput = ByteStreams.newDataOutput();
+			final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
+					"", new DatabaseConfiguration(new File(""))).build();
 			final Page serializedPage = PageKind.getKind(handler.getClass())
-					.deserializePage(input);
+					.deserializePage(input, resourceConfig);
 			serializedPage.serialize(serializedOutput);
 			assertTrue(new StringBuilder("Check for ").append(handler.getClass())
 					.append(" failed.").toString(),
@@ -72,9 +77,11 @@ public class IPageTest {
 		// final RevisionRootPage revRootPage = new RevisionRootPage();
 
 		// NodePage setup.
+		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
+				"", new DatabaseConfiguration(new File(""))).build();
 		final NodePage nodePage = new NodePage(
 				TestHelper.random.nextInt(Integer.MAX_VALUE),
-				TestHelper.random.nextInt(Integer.MAX_VALUE));
+				TestHelper.random.nextInt(Integer.MAX_VALUE), resourceConfig);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 			nodePage.setNode(TestHelper.generateOne());
 		}

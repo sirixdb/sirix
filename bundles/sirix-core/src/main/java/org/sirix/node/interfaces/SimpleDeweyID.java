@@ -1,8 +1,8 @@
 package org.sirix.node.interfaces;
 
 /**
- * Combines some basic commonalities for different DeweyID representations (like
- * the XTCdeweyID and the DeweyIDBuffer)
+ * Combines some basic commonalities for different DeweyID representations (as
+ * for instance the {@link SirixDeweyID} and the DeweyIDBuffer).
  * 
  * @author Martin Hiller
  * 

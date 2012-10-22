@@ -26,7 +26,10 @@
  */
 package org.sirix.cache;
 
+import java.io.File;
+
 import org.junit.Test;
+import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.page.NodePage;
@@ -39,17 +42,20 @@ import org.sirix.page.NodePage;
  */
 public class CacheTestHelper {
 
+	private static final ResourceConfiguration RESOURCE_CONFIG = new ResourceConfiguration.Builder(
+			"", new DatabaseConfiguration(new File(""))).build();
+	
 	protected static NodePage[][] PAGES;
 
 	public static void setUp(final Cache<Long, NodePageContainer> cache)
 			throws SirixException {
 		PAGES = new NodePage[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
 		for (int i = 0; i < PAGES.length; i++) {
-			final NodePage page = new NodePage(i, 0);
+			final NodePage page = new NodePage(i, 0, RESOURCE_CONFIG);
 			final NodePage[] revs = new NodePage[ResourceConfiguration.VERSIONSTORESTORE];
 
 			for (int j = 0; j < ResourceConfiguration.VERSIONSTORESTORE; j++) {
-				PAGES[i][j + 1] = new NodePage(i, 0);
+				PAGES[i][j + 1] = new NodePage(i, 0, RESOURCE_CONFIG);
 				revs[j] = PAGES[i][j + 1];
 			}
 			PAGES[i][0] = page;

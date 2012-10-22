@@ -28,10 +28,16 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
+
+import java.io.File;
+
+import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 import org.junit.Test;
+import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
@@ -45,7 +51,8 @@ public class DocumentRootNodeTest {
 		final NodeDelegate nodeDel = new NodeDelegate(
 				Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(), 0);
+				Fixed.NULL_NODE_KEY.getStandardProperty(), 0,
+				Optional.of(SirixDeweyID.newRootID()));
 		final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -54,11 +61,13 @@ public class DocumentRootNodeTest {
 		check(node1);
 
 		// Serialize and deserialize node.
+		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
+				"", new DatabaseConfiguration(new File(""))).build();
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1);
+		node1.getKind().serialize(out, node1, resourceConfig);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
 		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT_ROOT
-				.deserialize(in);
+				.deserialize(in, resourceConfig);
 		check(node2);
 
 	}

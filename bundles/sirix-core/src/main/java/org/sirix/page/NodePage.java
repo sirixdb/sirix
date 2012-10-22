@@ -26,9 +26,6 @@
  */
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -40,6 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -73,6 +71,9 @@ public class NodePage implements Page {
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
 
+	/** {@link ResourceConfiguration} instance. */
+	private final ResourceConfiguration mResourceConfig;
+
 	/**
 	 * Create node page.
 	 * 
@@ -82,13 +83,16 @@ public class NodePage implements Page {
 	 *          revision the page belongs to
 	 */
 	public NodePage(final @Nonnegative long nodePageKey,
-			final @Nonnegative int revision) {
-		assert nodePageKey >= 0 : "pNodePageKey must not be negative!";
-		assert revision >= 0 : "pRevision must not be negative!";
+			final @Nonnegative int revision,
+			final @Nonnull ResourceConfiguration resourceConfig) {
+		assert nodePageKey >= 0 : "nodePageKey must not be negative!";
+		assert revision >= 0 : "revision must not be negative!";
+		assert resourceConfig != null : "resourceConfig must not be null!";
 		mRevision = revision;
 		mNodePageKey = nodePageKey;
 		mNodes = new HashMap<>();
 		mIsDirty = true;
+		mResourceConfig = resourceConfig;
 	}
 
 	/**
@@ -96,8 +100,11 @@ public class NodePage implements Page {
 	 * 
 	 * @param in
 	 *          input bytes to read page from
+	 * @param resourceConf
+	 *          resource configuration
 	 */
-	protected NodePage(final @Nonnull ByteArrayDataInput in) {
+	protected NodePage(final @Nonnull ByteArrayDataInput in,
+			final @Nonnull ResourceConfiguration resourceConfig) {
 		mRevision = in.readInt();
 		mNodePageKey = in.readLong();
 		final int size = in.readInt();
@@ -105,9 +112,11 @@ public class NodePage implements Page {
 		for (int offset = 0; offset < size; offset++) {
 			final byte id = in.readByte();
 			final Kind enumKind = Kind.getKind(id);
-			final NodeBase node = enumKind.deserialize(in);
+			final NodeBase node = enumKind.deserialize(in, resourceConfig);
 			mNodes.put(node.getNodeKey(), node);
 		}
+		assert resourceConfig != null : "resourceConfig must not be null!";
+		mResourceConfig = resourceConfig;
 	}
 
 	/**
@@ -154,7 +163,7 @@ public class NodePage implements Page {
 		for (final NodeBase node : mNodes.values()) {
 			final byte id = node.getKind().getId();
 			out.writeByte(id);
-			Kind.getKind(node.getClass()).serialize(out, node);
+			Kind.getKind(node.getClass()).serialize(out, node, mResourceConfig);
 		}
 	}
 
@@ -231,6 +240,15 @@ public class NodePage implements Page {
 	public Page setDirty(final boolean pDirty) {
 		mIsDirty = pDirty;
 		return this;
+	}
+
+	/**
+	 * Get the {@link ResourceConfiguration}.
+	 * 
+	 * @return resource configuration
+	 */
+	public ResourceConfiguration getResourceConfig() {
+		return mResourceConfig;
 	}
 
 }

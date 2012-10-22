@@ -51,28 +51,28 @@ public final class FilterAxis extends AbstractAxis {
 	/**
 	 * Constructor initializing internal state.
 	 * 
-	 * @param pAxis
+	 * @param axis
 	 *          axis to iterate over
-	 * @param pFirstAxisTest
+	 * @param firstAxisTest
 	 *          test to perform for each node found with axis
-	 * @param pAxisTest
+	 * @param axisTest
 	 *          tests to perform for each node found with axis
 	 */
-	public FilterAxis(final @Nonnull Axis pAxis,
-			final @Nonnull Filter pFirstAxisTest, final @Nonnull Filter... pAxisTest) {
-		super(pAxis.getTrx());
-		mAxis = pAxis;
-		final int length = pAxisTest.length == 0 ? 1 : pAxisTest.length + 1;
+	public FilterAxis(final @Nonnull Axis axis,
+			final @Nonnull Filter firstAxisTest, final @Nonnull Filter... axisTest) {
+		super(axis.getTrx());
+		mAxis = axis;
+		final int length = axisTest.length == 0 ? 1 : axisTest.length + 1;
 		mAxisFilter = new Filter[length];
-		mAxisFilter[0] = pFirstAxisTest;
+		mAxisFilter[0] = firstAxisTest;
 		if (!mAxis.getTrx().equals(mAxisFilter[0].getTrx())) {
-			throw new IllegalStateException(
+			throw new IllegalArgumentException(
 					"The filter must be bound to the same transaction as the axis!");
 		}
 		for (int i = 1; i < length; i++) {
-			mAxisFilter[i] = pAxisTest[i - 1];
+			mAxisFilter[i] = axisTest[i - 1];
 			if (!mAxis.getTrx().equals(mAxisFilter[i].getTrx())) {
-				throw new IllegalStateException(
+				throw new IllegalArgumentException(
 						"The filter must be bound to the same transaction as the axis!");
 			}
 		}

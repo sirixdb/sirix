@@ -36,6 +36,7 @@ import java.util.Map.Entry;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 
 import com.google.common.collect.ImmutableMap;
@@ -105,11 +106,13 @@ public final class BerkeleyPersistenceCache extends
 	 *          correct way
 	 * @param logType
 	 *          type of log to append to the path of the log
+	 * @param {@link ResourceConfiguration} instance
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
 	public BerkeleyPersistenceCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType)
+			final @Nonnegative int revision, final @Nonnull String logType,
+			final @Nonnull ResourceConfiguration resourceConfig)
 			throws SirixIOException {
 		super(file, revision, logType);
 		try {
@@ -129,7 +132,7 @@ public final class BerkeleyPersistenceCache extends
 			mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
 			mKeyBinding = TupleBinding.getPrimitiveBinding(Long.class);
-			mValueBinding = new PageContainerBinding();
+			mValueBinding = new PageContainerBinding(resourceConfig);
 			mEntries = 0;
 		} catch (final DatabaseException e) {
 			throw new SirixIOException(e.getCause());

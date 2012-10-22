@@ -97,8 +97,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 			final long firstChild, final long rightSib, final long leftSib,
 			final @Nonnegative long childCount,
 			final @Nonnegative long descendantCount) {
-		checkArgument(childCount >= 0, "pChildCount must be >= 0!");
-		checkArgument(descendantCount >= 0, "pDescendantCount must be >= 0!");
+		assert childCount >= 0 : "childCount must be >= 0!";
+		assert descendantCount >= 0 : "descendantCount must be >= 0!";
 		mDelegate = checkNotNull(del);
 		mFirstChild = firstChild;
 		mRightSibling = rightSib;

@@ -42,7 +42,7 @@ import org.sirix.node.immutable.ImmutableComment;
 import org.sirix.node.immutable.ImmutableElement;
 import org.sirix.node.immutable.ImmutablePI;
 import org.sirix.node.immutable.ImmutableText;
-import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 /**
  * Initialize data structures.
@@ -153,7 +153,7 @@ public final class FMSEVisitor extends AbstractVisitor {
 	 *          the node to visit
 	 * @return {@link VisitResultType} value to continue normally
 	 */
-	private VisitResultType visiLeafNode(final @Nonnull Node pNode) {
+	private VisitResultType visiLeafNode(final @Nonnull ImmutableNode pNode) {
 		final long nodeKey = pNode.getNodeKey();
 		mRtx.moveTo(nodeKey);
 		mInOrder.put(mRtx.getNodeKey(), false);

@@ -28,14 +28,21 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
+
+import java.io.File;
+
 import org.junit.Test;
+import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.utils.NamePageHash;
+
+import com.google.common.base.Optional;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 
 public class AttributeNodeTest {
 
@@ -43,7 +50,8 @@ public class AttributeNodeTest {
 	public void testAttributeNode() {
 		final byte[] value = { (byte) 17, (byte) 18 };
 
-		final NodeDelegate del = new NodeDelegate(99, 13, 0, 0);
+		final NodeDelegate del = new NodeDelegate(99, 13, 0, 0,
+				Optional.of(SirixDeweyID.newRootID()));
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 14, 15, 1);
 		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 
@@ -53,12 +61,14 @@ public class AttributeNodeTest {
 		check(node1);
 
 		// Serialize and deserialize node.
+		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
+				"", new DatabaseConfiguration(new File(""))).useDeweyIDs(true).build();
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1);
+		node1.getKind().serialize(out, node1, resourceConfig);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(in);
+		final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(in,
+				resourceConfig);
 		check(node2);
-
 	}
 
 	private final static void check(final AttributeNode node) {
@@ -74,6 +84,7 @@ public class AttributeNodeTest {
 		assertEquals(Kind.ATTRIBUTE, node.getKind());
 		assertEquals(true, node.hasParent());
 		assertEquals(Kind.ATTRIBUTE, node.getKind());
+		assertEquals(Optional.of(SirixDeweyID.newRootID()), node.getDeweyID());
 	}
 
 }

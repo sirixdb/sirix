@@ -35,6 +35,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.io.berkeley.binding.PageBinding;
@@ -205,13 +206,17 @@ public final class BerkeleyWriter implements Writer {
 	}
 
 	@Override
-	public Page read(final long key) throws SirixIOException {
-		return mReader.read(key);
+	public Page read(final long key,
+			final @Nonnull ResourceConfiguration resourceConfig)
+			throws SirixIOException {
+		return mReader.read(key, resourceConfig);
 	}
 
 	@Override
-	public PageReference readFirstReference() throws SirixIOException {
-		return mReader.readFirstReference();
+	public PageReference readFirstReference(
+			final @Nonnull ResourceConfiguration resourceConfig)
+			throws SirixIOException {
+		return mReader.readFirstReference(resourceConfig);
 	}
 
 	@Override

@@ -37,7 +37,7 @@ import javax.annotation.Nonnull;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public interface ValNode extends Node {
+public interface ValueNode extends Node {
 	/**
 	 * Return a byte array representation of the item's value.
 	 * 

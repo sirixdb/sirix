@@ -48,8 +48,8 @@ import org.sirix.access.SessionImpl;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.bytepipe.DeflateCompressor;
 import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.io.bytepipe.DeflateCompressor;
 import org.sirix.settings.Revisioning;
 
 import com.google.common.base.Objects;
@@ -144,7 +144,7 @@ public final class ResourceConfiguration {
 	}
 
 	/** Indexes to use. */
-	public enum EIndexes {
+	public enum Indexes {
 		/** Path summary index. */
 		PATH,
 
@@ -169,7 +169,7 @@ public final class ResourceConfiguration {
 	public static final int VERSIONSTORESTORE = 3;
 
 	/** Indexes to use. */
-	public static final Set<EIndexes> INDEXES = EnumSet.of(EIndexes.PATH);
+	public static final EnumSet<Indexes> INDEXES = EnumSet.of(Indexes.PATH);
 	// END FIXED STANDARD FIELDS
 
 	// MEMBERS FOR FIXED FIELDS
@@ -198,10 +198,13 @@ public final class ResourceConfiguration {
 	public final boolean mCompression;
 
 	/** Indexes to use. */
-	public final Set<EIndexes> mIndexes;
+	public final Set<Indexes> mIndexes;
 
 	/** Unique ID. */
 	private long mID;
+
+	/** Determines if dewey IDs should be stored or not. */
+	public final boolean mDeweyIDsStored;
 
 	// END MEMBERS FOR FIXED FIELDS
 
@@ -221,6 +224,7 @@ public final class ResourceConfiguration {
 		mDBConfig = builder.mDBConfig;
 		mCompression = builder.mCompression;
 		mIndexes = builder.mIndexes;
+		mDeweyIDsStored = builder.mUseDeweyIDs;
 		mPath = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				builder.mResource);
@@ -298,7 +302,8 @@ public final class ResourceConfiguration {
 	 */
 	private static final String[] JSONNAMES = { "revisioning",
 			"revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
-			"storageKind", "hashKind", "compression", "dbConfig", "ID" };
+			"storageKind", "hashKind", "compression", "dbConfig", "ID",
+			"deweyIDsStored" };
 
 	/**
 	 * Serialize the configuration.
@@ -337,12 +342,14 @@ public final class ResourceConfiguration {
 			// Indexes.
 			jsonWriter.name(JSONNAMES[7]);
 			jsonWriter.beginArray();
-			for (final EIndexes index : pConfig.mIndexes) {
+			for (final Indexes index : pConfig.mIndexes) {
 				jsonWriter.value(index.name());
 			}
 			jsonWriter.endArray();
 			// ID.
 			jsonWriter.name(JSONNAMES[8]).value(pConfig.mID);
+			// Dewey IDs stored or not.
+			jsonWriter.name(JSONNAMES[9]).value(pConfig.mDeweyIDsStored);
 			jsonWriter.endObject();
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
@@ -411,17 +418,20 @@ public final class ResourceConfiguration {
 			// Indexes.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[7]);
-			final List<EIndexes> listIndexes = new ArrayList<>();
+			final List<Indexes> listIndexes = new ArrayList<>();
 			jsonReader.beginArray();
 			while (jsonReader.hasNext()) {
-				listIndexes.add(EIndexes.valueOf(jsonReader.nextString()));
+				listIndexes.add(Indexes.valueOf(jsonReader.nextString()));
 			}
-			final Set<EIndexes> indexes = EnumSet.copyOf(listIndexes);
+			final EnumSet<Indexes> indexes = EnumSet.copyOf(listIndexes);
 			jsonReader.endArray();
 			// Unique ID.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[8]);
 			final int ID = jsonReader.nextInt();
+			name = jsonReader.nextName();
+			assert name.equals(JSONNAMES[9]);
+			final boolean deweyIDsStored = jsonReader.nextBoolean();
 			jsonReader.endObject();
 			jsonReader.close();
 			fileReader.close();
@@ -433,13 +443,13 @@ public final class ResourceConfiguration {
 			// Builder.
 			final ResourceConfiguration.Builder builder = new ResourceConfiguration.Builder(
 					pFile.getName(), dbConfig);
-			builder.setByteHandlerPipeline(pipeline);
-			builder.setHashKind(hashing);
-			builder.setIndexes(indexes);
-			builder.setRevisionKind(revisioning);
-			builder.setRevisionsToRestore(revisionToRestore);
-			builder.setType(storage);
-			builder.useTextCompression(compression);
+			builder.setByteHandlerPipeline(pipeline).setHashKind(hashing)
+					.setIndexes(indexes).setRevisionKind(revisioning)
+					.setRevisionsToRestore(revisionToRestore).setType(storage)
+					.useTextCompression(compression);
+			if (deweyIDsStored) {
+				builder.useDeweyIDs(true);
+			}
 
 			// Deserialized instance.
 			final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -461,7 +471,7 @@ public final class ResourceConfiguration {
 
 		/** Kind of revisioning (Incremental, Differential). */
 		private Revisioning mRevisionKind = VERSIONING;
-
+		
 		/** Kind of integrity hash (rolling, postorder). */
 		private HashKind mHashKind = HASHKIND;
 
@@ -478,11 +488,14 @@ public final class ResourceConfiguration {
 		private boolean mCompression = true;
 
 		/** Indexes to use. */
-		private Set<EIndexes> mIndexes = INDEXES;
+		private EnumSet<Indexes> mIndexes = INDEXES;
 
 		/** Byte handler pipeline. */
 		private ByteHandlePipeline mByteHandler = new ByteHandlePipeline(
 				new DeflateCompressor());
+
+		/** Determines if DeweyIDs should be used or not. */
+		private boolean mUseDeweyIDs = false;
 
 		/**
 		 * Constructor, setting the mandatory fields.
@@ -513,74 +526,84 @@ public final class ResourceConfiguration {
 		/**
 		 * Set the indexes to use.
 		 * 
-		 * @param pIndexes
+		 * @param indexes
 		 *          indexes to use
 		 * @return reference to the builder object
 		 */
-		public Builder setIndexes(final @Nonnull Set<EIndexes> pIndexes) {
-			mIndexes = checkNotNull(pIndexes);
+		public Builder setIndexes(final @Nonnull EnumSet<Indexes> indexes) {
+			mIndexes = checkNotNull(indexes);
 			return this;
 		}
 
 		/**
 		 * Set the revisioning algorithm to use.
 		 * 
-		 * @param pRevKind
+		 * @param revKind
 		 *          revisioning algorithm to use
 		 * @return reference to the builder object
 		 */
-		public Builder setRevisionKind(final @Nonnull Revisioning pRevKind) {
-			mRevisionKind = checkNotNull(pRevKind);
+		public Builder setRevisionKind(final @Nonnull Revisioning revKind) {
+			mRevisionKind = checkNotNull(revKind);
 			return this;
 		}
 
 		/**
 		 * Set the hash kind to use for the nodes.
 		 * 
-		 * @param pHash
+		 * @param hash
 		 *          hash kind to use
 		 * @return reference to the builder object
 		 */
-		public Builder setHashKind(final @Nonnull HashKind pHash) {
-			mHashKind = checkNotNull(pHash);
+		public Builder setHashKind(final @Nonnull HashKind hash) {
+			mHashKind = checkNotNull(hash);
 			return this;
 		}
 
 		/**
 		 * Set the byte handler pipeline.
 		 * 
-		 * @param pByteHandler
+		 * @param byteHandler
 		 *          byte handler pipeline
 		 * @return reference to the builder object
 		 */
 		public Builder setByteHandlerPipeline(
-				final @Nonnull ByteHandlePipeline pByteHandler) {
-			mByteHandler = checkNotNull(pByteHandler);
+				final @Nonnull ByteHandlePipeline byteHandler) {
+			mByteHandler = checkNotNull(byteHandler);
 			return this;
 		}
 
 		/**
 		 * Set the number of revisions to restore after the last full dump.
 		 * 
-		 * @param pRevToRestore
+		 * @param revToRestore
 		 *          number of revisions to restore
 		 * @return reference to the builder object
 		 */
-		public Builder setRevisionsToRestore(@Nonnegative final int pRevToRestore) {
-			checkArgument(pRevToRestore > 0, "pRevisionsToRestore must be > 0!");
-			mRevisionsToRestore = pRevToRestore;
+		public Builder setRevisionsToRestore(@Nonnegative final int revToRestore) {
+			checkArgument(revToRestore > 0, "pRevisionsToRestore must be > 0!");
+			mRevisionsToRestore = revToRestore;
+			return this;
+		}
+
+		/**
+		 * Determines if DeweyIDs should be stored or not.
+		 * 
+		 * @return reference to the builder object
+		 */
+		public Builder useDeweyIDs(final boolean useDeweyIDs) {
+			mUseDeweyIDs = useDeweyIDs;
 			return this;
 		}
 
 		/**
 		 * Determines if text-compression should be used or not.
 		 * 
-		 * @param pCompression
+		 * @param compression
 		 *          use text compression or not (default: yes)
 		 * @return reference to the builder object
 		 */
-		public Builder useTextCompression(final boolean pCompression) {
-			mCompression = pCompression;
+		public Builder useTextCompression(final boolean compression) {
+			mCompression = compression;
 			return this;
 		}
 

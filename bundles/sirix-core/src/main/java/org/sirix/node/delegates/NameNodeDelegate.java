@@ -29,10 +29,6 @@
  */
 package org.sirix.node.delegates;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -42,6 +38,8 @@ import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.NameNode;
+
+import com.google.common.base.Objects;
 
 /**
  * Delegate method for all nodes containing naming-data. That means that
@@ -82,10 +80,11 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 	 */
 	public NameNodeDelegate(final @Nonnull NodeDelegate delegate,
 			final int nameKey, final int uriKey, final @Nonnegative long pathNodeKey) {
-		mDelegate = checkNotNull(delegate);
+		assert delegate != null : "delegate must not be null!";
+		mDelegate = delegate;
 		mNameKey = nameKey;
 		mUriKey = uriKey;
-		checkArgument(pathNodeKey >= 0, "pPathNodeKey may not be < 0!");
+		assert pathNodeKey >= 0 : "pathNodeKey may not be < 0!";
 		mPathNodeKey = pathNodeKey;
 	}
 
@@ -139,7 +138,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 	 *          the path class record to set
 	 */
 	public void setPathNodeKey(@Nonnegative final long pathNodeKey) {
-		checkArgument(pathNodeKey >= 0, "pPathNodeKey may not be < 0!");
+		assert pathNodeKey >= 0 : "pathNodeKey may not be < 0!";
 		mPathNodeKey = pathNodeKey;
 	}
 

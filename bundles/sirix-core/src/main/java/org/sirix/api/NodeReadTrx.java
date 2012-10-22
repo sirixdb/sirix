@@ -34,9 +34,19 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.sirix.access.Move;
+import org.sirix.access.Moved;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.node.AttributeNode;
+import org.sirix.node.CommentNode;
+import org.sirix.node.DocumentRootNode;
+import org.sirix.node.ElementNode;
 import org.sirix.node.Kind;
+import org.sirix.node.NamespaceNode;
+import org.sirix.node.PINode;
+import org.sirix.node.SirixDeweyID;
+import org.sirix.node.TextNode;
+import org.sirix.node.interfaces.ValueNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 /**
@@ -325,6 +335,14 @@ public interface NodeReadTrx extends NodeCursor {
 	 * @return parent key of the currently selected node
 	 */
 	long getParentKey();
+	
+//	SirixDeweyID getLeftSiblingDeweyID();
+//	
+//	SirixDeweyID getRightSiblingDeweyID();
+//	
+//	SirixDeweyID getParentDeweyID();
+//	
+//	SirixDeweyID getFirstChildDeweyID();
 
 	/**
 	 * Get the number of attributes the currently selected node has.
@@ -411,6 +429,14 @@ public interface NodeReadTrx extends NodeCursor {
 	 * @return {@code true} if it has attributes, {@code false} otherwise
 	 */
 	boolean hasAttributes();
+	
+	/**
+	 * Determines if current node has namespaces (only elements might have
+	 * namespaces).
+	 * 
+	 * @return {@code true} if it has namespaces, {@code false} otherwise
+	 */
+	boolean hasNamespaces();
 
 	/**
 	 * Get the path node key of the currently selected node. Make sure to check if
@@ -439,7 +465,7 @@ public interface NodeReadTrx extends NodeCursor {
 	boolean isStructuralNode();
 
 	/**
-	 * Determines if current node is a {@link ValNode}.
+	 * Determines if current node is a {@link ValueNode}.
 	 * 
 	 * @return {@code true} if it has a value, {@code false} otherwise
 	 */

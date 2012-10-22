@@ -27,12 +27,13 @@
 
 package org.sirix.page;
 
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-
 import javax.annotation.Nonnull;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.page.interfaces.Page;
+
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Persists pages on secondary storage.
@@ -50,8 +51,8 @@ public final class PagePersistenter {
 	 * @return the created {@link Page}
 	 */
 	public static @Nonnull
-	Page deserializePage(final @Nonnull ByteArrayDataInput source) {
-		return PageKind.getKind(source.readByte()).deserializePage(source);
+	Page deserializePage(final @Nonnull ByteArrayDataInput source, final @Nonnull ResourceConfiguration resourceConfig) {
+		return PageKind.getKind(source.readByte()).deserializePage(source, resourceConfig);
 	}
 
 	/**

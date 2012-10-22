@@ -38,6 +38,7 @@ import java.nio.ByteBuffer;
 
 import javax.annotation.Nonnull;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -73,8 +74,8 @@ public final class FileWriter implements Writer {
 			final @Nonnull ByteHandler handler) throws SirixIOException {
 		try {
 			mFile = new RandomAccessFile(storage, "rw");
-		} catch (final FileNotFoundException fileExc) {
-			throw new SirixIOException(fileExc);
+		} catch (final FileNotFoundException e) {
+			throw new SirixIOException(e);
 		}
 		mReader = new FileReader(storage, handler);
 	}
@@ -151,13 +152,13 @@ public final class FileWriter implements Writer {
 	}
 
 	@Override
-	public Page read(final long pKey) throws SirixIOException {
-		return mReader.read(pKey);
+	public Page read(final long pKey, final @Nonnull ResourceConfiguration resourceConfig) throws SirixIOException {
+		return mReader.read(pKey, resourceConfig);
 	}
 
 	@Override
-	public PageReference readFirstReference() throws SirixIOException {
-		return mReader.readFirstReference();
+	public PageReference readFirstReference(final @Nonnull ResourceConfiguration resourceConfig) throws SirixIOException {
+		return mReader.readFirstReference(resourceConfig);
 	}
 
 }

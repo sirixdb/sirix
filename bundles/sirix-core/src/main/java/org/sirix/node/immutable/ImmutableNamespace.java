@@ -9,8 +9,11 @@ import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
 import org.sirix.node.NamespaceNode;
-import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
+
+import com.google.common.base.Optional;
 
 /**
  * Immutable namespace node wrapper.
@@ -18,7 +21,7 @@ import org.sirix.node.interfaces.Node;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutableNamespace implements NameNode {
+public class ImmutableNamespace implements ImmutableNameNode {
 
 	/** Mutable {@link NamespaceNode}. */
 	private final NamespaceNode mNode;
@@ -50,11 +53,6 @@ public class ImmutableNamespace implements NameNode {
 	}
 
 	@Override
-	public void setTypeKey(int typeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public boolean isSameItem(final @Nullable Node pOther) {
 		return mNode.isSameItem(pOther);
 	}
@@ -65,18 +63,8 @@ public class ImmutableNamespace implements NameNode {
 	}
 
 	@Override
-	public void setHash(long pHash) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public long getHash() {
 		return mNode.getHash();
-	}
-
-	@Override
-	public void setParentKey(long nodeKey) {
-		throw new UnsupportedOperationException();
 	}
 
 	@Override
@@ -115,23 +103,12 @@ public class ImmutableNamespace implements NameNode {
 	}
 
 	@Override
-	public void setNameKey(int nameKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setURIKey(int uriKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setPathNodeKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public long getPathNodeKey() {
 		return mNode.getPathNodeKey();
 	}
 
+	@Override
+	public Optional<SirixDeweyID> getDeweyID() {
+		return mNode.getDeweyID();
+	}
 }

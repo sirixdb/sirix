@@ -28,10 +28,16 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
+
+import java.io.File;
+
+import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 import org.junit.Test;
+import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 
@@ -39,16 +45,18 @@ public class NamespaceNodeTest {
 
 	@Test
 	public void testNamespaceNode() {
-		final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0);
+		final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0, Optional.of(SirixDeweyID.newRootID()));
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 15, 14, 1);
 		// Create empty node.
 		final NamespaceNode node1 = new NamespaceNode(nodeDel, nameDel);
 
 		// Serialize and deserialize node.
+		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
+				"", new DatabaseConfiguration(new File(""))).build();
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1);
+		node1.getKind().serialize(out, node1, resourceConfig);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(in);
+		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(in, resourceConfig);
 		check(node2);
 	}
 

@@ -99,7 +99,7 @@ public class DBNode extends AbstractTemporalNode {
 	 * 
 	 * @return underlying node
 	 */
-	public org.sirix.node.interfaces.Node getUnderlyingNode() {
+	public org.sirix.node.interfaces.immutable.ImmutableNode getUnderlyingNode() {
 		moveRtx();
 		return mRtx.getNode();
 	}
@@ -154,10 +154,13 @@ public class DBNode extends AbstractTemporalNode {
 			final DBNode node = (DBNode) other;
 			assert node.getNodeClassID() == this.getNodeClassID();
 			moveRtx();
-			for (final Axis axis = new AncestorAxis(mRtx); axis.hasNext();) {
-				axis.next();
-				if (node.getUnderlyingNode().getNodeKey() == mRtx.getNodeKey()) {
-					retVal = true;
+			if (mRtx.getKind() != org.sirix.node.Kind.ATTRIBUTE
+					&& mRtx.getKind() != org.sirix.node.Kind.NAMESPACE) {
+				for (final Axis axis = new AncestorAxis(mRtx); axis.hasNext();) {
+					axis.next();
+					if (node.getUnderlyingNode().getNodeKey() == mRtx.getNodeKey()) {
+						retVal = true;
+					}
 				}
 			}
 		}
@@ -579,7 +582,8 @@ public class DBNode extends AbstractTemporalNode {
 
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<DBNode>(
 						mCollection, wtx, Insert.ASRIGHTSIBLING,
-						Collections.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
+						Collections
+								.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
 				child.parse(builder);
 				mRtx.moveTo(builder.getStartNodeKey());
 			} catch (final SirixException e) {
@@ -649,7 +653,8 @@ public class DBNode extends AbstractTemporalNode {
 			try {
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<DBNode>(
 						mCollection, wtx, Insert.ASFIRSTCHILD,
-						Collections.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
+						Collections
+								.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
 				child.parse(builder);
 				mRtx.moveTo(builder.getStartNodeKey());
 			} catch (final SirixException e) {
@@ -731,7 +736,8 @@ public class DBNode extends AbstractTemporalNode {
 			try {
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<DBNode>(
 						mCollection, wtx, Insert.ASLEFTSIBLING,
-						Collections.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
+						Collections
+								.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
 				node.parse(builder);
 				mRtx.moveTo(builder.getStartNodeKey());
 			} catch (final SirixException e) {
@@ -751,7 +757,8 @@ public class DBNode extends AbstractTemporalNode {
 			try {
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<>(
 						mCollection, (NodeWriteTrx) mRtx, Insert.ASLEFTSIBLING,
-						Collections.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
+						Collections
+								.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
 				parser.parse(builder);
 				return new DBNode(mRtx.moveTo(builder.getStartNodeKey()).get(),
 						mCollection);
@@ -814,7 +821,8 @@ public class DBNode extends AbstractTemporalNode {
 			try {
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<DBNode>(
 						mCollection, wtx, Insert.ASRIGHTSIBLING,
-						Collections.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
+						Collections
+								.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
 				node.parse(builder);
 				mRtx.moveTo(builder.getStartNodeKey());
 			} catch (final SirixException e) {
@@ -834,7 +842,8 @@ public class DBNode extends AbstractTemporalNode {
 			try {
 				final SubtreeBuilder<DBNode> builder = new SubtreeBuilder<>(
 						mCollection, (NodeWriteTrx) mRtx, Insert.ASRIGHTSIBLING,
-						Collections.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
+						Collections
+								.<SubtreeListener<? super AbstractTemporalNode>> emptyList());
 				parser.parse(builder);
 				return new DBNode(mRtx.moveTo(builder.getStartNodeKey()).get(),
 						mCollection);
@@ -874,8 +883,9 @@ public class DBNode extends AbstractTemporalNode {
 			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
 			if (wtx.isElement()) {
 				try {
-					wtx.insertAttribute(new QName(name.nsURI, name.localName,
-							name.prefix), value.asStr().stringValue());
+					wtx.insertAttribute(
+							new QName(name.nsURI, name.localName, name.prefix), value.asStr()
+									.stringValue());
 					return new DBNode(mRtx, mCollection);
 				} catch (final SirixException e) {
 					throw new DocumentException(e.getCause());
@@ -917,7 +927,8 @@ public class DBNode extends AbstractTemporalNode {
 	}
 
 	@Override
-	public AbstractTemporalNode getAttribute(final QNm name) throws DocumentException {
+	public AbstractTemporalNode getAttribute(final QNm name)
+			throws DocumentException {
 		moveRtx();
 		if (mRtx.isElement()
 				&& mRtx.moveToAttributeByName(
@@ -1186,7 +1197,8 @@ public class DBNode extends AbstractTemporalNode {
 
 	@Override
 	public Stream<? extends Node<?>> performStep(
-			final org.brackit.xquery.xdm.Axis axis, final NodeType test) throws DocumentException {
+			final org.brackit.xquery.xdm.Axis axis, final NodeType test)
+			throws DocumentException {
 		// TODO
 		return null;
 	}

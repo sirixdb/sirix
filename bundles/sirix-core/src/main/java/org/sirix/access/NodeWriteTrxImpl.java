@@ -50,7 +50,7 @@ import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.XMLEvent;
 
-import org.sirix.access.conf.ResourceConfiguration.EIndexes;
+import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
@@ -75,25 +75,26 @@ import org.sirix.index.path.PathSummary;
 import org.sirix.index.value.AVLTree;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.CommentNode;
-import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
+import org.sirix.node.Kind;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.PINode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.TextNode;
 import org.sirix.node.TextReferences;
 import org.sirix.node.TextValue;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.interfaces.ValNode;
-import org.sirix.page.PageKind;
+import org.sirix.node.interfaces.ValueNode;
 import org.sirix.page.NamePage;
+import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
 import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
-import org.sirix.settings.Fixed;
 import org.sirix.settings.Constants;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.XMLToken;
 
 import com.google.common.base.Objects;
@@ -185,13 +186,19 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	private AVLTree<TextValue, TextReferences> mAVLTree;
 
 	/** Indexes structures used during updates. */
-	private final Set<EIndexes> mIndexes;
+	private final Set<Indexes> mIndexes;
 
 	/** {@link NodeFactoryImpl} to be able to create nodes. */
 	private NodeFactoryImpl mNodeFactory;
 
 	/** An optional lock for all methods, if an automatic commit is issued. */
 	private final Optional<Semaphore> mLock;
+
+	/** Determines if dewey IDs should be stored or not. */
+	private final boolean mDeweyIDsStored;
+
+	/** Determines if text values should be compressed or not. */
+	private final boolean mCompression;
 
 	/** Determines if a path subtree must be deleted or not. */
 	private enum Remove {
@@ -242,10 +249,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		mIndexes = mNodeRtx.mSession.mResourceConfig.mIndexes;
 
 		// Indexes.
-		if (mIndexes.contains(EIndexes.PATH)) {
+		if (mIndexes.contains(Indexes.PATH)) {
 			mPathSummary = PathSummary.getInstance(pageWriteTrx, session);
 		}
-		if (mIndexes.contains(EIndexes.VALUE)) {
+		if (mIndexes.contains(Indexes.VALUE)) {
 			mAVLTree = AVLTree.<TextValue, TextReferences> getInstance(pageWriteTrx);
 		}
 
@@ -273,6 +280,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		} else {
 			mLock = Optional.absent();
 		}
+
+		mDeweyIDsStored = mNodeRtx.mSession.mResourceConfig.mDeweyIDsStored;
+		mCompression = mNodeRtx.mSession.mResourceConfig.mCompression;
 
 		// // Redo last transaction if the system crashed.
 		// if (!pPageWriteTrx.isCreated()) {
@@ -338,7 +348,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					adaptHashesWithAdd();
 
 					// Adapt path summary.
-					if (mIndexes.contains(EIndexes.PATH) && toMove instanceof NameNode) {
+					if (mIndexes.contains(Indexes.PATH) && toMove instanceof NameNode) {
 						final NameNode moved = (NameNode) toMove;
 						adaptPathForChangedNode(moved, getName(), moved.getNameKey(),
 								moved.getURIKey(), OPType.MOVED);
@@ -385,7 +395,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						"Can't move itself to first child of itself!");
 			}
 
-			// Save: Every node in the "usual" node page is of type INode.
+			// Save: Every node in the "usual" node page is of type Node.
 			@SuppressWarnings("unchecked")
 			final Optional<? extends Node> node = (Optional<? extends Node>) getPageTransaction()
 					.getNode(fromKey, PageKind.NODEPAGE);
@@ -414,7 +424,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					adaptHashesWithAdd();
 
 					// Adapt path summary.
-					if (mIndexes.contains(EIndexes.PATH) && toMove instanceof NameNode) {
+					if (mIndexes.contains(Indexes.PATH) && toMove instanceof NameNode) {
 						final NameNode moved = (NameNode) toMove;
 						final OPType type = moved.getParentKey() == parentKey ? OPType.MOVEDSAMELEVEL
 								: OPType.MOVED;
@@ -581,6 +591,53 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		insertPos.processMove(fromNode, toNode, this);
 	}
 
+	private long getPathNodeKey(final @Nonnull QName name,
+			final @Nonnull Kind pathKind) throws SirixException {
+		final Kind kind = mNodeRtx.getCurrentNode().getKind();
+		int level = 0;
+		if (kind == Kind.DOCUMENT_ROOT) {
+			mPathSummary.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+		} else {
+			movePathSummary();
+			level = mPathSummary.getLevel();
+		}
+
+		final long nodeKey = mPathSummary.getNodeKey();
+		final Axis axis = new FilterAxis(new ChildAxis(mPathSummary),
+				new NameFilter(mPathSummary,
+						pathKind == Kind.NAMESPACE ? name.getPrefix()
+								: Utils.buildName(name)), new PathKindFilter(mPathSummary,
+						pathKind));
+		long retVal = nodeKey;
+		if (axis.hasNext()) {
+			axis.next();
+			retVal = mPathSummary.getNodeKey();
+			final PathNode pathNode = (PathNode) getPageTransaction()
+					.prepareNodeForModification(retVal, PageKind.PATHSUMMARYPAGE);
+			pathNode.incrementReferenceCount();
+			getPageTransaction().finishNodeModification(pathNode.getNodeKey(),
+					PageKind.PATHSUMMARYPAGE);
+		} else {
+			assert nodeKey == mPathSummary.getNodeKey();
+			insertPathAsFirstChild(name, pathKind, level + 1);
+			retVal = mPathSummary.getNodeKey();
+		}
+		return retVal;
+	}
+
+	/**
+	 * Move path summary cursor to the path node which is references by the
+	 * current node.
+	 */
+	private void movePathSummary() {
+		if (mNodeRtx.getCurrentNode() instanceof NameNode) {
+			mPathSummary.moveTo(((NameNode) mNodeRtx.getCurrentNode())
+					.getPathNodeKey());
+		} else {
+			throw new IllegalStateException();
+		}
+	}
+
 	/**
 	 * Insert a path node as first child.
 	 * 
@@ -632,11 +689,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				final long rightSibKey = ((StructNode) mNodeRtx.getCurrentNode())
 						.getFirstChildKey();
 
-				final long pathNodeKey = mIndexes.contains(EIndexes.PATH) ? getPathNodeKey(
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
 						name, Kind.ELEMENT) : 0;
-
+				final Optional<SirixDeweyID> id = newFirstChildID();
 				final ElementNode node = mNodeFactory.createElementNode(parentKey,
-						leftSibKey, rightSibKey, 0, name, pathNodeKey);
+						leftSibKey, rightSibKey, 0, name, pathNodeKey, id);
 
 				mNodeRtx.setCurrentNode(node);
 				adaptForInsert(node, InsertPos.ASFIRSTCHILD, PageKind.NODEPAGE);
@@ -653,53 +710,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		}
 	}
 
-	private long getPathNodeKey(final @Nonnull QName name,
-			final @Nonnull Kind pathKind) throws SirixException {
-		final Kind kind = mNodeRtx.getCurrentNode().getKind();
-		int level = 0;
-		if (kind == Kind.DOCUMENT_ROOT) {
-			mPathSummary.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-		} else {
-			movePathSummary();
-			level = mPathSummary.getLevel();
-		}
-
-		final long nodeKey = mPathSummary.getNodeKey();
-		final Axis axis = new FilterAxis(new ChildAxis(mPathSummary),
-				new NameFilter(mPathSummary,
-						pathKind == Kind.NAMESPACE ? name.getPrefix()
-								: Utils.buildName(name)), new PathKindFilter(mPathSummary,
-						pathKind));
-		long retVal = nodeKey;
-		if (axis.hasNext()) {
-			axis.next();
-			retVal = mPathSummary.getNodeKey();
-			final PathNode pathNode = (PathNode) getPageTransaction()
-					.prepareNodeForModification(retVal, PageKind.PATHSUMMARYPAGE);
-			pathNode.incrementReferenceCount();
-			getPageTransaction().finishNodeModification(pathNode.getNodeKey(),
-					PageKind.PATHSUMMARYPAGE);
-		} else {
-			assert nodeKey == mPathSummary.getNodeKey();
-			insertPathAsFirstChild(name, pathKind, level + 1);
-			retVal = mPathSummary.getNodeKey();
-		}
-		return retVal;
-	}
-
-	/**
-	 * Move path summary cursor to the path node which is references by the
-	 * current node.
-	 */
-	private void movePathSummary() {
-		if (mNodeRtx.getCurrentNode() instanceof NameNode) {
-			mPathSummary.moveTo(((NameNode) mNodeRtx.getCurrentNode())
-					.getPathNodeKey());
-		} else {
-			throw new IllegalStateException();
-		}
-	}
-
 	@Override
 	public NodeWriteTrx insertElementAsLeftSibling(final @Nonnull QName name)
 			throws SirixException {
@@ -713,7 +723,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				final long key = getCurrentNode().getNodeKey();
 				moveToParent();
-				final long pathNodeKey = mIndexes.contains(EIndexes.PATH) ? getPathNodeKey(
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
 						name, Kind.ELEMENT) : 0;
 				moveTo(key);
 
@@ -721,8 +731,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				final long leftSibKey = ((StructNode) getCurrentNode())
 						.getLeftSiblingKey();
 				final long rightSibKey = getCurrentNode().getNodeKey();
+
+				final Optional<SirixDeweyID> id = newLeftSiblingID();
 				final ElementNode node = mNodeFactory.createElementNode(parentKey,
-						leftSibKey, rightSibKey, 0, name, pathNodeKey);
+						leftSibKey, rightSibKey, 0, name, pathNodeKey, id);
 
 				mNodeRtx.setCurrentNode(node);
 				adaptForInsert(node, InsertPos.ASLEFTSIBLING, PageKind.NODEPAGE);
@@ -752,7 +764,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				final long key = getCurrentNode().getNodeKey();
 				moveToParent();
-				final long pathNodeKey = mIndexes.contains(EIndexes.PATH) ? getPathNodeKey(
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
 						name, Kind.ELEMENT) : 0;
 				moveTo(key);
 
@@ -760,8 +772,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				final long leftSibKey = getCurrentNode().getNodeKey();
 				final long rightSibKey = ((StructNode) getCurrentNode())
 						.getRightSiblingKey();
+
+				final Optional<SirixDeweyID> id = newRightSiblingID();
 				final ElementNode node = mNodeFactory.createElementNode(parentKey,
-						leftSibKey, rightSibKey, 0, name, pathNodeKey);
+						leftSibKey, rightSibKey, 0, name, pathNodeKey, id);
 
 				mNodeRtx.setCurrentNode(node);
 				adaptForInsert(node, InsertPos.ASRIGHTSIBLING, PageKind.NODEPAGE);
@@ -870,34 +884,38 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				long leftSibKey = 0;
 				long rightSibKey = 0;
 				InsertPos pos = InsertPos.ASFIRSTCHILD;
+				Optional<SirixDeweyID> id = Optional.<SirixDeweyID> absent();
 				switch (insert) {
 				case ASFIRSTCHILD:
 					parentKey = getCurrentNode().getNodeKey();
 					leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 					rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
+					id = newFirstChildID();
 					break;
 				case ASRIGHTSIBLING:
 					parentKey = getCurrentNode().getParentKey();
 					leftSibKey = getCurrentNode().getNodeKey();
 					rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
 					pos = InsertPos.ASRIGHTSIBLING;
+					id = newRightSiblingID();
 					break;
 				case ASLEFTSIBLING:
 					parentKey = getCurrentNode().getParentKey();
 					leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
 					rightSibKey = getCurrentNode().getNodeKey();
 					pos = InsertPos.ASLEFTSIBLING;
+					id = newLeftSiblingID();
 					break;
 				default:
 					throw new IllegalStateException("Insert location not known!");
 				}
 
 				final QName targetName = new QName(target);
-				final long pathNodeKey = mIndexes.contains(EIndexes.PATH) ? getPathNodeKey(
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
 						targetName, Kind.PROCESSING) : 0;
 				final PINode node = mNodeFactory.createPINode(parentKey, leftSibKey,
-						rightSibKey, targetName, processingContent,
-						mNodeRtx.mSession.mResourceConfig.mCompression, pathNodeKey);
+						rightSibKey, targetName, processingContent, mCompression,
+						pathNodeKey, id);
 
 				// Adapt local nodes and hashes.
 				mNodeRtx.setCurrentNode(node);
@@ -963,31 +981,34 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				long leftSibKey = 0;
 				long rightSibKey = 0;
 				InsertPos pos = InsertPos.ASFIRSTCHILD;
+				Optional<SirixDeweyID> id = Optional.<SirixDeweyID> absent();
 				switch (insert) {
 				case ASFIRSTCHILD:
 					parentKey = getCurrentNode().getNodeKey();
 					leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 					rightSibKey = ((StructNode) getCurrentNode()).getFirstChildKey();
+					id = newFirstChildID();
 					break;
 				case ASRIGHTSIBLING:
 					parentKey = getCurrentNode().getParentKey();
 					leftSibKey = getCurrentNode().getNodeKey();
 					rightSibKey = ((StructNode) getCurrentNode()).getRightSiblingKey();
 					pos = InsertPos.ASRIGHTSIBLING;
+					id = newRightSiblingID();
 					break;
 				case ASLEFTSIBLING:
 					parentKey = getCurrentNode().getParentKey();
 					leftSibKey = ((StructNode) getCurrentNode()).getLeftSiblingKey();
 					rightSibKey = getCurrentNode().getNodeKey();
 					pos = InsertPos.ASLEFTSIBLING;
+					id = newLeftSiblingID();
 					break;
 				default:
 					throw new IllegalStateException("Insert location not known!");
 				}
 
 				final CommentNode node = mNodeFactory.createCommentNode(parentKey,
-						leftSibKey, rightSibKey, commentValue,
-						mNodeRtx.mSession.mResourceConfig.mCompression);
+						leftSibKey, rightSibKey, commentValue, mCompression, id);
 
 				// Adapt local nodes and hashes.
 				mNodeRtx.setCurrentNode(node);
@@ -1033,9 +1054,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				// Insert new text node if no adjacent text nodes are found.
 				final byte[] textValue = getBytes(value);
+				final Optional<SirixDeweyID> id = newFirstChildID();
 				final TextNode node = mNodeFactory.createTextNode(parentKey,
-						leftSibKey, rightSibKey, textValue,
-						mNodeRtx.mSession.mResourceConfig.mCompression);
+						leftSibKey, rightSibKey, textValue, mCompression, id);
 
 				// Adapt local nodes and hashes.
 				mNodeRtx.setCurrentNode(node);
@@ -1053,38 +1074,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			}
 		} finally {
 			unLock();
-		}
-	}
-
-	/**
-	 * Index text.
-	 * 
-	 * @param value
-	 *          text value
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	private void indexText(final @Nonnull byte[] value) throws SirixIOException {
-		if (mIndexes.contains(EIndexes.VALUE)) {
-			mNodeRtx.moveToParent();
-			final long pathNodeKey = mNodeRtx.isNameNode() ? mNodeRtx
-					.getPathNodeKey() : 0;
-			final PageWriteTrx pageTrx = getPageTransaction();
-			final TextValue textVal = (TextValue) pageTrx.createNode(new TextValue(
-					value, pageTrx.getActualRevisionRootPage().getMaxValueNodeKey() + 1,
-					pathNodeKey), PageKind.VALUEPAGE);
-			final Optional<TextReferences> textReferences = mAVLTree.get(textVal);
-			if (textReferences.isPresent()) {
-				final TextReferences references = textReferences.get();
-				references.setNodeKey(mNodeRtx.getCurrentNode().getNodeKey());
-				mAVLTree.index(textVal, references);
-			} else {
-				final TextReferences textRef = (TextReferences) pageTrx.createNode(
-						new TextReferences(new HashSet<Long>(), pageTrx
-								.getActualRevisionRootPage().getMaxValueNodeKey() + 1),
-						PageKind.VALUEPAGE);
-				mAVLTree.index(textVal, textRef);
-			}
 		}
 	}
 
@@ -1130,9 +1119,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				// Insert new text node if no adjacent text nodes are found.
 				moveTo(rightSibKey);
 				final byte[] textValue = getBytes(builder.toString());
+				final Optional<SirixDeweyID> id = newLeftSiblingID();
 				final TextNode node = mNodeFactory.createTextNode(parentKey,
-						leftSibKey, rightSibKey, textValue,
-						mNodeRtx.mSession.mResourceConfig.mCompression);
+						leftSibKey, rightSibKey, textValue, mCompression, id);
 
 				// Adapt local nodes and hashes.
 				mNodeRtx.setCurrentNode(node);
@@ -1141,7 +1130,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				adaptHashesWithAdd();
 
 				// Index text value.
-				// indexText(value);
+				indexText(textValue);
 
 				return this;
 			} else {
@@ -1200,9 +1189,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				// Insert new text node if no adjacent text nodes are found.
 				moveTo(leftSibKey);
 				final byte[] textValue = getBytes(builder.toString());
+				final Optional<SirixDeweyID> id = newRightSiblingID();
+
 				final TextNode node = mNodeFactory.createTextNode(parentKey,
-						leftSibKey, rightSibKey, textValue,
-						mNodeRtx.mSession.mResourceConfig.mCompression);
+						leftSibKey, rightSibKey, textValue, mCompression, id);
 
 				// Adapt local nodes and hashes.
 				mNodeRtx.setCurrentNode(node);
@@ -1220,6 +1210,106 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			}
 		} finally {
 			unLock();
+		}
+	}
+
+	/**
+	 * Get an optional first child {@link SirixDeweyID} reference.
+	 * 
+	 * @return optional first child {@link SirixDeweyID} reference
+	 * @throws SirixException
+	 *           if generating an ID fails
+	 */
+	private Optional<SirixDeweyID> newFirstChildID() throws SirixException {
+		Optional<SirixDeweyID> id = Optional.<SirixDeweyID> absent();
+		if (mDeweyIDsStored) {
+			if (mNodeRtx.getStructuralNode().hasFirstChild()) {
+				mNodeRtx.moveToFirstChild();
+				id = Optional.of(SirixDeweyID.newBetween(null, mNodeRtx.getNode()
+						.getDeweyID().get()));
+			} else {
+				id = Optional.of(mNodeRtx.getCurrentNode().getDeweyID().get()
+						.getNewChildID());
+			}
+		}
+		return id;
+	}
+
+	/**
+	 * Get an optional left sibling {@link SirixDeweyID} reference.
+	 * 
+	 * @return optional left sibling {@link SirixDeweyID} reference
+	 * @throws SirixException
+	 *           if generating an ID fails
+	 */
+	private Optional<SirixDeweyID> newLeftSiblingID() throws SirixException {
+		Optional<SirixDeweyID> id = Optional.<SirixDeweyID> absent();
+		if (mDeweyIDsStored) {
+			final SirixDeweyID currID = mNodeRtx.getCurrentNode().getDeweyID().get();
+			if (mNodeRtx.hasLeftSibling()) {
+				mNodeRtx.moveToLeftSibling();
+				id = Optional.of(SirixDeweyID.newBetween(mNodeRtx.getCurrentNode()
+						.getDeweyID().get(), currID));
+				mNodeRtx.moveToRightSibling();
+			} else {
+				id = Optional.of(SirixDeweyID.newBetween(null, currID));
+			}
+		}
+		return id;
+	}
+
+	/**
+	 * Get an optional right sibling {@link SirixDeweyID} reference.
+	 * 
+	 * @return optional right sibling {@link SirixDeweyID} reference
+	 * @throws SirixException
+	 *           if generating an ID fails
+	 */
+	private Optional<SirixDeweyID> newRightSiblingID() throws SirixException {
+		Optional<SirixDeweyID> id = Optional.<SirixDeweyID> absent();
+		if (mDeweyIDsStored) {
+			final SirixDeweyID currID = mNodeRtx.getCurrentNode().getDeweyID().get();
+			if (mNodeRtx.hasRightSibling()) {
+				mNodeRtx.moveToRightSibling();
+				id = Optional.of(SirixDeweyID.newBetween(currID, mNodeRtx
+						.getCurrentNode().getDeweyID().get()));
+				mNodeRtx.moveToLeftSibling();
+			} else {
+				id = Optional.of(SirixDeweyID.newBetween(currID, null));
+			}
+		}
+		return id;
+	}
+
+	/**
+	 * Index text.
+	 * 
+	 * @param value
+	 *          text value
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	private void indexText(final @Nonnull byte[] value) throws SirixIOException {
+		if (mIndexes.contains(Indexes.VALUE)) {
+			mNodeRtx.moveToParent();
+			final long pathNodeKey = mNodeRtx.isNameNode() ? mNodeRtx
+					.getPathNodeKey() : 0;
+			final PageWriteTrx pageTrx = getPageTransaction();
+			final TextValue textVal = (TextValue) pageTrx.createNode(new TextValue(
+					value, pageTrx.getActualRevisionRootPage().getMaxValueNodeKey() + 1,
+					pathNodeKey), PageKind.VALUEPAGE);
+			final Optional<TextReferences> textReferences = mAVLTree.get(textVal);
+			if (textReferences.isPresent()) {
+				final TextReferences references = textReferences.get();
+				references.setNodeKey(mNodeRtx.getCurrentNode().getNodeKey());
+				mAVLTree.index(textVal, references);
+			} else {
+				final TextReferences textRef = (TextReferences) pageTrx.createNode(
+						new TextReferences(new HashSet<Long>(), pageTrx
+								.getActualRevisionRootPage().getMaxValueNodeKey() + 1),
+						PageKind.VALUEPAGE);
+				mAVLTree.index(textVal, textRef);
+			}
 		}
 	}
 
@@ -1259,27 +1349,31 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				 * thrown because of a duplicate attribute which would otherwise be
 				 * inserted!).
 				 */
-				final Optional<Long> attKey = ((ElementNode) getCurrentNode())
-						.getAttributeKeyByName(name);
+				final ElementNode element = (ElementNode) getCurrentNode();
+				final Optional<Long> attKey = element.getAttributeKeyByName(name);
 				if (attKey.isPresent()) {
 					moveTo(attKey.get());
 					final QName qName = getName();
 					if (name.equals(qName) && name.getPrefix().equals(qName.getPrefix())) {
-						if (!getValue().equals(value)) {
-							setValue(value);
-						} else {
+						if (getValue().equals(value)) {
 							throw new SirixUsageException("Duplicate attribute!");
+						} else {
+							setValue(value);
 						}
 					}
 					moveToParent();
 				}
 
-				final long pathNodeKey = mIndexes.contains(EIndexes.PATH) ? getPathNodeKey(
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
 						name, Kind.ATTRIBUTE) : 0;
 				final byte[] attValue = getBytes(value);
+
+				Optional<SirixDeweyID> id = mDeweyIDsStored ? Optional.of(mNodeRtx
+						.getCurrentNode().getDeweyID().get().getNewAttributeID())
+						: Optional.<SirixDeweyID> absent();
 				final long elementKey = getCurrentNode().getNodeKey();
 				final AttributeNode node = mNodeFactory.createAttributeNode(elementKey,
-						name, attValue, pathNodeKey);
+						name, attValue, pathNodeKey, id);
 
 				final Node parentNode = (Node) getPageTransaction()
 						.prepareNodeForModification(node.getParentKey(), PageKind.NODEPAGE);
@@ -1330,7 +1424,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					moveToParent();
 				}
 
-				final long pathNodeKey = mIndexes.contains(EIndexes.PATH) ? getPathNodeKey(
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
 						name, Kind.NAMESPACE) : 0;
 				final int uriKey = getPageTransaction().createNameKey(
 						name.getNamespaceURI(), Kind.NAMESPACE);
@@ -1338,8 +1432,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						name.getPrefix(), Kind.NAMESPACE);
 				final long elementKey = getCurrentNode().getNodeKey();
 
+				Optional<SirixDeweyID> id = mDeweyIDsStored ? Optional.of(mNodeRtx
+						.getCurrentNode().getDeweyID().get().getNewNamespaceID())
+						: Optional.<SirixDeweyID> absent();
 				final NamespaceNode node = mNodeFactory.createNamespaceNode(elementKey,
-						uriKey, prefixKey, pathNodeKey);
+						uriKey, prefixKey, pathNodeKey, id);
 
 				final Node parentNode = (Node) getPageTransaction()
 						.prepareNodeForModification(node.getParentKey(), PageKind.NODEPAGE);
@@ -1503,7 +1600,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			page.removeName(node.getURIKey(), Kind.NAMESPACE);
 
 			assert nodeKind != Kind.DOCUMENT_ROOT;
-			if (mIndexes.contains(EIndexes.PATH)
+			if (mIndexes.contains(Indexes.PATH)
 					&& mPathSummary.moveTo(node.getPathNodeKey()).hasMoved()) {
 				if (mPathSummary.getReferences() == 1) {
 					removePathSummaryNode(Remove.YES);
@@ -1594,7 +1691,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 							name.getNamespaceURI(), Kind.NAMESPACE);
 
 					// Adapt path summary.
-					if (mIndexes.contains(EIndexes.PATH)) {
+					if (mIndexes.contains(Indexes.PATH)) {
 						adaptPathForChangedNode(node, name, nameKey, uriKey, OPType.SETNAME);
 					}
 
@@ -1612,7 +1709,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 							node.getNodeKey(), PageKind.NODEPAGE);
 					node.setNameKey(nameKey);
 					node.setURIKey(uriKey);
-					node.setPathNodeKey(mIndexes.contains(EIndexes.PATH) ? mPathSummary
+					node.setPathNodeKey(mIndexes.contains(Indexes.PATH) ? mPathSummary
 							.getNodeKey() : 0);
 					getPageTransaction().finishNodeModification(node.getNodeKey(),
 							PageKind.NODEPAGE);
@@ -2006,12 +2103,12 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		checkNotNull(value);
 		acquireLock();
 		try {
-			if (getCurrentNode() instanceof ValNode) {
+			if (getCurrentNode() instanceof ValueNode) {
 				checkAccessAndCommit();
 				final long oldHash = mNodeRtx.getCurrentNode().hashCode();
 				final byte[] byteVal = getBytes(value);
 
-				final ValNode node = (ValNode) getPageTransaction()
+				final ValueNode node = (ValueNode) getPageTransaction()
 						.prepareNodeForModification(mNodeRtx.getCurrentNode().getNodeKey(),
 								PageKind.NODEPAGE);
 				node.setValue(byteVal);
@@ -2192,7 +2289,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			} catch (final IOException e) {
 				throw new SirixIOException(e.getCause());
 			}
-			
+
 			final long trxID = getTransactionID();
 			final int revNumber = getRevisionNumber();
 
@@ -2255,14 +2352,14 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 */
 	private void reInstantiateIndexes() {
 		// Get a new path summary instance.
-		if (mIndexes.contains(EIndexes.PATH)) {
+		if (mIndexes.contains(Indexes.PATH)) {
 			mPathSummary = null;
 			mPathSummary = PathSummary.getInstance(mNodeRtx.getPageTransaction(),
 					mNodeRtx.getSession());
 		}
 
 		// Get a new avl tree instance.
-		if (mIndexes.contains(EIndexes.VALUE)) {
+		if (mIndexes.contains(Indexes.VALUE)) {
 			mAVLTree = null;
 			mAVLTree = AVLTree.getInstance(getPageTransaction());
 		}

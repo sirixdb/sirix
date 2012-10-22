@@ -15,6 +15,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
@@ -111,10 +112,11 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 		final RevisionRootPage root = mPageWriteTrx.getActualRevisionRootPage();
 		if (mRoot == null) {
 			// Index is empty.. create root node.
-			mRoot = (AVLNode<K, V>) mPageWriteTrx.createNode(new AVLNode<>(key,
-					value, new NodeDelegate(root.getMaxValueNodeKey() + 1,
-							Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0)),
-					PageKind.VALUEPAGE);
+			mRoot = (AVLNode<K, V>) mPageWriteTrx.createNode(
+					new AVLNode<>(key, value, new NodeDelegate(
+							root.getMaxValueNodeKey() + 1, Fixed.NULL_NODE_KEY
+									.getStandardProperty(), 0, 0, Optional
+									.<SirixDeweyID> absent())), PageKind.VALUEPAGE);
 			final DocumentRootNode document = (DocumentRootNode) mPageWriteTrx
 					.prepareNodeForModification(
 							Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.VALUEPAGE);
@@ -123,7 +125,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 					PageKind.VALUEPAGE);
 			mSize++;
 			return value;
-		}
+		} 
 
 		AVLNode<K, V> node = mRoot;
 		while (true) {
@@ -141,8 +143,8 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 
 			final AVLNode<K, V> child = (AVLNode<K, V>) mPageWriteTrx.createNode(
 					new AVLNode<>(key, value, new NodeDelegate(root.getMaxValueNodeKey(),
-							Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0)),
-					PageKind.VALUEPAGE);
+							Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, Optional
+									.<SirixDeweyID> absent())), PageKind.VALUEPAGE);
 			node = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 					node.getNodeKey(), PageKind.VALUEPAGE);
 			if (c < 0) {

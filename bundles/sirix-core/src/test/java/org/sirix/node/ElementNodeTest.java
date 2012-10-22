@@ -28,14 +28,19 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
+
+import com.google.common.base.Optional;
 import com.google.common.collect.HashBiMap;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 
+import java.io.File;
 import java.util.ArrayList;
 
 import org.junit.Test;
+import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -45,7 +50,7 @@ public class ElementNodeTest {
 
 	@Test
 	public void testElementNode() {
-		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0);
+		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, Optional.of(SirixDeweyID.newRootID()));
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l,
 				16l, 1l, 0);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 18, 19, 1);
@@ -62,10 +67,12 @@ public class ElementNodeTest {
 		check(node1);
 
 		// Serialize and deserialize node.
+		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
+				"", new DatabaseConfiguration(new File(""))).build();
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1);
+		node1.getKind().serialize(out, node1, resourceConfig);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(in);
+		final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(in, resourceConfig);
 		check(node2);
 	}
 

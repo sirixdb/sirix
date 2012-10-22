@@ -27,8 +27,8 @@ import org.sirix.node.interfaces.NodeBase;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
-import org.sirix.settings.Fixed;
 import org.sirix.settings.Constants;
+import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.Util;
@@ -646,6 +646,11 @@ public final class PathSummary implements NodeReadTrx {
 
 	@Override
 	public boolean isPI() {
+		return false;
+	}
+
+	@Override
+	public boolean hasNamespaces() {
 		return false;
 	}
 }

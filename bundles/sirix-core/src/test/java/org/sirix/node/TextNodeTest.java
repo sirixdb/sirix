@@ -28,10 +28,16 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
+
+import java.io.File;
+
+import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 import org.junit.Test;
+import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
@@ -44,7 +50,7 @@ public class TextNodeTest {
 	public void testTextRootNode() {
 		// Create empty node.
 		final byte[] value = { (byte) 17, (byte) 18 };
-		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0);
+		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, Optional.of(SirixDeweyID.newRootID()));
 		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del,
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
@@ -52,10 +58,12 @@ public class TextNodeTest {
 		check(node1);
 
 		// Serialize and deserialize node.
+		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
+				"", new DatabaseConfiguration(new File(""))).build();
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1);
+		node1.getKind().serialize(out, node1, resourceConfig);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(in);
+		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(in, resourceConfig);
 		check(node2);
 	}
 

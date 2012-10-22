@@ -26,8 +26,9 @@
  */
 package org.sirix.node.interfaces;
 
+
 /**
- * Node with a name.
+ * Mutable node with a name.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
@@ -46,7 +47,14 @@ public interface NameNode extends Node {
 	 * @return URI key
 	 */
 	int getURIKey();
-
+	
+	/**
+	 * Get a path node key.
+	 * 
+	 * @return path node key
+	 */
+	long getPathNodeKey();
+	
 	/**
 	 * Setting the name key.
 	 * 
@@ -69,11 +77,4 @@ public interface NameNode extends Node {
 	 * @param nodeKey
 	 */
 	void setPathNodeKey(long nodeKey);
-
-	/**
-	 * Get a path node key.
-	 * 
-	 * @return path node key
-	 */
-	long getPathNodeKey();
 }

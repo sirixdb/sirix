@@ -39,6 +39,7 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.settings.Fixed;
 
 import com.google.common.base.Objects;
+import com.google.common.base.Optional;
 
 /**
  * Null node (NullObject pattern).
@@ -221,5 +222,15 @@ public final class NullNode implements StructNode {
 	@Override
 	public int hashCode() {
 		return Objects.hashCode(mNode);
+	}
+	
+	@Override
+	public Optional<SirixDeweyID> getDeweyID() {
+		return mNode.getDeweyID();
+	}
+
+	@Override
+	public void setDeweyID(@Nonnull Optional<SirixDeweyID> id) {
+		throw new UnsupportedOperationException();
 	}
 }

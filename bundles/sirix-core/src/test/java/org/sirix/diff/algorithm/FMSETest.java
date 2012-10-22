@@ -303,9 +303,9 @@ public final class FMSETest extends XMLTestCase {
 				@SuppressWarnings("unchecked")
 				final List<Difference> differences = detDiff.getAllDifferences();
 				for (final Difference difference : differences) {
-					System.out.println("***********************");
-					System.out.println(difference);
-					System.out.println("***********************");
+					System.err.println("***********************");
+					System.err.println(difference);
+					System.err.println("***********************");
 				}
 
 				assertTrue("pieces of XML are similar " + diff, diff.similar());

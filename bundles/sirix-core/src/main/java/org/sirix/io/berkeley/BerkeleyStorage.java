@@ -94,25 +94,25 @@ public final class BerkeleyStorage implements Storage {
 	 * 
 	 * @param file
 	 *          the file associated with the database
-	 * @param pDatabase
-	 *          for the Database settings
-	 * @param pSession
-	 *          for the settings
+	 * @param handler
+	 *          the byte handler pipeline
+	 * @param resourceConfig
+	 *          the resource configuration
 	 * @throws SirixIOException
 	 *           if something odd happens while database-connection
 	 * @throws NullPointerException
 	 *           if {@code pFile} is {@code null}
 	 */
-	public BerkeleyStorage(final @Nonnull File file,
-			final @Nonnull ByteHandlePipeline handler) throws SirixIOException {
-		final File repoFile = new File(checkNotNull(file),
+	public BerkeleyStorage(final @Nonnull ResourceConfiguration resourceConfig)
+			throws SirixIOException {
+		final File repoFile = new File(checkNotNull(resourceConfig.mPath),
 				ResourceConfiguration.Paths.DATA.getFile().getName());
 		if (!repoFile.exists()) {
 			repoFile.mkdirs();
 		}
 
-		mByteHandler = checkNotNull(handler);
-		mPageBinding = new PageBinding(mByteHandler);
+		mByteHandler = checkNotNull(resourceConfig.mByteHandler);
+		mPageBinding = new PageBinding(mByteHandler, resourceConfig);
 
 		final DatabaseConfig conf = generateDBConf();
 		final EnvironmentConfig config = generateEnvConf();

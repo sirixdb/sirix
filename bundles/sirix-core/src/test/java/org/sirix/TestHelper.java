@@ -33,7 +33,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Random;
@@ -42,33 +42,20 @@ import javax.annotation.Nonnull;
 
 import org.junit.Ignore;
 import org.junit.Test;
-import org.sirix.access.DatabaseImpl;
 import org.sirix.access.Databases;
 import org.sirix.access.SessionImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
-import org.sirix.node.AttributeNode;
-import org.sirix.node.DeletedNode;
-import org.sirix.node.DocumentRootNode;
-import org.sirix.node.ElementNode;
 import org.sirix.node.Kind.DumbNode;
-import org.sirix.node.NamespaceNode;
-import org.sirix.node.TextNode;
-import org.sirix.node.delegates.NameNodeDelegate;
-import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.interfaces.NodeBase;
-import org.sirix.page.NodePage;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.utils.DocumentCreater;
-
-import com.google.common.collect.HashBiMap;
 
 /**
  * 
@@ -191,71 +178,73 @@ public final class TestHelper {
 		}
 	}
 
-	@Ignore
-	public static NodePage getNodePage(final int revision, final int offset,
-			final int length, final long nodePageKey) {
-		final NodePage page = new NodePage(nodePageKey, revision);
-		NodeDelegate nodeDel;
-		NameNodeDelegate nameDel;
-		StructNodeDelegate strucDel;
-		ValNodeDelegate valDel;
-		int pathNodeKey = 1;
-		for (int i = offset; i < length; i++) {
-			switch (random.nextInt(6)) {
-			case 0:
-				nodeDel = new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-						random.nextInt(), pathNodeKey++);
-				valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1, 2, 3, 4 },
-						false);
-				page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
-				break;
-			case 1:
-				page.setNode(new DeletedNode(
-						new NodeDelegate(random.nextInt(10000), random.nextInt(10000),
-								random.nextInt(10000), random.nextInt(10000))));
-				break;
-			case 2:
-				nodeDel = new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-						random.nextInt(), pathNodeKey++);
-				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000));
-				page.setNode(new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
-						HashBiMap.<Integer, Long> create(), new ArrayList<Long>()));
-				break;
-			case 3:
-				nodeDel = new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-						random.nextInt(), pathNodeKey++);
-				page.setNode(new NamespaceNode(nodeDel, nameDel));
-				break;
-			case 4:
-				nodeDel = new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000));
-				page.setNode(new DocumentRootNode(nodeDel, strucDel));
-				break;
-			case 5:
-				nodeDel = new NodeDelegate(random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-				valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1 }, false);
-				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000),
-						random.nextInt(10000), random.nextInt(10000));
-				page.setNode(new TextNode(valDel, strucDel));
-				break;
-			}
-
-		}
-		return page;
-	}
+//	@Ignore
+//	public static NodePage getNodePage(final int revision, final int offset,
+//			final int length, final long nodePageKey) {
+//		new ResourceConfiguration.Builder(RESOURCE,
+//				config).build();
+//		final NodePage page = new NodePage(nodePageKey, revision);
+//		NodeDelegate nodeDel;
+//		NameNodeDelegate nameDel;
+//		StructNodeDelegate strucDel;
+//		ValNodeDelegate valDel;
+//		int pathNodeKey = 1;
+//		for (int i = offset; i < length; i++) {
+//			switch (random.nextInt(6)) {
+//			case 0:
+//				nodeDel = new NodeDelegate(random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+//				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+//						random.nextInt(), pathNodeKey++);
+//				valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1, 2, 3, 4 },
+//						false);
+//				page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
+//				break;
+//			case 1:
+//				page.setNode(new DeletedNode(
+//						new NodeDelegate(random.nextInt(10000), random.nextInt(10000),
+//								random.nextInt(10000), random.nextInt(10000))));
+//				break;
+//			case 2:
+//				nodeDel = new NodeDelegate(random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+//				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+//						random.nextInt(), pathNodeKey++);
+//				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000));
+//				page.setNode(new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
+//						HashBiMap.<Integer, Long> create(), new ArrayList<Long>()));
+//				break;
+//			case 3:
+//				nodeDel = new NodeDelegate(random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+//				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+//						random.nextInt(), pathNodeKey++);
+//				page.setNode(new NamespaceNode(nodeDel, nameDel));
+//				break;
+//			case 4:
+//				nodeDel = new NodeDelegate(random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+//				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000));
+//				page.setNode(new DocumentRootNode(nodeDel, strucDel));
+//				break;
+//			case 5:
+//				nodeDel = new NodeDelegate(random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+//				valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1 }, false);
+//				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000),
+//						random.nextInt(10000), random.nextInt(10000));
+//				page.setNode(new TextNode(valDel, strucDel));
+//				break;
+//			}
+//
+//		}
+//		return page;
+//	}
 
 	/**
 	 * Read a file into a StringBuilder.
@@ -299,7 +288,7 @@ public final class TestHelper {
 	public static void createTestDocument() throws SirixException {
 		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		database.createResource(new ResourceConfiguration.Builder(RESOURCE,
-				PATHS.PATH1.config).build());
+				PATHS.PATH1.config).setIndexes(EnumSet.of(Indexes.NONE)).build());
 		final Session session = database
 				.getSession(new SessionConfiguration.Builder(RESOURCE).build());
 		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
@@ -325,6 +314,7 @@ public final class TestHelper {
 		wtx.commit();
 		wtx.close();
 		session.close();
+		database.close();
 	}
 
 	/**

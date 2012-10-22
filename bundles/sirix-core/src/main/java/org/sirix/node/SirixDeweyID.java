@@ -39,25 +39,25 @@ import org.sirix.node.interfaces.SimpleDeweyID;
  * @author Sebastian Baechle
  * 
  */
-public class SirixDeweyID implements java.io.Serializable,
-		Comparable<SirixDeweyID>, SimpleDeweyID {
+public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 
-	public final static String documentSeparator = ":";
-	public final static String divisionSeparator = ".";
+	private final static String divisionSeparator = ".";
 
-	public final static int rootNodeDivisionValue = 1;
-	public final static String rootNodeDivisionValueStr = Integer
+	private final static int rootNodeDivisionValue = 1;
+	private final static String rootNodeDivisionValueStr = Integer
 			.toString(rootNodeDivisionValue);
-	public final static int attributeRootDivisionValue = 1;
+	private final static int attributeRootDivisionValue = 1;
 
 	// must be an even number! when a new DeweyID is calculated, and there is a
 	// choice, DISTANCE_TO_SIBLING/2 nodes fits between the existing node, and
 	// the new node. For example: id1=1.7, id2=NULL; new ID will be
 	// 1.7+DISTANCE_TO_SIBLING
-	public static int distanceToSibling = 2;
+	private static int distanceToSibling = 2;
 
-	public final int[] divisionValues;
-	public final int level;
+	private final static int namespaceRootDivisionValue = 0;
+
+	private final int[] divisionValues;
+	private final int level;
 
 	// possible bitlength for one division
 	// private final static byte[] divisionLengthArray =
@@ -204,7 +204,7 @@ public class SirixDeweyID implements java.io.Serializable,
 		return divisionValues;
 	}
 
-	private static int calcLevel(int[] divisionValues) {
+	private int calcLevel(int[] divisionValues) {
 		int level = 0;
 		for (int i = 0; i < divisionValues.length; i++) {
 			if (divisionValues[i] % 2 == 1) level++;
@@ -643,7 +643,6 @@ public class SirixDeweyID implements java.io.Serializable,
 	@Override
 	public String toString() {
 		StringBuilder out = new StringBuilder();
-		out.append(SirixDeweyID.documentSeparator);
 
 		for (int i = 0; i < divisionValues.length; i++) {
 			if (i != 0) {
@@ -655,6 +654,7 @@ public class SirixDeweyID implements java.io.Serializable,
 		return out.toString();
 	}
 
+	@Override
 	public int compareTo(SirixDeweyID deweyID) {
 		if (this == deweyID) {
 			return 0;
@@ -1206,6 +1206,17 @@ public class SirixDeweyID implements java.io.Serializable,
 		int[] childDivisions = Arrays.copyOf(divisionValues,
 				divisionValues.length + 2);
 		childDivisions[divisionValues.length] = SirixDeweyID.attributeRootDivisionValue;
+		childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
+
+		SirixDeweyID newID = new SirixDeweyID(childDivisions, level + 1);
+
+		return newID;
+	}
+	
+	public final SirixDeweyID getNewNamespaceID() {
+		int[] childDivisions = Arrays.copyOf(divisionValues,
+				divisionValues.length + 2);
+		childDivisions[divisionValues.length] = SirixDeweyID.namespaceRootDivisionValue ;
 		childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
 
 		SirixDeweyID newID = new SirixDeweyID(childDivisions, level + 1);

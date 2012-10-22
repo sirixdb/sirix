@@ -2,7 +2,6 @@ package org.sirix.node.immutable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -10,9 +9,12 @@ import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.CommentNode;
 import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.interfaces.ValNode;
+import org.sirix.node.interfaces.immutable.ImmutableStructNode;
+import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+
+import com.google.common.base.Optional;
 
 /**
  * Immutable comment node wrapper.
@@ -20,7 +22,7 @@ import org.sirix.node.interfaces.ValNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutableComment implements ValNode, StructNode {
+public class ImmutableComment implements ImmutableValueNode, ImmutableStructNode {
 
 	/** Mutable {@link CommentNode}. */
 	private final CommentNode mNode;
@@ -52,11 +54,6 @@ public class ImmutableComment implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setTypeKey(final int typeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public boolean isSameItem(final @Nullable Node other) {
 		return mNode.isSameItem(other);
 	}
@@ -67,18 +64,8 @@ public class ImmutableComment implements ValNode, StructNode {
 	}
 
 	@Override
-	public void setHash(long hash) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public long getHash() {
 		return mNode.getHash();
-	}
-
-	@Override
-	public void setParentKey(long nodeKey) {
-		throw new UnsupportedOperationException();
 	}
 
 	@Override
@@ -109,11 +96,6 @@ public class ImmutableComment implements ValNode, StructNode {
 	@Override
 	public byte[] getRawValue() {
 		return mNode.getRawValue();
-	}
-
-	@Override
-	public void setValue(byte[] value) {
-		throw new UnsupportedOperationException();
 	}
 
 	@Override
@@ -155,47 +137,9 @@ public class ImmutableComment implements ValNode, StructNode {
 	public long getRightSiblingKey() {
 		return mNode.getRightSiblingKey();
 	}
-
+	
 	@Override
-	public void setRightSiblingKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setLeftSiblingKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setFirstChildKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void decrementChildCount() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void incrementChildCount() {
-		throw new UnsupportedOperationException();
-
-	}
-
-	@Override
-	public void decrementDescendantCount() {
-		throw new UnsupportedOperationException();
-
-	}
-
-	@Override
-	public void incrementDescendantCount() {
-		throw new UnsupportedOperationException();
-
-	}
-
-	@Override
-	public void setDescendantCount(long descendantCount) {
-		throw new UnsupportedOperationException();
+	public Optional<SirixDeweyID> getDeweyID() {
+		return mNode.getDeweyID();
 	}
 }

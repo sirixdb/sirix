@@ -15,10 +15,11 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.PathNode;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.CommentNode;
-import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
+import org.sirix.node.Kind;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.PINode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.TextNode;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
@@ -29,6 +30,7 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.Compression;
 import org.sirix.utils.NamePageHash;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.HashBiMap;
 
 /**
@@ -66,7 +68,7 @@ public class NodeFactoryImpl implements NodeFactory {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxPathNodeKey() + 1, parentKey, 0,
-				revision);
+				revision, Optional.<SirixDeweyID> absent());
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0,
 				0);
@@ -81,7 +83,8 @@ public class NodeFactoryImpl implements NodeFactory {
 	public ElementNode createElementNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
 			final long hash, @Nonnull final QName name,
-			final @Nonnegative long pathNodeKey) throws SirixIOException {
+			final @Nonnegative long pathNodeKey,
+			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
 		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(name),
 				Kind.ELEMENT);
 		final int uriKey = mPageWriteTrx.createNameKey(name.getNamespaceURI(),
@@ -90,7 +93,7 @@ public class NodeFactoryImpl implements NodeFactory {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
-				revision);
+				revision, id);
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0,
 				0);
@@ -105,12 +108,12 @@ public class NodeFactoryImpl implements NodeFactory {
 	@Override
 	public TextNode createTextNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			@Nonnull final byte[] value, final boolean isCompressed)
-			throws SirixIOException {
+			@Nonnull final byte[] value, final boolean isCompressed,
+			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
-				revision);
+				revision, id);
 		final boolean compression = isCompressed && value.length > 10;
 		final byte[] compressedValue = compression ? Compression.compress(value,
 				Deflater.HUFFMAN_ONLY) : value;
@@ -126,7 +129,8 @@ public class NodeFactoryImpl implements NodeFactory {
 	@Override
 	public AttributeNode createAttributeNode(final @Nonnegative long parentKey,
 			@Nonnull final QName name, @Nonnull final byte[] value,
-			final @Nonnegative long pathNodeKey) throws SirixIOException {
+			final @Nonnegative long pathNodeKey,
+			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(name),
 				Kind.ATTRIBUTE);
@@ -134,7 +138,7 @@ public class NodeFactoryImpl implements NodeFactory {
 				Kind.NAMESPACE);
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
-				revision);
+				revision, id);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
 				uriKey, pathNodeKey);
 		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, value, false);
@@ -145,12 +149,13 @@ public class NodeFactoryImpl implements NodeFactory {
 
 	@Override
 	public NamespaceNode createNamespaceNode(final @Nonnegative long parentKey,
-			final int uriKey, final int prefixKey, final @Nonnegative long pathNodeKey)
-			throws SirixIOException {
+			final int uriKey, final int prefixKey,
+			final @Nonnegative long pathNodeKey,
+			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
-				revision);
+				revision, id);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, prefixKey,
 				uriKey, pathNodeKey);
 
@@ -162,8 +167,8 @@ public class NodeFactoryImpl implements NodeFactory {
 	public PINode createPINode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
 			final @Nonnull QName target, final @Nonnull byte[] content,
-			final boolean isCompressed, final @Nonnegative long pathNodeKey)
-			throws SirixIOException {
+			final boolean isCompressed, final @Nonnegative long pathNodeKey,
+			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(target),
 				Kind.PROCESSING);
@@ -171,7 +176,7 @@ public class NodeFactoryImpl implements NodeFactory {
 				Kind.NAMESPACE);
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
-				revision);
+				revision, id);
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0,
 				0);
@@ -186,12 +191,12 @@ public class NodeFactoryImpl implements NodeFactory {
 	@Override
 	public CommentNode createCommentNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final @Nonnull byte[] value, final boolean isCompressed)
-			throws SirixIOException {
+			final @Nonnull byte[] value, final boolean isCompressed,
+			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
-				revision);
+				revision, id);
 		final boolean compression = isCompressed && value.length > 10;
 		final byte[] compressedValue = compression ? Compression.compress(value,
 				Deflater.HUFFMAN_ONLY) : value;

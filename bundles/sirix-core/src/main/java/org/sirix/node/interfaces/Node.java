@@ -28,10 +28,11 @@
 package org.sirix.node.interfaces;
 
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
-import org.sirix.api.visitor.VisitResult;
-import org.sirix.api.visitor.Visitor;
+import org.sirix.node.SirixDeweyID;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
+
+import com.google.common.base.Optional;
 
 /**
  * <h1>INode</h1>
@@ -40,14 +41,15 @@ import org.sirix.api.visitor.Visitor;
  * Common interface for all node kinds.
  * </p>
  */
-public interface Node extends NodeBase {
+public interface Node extends ImmutableNode {
 
 	/**
-	 * Gets value type of the item.
+	 * Set a new DeweyID (may only be necessary during moves.)
 	 * 
-	 * @return value type
+	 * @param id
+	 *          new dewey ID
 	 */
-	int getTypeKey();
+	void setDeweyID(@Nonnull Optional<SirixDeweyID> id);
 
 	/**
 	 * Setting the type key.
@@ -56,24 +58,6 @@ public interface Node extends NodeBase {
 	 *          the type to set
 	 */
 	void setTypeKey(int typeKey);
-
-	/**
-	 * Determines if {@code pOther} is the same item.
-	 * 
-	 * @param other
-	 *          the other node
-	 * @return {@code true}, if it is the same item, {@code false} otherwise
-	 */
-	boolean isSameItem(@Nullable Node other);
-
-	/**
-	 * Accept a visitor and use double dispatching to invoke the visitor method.
-	 * 
-	 * @param visitor
-	 *          implementation of the {@link Visitor} interface
-	 * @return the result of a visit
-	 */
-	VisitResult acceptVisitor(@Nonnull Visitor visitor);
 
 	/**
 	 * Setting the actual hash of the structure. The hash of one node should have
@@ -86,31 +70,10 @@ public interface Node extends NodeBase {
 	void setHash(long hash);
 
 	/**
-	 * Getting the persistent stored hash.
-	 * 
-	 * @return the hash of this node
-	 */
-	long getHash();
-
-	/**
 	 * Setting the parent key.
 	 * 
 	 * @param pNodeKey
 	 *          the parent to be set
 	 */
 	void setParentKey(long nodeKey);
-
-	/**
-	 * Gets key of the context item's parent.
-	 * 
-	 * @return parent key
-	 */
-	long getParentKey();
-
-	/**
-	 * Declares, whether the item has a parent.
-	 * 
-	 * @return {@code true}, if item has a parent, {@code false} otherwise
-	 */
-	boolean hasParent();
 }

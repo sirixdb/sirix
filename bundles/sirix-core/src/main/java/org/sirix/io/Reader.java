@@ -27,14 +27,19 @@
 
 package org.sirix.io;
 
+import javax.annotation.Nonnull;
+
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
+import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 
 /**
  * Interface for reading the stored pages in every backend.
  * 
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
  * 
  */
 public interface Reader {
@@ -42,22 +47,28 @@ public interface Reader {
 	/**
 	 * Getting the first reference of the {@code Uberpage}.
 	 * 
+	 * @param resourceConfig
+	 *          resource configuration
 	 * @return a {@link PageReference} with link to the first reference
 	 * @throws SirixIOException
 	 *           if something bad happens
 	 */
-	PageReference readFirstReference() throws SirixIOException;
+	PageReference readFirstReference(@Nonnull ResourceConfiguration resourceConfig)
+			throws SirixIOException;
 
 	/**
 	 * Getting a reference for the given pointer.
 	 * 
 	 * @param key
 	 *          the reference for the page to be determined
+	 * @param resourceConfig
+	 *          resource configuration
 	 * @return a {@link PageDelegate} as the base for a page
 	 * @throws SirixIOException
 	 *           if something bad happens during read
 	 */
-	Page read(final long key) throws SirixIOException;
+	Page read(long key, @Nonnull ResourceConfiguration resourceConfig)
+			throws SirixIOException;
 
 	/**
 	 * Closing the storage.

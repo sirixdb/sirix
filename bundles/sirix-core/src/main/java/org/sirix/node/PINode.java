@@ -14,7 +14,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.immutable.ImmutablePI;
 import org.sirix.node.interfaces.NameNode;
-import org.sirix.node.interfaces.ValNode;
+import org.sirix.node.interfaces.ValueNode;
 
 import com.google.common.base.Objects;
 
@@ -26,7 +26,7 @@ import com.google.common.base.Objects;
  * </p>
  */
 public final class PINode extends AbstructStructForwardingNode implements
-		ValNode, NameNode {
+		ValueNode, NameNode {
 
 	/** Delegate for name node information. */
 	private final NameNodeDelegate mNameDel;

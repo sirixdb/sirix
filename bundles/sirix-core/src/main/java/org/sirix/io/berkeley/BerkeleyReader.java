@@ -34,6 +34,7 @@ import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.berkeley.binding.PageBinding;
@@ -108,7 +109,7 @@ public final class BerkeleyReader implements Reader {
 	}
 
 	@Override
-	public Page read(final long pKey) throws SirixIOException {
+	public Page read(final long pKey, final @Nonnull ResourceConfiguration resourceConfig) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 
@@ -128,7 +129,7 @@ public final class BerkeleyReader implements Reader {
 	}
 
 	@Override
-	public PageReference readFirstReference() throws SirixIOException {
+	public PageReference readFirstReference(final @Nonnull ResourceConfiguration resourceConfig) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
@@ -141,7 +142,7 @@ public final class BerkeleyReader implements Reader {
 				uberPageReference.setKey(TupleBinding.getPrimitiveBinding(Long.class)
 						.entryToObject(valueEntry));
 			}
-			final UberPage page = (UberPage) read(uberPageReference.getKey());
+			final UberPage page = (UberPage) read(uberPageReference.getKey(), resourceConfig);
 
 			if (uberPageReference != null) {
 				uberPageReference.setPage(page);

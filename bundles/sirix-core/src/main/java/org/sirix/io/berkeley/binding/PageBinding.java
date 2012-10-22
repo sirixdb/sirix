@@ -27,15 +27,9 @@
 
 package org.sirix.io.berkeley.binding;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
-import com.sleepycat.bind.tuple.TupleBinding;
-import com.sleepycat.bind.tuple.TupleInput;
-import com.sleepycat.bind.tuple.TupleOutput;
-
 import javax.annotation.Nonnull;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PagePersistenter;
@@ -43,6 +37,12 @@ import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
+import com.sleepycat.bind.tuple.TupleBinding;
+import com.sleepycat.bind.tuple.TupleInput;
+import com.sleepycat.bind.tuple.TupleOutput;
 
 /**
  * Binding for storing {@link PageDelegate} objects within the Berkeley DB.
@@ -60,6 +60,9 @@ public final class PageBinding extends TupleBinding<Page> {
 	/** {@link ByteHandlePipeline} reference. */
 	private final ByteHandlePipeline mByteHandler;
 
+	/** {@link ResourceConfiguration} reference. */
+	private final ResourceConfiguration mResourceConfig;
+
 	/**
 	 * Copy constructor.
 	 * 
@@ -68,6 +71,7 @@ public final class PageBinding extends TupleBinding<Page> {
 	 */
 	public PageBinding(final @Nonnull PageBinding pageBinding) {
 		mByteHandler = new ByteHandlePipeline(pageBinding.mByteHandler);
+		mResourceConfig = pageBinding.mResourceConfig;
 	}
 
 	/**
@@ -76,8 +80,12 @@ public final class PageBinding extends TupleBinding<Page> {
 	 * @param byteHandler
 	 *          byte handler pipleine
 	 */
-	public PageBinding(final @Nonnull ByteHandlePipeline byteHandler) {
-		mByteHandler = checkNotNull(byteHandler);
+	public PageBinding(final @Nonnull ByteHandlePipeline byteHandler,
+			final @Nonnull ResourceConfiguration resourceConfig) {
+		assert byteHandler != null : "byteHandler must not be null!";
+		assert resourceConfig != null : "resourceConfig must bot be null!";
+		mByteHandler = byteHandler;
+		mResourceConfig = resourceConfig;
 	}
 
 	@Override
@@ -88,8 +96,8 @@ public final class PageBinding extends TupleBinding<Page> {
 		} catch (final SirixIOException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
-		return PagePersistenter.deserializePage(ByteStreams
-				.newDataInput(deserialized));
+		return PagePersistenter.deserializePage(
+				ByteStreams.newDataInput(deserialized), mResourceConfig);
 	}
 
 	@Override

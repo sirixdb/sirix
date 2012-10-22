@@ -29,13 +29,16 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import com.google.common.base.Objects;
+import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.node.DocumentRootNode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.page.delegates.PageDelegate;
@@ -72,14 +75,21 @@ public final class UberPage extends AbstractForwardingPage {
 
 	private final RevisionRootPage mRootPage;
 
+	private final ResourceConfiguration mResourceConfiguration;
+
 	/**
 	 * Create uber page.
+	 * 
+	 * @param resourceConfig
+	 *          {@link ResourceConfiguration} reference
 	 */
-	public UberPage() {
+	public UberPage(final @Nonnull ResourceConfiguration resourceConfig) {
 		mDelegate = new PageDelegate(1, Constants.UBP_ROOT_REVISION_NUMBER);
 		mRevisionCount = Constants.UBP_ROOT_REVISION_COUNT;
 		mBootstrap = true;
 		mBulkInserted = true;
+		assert resourceConfig != null : "resourceConfig must not be null!";
+		mResourceConfiguration = resourceConfig;
 
 		// --- Create revision tree
 		// ------------------------------------------------
@@ -173,14 +183,15 @@ public final class UberPage extends AbstractForwardingPage {
 
 		final NodePage ndp = new NodePage(
 				Fixed.ROOT_PAGE_KEY.getStandardProperty(),
-				Constants.UBP_ROOT_REVISION_NUMBER);
+				Constants.UBP_ROOT_REVISION_NUMBER, mResourceConfiguration);
 		reference.setPage(ndp);
 		reference.setPageKind(pageKind);
 
 		final NodeDelegate nodeDel = new NodeDelegate(
 				Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(), 0);
+				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, Optional.of(SirixDeweyID
+						.newRootID()));
 		final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -193,35 +204,43 @@ public final class UberPage extends AbstractForwardingPage {
 	 * 
 	 * @param pIn
 	 *          input bytes
+	 * @param resourceConfig
+	 *          {@link ResourceConfiguration} reference
 	 */
-	protected UberPage(final @Nonnull ByteArrayDataInput pIn) {
+	protected UberPage(final @Nonnull ByteArrayDataInput pIn,
+			final @Nonnull ResourceConfiguration resourceConfig) {
 		mDelegate = new PageDelegate(1, pIn);
 		mRevisionCount = pIn.readInt();
 		mBulkInserted = pIn.readBoolean();
 		mBootstrap = false;
 		mRootPage = null;
+		assert resourceConfig != null : "resourceConfig must not be null!";
+		mResourceConfiguration = resourceConfig;
 	}
 
 	/**
 	 * Clone uber page.
 	 * 
-	 * @param pCommittedUberPage
-	 *          Page to clone.
-	 * @param pRevisionToUse
-	 *          Revision number to use.
+	 * @param committedUberPage
+	 *          page to clone
+	 * @param revisionToUse
+	 *          revision number to use
+	 * @param resourceConfig
+	 *          {@link ResourceConfiguration} reference
 	 */
-	public UberPage(final @Nonnull UberPage pCommittedUberPage,
-			final @Nonnegative int pRevisionToUse) {
-		mDelegate = new PageDelegate(pCommittedUberPage, pRevisionToUse);
-		if (pCommittedUberPage.isBootstrap()) {
-			mRevisionCount = pCommittedUberPage.mRevisionCount;
-			mBootstrap = pCommittedUberPage.mBootstrap;
-			mRootPage = pCommittedUberPage.mRootPage;
+	public UberPage(final @Nonnull UberPage committedUberPage,
+			final @Nonnegative int revisionToUse) {
+		mDelegate = new PageDelegate(committedUberPage, revisionToUse);
+		if (committedUberPage.isBootstrap()) {
+			mRevisionCount = committedUberPage.mRevisionCount;
+			mBootstrap = committedUberPage.mBootstrap;
+			mRootPage = committedUberPage.mRootPage;
 		} else {
-			mRevisionCount = pCommittedUberPage.mRevisionCount + 1;
+			mRevisionCount = committedUberPage.mRevisionCount + 1;
 			mBootstrap = false;
 			mRootPage = null;
 		}
+		mResourceConfiguration = committedUberPage.mResourceConfiguration;
 	}
 
 	/**

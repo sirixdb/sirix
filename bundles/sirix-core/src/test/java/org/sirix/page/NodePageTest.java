@@ -28,29 +28,37 @@
 package org.sirix.page;
 
 import static org.junit.Assert.assertEquals;
-import com.google.common.collect.HashBiMap;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 
+import java.io.File;
 import java.util.ArrayList;
 
 import org.junit.Test;
+import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.node.ElementNode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.utils.NamePageHash;
 
+import com.google.common.base.Optional;
+import com.google.common.collect.HashBiMap;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
+
 public class NodePageTest {
 
 	@Test
 	public void testSerializeDeserialize() {
-		final NodePage page1 = new NodePage(0L, 0);
+		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
+				"", new DatabaseConfiguration(new File(""))).build();
+		final NodePage page1 = new NodePage(0L, 0, resourceConfig);
 		assertEquals(0L, page1.getNodePageKey());
 
-		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0);
+		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0, Optional.of(SirixDeweyID.newRootID()));
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l,
 				3l, 1l, 0l);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 6, 7, 1);
@@ -68,7 +76,7 @@ public class NodePageTest {
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
 		PagePersistenter.serializePage(out, page1);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final NodePage page2 = (NodePage) PagePersistenter.deserializePage(in);
+		final NodePage page2 = (NodePage) PagePersistenter.deserializePage(in, resourceConfig);
 		// assertEquals(position, out.position());
 		assertEquals(0L, page2.getNode(0).getNodeKey());
 		assertEquals(1L, ((ElementNode) page2.getNode(0)).getParentKey());

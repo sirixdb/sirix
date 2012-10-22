@@ -33,8 +33,10 @@ import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
 
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.page.NodePage;
 import org.sirix.page.PagePersistenter;
 
@@ -43,6 +45,20 @@ import org.sirix.page.PagePersistenter;
  */
 public class PageContainerBinding extends TupleBinding<NodePageContainer> {
 
+	/** {@link ResourceConfiguration} instance. */
+	private final ResourceConfiguration mResourceConfig;
+
+	/**
+	 * Constructor.
+	 * 
+	 * @param resourceConfig
+	 *          {@link ResourceConfiguration} instance
+	 */
+	public PageContainerBinding(final @Nonnull ResourceConfiguration resourceConfig) {
+		assert resourceConfig != null : "resourceConfig must not be null!";
+		mResourceConfig = resourceConfig;
+	}
+	
 	@Override
 	public NodePageContainer entryToObject(final @Nullable TupleInput pInput) {
 		if (pInput == null) {
@@ -51,9 +67,9 @@ public class PageContainerBinding extends TupleBinding<NodePageContainer> {
 		final ByteArrayDataInput source = ByteStreams.newDataInput(pInput
 				.getBufferBytes());
 		final NodePage current = (NodePage) PagePersistenter
-				.deserializePage(source);
+				.deserializePage(source, mResourceConfig);
 		final NodePage modified = (NodePage) PagePersistenter
-				.deserializePage(source);
+				.deserializePage(source, mResourceConfig);
 		final NodePageContainer container = new NodePageContainer(current, modified);
 		return container;
 	}

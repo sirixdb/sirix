@@ -3,22 +3,24 @@ package org.sirix.node.immutable;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.settings.Fixed;
+
+import com.google.common.base.Optional;
 
 /**
  * Immutable document root node wrapper.
  * 
  * @author Johannes Lichtenberger
  */
-public class ImmutableDocument implements StructNode {
+public class ImmutableDocument implements ImmutableStructNode {
 
 	/** Mutable {@link DocumentRootNode} instance. */
 	private final DocumentRootNode mNode;
@@ -50,11 +52,6 @@ public class ImmutableDocument implements StructNode {
 	}
 
 	@Override
-	public void setTypeKey(int typeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public boolean isSameItem(Node other) {
 		return false;
 	}
@@ -63,20 +60,10 @@ public class ImmutableDocument implements StructNode {
 	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
 		return visitor.visit(this);
 	}
-
-	@Override
-	public void setHash(long hash) {
-		throw new UnsupportedOperationException();
-	}
-
+	
 	@Override
 	public long getHash() {
 		return mNode.getHash();
-	}
-
-	@Override
-	public void setParentKey(long nodeKey) {
-		throw new UnsupportedOperationException();
 	}
 
 	@Override
@@ -143,44 +130,9 @@ public class ImmutableDocument implements StructNode {
 	public long getRightSiblingKey() {
 		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
-
+	
 	@Override
-	public void setRightSiblingKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setLeftSiblingKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setFirstChildKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void decrementChildCount() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void incrementChildCount() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void decrementDescendantCount() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void incrementDescendantCount() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setDescendantCount(long descendantCount) {
-		throw new UnsupportedOperationException();
+	public Optional<SirixDeweyID> getDeweyID() {
+		return mNode.getDeweyID();
 	}
 }

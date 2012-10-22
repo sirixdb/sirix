@@ -7,11 +7,14 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.NameNode;
+import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
+import org.sirix.node.interfaces.immutable.ImmutableStructNode;
+
+import com.google.common.base.Optional;
 
 /**
  * Immutable element wrapper.
@@ -19,7 +22,7 @@ import org.sirix.node.interfaces.StructNode;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutableElement implements NameNode, StructNode, Node {
+public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode {
 
 	/** Mutable {@link ElementNode}. */
 	private final ElementNode mNode;
@@ -86,53 +89,8 @@ public class ImmutableElement implements NameNode, StructNode, Node {
 	}
 
 	@Override
-	public void setRightSiblingKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setLeftSiblingKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setFirstChildKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void decrementChildCount() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void incrementChildCount() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void decrementDescendantCount() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void incrementDescendantCount() {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setDescendantCount(long descendantCount) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public int getTypeKey() {
 		return mNode.getTypeKey();
-	}
-
-	@Override
-	public void setTypeKey(int typeKey) {
-		throw new UnsupportedOperationException();
 	}
 
 	@Override
@@ -146,18 +104,8 @@ public class ImmutableElement implements NameNode, StructNode, Node {
 	}
 
 	@Override
-	public void setHash(final long hash) {
-		mNode.setHash(hash);
-	}
-
-	@Override
 	public long getHash() {
 		return mNode.getHash();
-	}
-
-	@Override
-	public void setParentKey(long nodeKey) {
-		throw new UnsupportedOperationException();
 	}
 
 	@Override
@@ -196,22 +144,12 @@ public class ImmutableElement implements NameNode, StructNode, Node {
 	}
 
 	@Override
-	public void setNameKey(int nameKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setURIKey(int uriKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public void setPathNodeKey(long nodeKey) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
 	public long getPathNodeKey() {
 		return mNode.getPathNodeKey();
+	}
+	
+	@Override
+	public Optional<SirixDeweyID> getDeweyID() {
+		return mNode.getDeweyID();
 	}
 }

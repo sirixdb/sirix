@@ -14,7 +14,7 @@ import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 import com.google.common.collect.ForwardingObject;
@@ -296,6 +296,11 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public boolean hasAttributes() {
 		return delegate().hasAttributes();
 	}
+	
+	@Override
+	public boolean hasNamespaces() {
+		return delegate().hasNamespaces();
+	}
 
 	@Override
 	public boolean hasChildren() {
@@ -303,7 +308,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Node getNode() {
+	public ImmutableNode getNode() {
 		return delegate().getNode();
 	}
 

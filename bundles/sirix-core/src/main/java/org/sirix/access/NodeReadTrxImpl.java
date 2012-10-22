@@ -49,8 +49,8 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.CommentNode;
 import org.sirix.node.DocumentRootNode;
-import org.sirix.node.Kind;
 import org.sirix.node.ElementNode;
+import org.sirix.node.Kind;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.NullNode;
 import org.sirix.node.PINode;
@@ -66,7 +66,8 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
 import org.sirix.node.interfaces.StructNode;
-import org.sirix.node.interfaces.ValNode;
+import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.ItemListImpl;
@@ -144,7 +145,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public Node getNode() {
+	public ImmutableNode getNode() {
 		switch (mCurrentNode.getKind()) {
 		case ELEMENT:
 			return ImmutableElement.of((ElementNode) mCurrentNode);
@@ -186,6 +187,8 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public Move<? extends NodeReadTrx> moveTo(final long nodeKey) {
 		assertNotClosed();
+		// NOT NEEDED: Actually slows down Sirix in most cases (slightly), as it's a
+		// special case.
 		// if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 		// return Move.notMoved();
 		// }
@@ -299,8 +302,8 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	public String getValue() {
 		assertNotClosed();
 		String returnVal;
-		if (mCurrentNode instanceof ValNode) {
-			returnVal = new String(((ValNode) mCurrentNode).getRawValue());
+		if (mCurrentNode instanceof ValueNode) {
+			returnVal = new String(((ValueNode) mCurrentNode).getRawValue());
 		} else if (mCurrentNode.getKind() == Kind.NAMESPACE) {
 			returnVal = mPageReadTrx.getName(
 					((NamespaceNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
@@ -333,7 +336,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public boolean isValueNode() {
 		assertNotClosed();
-		return mCurrentNode instanceof ValNode;
+		return mCurrentNode instanceof ValueNode;
 	}
 
 	@Override
@@ -768,8 +771,8 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public byte[] getRawValue() {
 		assertNotClosed();
-		if (mCurrentNode instanceof ValNode) {
-			return ((ValNode) mCurrentNode).getRawValue();
+		if (mCurrentNode instanceof ValueNode) {
+			return ((ValueNode) mCurrentNode).getRawValue();
 		}
 		return null;
 	}
@@ -916,5 +919,12 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 		assertNotClosed();
 		return mCurrentNode.getKind() == Kind.ELEMENT
 				&& ((ElementNode) mCurrentNode).getAttributeCount() > 0;
+	}
+
+	@Override
+	public boolean hasNamespaces() {
+		assertNotClosed();
+		return mCurrentNode.getKind() == Kind.ELEMENT
+				&& ((ElementNode) mCurrentNode).getNamespaceCount() > 0;
 	}
 }

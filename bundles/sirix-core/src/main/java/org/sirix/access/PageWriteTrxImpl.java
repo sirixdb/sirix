@@ -37,7 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.access.conf.ResourceConfiguration.EIndexes;
+import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.Cache;
@@ -49,6 +49,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
@@ -117,7 +118,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/** Determines if transaction is closed. */
 	private boolean mIsClosed;
 
-	private Set<EIndexes> mIndexes;
+	private Set<Indexes> mIndexes;
 
 	/**
 	 * Standard constructor.
@@ -148,18 +149,18 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		final int revision = uberPage.isBootstrap() ? 0 : representRev + 1;
 		mIndexes = session.mResourceConfig.mIndexes;
 		mPageLog = new TransactionLogPageCache(session.mResourceConfig.mPath,
-				revision, "page");
+				revision, "page", mPageRtx.mResourceConfig);
 		mNodeLog = new TransactionLogCache(session.mResourceConfig.mPath, revision,
-				"node");
-		if (mIndexes.contains(EIndexes.PATH)) {
+				"node", mPageRtx.mResourceConfig);
+		if (mIndexes.contains(Indexes.PATH)) {
 			mPathLog = new TransactionLogCache(session.mResourceConfig.mPath,
-					revision, "path");
+					revision, "path", mPageRtx.mResourceConfig);
 		} else {
 			mPathLog = null;
 		}
-		if (mIndexes.contains(EIndexes.VALUE)) {
+		if (mIndexes.contains(Indexes.VALUE)) {
 			mValueLog = new TransactionLogCache(session.mResourceConfig.mPath,
-					revision, "value");
+					revision, "value", mPageRtx.mResourceConfig);
 		} else {
 			mValueLog = null;
 		}
@@ -171,11 +172,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mNewRoot = preparePreviousRevisionRootPage(representRev, lastStoredRev);
 		mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
 
-		final Set<EIndexes> indexes = session.getResourceConfig().mIndexes;
-		if (indexes.contains(EIndexes.PATH)) {
+		final Set<Indexes> indexes = session.getResourceConfig().mIndexes;
+		if (indexes.contains(Indexes.PATH)) {
 			mNewRoot.setMaxPathNodeKey(lastCommitedRoot.getMaxPathNodeKey());
 		}
-		if (indexes.contains(EIndexes.VALUE)) {
+		if (indexes.contains(Indexes.VALUE)) {
 			mNewRoot.setMaxValueNodeKey(lastCommitedRoot.getMaxValueNodeKey());
 		}
 	}
@@ -282,7 +283,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		if (node.isPresent()) {
 			final NodeBase nodeToDel = node.get();
 			final Node delNode = new DeletedNode(new NodeDelegate(
-					nodeToDel.getNodeKey(), -1, -1, -1));
+					nodeToDel.getNodeKey(), -1, -1, -1, Optional.<SirixDeweyID> absent()));
 			mNodePageCon.getModified().setNode(delNode);
 			mNodePageCon.getComplete().setNode(delNode);
 			finishNodeModification(pNodeKey, pPage);
@@ -551,7 +552,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			if (page == null) {
 				if (reference.getKey() == Constants.NULL_ID) {
 					cont = new NodePageContainer(new NodePage(pNodePageKey,
-							Constants.UBP_ROOT_REVISION_NUMBER));
+							Constants.UBP_ROOT_REVISION_NUMBER, mPageRtx.mResourceConfig));
 				} else {
 					cont = dereferenceNodePageForModification(pNodePageKey, pPage);
 				}
@@ -668,7 +669,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		final NodePage[] revs = mPageRtx.getSnapshotPages(pNodePageKey, pPage);
 		final Revisioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
 		final int mileStoneRevision = mPageRtx.mSession.mResourceConfig.mRevisionsToRestore;
-		return revisioning.combineNodePagesForModification(revs, mileStoneRevision);
+		return revisioning.combineNodePagesForModification(revs, mileStoneRevision, mPageRtx);
 	}
 
 	@Override

@@ -32,6 +32,7 @@ import java.util.Map.Entry;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
+import org.sirix.api.PageReadTrx;
 import org.sirix.cache.NodePageContainer;
 import org.sirix.node.interfaces.NodeBase;
 import org.sirix.page.NodePage;
@@ -52,7 +53,8 @@ public enum Revisioning {
 	FULL {
 		@Override
 		public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
-				@Nonnegative final int pRevToRestore) {
+				@Nonnegative final int pRevToRestore,
+				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pPages.length == 1 : "Only one version of the page!";
 			return pPages[0];
 		}
@@ -60,11 +62,14 @@ public enum Revisioning {
 		@Override
 		public NodePageContainer combineNodePagesForModification(
 				@Nonnull final NodePage[] pPages,
-				@Nonnegative final int pMileStoneRevision) {
+				@Nonnegative final int pMileStoneRevision,
+				final @Nonnull PageReadTrx pageReadTrx) {
 			final long nodePageKey = pPages[0].getNodePageKey();
 			final NodePage[] returnVal = {
-					new NodePage(nodePageKey, pPages[0].getRevision() + 1),
-					new NodePage(nodePageKey, pPages[0].getRevision() + 1) };
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1, pageReadTrx
+							.getSession().getResourceConfig()),
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1, pageReadTrx
+							.getSession().getResourceConfig()) };
 
 			for (final NodeBase nodes : pPages[0].values()) {
 				returnVal[0].setNode(nodes);
@@ -84,11 +89,12 @@ public enum Revisioning {
 	DIFFERENTIAL {
 		@Override
 		public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
-				@Nonnegative final int pRevToRestore) {
+				@Nonnegative final int pRevToRestore,
+				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pPages.length <= 2;
 			final long nodePageKey = pPages[0].getNodePageKey();
 			final NodePage returnVal = new NodePage(nodePageKey,
-					pPages[0].getRevision());
+					pPages[0].getRevision(), pageReadTrx.getSession().getResourceConfig());
 			final NodePage latest = pPages[0];
 			NodePage fullDump = pPages.length == 1 ? pPages[0] : pPages[1];
 
@@ -107,12 +113,15 @@ public enum Revisioning {
 
 		@Override
 		public NodePageContainer combineNodePagesForModification(
-				@Nonnull final NodePage[] pPages, @Nonnegative final int pRevToRestore) {
+				@Nonnull final NodePage[] pPages, @Nonnegative final int pRevToRestore,
+				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pPages.length <= 2;
 			final long nodePageKey = pPages[0].getNodePageKey();
 			final NodePage[] returnVal = {
-					new NodePage(nodePageKey, pPages[0].getRevision() + 1),
-					new NodePage(nodePageKey, pPages[0].getRevision() + 1) };
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1, pageReadTrx
+							.getSession().getResourceConfig()),
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1, pageReadTrx
+							.getSession().getResourceConfig()) };
 
 			final NodePage latest = pPages[0];
 			NodePage fullDump = pPages.length == 1 ? pPages[0] : pPages[1];
@@ -145,11 +154,12 @@ public enum Revisioning {
 	INCREMENTAL {
 		@Override
 		public NodePage combineNodePages(@Nonnull final NodePage[] pPages,
-				@Nonnegative final int pRevToRestore) {
+				@Nonnegative final int pRevToRestore,
+				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pPages.length <= pRevToRestore;
 			final long nodePageKey = pPages[0].getNodePageKey();
 			final NodePage returnVal = new NodePage(nodePageKey,
-					pPages[0].getRevision());
+					pPages[0].getRevision(), pageReadTrx.getSession().getResourceConfig());
 
 			for (final NodePage page : pPages) {
 				assert page.getNodePageKey() == nodePageKey;
@@ -170,11 +180,14 @@ public enum Revisioning {
 
 		@Override
 		public NodePageContainer combineNodePagesForModification(
-				@Nonnull final NodePage[] pPages, final int pRevToRestore) {
+				@Nonnull final NodePage[] pPages, final int pRevToRestore,
+				final @Nonnull PageReadTrx pageReadTrx) {
 			final long nodePageKey = pPages[0].getNodePageKey();
 			final NodePage[] returnVal = {
-					new NodePage(nodePageKey, pPages[0].getRevision() + 1),
-					new NodePage(nodePageKey, pPages[0].getRevision() + 1) };
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1, pageReadTrx
+							.getSession().getResourceConfig()),
+					new NodePage(nodePageKey, pPages[0].getRevision() + 1, pageReadTrx
+							.getSession().getResourceConfig()) };
 
 			for (final NodePage page : pPages) {
 				assert page.getNodePageKey() == nodePageKey;
@@ -211,7 +224,8 @@ public enum Revisioning {
 	 * @return the complete {@link NodePage}
 	 */
 	public abstract NodePage combineNodePages(@Nonnull final NodePage[] pPages,
-			@Nonnegative final int pRevToRestore);
+			@Nonnegative final int pRevToRestore,
+			final @Nonnull PageReadTrx pageReadTrx);
 
 	/**
 	 * Method to reconstruct a complete {@link NodePage} for reading as well as a
@@ -226,5 +240,6 @@ public enum Revisioning {
 	 */
 	public abstract NodePageContainer combineNodePagesForModification(
 			@Nonnull final NodePage[] pPages,
-			@Nonnegative final int pMileStoneRevision);
+			@Nonnegative final int pMileStoneRevision,
+			final @Nonnull PageReadTrx pageReadTrx);
 }

@@ -35,13 +35,15 @@ import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.NodeBase;
-import org.sirix.node.interfaces.ValNode;
+import org.sirix.node.interfaces.ValueNode;
 import org.sirix.service.xml.xpath.types.Type;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.TypedValue;
+
+import com.google.common.base.Optional;
 
 /**
  * <h1>AtomicValue</h1>
@@ -52,7 +54,7 @@ import org.sirix.utils.TypedValue;
  * Atomic types are anyAtomicType and all types derived from it.)
  * </p>
  */
-public class AtomicValue implements Node, ValNode {
+public class AtomicValue implements Node, ValueNode {
 
 	/** Value of the item as byte array. */
 	private byte[] mValue;
@@ -288,5 +290,15 @@ public class AtomicValue implements Node, ValNode {
 	@Override
 	public long getRevision() {
 		return -1; // Not needed over here.
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getDeweyID() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public void setDeweyID(@Nonnull Optional<SirixDeweyID> id) {
+		throw new UnsupportedOperationException();
 	}
 }

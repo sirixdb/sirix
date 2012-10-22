@@ -12,14 +12,14 @@ import javax.xml.stream.XMLStreamException;
 
 import org.sirix.access.AbstractVisitor;
 import org.sirix.api.NodeWriteTrx;
-import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.VisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 import org.sirix.node.immutable.ImmutableElement;
 import org.sirix.node.immutable.ImmutableText;
-import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -79,7 +79,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 	 *          the node to check
 	 * @return the appropriate {@link VisitResultType} value
 	 */
-	private VisitResult processNode(final StructNode pNode) {
+	private VisitResult processNode(final ImmutableNode pNode) {
 		assert pNode != null;
 		final VisitResult result = modify(pNode);
 		if (pNode.getNodeKey() == mStartKey) {
@@ -104,7 +104,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 	 *          the node to check and possibly delete
 	 * @return {@code true} if node has been deleted, {@code false} otherwise
 	 */
-	private VisitResult modify(final StructNode pNode) {
+	private VisitResult modify(final ImmutableNode pNode) {
 		assert pNode != null;
 		if (mNodeIndex % MODIFY_EVERY == 0) {
 			mNodeIndex = 1;

@@ -4,11 +4,11 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
-import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.VisitResult;
+import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 /**
  * Cursor interface which supports moving and other very basic functionality to
@@ -157,11 +157,11 @@ public interface NodeCursor extends AutoCloseable {
 	VisitResult acceptVisitor(@Nonnull Visitor visitor);
 
 	/**
-	 * Get the node where the cursor currently is located.
+	 * Get the immutable node where the cursor currently is located.
 	 * 
 	 * @return the immutable node instance
 	 */
-	Node getNode();
+	ImmutableNode getNode();
 
 	/**
 	 * Get unique node key, that is the unique ID of the currently selected node.

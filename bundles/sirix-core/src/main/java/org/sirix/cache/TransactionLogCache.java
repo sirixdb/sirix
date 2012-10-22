@@ -37,6 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 
 import com.google.common.base.Objects;
@@ -74,17 +75,18 @@ public final class TransactionLogCache implements
 	 * 
 	 * @param pPageWriteTransaction
 	 *          page write transaction
-	 * @param pFile
+	 * @param file
 	 *          the config for having a storage-place
-	 * @param pRevision
+	 * @param revision
 	 *          revision number
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public TransactionLogCache(final @Nonnull File pFile,
-			final @Nonnegative int pRevision, final @Nonnull String pLogType)
+	public TransactionLogCache(final @Nonnull File file,
+			final @Nonnegative int revision, final @Nonnull String logType,
+			final @Nonnull ResourceConfiguration resourceConfig)
 			throws SirixIOException {
-		mSecondCache = new BerkeleyPersistenceCache(pFile, pRevision, pLogType);
+		mSecondCache = new BerkeleyPersistenceCache(file, revision, logType, resourceConfig);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 
@@ -141,21 +143,21 @@ public final class TransactionLogCache implements
 	}
 
 	@Override
-	public void put(final @Nonnull Long pKey,
-			final @Nonnull NodePageContainer pValue) {
+	public void put(final @Nonnull Long key,
+			final @Nonnull NodePageContainer value) {
 		try {
 			mWriteLock.lock();
-			mFirstCache.put(pKey, pValue);
+			mFirstCache.put(key, value);
 		} finally {
 			mWriteLock.unlock();
 		}
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, NodePageContainer> pMap) {
+	public void putAll(final @Nonnull Map<Long, NodePageContainer> map) {
 		try {
 			mWriteLock.lock();
-			mFirstCache.putAll(pMap);
+			mFirstCache.putAll(map);
 		} finally {
 			mWriteLock.unlock();
 		}
@@ -172,12 +174,12 @@ public final class TransactionLogCache implements
 	}
 
 	@Override
-	public void remove(final @Nonnull Long pKey) {
+	public void remove(final @Nonnull Long key) {
 		try {
 			mWriteLock.lock();
-			mFirstCache.remove(pKey);
-			if (mSecondCache.get(pKey) != null) {
-				mSecondCache.remove(pKey);
+			mFirstCache.remove(key);
+			if (mSecondCache.get(key) != null) {
+				mSecondCache.remove(key);
 			}
 		} finally {
 			mWriteLock.unlock();

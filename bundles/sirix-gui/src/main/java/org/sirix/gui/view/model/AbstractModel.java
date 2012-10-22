@@ -406,10 +406,6 @@ public abstract class AbstractModel<S, T extends VisualItem> extends AbstractObs
           axis.next();
           final long key = axis.getTrx().getNodeKey();
           nodeKeys.add(key);
-          // for (final AbsAxis desc = new DescendantAxis(axis.getTransaction()); desc.hasNext(); desc
-          // .next()) {
-          // nodeKeys.add(desc.getTransaction().getItem().getKey());
-          // }
           axis.getTrx().moveTo(key);
         }
 

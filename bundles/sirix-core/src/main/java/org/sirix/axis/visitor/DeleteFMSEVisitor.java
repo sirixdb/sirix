@@ -21,7 +21,7 @@ import org.sirix.node.immutable.ImmutableComment;
 import org.sirix.node.immutable.ImmutableElement;
 import org.sirix.node.immutable.ImmutablePI;
 import org.sirix.node.immutable.ImmutableText;
-import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -132,7 +132,7 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	 *          the node to delete
 	 * @return the result of the deletion
 	 */
-	private VisitResult deleteLeaf(final @Nonnull Node node) {
+	private VisitResult deleteLeaf(final @Nonnull ImmutableNode node) {
 		final Long partner = mMatching.partner(node.getNodeKey());
 		if (partner == null) {
 			VisitResult retVal = delete(node);
@@ -156,7 +156,7 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	 *          the node to check and possibly delete
 	 * @return {@code EVisitResult} how to move the transaction subsequently
 	 */
-	private VisitResult delete(final @Nonnull Node pNode) {
+	private VisitResult delete(final @Nonnull ImmutableNode pNode) {
 		try {
 			mWtx.moveTo(pNode.getNodeKey());
 			final long nodeKey = mWtx.getNodeKey();

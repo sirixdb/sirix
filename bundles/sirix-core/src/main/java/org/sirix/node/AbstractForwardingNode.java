@@ -6,6 +6,7 @@ import javax.annotation.Nullable;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.ForwardingObject;
 
 /**
@@ -87,5 +88,15 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
 	@Override
 	public boolean isSameItem(final @Nullable Node other) {
 		return delegate().isSameItem(other);
+	}
+	
+	@Override
+	public void setDeweyID(@Nonnull Optional<SirixDeweyID> id) {
+		delegate().setDeweyID(id);
+	}
+	
+	@Override
+	public Optional<SirixDeweyID> getDeweyID() {
+		return delegate().getDeweyID();
 	}
 }

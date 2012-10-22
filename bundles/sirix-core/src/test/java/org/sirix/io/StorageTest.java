@@ -35,25 +35,25 @@ import java.io.IOException;
 import javax.annotation.Nonnull;
 
 import org.sirix.TestHelper;
+import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.io.bytepipe.Encryptor;
 import org.sirix.io.bytepipe.ByteHandler;
-import org.sirix.io.bytepipe.SnappyCompressor;
 import org.sirix.io.file.FileStorage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
-import org.testng.annotations.AfterMethod;
-import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-public class IStorageTest {
+public class StorageTest {
+	
+	private ResourceConfiguration mResourceConfig;
 
-	@BeforeMethod
+	@BeforeClass
 	public void setUp() throws SirixException, IOException {
 		TestHelper.closeEverything();
 		TestHelper.deleteEverything();
@@ -63,10 +63,12 @@ public class IStorageTest {
 				.mkdirs();
 		new File(TestHelper.PATHS.PATH1.getFile(), new StringBuilder(
 				ResourceConfiguration.Paths.DATA.getFile().getName())
-				.append(File.separator).append("tt.tnk").toString()).createNewFile();
+				.append(File.separator).append("data.sirix").toString()).createNewFile();
+		mResourceConfig = new ResourceConfiguration.Builder(
+				"shredded", new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile())).build();
 	}
 
-	@AfterMethod
+	@AfterClass
 	public void tearDown() throws SirixException {
 		TestHelper.closeEverything();
 		TestHelper.deleteEverything();
@@ -84,13 +86,13 @@ public class IStorageTest {
 			final @Nonnull Storage[] pStorages) throws SirixException {
 		for (final Storage handler : pStorages) {
 			final PageReference pageRef1 = new PageReference();
-			final UberPage page1 = new UberPage();
+			final UberPage page1 = new UberPage(mResourceConfig);
 			pageRef1.setPage(page1);
 
 			// same instance check
 			final Writer writer = handler.getWriter();
 			writer.writeFirstReference(pageRef1);
-			final PageReference pageRef2 = writer.readFirstReference();
+			final PageReference pageRef2 = writer.readFirstReference(mResourceConfig);
 			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
 					.append(" failed.").toString(), pageRef1.getNodePageKey(),
 					pageRef2.getNodePageKey());
@@ -102,7 +104,7 @@ public class IStorageTest {
 
 			// new instance check
 			final Reader reader = handler.getReader();
-			final PageReference pageRef3 = reader.readFirstReference();
+			final PageReference pageRef3 = reader.readFirstReference(mResourceConfig);
 			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
 					.append(" failed.").toString(), pageRef1.getNodePageKey(),
 					pageRef3.getNodePageKey());
@@ -124,13 +126,11 @@ public class IStorageTest {
 	 */
 	@DataProvider(name = "instantiateStorages")
 	public Object[][] instantiateStorages() throws SirixIOException {
-		final ByteHandlePipeline byteHandler = new ByteHandlePipeline(
-				new Encryptor(), new SnappyCompressor());
 		Object[][] returnVal = { {
 				Storage.class,
 				new Storage[] {
-						new FileStorage(TestHelper.PATHS.PATH1.getFile(), byteHandler),
-						new BerkeleyStorage(TestHelper.PATHS.PATH1.getFile(), byteHandler) } } };
+						new FileStorage(mResourceConfig),
+						new BerkeleyStorage(mResourceConfig) } } };
 		return returnVal;
 	}
 

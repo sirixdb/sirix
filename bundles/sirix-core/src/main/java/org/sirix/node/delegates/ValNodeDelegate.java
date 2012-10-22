@@ -26,8 +26,6 @@
  */
 package org.sirix.node.delegates;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.Arrays;
 import java.util.zip.Deflater;
 
@@ -39,7 +37,7 @@ import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.ValNode;
+import org.sirix.node.interfaces.ValueNode;
 import org.sirix.utils.Compression;
 
 import com.google.common.base.Objects;
@@ -47,12 +45,12 @@ import com.google.common.base.Objects;
 /**
  * Delegate method for all nodes containing \"value\"-data. That means that
  * independent values are stored by the nodes delegating the calls of the
- * interface {@link ValNode} to this class.
+ * interface {@link ValueNode} to this class.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class ValNodeDelegate extends AbstractForwardingNode implements ValNode {
+public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode {
 
 	/** Delegate for common node information. */
 	private NodeDelegate mDelegate;
@@ -73,15 +71,17 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValNode {
 	 * @param compressed
 	 *          compress value or not
 	 */
-	public ValNodeDelegate(@Nonnull final NodeDelegate nodeDel,
-			@Nonnull final byte[] val, final boolean compressed) {
-		mDelegate = checkNotNull(nodeDel);
-		mVal = checkNotNull(val);
+	public ValNodeDelegate(final @Nonnull NodeDelegate nodeDel,
+			final @Nonnull byte[] val, final boolean compressed) {
+		assert nodeDel != null : "nodeDel must not be null!";
+		assert val != null : "val must not be null!";
+		mDelegate = nodeDel;
+		mVal = val;
 		mCompressed = compressed;
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(@Nonnull final Visitor visitor) {
+	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
 		return mDelegate.acceptVisitor(visitor);
 	}
 
@@ -100,7 +100,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValNode {
 	}
 
 	@Override
-	public void setValue(@Nonnull final byte[] value) {
+	public void setValue(final @Nonnull byte[] value) {
 		mCompressed = new String(value).length() > 10 ? true : false;
 		mVal = mCompressed ? Compression.compress(value,
 				Deflater.DEFAULT_COMPRESSION) : value;

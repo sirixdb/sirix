@@ -27,11 +27,10 @@
 
 package org.sirix.cache;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.page.NodePage;
 import org.sirix.page.PagePersistenter;
 
@@ -81,12 +80,14 @@ public final class NodePageContainer {
 	/**
 	 * Constructor with complete page and lazy instantiated modifying page.
 	 * 
-	 * @param pComplete
+	 * @param complete
 	 *          to be used as a base for this container
+	 * @param resourceConfig
+	 *          {@link ResourceConfiguration} instance
 	 */
-	public NodePageContainer(final @Nonnull NodePage pComplete) {
-		this(pComplete, new NodePage(pComplete.getNodePageKey(),
-				pComplete.getRevision()));
+	public NodePageContainer(final @Nonnull NodePage complete) {
+		this(complete, new NodePage(complete.getNodePageKey(),
+				complete.getRevision(), complete.getResourceConfig()));
 	}
 
 	/**
