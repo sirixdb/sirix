@@ -26,9 +26,6 @@
  */
 package org.sirix.node.delegates;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -99,7 +96,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 			final @Nonnegative long descendantCount) {
 		assert childCount >= 0 : "childCount must be >= 0!";
 		assert descendantCount >= 0 : "descendantCount must be >= 0!";
-		mDelegate = checkNotNull(del);
+		assert del != null : "del must not be null!";
+		mDelegate = del;
 		mFirstChild = firstChild;
 		mRightSibling = rightSib;
 		mLeftSibling = leftSib;
@@ -224,7 +222,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 
 	@Override
 	public void setDescendantCount(final @Nonnegative long descendantCount) {
-		checkArgument(descendantCount >= 0, "pDescendantCount must be >= 0!");
+		assert descendantCount >= 0 : "pDescendantCount must be >= 0!";
 		mDescendantCount = descendantCount;
 	}
 

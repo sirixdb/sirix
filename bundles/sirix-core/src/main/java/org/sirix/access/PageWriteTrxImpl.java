@@ -149,18 +149,18 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		final int revision = uberPage.isBootstrap() ? 0 : representRev + 1;
 		mIndexes = session.mResourceConfig.mIndexes;
 		mPageLog = new TransactionLogPageCache(session.mResourceConfig.mPath,
-				revision, "page", mPageRtx.mResourceConfig);
+				revision, "page", mPageRtx);
 		mNodeLog = new TransactionLogCache(session.mResourceConfig.mPath, revision,
-				"node", mPageRtx.mResourceConfig);
+				"node", mPageRtx);
 		if (mIndexes.contains(Indexes.PATH)) {
 			mPathLog = new TransactionLogCache(session.mResourceConfig.mPath,
-					revision, "path", mPageRtx.mResourceConfig);
+					revision, "path", mPageRtx);
 		} else {
 			mPathLog = null;
 		}
 		if (mIndexes.contains(Indexes.VALUE)) {
 			mValueLog = new TransactionLogCache(session.mResourceConfig.mPath,
-					revision, "value", mPageRtx.mResourceConfig);
+					revision, "value", mPageRtx);
 		} else {
 			mValueLog = null;
 		}
@@ -552,7 +552,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			if (page == null) {
 				if (reference.getKey() == Constants.NULL_ID) {
 					cont = new NodePageContainer(new NodePage(pNodePageKey,
-							Constants.UBP_ROOT_REVISION_NUMBER, mPageRtx.mResourceConfig));
+							Constants.UBP_ROOT_REVISION_NUMBER, mPageRtx));
 				} else {
 					cont = dereferenceNodePageForModification(pNodePageKey, pPage);
 				}

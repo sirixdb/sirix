@@ -26,16 +26,16 @@
  */
 package org.sirix.page;
 
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-
 import java.util.HashMap;
 import java.util.Map;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.page.interfaces.Page;
+
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * All Page types.
@@ -48,8 +48,8 @@ public enum PageKind {
 		@Override
 		@Nonnull
 		Page deserializePage(@Nonnull final ByteArrayDataInput source,
-				final @Nonnull ResourceConfiguration resourceConfig) {
-			return new NodePage(source, resourceConfig);
+				final @Nonnull PageReadTrx pageReadTrx) {
+			return new NodePage(source, pageReadTrx);
 		}
 
 		@Override
@@ -62,11 +62,11 @@ public enum PageKind {
 		@Override
 		public @Nonnull
 		Page getInstance(@Nonnull final Page nodePage,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			assert nodePage instanceof NodePage;
 			final NodePage page = (NodePage) nodePage;
 			return new NodePage(page.getNodePageKey(), page.getRevision(),
-					resourceConfig);
+					pageReadTrx);
 		}
 	},
 
@@ -77,7 +77,7 @@ public enum PageKind {
 		@Override
 		@Nonnull
 		Page deserializePage(@Nonnull final ByteArrayDataInput source,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			return new NamePage(source);
 		}
 
@@ -91,7 +91,7 @@ public enum PageKind {
 		@Override
 		public @Nonnull
 		Page getInstance(@Nonnull final Page page,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			return new NamePage(page.getRevision());
 		}
 	},
@@ -103,8 +103,8 @@ public enum PageKind {
 		@Override
 		@Nonnull
 		Page deserializePage(@Nonnull final ByteArrayDataInput source,
-				final @Nonnull ResourceConfiguration resourceConfig) {
-			return new UberPage(source, resourceConfig);
+				final @Nonnull PageReadTrx pageReadTrx) {
+			return new UberPage(source);
 		}
 
 		@Override
@@ -117,8 +117,8 @@ public enum PageKind {
 		@Override
 		public @Nonnull
 		Page getInstance(@Nonnull final Page page,
-				final @Nonnull ResourceConfiguration resourceConfig) {
-			return new UberPage(resourceConfig);
+				final @Nonnull PageReadTrx pageReadTrx) {
+			return new UberPage();
 		}
 	},
 
@@ -129,7 +129,7 @@ public enum PageKind {
 		@Override
 		@Nonnull
 		Page deserializePage(@Nonnull final ByteArrayDataInput source,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			return new IndirectPage(source);
 		}
 
@@ -143,7 +143,7 @@ public enum PageKind {
 		@Override
 		public @Nonnull
 		Page getInstance(@Nonnull final Page page,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			return new IndirectPage(page.getRevision());
 		}
 	},
@@ -155,7 +155,7 @@ public enum PageKind {
 		@Override
 		@Nonnull
 		Page deserializePage(@Nonnull final ByteArrayDataInput source,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			return new RevisionRootPage(source);
 		}
 
@@ -169,7 +169,7 @@ public enum PageKind {
 		@Override
 		public @Nonnull
 		Page getInstance(@Nonnull final Page page,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			return new RevisionRootPage();
 		}
 	},
@@ -181,7 +181,7 @@ public enum PageKind {
 		@Override
 		@Nonnull
 		Page deserializePage(@Nonnull final ByteArrayDataInput source,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			return new PathSummaryPage(source);
 		}
 
@@ -195,7 +195,7 @@ public enum PageKind {
 		@Override
 		public @Nonnull
 		Page getInstance(@Nonnull final Page page,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			return new PathSummaryPage(page.getRevision());
 		}
 	},
@@ -207,7 +207,7 @@ public enum PageKind {
 		@Override
 		@Nonnull
 		Page deserializePage(@Nonnull final ByteArrayDataInput source,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			return new ValuePage(source);
 		}
 
@@ -221,7 +221,7 @@ public enum PageKind {
 		@Override
 		public @Nonnull
 		Page getInstance(@Nonnull final Page pPage,
-				final @Nonnull ResourceConfiguration resourceConfig) {
+				final @Nonnull PageReadTrx pageReadTrx) {
 			return new ValuePage(pPage.getRevision());
 		}
 	};
@@ -279,7 +279,7 @@ public enum PageKind {
 	 * @return page instance implementing the {@link Page} interface
 	 */
 	abstract Page deserializePage(@Nonnull final ByteArrayDataInput source,
-			final @Nonnull ResourceConfiguration resourceConfig);
+			final @Nonnull PageReadTrx pageReadTrx);
 
 	/**
 	 * Public method to get the related page based on the identifier.
@@ -321,5 +321,5 @@ public enum PageKind {
 	 */
 	public abstract @Nonnull
 	Page getInstance(@Nonnull final Page page,
-			final @Nonnull ResourceConfiguration resourceConfig);
+			final @Nonnull PageReadTrx pageReadTrx);
 }

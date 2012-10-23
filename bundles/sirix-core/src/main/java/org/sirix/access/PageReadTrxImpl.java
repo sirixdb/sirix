@@ -170,31 +170,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 		mIndexes = session.mResourceConfig.mIndexes;
 		mResourceConfig = session.mResourceConfig;
 		
-		// Transaction logs which might have to be read because the data hasn't been
-		// commited to the data-file.
-		// =======================================================
-		final File commitFile = session.mCommitFile;
-		final boolean doesExist = commitFile != null && commitFile.exists();
-		mPageLog = doesExist ? Optional.of(new TransactionLogPageCache(
-				session.mResourceConfig.mPath, revision, "page", mResourceConfig)) : Optional
-				.<TransactionLogPageCache> absent();
-		mNodeLog = doesExist ? Optional.of(new TransactionLogCache(
-				session.mResourceConfig.mPath, revision, "node", mResourceConfig)) : Optional
-				.<TransactionLogCache> absent();
-		if (mIndexes.contains(Indexes.PATH)) {
-			mPathLog = doesExist ? Optional.of(new TransactionLogCache(
-					session.mResourceConfig.mPath, revision, "path", mResourceConfig)) : Optional
-					.<TransactionLogCache> absent();
-		} else {
-			mPathLog = Optional.<TransactionLogCache> absent();
-		}
-		if (mIndexes.contains(Indexes.VALUE)) {
-			mValueLog = doesExist ? Optional.of(new TransactionLogCache(
-					session.mResourceConfig.mPath, revision, "value", mResourceConfig)) : Optional
-					.<TransactionLogCache> absent();
-		} else {
-			mValueLog = Optional.<TransactionLogCache> absent();
-		}
 		// mPageLog = Optional.<TransactionLogPageCache> absent();
 		// mNodeLog = Optional.<TransactionLogCache> absent();
 		// mPathLog = Optional.<TransactionLogCache> absent();
@@ -263,12 +238,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 		// });
 		// }
 
+		final PageReadTrxImpl impl = this;
 		mPageCache = pageCacheBuilder.build(new CacheLoader<Long, Page>() {
 			public Page load(final Long pKey) throws SirixException {
 				final Page page = mPageLog.isPresent() ? mPageLog.get().get(pKey)
 						: null;
 				if (page == null) {
-					return mPageReader.read(pKey, session.mResourceConfig).setDirty(true);
+					return mPageReader.read(pKey, impl).setDirty(true);
 				} else {
 					return page;
 				}
@@ -277,6 +253,41 @@ final class PageReadTrxImpl implements PageReadTrx {
 		mSession = checkNotNull(session);
 		mPageReader = checkNotNull(reader);
 		mUberPage = checkNotNull(uberPage);
+		
+		// Transaction logs which might have to be read because the data hasn't been
+		// commited to the data-file.
+		// =======================================================
+		final File commitFile = session.mCommitFile;
+		final boolean doesExist = commitFile != null && commitFile.exists();
+		mPageLog = doesExist ? Optional.of(new TransactionLogPageCache(
+				session.mResourceConfig.mPath, revision, "page", this)) : Optional
+				.<TransactionLogPageCache> absent();
+		mNodeLog = doesExist ? Optional.of(new TransactionLogCache(
+				session.mResourceConfig.mPath, revision, "node", this)) : Optional
+				.<TransactionLogCache> absent();
+		if (mIndexes.contains(Indexes.PATH)) {
+			mPathLog = doesExist ? Optional.of(new TransactionLogCache(
+					session.mResourceConfig.mPath, revision, "path", this)) : Optional
+					.<TransactionLogCache> absent();
+		} else {
+			mPathLog = Optional.<TransactionLogCache> absent();
+		}
+		if (mIndexes.contains(Indexes.VALUE)) {
+			mValueLog = doesExist ? Optional.of(new TransactionLogCache(
+					session.mResourceConfig.mPath, revision, "value", this)) : Optional
+					.<TransactionLogCache> absent();
+		} else {
+			mValueLog = Optional.<TransactionLogCache> absent();
+		}
+		if (uberPage.isBootstrap()) {
+			uberPage.createNodeTree(this);
+			if (mIndexes.contains(Indexes.PATH)) {
+				uberPage.createPathSummaryTree(this);
+			}
+			if (mIndexes.contains(Indexes.VALUE)) {
+				uberPage.createValueTree(this);
+			}
+		}
 		mRootPage = loadRevRoot(revision);
 		assert mRootPage != null : "root page must not be null!";
 		mNamePage = getNamePage();
@@ -576,7 +587,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			pages[i] = (NodePage) ref.getPage();
 			if (pages[i] == null) {
 				pages[i] = (NodePage) mPageReader.read(ref.getKey(),
-						mSession.mResourceConfig);
+						this);
 			}
 			ref.setPageKind(page);
 		}

@@ -34,10 +34,11 @@ import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.berkeley.binding.PageBinding;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
@@ -68,7 +69,9 @@ public final class BerkeleyReader implements Reader {
 	private final Transaction mTxn;
 
 	/** {@link PageBinding} reference. */
-	private final PageBinding mPageBinding;
+	private PageBinding mPageBinding;
+	
+	private final ByteHandlePipeline mByteHandler;
 
 	/**
 	 * Constructor.
@@ -84,36 +87,37 @@ public final class BerkeleyReader implements Reader {
 	 *           {@code null}
 	 */
 	public BerkeleyReader(final @Nonnull Database database,
-			final @Nonnull Transaction trx, final @Nonnull PageBinding pageBinding) {
+			final @Nonnull Transaction trx, final @Nonnull ByteHandlePipeline byteHandler) {
 		mTxn = checkNotNull(trx);
 		mDatabase = checkNotNull(database);
-		mPageBinding = checkNotNull(pageBinding);
+		mByteHandler = byteHandler;
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param pEnv
+	 * @param env
 	 *          {@link Envirenment} to be used
-	 * @param pDatabase
+	 * @param database
 	 *          {@link Database} to be connected to
 	 * @param pPageBinding
 	 *          page binding
 	 * @throws DatabaseException
 	 *           if something weird happens
 	 */
-	public BerkeleyReader(@Nonnull final Environment pEnv,
-			@Nonnull final Database pDatabase, final @Nonnull PageBinding pPageBinding)
+	public BerkeleyReader(@Nonnull final Environment env,
+			@Nonnull final Database database, final @Nonnull ByteHandlePipeline byteHandler)
 			throws DatabaseException {
-		this(pDatabase, pEnv.beginTransaction(null, null), pPageBinding);
+		this(database, env.beginTransaction(null, null), byteHandler);
 	}
 
 	@Override
-	public Page read(final long pKey, final @Nonnull ResourceConfiguration resourceConfig) throws SirixIOException {
+	public Page read(final long key, final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+		mPageBinding = new PageBinding(mByteHandler, pageReadTrx);
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 
-		TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(pKey, keyEntry);
+		TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(key, keyEntry);
 
 		Page page = null;
 		try {
@@ -129,7 +133,7 @@ public final class BerkeleyReader implements Reader {
 	}
 
 	@Override
-	public PageReference readFirstReference(final @Nonnull ResourceConfiguration resourceConfig) throws SirixIOException {
+	public PageReference readFirstReference() throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
@@ -142,7 +146,7 @@ public final class BerkeleyReader implements Reader {
 				uberPageReference.setKey(TupleBinding.getPrimitiveBinding(Long.class)
 						.entryToObject(valueEntry));
 			}
-			final UberPage page = (UberPage) read(uberPageReference.getKey(), resourceConfig);
+			final UberPage page = (UberPage) read(uberPageReference.getKey(), null);
 
 			if (uberPageReference != null) {
 				uberPageReference.setPage(page);

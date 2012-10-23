@@ -143,17 +143,17 @@ public abstract class AbstractForwardingNodeWriteTrx extends
 	}
 
 	@Override
-	public void setQName(@Nonnull QName name) throws SirixException {
-		delegate().setQName(name);
+	public NodeWriteTrx setName(@Nonnull QName name) throws SirixException {
+		return delegate().setName(name);
 	}
 
 	@Override
-	public void setValue(@Nonnull String value) throws SirixException {
-		delegate().setValue(value);
+	public NodeWriteTrx setValue(@Nonnull String value) throws SirixException {
+		return delegate().setValue(value);
 	}
 
 	@Override
-	public void remove() throws SirixException {
-		delegate().remove();
+	public NodeWriteTrx remove() throws SirixException {
+		return delegate().remove();
 	}
 }

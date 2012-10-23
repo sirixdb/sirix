@@ -29,20 +29,46 @@ package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
 
-import java.io.File;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.sirix.Holder;
+import org.sirix.TestHelper;
+import org.sirix.api.PageReadTrx;
+import org.sirix.exception.SirixException;
+import org.sirix.node.delegates.NameNodeDelegate;
+import org.sirix.node.delegates.NodeDelegate;
 
 import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
-import org.junit.Test;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.node.delegates.NameNodeDelegate;
-import org.sirix.node.delegates.NodeDelegate;
 
+/**
+ * Namespace node test.
+ */
 public class NamespaceNodeTest {
 
+	/** {@link Holder} instance. */
+	private Holder mHolder;
+	
+	/** Sirix {@link PageReadTrx} instance. */
+	private PageReadTrx mPageReadTrx;
+	
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+		mHolder = Holder.generateDeweyIDSession();
+		mPageReadTrx = mHolder.getSession().beginPageReadTrx();
+	}
+
+	@After
+	public void tearDown() throws SirixException {
+		mPageReadTrx.close();
+		mHolder.close();
+	}
+	
 	@Test
 	public void testNamespaceNode() {
 		final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0, Optional.of(SirixDeweyID.newRootID()));
@@ -51,12 +77,10 @@ public class NamespaceNodeTest {
 		final NamespaceNode node1 = new NamespaceNode(nodeDel, nameDel);
 
 		// Serialize and deserialize node.
-		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
-				"", new DatabaseConfiguration(new File(""))).build();
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1, resourceConfig);
+		node1.getKind().serialize(out, node1, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(in, resourceConfig);
+		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(in, mPageReadTrx);
 		check(node2);
 	}
 

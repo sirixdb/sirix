@@ -29,28 +29,55 @@ package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
 
-import java.io.File;
-
-import com.google.common.base.Optional;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.Holder;
+import org.sirix.TestHelper;
+import org.sirix.api.PageReadTrx;
+import org.sirix.exception.SirixException;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
+import com.google.common.base.Optional;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
+
+/**
+ * Text node test.
+ */
 public class TextNodeTest {
+
+	/** {@link Holder} instance. */
+	private Holder mHolder;
+
+	/** Sirix {@link PageReadTrx} instance. */
+	private PageReadTrx mPageReadTrx;
+
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+		mHolder = Holder.generateDeweyIDSession();
+		mPageReadTrx = mHolder.getSession().beginPageReadTrx();
+	}
+
+	@After
+	public void tearDown() throws SirixException {
+		mPageReadTrx.close();
+		mHolder.close();
+	}
 
 	@Test
 	public void testTextRootNode() {
 		// Create empty node.
 		final byte[] value = { (byte) 17, (byte) 18 };
-		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, Optional.of(SirixDeweyID.newRootID()));
+		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0,
+				Optional.of(SirixDeweyID.newRootID()));
 		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del,
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
@@ -58,12 +85,10 @@ public class TextNodeTest {
 		check(node1);
 
 		// Serialize and deserialize node.
-		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
-				"", new DatabaseConfiguration(new File(""))).build();
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1, resourceConfig);
+		node1.getKind().serialize(out, node1, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(in, resourceConfig);
+		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(in, mPageReadTrx);
 		check(node2);
 	}
 

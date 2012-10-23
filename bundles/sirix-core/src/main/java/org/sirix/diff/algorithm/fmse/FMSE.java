@@ -640,7 +640,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 				assert rtx.getKind() == Kind.ELEMENT || rtx.getKind() == Kind.ATTRIBUTE
 						|| rtx.getKind() == Kind.NAMESPACE
 						|| rtx.getKind() == Kind.PROCESSING;
-				wtx.setQName(rtx.getName());
+				wtx.setName(rtx.getName());
 
 				if (wtx.getKind() == Kind.ATTRIBUTE || wtx.getKind() == Kind.PROCESSING) {
 					wtx.setValue(rtx.getValue());

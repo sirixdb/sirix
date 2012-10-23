@@ -64,9 +64,6 @@ import org.sirix.page.delegates.PageDelegate;
  */
 public final class BerkeleyStorage implements Storage {
 
-	/** Binding for {@link PageDelegate}. */
-	public final PageBinding mPageBinding;
-
 	/** Binding for {@link Long}. */
 	public static final TupleBinding<Long> DATAINFO_VAL_B = TupleBinding
 			.getPrimitiveBinding(Long.class);
@@ -112,7 +109,6 @@ public final class BerkeleyStorage implements Storage {
 		}
 
 		mByteHandler = checkNotNull(resourceConfig.mByteHandler);
-		mPageBinding = new PageBinding(mByteHandler, resourceConfig);
 
 		final DatabaseConfig conf = generateDBConf();
 		final EnvironmentConfig config = generateEnvConf();
@@ -136,7 +132,7 @@ public final class BerkeleyStorage implements Storage {
 	@Override
 	public Reader getReader() throws SirixIOException {
 		try {
-			return new BerkeleyReader(mEnv, mDatabase, new PageBinding(mPageBinding));
+			return new BerkeleyReader(mEnv, mDatabase, mByteHandler);
 		} catch (final DatabaseException exc) {
 			throw new SirixIOException(exc);
 		}
@@ -144,7 +140,7 @@ public final class BerkeleyStorage implements Storage {
 
 	@Override
 	public Writer getWriter() throws SirixIOException {
-		return new BerkeleyWriter(mEnv, mDatabase, new PageBinding(mPageBinding));
+		return new BerkeleyWriter(mEnv, mDatabase, mByteHandler);
 	}
 
 	@Override
@@ -163,7 +159,7 @@ public final class BerkeleyStorage implements Storage {
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		boolean returnVal = false;
 		try {
-			final Reader reader = new BerkeleyReader(mEnv, mDatabase, mPageBinding);
+			final Reader reader = new BerkeleyReader(mEnv, mDatabase, mByteHandler);
 			TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
 
 			final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry,
@@ -207,14 +203,4 @@ public final class BerkeleyStorage implements Storage {
 	public ByteHandler getByteHandler() {
 		return mByteHandler;
 	}
-
-	/**
-	 * Get the page binding.
-	 * 
-	 * @return page binding
-	 */
-	public PageBinding getPageBinding() {
-		return mPageBinding;
-	}
-
 }

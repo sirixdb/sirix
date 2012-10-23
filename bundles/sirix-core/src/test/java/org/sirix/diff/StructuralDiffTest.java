@@ -48,8 +48,10 @@ import org.sirix.exception.SirixException;
  */
 public final class StructuralDiffTest {
 
+	/** {@link Holder} reference. */
 	private Holder mHolder;
 
+	/** {@link DiffObserver} reference. */
 	private DiffObserver mObserver;
 
 	@Before

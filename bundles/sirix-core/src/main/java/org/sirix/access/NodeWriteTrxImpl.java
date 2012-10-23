@@ -1153,13 +1153,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					&& !value.isEmpty()) {
 				checkAccessAndCommit();
 
-				// If an empty value is specified the node needs to be removed (see
-				// XDM).
-				if (value.isEmpty()) {
-					remove();
-					return this;
-				}
-
 				final long parentKey = getCurrentNode().getParentKey();
 				final long leftSibKey = getCurrentNode().getNodeKey();
 				final long rightSibKey = ((StructNode) getCurrentNode())
@@ -1206,7 +1199,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				return this;
 			} else {
 				throw new SirixUsageException(
-						"Insert is not allowed if current node is not an Element- or Text-node!");
+						"Insert is not allowed if current node is not an Element- or Text-node or value is empty!");
 			}
 		} finally {
 			unLock();
@@ -1480,7 +1473,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void remove() throws SirixException {
+	public NodeWriteTrx remove() throws SirixException {
 		checkAccessAndCommit();
 		acquireLock();
 		try {
@@ -1551,6 +1544,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				removeName();
 				moveToParent();
 			}
+			
+			return this;
 		} finally {
 			unLock();
 		}
@@ -1673,7 +1668,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void setQName(final @Nonnull QName name) throws SirixException {
+	public NodeWriteTrx setName(final @Nonnull QName name) throws SirixException {
 		checkNotNull(name);
 		acquireLock();
 		try {
@@ -1717,9 +1712,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					mNodeRtx.setCurrentNode(node);
 					adaptHashedWithUpdate(oldHash);
 				}
+				
+				return this;
 			} else {
 				throw new SirixUsageException(
-						"setQName is not allowed if current node is not an INameNode implementation!");
+						"setName is not allowed if current node is not an INameNode implementation!");
 			}
 		} finally {
 			unLock();
@@ -2099,12 +2096,20 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void setValue(final @Nonnull String value) throws SirixException {
+	public NodeWriteTrx setValue(final @Nonnull String value) throws SirixException {
 		checkNotNull(value);
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof ValueNode) {
 				checkAccessAndCommit();
+				
+				// If an empty value is specified the node needs to be removed (see
+				// XDM).
+				if (value.isEmpty()) {
+					remove();
+					return this;
+				}
+				
 				final long oldHash = mNodeRtx.getCurrentNode().hashCode();
 				final byte[] byteVal = getBytes(value);
 
@@ -2120,6 +2125,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				// Index new value.
 				indexText(byteVal);
+				
+				return this;
 			} else {
 				throw new SirixUsageException(
 						"setValue(String) is not allowed if current node is not an IValNode implementation!");

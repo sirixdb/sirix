@@ -27,8 +27,6 @@
 
 package org.sirix.io.file;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.io.File;
 
 import javax.annotation.Nonnull;
@@ -50,7 +48,7 @@ import org.sirix.io.bytepipe.ByteHandler;
 public final class FileStorage implements Storage {
 
 	/** File name. */
-	private static final String FILENAME = "data.sirix";
+	private static final String FILENAME = "sirix.data";
 
 	/** Instance to storage. */
 	private final File mFile;

@@ -49,8 +49,12 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+/**
+ * Storage test.
+ */
 public class StorageTest {
-	
+
+	/** {@link ResourceConfiguration} reference. */
 	private ResourceConfiguration mResourceConfig;
 
 	@BeforeClass
@@ -63,9 +67,10 @@ public class StorageTest {
 				.mkdirs();
 		new File(TestHelper.PATHS.PATH1.getFile(), new StringBuilder(
 				ResourceConfiguration.Paths.DATA.getFile().getName())
-				.append(File.separator).append("data.sirix").toString()).createNewFile();
-		mResourceConfig = new ResourceConfiguration.Builder(
-				"shredded", new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile())).build();
+				.append(File.separator).append("data.sirix").toString())
+				.createNewFile();
+		mResourceConfig = new ResourceConfiguration.Builder("shredded",
+				new DatabaseConfiguration(TestHelper.PATHS.PATH1.getFile())).build();
 	}
 
 	@AfterClass
@@ -86,13 +91,13 @@ public class StorageTest {
 			final @Nonnull Storage[] pStorages) throws SirixException {
 		for (final Storage handler : pStorages) {
 			final PageReference pageRef1 = new PageReference();
-			final UberPage page1 = new UberPage(mResourceConfig);
+			final UberPage page1 = new UberPage();
 			pageRef1.setPage(page1);
 
 			// same instance check
 			final Writer writer = handler.getWriter();
 			writer.writeFirstReference(pageRef1);
-			final PageReference pageRef2 = writer.readFirstReference(mResourceConfig);
+			final PageReference pageRef2 = writer.readFirstReference();
 			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
 					.append(" failed.").toString(), pageRef1.getNodePageKey(),
 					pageRef2.getNodePageKey());
@@ -104,7 +109,7 @@ public class StorageTest {
 
 			// new instance check
 			final Reader reader = handler.getReader();
-			final PageReference pageRef3 = reader.readFirstReference(mResourceConfig);
+			final PageReference pageRef3 = reader.readFirstReference();
 			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
 					.append(" failed.").toString(), pageRef1.getNodePageKey(),
 					pageRef3.getNodePageKey());
@@ -123,13 +128,13 @@ public class StorageTest {
 	 * 
 	 * @return different classes of the {@link ByteHandler}
 	 * @throws SirixIOException
+	 *           if an I/O error occurs
 	 */
 	@DataProvider(name = "instantiateStorages")
 	public Object[][] instantiateStorages() throws SirixIOException {
 		Object[][] returnVal = { {
 				Storage.class,
-				new Storage[] {
-						new FileStorage(mResourceConfig),
+				new Storage[] { new FileStorage(mResourceConfig),
 						new BerkeleyStorage(mResourceConfig) } } };
 		return returnVal;
 	}

@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.sirix.TestHelper;
 import org.sirix.exception.SirixException;
 
-public class ERevisioningTest {
+public class RevisioningTest {
 
 	@Before
 	public void setUp() throws SirixException {

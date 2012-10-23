@@ -29,21 +29,47 @@ package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
 
-import java.io.File;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.sirix.Holder;
+import org.sirix.TestHelper;
+import org.sirix.api.PageReadTrx;
+import org.sirix.exception.SirixException;
+import org.sirix.node.delegates.NodeDelegate;
+import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.settings.Fixed;
 
 import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
-import org.junit.Test;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.settings.Fixed;
 
+/**
+ * Document root node test.
+ */
 public class DocumentRootNodeTest {
 
+	/** {@link Holder} instance. */
+	private Holder mHolder;
+	
+	/** Sirix {@link PageReadTrx} instance. */
+	private PageReadTrx mPageReadTrx;
+	
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+		mHolder = Holder.generateDeweyIDSession();
+		mPageReadTrx = mHolder.getSession().beginPageReadTrx();
+	}
+
+	@After
+	public void tearDown() throws SirixException {
+		mPageReadTrx.close();
+		mHolder.close();
+	}
+	
 	@Test
 	public void testDocumentRootNode() {
 
@@ -61,13 +87,11 @@ public class DocumentRootNodeTest {
 		check(node1);
 
 		// Serialize and deserialize node.
-		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
-				"", new DatabaseConfiguration(new File(""))).build();
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1, resourceConfig);
+		node1.getKind().serialize(out, node1, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
 		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT_ROOT
-				.deserialize(in, resourceConfig);
+				.deserialize(in, mPageReadTrx);
 		check(node2);
 
 	}
@@ -85,7 +109,6 @@ public class DocumentRootNodeTest {
 				node.getRightSiblingKey());
 		assertEquals(0L, node.getChildCount());
 		assertEquals(Kind.DOCUMENT_ROOT, node.getKind());
-
 	}
 
 }

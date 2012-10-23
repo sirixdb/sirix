@@ -37,7 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 
 import com.google.common.base.Objects;
@@ -73,20 +73,22 @@ public final class TransactionLogCache implements
 	 * Constructor including the {@link DatabaseConfiguration} for persistent
 	 * storage.
 	 * 
-	 * @param pPageWriteTransaction
-	 *          page write transaction
 	 * @param file
 	 *          the config for having a storage-place
 	 * @param revision
 	 *          revision number
+	 * @param logType
+	 *          type of log
+	 * @param pageReadTrx
+	 *          page reading transaction
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
 	public TransactionLogCache(final @Nonnull File file,
 			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull ResourceConfiguration resourceConfig)
-			throws SirixIOException {
-		mSecondCache = new BerkeleyPersistenceCache(file, revision, logType, resourceConfig);
+			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+		mSecondCache = new BerkeleyPersistenceCache(file, revision, logType,
+				pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 

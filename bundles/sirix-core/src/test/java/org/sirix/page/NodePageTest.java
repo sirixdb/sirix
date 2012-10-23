@@ -29,12 +29,15 @@ package org.sirix.page;
 
 import static org.junit.Assert.assertEquals;
 
-import java.io.File;
 import java.util.ArrayList;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.Holder;
+import org.sirix.TestHelper;
+import org.sirix.api.PageReadTrx;
+import org.sirix.exception.SirixException;
 import org.sirix.node.ElementNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -49,16 +52,38 @@ import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 
+/**
+ * Node page test.
+ */
 public class NodePageTest {
+
+	/** {@link Holder} instance. */
+	private Holder mHolder;
+
+	/** Sirix {@link PageReadTrx} instance. */
+	private PageReadTrx mPageReadTrx;
+
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+		mHolder = Holder.generateDeweyIDSession();
+		mPageReadTrx = mHolder.getSession().beginPageReadTrx();
+	}
+
+	@After
+	public void tearDown() throws SirixException {
+		mPageReadTrx.close();
+		mHolder.close();
+	}
 
 	@Test
 	public void testSerializeDeserialize() {
-		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
-				"", new DatabaseConfiguration(new File(""))).build();
-		final NodePage page1 = new NodePage(0L, 0, resourceConfig);
+		final NodePage page1 = new NodePage(0L, 0, mPageReadTrx);
 		assertEquals(0L, page1.getNodePageKey());
 
-		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0, Optional.of(SirixDeweyID.newRootID()));
+		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0,
+				Optional.of(SirixDeweyID.newRootID()));
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l,
 				3l, 1l, 0l);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 6, 7, 1);
@@ -76,7 +101,8 @@ public class NodePageTest {
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
 		PagePersistenter.serializePage(out, page1);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final NodePage page2 = (NodePage) PagePersistenter.deserializePage(in, resourceConfig);
+		final NodePage page2 = (NodePage) PagePersistenter.deserializePage(in,
+				mPageReadTrx);
 		// assertEquals(position, out.position());
 		assertEquals(0L, page2.getNode(0).getNodeKey());
 		assertEquals(1L, ((ElementNode) page2.getNode(0)).getParentKey());
@@ -94,6 +120,5 @@ public class NodePageTest {
 		assertEquals(7, ((NameNode) page2.getNode(0)).getURIKey());
 		assertEquals(NamePageHash.generateHashForString("xs:untyped"),
 				((ElementNode) page2.getNode(0)).getTypeKey());
-
 	}
 }

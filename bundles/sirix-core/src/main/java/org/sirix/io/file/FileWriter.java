@@ -27,9 +27,6 @@
 
 package org.sirix.io.file;
 
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
-
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -37,14 +34,18 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
+
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 
 /**
  * File Writer for providing read/write access for file as a Sirix backend.
@@ -152,13 +153,15 @@ public final class FileWriter implements Writer {
 	}
 
 	@Override
-	public Page read(final long pKey, final @Nonnull ResourceConfiguration resourceConfig) throws SirixIOException {
-		return mReader.read(pKey, resourceConfig);
+	public Page read(final long pKey, final @Nullable PageReadTrx pageReadTrx)
+			throws SirixIOException {
+		return mReader.read(pKey, pageReadTrx);
 	}
 
 	@Override
-	public PageReference readFirstReference(final @Nonnull ResourceConfiguration resourceConfig) throws SirixIOException {
-		return mReader.readFirstReference(resourceConfig);
+	public PageReference readFirstReference()
+			throws SirixIOException {
+		return mReader.readFirstReference();
 	}
 
 }

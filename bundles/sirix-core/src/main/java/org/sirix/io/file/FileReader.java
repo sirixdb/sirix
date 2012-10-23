@@ -34,8 +34,8 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -96,12 +96,11 @@ public final class FileReader implements Reader {
 	}
 
 	@Override
-	public Page read(final long pKey,
-			final @Nonnull ResourceConfiguration resourceConfig)
+	public Page read(final long key, final @Nullable PageReadTrx pageReadTrx)
 			throws SirixIOException {
 		try {
 			// Read page from file.
-			mFile.seek(pKey);
+			mFile.seek(key);
 			final int dataLength = mFile.readInt();
 			final byte[] page = new byte[dataLength];
 			mFile.read(page);
@@ -111,20 +110,22 @@ public final class FileReader implements Reader {
 					.deserialize(page));
 
 			// Return reader required to instantiate and deserialize page.
-			return PagePersistenter.deserializePage(input, resourceConfig);
+			return PagePersistenter.deserializePage(input, pageReadTrx);
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
 	}
 
 	@Override
-	public PageReference readFirstReference(final @Nonnull ResourceConfiguration resourceConfig) throws SirixIOException {
+	public PageReference readFirstReference()
+			throws SirixIOException {
 		final PageReference uberPageReference = new PageReference();
 		try {
 			// Read primary beacon.
 			mFile.seek(0);
 			uberPageReference.setKey(mFile.readLong());
-			final UberPage page = (UberPage) read(uberPageReference.getKey(), resourceConfig);
+			final UberPage page = (UberPage) read(uberPageReference.getKey(),
+					null);
 			uberPageReference.setPage(page);
 			return uberPageReference;
 		} catch (final IOException exc) {

@@ -26,13 +26,17 @@
  */
 package org.sirix;
 
+import java.io.File;
+
 import org.sirix.TestHelper.PATHS;
+import org.sirix.access.Databases;
+import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.api.Session;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 
 /**
@@ -40,6 +44,7 @@ import org.sirix.exception.SirixException;
  * generates a standard resource defined within {@link TestHelper#RESOURCE}.
  * 
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
  * 
  */
 public class Holder {
@@ -57,6 +62,31 @@ public class Holder {
 	private NodeWriteTrx mWtx;
 
 	/**
+	 * Generate a session with deweyIDs for resources.
+	 * 
+	 * @return this holder instance
+	 * @throws SirixException
+	 *           if an error occurs
+	 */
+	public static Holder generateDeweyIDSession() throws SirixException {
+		final File file = PATHS.PATH1.getFile();
+		final DatabaseConfiguration config = new DatabaseConfiguration(file);
+		if (!file.exists()) {
+			Databases.createDatabase(config);
+		}
+		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
+		database.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
+		final Session session = database
+				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
+						.build());
+		final Holder holder = new Holder();
+		holder.setDatabase(database);
+		holder.setSession(session);
+		return holder;
+	}
+	
+	/**
 	 * Generate a session.
 	 * 
 	 * @return this holder instance
@@ -65,6 +95,7 @@ public class Holder {
 	 */
 	public static Holder generateSession() throws SirixException {
 		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
+		// TODO: remove?!
 		database.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
 		final Session session = database

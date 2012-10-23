@@ -256,7 +256,7 @@ public class PathSummaryTest {
 	@Test
 	public void testSetQNameFirst() throws SirixException {
 		mWtx.moveTo(9);
-		mWtx.setQName(new QName("foo"));
+		mWtx.setName(new QName("foo"));
 		PathSummary pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNameFirstHelper(pathSummary);
@@ -372,8 +372,8 @@ public class PathSummaryTest {
 	@Test
 	public void testSetQNameSecond() throws SirixException {
 		mWtx.moveTo(9);
-		mWtx.setQName(new QName("d"));
-		mWtx.setQName(new QName("b"));
+		mWtx.setName(new QName("d"));
+		mWtx.setName(new QName("b"));
 		PathSummary pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNameSecondHelper(pathSummary);
@@ -467,9 +467,9 @@ public class PathSummaryTest {
 	@Test
 	public void testSetQNameThird() throws SirixException {
 		mWtx.moveTo(9);
-		mWtx.setQName(new QName("d"));
+		mWtx.setName(new QName("d"));
 		mWtx.moveTo(5);
-		mWtx.setQName(new QName("t"));
+		mWtx.setName(new QName("t"));
 		PathSummary pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNameThirdHelper(pathSummary);
@@ -587,7 +587,7 @@ public class PathSummaryTest {
 		mWtx.moveTo(1);
 		mWtx.insertElementAsFirstChild(new QName("b"));
 		mWtx.moveTo(5);
-		mWtx.setQName(new QName("d"));
+		mWtx.setName(new QName("d"));
 		PathSummary pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNameFourthHelper(pathSummary);

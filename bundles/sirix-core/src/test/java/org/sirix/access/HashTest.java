@@ -54,7 +54,6 @@ public class HashTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
-
 	}
 
 	@Test
@@ -198,7 +197,7 @@ public class HashTest {
 		wtx.moveTo(wtx.getFirstChildKey());
 		wtx.moveTo(wtx.getFirstChildKey());
 		final long hashLeaf1 = wtx.getHash();
-		wtx.setQName(new QName(NAME2));
+		wtx.setName(new QName(NAME2));
 		final long hashLeaf2 = wtx.getHash();
 		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		wtx.moveTo(wtx.getFirstChildKey());
@@ -207,7 +206,7 @@ public class HashTest {
 		assertFalse(hashLeaf1 == hashLeaf2);
 		wtx.moveTo(wtx.getFirstChildKey());
 		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.setQName(new QName(NAME1));
+		wtx.setName(new QName(NAME1));
 		final long hashLeaf3 = wtx.getHash();
 		assertEquals(hashLeaf1, hashLeaf3);
 		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
@@ -218,7 +217,7 @@ public class HashTest {
 		// Testing root inheritance
 		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.setQName(new QName(NAME2));
+		wtx.setName(new QName(NAME2));
 		final long hashRoot4 = wtx.getHash();
 		assertFalse(hashRoot4 == hashRoot2);
 		assertFalse(hashRoot4 == hashRoot1);

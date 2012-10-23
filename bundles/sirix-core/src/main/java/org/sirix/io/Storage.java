@@ -32,8 +32,8 @@ import org.sirix.io.bytepipe.ByteHandler;
 /**
  * Interface to generate access to the storage. The storage is flexible as long
  * as {@link Reader} and {@link Writer}-implementations are provided. Utility
- * methods for common interaction with the storage are provided via
- * {@code EStorage}.
+ * methods for common interaction with the storage are provided via the
+ * {@code Storage}.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 

@@ -31,6 +31,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.interfaces.Page;
 
@@ -47,17 +48,17 @@ import com.sleepycat.bind.tuple.TupleOutput;
 public class PageBinding extends TupleBinding<Page> {
 
 	/** {@link ResourceConfiguration} instance. */
-	private final ResourceConfiguration mResourceConfig;
+	private final PageReadTrx mPageReadTrx;
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param resourceConfig
-	 *          {@link ResourceConfiguration} instance
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
 	 */
-	public PageBinding(final @Nonnull ResourceConfiguration resourceConfig) {
-		assert resourceConfig != null : "resourceConfig must not be null!";
-		mResourceConfig = resourceConfig;
+	public PageBinding(final @Nonnull PageReadTrx pageReadTrx) {
+		assert pageReadTrx != null : "pageReadTrx must not be null!";
+		mPageReadTrx = pageReadTrx;
 	}
 
 	@Override
@@ -67,7 +68,7 @@ public class PageBinding extends TupleBinding<Page> {
 		}
 		final ByteArrayDataInput source = ByteStreams.newDataInput(input
 				.getBufferBytes());
-		return PagePersistenter.deserializePage(source, mResourceConfig);
+		return PagePersistenter.deserializePage(source, mPageReadTrx);
 	}
 
 	@Override

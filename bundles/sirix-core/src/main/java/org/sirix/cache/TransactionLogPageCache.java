@@ -37,7 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.Page;
 
@@ -79,17 +79,17 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 	 *          revision number
 	 * @param logType
 	 *          type of log
-	 * @param resourceConfig
-	 *          {@link ResourceConfiguration} instance
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
 	public TransactionLogPageCache(final @Nonnull File file,
 			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull ResourceConfiguration resourceConfig)
+			final @Nonnull PageReadTrx pageReadTrx)
 			throws SirixIOException {
 		mSecondCache = new BerkeleyPersistencePageCache(file, revision, logType,
-				resourceConfig);
+				pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 

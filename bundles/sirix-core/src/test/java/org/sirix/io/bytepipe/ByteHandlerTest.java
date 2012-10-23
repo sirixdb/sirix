@@ -5,18 +5,18 @@ import static org.testng.AssertJUnit.assertTrue;
 
 import java.util.Arrays;
 
-import javax.crypto.spec.SecretKeySpec;
-
 import org.sirix.TestHelper;
 import org.sirix.exception.SirixIOException;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 /**
+ * Byte handler test.
+ *
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class IByteHandlerTest {
+public class ByteHandlerTest {
 
 	/**
 	 * Test method for

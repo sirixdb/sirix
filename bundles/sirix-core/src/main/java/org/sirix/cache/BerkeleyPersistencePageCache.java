@@ -37,6 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.Page;
 
@@ -112,7 +113,7 @@ public final class BerkeleyPersistencePageCache extends
 	 */
 	public BerkeleyPersistencePageCache(final @Nonnull File file,
 			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull ResourceConfiguration resourceConfig)
+			final @Nonnull PageReadTrx pageReadTrx)
 			throws SirixIOException {
 		super(checkNotNull(file), revision, logType);
 		try {
@@ -132,7 +133,7 @@ public final class BerkeleyPersistencePageCache extends
 			mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
 			mKeyBinding = TupleBinding.getPrimitiveBinding(Long.class);
-			mValueBinding = new PageBinding(resourceConfig);
+			mValueBinding = new PageBinding(pageReadTrx);
 			mEntries = 0;
 		} catch (final DatabaseException e) {
 			throw new SirixIOException(e);

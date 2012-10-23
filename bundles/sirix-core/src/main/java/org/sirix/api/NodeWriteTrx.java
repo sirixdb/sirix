@@ -555,10 +555,11 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * sibling, it is located at the former left sibling. If there was no left
 	 * sibling, it is located at the former parent.
 	 * 
+	 * @return the current transaction
 	 * @throws SirixException
 	 *           if node couldn't be removed
 	 */
-	void remove() throws SirixException;
+	NodeWriteTrx remove() throws SirixException;
 
 	// --- Node Setters
 	// -----------------------------------------------------------
@@ -568,24 +569,26 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * 
 	 * @param name
 	 *          new qualified name of node
+	 * @return the current transaction
 	 * @throws SirixIOException
 	 *           if can't set Name in node
 	 * @throws NullPointerException
 	 *           if {@code pName} is {@code null}
 	 */
-	void setQName(@Nonnull QName name) throws SirixException;
+	NodeWriteTrx setName(@Nonnull QName name) throws SirixException;
 
 	/**
 	 * Set value of node.
 	 * 
 	 * @param value
 	 *          new value of node
+	 * @return the current transaction
 	 * @throws SirixIOException
 	 *           if value couldn't be set
 	 * @throws NullPointerException
 	 *           if {@code value} is {@code null}
 	 */
-	void setValue(@Nonnull String value) throws SirixException;
+	NodeWriteTrx setValue(@Nonnull String value) throws SirixException;
 
 	/**
 	 * Commit all modifications of the exclusive write transaction. Even commit if

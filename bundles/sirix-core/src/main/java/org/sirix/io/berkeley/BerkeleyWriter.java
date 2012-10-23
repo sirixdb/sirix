@@ -35,10 +35,11 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.io.berkeley.binding.PageBinding;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.NodePage;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
@@ -73,9 +74,8 @@ public final class BerkeleyWriter implements Writer {
 
 	/** Key of nodepage. */
 	private long mNodepagekey;
-
-	/** Page binding. */
-	private final PageBinding mPageBinding;
+	
+	private PageBinding mPageBinding;
 
 	/**
 	 * Simple constructor starting with an {@link Environment} and a
@@ -89,18 +89,18 @@ public final class BerkeleyWriter implements Writer {
 	 *           if something odd happens@Nonnull
 	 */
 	public BerkeleyWriter(final @Nonnull Environment env,
-			final @Nonnull Database database, final @Nonnull PageBinding pageBinding)
+			final @Nonnull Database database, final @Nonnull ByteHandlePipeline byteHandler)
 			throws SirixIOException {
 		try {
 			mTxn = env.beginTransaction(null, null);
 			mDatabase = checkNotNull(database);
 			mNodepagekey = getLastNodePage();
-			mPageBinding = checkNotNull(pageBinding);
 		} catch (final DatabaseException exc) {
 			throw new SirixIOException(exc);
 		}
 
-		mReader = new BerkeleyReader(mDatabase, mTxn, mPageBinding);
+		mReader = new BerkeleyReader(mDatabase, mTxn, byteHandler);
+		mPageBinding = new PageBinding(byteHandler);
 	}
 
 	@Override
@@ -207,16 +207,15 @@ public final class BerkeleyWriter implements Writer {
 
 	@Override
 	public Page read(final long key,
-			final @Nonnull ResourceConfiguration resourceConfig)
+			final @Nonnull PageReadTrx pageReadTrx)
 			throws SirixIOException {
-		return mReader.read(key, resourceConfig);
+		return mReader.read(key, pageReadTrx);
 	}
 
 	@Override
-	public PageReference readFirstReference(
-			final @Nonnull ResourceConfiguration resourceConfig)
+	public PageReference readFirstReference()
 			throws SirixIOException {
-		return mReader.readFirstReference(resourceConfig);
+		return mReader.readFirstReference();
 	}
 
 	@Override

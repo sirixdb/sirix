@@ -33,7 +33,6 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
-import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.file.FileStorage;
 
 /**

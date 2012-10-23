@@ -29,7 +29,7 @@ package org.sirix.io.berkeley.binding;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PagePersistenter;
@@ -60,8 +60,8 @@ public final class PageBinding extends TupleBinding<Page> {
 	/** {@link ByteHandlePipeline} reference. */
 	private final ByteHandlePipeline mByteHandler;
 
-	/** {@link ResourceConfiguration} reference. */
-	private final ResourceConfiguration mResourceConfig;
+	/** {@link PageReadTrx} reference. */
+	private PageReadTrx mPageReadTrx;
 
 	/**
 	 * Copy constructor.
@@ -71,7 +71,18 @@ public final class PageBinding extends TupleBinding<Page> {
 	 */
 	public PageBinding(final @Nonnull PageBinding pageBinding) {
 		mByteHandler = new ByteHandlePipeline(pageBinding.mByteHandler);
-		mResourceConfig = pageBinding.mResourceConfig;
+		mPageReadTrx = pageBinding.mPageReadTrx;
+	}
+	
+	/**
+	 * Constructor.
+	 * 
+	 * @param byteHandler
+	 *          byte handler pipleine
+	 */
+	public PageBinding(final @Nonnull ByteHandlePipeline byteHandler) {
+		assert byteHandler != null : "byteHandler must not be null!";
+		mByteHandler = byteHandler;
 	}
 
 	/**
@@ -79,13 +90,14 @@ public final class PageBinding extends TupleBinding<Page> {
 	 * 
 	 * @param byteHandler
 	 *          byte handler pipleine
+	 * @param pageReadTrx
+	 * 					page reading transaction
 	 */
 	public PageBinding(final @Nonnull ByteHandlePipeline byteHandler,
-			final @Nonnull ResourceConfiguration resourceConfig) {
+			final @Nonnull PageReadTrx pageReadTrx) {
 		assert byteHandler != null : "byteHandler must not be null!";
-		assert resourceConfig != null : "resourceConfig must bot be null!";
 		mByteHandler = byteHandler;
-		mResourceConfig = resourceConfig;
+		mPageReadTrx = pageReadTrx;
 	}
 
 	@Override
@@ -97,7 +109,7 @@ public final class PageBinding extends TupleBinding<Page> {
 			LOGGER.error(e.getMessage(), e);
 		}
 		return PagePersistenter.deserializePage(
-				ByteStreams.newDataInput(deserialized), mResourceConfig);
+				ByteStreams.newDataInput(deserialized), mPageReadTrx);
 	}
 
 	@Override

@@ -87,7 +87,7 @@ public final class NodePageContainer {
 	 */
 	public NodePageContainer(final @Nonnull NodePage complete) {
 		this(complete, new NodePage(complete.getNodePageKey(),
-				complete.getRevision(), complete.getResourceConfig()));
+				complete.getRevision(), complete.getPageReadTrx()));
 	}
 
 	/**

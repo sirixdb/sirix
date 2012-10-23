@@ -84,13 +84,13 @@ public final class IOTestHelper {
 			final ResourceConfiguration resourceConf) throws SirixException {
 		final Storage fac = StorageType.getStorage(resourceConf);
 		final PageReference pageRef1 = new PageReference();
-		final UberPage page1 = new UberPage(resourceConf);
+		final UberPage page1 = new UberPage();
 		pageRef1.setPage(page1);
 
 		// same instance check
 		final Writer writer = fac.getWriter();
 		writer.writeFirstReference(pageRef1);
-		final PageReference pageRef2 = writer.readFirstReference(resourceConf);
+		final PageReference pageRef2 = writer.readFirstReference();
 		assertEquals(pageRef1.getNodePageKey(), pageRef2.getNodePageKey());
 		assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
 				((UberPage) pageRef2.getPage()).getRevisionCount());
@@ -98,7 +98,7 @@ public final class IOTestHelper {
 
 		// new instance check
 		final Reader reader = fac.getReader();
-		final PageReference pageRef3 = reader.readFirstReference(resourceConf);
+		final PageReference pageRef3 = reader.readFirstReference();
 		assertEquals(pageRef1.getNodePageKey(), pageRef3.getNodePageKey());
 		assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),
 				((UberPage) pageRef3.getPage()).getRevisionCount());

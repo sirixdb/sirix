@@ -28,23 +28,25 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.base.Optional;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
-import org.sirix.settings.Fixed;
 import org.sirix.settings.Constants;
+import org.sirix.settings.Fixed;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Optional;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * <h1>UberPage</h1>
@@ -75,21 +77,17 @@ public final class UberPage extends AbstractForwardingPage {
 
 	private final RevisionRootPage mRootPage;
 
-	private final ResourceConfiguration mResourceConfiguration;
-
 	/**
 	 * Create uber page.
 	 * 
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} reference
 	 */
-	public UberPage(final @Nonnull ResourceConfiguration resourceConfig) {
+	public UberPage() {
 		mDelegate = new PageDelegate(1, Constants.UBP_ROOT_REVISION_NUMBER);
 		mRevisionCount = Constants.UBP_ROOT_REVISION_COUNT;
 		mBootstrap = true;
 		mBulkInserted = true;
-		assert resourceConfig != null : "resourceConfig must not be null!";
-		mResourceConfiguration = resourceConfig;
 
 		// --- Create revision tree
 		// ------------------------------------------------
@@ -110,35 +108,50 @@ public final class UberPage extends AbstractForwardingPage {
 		mRootPage = new RevisionRootPage();
 		reference.setPage(mRootPage);
 		reference.setPageKind(PageKind.REVISIONROOTPAGE);
+	}
 
-		// --- Create node tree
-		// ----------------------------------------------------
-
-		// Initialize revision tree to guarantee that there is a revision root
-		// page.
-		reference = mRootPage.getIndirectPageReference();
-		createTree(reference, PageKind.NODEPAGE);
-		mRootPage.incrementMaxNodeKey();
+	/**
+	 * Initialize node tree.
+	 */
+	public void createNodeTree(final @Nonnull PageReadTrx pageReadTrx) {
+		if (!mBootstrap) {
+			throw new IllegalStateException("May only be called at bootstrap time!");
+		}
+		final PageReference reference = mRootPage.getIndirectPageReference();
+		if (reference.getPage() == null) {
+			createTree(reference, PageKind.NODEPAGE, pageReadTrx);
+			mRootPage.incrementMaxNodeKey();
+		}
 	}
 
 	/**
 	 * Initialize value tree.
 	 */
-	public void createValueTree() {
+	public void createValueTree(final @Nonnull PageReadTrx pageReadTrx) {
+		if (!mBootstrap) {
+			throw new IllegalStateException("May only be called at bootstrap time!");
+		}
 		final PageReference reference = mRootPage.getValuePageReference().getPage()
 				.getReference(INDIRECT_REFERENCE_OFFSET);
-		createTree(reference, PageKind.VALUEPAGE);
-		mRootPage.incrementMaxValueNodeKey();
+		if (reference.getPage() == null) {
+			createTree(reference, PageKind.VALUEPAGE, pageReadTrx);
+			mRootPage.incrementMaxValueNodeKey();
+		}
 	}
 
 	/**
 	 * Initialize path summary tree.
 	 */
-	public void createPathSummaryTree() {
+	public void createPathSummaryTree(final @Nonnull PageReadTrx pageReadTrx) {
+		if (!mBootstrap) {
+			throw new IllegalStateException("May only be called at bootstrap time!");
+		}
 		final PageReference reference = mRootPage.getPathSummaryPageReference()
 				.getPage().getReference(INDIRECT_REFERENCE_OFFSET);
-		createTree(reference, PageKind.PATHSUMMARYPAGE);
-		mRootPage.incrementMaxPathNodeKey();
+		if (reference.getPage() == null) {
+			createTree(reference, PageKind.PATHSUMMARYPAGE, pageReadTrx);
+			mRootPage.incrementMaxPathNodeKey();
+		}
 	}
 
 	/**
@@ -167,7 +180,7 @@ public final class UberPage extends AbstractForwardingPage {
 	 *          the page kind
 	 */
 	private void createTree(@Nonnull PageReference reference,
-			final @Nonnull PageKind pageKind) {
+			final @Nonnull PageKind pageKind, final @Nonnull PageReadTrx pageReadTrx) {
 		Page page = null;
 
 		// Level page count exponent from the configuration.
@@ -183,15 +196,17 @@ public final class UberPage extends AbstractForwardingPage {
 
 		final NodePage ndp = new NodePage(
 				Fixed.ROOT_PAGE_KEY.getStandardProperty(),
-				Constants.UBP_ROOT_REVISION_NUMBER, mResourceConfiguration);
+				Constants.UBP_ROOT_REVISION_NUMBER, pageReadTrx);
 		reference.setPage(ndp);
 		reference.setPageKind(pageKind);
 
+		final Optional<SirixDeweyID> id = pageReadTrx.getSession()
+				.getResourceConfig().mDeweyIDsStored ? Optional.of(SirixDeweyID
+				.newRootID()) : Optional.<SirixDeweyID> absent();
 		final NodeDelegate nodeDel = new NodeDelegate(
 				Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, Optional.of(SirixDeweyID
-						.newRootID()));
+				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, id);
 		final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -207,15 +222,12 @@ public final class UberPage extends AbstractForwardingPage {
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} reference
 	 */
-	protected UberPage(final @Nonnull ByteArrayDataInput pIn,
-			final @Nonnull ResourceConfiguration resourceConfig) {
+	protected UberPage(final @Nonnull ByteArrayDataInput pIn) {
 		mDelegate = new PageDelegate(1, pIn);
 		mRevisionCount = pIn.readInt();
 		mBulkInserted = pIn.readBoolean();
 		mBootstrap = false;
 		mRootPage = null;
-		assert resourceConfig != null : "resourceConfig must not be null!";
-		mResourceConfiguration = resourceConfig;
 	}
 
 	/**
@@ -240,7 +252,6 @@ public final class UberPage extends AbstractForwardingPage {
 			mBootstrap = false;
 			mRootPage = null;
 		}
-		mResourceConfiguration = committedUberPage.mResourceConfiguration;
 	}
 
 	/**

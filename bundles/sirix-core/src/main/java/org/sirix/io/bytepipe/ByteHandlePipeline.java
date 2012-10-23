@@ -9,7 +9,6 @@ import java.util.List;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 
 /**

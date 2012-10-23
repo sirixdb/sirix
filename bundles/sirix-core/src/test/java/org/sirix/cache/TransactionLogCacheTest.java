@@ -27,37 +27,47 @@
 
 package org.sirix.cache;
 
+import static org.junit.Assert.assertEquals;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.sirix.Holder;
 import org.sirix.TestHelper;
+import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.page.NodePage;
 
 public class TransactionLogCacheTest {
 	private Cache<Long, NodePageContainer> cache;
+
+	private PageReadTrx mPageReadTrx;
 
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
 		TestHelper.createTestDocument();
+		mPageReadTrx = Holder.generateSession().getSession().beginPageReadTrx();
 
-		// cache = new TransactionLogCache(TestHelper.PATHS.PATH1.getFile(), 1);
-		// CacheTestHelper.setUp(cache);
+		cache = new TransactionLogCache(TestHelper.PATHS.PATH1.getFile(), 0, "log",
+				mPageReadTrx);
+		CacheTestHelper.setUp(cache);
 	}
 
 	@Test
 	public void test() {
-		// for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
-		// final NodePageContainer cont = cache.get((long)i);
-		// final NodePage current = cont.getComplete();
-		// assertEquals(CacheTestHelper.PAGES[i][0], current);
-		// }
-		//
-		// cache.clear();
+		for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
+			final NodePageContainer cont = cache.get((long) i);
+			final NodePage current = cont.getComplete();
+			assertEquals(CacheTestHelper.PAGES[i][0], current);
+		}
+
+		cache.clear();
 	}
 
 	@After
 	public void tearDown() throws SirixException {
+		mPageReadTrx.close();
 		TestHelper.closeEverything();
 	}
 }

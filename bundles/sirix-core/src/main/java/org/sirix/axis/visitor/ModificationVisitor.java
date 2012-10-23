@@ -122,7 +122,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 					if (mWtx.getKind() == Kind.TEXT) {
 						mWtx.setValue("testUpdate");
 					} else if (mWtx.getKind() == Kind.ELEMENT) {
-						mWtx.setQName(new QName("testUpdate"));
+						mWtx.setName(new QName("testUpdate"));
 					}
 					return VisitResultType.CONTINUE;
 				case 2:

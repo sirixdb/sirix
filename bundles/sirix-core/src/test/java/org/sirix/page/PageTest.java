@@ -4,23 +4,26 @@
 package org.sirix.page;
 
 import static org.testng.AssertJUnit.assertTrue;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 
-import java.io.File;
 import java.util.Arrays;
 
+import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
+import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.node.Kind;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
+
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 
 /**
  * Test class for all classes implementing the {@link Page} interface.
@@ -31,29 +34,47 @@ import org.testng.annotations.Test;
  */
 public class PageTest {
 
+	/** {@link Holder} instance. */
+	private Holder mHolder;
+
+	/** Sirix {@link PageReadTrx} instance. */
+	private PageReadTrx mPageReadTrx;
+
+	@BeforeClass
+	public void setUp() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+		mHolder = Holder.generateDeweyIDSession();
+		mPageReadTrx = mHolder.getSession().beginPageReadTrx();
+	}
+
+	@AfterClass
+	public void tearDown() throws SirixException {
+		mPageReadTrx.close();
+		mHolder.close();
+	}
+	
 	/**
 	 * Test method for {@link org.Page.page.IPage#IPage(long)} and
 	 * {@link org.Page.page.IPage#getByteRepresentation()}.
 	 * 
-	 * @param pClass
-	 *          IPage as class
-	 * @param pHandlers
+	 * @param clazz
+	 *          page as class
+	 * @param handlers
 	 *          different pages
 	 */
 	@Test(dataProvider = "instantiatePages")
-	public void testByteRepresentation(final Class<Page> pClass,
-			final Page[] pHandlers) {
-		for (final Page handler : pHandlers) {
+	public void testByteRepresentation(final Class<Page> clazz,
+			final Page[] handlers) {
+		for (final Page handler : handlers) {
 			final ByteArrayDataOutput output = ByteStreams.newDataOutput();
 			handler.serialize(output);
 			final byte[] pageBytes = output.toByteArray();
 			final ByteArrayDataInput input = ByteStreams.newDataInput(pageBytes);
 
 			final ByteArrayDataOutput serializedOutput = ByteStreams.newDataOutput();
-			final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
-					"", new DatabaseConfiguration(new File(""))).build();
 			final Page serializedPage = PageKind.getKind(handler.getClass())
-					.deserializePage(input, resourceConfig);
+					.deserializePage(input, mPageReadTrx);
 			serializedPage.serialize(serializedOutput);
 			assertTrue(new StringBuilder("Check for ").append(handler.getClass())
 					.append(" failed.").toString(),
@@ -77,11 +98,9 @@ public class PageTest {
 		// final RevisionRootPage revRootPage = new RevisionRootPage();
 
 		// NodePage setup.
-		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
-				"", new DatabaseConfiguration(new File(""))).build();
 		final NodePage nodePage = new NodePage(
 				TestHelper.random.nextInt(Integer.MAX_VALUE),
-				TestHelper.random.nextInt(Integer.MAX_VALUE), resourceConfig);
+				TestHelper.random.nextInt(Integer.MAX_VALUE), mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 			nodePage.setNode(TestHelper.generateOne());
 		}

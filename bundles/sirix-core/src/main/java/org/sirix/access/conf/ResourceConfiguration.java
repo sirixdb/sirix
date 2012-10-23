@@ -198,7 +198,7 @@ public final class ResourceConfiguration {
 	public final boolean mCompression;
 
 	/** Indexes to use. */
-	public final Set<Indexes> mIndexes;
+	public final EnumSet<Indexes> mIndexes;
 
 	/** Unique ID. */
 	private long mID;
@@ -471,7 +471,7 @@ public final class ResourceConfiguration {
 
 		/** Kind of revisioning (Incremental, Differential). */
 		private Revisioning mRevisionKind = VERSIONING;
-		
+
 		/** Kind of integrity hash (rolling, postorder). */
 		private HashKind mHashKind = HASHKIND;
 
@@ -500,26 +500,28 @@ public final class ResourceConfiguration {
 		/**
 		 * Constructor, setting the mandatory fields.
 		 * 
-		 * @param pResource
-		 *          the name of the resource, must to be set.
-		 * @param pConfig
-		 *          the related {@link DatabaseConfiguration}, must to be set.
+		 * @param resource
+		 *          the name of the resource
+		 * @param config
+		 *          the related {@link DatabaseConfiguration}
+		 * @throws NullPointerException
+		 *           if {@code resource} or {@code config} is {@code null}
 		 */
-		public Builder(final @Nonnull String pResource,
-				final @Nonnull DatabaseConfiguration pConfig) {
-			mResource = checkNotNull(pResource);
-			mDBConfig = checkNotNull(pConfig);
+		public Builder(final @Nonnull String resource,
+				final @Nonnull DatabaseConfiguration config) {
+			mResource = checkNotNull(resource);
+			mDBConfig = checkNotNull(config);
 		}
 
 		/**
 		 * Set the storage type.
 		 * 
-		 * @param pType
+		 * @param type
 		 *          storage type to use
 		 * @return reference to the builder object
 		 */
-		public Builder setType(final @Nonnull StorageType pType) {
-			mType = checkNotNull(pType);
+		public Builder setType(final @Nonnull StorageType type) {
+			mType = checkNotNull(type);
 			return this;
 		}
 

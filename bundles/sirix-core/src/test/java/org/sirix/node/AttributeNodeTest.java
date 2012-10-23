@@ -29,11 +29,13 @@ package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
 
-import java.io.File;
-
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.Holder;
+import org.sirix.TestHelper;
+import org.sirix.api.PageReadTrx;
+import org.sirix.exception.SirixException;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
@@ -44,7 +46,30 @@ import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 
+/**
+ * Attribute node test.
+ */
 public class AttributeNodeTest {
+
+	/** {@link Holder} instance. */
+	private Holder mHolder;
+	
+	/** Sirix {@link PageReadTrx} instance. */
+	private PageReadTrx mPageReadTrx;
+	
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+		mHolder = Holder.generateDeweyIDSession();
+		mPageReadTrx = mHolder.getSession().beginPageReadTrx();
+	}
+
+	@After
+	public void tearDown() throws SirixException {
+		mPageReadTrx.close();
+		mHolder.close();
+	}
 
 	@Test
 	public void testAttributeNode() {
@@ -61,13 +86,11 @@ public class AttributeNodeTest {
 		check(node1);
 
 		// Serialize and deserialize node.
-		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
-				"", new DatabaseConfiguration(new File(""))).useDeweyIDs(true).build();
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1, resourceConfig);
+		node1.getKind().serialize(out, node1, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
 		final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(in,
-				resourceConfig);
+				mPageReadTrx);
 		check(node2);
 	}
 

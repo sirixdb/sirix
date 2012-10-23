@@ -29,7 +29,7 @@ package org.sirix.io;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
 import org.sirix.page.delegates.PageDelegate;
@@ -47,13 +47,11 @@ public interface Reader {
 	/**
 	 * Getting the first reference of the {@code Uberpage}.
 	 * 
-	 * @param resourceConfig
-	 *          resource configuration
 	 * @return a {@link PageReference} with link to the first reference
 	 * @throws SirixIOException
 	 *           if something bad happens
 	 */
-	PageReference readFirstReference(@Nonnull ResourceConfiguration resourceConfig)
+	PageReference readFirstReference()
 			throws SirixIOException;
 
 	/**
@@ -61,13 +59,13 @@ public interface Reader {
 	 * 
 	 * @param key
 	 *          the reference for the page to be determined
-	 * @param resourceConfig
-	 *          resource configuration
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} reference
 	 * @return a {@link PageDelegate} as the base for a page
 	 * @throws SirixIOException
 	 *           if something bad happens during read
 	 */
-	Page read(long key, @Nonnull ResourceConfiguration resourceConfig)
+	Page read(long key, @Nonnull PageReadTrx pageReadTrx)
 			throws SirixIOException;
 
 	/**

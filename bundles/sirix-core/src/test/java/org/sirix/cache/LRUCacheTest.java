@@ -64,7 +64,6 @@ public class LRUCacheTest {
 
 		final NodePageContainer page = cache.get(0L);
 		assertNull(page);
-
 	}
 
 }

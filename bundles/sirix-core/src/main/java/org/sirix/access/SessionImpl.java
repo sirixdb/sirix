@@ -34,7 +34,6 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -53,7 +52,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
@@ -172,10 +170,10 @@ public final class SessionImpl implements Session {
 		mFac = StorageType.getStorage(mResourceConfig);
 		if (mFac.exists()) {
 			final Reader reader = mFac.getReader();
-			final PageReference firstRef = reader.readFirstReference(mResourceConfig);
+			final PageReference firstRef = reader.readFirstReference();
 			if (firstRef.getPage() == null) {
 				mLastCommittedUberPage = new AtomicReference<>(
-						(UberPage) reader.read(firstRef.getKey(), mResourceConfig));
+						(UberPage) reader.read(firstRef.getKey(), null));
 			} else {
 				mLastCommittedUberPage = new AtomicReference<>(
 						(UberPage) firstRef.getPage());
@@ -183,15 +181,7 @@ public final class SessionImpl implements Session {
 			reader.close();
 		} else {
 			// Bootstrap uber page and make sure there already is a root node.
-			mLastCommittedUberPage = new AtomicReference<>(new UberPage(mResourceConfig));
-
-			final Set<Indexes> indexes = mResourceConfig.mIndexes;
-			if (indexes.contains(Indexes.PATH)) {
-				mLastCommittedUberPage.get().createPathSummaryTree();
-			}
-			if (indexes.contains(Indexes.VALUE)) {
-				mLastCommittedUberPage.get().createValueTree();
-			}
+			mLastCommittedUberPage = new AtomicReference<>(new UberPage());
 		}
 		mClosed = false;
 	}
@@ -203,8 +193,8 @@ public final class SessionImpl implements Session {
 
 	@Override
 	public synchronized NodeReadTrx beginNodeReadTrx(
-			@Nonnegative final int pRevisionKey) throws SirixException {
-		assertAccess(pRevisionKey);
+			@Nonnegative final int revisionKey) throws SirixException {
+		assertAccess(revisionKey);
 		// Make sure not to exceed available number of read transactions.
 		try {
 			if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
@@ -218,7 +208,7 @@ public final class SessionImpl implements Session {
 		// Create new read transaction.
 		final NodeReadTrx rtx = new NodeReadTrxImpl(this,
 				mNodeTrxIDCounter.incrementAndGet(), new PageReadTrxImpl(this,
-						mLastCommittedUberPage.get(), pRevisionKey, mFac.getReader()));
+						mLastCommittedUberPage.get(), revisionKey, mFac.getReader()));
 
 		// Remember transaction for debugging and safe close.
 		if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
@@ -232,15 +222,15 @@ public final class SessionImpl implements Session {
 	 * A commit file which is used by a {@link NodeWriteTrx} to denote if it's
 	 * currently commiting or not.
 	 * 
-	 * @param pRevision
+	 * @param revision
 	 *          revision number
 	 */
-	private void commitFile(final int pRevision) {
-		final int revision = mLastCommittedUberPage.get().isBootstrap() ? 0
-				: pRevision + 1;
+	private void commitFile(final int revision) {
+		final int rev = mLastCommittedUberPage.get().isBootstrap() ? 0
+				: revision + 1;
 		mCommitFile = new File(mResourceConfig.mPath, new File(
 				ResourceConfiguration.Paths.TRANSACTION_LOG.getFile(), new File(
-						new File(String.valueOf(revision)), ".commit").getPath()).getPath());
+						new File(String.valueOf(rev)), ".commit").getPath()).getPath());
 	}
 
 	@Override
@@ -250,14 +240,14 @@ public final class SessionImpl implements Session {
 
 	@Override
 	public synchronized NodeWriteTrx beginNodeWriteTrx(
-			@Nonnegative final int pMaxNodeCount, @Nonnull final TimeUnit pTimeUnit,
-			@Nonnegative final int pMaxTime) throws SirixException {
+			@Nonnegative final int maxNodeCount, @Nonnull final TimeUnit timeUnit,
+			@Nonnegative final int maxTime) throws SirixException {
 		// Checks.
 		assertAccess(mLastCommittedUberPage.get().getRevision());
-		if (pMaxNodeCount < 0 || pMaxTime < 0) {
+		if (maxNodeCount < 0 || maxTime < 0) {
 			throw new SirixUsageException("pMaxNodeCount may not be < 0!");
 		}
-		checkNotNull(pTimeUnit);
+		checkNotNull(timeUnit);
 
 		// Make sure not to exceed available number of write transactions.
 		if (mWriteSemaphore.availablePermits() == 0) {
@@ -280,7 +270,7 @@ public final class SessionImpl implements Session {
 
 		// Create new node write transaction.
 		final NodeWriteTrx wtx = new NodeWriteTrxImpl(currentTrxID, this, pageWtx,
-				pMaxNodeCount, pTimeUnit, pMaxTime);
+				maxNodeCount, timeUnit, maxTime);
 
 		// Remember node transaction for debugging and safe close.
 		if (mNodeTrxMap.put(currentTrxID, wtx) != null
@@ -295,29 +285,29 @@ public final class SessionImpl implements Session {
 	/**
 	 * Create a new {@link PageWriteTrx}.
 	 * 
-	 * @param pId
+	 * @param id
 	 *          the transaction ID
-	 * @param pRepresentRevision
+	 * @param representRevision
 	 *          the revision which is represented
-	 * @param pStoreRevision
+	 * @param storeRevision
 	 *          revisions
 	 * @return a new {@link PageWriteTrx} instance
 	 * @throws SirixException
 	 *           if an error occurs
 	 */
-	PageWriteTrx createPageWriteTransaction(@Nonnegative final long pId,
-			@Nonnegative final int pRepresentRevision,
-			@Nonnegative final int pStoreRevision) throws SirixException {
-		checkArgument(pId >= 0, "pId must be >= 0!");
-		checkArgument(pRepresentRevision >= 0, "pRepresentRevision must be >= 0!");
-		checkArgument(pStoreRevision >= 0, "pStoreRevision must be >= 0!");
+	PageWriteTrx createPageWriteTransaction(@Nonnegative final long id,
+			@Nonnegative final int representRevision,
+			@Nonnegative final int storeRevision) throws SirixException {
+		checkArgument(id >= 0, "pId must be >= 0!");
+		checkArgument(representRevision >= 0, "pRepresentRevision must be >= 0!");
+		checkArgument(storeRevision >= 0, "pStoreRevision must be >= 0!");
 		final Writer writer = mFac.getWriter();
 		final int lastCommitedRev = mLastCommittedUberPage.get()
 				.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage.get()
 				.getLastCommitedRevisionNumber() : 0;
 		return new PageWriteTrxImpl(this, new UberPage(
-				mLastCommittedUberPage.get(), pStoreRevision + 1), writer, pId,
-				pRepresentRevision, pStoreRevision, lastCommitedRev);
+				mLastCommittedUberPage.get(), storeRevision + 1), writer, id,
+				representRevision, storeRevision, lastCommitedRev);
 	}
 
 	@Override

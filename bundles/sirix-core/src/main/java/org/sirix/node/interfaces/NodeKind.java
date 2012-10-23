@@ -2,7 +2,7 @@ package org.sirix.node.interfaces;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
@@ -19,12 +19,12 @@ public interface NodeKind {
 	 * 
 	 * @param source
 	 *          input source
-	 * @param resourceConfig
-	 *          {@link ResourceConfiguration} instance
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
 	 * @return a {@link Node} instance
 	 */
 	NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
-			final @Nonnull ResourceConfiguration resourceConfig);
+			final @Nonnull PageReadTrx pageReadTrx);
 
 	/**
 	 * Serializing a node from a {@link ByteArrayDataOutput}.
@@ -33,12 +33,12 @@ public interface NodeKind {
 	 *          where the data should be serialized to
 	 * @param toSerialize
 	 *          the node to serialize
-	 * @param resourceConfig
-	 *          {@link ResourceConfiguration} instance
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
 	 */
 	void serialize(final @Nonnull ByteArrayDataOutput sink,
 			final @Nonnull NodeBase toSerialize,
-			final @Nonnull ResourceConfiguration resourceConfig);
+			final @Nonnull PageReadTrx pageReadTrx);
 
 	/**
 	 * Get the nodeKind.

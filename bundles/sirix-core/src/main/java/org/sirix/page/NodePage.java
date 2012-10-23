@@ -37,7 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -71,8 +71,8 @@ public class NodePage implements Page {
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
 
-	/** {@link ResourceConfiguration} instance. */
-	private final ResourceConfiguration mResourceConfig;
+	/** {@link PageReadTrx} instance. */
+	private final PageReadTrx mPageReadTrx;
 
 	/**
 	 * Create node page.
@@ -84,15 +84,15 @@ public class NodePage implements Page {
 	 */
 	public NodePage(final @Nonnegative long nodePageKey,
 			final @Nonnegative int revision,
-			final @Nonnull ResourceConfiguration resourceConfig) {
+			final @Nonnull PageReadTrx pageReadTrx) {
 		assert nodePageKey >= 0 : "nodePageKey must not be negative!";
 		assert revision >= 0 : "revision must not be negative!";
-		assert resourceConfig != null : "resourceConfig must not be null!";
+		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mRevision = revision;
 		mNodePageKey = nodePageKey;
 		mNodes = new HashMap<>();
 		mIsDirty = true;
-		mResourceConfig = resourceConfig;
+		mPageReadTrx = pageReadTrx;
 	}
 
 	/**
@@ -104,7 +104,7 @@ public class NodePage implements Page {
 	 *          resource configuration
 	 */
 	protected NodePage(final @Nonnull ByteArrayDataInput in,
-			final @Nonnull ResourceConfiguration resourceConfig) {
+			final @Nonnull PageReadTrx pageReadTrx) {
 		mRevision = in.readInt();
 		mNodePageKey = in.readLong();
 		final int size = in.readInt();
@@ -112,11 +112,11 @@ public class NodePage implements Page {
 		for (int offset = 0; offset < size; offset++) {
 			final byte id = in.readByte();
 			final Kind enumKind = Kind.getKind(id);
-			final NodeBase node = enumKind.deserialize(in, resourceConfig);
+			final NodeBase node = enumKind.deserialize(in, pageReadTrx);
 			mNodes.put(node.getNodeKey(), node);
 		}
-		assert resourceConfig != null : "resourceConfig must not be null!";
-		mResourceConfig = resourceConfig;
+		assert pageReadTrx != null : "pageReadTrx must not be null!";
+		mPageReadTrx = pageReadTrx;
 	}
 
 	/**
@@ -163,7 +163,7 @@ public class NodePage implements Page {
 		for (final NodeBase node : mNodes.values()) {
 			final byte id = node.getKind().getId();
 			out.writeByte(id);
-			Kind.getKind(node.getClass()).serialize(out, node, mResourceConfig);
+			Kind.getKind(node.getClass()).serialize(out, node, mPageReadTrx);
 		}
 	}
 
@@ -243,12 +243,12 @@ public class NodePage implements Page {
 	}
 
 	/**
-	 * Get the {@link ResourceConfiguration}.
+	 * Get the {@link PageReadTrx}.
 	 * 
-	 * @return resource configuration
+	 * @return page reading transaction
 	 */
-	public ResourceConfiguration getResourceConfig() {
-		return mResourceConfig;
+	public PageReadTrx getPageReadTrx() {
+		return mPageReadTrx;
 	}
 
 }

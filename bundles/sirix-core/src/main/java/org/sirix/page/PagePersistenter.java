@@ -29,7 +29,7 @@ package org.sirix.page;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.page.interfaces.Page;
 
 import com.google.common.io.ByteArrayDataInput;
@@ -48,11 +48,15 @@ public final class PagePersistenter {
 	 * 
 	 * @param source
 	 *          source to read from
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
 	 * @return the created {@link Page}
 	 */
 	public static @Nonnull
-	Page deserializePage(final @Nonnull ByteArrayDataInput source, final @Nonnull ResourceConfiguration resourceConfig) {
-		return PageKind.getKind(source.readByte()).deserializePage(source, resourceConfig);
+	Page deserializePage(final @Nonnull ByteArrayDataInput source,
+			final @Nonnull PageReadTrx pageReadTrx) {
+		return PageKind.getKind(source.readByte()).deserializePage(source,
+				pageReadTrx);
 	}
 
 	/**

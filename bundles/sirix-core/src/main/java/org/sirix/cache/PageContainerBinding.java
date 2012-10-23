@@ -37,6 +37,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
 import org.sirix.page.NodePage;
 import org.sirix.page.PagePersistenter;
 
@@ -46,17 +47,17 @@ import org.sirix.page.PagePersistenter;
 public class PageContainerBinding extends TupleBinding<NodePageContainer> {
 
 	/** {@link ResourceConfiguration} instance. */
-	private final ResourceConfiguration mResourceConfig;
+	private final PageReadTrx mPageReadTrx;
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param resourceConfig
-	 *          {@link ResourceConfiguration} instance
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
 	 */
-	public PageContainerBinding(final @Nonnull ResourceConfiguration resourceConfig) {
-		assert resourceConfig != null : "resourceConfig must not be null!";
-		mResourceConfig = resourceConfig;
+	public PageContainerBinding(final @Nonnull PageReadTrx pageReadTrx) {
+		assert pageReadTrx != null : "pageReadTrx must not be null!";
+		mPageReadTrx = pageReadTrx;
 	}
 	
 	@Override
@@ -67,9 +68,9 @@ public class PageContainerBinding extends TupleBinding<NodePageContainer> {
 		final ByteArrayDataInput source = ByteStreams.newDataInput(pInput
 				.getBufferBytes());
 		final NodePage current = (NodePage) PagePersistenter
-				.deserializePage(source, mResourceConfig);
+				.deserializePage(source, mPageReadTrx);
 		final NodePage modified = (NodePage) PagePersistenter
-				.deserializePage(source, mResourceConfig);
+				.deserializePage(source, mPageReadTrx);
 		final NodePageContainer container = new NodePageContainer(current, modified);
 		return container;
 	}

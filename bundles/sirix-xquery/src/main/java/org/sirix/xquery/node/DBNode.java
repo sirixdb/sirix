@@ -403,7 +403,7 @@ public class DBNode extends AbstractTemporalNode {
 			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
 			if (wtx.isNameNode()) {
 				try {
-					wtx.setQName(new QName(name.nsURI, name.localName, name.prefix));
+					wtx.setName(new QName(name.nsURI, name.localName, name.prefix));
 				} catch (final SirixException e) {
 					throw new DocumentException(e.getCause());
 				}

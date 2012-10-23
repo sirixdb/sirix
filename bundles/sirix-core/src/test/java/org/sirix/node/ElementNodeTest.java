@@ -29,25 +29,51 @@ package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
 
+import java.util.ArrayList;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.sirix.Holder;
+import org.sirix.TestHelper;
+import org.sirix.api.PageReadTrx;
+import org.sirix.exception.SirixException;
+import org.sirix.node.delegates.NameNodeDelegate;
+import org.sirix.node.delegates.NodeDelegate;
+import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.utils.NamePageHash;
+
 import com.google.common.base.Optional;
 import com.google.common.collect.HashBiMap;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 
-import java.io.File;
-import java.util.ArrayList;
-
-import org.junit.Test;
-import org.sirix.access.conf.DatabaseConfiguration;
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.node.delegates.NameNodeDelegate;
-import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.delegates.StructNodeDelegate;
-import org.sirix.utils.NamePageHash;
-
+/**
+ * Element node test.
+ */
 public class ElementNodeTest {
 
+	/** {@link Holder} instance. */
+	private Holder mHolder;
+	
+	/** Sirix {@link PageReadTrx} instance. */
+	private PageReadTrx mPageReadTrx;
+	
+	@Before
+	public void setUp() throws SirixException {
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
+		mHolder = Holder.generateDeweyIDSession();
+		mPageReadTrx = mHolder.getSession().beginPageReadTrx();
+	}
+
+	@After
+	public void tearDown() throws SirixException {
+		mPageReadTrx.close();
+		mHolder.close();
+	}
+	
 	@Test
 	public void testElementNode() {
 		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, Optional.of(SirixDeweyID.newRootID()));
@@ -67,12 +93,10 @@ public class ElementNodeTest {
 		check(node1);
 
 		// Serialize and deserialize node.
-		final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(
-				"", new DatabaseConfiguration(new File(""))).build();
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1, resourceConfig);
+		node1.getKind().serialize(out, node1, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(in, resourceConfig);
+		final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(in, mPageReadTrx);
 		check(node2);
 	}
 
