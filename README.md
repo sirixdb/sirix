@@ -89,7 +89,7 @@ Any questions or even consider to contribute or use Sirix? Use https://groups.go
 
 ##Further information
 
-As Sirix is based on Treetank current documentation thus is currently only available from this location.
+As Sirix is a relatively young fork of Treetank documentation besides the one in the wiki thus is currently only available from this location.
 
 The documentation so far is accessible under http://treetank.org (pointing to http://disy.github.com/treetank/).
 
@@ -113,4 +113,4 @@ This work is released in the public domain under the BSD 3-clause license
 
 Sirix is maintained by:
 
-* Johannes Lichtenberger (Sirix Core & Project Lead based on Treetank Core)
+* Johannes Lichtenberger
