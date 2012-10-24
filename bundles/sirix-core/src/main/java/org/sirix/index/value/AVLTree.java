@@ -20,6 +20,7 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.settings.Fixed;
@@ -506,7 +507,10 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 
 	@Override
 	public boolean hasLastChild() {
-		throw new UnsupportedOperationException();
+		if (mCurrentNode instanceof AVLNode) {
+			return getAVLNode().hasRightChild();
+		}
+		return false;
 	}
 
 	@Override
@@ -516,6 +520,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 
 	@Override
 	public boolean hasRightSibling() {
+		assertNotClosed();
 		return getStructuralNode().hasRightSibling();
 	}
 
@@ -581,6 +586,16 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 		}
 		return Move.notMoved();
 	}
+	
+	@Override
+	public Move<? extends NodeCursor> moveToPrevious() {
+		return moveToParent();
+	}
+
+	@Override
+	public Move<? extends NodeCursor> moveToNext() {
+		return moveToLastChild();
+	}
 
 	@Override
 	public Move<AVLTree<K, V>> moveToLeftSibling() {
@@ -631,7 +646,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 	}
 
 	@Override
-	public Node getNode() {
+	public ImmutableNode getNode() {
 		return mCurrentNode;
 	}
 }

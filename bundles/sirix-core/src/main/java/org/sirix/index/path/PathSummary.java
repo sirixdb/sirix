@@ -273,8 +273,12 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToNextFollowing() {
-		throw new UnsupportedOperationException();
+	public Move<? extends NodeReadTrx> moveToNextFollowing() {
+		assertNotClosed();
+		while (!getStructuralNode().hasRightSibling() && mCurrentNode.hasParent()) {
+			moveToParent();
+		}
+		return moveToRightSibling();
 	}
 
 	@Override
@@ -652,5 +656,34 @@ public final class PathSummary implements NodeReadTrx {
 	@Override
 	public boolean hasNamespaces() {
 		return false;
+	}
+
+	@Override
+	public Move<? extends NodeReadTrx> moveToPrevious() {
+		assertNotClosed();
+		final StructNode node = getStructuralNode();
+		if (node.hasLeftSibling()) {
+			// Left sibling node.
+			Move<? extends NodeReadTrx> leftSiblMove = moveTo(node.getLeftSiblingKey());
+			// Now move down to rightmost descendant node if it has one.
+			while (leftSiblMove.get().hasFirstChild()) {
+				leftSiblMove = leftSiblMove.get().moveToLastChild();
+			}
+			return leftSiblMove;
+		}
+		// Parent node.
+		return moveTo(node.getParentKey());
+	}
+
+	@Override
+	public Move<? extends NodeReadTrx> moveToNext() {
+		assertNotClosed();
+		final StructNode node = getStructuralNode();
+		if (node.hasRightSibling()) {
+			// Right sibling node.
+			return moveTo(node.getRightSiblingKey());
+		}
+		// Next following node.
+		return moveToNextFollowing();
 	}
 }

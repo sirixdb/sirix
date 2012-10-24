@@ -551,6 +551,12 @@ public interface NodeReadTrx extends NodeCursor {
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToRightSibling();
+	
+	@Override
+	public Move<? extends NodeReadTrx> moveToPrevious();
+	
+	@Override
+	public Move<? extends NodeReadTrx> moveToNext();
 
 	/**
 	 * Determines if current node is an {@link ElementNode}.

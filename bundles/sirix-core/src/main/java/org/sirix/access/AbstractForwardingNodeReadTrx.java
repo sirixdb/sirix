@@ -156,6 +156,16 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public Move<? extends NodeReadTrx> moveToLastChild() {
 		return delegate().moveToLastChild();
 	}
+	
+	@Override
+	public Move<? extends NodeReadTrx> moveToPrevious() {
+		return delegate().moveToPrevious();
+	}
+	
+	@Override
+	public Move<? extends NodeReadTrx> moveToNext() {
+		return delegate().moveToNext();
+	}
 
 	@Override
 	public String nameForKey(final int pKey) {

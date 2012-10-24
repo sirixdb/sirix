@@ -92,10 +92,32 @@ public interface NodeCursor extends AutoCloseable {
 	 * instance with{Moved#get()}. In case the node does not exist
 	 * {@code Moved#hasMoved()} returns false and the cursor has not been moved.
 	 * 
-	 * @return {@link Moved} instance if the attribute node is selected,
+	 * @return {@link Moved} instance if the right sibling node is selected,
 	 *         {@code NotMoved} instance otherwise
 	 */
 	Move<? extends NodeCursor> moveToRightSibling();
+
+	/**
+	 * Move cursor to the previous node of the currently selected node in document
+	 * order. Check the postcondition with {@code Moved#hasMoved()} or get the
+	 * current cursor instance with{Moved#get()}. In case the node does not exist
+	 * {@code Moved#hasMoved()} returns false and the cursor has not been moved.
+	 * 
+	 * @return {@link Moved} instance if the previous node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends NodeCursor> moveToPrevious();
+	
+	/**
+	 * Move cursor to the next node of the currently selected node in document
+	 * order. Check the postcondition with {@code Moved#hasMoved()} or get the
+	 * current cursor instance with{Moved#get()}. In case the node does not exist
+	 * {@code Moved#hasMoved()} returns false and the cursor has not been moved.
+	 * 
+	 * @return {@link Moved} instance if the next node is selected,
+	 *         {@code NotMoved} instance otherwise
+	 */
+	Move<? extends NodeCursor> moveToNext();
 
 	/**
 	 * Determines if a node with the given key exists.

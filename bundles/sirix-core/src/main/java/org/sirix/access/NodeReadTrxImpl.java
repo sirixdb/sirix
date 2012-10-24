@@ -511,8 +511,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 		while (!getStructuralNode().hasRightSibling() && mCurrentNode.hasParent()) {
 			moveToParent();
 		}
-		final Move<? extends NodeReadTrx> moved = (Move<? extends NodeReadTrx>) moveToRightSibling();
-		return moved;
+		return moveToRightSibling();
 	}
 
 	@Override
@@ -926,5 +925,35 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 		assertNotClosed();
 		return mCurrentNode.getKind() == Kind.ELEMENT
 				&& ((ElementNode) mCurrentNode).getNamespaceCount() > 0;
+	}
+
+	@Override
+	public Move<? extends NodeReadTrx> moveToPrevious() {
+		assertNotClosed();
+		final StructNode node = getStructuralNode();
+		if (node.hasLeftSibling()) {
+			// Left sibling node.
+			Move<? extends NodeReadTrx> leftSiblMove = moveTo(node
+					.getLeftSiblingKey());
+			// Now move down to rightmost descendant node if it has one.
+			while (leftSiblMove.get().hasFirstChild()) {
+				leftSiblMove = leftSiblMove.get().moveToLastChild();
+			}
+			return leftSiblMove;
+		}
+		// Parent node.
+		return moveTo(node.getParentKey());
+	}
+
+	@Override
+	public Move<? extends NodeReadTrx> moveToNext() {
+		assertNotClosed();
+		final StructNode node = getStructuralNode();
+		if (node.hasRightSibling()) {
+			// Right sibling node.
+			return moveTo(node.getRightSiblingKey());
+		}
+		// Next following node.
+		return moveToNextFollowing();
 	}
 }
