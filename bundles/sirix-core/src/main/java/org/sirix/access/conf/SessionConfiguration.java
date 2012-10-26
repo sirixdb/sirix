@@ -29,7 +29,6 @@ package org.sirix.access.conf;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
 import java.security.Key;
 
@@ -37,20 +36,22 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.access.DatabaseImpl;
-import org.sirix.access.SessionImpl;
+import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
+
+import com.google.common.base.Objects;
 
 /**
  * <h1>SessionConfiguration</h1>
  * 
  * <p>
- * Holds the {@link SessionImpl}-wide settings that can not change within the
- * runtime of a {@link SessionImpl}. This included stuff like commit-threshold
- * and number of usable write/read transactions. Each
- * {@link SessionConfiguration} is only bound through the location to a
- * {@link DatabaseImpl} and related resources.
+ * Holds the {@link Session}-wide settings that can not change within the
+ * runtime of a {@link Session}. This included stuff like commit-threshold and
+ * number of usable write/read transactions. Each {@link SessionConfiguration}
+ * is only bound through the location to a {@link Database} and related
+ * resources.
  * </p>
  */
 public final class SessionConfiguration {
@@ -143,10 +144,10 @@ public final class SessionConfiguration {
 	 */
 	public static final class Builder {
 
-		/** Numbers of allowed IWriteTransaction Instances. */
+		/** Number of allowed {@link NodeWriteTrx} instances. */
 		private int mWtxAllowed = SessionConfiguration.MAX_WRITE_TRANSACTIONS;
 
-		/** Numbers of allowed IWriteTransaction Instances. */
+		/** Number of allowed {@link NodeReadTrx} instances. */
 		private int mRtxAllowed = SessionConfiguration.MAX_READ_TRANSACTIONS;
 
 		/** Number of node modifications until an automatic commit occurs. */
@@ -169,7 +170,8 @@ public final class SessionConfiguration {
 		}
 
 		/**
-		 * Setter for field mWtxAllowed.
+		 * Determines how many concurrent write transactions are allowed (only 1
+		 * (default) allowed).
 		 * 
 		 * @param wtxAllowed
 		 *          new value for field
@@ -182,15 +184,15 @@ public final class SessionConfiguration {
 		}
 
 		/**
-		 * Setter for field mRtxAllowed.
+		 * Determines how many concurrent reading transactions are allowed.
 		 * 
-		 * @param paramRtxAllowed
-		 *          new value for field
+		 * @param rtxAllowed
+		 *          how many concurrent reading transactions are allowed
 		 * @return reference to the builder object
 		 */
-		public Builder setRtxAllowed(@Nonnegative final int pRtxAllowed) {
-			checkArgument(pRtxAllowed < 1, "Value must be > 0!");
-			mRtxAllowed = pRtxAllowed;
+		public Builder setRtxAllowed(@Nonnegative final int rtxAllowed) {
+			checkArgument(rtxAllowed < 1, "Value must be > 0!");
+			mRtxAllowed = rtxAllowed;
 			return this;
 		}
 
@@ -208,10 +210,10 @@ public final class SessionConfiguration {
 		}
 
 		/**
-		 * Setter for field mUser.
+		 * The user accessing the resource.
 		 * 
 		 * @param user
-		 *          new value for field
+		 *          the user accessing the resource
 		 * @return reference to the builder object
 		 */
 		public Builder setUser(@Nonnull final String user) {

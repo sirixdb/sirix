@@ -27,21 +27,265 @@
 
 package org.sirix.settings;
 
+import static org.junit.Assert.*;
+
+import javax.annotation.Nonnull;
+import javax.xml.namespace.QName;
+
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Test;
 import org.sirix.TestHelper;
+import org.sirix.access.Databases;
+import org.sirix.access.conf.DatabaseConfiguration;
+import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 
+/** Test revisioning. */
 public class RevisioningTest {
+
+	/** {@link Database} instance. */
+	private Database mDatabase;
 
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
+		Databases.createDatabase(new DatabaseConfiguration(TestHelper.PATHS.PATH1
+				.getFile()));
+		mDatabase = Databases.openDatabase(TestHelper.PATHS.PATH1.getFile());
 	}
 
 	@After
 	public void tearDown() throws SirixException {
-		TestHelper.closeEverything();
+		mDatabase.close();
+	}
+
+	@Test
+	public void testIncremental() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.setRevisionKind(Revisioning.INCREMENTAL).setRevisionsToRestore(3)
+				.build());
+		test();
+	}
+
+	@Test
+	public void testIncremental1() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.setRevisionKind(Revisioning.INCREMENTAL).setRevisionsToRestore(3)
+				.build());
+		test1();
+	}
+
+	@Test
+	public void testDifferential() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.setRevisionKind(Revisioning.DIFFERENTIAL).setRevisionsToRestore(3)
+				.build());
+		test();
+	}
+
+	@Test
+	public void testDifferential1() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.setRevisionKind(Revisioning.DIFFERENTIAL).setRevisionsToRestore(3)
+				.build());
+		test1();
+	}
+
+	@Test
+	public void testFull() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.setRevisionKind(Revisioning.FULL).setRevisionsToRestore(3).build());
+		test();
+	}
+
+	@Test
+	public void testFull1() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.setRevisionKind(Revisioning.FULL).setRevisionsToRestore(3).build());
+		test1();
+	}
+
+	/**
+	 * Test revisioning.
+	 * 
+	 * @throws SirixException
+	 *           if anything in Sirix fails
+	 */
+	public void test() throws SirixException {
+		try (final Session session = mDatabase
+				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
+						.build())) {
+			try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
+				wtx.insertElementAsFirstChild(new QName("foo"));
+				for (int i = 0; i < Constants.NDP_NODE_COUNT - 2; i++) {
+					wtx.insertElementAsRightSibling(new QName("foo"));
+				}
+				wtx.commit();
+				assertTrue(wtx.getNodeKey() == Constants.NDP_NODE_COUNT - 1);
+				fillNodePage(wtx);
+				wtx.commit();
+				assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT << 1) - 1);
+				fillNodePage(wtx);
+				wtx.commit();
+				assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT * 3) - 1);
+				fillNodePage(wtx);
+				wtx.commit();
+				assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT << 2) - 1);
+				try (final NodeReadTrx rtx = session.beginNodeReadTrx()) {
+					assertTrue(rtx.moveToFirstChild().hasMoved());
+					for (int i = 0; i < Constants.NDP_NODE_COUNT - 2; i++) {
+						assertTrue(rtx.moveToRightSibling().hasMoved());
+					}
+					move(rtx);
+					move(rtx);
+					move(rtx);
+				}
+			}
+		}
+	}
+
+	/**
+	 * Test revisioning.
+	 * 
+	 * @throws SirixException
+	 *           if anything in Sirix fails
+	 */
+	public void test1() throws SirixException {
+		try (final Session session = mDatabase
+				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
+						.build())) {
+			NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			wtx.insertElementAsFirstChild(new QName("foo"));
+			for (int i = 0; i < Constants.NDP_NODE_COUNT - 2; i++) {
+				wtx.insertElementAsRightSibling(new QName("foo"));
+			}
+			wtx.commit();
+			assertTrue(wtx.getNodeKey() == Constants.NDP_NODE_COUNT - 1);
+			wtx.close();
+			wtx = session.beginNodeWriteTrx();
+			setBaaaz(wtx);
+//			wtx.commit();
+//			wtx.close();
+//			wtx = session.beginNodeWriteTrx();
+			setFooBar(wtx);
+			setFoooo(wtx);
+			wtx.moveTo(Constants.NDP_NODE_COUNT - 1);
+			fillNodePage(wtx);
+			wtx.commit();
+			wtx.close();
+			wtx = session.beginNodeWriteTrx();
+			wtx.moveTo((Constants.NDP_NODE_COUNT << 1) - 1);
+			fillNodePage(wtx);
+			wtx.commit();
+			wtx.close();
+			wtx = session.beginNodeWriteTrx();
+			wtx.moveTo((Constants.NDP_NODE_COUNT * 3) - 1);
+			fillNodePage(wtx);
+			wtx.commit();
+			wtx.close();
+			wtx = session.beginNodeWriteTrx();
+			wtx.moveTo((Constants.NDP_NODE_COUNT << 2) - 1);
+			fillNodePage(wtx);
+			wtx.commit();
+			wtx.close();
+			try (final NodeReadTrx rtx = session.beginNodeReadTrx()) {
+				assertTrue(rtx.moveToFirstChild().hasMoved());
+				assertEquals(new QName("foobar"), rtx.getName());
+				assertTrue(rtx.moveToRightSibling().hasMoved());
+				assertEquals(new QName("foooo"), rtx.getName());
+				for (int i = 0; i < Constants.NDP_NODE_COUNT - 4; i++) {
+					assertTrue(rtx.moveToRightSibling().hasMoved());
+				}
+				assertEquals(new QName("baaaz"), rtx.getName());
+			}
+		}
+	}
+
+	/**
+	 * Set the second {@link QName} in the first node page.
+	 * 
+	 * @param wtx
+	 *          {@link NodeWriteTrx} instance
+	 * @throws SirixException
+	 *           if inserting elements fails
+	 */
+	private void setFoooo(final @Nonnull NodeWriteTrx wtx) throws SirixException {
+		wtx.moveToDocumentRoot();
+		wtx.moveToFirstChild();
+		wtx.moveToRightSibling();
+		wtx.setName(new QName("foooo"));
+	}
+
+	/**
+	 * Set the first {@link QName} in the first node page.
+	 * 
+	 * @param wtx
+	 *          {@link NodeWriteTrx} instance
+	 * @throws SirixException
+	 *           if inserting elements fails
+	 */
+	private void setFooBar(final @Nonnull NodeWriteTrx wtx) throws SirixException {
+		wtx.moveToDocumentRoot();
+		wtx.moveToFirstChild();
+		wtx.setName(new QName("foobar"));
+	}
+
+	/**
+	 * Set the last {@link QName} in the first node page.
+	 * 
+	 * @param wtx
+	 *          {@link NodeWriteTrx} instance
+	 * @throws SirixException
+	 *           if inserting elements fails
+	 */
+	private void setBaaaz(final @Nonnull NodeWriteTrx wtx) throws SirixException {
+		wtx.moveToDocumentRoot();
+		wtx.moveToFirstChild();
+		for (int i = 0; i < Constants.NDP_NODE_COUNT - 3; i++) {
+			wtx.moveToRightSibling();
+		}
+		wtx.setName(new QName("baaaz"));
+	}
+
+	/**
+	 * Fill node page.
+	 * 
+	 * @param wtx
+	 *          {@link NodeWriteTrx} instance
+	 * @throws SirixException
+	 *           if inserting elements fails
+	 */
+	private void fillNodePage(final @Nonnull NodeWriteTrx wtx)
+			throws SirixException {
+		for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+			wtx.insertElementAsRightSibling(new QName("foo"));
+		}
+	}
+
+	/**
+	 * Move through all nodes in a node page.
+	 * 
+	 * @param rtx
+	 *          {@link NodeReadTrx} instance
+	 * @throws SirixException
+	 *           if movement fails
+	 */
+	private void move(final @Nonnull NodeReadTrx rtx) throws SirixException {
+		for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+			assertTrue(rtx.moveToRightSibling().hasMoved());
+		}
 	}
 
 	// // @Test(expected = AssertionError.class)

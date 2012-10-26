@@ -759,7 +759,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		}
 		acquireLock();
 		try {
-			if (getCurrentNode() instanceof StructNode) {
+			if (getCurrentNode() instanceof StructNode && !isDocumentRoot()) {
 				checkAccessAndCommit();
 
 				final long key = getCurrentNode().getNodeKey();
@@ -2182,6 +2182,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				if (mModificationCount > 0) {
 					throw new SirixUsageException("Must commit/abort transaction first");
 				}
+				
+				// Delete commit file.
+				mNodeRtx.mSession.mCommitFile.delete();
+				
 				// Release all state immediately.
 				mNodeRtx.mSession.closeWriteTransaction(getTransactionID());
 				mNodeRtx.close();
@@ -2277,10 +2281,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		// @Override
 		// public void run() {
 		// try {
-		final UberPage currUberPage = getPageTransaction().getUberPage();
-		if (currUberPage.isBootstrap()) {
-			currUberPage.setIsBulkInserted(mBulkInsert);
-		}
 		final UberPage uberPage = getPageTransaction().commit(MultipleWriteTrx.NO);
 
 		// Optionally lock while assigning new instances.

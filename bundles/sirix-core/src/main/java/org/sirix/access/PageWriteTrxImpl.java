@@ -142,7 +142,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			final @Nonnull UberPage uberPage, final @Nonnull Writer writer,
 			final @Nonnegative long id, final @Nonnegative int representRev,
 			final @Nonnegative int lastStoredRev,
-			final @Nonnegative int pLastCommitedRev) throws SirixException {
+			final @Nonnegative int lastCommitedRev) throws SirixException {
 		// Page read trx.
 		mPageRtx = new PageReadTrxImpl(session, uberPage, representRev, writer);
 
@@ -168,7 +168,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mTransactionID = id;
 
 		final RevisionRootPage lastCommitedRoot = preparePreviousRevisionRootPage(
-				representRev, pLastCommitedRev);
+				representRev, lastCommitedRev);
 		mNewRoot = preparePreviousRevisionRootPage(representRev, lastStoredRev);
 		mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
 
@@ -215,9 +215,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public void finishNodeModification(final @Nonnull long pNodeKey,
-			final @Nonnull PageKind pPage) {
-		final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
+	public void finishNodeModification(final @Nonnull long nodeKey,
+			final @Nonnull PageKind page) {
+		final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
 		if (mNodePageCon == null
 				|| (mNodeLog.get(nodePageKey).equals(NodePageContainer.EMPTY_INSTANCE)
 						&& mPathLog.get(nodePageKey).equals(
@@ -226,7 +226,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			throw new IllegalStateException();
 		}
 
-		switch (pPage) {
+		switch (page) {
 		case NODEPAGE:
 			mNodeLog.put(nodePageKey, mNodePageCon);
 			break;
@@ -244,11 +244,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public NodeBase createNode(final @Nonnull NodeBase pNode,
-			final @Nonnull PageKind pPage) throws SirixIOException {
+	public NodeBase createNode(final @Nonnull NodeBase node,
+			final @Nonnull PageKind page) throws SirixIOException {
 		// Allocate node key and increment node count.
 		long nodeKey;
-		switch (pPage) {
+		switch (page) {
 		case NODEPAGE:
 			mNewRoot.incrementMaxNodeKey();
 			nodeKey = mNewRoot.getMaxNodeKey();
@@ -267,26 +267,26 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 		final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
 		// final int nodePageOffset = mPageRtx.nodePageOffset(nodeKey);
-		prepareNodePage(nodePageKey, pPage);
-		final NodePage page = mNodePageCon.getModified();
-		page.setNode(pNode);
-		finishNodeModification(pNode.getNodeKey(), pPage);
-		return pNode;
+		prepareNodePage(nodePageKey, page);
+		final NodePage modified = mNodePageCon.getModified();
+		modified.setNode(node);
+		finishNodeModification(node.getNodeKey(), page);
+		return node;
 	}
 
 	@Override
-	public void removeNode(@Nonnull final long pNodeKey,
-			@Nonnull final PageKind pPage) throws SirixIOException {
-		final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
-		prepareNodePage(nodePageKey, pPage);
-		final Optional<NodeBase> node = getNode(pNodeKey, pPage);
+	public void removeNode(@Nonnull final long nodeKey,
+			@Nonnull final PageKind page) throws SirixIOException {
+		final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
+		prepareNodePage(nodePageKey, page);
+		final Optional<NodeBase> node = getNode(nodeKey, page);
 		if (node.isPresent()) {
 			final NodeBase nodeToDel = node.get();
 			final Node delNode = new DeletedNode(new NodeDelegate(
 					nodeToDel.getNodeKey(), -1, -1, -1, Optional.<SirixDeweyID> absent()));
 			mNodePageCon.getModified().setNode(delNode);
 			mNodePageCon.getComplete().setNode(delNode);
-			finishNodeModification(pNodeKey, pPage);
+			finishNodeModification(nodeKey, page);
 		} else {
 			throw new IllegalStateException("Node not found!");
 		}
@@ -294,21 +294,21 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public Optional<NodeBase> getNode(final @Nonnegative long pNodeKey,
-			final @Nonnull PageKind pPage) throws SirixIOException {
-		checkArgument(pNodeKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
-		checkNotNull(pPage);
+	public Optional<NodeBase> getNode(final @Nonnegative long nodeKey,
+			final @Nonnull PageKind page) throws SirixIOException {
+		checkArgument(nodeKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
+		checkNotNull(page);
 		// Calculate page.
-		final long nodePageKey = mPageRtx.nodePageKey(pNodeKey);
+		final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
 		// final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
 
-		final NodePageContainer pageCont = getPageContainer(pPage, nodePageKey);
+		final NodePageContainer pageCont = getPageContainer(page, nodePageKey);
 		if (pageCont.equals(NodePageContainer.EMPTY_INSTANCE)) {
-			return mPageRtx.getNode(pNodeKey, pPage);
+			return mPageRtx.getNode(nodeKey, page);
 		} else {
-			NodeBase node = pageCont.getModified().getNode(pNodeKey);
+			NodeBase node = pageCont.getModified().getNode(nodeKey);
 			if (node == null) {
-				node = pageCont.getComplete().getNode(pNodeKey);
+				node = pageCont.getComplete().getNode(nodeKey);
 			}
 			return Optional.fromNullable(mPageRtx.checkItemIfDeleted(node));
 		}
@@ -317,22 +317,22 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/**
 	 * Get the page container.
 	 * 
-	 * @param pPage
+	 * @param page
 	 *          the kind of page
-	 * @param pNodePageKey
+	 * @param nodePageKey
 	 *          the node page key
 	 * @return the {@link NodePageContainer} instance from the write ahead log
 	 */
-	private NodePageContainer getPageContainer(final @Nullable PageKind pPage,
-			final @Nonnegative long pNodePageKey) {
-		if (pPage != null) {
-			switch (pPage) {
+	private NodePageContainer getPageContainer(final @Nullable PageKind page,
+			final @Nonnegative long nodePageKey) {
+		if (page != null) {
+			switch (page) {
 			case NODEPAGE:
-				return mNodeLog.get(pNodePageKey);
+				return mNodeLog.get(nodePageKey);
 			case PATHSUMMARYPAGE:
-				return mPathLog.get(pNodePageKey);
+				return mPathLog.get(nodePageKey);
 			case VALUEPAGE:
-				return mValueLog.get(pNodePageKey);
+				return mValueLog.get(nodePageKey);
 			default:
 				throw new IllegalStateException();
 			}
@@ -343,96 +343,101 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/**
 	 * Remove the page container.
 	 * 
-	 * @param pPage
+	 * @param page
 	 *          the kind of page
-	 * @param pNodePageKey
+	 * @param nodePageKey
 	 *          the node page key
 	 */
-	private void removePageContainer(final @Nonnull PageKind pPage,
-			final @Nonnegative long pNodePageKey) {
-		switch (pPage) {
+	private void removePageContainer(final @Nonnull PageKind page,
+			final @Nonnegative long nodePageKey) {
+		switch (page) {
 		case NODEPAGE:
-			mNodeLog.remove(pNodePageKey);
+			mNodeLog.remove(nodePageKey);
 			break;
 		case PATHSUMMARYPAGE:
-			mPathLog.remove(pNodePageKey);
+			mPathLog.remove(nodePageKey);
 			break;
 		case VALUEPAGE:
-			mValueLog.remove(pNodePageKey);
+			mValueLog.remove(nodePageKey);
 		default:
-			mPageLog.remove(pNodePageKey);
+			mPageLog.remove(nodePageKey);
 		}
 	}
 
 	@Override
-	public String getName(final int pNameKey, final @Nonnull Kind pNodeKind) {
+	public String getName(final int nameKey, final @Nonnull Kind nodeKind) {
 		final NamePage currentNamePage = (NamePage) mNewRoot.getNamePageReference()
 				.getPage();
 		// if currentNamePage == null -> state was commited and no prepareNodepage
 		// was invoked yet
-		return (currentNamePage == null || currentNamePage.getName(pNameKey,
-				pNodeKind) == null) ? mPageRtx.getName(pNameKey, pNodeKind)
-				: currentNamePage.getName(pNameKey, pNodeKind);
+		return (currentNamePage == null || currentNamePage.getName(nameKey,
+				nodeKind) == null) ? mPageRtx.getName(nameKey, nodeKind)
+				: currentNamePage.getName(nameKey, nodeKind);
 	}
 
 	@Override
-	public int createNameKey(final @Nullable String pName,
-			final @Nonnull Kind pNodeKind) throws SirixIOException {
-		checkNotNull(pNodeKind);
-		final String string = (pName == null ? "" : pName);
+	public int createNameKey(final @Nullable String name,
+			final @Nonnull Kind nodeKind) throws SirixIOException {
+		checkNotNull(nodeKind);
+		final String string = (name == null ? "" : name);
 		final int nameKey = NamePageHash.generateHashForString(string);
 		final NamePage namePage = (NamePage) mNewRoot.getNamePageReference()
 				.getPage();
-		namePage.setName(nameKey, string, pNodeKind);
+		namePage.setName(nameKey, string, nodeKind);
 		return nameKey;
 	}
 
 	@Override
-	public void commit(final @Nullable PageReference pReference)
+	public void commit(final @Nullable PageReference reference)
 			throws SirixException {
 		Page page = null;
 
 		// If reference is not null, get one from the persistent storage.
-		if (pReference != null) {
+		if (reference != null) {
 			// First, try to get one from the transaction log.
-			final long nodePageKey = pReference.getNodePageKey();
+			final long nodePageKey = reference.getNodePageKey();
+			final PageKind pageKind = reference.getPageKind();
 			final NodePageContainer cont = nodePageKey == -1 ? null
-					: getPageContainer(pReference.getPageKind(), nodePageKey);
+					: getPageContainer(pageKind, nodePageKey);
 			if (cont != null) {
 				page = cont.getModified();
 			}
 
 			// If none is in the log.
-			// if (page == null) {
-			// // Then try to get one from the page cache.
-			// if (nodePageKey == -1 && pReference.getKey() != IConstants.NULL_ID) {
-			// page = mPageLog.get(pReference.getKey());
-			// }
 			if (page == null) {
 				// Test if one is instantiated, if so, get
 				// the one from the reference.
-				page = pReference.getPage();
-				if (page == null) {
-					return;
-				}
-			}
-			// }
+				page = reference.getPage();
 
-			pReference.setPage(page);
-			if (pReference.getPageKind() == null) {
-				// Page kind isn't interesting, just that it's not
-				// a node page.
 				if (page instanceof NodePage) {
-					throw new IllegalStateException();
-				} else {
-					pReference.setPageKind(PageKind.INDIRECTPAGE);
+					// Revision to commit is not a full dump => return immediately.
+					if (!page.isDirty() && (page.getRevision() + 1)
+							% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) {
+						return;
+					} else {
+						// Revision to commit is a full dump => get the full page and dump
+						// it.
+						page = mPageRtx.getNodeFromPage(nodePageKey, pageKind)
+								.getComplete();
+					}
+				}
+				if (page == null) {
+					// Then try to get one from the page cache.
+					if (nodePageKey == -1 && reference.getKey() != Constants.NULL_ID) {
+						page = mPageLog.get(reference.getKey());
+					}
+					if (page == null) {
+						return;
+					}
 				}
 			}
+
+			reference.setPage(page);
 
 			// Recursively commit indirectely referenced pages and then
 			// write self.
 			page.commit(this);
-			mPageWriter.write(pReference);
+			mPageWriter.write(reference);
 
 			// Remove from transaction log.
 			// if (pReference.getPageKind() != null) {
@@ -440,23 +445,23 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			// }
 
 			// Remove page reference.
-			pReference.setPage(null);
+			reference.setPage(null);
 
 			// Afterwards synchronize all logs since the changes must be
 			// written to the transaction log as well.
 			if (mMultipleWriteTrx == MultipleWriteTrx.YES && cont != null) {
 				mPageRtx.mSession.syncLogs(cont, mTransactionID,
-						pReference.getPageKind());
+						reference.getPageKind());
 			}
 		}
 	}
 
 	@Override
-	public UberPage commit(final @Nonnull MultipleWriteTrx pMultipleWriteTrx)
+	public UberPage commit(final @Nonnull MultipleWriteTrx multipleWriteTrx)
 			throws SirixException {
 		mPageRtx.assertNotClosed();
 		mPageRtx.mSession.mCommitLock.lock();
-		mMultipleWriteTrx = checkNotNull(pMultipleWriteTrx);
+		mMultipleWriteTrx = checkNotNull(multipleWriteTrx);
 
 		// Forcefully flush write-ahead transaction logs to persistent storage.
 		// Make
@@ -506,7 +511,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * Prepare indirect page, that is getting the referenced indirect page or a
 	 * new page.
 	 * 
-	 * @param pReference
+	 * @param reference
 	 *          {@link PageReference} to get the indirect page from or to create a
 	 *          new one
 	 * @return {@link IndirectPage} reference
@@ -514,65 +519,65 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 *           if an I/O error occurs
 	 */
 	private IndirectPage prepareIndirectPage(
-			final @Nonnull PageReference pReference) throws SirixIOException {
-		IndirectPage page = (IndirectPage) pReference.getPage();
+			final @Nonnull PageReference reference) throws SirixIOException {
+		IndirectPage page = (IndirectPage) reference.getPage();
 		if (page == null) {
-			if (pReference.getKey() == Constants.NULL_ID) {
+			if (reference.getKey() == Constants.NULL_ID) {
 				page = new IndirectPage(getUberPage().getRevision());
 			} else {
 				// Should never be null, otherwise
 				// dereferenceIndirectPage(PageReference) fails.
 				final IndirectPage indirectPage = mPageRtx
-						.dereferenceIndirectPage(pReference);
+						.dereferenceIndirectPage(reference);
 				page = new IndirectPage(indirectPage, mNewRoot.getRevision() + 1);
 			}
-			pReference.setPage(page);
+			reference.setPage(page);
 		}
-		pReference.setPageKind(PageKind.INDIRECTPAGE);
+		reference.setPageKind(PageKind.INDIRECTPAGE);
 		return page;
 	}
 
 	/**
 	 * Prepare node page.
 	 * 
-	 * @param pNodePageKey
+	 * @param nodePageKey
 	 *          the key of the node page
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void prepareNodePage(final @Nonnegative long pNodePageKey,
-			final @Nonnull PageKind pPage) throws SirixIOException {
+	private void prepareNodePage(final @Nonnegative long nodePageKey,
+			final @Nonnull PageKind page) throws SirixIOException {
 		// Last level points to node nodePageReference.
-		NodePageContainer cont = getPageContainer(pPage, pNodePageKey);
+		NodePageContainer cont = getPageContainer(page, nodePageKey);
 		if (cont.equals(NodePageContainer.EMPTY_INSTANCE)) {
 			// Indirect reference.
 			final PageReference reference = prepareLeafOfTree(
-					mPageRtx.getPageReference(mNewRoot, pPage), pNodePageKey, pPage);
-			final NodePage page = (NodePage) reference.getPage();
-			if (page == null) {
+					mPageRtx.getPageReference(mNewRoot, page), nodePageKey, page);
+			final NodePage nodePage = (NodePage) reference.getPage();
+			if (nodePage == null) {
 				if (reference.getKey() == Constants.NULL_ID) {
-					cont = new NodePageContainer(new NodePage(pNodePageKey,
+					cont = new NodePageContainer(new NodePage(nodePageKey,
 							Constants.UBP_ROOT_REVISION_NUMBER, mPageRtx));
 				} else {
-					cont = dereferenceNodePageForModification(pNodePageKey, pPage);
+					cont = dereferenceNodePageForModification(nodePageKey, page);
 				}
 			} else {
-				cont = new NodePageContainer(page);
+				cont = new NodePageContainer(nodePage);
 			}
 
 			assert cont != null;
-			reference.setNodePageKey(pNodePageKey);
-			reference.setPageKind(pPage);
+			reference.setNodePageKey(nodePageKey);
+			reference.setPageKind(page);
 
-			switch (pPage) {
+			switch (page) {
 			case NODEPAGE:
-				mNodeLog.put(pNodePageKey, cont);
+				mNodeLog.put(nodePageKey, cont);
 				break;
 			case PATHSUMMARYPAGE:
-				mPathLog.put(pNodePageKey, cont);
+				mPathLog.put(nodePageKey, cont);
 				break;
 			case VALUEPAGE:
-				mValueLog.put(pNodePageKey, cont);
+				mValueLog.put(nodePageKey, cont);
 				break;
 			default:
 				throw new IllegalStateException("Page kind not known!");
@@ -585,23 +590,23 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * Prepare the previous revision root page and retrieve the next
 	 * {@link RevisionRootPage}.
 	 * 
-	 * @param pBaseRevision
+	 * @param baseRevision
 	 *          base revision
-	 * @param pRepresentRevision
+	 * @param representRevision
 	 *          the revision to represent
 	 * @return new {@link RevisionRootPage} instance
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	private RevisionRootPage preparePreviousRevisionRootPage(
-			final @Nonnegative int pBaseRevision,
-			final @Nonnegative int pRepresentRevision) throws SirixIOException {
+			final @Nonnegative int baseRevision,
+			final @Nonnegative int representRevision) throws SirixIOException {
 		if (getUberPage().isBootstrap()) {
-			return mPageRtx.loadRevRoot(pBaseRevision);
+			return mPageRtx.loadRevRoot(baseRevision);
 		} else {
 			// Prepare revision root nodePageReference.
 			final RevisionRootPage revisionRootPage = new RevisionRootPage(
-					mPageRtx.loadRevRoot(pBaseRevision), pRepresentRevision + 1);
+					mPageRtx.loadRevRoot(baseRevision), representRevision + 1);
 
 			// Prepare indirect tree to hold reference to prepared revision root
 			// nodePageReference.
@@ -622,9 +627,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/**
 	 * Prepare the leaf of a tree, namely the reference to a {@link NodePage}.
 	 * 
-	 * @param pStartReference
+	 * @param startReference
 	 *          start reference
-	 * @param pKey
+	 * @param key
 	 *          page key to lookup
 	 * @return {@link PageReference} instance pointing to the right
 	 *         {@link NodePage} with the {@code pKey}
@@ -632,15 +637,14 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 *           if an I/O error occured
 	 */
 	private PageReference prepareLeafOfTree(
-			final @Nonnull PageReference pStartReference,
-			final @Nonnegative long pKey, final @Nonnull PageKind pPage)
-			throws SirixIOException {
+			final @Nonnull PageReference startReference, final @Nonnegative long key,
+			final @Nonnull PageKind pageKind) throws SirixIOException {
 		// Initial state pointing to the indirect nodePageReference of level 0.
-		PageReference reference = pStartReference;
+		PageReference reference = startReference;
 		int offset = 0;
-		long levelKey = pKey;
-		final int[] inpLevelPageCountExp = mPageRtx.getUberPage().getPageCountExp(
-				pPage);
+		long levelKey = key;
+		final int[] inpLevelPageCountExp = mPageRtx.getUberPage()
+				.getPageCountExp(pageKind);
 
 		// Iterate through all levels.
 		for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
@@ -657,19 +661,20 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/**
 	 * Dereference node page reference.
 	 * 
-	 * @param pNodePageKey
+	 * @param nodePageKey
 	 *          key of node page
 	 * @return dereferenced page
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	private NodePageContainer dereferenceNodePageForModification(
-			final @Nonnegative long pNodePageKey, final @Nonnull PageKind pPage)
+			final @Nonnegative long nodePageKey, final @Nonnull PageKind page)
 			throws SirixIOException {
-		final NodePage[] revs = mPageRtx.getSnapshotPages(pNodePageKey, pPage);
+		final NodePage[] revs = mPageRtx.getSnapshotPages(nodePageKey, page);
 		final Revisioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
 		final int mileStoneRevision = mPageRtx.mSession.mResourceConfig.mRevisionsToRestore;
-		return revisioning.combineNodePagesForModification(revs, mileStoneRevision, mPageRtx);
+		return revisioning.combineNodePagesForModification(revs, mileStoneRevision,
+				mPageRtx);
 	}
 
 	@Override
@@ -682,14 +687,13 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * 
 	 * @param pCont
 	 *          {@link NodePageContainer} reference to be updated
-	 * @param pPage
+	 * @param page
 	 *          page for which the
 	 */
-	public void updateDateContainer(final @Nonnull NodePageContainer pContainer,
-			final @Nonnull PageKind pPage) {
-		final long nodePageKey = pContainer.getComplete().getNodePageKey();
-		NodePageContainer container;
-		switch (pPage) {
+	public void updateDateContainer(@Nonnull NodePageContainer container,
+			final @Nonnull PageKind page) {
+		final long nodePageKey = container.getComplete().getNodePageKey();
+		switch (page) {
 		case PATHSUMMARYPAGE:
 			container = mPathLog.get(nodePageKey);
 			break;
@@ -705,7 +709,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 		// Merge containers.
 		final NodePage modified = container.getModified();
-		final NodePage otherModified = pContainer.getModified();
+		final NodePage otherModified = container.getModified();
 		synchronized (modified) {
 			for (final Entry<Long, NodeBase> entry : otherModified.entrySet()) {
 				if (modified.getNode(entry.getKey()) == null) {

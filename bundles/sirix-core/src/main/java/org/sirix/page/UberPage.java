@@ -33,18 +33,11 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.PageReadTrx;
-import org.sirix.node.DocumentRootNode;
-import org.sirix.node.SirixDeweyID;
-import org.sirix.node.delegates.NodeDelegate;
-import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import org.sirix.settings.Fixed;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 
@@ -69,12 +62,10 @@ public final class UberPage extends AbstractForwardingPage {
 	 */
 	private boolean mBootstrap;
 
-	/** {@link PageDelegate} reference. */
+	/** {@link PageDelegate} instance. */
 	private final PageDelegate mDelegate;
 
-	/** Determines if the first revision has been bulk inserted. */
-	private boolean mBulkInserted;
-
+	/** {@link RevisionRootPage} instance. */
 	private final RevisionRootPage mRootPage;
 
 	/**
@@ -87,7 +78,6 @@ public final class UberPage extends AbstractForwardingPage {
 		mDelegate = new PageDelegate(1, Constants.UBP_ROOT_REVISION_NUMBER);
 		mRevisionCount = Constants.UBP_ROOT_REVISION_COUNT;
 		mBootstrap = true;
-		mBulkInserted = true;
 
 		// --- Create revision tree
 		// ------------------------------------------------
@@ -111,110 +101,6 @@ public final class UberPage extends AbstractForwardingPage {
 	}
 
 	/**
-	 * Initialize node tree.
-	 */
-	public void createNodeTree(final @Nonnull PageReadTrx pageReadTrx) {
-		if (!mBootstrap) {
-			throw new IllegalStateException("May only be called at bootstrap time!");
-		}
-		final PageReference reference = mRootPage.getIndirectPageReference();
-		if (reference.getPage() == null) {
-			createTree(reference, PageKind.NODEPAGE, pageReadTrx);
-			mRootPage.incrementMaxNodeKey();
-		}
-	}
-
-	/**
-	 * Initialize value tree.
-	 */
-	public void createValueTree(final @Nonnull PageReadTrx pageReadTrx) {
-		if (!mBootstrap) {
-			throw new IllegalStateException("May only be called at bootstrap time!");
-		}
-		final PageReference reference = mRootPage.getValuePageReference().getPage()
-				.getReference(INDIRECT_REFERENCE_OFFSET);
-		if (reference.getPage() == null) {
-			createTree(reference, PageKind.VALUEPAGE, pageReadTrx);
-			mRootPage.incrementMaxValueNodeKey();
-		}
-	}
-
-	/**
-	 * Initialize path summary tree.
-	 */
-	public void createPathSummaryTree(final @Nonnull PageReadTrx pageReadTrx) {
-		if (!mBootstrap) {
-			throw new IllegalStateException("May only be called at bootstrap time!");
-		}
-		final PageReference reference = mRootPage.getPathSummaryPageReference()
-				.getPage().getReference(INDIRECT_REFERENCE_OFFSET);
-		if (reference.getPage() == null) {
-			createTree(reference, PageKind.PATHSUMMARYPAGE, pageReadTrx);
-			mRootPage.incrementMaxPathNodeKey();
-		}
-	}
-
-	/**
-	 * Determines if first (revision 0) has been solely bulk inserted.
-	 */
-	public boolean isBulkInserted() {
-		return mBulkInserted;
-	}
-
-	/**
-	 * Set if first revision has been bulk inserted.
-	 * 
-	 * @param isBulkInserted
-	 *          bulk inserted or not
-	 */
-	public void setIsBulkInserted(final boolean isBulkInserted) {
-		mBulkInserted = isBulkInserted;
-	}
-
-	/**
-	 * Create the initial tree structure.
-	 * 
-	 * @param reference
-	 *          reference from revision root
-	 * @param pageKind
-	 *          the page kind
-	 */
-	private void createTree(@Nonnull PageReference reference,
-			final @Nonnull PageKind pageKind, final @Nonnull PageReadTrx pageReadTrx) {
-		Page page = null;
-
-		// Level page count exponent from the configuration.
-		final int[] levelPageCountExp = getPageCountExp(pageKind);
-
-		// Remaining levels.
-		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
-			page = new IndirectPage(Constants.UBP_ROOT_REVISION_NUMBER);
-			reference.setPage(page);
-			reference.setPageKind(PageKind.INDIRECTPAGE);
-			reference = page.getReference(0);
-		}
-
-		final NodePage ndp = new NodePage(
-				Fixed.ROOT_PAGE_KEY.getStandardProperty(),
-				Constants.UBP_ROOT_REVISION_NUMBER, pageReadTrx);
-		reference.setPage(ndp);
-		reference.setPageKind(pageKind);
-
-		final Optional<SirixDeweyID> id = pageReadTrx.getSession()
-				.getResourceConfig().mDeweyIDsStored ? Optional.of(SirixDeweyID
-				.newRootID()) : Optional.<SirixDeweyID> absent();
-		final NodeDelegate nodeDel = new NodeDelegate(
-				Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, id);
-		final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
-				Fixed.NULL_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
-		ndp.setNode(new DocumentRootNode(nodeDel, strucDel));
-	}
-
-	/**
 	 * Read uber page.
 	 * 
 	 * @param pIn
@@ -225,7 +111,6 @@ public final class UberPage extends AbstractForwardingPage {
 	protected UberPage(final @Nonnull ByteArrayDataInput pIn) {
 		mDelegate = new PageDelegate(1, pIn);
 		mRevisionCount = pIn.readInt();
-		mBulkInserted = pIn.readBoolean();
 		mBootstrap = false;
 		mRootPage = null;
 	}
@@ -305,7 +190,6 @@ public final class UberPage extends AbstractForwardingPage {
 		mBootstrap = false;
 		mDelegate.serialize(checkNotNull(pOut));
 		pOut.writeInt(mRevisionCount);
-		pOut.writeBoolean(mBulkInserted);
 	}
 
 	@Override
@@ -314,7 +198,7 @@ public final class UberPage extends AbstractForwardingPage {
 				.add("forwarding page", super.toString())
 				.add("revisionCount", mRevisionCount)
 				.add("indirectPage", getReferences()[INDIRECT_REFERENCE_OFFSET])
-				.add("isBootstrap", mBootstrap).add("isBulkInserted", mBulkInserted)
+				.add("isBootstrap", mBootstrap)
 				.toString();
 	}
 
@@ -328,7 +212,7 @@ public final class UberPage extends AbstractForwardingPage {
 		mDelegate.setDirty(pDirty);
 		return this;
 	}
-
+	
 	/**
 	 * Get the page count exponent for the given page.
 	 * 

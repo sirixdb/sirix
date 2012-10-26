@@ -184,7 +184,7 @@ public final class DocumentCreater {
 		pWtx.insertAttribute(new QName("i"), "j");
 		assertTrue(pWtx.moveToParent().hasMoved());
 
-		pWtx.insertCommentAsRightSibling("foo");
+		pWtx.insertCommentAsFirstChild("foo");
 		pWtx.insertTextAsRightSibling("oops1");
 
 		pWtx.insertElementAsRightSibling(new QName("b"));

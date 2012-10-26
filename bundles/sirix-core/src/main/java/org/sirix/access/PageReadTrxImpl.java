@@ -141,7 +141,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * been completely transferred into the data file.
 	 */
 	private final Optional<TransactionLogCache> mNodeLog;
-	
+
 	/**
 	 * {@link ResourceConfiguration} instance.
 	 */
@@ -169,7 +169,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		checkArgument(revision >= 0, "Revision must be >= 0!");
 		mIndexes = session.mResourceConfig.mIndexes;
 		mResourceConfig = session.mResourceConfig;
-		
+
 		// mPageLog = Optional.<TransactionLogPageCache> absent();
 		// mNodeLog = Optional.<TransactionLogCache> absent();
 		// mPathLog = Optional.<TransactionLogCache> absent();
@@ -178,8 +178,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 		// In memory caches from data directory.
 		// =========================================================
 		mNodeCache = CacheBuilder.newBuilder().maximumSize(1000)
-				.expireAfterWrite(5, TimeUnit.SECONDS)
-				.expireAfterAccess(5, TimeUnit.SECONDS).concurrencyLevel(1)
+				.expireAfterWrite(5000, TimeUnit.SECONDS)
+				.expireAfterAccess(5000, TimeUnit.SECONDS).concurrencyLevel(1)
 				.build(new CacheLoader<Long, NodePageContainer>() {
 					public NodePageContainer load(final Long pKey) throws SirixException {
 						final NodePageContainer container = mNodeLog.isPresent() ? mNodeLog
@@ -253,7 +253,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		mSession = checkNotNull(session);
 		mPageReader = checkNotNull(reader);
 		mUberPage = checkNotNull(uberPage);
-		
+
 		// Transaction logs which might have to be read because the data hasn't been
 		// commited to the data-file.
 		// =======================================================
@@ -279,27 +279,23 @@ final class PageReadTrxImpl implements PageReadTrx {
 		} else {
 			mValueLog = Optional.<TransactionLogCache> absent();
 		}
-		if (uberPage.isBootstrap()) {
-			uberPage.createNodeTree(this);
-			if (mIndexes.contains(Indexes.PATH)) {
-				uberPage.createPathSummaryTree(this);
-			}
-			if (mIndexes.contains(Indexes.VALUE)) {
-				uberPage.createValueTree(this);
-			}
-		}
+		// Load revision root.
 		mRootPage = loadRevRoot(revision);
 		assert mRootPage != null : "root page must not be null!";
+		// First create revision tree if needed.
+		mRootPage.createNodeTree(this);
+		if (mIndexes.contains(Indexes.PATH)) {
+			// Create path summary tree if needed.
+			getPathSummaryPage(mRootPage);
+			mRootPage.createPathSummaryTree(this);
+		}
+		if (mIndexes.contains(Indexes.VALUE)) {
+			// Create value tree if needed.
+			getValuePage(mRootPage);
+			mRootPage.createValueTree(this);
+		}
 		mNamePage = getNamePage();
 		mClosed = false;
-		final PageReference ref = mRootPage.getPathSummaryPageReference();
-		if (ref.getPage() == null) {
-			try {
-				ref.setPage(mPageCache.get(ref.getKey()));
-			} catch (final ExecutionException e) {
-				throw new SirixIOException(e);
-			}
-		}
 	}
 
 	@Override
@@ -318,18 +314,18 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public Optional<NodeBase> getNode(final @Nonnegative long pNodeKey,
-			final @Nonnull PageKind pPage) throws SirixIOException {
-		checkArgument(pNodeKey >= 0);
-		checkNotNull(pPage);
+	public Optional<NodeBase> getNode(final @Nonnegative long nodeKey,
+			final @Nonnull PageKind pageKind) throws SirixIOException {
+		checkArgument(nodeKey >= 0);
+		checkNotNull(pageKind);
 		assertNotClosed();
 
-		final long nodePageKey = nodePageKey(pNodeKey);
+		final long nodePageKey = nodePageKey(nodeKey);
 		// final int nodePageOffset = nodePageOffset(pNodeKey);
 
 		NodePageContainer cont;
 		try {
-			switch (pPage) {
+			switch (pageKind) {
 			case NODEPAGE:
 				cont = mNodeCache.get(nodePageKey);
 				break;
@@ -350,29 +346,29 @@ final class PageReadTrxImpl implements PageReadTrx {
 			return Optional.<NodeBase> absent();
 		}
 
-		final NodeBase retVal = cont.getComplete().getNode(pNodeKey);
+		final NodeBase retVal = cont.getComplete().getNode(nodeKey);
 		return Optional.fromNullable(checkItemIfDeleted(retVal));
 	}
 
 	/**
 	 * Method to check if an {@link NodeBase} is deleted.
 	 * 
-	 * @param pToCheck
+	 * @param toCheck
 	 *          node to check
 	 * @return the {@code node} if it is valid, {@code null} otherwise
 	 */
-	final NodeBase checkItemIfDeleted(final @Nullable NodeBase pToCheck) {
-		if (pToCheck instanceof DeletedNode) {
+	final NodeBase checkItemIfDeleted(final @Nullable NodeBase toCheck) {
+		if (toCheck instanceof DeletedNode) {
 			return null;
 		} else {
-			return pToCheck;
+			return toCheck;
 		}
 	}
 
 	@Override
-	public String getName(final int pNameKey, final @Nonnull Kind pNodeKind) {
+	public String getName(final int nameKey, final @Nonnull Kind nodeKind) {
 		assertNotClosed();
-		return mNamePage.getName(pNameKey, pNodeKind);
+		return mNamePage.getName(nameKey, nodeKind);
 	}
 
 	@Override
@@ -430,24 +426,24 @@ final class PageReadTrxImpl implements PageReadTrx {
 	/**
 	 * Get revision root page belonging to revision key.
 	 * 
-	 * @param pRevisionKey
+	 * @param revisionKey
 	 *          key of revision to find revision root page for
 	 * @return revision root page of this revision key
 	 * 
 	 * @throws SirixIOException
 	 *           if something odd happens within the creation process
 	 */
-	final RevisionRootPage loadRevRoot(final @Nonnegative int pRevisionKey)
+	final RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey)
 			throws SirixIOException {
 		checkArgument(
-				pRevisionKey >= 0 && pRevisionKey <= mSession.getLastRevisionNumber(),
-				"%s must be >= 0 and <= last stored revision (%s)!", pRevisionKey,
+				revisionKey >= 0 && revisionKey <= mSession.getLastRevisionNumber(),
+				"%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
 				mSession.getLastRevisionNumber());
 
 		// The indirect page reference either fails horribly or returns a non null
 		// instance.
 		final PageReference ref = dereferenceLeafOfTree(
-				mUberPage.getIndirectPageReference(), pRevisionKey, PageKind.UBERPAGE);
+				mUberPage.getIndirectPageReference(), revisionKey, PageKind.UBERPAGE);
 		RevisionRootPage page = (RevisionRootPage) ref.getPage();
 
 		// If there is no page, get it from the storage and cache it.
@@ -490,9 +486,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *           if an I/O error occurs
 	 */
 	private final PathSummaryPage getPathSummaryPage(
-			final @Nonnull RevisionRootPage pPage) throws SirixIOException {
+			final @Nonnull RevisionRootPage page) throws SirixIOException {
 		assertNotClosed();
-		final PageReference ref = pPage.getPathSummaryPageReference();
+		final PageReference ref = page.getPathSummaryPageReference();
 		if (ref.getPage() == null) {
 			try {
 				ref.setPage(mPageCache.get(ref.getKey()));
@@ -510,10 +506,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private final ValuePage getValuePage(final @Nonnull RevisionRootPage pPage)
+	private final ValuePage getValuePage(final @Nonnull RevisionRootPage page)
 			throws SirixIOException {
 		assertNotClosed();
-		final PageReference ref = pPage.getValuePageReference();
+		final PageReference ref = page.getValuePageReference();
 		if (ref.getPage() == null) {
 			try {
 				ref.setPage(mPageCache.get(ref.getKey()));
@@ -586,8 +582,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			final PageReference ref = refs.get(i);
 			pages[i] = (NodePage) ref.getPage();
 			if (pages[i] == null) {
-				pages[i] = (NodePage) mPageReader.read(ref.getKey(),
-						this);
+				pages[i] = (NodePage) mPageReader.read(ref.getKey(), this);
 			}
 			ref.setPageKind(page);
 		}
@@ -598,24 +593,24 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * Get the page reference which points to the right subtree (usual nodes, path
 	 * summary nodes, value index nodes).
 	 * 
-	 * @param pRef
+	 * @param revisionRoot
 	 *          {@link RevisionRootPage} instance
 	 * @param pPage
 	 *          the page type to determine the right subtree
 	 */
-	PageReference getPageReference(final @Nonnull RevisionRootPage pRef,
+	PageReference getPageReference(final @Nonnull RevisionRootPage revisionRoot,
 			final @Nonnull PageKind pPage) throws SirixIOException {
-		assert pRef != null;
+		assert revisionRoot != null;
 		PageReference ref = null;
 		switch (pPage) {
 		case NODEPAGE:
-			ref = pRef.getIndirectPageReference();
+			ref = revisionRoot.getIndirectPageReference();
 			break;
 		case VALUEPAGE:
-			ref = getValuePage(pRef).getIndirectPageReference();
+			ref = getValuePage(revisionRoot).getIndirectPageReference();
 			break;
 		case PATHSUMMARYPAGE:
-			ref = getPathSummaryPage(pRef).getIndirectPageReference();
+			ref = getPathSummaryPage(revisionRoot).getIndirectPageReference();
 			break;
 		default:
 			throw new IllegalStateException(
@@ -627,7 +622,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	/**
 	 * Dereference indirect page reference.
 	 * 
-	 * @param pReference
+	 * @param reference
 	 *          reference to dereference
 	 * @return dereferenced page
 	 * 
@@ -635,21 +630,21 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *           if something odd happens within the creation process.
 	 */
 	final IndirectPage dereferenceIndirectPage(
-			final @Nonnull PageReference pReference) throws SirixIOException {
-		final Page tmpPage = pReference.getPage();
+			final @Nonnull PageReference reference) throws SirixIOException {
+		final Page tmpPage = reference.getPage();
 		if (tmpPage == null || tmpPage instanceof IndirectPage) {
 			IndirectPage page = (IndirectPage) tmpPage;
 
 			// If there is no page, get it from the storage and cache it.
-			if (page == null && pReference.getKey() != Constants.NULL_ID) {
+			if (page == null && reference.getKey() != Constants.NULL_ID) {
 				try {
-					page = (IndirectPage) mPageCache.get(pReference.getKey());
+					page = (IndirectPage) mPageCache.get(reference.getKey());
 				} catch (final ExecutionException e) {
 					throw new SirixIOException(e);
 				}
 			}
 
-			pReference.setPage(page);
+			reference.setPage(page);
 			return page;
 		} else {
 			throw new IllegalArgumentException(
@@ -671,9 +666,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 */
 	@Nullable
 	final PageReference dereferenceLeafOfTree(
-			final @Nonnull PageReference startReference,
-			final @Nonnegative long key, final @Nonnull PageKind pPage)
-			throws SirixIOException {
+			final @Nonnull PageReference startReference, final @Nonnegative long key,
+			final @Nonnull PageKind pPage) throws SirixIOException {
 
 		// Initial state pointing to the indirect page of level 0.
 		PageReference reference = checkNotNull(startReference);
@@ -746,11 +740,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public NodePageContainer getNodeFromPage(
-			final @Nonnegative long pNodePageKey, final @Nonnull PageKind pPage)
-			throws SirixIOException {
+	public NodePageContainer getNodeFromPage(final @Nonnegative long nodePageKey,
+			final @Nonnull PageKind pPage) throws SirixIOException {
 		assertNotClosed();
-		final NodePage[] revs = getSnapshotPages(pNodePageKey, pPage);
+		final NodePage[] revs = getSnapshotPages(nodePageKey, pPage);
 		if (revs.length == 0) {
 			return NodePageContainer.EMPTY_INSTANCE;
 		}

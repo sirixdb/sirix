@@ -32,11 +32,18 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
+import org.sirix.api.PageReadTrx;
+import org.sirix.node.DocumentRootNode;
+import org.sirix.node.SirixDeweyID;
+import org.sirix.node.delegates.NodeDelegate;
+import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
+import org.sirix.settings.Fixed;
 
 import com.google.common.base.Objects;
+import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 
@@ -50,17 +57,17 @@ import com.google.common.io.ByteArrayDataOutput;
  */
 public final class RevisionRootPage extends AbstractForwardingPage {
 
+	/** Offset of indirect page reference. */
+	private static final int INDIRECT_REFERENCE_OFFSET = 0;
+
 	/** Offset of name page reference. */
-	private static final int NAME_REFERENCE_OFFSET = 0;
+	private static final int NAME_REFERENCE_OFFSET = 1;
 
 	/** Offset of path summary page reference. */
-	private static final int PATH_SUMMARY_REFERENCE_OFFSET = 1;
+	private static final int PATH_SUMMARY_REFERENCE_OFFSET = 2;
 
 	/** Offset of value page reference. */
-	private static final int VALUE_REFERENCE_OFFSET = 2;
-
-	/** Offset of indirect page reference. */
-	private static final int INDIRECT_REFERENCE_OFFSET = 3;
+	private static final int VALUE_REFERENCE_OFFSET = 3;
 
 	/** Last allocated node key. */
 	private long mMaxNodeKey;
@@ -278,5 +285,101 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	public Page setDirty(final boolean pDirty) {
 		mDelegate.setDirty(pDirty);
 		return this;
+	}
+
+	/**
+	 * Initialize value tree.
+	 * 
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
+	 * @param revisionRoot
+	 *          {@link RevisionRootPage} instance
+	 */
+	public void createNodeTree(final @Nonnull PageReadTrx pageReadTrx) {
+		final PageReference reference = getIndirectPageReference();
+		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
+			createTree(reference, PageKind.NODEPAGE, pageReadTrx);
+			incrementMaxNodeKey();
+		}
+	}
+
+	/**
+	 * Initialize value tree.
+	 * 
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
+	 * @param revisionRoot
+	 *          {@link RevisionRootPage} instance
+	 */
+	public void createValueTree(final @Nonnull PageReadTrx pageReadTrx) {
+		final PageReference reference = getValuePageReference().getPage()
+				.getReference(INDIRECT_REFERENCE_OFFSET);
+		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
+			createTree(reference, PageKind.VALUEPAGE, pageReadTrx);
+			incrementMaxValueNodeKey();
+		}
+	}
+
+	/**
+	 * Initialize path summary tree.
+	 * 
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
+	 * @param revisionRoot
+	 *          {@link RevisionRootPage} instance
+	 */
+	public void createPathSummaryTree(final @Nonnull PageReadTrx pageReadTrx) {
+		final PageReference reference = getPathSummaryPageReference().getPage()
+				.getReference(INDIRECT_REFERENCE_OFFSET);
+		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
+			createTree(reference, PageKind.PATHSUMMARYPAGE, pageReadTrx);
+			incrementMaxPathNodeKey();
+		}
+	}
+
+	/**
+	 * Create the initial tree structure.
+	 * 
+	 * @param reference
+	 *          reference from revision root
+	 * @param pageKind
+	 *          the page kind
+	 */
+	private void createTree(@Nonnull PageReference reference,
+			final @Nonnull PageKind pageKind, final @Nonnull PageReadTrx pageReadTrx) {
+		Page page = null;
+
+		// Level page count exponent from the configuration.
+		final int[] levelPageCountExp = pageReadTrx.getUberPage().getPageCountExp(
+				pageKind);
+
+		// Remaining levels.
+		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
+			page = new IndirectPage(Constants.UBP_ROOT_REVISION_NUMBER);
+			reference.setPage(page);
+			reference.setPageKind(PageKind.INDIRECTPAGE);
+			reference = page.getReference(0);
+		}
+
+		final NodePage ndp = new NodePage(
+				Fixed.ROOT_PAGE_KEY.getStandardProperty(),
+				Constants.UBP_ROOT_REVISION_NUMBER, pageReadTrx);
+		ndp.setDirty(true);
+		reference.setPage(ndp);
+		reference.setNodePageKey(0);
+		reference.setPageKind(pageKind);
+
+		final Optional<SirixDeweyID> id = pageReadTrx.getSession()
+				.getResourceConfig().mDeweyIDsStored ? Optional.of(SirixDeweyID
+				.newRootID()) : Optional.<SirixDeweyID> absent();
+		final NodeDelegate nodeDel = new NodeDelegate(
+				Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, id);
+		final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
+				Fixed.NULL_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(),
+				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
+		ndp.setNode(new DocumentRootNode(nodeDel, strucDel));
 	}
 }

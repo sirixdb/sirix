@@ -336,13 +336,9 @@ public class DBNode extends AbstractTemporalNode {
 	@Override
 	public boolean isRoot() {
 		moveRtx();
-		boolean retVal = false;
 		// TODO: Actually it seems it must check if it's the document root node.
-		if (mRtx.getNode().getParentKey() == Fixed.NULL_NODE_KEY
-				.getStandardProperty()) {
-			retVal = true;
-		}
-		return retVal;
+		return mRtx.getNode().getParentKey() == Fixed.NULL_NODE_KEY
+				.getStandardProperty() ? true : false;
 	}
 
 	@Override

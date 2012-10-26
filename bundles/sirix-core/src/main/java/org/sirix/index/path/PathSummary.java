@@ -25,6 +25,7 @@ import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.NodeBase;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Constants;
@@ -108,7 +109,7 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public Node getNode() {
+	public ImmutableNode getNode() {
 		assertNotClosed();
 		// FIXME: Do not expose a mutable node.
 		return mCurrentNode;

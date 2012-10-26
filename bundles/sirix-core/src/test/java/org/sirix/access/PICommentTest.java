@@ -3,17 +3,21 @@ package org.sirix.access;
 import java.io.ByteArrayOutputStream;
 
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.utils.DocumentCreater;
 
-/** Processing instruction test. */
-public class PITest {
+/**
+ * Processing instruction/comment test.
+ * 
+ * @author Johannes Lichtenberger
+ */
+public class PICommentTest {
 
 	/** {@link Holder} reference. */
 	private Holder mHolder;
@@ -37,6 +41,6 @@ public class PITest {
 		final XMLSerializer serializer = new XMLSerializer.XMLSerializerBuilder(
 				mHolder.getSession(), out).build();
 		serializer.call();
-		System.out.println(out);
+		Assert.assertEquals(DocumentCreater.COMMENTPIXML, out.toString());
 	}
 }
