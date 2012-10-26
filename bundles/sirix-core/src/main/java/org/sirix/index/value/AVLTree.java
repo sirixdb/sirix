@@ -18,7 +18,7 @@ import org.sirix.node.NullNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.PageKind;
@@ -71,7 +71,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 		mClosed = false;
 
 		try {
-			Optional<? extends NodeBase> node = mPageWriteTrx.getNode(
+			Optional<? extends Record> node = mPageWriteTrx.getNode(
 					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), PageKind.VALUEPAGE);
 			if (node.isPresent()) {
 				mCurrentNode = (Node) node.get();

@@ -40,7 +40,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.io.berkeley.binding.PageBinding;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.page.NodePage;
+import org.sirix.page.RecordPage;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
 
@@ -139,12 +139,12 @@ public final class BerkeleyWriter implements Writer {
 	}
 
 	/**
-	 * Setting the last {@link NodePage} to the persistent storage.
+	 * Setting the last {@link RecordPage} to the persistent storage.
 	 * 
 	 * @param data
 	 *          key to be stored
 	 * @throws SirixIOException
-	 *           if can't set last {@link NodePage}
+	 *           if can't set last {@link RecordPage}
 	 */
 	private void setLastNodePage(@Nonnegative final long data)
 			throws SirixIOException {

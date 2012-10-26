@@ -23,7 +23,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.PageKind;
@@ -77,7 +77,7 @@ public final class PathSummary implements NodeReadTrx {
 		mClosed = false;
 		mSession = session;
 		try {
-			final Optional<? extends NodeBase> node = mPageReadTrx.getNode(
+			final Optional<? extends Record> node = mPageReadTrx.getNode(
 					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
 					PageKind.PATHSUMMARYPAGE);
 			if (node.isPresent()) {

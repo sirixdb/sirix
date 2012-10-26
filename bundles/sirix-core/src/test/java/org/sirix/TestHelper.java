@@ -53,7 +53,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind.DumbNode;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 import org.sirix.settings.CharsForSerializing;
 import org.sirix.utils.DocumentCreater;
 
@@ -334,7 +334,7 @@ public final class TestHelper {
 	 * 
 	 * @return a {@link DumbNode} with random values
 	 */
-	public static final NodeBase generateOne() {
+	public static final Record generateOne() {
 		return new DumbNode(TestHelper.random.nextInt(Integer.MAX_VALUE));
 	}
 }

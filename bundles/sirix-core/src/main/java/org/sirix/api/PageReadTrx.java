@@ -7,7 +7,7 @@ import org.sirix.cache.NodePageContainer;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
@@ -41,7 +41,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if an I/O error occured
 	 */
-	Optional<? extends NodeBase> getNode(final @Nonnegative long key,
+	Optional<? extends Record> getNode(final @Nonnegative long key,
 			final @Nonnull PageKind page) throws SirixIOException;
 
 	/**

@@ -8,12 +8,12 @@ import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 
 /**
- * Node kind interface.
+ * Persistenting a record.
  * 
  * @author Johannes Lichtenberger
  * 
  */
-public interface NodeKind {
+public interface RecordPersistenter {
 	/**
 	 * Deserializing a node using a {@link ByteArrayDataInput}.
 	 * 
@@ -23,7 +23,7 @@ public interface NodeKind {
 	 *          {@link PageReadTrx} instance
 	 * @return a {@link Node} instance
 	 */
-	NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+	Record deserialize(final @Nonnull ByteArrayDataInput source,
 			final @Nonnull PageReadTrx pageReadTrx);
 
 	/**
@@ -37,20 +37,6 @@ public interface NodeKind {
 	 *          {@link PageReadTrx} instance
 	 */
 	void serialize(final @Nonnull ByteArrayDataOutput sink,
-			final @Nonnull NodeBase toSerialize,
+			final @Nonnull Record toSerialize,
 			final @Nonnull PageReadTrx pageReadTrx);
-
-	/**
-	 * Get the nodeKind.
-	 * 
-	 * @return the unique kind
-	 */
-	byte getId();
-
-	/**
-	 * Get class of node.
-	 * 
-	 * @return class of node
-	 */
-	Class<? extends NodeBase> getNodeClass();
 }

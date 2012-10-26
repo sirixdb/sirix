@@ -43,9 +43,9 @@ import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
-import org.sirix.node.interfaces.NodeBase;
-import org.sirix.node.interfaces.NodeKind;
-import org.sirix.page.NodePage;
+import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.RecordPersistenter;
+import org.sirix.page.RecordPage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Fixed;
 
@@ -62,12 +62,12 @@ import com.google.common.io.ByteArrayDataOutput;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public enum Kind implements NodeKind {
+public enum Kind implements RecordPersistenter {
 
 	/** Node kind is element. */
 	ELEMENT((byte) 1, ElementNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, pageReadTrx);
@@ -100,7 +100,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final ElementNode node = (ElementNode) toSerialize;
 			serializeDelegate(node.getNodeDelegate(), sink, pageReadTrx);
@@ -122,7 +122,7 @@ public enum Kind implements NodeKind {
 	/** Node kind is attribute. */
 	ATTRIBUTE((byte) 2, AttributeNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, pageReadTrx);
@@ -143,7 +143,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final AttributeNode node = (AttributeNode) toSerialize;
 			serializeDelegate(node.getNodeDelegate(), sink, pageReadTrx);
@@ -155,7 +155,7 @@ public enum Kind implements NodeKind {
 	/** Node kind is namespace. */
 	NAMESPACE((byte) 13, NamespaceNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, pageReadTrx);
@@ -168,7 +168,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final NamespaceNode node = (NamespaceNode) toSerialize;
 			serializeDelegate(node.getNodeDelegate(), sink, pageReadTrx);
@@ -179,7 +179,7 @@ public enum Kind implements NodeKind {
 	/** Node kind is text. */
 	TEXT((byte) 3, TextNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, pageReadTrx);
@@ -203,7 +203,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final TextNode node = (TextNode) toSerialize;
 			serializeDelegate(node.getNodeDelegate(), sink, pageReadTrx);
@@ -218,7 +218,7 @@ public enum Kind implements NodeKind {
 	/** Node kind is processing instruction. */
 	PROCESSING((byte) 7, PINode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, pageReadTrx);
@@ -242,7 +242,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput pSink,
-				final @Nonnull NodeBase pToSerialize,
+				final @Nonnull Record pToSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final PINode node = (PINode) pToSerialize;
 			serializeDelegate(node.getNodeDelegate(), pSink, pageReadTrx);
@@ -255,7 +255,7 @@ public enum Kind implements NodeKind {
 	/** Node kind is comment. */
 	COMMENT((byte) 8, CommentNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, pageReadTrx);
@@ -279,7 +279,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final CommentNode node = (CommentNode) toSerialize;
 			serializeDelegate(node.getNodeDelegate(), sink, pageReadTrx);
@@ -295,7 +295,7 @@ public enum Kind implements NodeKind {
 	// Virtualize document root node?
 	DOCUMENT_ROOT((byte) 9, DocumentRootNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final NodeDelegate nodeDel = new NodeDelegate(
 					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
@@ -310,7 +310,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput pSink,
-				final @Nonnull NodeBase pToSerialize,
+				final @Nonnull Record pToSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final DocumentRootNode node = (DocumentRootNode) pToSerialize;
 			pSink.writeLong(node.getHash());
@@ -324,14 +324,14 @@ public enum Kind implements NodeKind {
 	/** Whitespace text. */
 	WHITESPACE((byte) 4, null) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase pToSerialize,
+				final @Nonnull Record pToSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
@@ -340,7 +340,7 @@ public enum Kind implements NodeKind {
 	/** Node kind is deleted node. */
 	DELETE((byte) 5, DeletedNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final NodeDelegate delegate = new NodeDelegate(getLong(source), 0, 0, 0,
 					Optional.<SirixDeweyID> absent());
@@ -349,7 +349,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase pToSerialize,
+				final @Nonnull Record pToSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			DeletedNode node = (DeletedNode) pToSerialize;
 			putLong(sink, node.getNodeKey());
@@ -359,14 +359,14 @@ public enum Kind implements NodeKind {
 	/** NullNode to support the Null Object pattern. */
 	NULL((byte) 6, NullNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput ink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
@@ -375,7 +375,7 @@ public enum Kind implements NodeKind {
 	/** Dumb node for testing. */
 	DUMB((byte) 20, DumbNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final long nodeKey = getLong(source);
 			return new DumbNode(nodeKey);
@@ -383,7 +383,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			putLong(sink, toSerialize.getNodeKey());
 		}
@@ -392,14 +392,14 @@ public enum Kind implements NodeKind {
 	/** AtomicKind. */
 	ATOMIC((byte) 15, AtomicValue.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase pToSerialize,
+				final @Nonnull Record pToSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
@@ -408,7 +408,7 @@ public enum Kind implements NodeKind {
 	/** Node kind is path node. */
 	PATH((byte) 16, PathNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source,
@@ -426,7 +426,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final PathNode node = (PathNode) toSerialize;
 			serializeDelegate(node.getNodeDelegate(), sink, pageReadTrx);
@@ -441,7 +441,7 @@ public enum Kind implements NodeKind {
 	/** Node kind is an AVL node. */
 	AVL((byte) 17, AVLNode.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final int size = source.readInt();
 			final byte[] value = new byte[size];
@@ -470,7 +470,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			@SuppressWarnings("unchecked")
 			final AVLNode<TextValue, TextReferences> node = (AVLNode<TextValue, TextReferences>) toSerialize;
@@ -497,7 +497,7 @@ public enum Kind implements NodeKind {
 	/** Node is a text value. */
 	TEXT_VALUE((byte) 18, TextValue.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final long nodeKey = getLong(source);
 			final long pathNodeKey = getLong(source);
@@ -508,7 +508,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final TextValue node = (TextValue) toSerialize;
 			putLong(sink, node.getNodeKey());
@@ -522,7 +522,7 @@ public enum Kind implements NodeKind {
 	/** Node includes text node references. */
 	TEXT_REFERENCES((byte) 19, TextReferences.class) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final long nodeKey = source.readLong();
 			final int size = source.readInt();
@@ -535,7 +535,7 @@ public enum Kind implements NodeKind {
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final TextReferences node = (TextReferences) toSerialize;
 			sink.writeLong(node.getNodeKey());
@@ -550,14 +550,14 @@ public enum Kind implements NodeKind {
 	/** Node type not known. */
 	UNKNOWN((byte) 21, null) {
 		@Override
-		public NodeBase deserialize(final @Nonnull ByteArrayDataInput source,
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull NodeBase toSerialize,
+				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
@@ -567,13 +567,13 @@ public enum Kind implements NodeKind {
 	private final byte mId;
 
 	/** Class. */
-	private final Class<? extends NodeBase> mClass;
+	private final Class<? extends Record> mClass;
 
 	/** Mapping of keys -> nodes. */
 	private static final Map<Byte, Kind> INSTANCEFORID = new HashMap<>();
 
 	/** Mapping of class -> nodes. */
-	private static final Map<Class<? extends NodeBase>, Kind> INSTANCEFORCLASS = new HashMap<>();
+	private static final Map<Class<? extends Record>, Kind> INSTANCEFORCLASS = new HashMap<>();
 
 	static {
 		for (final Kind node : values()) {
@@ -590,18 +590,26 @@ public enum Kind implements NodeKind {
 	 * @param clazz
 	 *          class
 	 */
-	private Kind(final byte pId, final @Nonnull Class<? extends NodeBase> clazz) {
+	private Kind(final byte pId, final @Nonnull Class<? extends Record> clazz) {
 		mId = pId;
 		mClass = clazz;
 	}
 
-	@Override
+	/**
+	 * Get the nodeKind.
+	 * 
+	 * @return the unique kind
+	 */
 	public byte getId() {
 		return mId;
 	}
 
-	@Override
-	public Class<? extends NodeBase> getNodeClass() {
+	/**
+	 * Get class of node.
+	 * 
+	 * @return class of node
+	 */
+	public Class<? extends Record> getNodeClass() {
 		return mClass;
 	}
 
@@ -623,7 +631,7 @@ public enum Kind implements NodeKind {
 	 *          the class for the node
 	 * @return the related node
 	 */
-	public static Kind getKind(final @Nonnull Class<? extends NodeBase> clazz) {
+	public static Kind getKind(final @Nonnull Class<? extends Record> clazz) {
 		return INSTANCEFORCLASS.get(clazz);
 	}
 
@@ -828,13 +836,13 @@ public enum Kind implements NodeKind {
 	}
 
 	/**
-	 * Simple DumbNode just for testing the {@link NodePage}s.
+	 * Simple DumbNode just for testing the {@link RecordPage}s.
 	 * 
 	 * @author Sebastian Graf, University of Konstanz
 	 * @author Johannes Lichtenberger
 	 * 
 	 */
-	public static class DumbNode implements NodeBase {
+	public static class DumbNode implements Record {
 
 		/** Node key. */
 		private final long mNodeKey;

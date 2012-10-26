@@ -5,9 +5,11 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
+import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.RecordPersistenter;
 
 import com.google.common.base.Optional;
 
@@ -17,7 +19,11 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger
  *
  */
-public interface ImmutableNode extends NodeBase {
+public interface ImmutableNode extends Record {
+	
+	@Override
+	Kind getKind();
+	
 	/**
 	 * Get the optional dewey ID
 	 * 

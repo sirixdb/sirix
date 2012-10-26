@@ -38,7 +38,7 @@ import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
-import org.sirix.page.NodePage;
+import org.sirix.page.RecordPage;
 import org.sirix.page.PagePersistenter;
 
 /**
@@ -67,9 +67,9 @@ public class PageContainerBinding extends TupleBinding<NodePageContainer> {
 		}
 		final ByteArrayDataInput source = ByteStreams.newDataInput(pInput
 				.getBufferBytes());
-		final NodePage current = (NodePage) PagePersistenter
+		final RecordPage current = (RecordPage) PagePersistenter
 				.deserializePage(source, mPageReadTrx);
-		final NodePage modified = (NodePage) PagePersistenter
+		final RecordPage modified = (RecordPage) PagePersistenter
 				.deserializePage(source, mPageReadTrx);
 		final NodePageContainer container = new NodePageContainer(current, modified);
 		return container;

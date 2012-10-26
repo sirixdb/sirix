@@ -40,8 +40,8 @@ import javax.annotation.Nullable;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
+import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 
@@ -51,19 +51,19 @@ import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 
 /**
- * <h1>NodePage</h1>
+ * <h1>RecordPage</h1>
  * 
  * <p>
- * A node page stores a set of nodes.
+ * A record page stores a set of records commonly nodes.
  * </p>
  */
-public class NodePage implements Page {
+public final class RecordPage implements Page {
 
-	/** Key of node page. This is the base key of all contained nodes. */
-	private final long mNodePageKey;
+	/** Key of record page. This is the base key of all contained nodes. */
+	private final long mRecordPageKey;
 
 	/** Nodes. */
-	private final Map<Long, NodeBase> mNodes;
+	private final Map<Long, Record> mNodes;
 
 	/** {@link PageDelegate} reference. */
 	private final int mRevision;
@@ -75,21 +75,20 @@ public class NodePage implements Page {
 	private final PageReadTrx mPageReadTrx;
 
 	/**
-	 * Create node page.
+	 * Create record page.
 	 * 
-	 * @param nodePageKey
+	 * @param recordPageKey
 	 *          base key assigned to this node page
 	 * @param revision
 	 *          revision the page belongs to
 	 */
-	public NodePage(final @Nonnegative long nodePageKey,
-			final @Nonnegative int revision,
-			final @Nonnull PageReadTrx pageReadTrx) {
-		assert nodePageKey >= 0 : "nodePageKey must not be negative!";
+	public RecordPage(final @Nonnegative long recordPageKey,
+			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
+		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
 		assert revision >= 0 : "revision must not be negative!";
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mRevision = revision;
-		mNodePageKey = nodePageKey;
+		mRecordPageKey = recordPageKey;
 		mNodes = new HashMap<>();
 		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
@@ -100,19 +99,19 @@ public class NodePage implements Page {
 	 * 
 	 * @param in
 	 *          input bytes to read page from
-	 * @param resourceConf
-	 *          resource configuration
+	 * @param pageReadTrx
+	 *          {@link 
 	 */
-	protected NodePage(final @Nonnull ByteArrayDataInput in,
+	protected RecordPage(final @Nonnull ByteArrayDataInput in,
 			final @Nonnull PageReadTrx pageReadTrx) {
 		mRevision = in.readInt();
-		mNodePageKey = in.readLong();
+		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mNodes = new HashMap<>(size);
+		final RecordPersistenter persistenter = pageReadTrx.getSession()
+				.getResourceConfig().mPersistenter;
 		for (int offset = 0; offset < size; offset++) {
-			final byte id = in.readByte();
-			final Kind enumKind = Kind.getKind(id);
-			final NodeBase node = enumKind.deserialize(in, pageReadTrx);
+			final Record node = persistenter.deserialize(in, pageReadTrx);
 			mNodes.put(node.getNodeKey(), node);
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
@@ -124,8 +123,8 @@ public class NodePage implements Page {
 	 * 
 	 * @return node page key
 	 */
-	public final long getNodePageKey() {
-		return mNodePageKey;
+	public long getNodePageKey() {
+		return mRecordPageKey;
 	}
 
 	/**
@@ -137,20 +136,18 @@ public class NodePage implements Page {
 	 * @throws IllegalArgumentException
 	 *           if {@code key < 0}
 	 */
-	public NodeBase getNode(final @Nonnegative long key) {
+	public Record getNode(final @Nonnegative long key) {
 		assert key >= 0 : "pKey must not be negative!";
 		return mNodes.get(key);
 	}
 
 	/**
-	 * Overwrite a single node at a given offset.
+	 * Store or overwrite a single node.
 	 * 
-	 * @param pKey
-	 *          key of node to overwrite in this node page
 	 * @param node
-	 *          node to store at given nodeOffset
+	 *          node to store
 	 */
-	public void setNode(final @Nonnull NodeBase node) {
+	public void setNode(final @Nonnull Record node) {
 		assert node != null : "node must not be null!";
 		mNodes.put(node.getNodeKey(), node);
 	}
@@ -158,21 +155,21 @@ public class NodePage implements Page {
 	@Override
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
 		out.writeInt(mRevision);
-		out.writeLong(mNodePageKey);
+		out.writeLong(mRecordPageKey);
 		out.writeInt(mNodes.size());
-		for (final NodeBase node : mNodes.values()) {
-			final byte id = node.getKind().getId();
-			out.writeByte(id);
-			Kind.getKind(node.getClass()).serialize(out, node, mPageReadTrx);
+		final RecordPersistenter persistenter = mPageReadTrx.getSession()
+				.getResourceConfig().mPersistenter;
+		for (final Record node : mNodes.values()) {
+			persistenter.serialize(out, node, mPageReadTrx);
 		}
 	}
 
 	@Override
 	public final String toString() {
 		final ToStringHelper helper = Objects.toStringHelper(this)
-				.add("revision", mRevision).add("pagekey", mNodePageKey)
+				.add("revision", mRevision).add("pagekey", mRecordPageKey)
 				.add("nodes", mNodes.toString());
-		for (final NodeBase node : mNodes.values()) {
+		for (final Record node : mNodes.values()) {
 			helper.add("node", node);
 		}
 		return helper.toString();
@@ -183,20 +180,20 @@ public class NodePage implements Page {
 	 * 
 	 * @return an entry set
 	 */
-	public final Set<Entry<Long, NodeBase>> entrySet() {
+	public final Set<Entry<Long, Record>> entrySet() {
 		return Collections.unmodifiableSet(mNodes.entrySet());
 	}
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mNodePageKey, mNodes);
+		return Objects.hashCode(mRecordPageKey, mNodes);
 	}
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof NodePage) {
-			final NodePage other = (NodePage) obj;
-			return Objects.equal(mNodePageKey, other.mNodePageKey)
+		if (obj instanceof RecordPage) {
+			final RecordPage other = (RecordPage) obj;
+			return Objects.equal(mRecordPageKey, other.mRecordPageKey)
 					&& Objects.equal(mNodes, other.mNodes);
 		}
 		return false;
@@ -222,7 +219,7 @@ public class NodePage implements Page {
 	 * 
 	 * @return a collection view of all nodes
 	 */
-	public Collection<NodeBase> values() {
+	public Collection<Record> values() {
 		return Collections.unmodifiableCollection(mNodes.values());
 	}
 

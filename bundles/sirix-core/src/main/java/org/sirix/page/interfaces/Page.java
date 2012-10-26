@@ -74,7 +74,7 @@ public interface Page {
 	 * @throws SirixException
 	 *           if something went wrong
 	 */
-	void commit(final @Nonnull PageWriteTrx pageWriteTrx) throws SirixException;
+	void commit(@Nonnull PageWriteTrx pageWriteTrx) throws SirixException;
 
 	/**
 	 * Get the {@link PageReference} at the specified offset
@@ -83,7 +83,7 @@ public interface Page {
 	 *          the offset
 	 * @return the {@link PageReference} at the specified offset
 	 */
-	PageReference getReference(final @Nonnegative int offset);
+	PageReference getReference(@Nonnegative int offset);
 
 	/**
 	 * Determines if a page is dirty meaning if it has been changed.
@@ -95,10 +95,10 @@ public interface Page {
 	/**
 	 * Set dirty flag (if page has been modified).
 	 * 
-	 * @param pDirty
+	 * @param dirty
 	 *          dirty or not
 	 * @return the page instance
 	 */
-	Page setDirty(final boolean pDirty);
+	Page setDirty(boolean dirty);
 
 }

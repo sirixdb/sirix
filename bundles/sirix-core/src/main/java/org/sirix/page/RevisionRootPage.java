@@ -361,7 +361,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 			reference = page.getReference(0);
 		}
 
-		final NodePage ndp = new NodePage(
+		final RecordPage ndp = new RecordPage(
 				Fixed.ROOT_PAGE_KEY.getStandardProperty(),
 				Constants.UBP_ROOT_REVISION_NUMBER, pageReadTrx);
 		ndp.setDirty(true);

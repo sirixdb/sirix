@@ -9,7 +9,7 @@ import org.sirix.cache.NodePageContainer;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
@@ -37,7 +37,7 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Optional<? extends NodeBase> getNode(@Nonnegative long key,
+	public Optional<? extends Record> getNode(@Nonnegative long key,
 			@Nonnull PageKind page) throws SirixIOException {
 		return delegate().getNode(key, page);
 	}

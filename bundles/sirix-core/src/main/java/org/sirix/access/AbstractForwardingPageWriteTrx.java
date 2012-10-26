@@ -8,7 +8,7 @@ import org.sirix.cache.NodePageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
@@ -27,13 +27,13 @@ public abstract class AbstractForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public NodeBase createNode(@Nonnull NodeBase node, @Nonnull PageKind page)
+	public Record createNode(@Nonnull Record node, @Nonnull PageKind page)
 			throws SirixIOException {
 		return delegate().createNode(node, page);
 	}
 
 	@Override
-	public NodeBase prepareNodeForModification(@Nonnegative long nodeKey,
+	public Record prepareNodeForModification(@Nonnegative long nodeKey,
 			@Nonnull PageKind page) throws SirixIOException {
 		return delegate().prepareNodeForModification(nodeKey, page);
 	}
@@ -63,9 +63,9 @@ public abstract class AbstractForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public void updateDateContainer(@Nonnull NodePageContainer nodePageContainer,
+	public void updateDataContainer(@Nonnull NodePageContainer nodePageContainer,
 			@Nonnull PageKind page) {
-		delegate().updateDateContainer(nodePageContainer, page);
+		delegate().updateDataContainer(nodePageContainer, page);
 	}
 
 	@Override

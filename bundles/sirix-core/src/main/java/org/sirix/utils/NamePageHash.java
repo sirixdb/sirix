@@ -43,16 +43,16 @@ public final class NamePageHash {
 		throw new AssertionError();
 	}
 
-	public static int[] generateOffsets(final int pStringKey) {
+	public static int[] generateOffsets(final int key) {
 		final int[] returnval = new int[2];
-		returnval[0] = pStringKey & 127;
+		returnval[0] = key & 127;
 
 		// final int secondKey = stringKey*(stringKey+3) % 67;
-		returnval[1] = (pStringKey >> 7) & 127;
+		returnval[1] = (key >> 7) & 127;
 		return returnval;
 	}
 
-	public static int generateHashForString(final String pString) {
-		return pString.hashCode();
+	public static int generateHashForString(final String name) {
+		return name.hashCode();
 	}
 }

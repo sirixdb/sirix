@@ -10,13 +10,13 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 
 /**
- * Interface for reading pages.
+ * Interface for writing pages.
  * 
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
@@ -42,7 +42,7 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code node} or {@code page} is {@code null}
 	 */
-	NodeBase createNode(@Nonnull NodeBase node, @Nonnull PageKind page)
+	Record createNode(@Nonnull Record node, @Nonnull PageKind page)
 			throws SirixIOException;
 
 	/**
@@ -60,7 +60,7 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code page} is {@code null}
 	 */
-	NodeBase prepareNodeForModification(@Nonnegative long nodeKey,
+	Record prepareNodeForModification(@Nonnegative long nodeKey,
 			@Nonnull PageKind page) throws SirixIOException;
 
 	/**
@@ -133,7 +133,7 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code nodePageCont} or {@code page} is {@code null}
 	 */
-	void updateDateContainer(@Nonnull NodePageContainer nodePageCont,
+	void updateDataContainer(@Nonnull NodePageContainer nodePageCont,
 			@Nonnull PageKind page);
 
 	/**

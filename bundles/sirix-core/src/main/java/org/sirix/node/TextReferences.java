@@ -9,7 +9,7 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
@@ -20,7 +20,7 @@ import com.google.common.base.Objects.ToStringHelper;
  * @author Johannes Lichtenberger
  * 
  */
-public class TextReferences implements NodeBase {
+public class TextReferences implements Record {
 	/** A {@link Set} of node-keys. */
 	private final Set<Long> mNodeKeys;
 

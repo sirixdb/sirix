@@ -54,10 +54,10 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
-import org.sirix.page.NodePage;
+import org.sirix.page.RecordPage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathSummaryPage;
@@ -314,7 +314,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public Optional<NodeBase> getNode(final @Nonnegative long nodeKey,
+	public Optional<Record> getNode(final @Nonnegative long nodeKey,
 			final @Nonnull PageKind pageKind) throws SirixIOException {
 		checkArgument(nodeKey >= 0);
 		checkNotNull(pageKind);
@@ -343,21 +343,21 @@ final class PageReadTrxImpl implements PageReadTrx {
 		}
 
 		if (cont.equals(NodePageContainer.EMPTY_INSTANCE)) {
-			return Optional.<NodeBase> absent();
+			return Optional.<Record> absent();
 		}
 
-		final NodeBase retVal = cont.getComplete().getNode(nodeKey);
+		final Record retVal = cont.getComplete().getNode(nodeKey);
 		return Optional.fromNullable(checkItemIfDeleted(retVal));
 	}
 
 	/**
-	 * Method to check if an {@link NodeBase} is deleted.
+	 * Method to check if an {@link Record} is deleted.
 	 * 
 	 * @param toCheck
 	 *          node to check
 	 * @return the {@code node} if it is valid, {@code null} otherwise
 	 */
-	final NodeBase checkItemIfDeleted(final @Nullable NodeBase toCheck) {
+	final Record checkItemIfDeleted(final @Nullable Record toCheck) {
 		if (toCheck instanceof DeletedNode) {
 			return null;
 		} else {
@@ -527,7 +527,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	/**
-	 * Dereference node page reference and get all leaves, the {@link NodePage}s
+	 * Dereference node page reference and get all leaves, the {@link RecordPage}s
 	 * from the revision-trees.
 	 * 
 	 * @param nodePageKey
@@ -537,7 +537,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws SirixIOException
 	 *           if an I/O-error occurs within the creation process
 	 */
-	final NodePage[] getSnapshotPages(final @Nonnegative long nodePageKey,
+	final RecordPage[] getSnapshotPages(final @Nonnegative long nodePageKey,
 			final @Nonnull PageKind page) throws SirixIOException {
 		assert nodePageKey >= 0;
 		assert page != null;
@@ -577,12 +577,12 @@ final class PageReadTrxImpl implements PageReadTrx {
 		}
 
 		// Afterwards read the NodePages if they are not dereferences...
-		final NodePage[] pages = new NodePage[refs.size()];
+		final RecordPage[] pages = new RecordPage[refs.size()];
 		for (int i = 0; i < pages.length; i++) {
 			final PageReference ref = refs.get(i);
-			pages[i] = (NodePage) ref.getPage();
+			pages[i] = (RecordPage) ref.getPage();
 			if (pages[i] == null) {
-				pages[i] = (NodePage) mPageReader.read(ref.getKey(), this);
+				pages[i] = (RecordPage) mPageReader.read(ref.getKey(), this);
 			}
 			ref.setPageKind(page);
 		}
@@ -743,14 +743,14 @@ final class PageReadTrxImpl implements PageReadTrx {
 	public NodePageContainer getNodeFromPage(final @Nonnegative long nodePageKey,
 			final @Nonnull PageKind pPage) throws SirixIOException {
 		assertNotClosed();
-		final NodePage[] revs = getSnapshotPages(nodePageKey, pPage);
+		final RecordPage[] revs = getSnapshotPages(nodePageKey, pPage);
 		if (revs.length == 0) {
 			return NodePageContainer.EMPTY_INSTANCE;
 		}
 
 		final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
 		final Revisioning revisioning = mResourceConfig.mRevisionKind;
-		final NodePage completePage = revisioning.combineNodePages(revs,
+		final RecordPage completePage = revisioning.combineNodePages(revs,
 				mileStoneRevision, this);
 		return new NodePageContainer(completePage);
 	}

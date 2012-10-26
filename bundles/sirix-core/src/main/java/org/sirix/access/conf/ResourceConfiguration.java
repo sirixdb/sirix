@@ -38,7 +38,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Set;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -50,6 +49,8 @@ import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.bytepipe.DeflateCompressor;
+import org.sirix.node.NodePersistenter;
+import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.settings.Revisioning;
 
 import com.google.common.base.Objects;
@@ -67,6 +68,7 @@ import com.google.gson.stream.JsonWriter;
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
  */
 public final class ResourceConfiguration {
 
@@ -170,6 +172,9 @@ public final class ResourceConfiguration {
 
 	/** Indexes to use. */
 	public static final EnumSet<Indexes> INDEXES = EnumSet.of(Indexes.PATH);
+
+	/** Persistenter for records. */
+	public static final RecordPersistenter PERSISTENTER = new NodePersistenter();
 	// END FIXED STANDARD FIELDS
 
 	// MEMBERS FOR FIXED FIELDS
@@ -200,6 +205,9 @@ public final class ResourceConfiguration {
 	/** Indexes to use. */
 	public final EnumSet<Indexes> mIndexes;
 
+	/** Persistents records / commonly nodes. */
+	public final RecordPersistenter mPersistenter;
+
 	/** Unique ID. */
 	private long mID;
 
@@ -228,6 +236,7 @@ public final class ResourceConfiguration {
 		mPath = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				builder.mResource);
+		mPersistenter = builder.mPersistenter;
 	}
 
 	/**
@@ -302,31 +311,31 @@ public final class ResourceConfiguration {
 	 */
 	private static final String[] JSONNAMES = { "revisioning",
 			"revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
-			"storageKind", "hashKind", "compression", "dbConfig", "ID",
-			"deweyIDsStored" };
+			"storageKind", "hashKind", "compression", "dbConfig", "resourceID",
+			"deweyIDsStored", "persistenter" };
 
 	/**
 	 * Serialize the configuration.
 	 * 
-	 * @param pConfig
+	 * @param config
 	 *          configuration to serialize
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public static void serialize(final @Nonnull ResourceConfiguration pConfig)
+	public static void serialize(final @Nonnull ResourceConfiguration config)
 			throws SirixIOException {
-		final File configFile = pConfig.getConfigFile();
+		final File configFile = config.getConfigFile();
 		try (final FileWriter fileWriter = new FileWriter(configFile);
 				final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
 			jsonWriter.beginObject();
 			// Versioning.
 			jsonWriter.name(JSONNAMES[0]);
 			jsonWriter.beginObject();
-			jsonWriter.name(JSONNAMES[1]).value(pConfig.mRevisionKind.name());
-			jsonWriter.name(JSONNAMES[2]).value(pConfig.mRevisionsToRestore);
+			jsonWriter.name(JSONNAMES[1]).value(config.mRevisionKind.name());
+			jsonWriter.name(JSONNAMES[2]).value(config.mRevisionsToRestore);
 			jsonWriter.endObject();
 			// ByteHandlers.
-			final ByteHandlePipeline byteHandler = pConfig.mByteHandler;
+			final ByteHandlePipeline byteHandler = config.mByteHandler;
 			jsonWriter.name(JSONNAMES[3]);
 			jsonWriter.beginArray();
 			for (final ByteHandler handler : byteHandler.getComponents()) {
@@ -334,29 +343,32 @@ public final class ResourceConfiguration {
 			}
 			jsonWriter.endArray();
 			// Storage type.
-			jsonWriter.name(JSONNAMES[4]).value(pConfig.mStorage.name());
+			jsonWriter.name(JSONNAMES[4]).value(config.mStorage.name());
 			// Hashing type.
-			jsonWriter.name(JSONNAMES[5]).value(pConfig.mHashKind.name());
+			jsonWriter.name(JSONNAMES[5]).value(config.mHashKind.name());
 			// Text compression.
-			jsonWriter.name(JSONNAMES[6]).value(pConfig.mCompression);
+			jsonWriter.name(JSONNAMES[6]).value(config.mCompression);
 			// Indexes.
 			jsonWriter.name(JSONNAMES[7]);
 			jsonWriter.beginArray();
-			for (final Indexes index : pConfig.mIndexes) {
+			for (final Indexes index : config.mIndexes) {
 				jsonWriter.value(index.name());
 			}
 			jsonWriter.endArray();
 			// ID.
-			jsonWriter.name(JSONNAMES[8]).value(pConfig.mID);
+			jsonWriter.name(JSONNAMES[8]).value(config.mID);
 			// Dewey IDs stored or not.
-			jsonWriter.name(JSONNAMES[9]).value(pConfig.mDeweyIDsStored);
+			jsonWriter.name(JSONNAMES[9]).value(config.mDeweyIDsStored);
+			// Persistenter.
+			jsonWriter.name(JSONNAMES[10]).value(
+					config.mPersistenter.getClass().getName());
 			jsonWriter.endObject();
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
 
 		// Database config.
-		DatabaseConfiguration.serialize(pConfig.mDBConfig);
+		DatabaseConfiguration.serialize(config.mDBConfig);
 	}
 
 	/**
@@ -364,16 +376,16 @@ public final class ResourceConfiguration {
 	 * storage. The order is important and the reader is passed through the
 	 * objects as visitor.
 	 * 
-	 * @param pFile
+	 * @param file
 	 *          where the resource lies in.
 	 * @return a complete {@link ResourceConfiguration} instance
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public static ResourceConfiguration deserialize(final @Nonnull File pFile)
+	public static ResourceConfiguration deserialize(final @Nonnull File file)
 			throws SirixIOException {
 		try {
-			final File configFiler = new File(pFile, Paths.CONFIG_BINARY.getFile()
+			final File configFiler = new File(file, Paths.CONFIG_BINARY.getFile()
 					.getName());
 			final FileReader fileReader = new FileReader(configFiler);
 			final JsonReader jsonReader = new JsonReader(fileReader);
@@ -432,21 +444,28 @@ public final class ResourceConfiguration {
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[9]);
 			final boolean deweyIDsStored = jsonReader.nextBoolean();
+			name = jsonReader.nextName();
+			assert name.equals(JSONNAMES[10]);
+			final Class<?> persistenterClazz = Class.forName(jsonReader.nextString());
+			final Constructor<?> persistenterConstr = persistenterClazz
+					.getConstructors()[0];
+			final RecordPersistenter persistenter = (RecordPersistenter) persistenterConstr
+					.newInstance();
 			jsonReader.endObject();
 			jsonReader.close();
 			fileReader.close();
 
 			// Deserialize database config.
 			final DatabaseConfiguration dbConfig = DatabaseConfiguration
-					.deserialize(pFile.getParentFile().getParentFile());
+					.deserialize(file.getParentFile().getParentFile());
 
 			// Builder.
 			final ResourceConfiguration.Builder builder = new ResourceConfiguration.Builder(
-					pFile.getName(), dbConfig);
+					file.getName(), dbConfig);
 			builder.setByteHandlerPipeline(pipeline).setHashKind(hashing)
 					.setIndexes(indexes).setRevisionKind(revisioning)
 					.setRevisionsToRestore(revisionToRestore).setType(storage)
-					.useTextCompression(compression);
+					.useTextCompression(compression).setPersistenter(persistenter);
 			if (deweyIDsStored) {
 				builder.useDeweyIDs(true);
 			}
@@ -477,6 +496,9 @@ public final class ResourceConfiguration {
 
 		/** Number of revisions to restore a complete set of data. */
 		private int mRevisionsToRestore = VERSIONSTORESTORE;
+
+		/** Record/Node persistenter. */
+		private RecordPersistenter mPersistenter = PERSISTENTER;
 
 		/** Resource for this session. */
 		private final String mResource;
@@ -522,6 +544,12 @@ public final class ResourceConfiguration {
 		 */
 		public Builder setType(final @Nonnull StorageType type) {
 			mType = checkNotNull(type);
+			return this;
+		}
+
+		public Builder setPersistenter(
+				final @Nonnull RecordPersistenter persistenter) {
+			mPersistenter = checkNotNull(persistenter);
 			return this;
 		}
 
@@ -581,7 +609,7 @@ public final class ResourceConfiguration {
 		 *          number of revisions to restore
 		 * @return reference to the builder object
 		 */
-		public Builder setRevisionsToRestore(@Nonnegative final int revToRestore) {
+		public Builder setRevisionsToRestore(final @Nonnegative int revToRestore) {
 			checkArgument(revToRestore > 0, "pRevisionsToRestore must be > 0!");
 			mRevisionsToRestore = revToRestore;
 			return this;

@@ -29,6 +29,7 @@ package org.sirix.node.interfaces;
 
 import javax.annotation.Nonnull;
 
+import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 
@@ -43,6 +44,9 @@ import com.google.common.base.Optional;
  */
 public interface Node extends ImmutableNode {
 
+	@Override
+	public Kind getKind();
+	
 	/**
 	 * Set a new DeweyID (may only be necessary during moves.)
 	 * 

@@ -33,7 +33,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.exception.SirixException;
-import org.sirix.page.NodePage;
+import org.sirix.page.RecordPage;
 
 /**
  * @author Sebastian Graf, University of Konstanz
@@ -58,7 +58,7 @@ public class LRUCacheTest {
 	public void test() {
 		for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
 			final NodePageContainer cont = cache.get((long) i);
-			final NodePage current = (NodePage) cont.getComplete();
+			final RecordPage current = (RecordPage) cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[i][0], current);
 		}
 

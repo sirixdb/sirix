@@ -1,14 +1,12 @@
 package org.sirix.node.interfaces;
 
-import org.sirix.node.Kind;
-
 /**
- * Base interface for all nodes (even binary nodes, etc.pp.).
+ * Base interface for all records.
  * 
  * @author Johannes Lichtenberger
  * 
  */
-public interface NodeBase {
+public interface Record {
 	/**
 	 * Get unique node key.
 	 * 
@@ -21,7 +19,7 @@ public interface NodeBase {
 	 * 
 	 * @return kind of node
 	 */
-	Kind getKind();
+	RecordPersistenter getKind();
 
 	/**
 	 * Get the revision this node has been inserted.

@@ -116,7 +116,8 @@ public final class NullNode implements StructNode {
 
 	@Override
 	public Kind getKind() {
-		return mNode.getKind();
+		// Node kind is always of type Kind.
+		return (Kind) mNode.getKind();
 	}
 
 	@Override

@@ -44,7 +44,6 @@ import org.sirix.node.ElementNode;
 import org.sirix.node.Kind;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.PINode;
-import org.sirix.node.SirixDeweyID;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.service.xml.xpath.AtomicValue;

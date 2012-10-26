@@ -64,7 +64,7 @@ import org.sirix.node.immutable.ImmutablePI;
 import org.sirix.node.immutable.ImmutableText;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -195,7 +195,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 
 		// Remember old node and fetch new one.
 		final Node oldNode = mCurrentNode;
-		Optional<? extends NodeBase> newNode;
+		Optional<? extends Record> newNode;
 		try {
 			// Immediately return node from item list if node key negative.
 			if (nodeKey < 0) {
@@ -205,7 +205,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 					newNode = Optional.absent();
 				}
 			} else {
-				final Optional<? extends NodeBase> node = mPageReadTrx.getNode(nodeKey,
+				final Optional<? extends Record> node = mPageReadTrx.getNode(nodeKey,
 						PageKind.NODEPAGE);
 				newNode = node;
 			}

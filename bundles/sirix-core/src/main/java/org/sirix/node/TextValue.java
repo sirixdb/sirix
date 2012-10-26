@@ -11,7 +11,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.node.interfaces.NodeBase;
+import org.sirix.node.interfaces.Record;
 
 /**
  * TextValue which saves the value of a text node.
@@ -19,7 +19,7 @@ import org.sirix.node.interfaces.NodeBase;
  * @author Johannes Lichtenberger
  * 
  */
-public class TextValue implements Comparable<NodeBase>, NodeBase {
+public class TextValue implements Comparable<Record>, Record {
 	/** Value in bytes. */
 	private final byte[] mValue;
 
@@ -57,7 +57,7 @@ public class TextValue implements Comparable<NodeBase>, NodeBase {
 	}
 
 	@Override
-	public int compareTo(final @Nullable NodeBase other) {
+	public int compareTo(final @Nullable Record other) {
 		final TextValue value = (TextValue) other;
 		return new String(mValue).compareTo(new String(value.mValue));
 	}

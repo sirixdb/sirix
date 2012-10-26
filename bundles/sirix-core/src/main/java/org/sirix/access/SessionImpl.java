@@ -562,7 +562,7 @@ public final class SessionImpl implements Session {
 
 		@Override
 		public Void call() throws Exception {
-			mPageWriteTrx.updateDateContainer(mCont, mPage);
+			mPageWriteTrx.updateDataContainer(mCont, mPage);
 			return null;
 		}
 	}

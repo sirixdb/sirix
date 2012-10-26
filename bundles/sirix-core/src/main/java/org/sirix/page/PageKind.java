@@ -44,12 +44,12 @@ public enum PageKind {
 	/**
 	 * {@link NodePage}.
 	 */
-	NODEPAGE((byte) 1, NodePage.class) {
+	NODEPAGE((byte) 1, RecordPage.class) {
 		@Override
 		@Nonnull
 		Page deserializePage(@Nonnull final ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new NodePage(source, pageReadTrx);
+			return new RecordPage(source, pageReadTrx);
 		}
 
 		@Override
@@ -63,9 +63,9 @@ public enum PageKind {
 		public @Nonnull
 		Page getInstance(@Nonnull final Page nodePage,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			assert nodePage instanceof NodePage;
-			final NodePage page = (NodePage) nodePage;
-			return new NodePage(page.getNodePageKey(), page.getRevision(),
+			assert nodePage instanceof RecordPage;
+			final RecordPage page = (RecordPage) nodePage;
+			return new RecordPage(page.getNodePageKey(), page.getRevision(),
 					pageReadTrx);
 		}
 	},
