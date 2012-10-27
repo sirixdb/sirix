@@ -26,7 +26,7 @@ import org.sirix.page.PageKind;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class GuavaCache implements Cache<Tuple, NodePageContainer> {
+public class GuavaCache implements Cache<Tuple, RecordPageContainer> {
 
 	/**
 	 * Determines after how many seconds to expire entries after the last access.
@@ -41,12 +41,12 @@ public class GuavaCache implements Cache<Tuple, NodePageContainer> {
 	/**
 	 * {@link LoadingCache} reference.
 	 */
-	private final LoadingCache<Tuple, NodePageContainer> mCache;
+	private final LoadingCache<Tuple, RecordPageContainer> mCache;
 
 	/**
 	 * Second cache.
 	 */
-	private final Cache<Tuple, NodePageContainer> mSecondCache;
+	private final Cache<Tuple, RecordPageContainer> mSecondCache;
 
 	/**
 	 * Constructor with second cache.
@@ -57,36 +57,36 @@ public class GuavaCache implements Cache<Tuple, NodePageContainer> {
 	 *          second fallback cache
 	 */
 	public GuavaCache(final @Nonnull PageReadTrx pageReadTransaction,
-			final @Nonnull Cache<Tuple, NodePageContainer> secondCache) {
+			final @Nonnull Cache<Tuple, RecordPageContainer> secondCache) {
 		checkNotNull(pageReadTransaction);
 		mSecondCache = checkNotNull(secondCache);
 
 		final CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder()
 				.maximumSize(MAX_SIZE)
 				.expireAfterAccess(EXPIRE_AFTER, TimeUnit.SECONDS);
-		builder.removalListener(new RemovalListener<Tuple, NodePageContainer>() {
+		builder.removalListener(new RemovalListener<Tuple, RecordPageContainer>() {
 			@Override
 			public void onRemoval(
-					@Nullable final RemovalNotification<Tuple, NodePageContainer> pRemoval) {
+					@Nullable final RemovalNotification<Tuple, RecordPageContainer> pRemoval) {
 				if (pRemoval != null) {
 					final Tuple tuple = pRemoval.getKey();
-					final NodePageContainer pageCont = pRemoval.getValue();
+					final RecordPageContainer pageCont = pRemoval.getValue();
 					if (tuple != null && pageCont != null)
 						secondCache.put(tuple, pageCont);
 				}
 			}
 		});
-		mCache = builder.build(new CacheLoader<Tuple, NodePageContainer>() {
+		mCache = builder.build(new CacheLoader<Tuple, RecordPageContainer>() {
 			@Override
-			public NodePageContainer load(final @Nullable Tuple key)
+			public RecordPageContainer load(final @Nullable Tuple key)
 					throws SirixIOException {
 				if (key == null) {
-					return NodePageContainer.EMPTY_INSTANCE;
+					return RecordPageContainer.EMPTY_INSTANCE;
 				}
 				final long nodePageKey = key.getKey();
 				final PageKind pageType = key.getPage();
 				if (pageType == null) {
-					return NodePageContainer.EMPTY_INSTANCE;
+					return RecordPageContainer.EMPTY_INSTANCE;
 				} else {
 					return pageReadTransaction.getNodeFromPage(nodePageKey, pageType);
 				}
@@ -101,7 +101,7 @@ public class GuavaCache implements Cache<Tuple, NodePageContainer> {
 	 *          {@link PageReadTrx} implementation to read pages
 	 */
 	public GuavaCache(@Nonnull final PageReadTrx pageReadTransaction) {
-		this(pageReadTransaction, new EmptyCache<Tuple, NodePageContainer>());
+		this(pageReadTransaction, new EmptyCache<Tuple, RecordPageContainer>());
 	}
 
 	@Override
@@ -111,14 +111,14 @@ public class GuavaCache implements Cache<Tuple, NodePageContainer> {
 	}
 
 	@Override
-	public synchronized NodePageContainer get(@Nonnull final Tuple key) {
+	public synchronized RecordPageContainer get(@Nonnull final Tuple key) {
 		try {
 			if (key.getKey() < 0) {
-				return NodePageContainer.EMPTY_INSTANCE;
+				return RecordPageContainer.EMPTY_INSTANCE;
 			}
-			NodePageContainer container = mCache.getIfPresent(key);
+			RecordPageContainer container = mCache.getIfPresent(key);
 			if (container != null
-					&& container.equals(NodePageContainer.EMPTY_INSTANCE)) {
+					&& container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
 				mCache.invalidate(key);
 				container = mCache.get(key);
 			} else if (container == null) {
@@ -136,12 +136,12 @@ public class GuavaCache implements Cache<Tuple, NodePageContainer> {
 
 	@Override
 	public void put(final @Nonnull Tuple key,
-			final @Nonnull NodePageContainer value) {
+			final @Nonnull RecordPageContainer value) {
 		mCache.put(key, value);
 	}
 
 	@Override
-	public ImmutableMap<Tuple, NodePageContainer> getAll(
+	public ImmutableMap<Tuple, RecordPageContainer> getAll(
 			final @Nonnull Iterable<? extends Tuple> keys) {
 		try {
 			return mCache.getAll(keys);
@@ -152,12 +152,12 @@ public class GuavaCache implements Cache<Tuple, NodePageContainer> {
 
 	@Override
 	public void toSecondCache() {
-		final ConcurrentMap<Tuple, NodePageContainer> cached = mCache.asMap();
+		final ConcurrentMap<Tuple, RecordPageContainer> cached = mCache.asMap();
 		mSecondCache.putAll(cached);
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Tuple, NodePageContainer> map) {
+	public void putAll(final @Nonnull Map<Tuple, RecordPageContainer> map) {
 		mCache.putAll(map);
 	}
 

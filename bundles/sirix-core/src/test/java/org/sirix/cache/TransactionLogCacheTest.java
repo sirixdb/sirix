@@ -39,7 +39,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.page.RecordPage;
 
 public class TransactionLogCacheTest {
-	private Cache<Long, NodePageContainer> cache;
+	private Cache<Long, RecordPageContainer> cache;
 
 	private PageReadTrx mPageReadTrx;
 
@@ -57,7 +57,7 @@ public class TransactionLogCacheTest {
 	@Test
 	public void test() {
 		for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
-			final NodePageContainer cont = cache.get((long) i);
+			final RecordPageContainer cont = cache.get((long) i);
 			final RecordPage current = cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[i][0], current);
 		}

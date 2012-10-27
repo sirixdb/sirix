@@ -9,7 +9,6 @@ import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
-import org.sirix.node.interfaces.RecordPersistenter;
 
 import com.google.common.base.Optional;
 

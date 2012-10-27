@@ -7,6 +7,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
+import org.sirix.index.value.interfaces.MutableAVLNode;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
@@ -16,7 +17,7 @@ import org.sirix.settings.Fixed;
  * AVLNode.
  */
 public class AVLNode<K extends Comparable<? super K>, V> extends
-		AbstractForwardingNode {
+		AbstractForwardingNode implements MutableAVLNode<K, V> {
 	/** Key token. */
 	private K mKey;
 
@@ -60,20 +61,12 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
 		return mNodeDelegate;
 	}
 
-	/**
-	 * Key to be indexed.
-	 * 
-	 * @return key reference
-	 */
+	@Override
 	public K getKey() {
 		return mKey;
 	}
 
-	/**
-	 * Value to be indexed.
-	 * 
-	 * @return key reference
-	 */
+	@Override
 	public V getValue() {
 		return mValue;
 	}
@@ -88,58 +81,37 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
 		return mChanged;
 	}
 
-	/**
-	 * Flag which determines if node is changed.
-	 * 
-	 * @param pChanged
-	 *          flag which indicates if node is changed or not
-	 */
-	public void setChanged(final boolean pChanged) {
-		mChanged = pChanged;
+	@Override
+	public void setChanged(final boolean changed) {
+		mChanged = changed;
 	}
 
+	@Override
 	public boolean hasLeftChild() {
 		return mLeft != Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
+	@Override
 	public boolean hasRightChild() {
 		return mRight != Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
-	/**
-	 * Get left child.
-	 * 
-	 * @return left child pointer
-	 */
+	@Override
 	public long getLeftChildKey() {
 		return mLeft;
 	}
 
-	/**
-	 * Get right child.
-	 * 
-	 * @return right child pointer
-	 */
+	@Override
 	public long getRightChildKey() {
 		return mRight;
 	}
 
-	/**
-	 * Set left child.
-	 * 
-	 * @param left
-	 *          child pointer
-	 */
+	@Override
 	public void setLeftChildKey(final long left) {
 		mLeft = left;
 	}
 
-	/**
-	 * Set right child.
-	 * 
-	 * @param right
-	 *          child pointer
-	 */
+	@Override
 	public void setRightChildKey(final long right) {
 		mLeft = right;
 	}

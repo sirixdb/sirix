@@ -60,7 +60,7 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class NodePageContainer {
+public final class RecordPageContainer {
 
 	/** {@link RecordPage} reference, which references the complete node page. */
 	private final RecordPage mComplete;
@@ -69,10 +69,10 @@ public final class NodePageContainer {
 	private final RecordPage mModified;
 
 	/** Empty instance. */
-	public static final NodePageContainer EMPTY_INSTANCE = new NodePageContainer();
+	public static final RecordPageContainer EMPTY_INSTANCE = new RecordPageContainer();
 
 	/** Private constructor for empty instance. */
-	private NodePageContainer() {
+	private RecordPageContainer() {
 		mComplete = null;
 		mModified = null;
 	}
@@ -85,8 +85,8 @@ public final class NodePageContainer {
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} instance
 	 */
-	public NodePageContainer(final @Nonnull RecordPage complete) {
-		this(complete, new RecordPage(complete.getNodePageKey(),
+	public RecordPageContainer(final @Nonnull RecordPage complete) {
+		this(complete, new RecordPage(complete.getRecordPageKey(),
 				complete.getRevision(), complete.getPageReadTrx()));
 	}
 
@@ -98,7 +98,7 @@ public final class NodePageContainer {
 	 * @param modifying
 	 *          to be used as a base for this container
 	 */
-	public NodePageContainer(final @Nonnull RecordPage complete,
+	public RecordPageContainer(final @Nonnull RecordPage complete,
 			final @Nonnull RecordPage modifying) {
 		assert complete != null;
 		assert modifying != null;
@@ -144,8 +144,8 @@ public final class NodePageContainer {
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof NodePageContainer) {
-			final NodePageContainer other = (NodePageContainer) obj;
+		if (obj instanceof RecordPageContainer) {
+			final RecordPageContainer other = (RecordPageContainer) obj;
 			return Objects.equal(mComplete, other.mComplete)
 					&& Objects.equal(mModified, other.mModified);
 		}

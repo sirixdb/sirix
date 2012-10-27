@@ -43,7 +43,7 @@ import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
 
 /**
- * Binding for {@link NodePageContainer} reference.
+ * Binding for {@link RecordPageContainer} reference.
  */
 public class PageBinding extends TupleBinding<Page> {
 

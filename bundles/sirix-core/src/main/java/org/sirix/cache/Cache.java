@@ -57,8 +57,8 @@ public interface Cache<K, V> {
 	 * Getting a value related to a given key.
 	 * 
 	 * @param key
-	 *          the key for the requested {@link NodePageContainer}
-	 * @return {@link NodePageContainer} instance related to this key
+	 *          the key for the requested {@link RecordPageContainer}
+	 * @return {@link RecordPageContainer} instance related to this key
 	 */
 	V get(@Nonnull K key);
 

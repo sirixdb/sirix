@@ -45,7 +45,7 @@ public class CacheTestHelper {
 	
 	protected static RecordPage[][] PAGES;
 
-	public static void setUp(final Cache<Long, NodePageContainer> cache)
+	public static void setUp(final Cache<Long, RecordPageContainer> cache)
 			throws SirixException {
 		PAGE_READ_TRX = Holder.generateSession().getSession().beginPageReadTrx();
 		PAGES = new RecordPage[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
@@ -58,7 +58,7 @@ public class CacheTestHelper {
 				revs[j] = PAGES[i][j + 1];
 			}
 			PAGES[i][0] = page;
-			cache.put((long) i, new NodePageContainer(page));
+			cache.put((long) i, new RecordPageContainer(page));
 		}
 	}
 

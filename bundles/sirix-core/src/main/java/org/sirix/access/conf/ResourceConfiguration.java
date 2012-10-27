@@ -162,7 +162,7 @@ public final class ResourceConfiguration {
 	public static final StorageType STORAGE = StorageType.FILE;
 
 	/** Standard Versioning Approach. */
-	public static final Revisioning VERSIONING = Revisioning.INCREMENTAL;
+	public static final Revisioning VERSIONING = Revisioning.FULL;
 
 	/** Type of hashing. */
 	public static final HashKind HASHKIND = HashKind.ROLLING;
@@ -213,7 +213,6 @@ public final class ResourceConfiguration {
 
 	/** Determines if dewey IDs should be stored or not. */
 	public final boolean mDeweyIDsStored;
-
 	// END MEMBERS FOR FIXED FIELDS
 
 	/**

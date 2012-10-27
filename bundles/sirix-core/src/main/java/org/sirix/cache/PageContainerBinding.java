@@ -42,9 +42,9 @@ import org.sirix.page.RecordPage;
 import org.sirix.page.PagePersistenter;
 
 /**
- * Binding for {@link NodePageContainer} reference.
+ * Binding for {@link RecordPageContainer} reference.
  */
-public class PageContainerBinding extends TupleBinding<NodePageContainer> {
+public class PageContainerBinding extends TupleBinding<RecordPageContainer> {
 
 	/** {@link ResourceConfiguration} instance. */
 	private final PageReadTrx mPageReadTrx;
@@ -61,9 +61,9 @@ public class PageContainerBinding extends TupleBinding<NodePageContainer> {
 	}
 	
 	@Override
-	public NodePageContainer entryToObject(final @Nullable TupleInput pInput) {
+	public RecordPageContainer entryToObject(final @Nullable TupleInput pInput) {
 		if (pInput == null) {
-			return NodePageContainer.EMPTY_INSTANCE;
+			return RecordPageContainer.EMPTY_INSTANCE;
 		}
 		final ByteArrayDataInput source = ByteStreams.newDataInput(pInput
 				.getBufferBytes());
@@ -71,12 +71,12 @@ public class PageContainerBinding extends TupleBinding<NodePageContainer> {
 				.deserializePage(source, mPageReadTrx);
 		final RecordPage modified = (RecordPage) PagePersistenter
 				.deserializePage(source, mPageReadTrx);
-		final NodePageContainer container = new NodePageContainer(current, modified);
+		final RecordPageContainer container = new RecordPageContainer(current, modified);
 		return container;
 	}
 
 	@Override
-	public void objectToEntry(final @Nullable NodePageContainer pPageContainer,
+	public void objectToEntry(final @Nullable RecordPageContainer pPageContainer,
 			final @Nullable TupleOutput pOutput) {
 		if (pPageContainer != null && pOutput != null) {
 			pPageContainer.serialize(pOutput);

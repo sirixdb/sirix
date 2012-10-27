@@ -42,7 +42,7 @@ import org.sirix.exception.SirixException;
  */
 public class RAMCacheTest {
 
-	private Cache<Long, NodePageContainer> cache;
+	private Cache<Long, RecordPageContainer> cache;
 
 	@Before
 	public void setUp() throws SirixException {

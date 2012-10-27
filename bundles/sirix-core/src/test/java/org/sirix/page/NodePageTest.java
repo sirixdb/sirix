@@ -80,7 +80,7 @@ public class NodePageTest {
 	@Test
 	public void testSerializeDeserialize() {
 		final RecordPage page1 = new RecordPage(0L, 0, mPageReadTrx);
-		assertEquals(0L, page1.getNodePageKey());
+		assertEquals(0L, page1.getRecordPageKey());
 
 		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0,
 				Optional.of(SirixDeweyID.newRootID()));

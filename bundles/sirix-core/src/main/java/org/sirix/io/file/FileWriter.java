@@ -85,29 +85,29 @@ public final class FileWriter implements Writer {
 	 * Write page contained in page reference to storage.
 	 * 
 	 * @param pageReference
-	 *          Page reference to write.
+	 *          page reference to write
 	 * @throws SirixIOException
-	 *           due to errors during writing.
+	 *           if errors during writing occur
 	 */
 	@Override
-	public long write(@Nonnull final PageReference pPageReference)
+	public long write(@Nonnull final PageReference pageReference)
 			throws SirixIOException {
 		// Serialise page.
-		final Page page = pPageReference.getPage();
+		final Page page = pageReference.getPage();
 		assert page != null;
 		final ByteArrayDataOutput output = ByteStreams.newDataOutput();
 		PagePersistenter.serializePage(output, page);
 
 		// Perform byte operations.
 		try {
-			final byte[] decryptedPage = mReader.mByteHandler.serialize(output
+			final byte[] serializedPage = mReader.mByteHandler.serialize(output
 					.toByteArray());
 
-			final byte[] writtenPage = new byte[decryptedPage.length
+			final byte[] writtenPage = new byte[serializedPage.length
 					+ FileReader.OTHER_BEACON];
 			final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
-			buffer.putInt(decryptedPage.length);
-			buffer.put(decryptedPage);
+			buffer.putInt(serializedPage.length);
+			buffer.put(serializedPage);
 			buffer.position(0);
 			buffer.get(writtenPage, 0, writtenPage.length);
 
@@ -119,7 +119,7 @@ public final class FileWriter implements Writer {
 			mFile.write(writtenPage);
 
 			// Remember page coordinates.
-			pPageReference.setKey(offset);
+			pageReference.setKey(offset);
 			return offset;
 		} catch (final IOException e) {
 			throw new SirixIOException(e);

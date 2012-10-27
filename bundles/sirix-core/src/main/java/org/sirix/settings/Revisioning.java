@@ -33,7 +33,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
-import org.sirix.cache.NodePageContainer;
+import org.sirix.cache.RecordPageContainer;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.RecordPage;
 
@@ -60,11 +60,11 @@ public enum Revisioning {
 		}
 
 		@Override
-		public NodePageContainer combineNodePagesForModification(
+		public RecordPageContainer combineNodePagesForModification(
 				final @Nonnull RecordPage[] pages,
 				final @Nonnegative int mileStoneRevision,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			final long nodePageKey = pages[0].getNodePageKey();
+			final long nodePageKey = pages[0].getRecordPageKey();
 			final RecordPage[] returnVal = {
 					new RecordPage(nodePageKey, pages[0].getRevision() + 1, pageReadTrx),
 					new RecordPage(nodePageKey, pages[0].getRevision() + 1, pageReadTrx) };
@@ -74,7 +74,7 @@ public enum Revisioning {
 				returnVal[1].setNode(nodes);
 			}
 
-			final NodePageContainer cont = new NodePageContainer(returnVal[0],
+			final RecordPageContainer cont = new RecordPageContainer(returnVal[0],
 					returnVal[1]);
 			return cont;
 		}
@@ -90,14 +90,17 @@ public enum Revisioning {
 				final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.length <= 2;
-			final long nodePageKey = pages[0].getNodePageKey();
+			final long nodePageKey = pages[0].getRecordPageKey();
 			final RecordPage returnVal = new RecordPage(nodePageKey,
 					pages[0].getRevision(), pageReadTrx);
+			if (pages.length == 2) {
+				returnVal.setDirty(true);
+			}
 			final RecordPage latest = pages[0];
 			RecordPage fullDump = pages.length == 1 ? pages[0] : pages[1];
 
-			assert latest.getNodePageKey() == nodePageKey;
-			assert fullDump.getNodePageKey() == nodePageKey;
+			assert latest.getRecordPageKey() == nodePageKey;
+			assert fullDump.getRecordPageKey() == nodePageKey;
 
 			for (final Record node : fullDump.values()) {
 				returnVal.setNode(node);
@@ -110,11 +113,11 @@ public enum Revisioning {
 		}
 
 		@Override
-		public NodePageContainer combineNodePagesForModification(
+		public RecordPageContainer combineNodePagesForModification(
 				final @Nonnull RecordPage[] pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.length <= 2;
-			final long nodePageKey = pages[0].getNodePageKey();
+			final long nodePageKey = pages[0].getRecordPageKey();
 			final RecordPage[] returnVal = {
 					new RecordPage(nodePageKey, pages[0].getRevision() + 1, pageReadTrx),
 					new RecordPage(nodePageKey, pages[0].getRevision() + 1, pageReadTrx) };
@@ -137,7 +140,7 @@ public enum Revisioning {
 				returnVal[1].setNode(node);
 			}
 
-			final NodePageContainer cont = new NodePageContainer(returnVal[0],
+			final RecordPageContainer cont = new RecordPageContainer(returnVal[0],
 					returnVal[1]);
 			return cont;
 		}
@@ -153,21 +156,20 @@ public enum Revisioning {
 				final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.length <= revToRestore;
-			final long nodePageKey = pages[0].getNodePageKey();
+			final long nodePageKey = pages[0].getRecordPageKey();
 			final RecordPage returnVal = new RecordPage(nodePageKey,
 					pages[0].getRevision(), pageReadTrx);
+			if (pages.length > 1) {
+				returnVal.setDirty(true);
+			}
 
 			for (final RecordPage page : pages) {
-				assert page.getNodePageKey() == nodePageKey;
+				assert page.getRecordPageKey() == nodePageKey;
 				for (final Entry<Long, Record> node : page.entrySet()) {
 					final long nodeKey = node.getKey();
 					if (returnVal.getNode(nodeKey) == null) {
 						returnVal.setNode(node.getValue());
 					}
-				}
-
-				if (page.getRevision() % revToRestore == 0) {
-					break;
 				}
 			}
 
@@ -175,16 +177,16 @@ public enum Revisioning {
 		}
 
 		@Override
-		public NodePageContainer combineNodePagesForModification(
+		public RecordPageContainer combineNodePagesForModification(
 				final @Nonnull RecordPage[] pages, final int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			final long nodePageKey = pages[0].getNodePageKey();
+			final long nodePageKey = pages[0].getRecordPageKey();
 			final RecordPage[] returnVal = {
 					new RecordPage(nodePageKey, pages[0].getRevision() + 1, pageReadTrx),
 					new RecordPage(nodePageKey, pages[0].getRevision() + 1, pageReadTrx) };
 
 			for (final RecordPage page : pages) {
-				assert page.getNodePageKey() == nodePageKey;
+				assert page.getRecordPageKey() == nodePageKey;
 
 				for (final Entry<Long, Record> node : page.entrySet()) {
 					// Caching the complete page.
@@ -200,7 +202,7 @@ public enum Revisioning {
 				}
 			}
 
-			final NodePageContainer cont = new NodePageContainer(returnVal[0],
+			final RecordPageContainer cont = new RecordPageContainer(returnVal[0],
 					returnVal[1]);
 			return cont;
 		}
@@ -229,10 +231,10 @@ public enum Revisioning {
 	 *          the base of the complete {@link RecordPage}
 	 * @param mileStoneRevision
 	 *          the revision needed to build up the complete milestone
-	 * @return a {@link NodePageContainer} holding a complete {@link RecordPage} for
+	 * @return a {@link RecordPageContainer} holding a complete {@link RecordPage} for
 	 *         reading and one for writing
 	 */
-	public abstract NodePageContainer combineNodePagesForModification(
+	public abstract RecordPageContainer combineNodePagesForModification(
 			final @Nonnull RecordPage[] pages,
 			final @Nonnegative int mileStoneRevision,
 			final @Nonnull PageReadTrx pageReadTrx);

@@ -52,10 +52,10 @@ import com.google.common.collect.ImmutableMap;
  * 
  */
 public final class TransactionLogCache implements
-		Cache<Long, NodePageContainer> {
+		Cache<Long, RecordPageContainer> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<Long, NodePageContainer> mFirstCache;
+	private final LRUCache<Long, RecordPageContainer> mFirstCache;
 
 	/** Persistend second cache. */
 	private final BerkeleyPersistenceCache mSecondCache;
@@ -103,9 +103,9 @@ public final class TransactionLogCache implements
 	}
 
 	@Override
-	public ImmutableMap<Long, NodePageContainer> getAll(
+	public ImmutableMap<Long, RecordPageContainer> getAll(
 			final @Nonnull Iterable<? extends Long> pKeys) {
-		final ImmutableMap.Builder<Long, NodePageContainer> builder = new ImmutableMap.Builder<>();
+		final ImmutableMap.Builder<Long, RecordPageContainer> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
 			for (final Long key : pKeys) {
@@ -130,13 +130,13 @@ public final class TransactionLogCache implements
 	}
 
 	@Override
-	public NodePageContainer get(final @Nonnull Long pKey) {
-		NodePageContainer container = NodePageContainer.EMPTY_INSTANCE;
+	public RecordPageContainer get(final @Nonnull Long pKey) {
+		RecordPageContainer container = RecordPageContainer.EMPTY_INSTANCE;
 		try {
 			mReadLock.lock();
 			container = mFirstCache.get(pKey);
 			if (container == null) {
-				container = NodePageContainer.EMPTY_INSTANCE;
+				container = RecordPageContainer.EMPTY_INSTANCE;
 			}
 		} finally {
 			mReadLock.unlock();
@@ -146,7 +146,7 @@ public final class TransactionLogCache implements
 
 	@Override
 	public void put(final @Nonnull Long key,
-			final @Nonnull NodePageContainer value) {
+			final @Nonnull RecordPageContainer value) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(key, value);
@@ -156,7 +156,7 @@ public final class TransactionLogCache implements
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, NodePageContainer> map) {
+	public void putAll(final @Nonnull Map<Long, RecordPageContainer> map) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.putAll(map);

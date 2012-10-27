@@ -46,7 +46,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.Session;
-import org.sirix.cache.NodePageContainer;
+import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.TransactionLogCache;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
@@ -57,10 +57,10 @@ import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
-import org.sirix.page.RecordPage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathSummaryPage;
+import org.sirix.page.RecordPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.ValuePage;
@@ -95,13 +95,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 	private final RevisionRootPage mRootPage;
 
 	/** Internal reference to node cache. */
-	private final LoadingCache<Long, NodePageContainer> mNodeCache;
+	private final LoadingCache<Long, RecordPageContainer> mNodeCache;
 
 	/** Internal reference to path cache. */
-	private final LoadingCache<Long, NodePageContainer> mPathCache;
+	private final LoadingCache<Long, RecordPageContainer> mPathCache;
 
 	/** Internal reference to value cache. */
-	private final LoadingCache<Long, NodePageContainer> mValueCache;
+	private final LoadingCache<Long, RecordPageContainer> mValueCache;
 
 	/** Internal reference to page cache. */
 	private final LoadingCache<Long, Page> mPageCache;
@@ -180,11 +180,12 @@ final class PageReadTrxImpl implements PageReadTrx {
 		mNodeCache = CacheBuilder.newBuilder().maximumSize(1000)
 				.expireAfterWrite(5000, TimeUnit.SECONDS)
 				.expireAfterAccess(5000, TimeUnit.SECONDS).concurrencyLevel(1)
-				.build(new CacheLoader<Long, NodePageContainer>() {
-					public NodePageContainer load(final Long pKey) throws SirixException {
-						final NodePageContainer container = mNodeLog.isPresent() ? mNodeLog
-								.get().get(pKey) : NodePageContainer.EMPTY_INSTANCE;
-						if (container.equals(NodePageContainer.EMPTY_INSTANCE)) {
+				.build(new CacheLoader<Long, RecordPageContainer>() {
+					public RecordPageContainer load(final Long pKey)
+							throws SirixException {
+						final RecordPageContainer container = mNodeLog.isPresent() ? mNodeLog
+								.get().get(pKey) : RecordPageContainer.EMPTY_INSTANCE;
+						if (container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
 							return getNodeFromPage(pKey, PageKind.NODEPAGE);
 						} else {
 							return container;
@@ -194,11 +195,11 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder()
 				.concurrencyLevel(1).maximumSize(20);
 		if (mIndexes.contains(Indexes.PATH)) {
-			mPathCache = builder.build(new CacheLoader<Long, NodePageContainer>() {
-				public NodePageContainer load(final Long pKey) throws SirixException {
-					final NodePageContainer container = mPathLog.isPresent() ? mPathLog
-							.get().get(pKey) : NodePageContainer.EMPTY_INSTANCE;
-					if (container.equals(NodePageContainer.EMPTY_INSTANCE)) {
+			mPathCache = builder.build(new CacheLoader<Long, RecordPageContainer>() {
+				public RecordPageContainer load(final Long pKey) throws SirixException {
+					final RecordPageContainer container = mPathLog.isPresent() ? mPathLog
+							.get().get(pKey) : RecordPageContainer.EMPTY_INSTANCE;
+					if (container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
 						return getNodeFromPage(pKey, PageKind.PATHSUMMARYPAGE);
 					} else {
 						return container;
@@ -209,11 +210,11 @@ final class PageReadTrxImpl implements PageReadTrx {
 			mPathCache = null;
 		}
 		if (mIndexes.contains(Indexes.VALUE)) {
-			mValueCache = builder.build(new CacheLoader<Long, NodePageContainer>() {
-				public NodePageContainer load(final Long pKey) throws SirixException {
-					final NodePageContainer container = mValueLog.isPresent() ? mValueLog
+			mValueCache = builder.build(new CacheLoader<Long, RecordPageContainer>() {
+				public RecordPageContainer load(final Long pKey) throws SirixException {
+					final RecordPageContainer container = mValueLog.isPresent() ? mValueLog
 							.get().get(pKey) : null;
-					if (NodePageContainer.EMPTY_INSTANCE.equals(container)) {
+					if (RecordPageContainer.EMPTY_INSTANCE.equals(container)) {
 						return getNodeFromPage(pKey, PageKind.VALUEPAGE);
 					} else {
 						return container;
@@ -323,7 +324,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final long nodePageKey = nodePageKey(nodeKey);
 		// final int nodePageOffset = nodePageOffset(pNodeKey);
 
-		NodePageContainer cont;
+		RecordPageContainer cont;
 		try {
 			switch (pageKind) {
 			case NODEPAGE:
@@ -342,7 +343,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			throw new SirixIOException(e);
 		}
 
-		if (cont.equals(NodePageContainer.EMPTY_INSTANCE)) {
+		if (cont.equals(RecordPageContainer.EMPTY_INSTANCE)) {
 			return Optional.<Record> absent();
 		}
 
@@ -538,28 +539,37 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *           if an I/O-error occurs within the creation process
 	 */
 	final RecordPage[] getSnapshotPages(final @Nonnegative long nodePageKey,
-			final @Nonnull PageKind page) throws SirixIOException {
+			final @Nonnull PageKind pageKind) throws SirixIOException {
 		assert nodePageKey >= 0;
-		assert page != null;
+		assert pageKind != null;
 		// TODO:
-		final List<PageReference> refs = new ArrayList<>();
+		final List<RecordPage> pages = new ArrayList<>();
 		final Set<Long> keys = new HashSet<>();
 		final ResourceConfiguration config = mSession.getResourceConfig();
 		final int revsToRestore = config.mRevisionsToRestore;
 		for (int i = mRootPage.getRevision(); i >= 0; i--) {
-			final PageReference tmpRef = getPageReference(loadRevRoot(i), page);
-			final PageReference ref = dereferenceLeafOfTree(tmpRef, nodePageKey, page);
+			final PageReference tmpRef = getPageReference(loadRevRoot(i), pageKind);
+			final PageReference ref = dereferenceLeafOfTree(tmpRef, nodePageKey,
+					pageKind);
 			if (ref != null
 					&& (ref.getPage() != null || ref.getKey() != Constants.NULL_ID)) {
+				// Probably save page.
 				if (ref.getKey() == Constants.NULL_ID || (!keys.contains(ref.getKey()))) {
-					refs.add(ref);
+					final RecordPage page = (RecordPage) (ref.getPage() == null ? mPageReader
+							.read(ref.getKey(), this) : ref.getPage());
+					ref.setPageKind(pageKind);
+					pages.add(page);
 					if (ref.getKey() != Constants.NULL_ID) {
 						keys.add(ref.getKey());
 					}
+					if (page.entrySet().size() == Constants.NDP_NODE_COUNT) {
+						// Page is full, thus we can skip reconstructing pages with elder versions.
+						break;
+					}
 				}
-				if (refs.size() == revsToRestore
+				if (pages.size() == revsToRestore
 						|| config.mRevisionKind == Revisioning.FULL
-						|| (config.mRevisionKind == Revisioning.DIFFERENTIAL && refs.size() == 2)) {
+						|| (config.mRevisionKind == Revisioning.DIFFERENTIAL && pages.size() == 2)) {
 					break;
 				}
 				if (config.mRevisionKind == Revisioning.DIFFERENTIAL) {
@@ -576,17 +586,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			}
 		}
 
-		// Afterwards read the NodePages if they are not dereferences...
-		final RecordPage[] pages = new RecordPage[refs.size()];
-		for (int i = 0; i < pages.length; i++) {
-			final PageReference ref = refs.get(i);
-			pages[i] = (RecordPage) ref.getPage();
-			if (pages[i] == null) {
-				pages[i] = (RecordPage) mPageReader.read(ref.getKey(), this);
-			}
-			ref.setPageKind(page);
-		}
-		return pages;
+		return pages.toArray(new RecordPage[pages.size()]);
 	}
 
 	/**
@@ -740,19 +740,20 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public NodePageContainer getNodeFromPage(final @Nonnegative long nodePageKey,
-			final @Nonnull PageKind pPage) throws SirixIOException {
+	public RecordPageContainer getNodeFromPage(
+			final @Nonnegative long nodePageKey, final @Nonnull PageKind pPage)
+			throws SirixIOException {
 		assertNotClosed();
 		final RecordPage[] revs = getSnapshotPages(nodePageKey, pPage);
 		if (revs.length == 0) {
-			return NodePageContainer.EMPTY_INSTANCE;
+			return RecordPageContainer.EMPTY_INSTANCE;
 		}
 
 		final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
 		final Revisioning revisioning = mResourceConfig.mRevisionKind;
 		final RecordPage completePage = revisioning.combineNodePages(revs,
 				mileStoneRevision, this);
-		return new NodePageContainer(completePage);
+		return new RecordPageContainer(completePage);
 	}
 
 	@Override

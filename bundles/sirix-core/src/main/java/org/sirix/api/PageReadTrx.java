@@ -3,7 +3,7 @@ package org.sirix.api;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.cache.NodePageContainer;
+import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
@@ -113,7 +113,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws IllegalArgumentException
 	 *           if {@code pKey} is negative
 	 */
-	NodePageContainer getNodeFromPage(@Nonnegative long key,
+	RecordPageContainer getNodeFromPage(@Nonnegative long key,
 			@Nonnull PageKind page) throws SirixIOException;
 
 	/**

@@ -123,7 +123,7 @@ public final class RecordPage implements Page {
 	 * 
 	 * @return node page key
 	 */
-	public long getNodePageKey() {
+	public long getRecordPageKey() {
 		return mRecordPageKey;
 	}
 

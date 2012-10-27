@@ -65,7 +65,7 @@ public enum PageKind {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert nodePage instanceof RecordPage;
 			final RecordPage page = (RecordPage) nodePage;
-			return new RecordPage(page.getNodePageKey(), page.getRevision(),
+			return new RecordPage(page.getRecordPageKey(), page.getRevision(),
 					pageReadTrx);
 		}
 	},

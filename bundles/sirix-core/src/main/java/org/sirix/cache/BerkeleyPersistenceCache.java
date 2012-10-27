@@ -59,7 +59,7 @@ import com.sleepycat.je.OperationStatus;
  * 
  */
 public final class BerkeleyPersistenceCache extends
-		AbstractPersistenceCache<Long, NodePageContainer> {
+		AbstractPersistenceCache<Long, RecordPageContainer> {
 
 	/**
 	 * Flush after defined value.
@@ -141,7 +141,7 @@ public final class BerkeleyPersistenceCache extends
 
 	@Override
 	public void putPersistent(final @Nonnull Long key,
-			final @Nonnull NodePageContainer page) throws SirixIOException {
+			final @Nonnull RecordPageContainer page) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mEntries++;
@@ -176,7 +176,7 @@ public final class BerkeleyPersistenceCache extends
 	}
 
 	@Override
-	public NodePageContainer getPersistent(final @Nonnull Long key)
+	public RecordPageContainer getPersistent(final @Nonnull Long key)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -184,7 +184,7 @@ public final class BerkeleyPersistenceCache extends
 		try {
 			final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry,
 					LockMode.DEFAULT);
-			NodePageContainer val = null;
+			RecordPageContainer val = null;
 			if (status == OperationStatus.SUCCESS) {
 				val = mValueBinding.entryToObject(valueEntry);
 			}
@@ -195,14 +195,14 @@ public final class BerkeleyPersistenceCache extends
 	}
 
 	@Override
-	public ImmutableMap<Long, NodePageContainer> getAll(
+	public ImmutableMap<Long, RecordPageContainer> getAll(
 			final @Nonnull Iterable<? extends Long> keys) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, NodePageContainer> map) {
-		for (final Entry<Long, NodePageContainer> entry : map.entrySet()) {
+	public void putAll(final @Nonnull Map<Long, RecordPageContainer> map) {
+		for (final Entry<Long, RecordPageContainer> entry : map.entrySet()) {
 			put(entry.getKey(), entry.getValue());
 		}
 	}

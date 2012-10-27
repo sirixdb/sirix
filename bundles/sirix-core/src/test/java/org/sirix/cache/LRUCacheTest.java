@@ -41,7 +41,7 @@ import org.sirix.page.RecordPage;
  */
 public class LRUCacheTest {
 
-	private Cache<Long, NodePageContainer> cache;
+	private Cache<Long, RecordPageContainer> cache;
 
 	@Before
 	public void setUp() throws SirixException {
@@ -57,12 +57,12 @@ public class LRUCacheTest {
 	@Test
 	public void test() {
 		for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
-			final NodePageContainer cont = cache.get((long) i);
+			final RecordPageContainer cont = cache.get((long) i);
 			final RecordPage current = (RecordPage) cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[i][0], current);
 		}
 
-		final NodePageContainer page = cache.get(0L);
+		final RecordPageContainer page = cache.get(0L);
 		assertNull(page);
 	}
 

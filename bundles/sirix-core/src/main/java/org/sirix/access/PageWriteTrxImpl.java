@@ -41,7 +41,7 @@ import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.cache.Cache;
-import org.sirix.cache.NodePageContainer;
+import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.TransactionLogCache;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
@@ -55,9 +55,9 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
-import org.sirix.page.RecordPage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
+import org.sirix.page.RecordPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
@@ -90,16 +90,16 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	private final Cache<Long, Page> mPageLog;
 
 	/** Cache to store the changes in this transaction log. */
-	private final Cache<Long, NodePageContainer> mNodeLog;
+	private final Cache<Long, RecordPageContainer> mNodeLog;
 
 	/** Cache to store path changes in this transaction log. */
-	private final Cache<Long, NodePageContainer> mPathLog;
+	private final Cache<Long, RecordPageContainer> mPathLog;
 
 	/** Cache to store value changes in this transaction log. */
-	private final Cache<Long, NodePageContainer> mValueLog;
+	private final Cache<Long, RecordPageContainer> mValueLog;
 
 	/** Last references to the Nodepage, needed for pre/postcondition check. */
-	private NodePageContainer mNodePageCon;
+	private RecordPageContainer mNodePageCon;
 
 	/** Last reference to the actual revRoot. */
 	private final RevisionRootPage mNewRoot;
@@ -223,10 +223,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			final @Nonnull PageKind page) {
 		final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
 		if (mNodePageCon == null
-				|| (mNodeLog.get(nodePageKey).equals(NodePageContainer.EMPTY_INSTANCE)
+				|| (mNodeLog.get(nodePageKey)
+						.equals(RecordPageContainer.EMPTY_INSTANCE)
 						&& mPathLog.get(nodePageKey).equals(
-								NodePageContainer.EMPTY_INSTANCE) && mValueLog.get(nodePageKey)
-						.equals(NodePageContainer.EMPTY_INSTANCE))) {
+								RecordPageContainer.EMPTY_INSTANCE) && mValueLog.get(
+						nodePageKey).equals(RecordPageContainer.EMPTY_INSTANCE))) {
 			throw new IllegalStateException();
 		}
 
@@ -306,8 +307,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
 		// final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
 
-		final NodePageContainer pageCont = getPageContainer(page, nodePageKey);
-		if (pageCont.equals(NodePageContainer.EMPTY_INSTANCE)) {
+		final RecordPageContainer pageCont = getPageContainer(page, nodePageKey);
+		if (pageCont.equals(RecordPageContainer.EMPTY_INSTANCE)) {
 			return mPageRtx.getNode(nodeKey, page);
 		} else {
 			Record node = pageCont.getModified().getNode(nodeKey);
@@ -325,9 +326,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 *          the kind of page
 	 * @param nodePageKey
 	 *          the node page key
-	 * @return the {@link NodePageContainer} instance from the write ahead log
+	 * @return the {@link RecordPageContainer} instance from the write ahead log
 	 */
-	private NodePageContainer getPageContainer(final @Nullable PageKind page,
+	private RecordPageContainer getPageContainer(final @Nullable PageKind page,
 			final @Nonnegative long nodePageKey) {
 		if (page != null) {
 			switch (page) {
@@ -341,7 +342,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				throw new IllegalStateException();
 			}
 		}
-		return NodePageContainer.EMPTY_INSTANCE;
+		return RecordPageContainer.EMPTY_INSTANCE;
 	}
 
 	/**
@@ -401,7 +402,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			// First, try to get one from the transaction log.
 			final long nodePageKey = reference.getNodePageKey();
 			final PageKind pageKind = reference.getPageKind();
-			final NodePageContainer cont = nodePageKey == -1 ? null
+			final RecordPageContainer cont = nodePageKey == -1 ? null
 					: getPageContainer(pageKind, nodePageKey);
 			if (cont != null) {
 				page = cont.getModified();
@@ -415,14 +416,20 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 				if (page instanceof RecordPage) {
 					// Revision to commit is not a full dump => return immediately.
-					if (!page.isDirty() && (page.getRevision() + 1)
-							% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) {
+					if (!page.isDirty()
+							&& ((page.getRevision()
+									% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) || mPageRtx.mSession.mResourceConfig.mRevisionKind == Revisioning.FULL)) {
 						return;
 					} else {
 						// Revision to commit is a full dump => get the full page and dump
 						// it.
 						page = mPageRtx.getNodeFromPage(nodePageKey, pageKind)
 								.getComplete();
+						if (!page.isDirty()) {
+							// Only write dirty pages which have been modified since the
+							// latest full dump.
+							page = null;
+						}
 					}
 				}
 				if (page == null) {
@@ -552,21 +559,21 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	private void prepareNodePage(final @Nonnegative long nodePageKey,
 			final @Nonnull PageKind page) throws SirixIOException {
 		// Last level points to node nodePageReference.
-		NodePageContainer cont = getPageContainer(page, nodePageKey);
-		if (cont.equals(NodePageContainer.EMPTY_INSTANCE)) {
+		RecordPageContainer cont = getPageContainer(page, nodePageKey);
+		if (cont.equals(RecordPageContainer.EMPTY_INSTANCE)) {
 			// Indirect reference.
 			final PageReference reference = prepareLeafOfTree(
 					mPageRtx.getPageReference(mNewRoot, page), nodePageKey, page);
 			final RecordPage nodePage = (RecordPage) reference.getPage();
 			if (nodePage == null) {
 				if (reference.getKey() == Constants.NULL_ID) {
-					cont = new NodePageContainer(new RecordPage(nodePageKey,
+					cont = new RecordPageContainer(new RecordPage(nodePageKey,
 							Constants.UBP_ROOT_REVISION_NUMBER, mPageRtx));
 				} else {
 					cont = dereferenceNodePageForModification(nodePageKey, page);
 				}
 			} else {
-				cont = new NodePageContainer(nodePage);
+				cont = new RecordPageContainer(nodePage);
 			}
 
 			assert cont != null;
@@ -647,8 +654,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		PageReference reference = startReference;
 		int offset = 0;
 		long levelKey = key;
-		final int[] inpLevelPageCountExp = mPageRtx.getUberPage()
-				.getPageCountExp(pageKind);
+		final int[] inpLevelPageCountExp = mPageRtx.getUberPage().getPageCountExp(
+				pageKind);
 
 		// Iterate through all levels.
 		for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
@@ -671,7 +678,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private NodePageContainer dereferenceNodePageForModification(
+	private RecordPageContainer dereferenceNodePageForModification(
 			final @Nonnegative long nodePageKey, final @Nonnull PageKind page)
 			throws SirixIOException {
 		final RecordPage[] revs = mPageRtx.getSnapshotPages(nodePageKey, page);
@@ -690,13 +697,13 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * Updating a container in this {@link PageWriteTrxImpl}.
 	 * 
 	 * @param pCont
-	 *          {@link NodePageContainer} reference to be updated
+	 *          {@link RecordPageContainer} reference to be updated
 	 * @param page
 	 *          page for which the
 	 */
-	public void updateDataContainer(@Nonnull NodePageContainer container,
+	public void updateDataContainer(@Nonnull RecordPageContainer container,
 			final @Nonnull PageKind page) {
-		final long nodePageKey = container.getComplete().getNodePageKey();
+		final long nodePageKey = container.getComplete().getRecordPageKey();
 		switch (page) {
 		case PATHSUMMARYPAGE:
 			container = mPathLog.get(nodePageKey);

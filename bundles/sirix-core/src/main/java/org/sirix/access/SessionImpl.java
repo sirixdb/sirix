@@ -59,7 +59,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.Session;
-import org.sirix.cache.NodePageContainer;
+import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
@@ -470,14 +470,14 @@ public final class SessionImpl implements Session {
 	 * Synchronize logs.
 	 * 
 	 * @param pContToSync
-	 *          {@link NodePageContainer} to synchronize
+	 *          {@link RecordPageContainer} to synchronize
 	 * @param pTransactionId
 	 *          transaction ID
 	 * @throws SirixThreadedException
 	 * 
 	 */
 	protected synchronized void syncLogs(
-			final @Nonnull NodePageContainer pContToSync,
+			final @Nonnull RecordPageContainer pContToSync,
 			final @Nonnegative long pTransactionID, final @Nonnull PageKind pPage)
 			throws SirixThreadedException {
 		final ExecutorService pool = Executors.newCachedThreadPool();
@@ -536,8 +536,8 @@ public final class SessionImpl implements Session {
 		/** {@link PageWriteTrx} to interact with the page layer. */
 		private final PageWriteTrx mPageWriteTrx;
 
-		/** {@link NodePageContainer} reference. */
-		private final NodePageContainer mCont;
+		/** {@link RecordPageContainer} reference. */
+		private final RecordPageContainer mCont;
 
 		/** Type of page. */
 		private final PageKind mPage;
@@ -548,12 +548,12 @@ public final class SessionImpl implements Session {
 		 * @param pPageWriteTransaction
 		 *          Sirix {@link PageWriteTrx}
 		 * @param pNodePageCont
-		 *          {@link NodePageContainer} to update
+		 *          {@link RecordPageContainer} to update
 		 * @param pPage
 		 *          page type
 		 */
 		LogSyncer(final @Nonnull PageWriteTrx pPageWriteTransaction,
-				final @Nonnull NodePageContainer pNodePageCont,
+				final @Nonnull RecordPageContainer pNodePageCont,
 				final @Nonnull PageKind pPage) {
 			mPageWriteTrx = checkNotNull(pPageWriteTransaction);
 			mCont = checkNotNull(pNodePageCont);

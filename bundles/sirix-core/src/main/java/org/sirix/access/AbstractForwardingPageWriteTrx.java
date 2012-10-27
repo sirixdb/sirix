@@ -4,7 +4,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
-import org.sirix.cache.NodePageContainer;
+import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
@@ -63,7 +63,7 @@ public abstract class AbstractForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public void updateDataContainer(@Nonnull NodePageContainer nodePageContainer,
+	public void updateDataContainer(@Nonnull RecordPageContainer nodePageContainer,
 			@Nonnull PageKind page) {
 		delegate().updateDataContainer(nodePageContainer, page);
 	}
