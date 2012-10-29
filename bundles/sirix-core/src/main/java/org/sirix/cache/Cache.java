@@ -63,7 +63,7 @@ public interface Cache<K, V> {
 	V get(@Nonnull K key);
 
 	/**
-	 * Putting an key/value into the cache.
+	 * Putting a key/value into the cache.
 	 * 
 	 * @param key
 	 *          for putting the page in the cache
@@ -78,7 +78,7 @@ public interface Cache<K, V> {
 	 * @param map
 	 *          map with entries to put into the cache
 	 */
-	void putAll(@Nonnull Map<K, V> map);
+	void putAll(@Nonnull Map<? extends K, ? extends V> map);
 
 	/**
 	 * Save all entries of this cache in the secondary cache without removing

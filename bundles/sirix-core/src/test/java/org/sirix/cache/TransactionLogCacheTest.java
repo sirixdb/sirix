@@ -36,10 +36,10 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.page.RecordPage;
+import org.sirix.page.RecordPageImpl;
 
 public class TransactionLogCacheTest {
-	private Cache<Long, RecordPageContainer> cache;
+	private Cache<Long, RecordPageContainer<Long, RecordPageImpl>> cache;
 
 	private PageReadTrx mPageReadTrx;
 
@@ -49,7 +49,7 @@ public class TransactionLogCacheTest {
 		TestHelper.createTestDocument();
 		mPageReadTrx = Holder.generateSession().getSession().beginPageReadTrx();
 
-		cache = new TransactionLogCache(TestHelper.PATHS.PATH1.getFile(), 0, "log",
+		cache = new TransactionLogCache<>(TestHelper.PATHS.PATH1.getFile(), 0, "log",
 				mPageReadTrx);
 		CacheTestHelper.setUp(cache);
 	}
@@ -57,8 +57,8 @@ public class TransactionLogCacheTest {
 	@Test
 	public void test() {
 		for (int i = 0; i < CacheTestHelper.PAGES.length; i++) {
-			final RecordPageContainer cont = cache.get((long) i);
-			final RecordPage current = cont.getComplete();
+			final RecordPageContainer<Long, RecordPageImpl> cont = cache.get((long) i);
+			final RecordPageImpl current = cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[i][0], current);
 		}
 

@@ -361,7 +361,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 			reference = page.getReference(0);
 		}
 
-		final RecordPage ndp = new RecordPage(
+		final RecordPageImpl ndp = new RecordPageImpl(
 				Fixed.ROOT_PAGE_KEY.getStandardProperty(),
 				Constants.UBP_ROOT_REVISION_NUMBER, pageReadTrx);
 		ndp.setDirty(true);
@@ -380,6 +380,6 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
-		ndp.setNode(new DocumentRootNode(nodeDel, strucDel));
+		ndp.setRecord(new DocumentRootNode(nodeDel, strucDel));
 	}
 }

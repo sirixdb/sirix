@@ -105,6 +105,11 @@
 			<url>http://download.oracle.com/maven</url>
 			<layout>default</layout>
 		</repository>
+		<repository>
+			<id>vanilla-java</id>
+			<name>vanilla java</name>
+			<url>https://github.com/peter-lawrey/Java-Chronicle/tree/master/repository</url>
+		</repository>
 	</repositories>
 	<reporting>
 		<plugins>

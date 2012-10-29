@@ -98,11 +98,11 @@ public class PageTest {
 		// final RevisionRootPage revRootPage = new RevisionRootPage();
 
 		// NodePage setup.
-		final RecordPage nodePage = new RecordPage(
+		final RecordPageImpl nodePage = new RecordPageImpl(
 				TestHelper.random.nextInt(Integer.MAX_VALUE),
 				TestHelper.random.nextInt(Integer.MAX_VALUE), mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
-			nodePage.setNode(TestHelper.generateOne());
+			nodePage.setRecord(TestHelper.generateOne());
 		}
 		// NamePage setup.
 		final NamePage namePage = new NamePage(0);

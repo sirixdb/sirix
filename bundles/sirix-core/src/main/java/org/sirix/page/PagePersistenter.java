@@ -49,8 +49,9 @@ public final class PagePersistenter {
 	 * @param source
 	 *          source to read from
 	 * @param pageReadTrx
-	 *          {@link PageReadTrx} instance
-	 * @return the created {@link Page}
+	 *          instance of class, which implements the {@link PageReadTrx}
+	 *          interface
+	 * @return {@link Page} instance
 	 */
 	public static @Nonnull
 	Page deserializePage(final @Nonnull ByteArrayDataInput source,

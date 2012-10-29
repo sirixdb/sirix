@@ -42,11 +42,11 @@ public class DeflateCompressor implements ByteHandler {
 	}
 
 	@Override
-	public byte[] serialize(@Nonnull final byte[] pToSerialize)
+	public byte[] serialize(final @Nonnull byte[] toSerialize)
 			throws SirixIOException {
 		mCompressor.reset();
 		mOut.reset();
-		mCompressor.setInput(pToSerialize);
+		mCompressor.setInput(toSerialize);
 		mCompressor.finish();
 		int count;
 		while (!mCompressor.finished()) {
@@ -58,11 +58,11 @@ public class DeflateCompressor implements ByteHandler {
 	}
 
 	@Override
-	public byte[] deserialize(@Nonnull final byte[] pToDeserialize)
+	public byte[] deserialize(final @Nonnull byte[] toDeserialize)
 			throws SirixIOException {
 		mDecompressor.reset();
 		mOut.reset();
-		mDecompressor.setInput(pToDeserialize);
+		mDecompressor.setInput(toDeserialize);
 		int count;
 		while (!mDecompressor.finished()) {
 			try {

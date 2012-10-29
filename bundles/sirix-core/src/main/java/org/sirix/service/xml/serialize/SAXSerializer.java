@@ -36,7 +36,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
-import org.sirix.access.DatabaseImpl;
 import org.sirix.access.Databases;
 import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
@@ -261,10 +260,10 @@ public final class SAXSerializer extends AbstractSerializer implements
 	 * @param args
 	 *          args[0] specifies the path to the TT-storage from which to
 	 *          generate SAX events.
-	 * @throws Exception
-	 *           handling Sirix exceptions
+	 * @throws SirixException
+	 *           if any Sirix exception occurs
 	 */
-	public static void main(final String... args) throws Exception {
+	public static void main(final String... args) throws SirixException {
 		final DatabaseConfiguration config = new DatabaseConfiguration(new File(
 				args[0]));
 		Databases.createDatabase(config);

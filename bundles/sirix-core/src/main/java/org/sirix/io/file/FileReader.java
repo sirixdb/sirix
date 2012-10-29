@@ -53,7 +53,8 @@ import com.google.common.io.ByteStreams;
  * RandomAccessFile.
  * 
  * @author Marc Kramis, Seabix
- * @author Sebastian Graf, University of Konstanz.
+ * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
  * 
  */
 public final class FileReader implements Reader {
@@ -117,15 +118,13 @@ public final class FileReader implements Reader {
 	}
 
 	@Override
-	public PageReference readFirstReference()
-			throws SirixIOException {
+	public PageReference readFirstReference() throws SirixIOException {
 		final PageReference uberPageReference = new PageReference();
 		try {
 			// Read primary beacon.
 			mFile.seek(0);
 			uberPageReference.setKey(mFile.readLong());
-			final UberPage page = (UberPage) read(uberPageReference.getKey(),
-					null);
+			final UberPage page = (UberPage) read(uberPageReference.getKey(), null);
 			uberPageReference.setPage(page);
 			return uberPageReference;
 		} catch (final IOException exc) {

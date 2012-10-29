@@ -9,6 +9,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
+import org.sirix.page.RecordPageImpl;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
@@ -113,7 +114,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws IllegalArgumentException
 	 *           if {@code pKey} is negative
 	 */
-	RecordPageContainer getNodeFromPage(@Nonnegative long key,
+	RecordPageContainer<Long, RecordPageImpl> getNodeFromPage(@Nonnegative long key,
 			@Nonnull PageKind page) throws SirixIOException;
 
 	/**

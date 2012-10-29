@@ -89,7 +89,7 @@ public final class RAMCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<K, V> map) {
+	public void putAll(final @Nonnull Map<? extends K, ? extends V> map) {
 		mMap.putAll(checkNotNull(map));
 	}
 

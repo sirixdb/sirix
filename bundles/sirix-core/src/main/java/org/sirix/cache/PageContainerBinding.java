@@ -27,24 +27,25 @@
 
 package org.sirix.cache;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
+import org.sirix.page.PagePersistenter;
+import org.sirix.page.interfaces.RecordPage;
+
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.api.PageReadTrx;
-import org.sirix.page.RecordPage;
-import org.sirix.page.PagePersistenter;
-
 /**
  * Binding for {@link RecordPageContainer} reference.
  */
-public class PageContainerBinding extends TupleBinding<RecordPageContainer> {
+public class PageContainerBinding<S, T extends RecordPage<S>> extends
+		TupleBinding<RecordPageContainer<?, ? extends RecordPage<?>>> {
 
 	/** {@link ResourceConfiguration} instance. */
 	private final PageReadTrx mPageReadTrx;
@@ -59,27 +60,30 @@ public class PageContainerBinding extends TupleBinding<RecordPageContainer> {
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
 	}
-	
+
 	@Override
-	public RecordPageContainer entryToObject(final @Nullable TupleInput pInput) {
-		if (pInput == null) {
+	public RecordPageContainer<?, ? extends RecordPage<?>> entryToObject(
+			final @Nullable TupleInput input) {
+		if (input == null) {
 			return RecordPageContainer.EMPTY_INSTANCE;
 		}
-		final ByteArrayDataInput source = ByteStreams.newDataInput(pInput
+		final ByteArrayDataInput source = ByteStreams.newDataInput(input
 				.getBufferBytes());
-		final RecordPage current = (RecordPage) PagePersistenter
+		@SuppressWarnings("unchecked")
+		final T current = (T) PagePersistenter
 				.deserializePage(source, mPageReadTrx);
-		final RecordPage modified = (RecordPage) PagePersistenter
+		@SuppressWarnings("unchecked")
+		final T modified = (T) PagePersistenter
 				.deserializePage(source, mPageReadTrx);
-		final RecordPageContainer container = new RecordPageContainer(current, modified);
-		return container;
+		return new RecordPageContainer<S, T>(current, modified);
 	}
 
 	@Override
-	public void objectToEntry(final @Nullable RecordPageContainer pPageContainer,
-			final @Nullable TupleOutput pOutput) {
-		if (pPageContainer != null && pOutput != null) {
-			pPageContainer.serialize(pOutput);
+	public void objectToEntry(
+			final @Nullable RecordPageContainer<?, ? extends RecordPage<?>> pageContainer,
+			final @Nullable TupleOutput output) {
+		if (pageContainer != null && output != null) {
+			pageContainer.serialize(output);
 		}
 	}
 }

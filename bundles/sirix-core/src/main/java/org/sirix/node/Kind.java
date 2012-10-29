@@ -45,7 +45,7 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
-import org.sirix.page.RecordPage;
+import org.sirix.page.RecordPageImpl;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Fixed;
 
@@ -836,7 +836,7 @@ public enum Kind implements RecordPersistenter {
 	}
 
 	/**
-	 * Simple DumbNode just for testing the {@link RecordPage}s.
+	 * Simple DumbNode just for testing the {@link RecordPageImpl}s.
 	 * 
 	 * @author Sebastian Graf, University of Konstanz
 	 * @author Johannes Lichtenberger

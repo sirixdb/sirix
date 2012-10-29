@@ -39,11 +39,11 @@ import org.sirix.TestHelper;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.page.RecordPage;
+import org.sirix.page.RecordPageImpl;
 
 public class BerkeleyPersistentCacheTest {
 
-	private Cache<Long, RecordPageContainer> cache;
+	private Cache<Long, RecordPageContainer<Long, RecordPageImpl>> cache;
 
 	private Holder holder;
 	
@@ -55,7 +55,7 @@ public class BerkeleyPersistentCacheTest {
 		TestHelper.createTestDocument();
 		holder = Holder.generateSession();
 		mPageReadTrx = holder.getSession().beginPageReadTrx();
-		cache = new BerkeleyPersistenceCache(new File(new File(
+		cache = new BerkeleyPersistenceCache<>(new File(new File(
 				TestHelper.PATHS.PATH1.getFile(), DatabaseConfiguration.Paths.DATA
 						.getFile().getName()), TestHelper.RESOURCE), 1, "log", mPageReadTrx);
 		CacheTestHelper.setUp(cache);
@@ -64,8 +64,8 @@ public class BerkeleyPersistentCacheTest {
 	@Test
 	public void test() {
 		for (long i = 0; i < CacheTestHelper.PAGES.length; i++) {
-			final RecordPageContainer cont = cache.get(i);
-			final RecordPage current = (RecordPage) cont.getComplete();
+			final RecordPageContainer<Long, RecordPageImpl> cont = cache.get(i);
+			final RecordPageImpl current = (RecordPageImpl) cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[(int) i][0], current);
 		}
 		cache.clear();

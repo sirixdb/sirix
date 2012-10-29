@@ -29,6 +29,9 @@ package org.sirix.cache;
 
 import java.io.File;
 import java.util.Map;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -36,7 +39,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.page.interfaces.Page;
+import org.sirix.page.interfaces.RecordPage;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
@@ -49,13 +52,23 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TransactionLogPageCache implements Cache<Long, Page> {
+public final class SynchronizedTransactionLogCache<S, T extends RecordPage<S>> implements
+		Cache<Long, RecordPageContainer<S, T>> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<Long, Page> mFirstCache;
+	private final LRUCache<Long, RecordPageContainer<S, T>> mFirstCache;
 
 	/** Persistend second cache. */
-	private final BerkeleyPersistencePageCache mSecondCache;
+	private final BerkeleyPersistenceCache<S, T> mSecondCache;
+
+	/** {@link ReadWriteLock} instance. */
+	private final ReadWriteLock mLock = new ReentrantReadWriteLock();
+
+	/** Shared read lock. */
+	private final Lock mReadLock = mLock.readLock();
+
+	/** Write lock. */
+	private final Lock mWriteLock = mLock.writeLock();
 
 	/**
 	 * Constructor including the {@link DatabaseConfiguration} for persistent
@@ -68,16 +81,16 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 	 * @param logType
 	 *          type of log
 	 * @param pageReadTrx
-	 *          {@link PageReadTrx} instance
+	 *          page reading transaction
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public TransactionLogPageCache(final @Nonnull File file,
+	public SynchronizedTransactionLogCache(final @Nonnull File file,
 			final @Nonnegative int revision, final @Nonnull String logType,
 			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
-		mSecondCache = new BerkeleyPersistencePageCache(file, revision, logType,
+		mSecondCache = new BerkeleyPersistenceCache<>(file, revision, logType,
 				pageReadTrx);
-		mFirstCache = new LRUCache<>(mSecondCache);
+		mFirstCache = new LRUCache<Long, RecordPageContainer<S, T>>(mSecondCache);
 	}
 
 	@Override
@@ -91,57 +104,89 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 	}
 
 	@Override
-	public ImmutableMap<Long, Page> getAll(
-			final @Nonnull Iterable<? extends Long> keys) {
-		final ImmutableMap.Builder<Long, Page> builder = new ImmutableMap.Builder<>();
-			for (final Long key : keys) {
+	public ImmutableMap<Long, RecordPageContainer<S, T>> getAll(
+			final @Nonnull Iterable<? extends Long> pKeys) {
+		final ImmutableMap.Builder<Long, RecordPageContainer<S, T>> builder = new ImmutableMap.Builder<>();
+		try {
+			mReadLock.lock();
+			for (final Long key : pKeys) {
 				if (mFirstCache.get(key) != null) {
 					builder.put(key, mFirstCache.get(key));
 				}
 			}
+		} finally {
+			mReadLock.unlock();
+		}
 		return builder.build();
 	}
 
 	@Override
 	public void clear() {
+		try {
+			mWriteLock.lock();
 			mFirstCache.clear();
+		} finally {
+			mWriteLock.unlock();
+		}
 	}
 
 	@Override
-	public Page get(final @Nonnull Long key) {
-	  return mFirstCache.get(key);
+	public RecordPageContainer<S, T> get(final @Nonnull Long key) {
+		@SuppressWarnings("unchecked")
+		RecordPageContainer<S, T> container = (RecordPageContainer<S, T>) RecordPageContainer.EMPTY_INSTANCE;
+		try {
+			mReadLock.lock();
+			if (mFirstCache.get(key) != null) {
+				container = mFirstCache.get(key);
+			}
+		} finally {
+			mReadLock.unlock();
+		}
+		return container;
 	}
 
 	@Override
-	public void put(final @Nonnull Long key, final @Nonnull Page value) {
+	public void put(final @Nonnull Long key,
+			final @Nonnull RecordPageContainer<S, T> value) {
+		try {
+			mWriteLock.lock();
 			mFirstCache.put(key, value);
+		} finally {
+			mWriteLock.unlock();
+		}
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<? extends Long, ? extends Page> map) {
+	public void putAll(
+			final @Nonnull Map<? extends Long, ? extends RecordPageContainer<S, T>> map) {
+		try {
+			mWriteLock.lock();
 			mFirstCache.putAll(map);
+		} finally {
+			mWriteLock.unlock();
+		}
 	}
 
 	@Override
 	public void toSecondCache() {
+		try {
+			mWriteLock.lock();
 			mSecondCache.putAll(mFirstCache.getMap());
+		} finally {
+			mWriteLock.unlock();
+		}
 	}
 
 	@Override
 	public void remove(final @Nonnull Long key) {
+		try {
+			mWriteLock.lock();
 			mFirstCache.remove(key);
 			if (mSecondCache.get(key) != null) {
 				mSecondCache.remove(key);
 			}
-	}
-
-	/**
-	 * Determines if directory has been created beforehand.
-	 * 
-	 * @return {@code true} if the persistent log exists, {@code false} otherwise
-	 */
-	public boolean isCreated() {
-		return mSecondCache.isCreated();
+		} finally {
+			mWriteLock.unlock();
+		}
 	}
 }
-

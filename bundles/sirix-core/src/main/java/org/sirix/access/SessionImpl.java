@@ -71,6 +71,7 @@ import org.sirix.io.StorageType;
 import org.sirix.io.Writer;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
+import org.sirix.page.RecordPageImpl;
 import org.sirix.page.UberPage;
 
 import com.google.common.base.Objects;
@@ -172,8 +173,8 @@ public final class SessionImpl implements Session {
 			final Reader reader = mFac.getReader();
 			final PageReference firstRef = reader.readFirstReference();
 			if (firstRef.getPage() == null) {
-				mLastCommittedUberPage = new AtomicReference<>(
-						(UberPage) reader.read(firstRef.getKey(), null));
+				mLastCommittedUberPage = new AtomicReference<>((UberPage) reader.read(
+						firstRef.getKey(), null));
 			} else {
 				mLastCommittedUberPage = new AtomicReference<>(
 						(UberPage) firstRef.getPage());
@@ -477,7 +478,7 @@ public final class SessionImpl implements Session {
 	 * 
 	 */
 	protected synchronized void syncLogs(
-			final @Nonnull RecordPageContainer pContToSync,
+			final @Nonnull RecordPageContainer<Long, RecordPageImpl> pContToSync,
 			final @Nonnegative long pTransactionID, final @Nonnull PageKind pPage)
 			throws SirixThreadedException {
 		final ExecutorService pool = Executors.newCachedThreadPool();
@@ -537,7 +538,7 @@ public final class SessionImpl implements Session {
 		private final PageWriteTrx mPageWriteTrx;
 
 		/** {@link RecordPageContainer} reference. */
-		private final RecordPageContainer mCont;
+		private final RecordPageContainer<Long, RecordPageImpl> mCont;
 
 		/** Type of page. */
 		private final PageKind mPage;
@@ -553,7 +554,7 @@ public final class SessionImpl implements Session {
 		 *          page type
 		 */
 		LogSyncer(final @Nonnull PageWriteTrx pPageWriteTransaction,
-				final @Nonnull RecordPageContainer pNodePageCont,
+				final @Nonnull RecordPageContainer<Long, RecordPageImpl> pNodePageCont,
 				final @Nonnull PageKind pPage) {
 			mPageWriteTrx = checkNotNull(pPageWriteTransaction);
 			mCont = checkNotNull(pNodePageCont);
@@ -592,9 +593,8 @@ public final class SessionImpl implements Session {
 			throws SirixException {
 		assertAccess(pRev);
 
-		return PathSummary.getInstance(
-				new PageReadTrxImpl(this, mLastCommittedUberPage.get(), pRev, mFac
-						.getReader()), this);
+		return PathSummary.getInstance(new PageReadTrxImpl(this,
+				mLastCommittedUberPage.get(), pRev, mFac.getReader()), this);
 	}
 
 	@Override

@@ -30,9 +30,9 @@ package org.sirix.cache;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.page.RecordPage;
 import org.sirix.page.PagePersistenter;
+import org.sirix.page.RecordPageImpl;
+import org.sirix.page.interfaces.RecordPage;
 
 import com.google.common.base.Objects;
 import com.google.common.io.ByteArrayDataOutput;
@@ -44,32 +44,32 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * 
  * <p>
  * This class acts as a container for revisioned {@link RecordPage}s. Each
- * {@link RecordPage} is stored in a versioned manner. If modifications occur, the
- * versioned {@link RecordPage}s are dereferenced and reconstructed. Afterwards,
- * this container is used to store a complete {@link RecordPage} as well as one
- * for upcoming modifications.
+ * {@link RecordPage} is stored in a versioned manner. If modifications
+ * occur, the versioned {@link RecordPage}s are dereferenced and
+ * reconstructed. Afterwards, this container is used to store a complete
+ * {@link RecordPage} as well as one for upcoming modifications.
  * </p>
  * 
  * <p>
- * Both {@link RecordPage}s can differ since the complete one is mainly used for
- * read access and the modifying one for write access (and therefore mostly lazy
- * dereferenced).
+ * Both {@link RecordPage}s can differ since the complete one is mainly used
+ * for read access and the modifying one for write access (and therefore mostly
+ * lazy dereferenced).
  * </p>
  * 
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class RecordPageContainer {
+public final class RecordPageContainer<S, T extends RecordPage<S>> {
 
-	/** {@link RecordPage} reference, which references the complete node page. */
-	private final RecordPage mComplete;
+	/** {@link RecordPageImpl} reference, which references the complete node page. */
+	private final T mComplete;
 
-	/** {@link RecordPage} reference, which references the modified node page. */
-	private final RecordPage mModified;
+	/** {@link RecordPageImpl} reference, which references the modified node page. */
+	private final T mModified;
 
 	/** Empty instance. */
-	public static final RecordPageContainer EMPTY_INSTANCE = new RecordPageContainer();
+	public static final RecordPageContainer<?, ? extends RecordPage<?>> EMPTY_INSTANCE = new RecordPageContainer<>();
 
 	/** Private constructor for empty instance. */
 	private RecordPageContainer() {
@@ -85,8 +85,9 @@ public final class RecordPageContainer {
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} instance
 	 */
-	public RecordPageContainer(final @Nonnull RecordPage complete) {
-		this(complete, new RecordPage(complete.getRecordPageKey(),
+	@SuppressWarnings("unchecked")
+	public RecordPageContainer(final @Nonnull T complete) {
+		this(complete, (T) complete.newInstance(complete.getRecordPageKey(),
 				complete.getRevision(), complete.getPageReadTrx()));
 	}
 
@@ -98,8 +99,8 @@ public final class RecordPageContainer {
 	 * @param modifying
 	 *          to be used as a base for this container
 	 */
-	public RecordPageContainer(final @Nonnull RecordPage complete,
-			final @Nonnull RecordPage modifying) {
+	public RecordPageContainer(final @Nonnull T complete,
+			final @Nonnull T modifying) {
 		assert complete != null;
 		assert modifying != null;
 		mComplete = complete;
@@ -111,7 +112,7 @@ public final class RecordPageContainer {
 	 * 
 	 * @return the complete page
 	 */
-	public RecordPage getComplete() {
+	public T getComplete() {
 		return mComplete;
 	}
 
@@ -120,7 +121,7 @@ public final class RecordPageContainer {
 	 * 
 	 * @return the modified page
 	 */
-	public RecordPage getModified() {
+	public T getModified() {
 		return mModified;
 	}
 
@@ -145,7 +146,7 @@ public final class RecordPageContainer {
 	@Override
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof RecordPageContainer) {
-			final RecordPageContainer other = (RecordPageContainer) obj;
+			final RecordPageContainer<?, ?> other = (RecordPageContainer<?, ?>) obj;
 			return Objects.equal(mComplete, other.mComplete)
 					&& Objects.equal(mModified, other.mModified);
 		}

@@ -29,6 +29,9 @@ package org.sirix.cache;
 
 import java.io.File;
 import java.util.Map;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -49,13 +52,22 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TransactionLogPageCache implements Cache<Long, Page> {
+public final class SynchronizedTransactionLogPageCache implements Cache<Long, Page> {
 
 	/** RAM-Based first cache. */
 	private final LRUCache<Long, Page> mFirstCache;
 
 	/** Persistend second cache. */
 	private final BerkeleyPersistencePageCache mSecondCache;
+
+	/** {@link ReadWriteLock} instance. */
+	private final ReadWriteLock mLock = new ReentrantReadWriteLock();
+
+	/** Shared read lock. */
+	private final Lock mReadLock = mLock.readLock();
+
+	/** Write lock. */
+	private final Lock mWriteLock = mLock.writeLock();
 
 	/**
 	 * Constructor including the {@link DatabaseConfiguration} for persistent
@@ -72,7 +84,7 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public TransactionLogPageCache(final @Nonnull File file,
+	public SynchronizedTransactionLogPageCache(final @Nonnull File file,
 			final @Nonnegative int revision, final @Nonnull String logType,
 			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
 		mSecondCache = new BerkeleyPersistencePageCache(file, revision, logType,
@@ -94,45 +106,82 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 	public ImmutableMap<Long, Page> getAll(
 			final @Nonnull Iterable<? extends Long> keys) {
 		final ImmutableMap.Builder<Long, Page> builder = new ImmutableMap.Builder<>();
+		try {
+			mReadLock.lock();
 			for (final Long key : keys) {
 				if (mFirstCache.get(key) != null) {
 					builder.put(key, mFirstCache.get(key));
 				}
 			}
+		} finally {
+			mReadLock.unlock();
+		}
 		return builder.build();
 	}
 
 	@Override
 	public void clear() {
+		try {
+			mWriteLock.lock();
 			mFirstCache.clear();
+		} finally {
+			mWriteLock.unlock();
+		}
 	}
 
 	@Override
 	public Page get(final @Nonnull Long key) {
-	  return mFirstCache.get(key);
+		Page container = null;
+		try {
+			mReadLock.lock();
+			container = mFirstCache.get(key);
+		} finally {
+			mReadLock.unlock();
+		}
+		return container;
 	}
 
 	@Override
 	public void put(final @Nonnull Long key, final @Nonnull Page value) {
+		try {
+			mWriteLock.lock();
 			mFirstCache.put(key, value);
+		} finally {
+			mWriteLock.unlock();
+		}
 	}
 
 	@Override
 	public void putAll(final @Nonnull Map<? extends Long, ? extends Page> map) {
+		try {
+			mWriteLock.lock();
 			mFirstCache.putAll(map);
+		} finally {
+			mWriteLock.unlock();
+		}
 	}
 
 	@Override
 	public void toSecondCache() {
+		try {
+			mWriteLock.lock();
 			mSecondCache.putAll(mFirstCache.getMap());
+		} finally {
+			mWriteLock.unlock();
+		}
 	}
 
 	@Override
 	public void remove(final @Nonnull Long key) {
+		try {
+			mWriteLock.lock();
 			mFirstCache.remove(key);
 			if (mSecondCache.get(key) != null) {
 				mSecondCache.remove(key);
 			}
+		} finally {
+			mWriteLock.unlock();
+		}
 	}
 
 	/**
@@ -144,4 +193,3 @@ public final class TransactionLogPageCache implements Cache<Long, Page> {
 		return mSecondCache.isCreated();
 	}
 }
-

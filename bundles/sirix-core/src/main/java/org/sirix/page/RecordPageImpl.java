@@ -26,8 +26,9 @@
  */
 package org.sirix.page;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -44,6 +45,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
+import org.sirix.page.interfaces.RecordPage;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
@@ -57,13 +59,13 @@ import com.google.common.io.ByteArrayDataOutput;
  * A record page stores a set of records commonly nodes.
  * </p>
  */
-public final class RecordPage implements Page {
+public final class RecordPageImpl implements RecordPage<Long> {
 
 	/** Key of record page. This is the base key of all contained nodes. */
 	private final long mRecordPageKey;
 
-	/** Nodes. */
-	private final Map<Long, Record> mNodes;
+	/** Records. */
+	private final Map<Long, Record> mRecords;
 
 	/** {@link PageDelegate} reference. */
 	private final int mRevision;
@@ -82,14 +84,16 @@ public final class RecordPage implements Page {
 	 * @param revision
 	 *          revision the page belongs to
 	 */
-	public RecordPage(final @Nonnegative long recordPageKey,
+	public RecordPageImpl(final @Nonnegative long recordPageKey,
 			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
+		// Assertions instead of checkNotNull(...) checks as it's part of the
+		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
 		assert revision >= 0 : "revision must not be negative!";
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mRevision = revision;
 		mRecordPageKey = recordPageKey;
-		mNodes = new HashMap<>();
+		mRecords = new HashMap<>();
 		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
 	}
@@ -102,99 +106,79 @@ public final class RecordPage implements Page {
 	 * @param pageReadTrx
 	 *          {@link 
 	 */
-	protected RecordPage(final @Nonnull ByteArrayDataInput in,
+	protected RecordPageImpl(final @Nonnull ByteArrayDataInput in,
 			final @Nonnull PageReadTrx pageReadTrx) {
 		mRevision = in.readInt();
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
-		mNodes = new HashMap<>(size);
+		mRecords = new HashMap<>(size);
 		final RecordPersistenter persistenter = pageReadTrx.getSession()
 				.getResourceConfig().mPersistenter;
 		for (int offset = 0; offset < size; offset++) {
 			final Record node = persistenter.deserialize(in, pageReadTrx);
-			mNodes.put(node.getNodeKey(), node);
+			mRecords.put(node.getNodeKey(), node);
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
 	}
 
-	/**
-	 * Get key of node page.
-	 * 
-	 * @return node page key
-	 */
+	@Override
 	public long getRecordPageKey() {
 		return mRecordPageKey;
 	}
 
-	/**
-	 * Get node with the specified node key.
-	 * 
-	 * @param key
-	 *          node key
-	 * @return node with given node key, or {@code null} if not present
-	 * @throws IllegalArgumentException
-	 *           if {@code key < 0}
-	 */
-	public Record getNode(final @Nonnegative long key) {
-		assert key >= 0 : "pKey must not be negative!";
-		return mNodes.get(key);
+	@Override
+	public Record getRecord(final @Nonnegative Long key) {
+		assert key != null : "key must not be null!";
+		assert key >= 0 : "key must not be negative!";
+		return mRecords.get(key);
 	}
 
-	/**
-	 * Store or overwrite a single node.
-	 * 
-	 * @param node
-	 *          node to store
-	 */
-	public void setNode(final @Nonnull Record node) {
-		assert node != null : "node must not be null!";
-		mNodes.put(node.getNodeKey(), node);
+	@Override
+	public void setRecord(final @Nonnull Record record) {
+		assert record != null : "record must not be null!";
+		mRecords.put(record.getNodeKey(), record);
 	}
 
 	@Override
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
 		out.writeInt(mRevision);
 		out.writeLong(mRecordPageKey);
-		out.writeInt(mNodes.size());
+		out.writeInt(mRecords.size());
 		final RecordPersistenter persistenter = mPageReadTrx.getSession()
 				.getResourceConfig().mPersistenter;
-		for (final Record node : mNodes.values()) {
+		for (final Record node : mRecords.values()) {
 			persistenter.serialize(out, node, mPageReadTrx);
 		}
 	}
 
 	@Override
-	public final String toString() {
+	public String toString() {
 		final ToStringHelper helper = Objects.toStringHelper(this)
 				.add("revision", mRevision).add("pagekey", mRecordPageKey)
-				.add("nodes", mNodes.toString());
-		for (final Record node : mNodes.values()) {
+				.add("nodes", mRecords.toString());
+		for (final Record node : mRecords.values()) {
 			helper.add("node", node);
 		}
 		return helper.toString();
 	}
 
-	/**
-	 * Entry set of all nodes in the page.
-	 * 
-	 * @return an entry set
-	 */
-	public final Set<Entry<Long, Record>> entrySet() {
-		return Collections.unmodifiableSet(mNodes.entrySet());
+	@Override
+	public Set<Entry<Long, Record>> entrySet() {
+		return mRecords.entrySet();
 	}
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mRecordPageKey, mNodes);
+		return Objects.hashCode(mRecordPageKey, mRecords);
 	}
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof RecordPage) {
-			final RecordPage other = (RecordPage) obj;
+		if (obj instanceof RecordPageImpl) {
+			final RecordPageImpl other = (RecordPageImpl) obj;
 			return Objects.equal(mRecordPageKey, other.mRecordPageKey)
-					&& Objects.equal(mNodes, other.mNodes);
+					&& Objects.equal(mRecords, other.mRecords);
 		}
 		return false;
 	}
@@ -214,13 +198,9 @@ public final class RecordPage implements Page {
 			throws SirixException {
 	}
 
-	/**
-	 * All available nodes.
-	 * 
-	 * @return a collection view of all nodes
-	 */
+	@Override
 	public Collection<Record> values() {
-		return Collections.unmodifiableCollection(mNodes.values());
+		return mRecords.values();
 	}
 
 	@Override
@@ -239,13 +219,16 @@ public final class RecordPage implements Page {
 		return this;
 	}
 
-	/**
-	 * Get the {@link PageReadTrx}.
-	 * 
-	 * @return page reading transaction
-	 */
+	@Override
 	public PageReadTrx getPageReadTrx() {
 		return mPageReadTrx;
+	}
+
+	@SuppressWarnings("unchecked")
+	@Override
+	public <C extends RecordPage<Long>> C newInstance(final long recordPageKey,
+			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
+		return (C) new RecordPageImpl(recordPageKey, revision, pageReadTrx);
 	}
 
 }

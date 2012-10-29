@@ -60,7 +60,7 @@ import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathSummaryPage;
-import org.sirix.page.RecordPage;
+import org.sirix.page.RecordPageImpl;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.ValuePage;
@@ -79,7 +79,7 @@ import com.google.common.cache.LoadingCache;
  * 
  * <p>
  * Page reading transaction. The only thing shared amongst transactions is the
- * page cache. Everything else is exclusive to this transaction. It is required
+ * session. Everything else is exclusive to this transaction. It is required
  * that only a single thread has access to this transaction.
  * </p>
  */
@@ -95,13 +95,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 	private final RevisionRootPage mRootPage;
 
 	/** Internal reference to node cache. */
-	private final LoadingCache<Long, RecordPageContainer> mNodeCache;
+	private final LoadingCache<Long, RecordPageContainer<Long, RecordPageImpl>> mNodeCache;
 
 	/** Internal reference to path cache. */
-	private final LoadingCache<Long, RecordPageContainer> mPathCache;
+	private final LoadingCache<Long, RecordPageContainer<Long, RecordPageImpl>> mPathCache;
 
 	/** Internal reference to value cache. */
-	private final LoadingCache<Long, RecordPageContainer> mValueCache;
+	private final LoadingCache<Long, RecordPageContainer<Long, RecordPageImpl>> mValueCache;
 
 	/** Internal reference to page cache. */
 	private final LoadingCache<Long, Page> mPageCache;
@@ -128,19 +128,19 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * Optional path transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache> mPathLog;
+	private final Optional<TransactionLogCache<Long, RecordPageImpl>> mPathLog;
 
 	/**
 	 * Optional value transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache> mValueLog;
+	private final Optional<TransactionLogCache<Long, RecordPageImpl>> mValueLog;
 
 	/**
 	 * Optional node transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache> mNodeLog;
+	private final Optional<TransactionLogCache<Long, RecordPageImpl>> mNodeLog;
 
 	/**
 	 * {@link ResourceConfiguration} instance.
@@ -170,87 +170,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 		mIndexes = session.mResourceConfig.mIndexes;
 		mResourceConfig = session.mResourceConfig;
 
-		// mPageLog = Optional.<TransactionLogPageCache> absent();
-		// mNodeLog = Optional.<TransactionLogCache> absent();
-		// mPathLog = Optional.<TransactionLogCache> absent();
-		// mValueLog = Optional.<TransactionLogCache> absent();
+		final File commitFile = session.mCommitFile;
+		final boolean doesExist = commitFile != null && commitFile.exists();
 
-		// In memory caches from data directory.
-		// =========================================================
-		mNodeCache = CacheBuilder.newBuilder().maximumSize(1000)
-				.expireAfterWrite(5000, TimeUnit.SECONDS)
-				.expireAfterAccess(5000, TimeUnit.SECONDS).concurrencyLevel(1)
-				.build(new CacheLoader<Long, RecordPageContainer>() {
-					public RecordPageContainer load(final Long pKey)
-							throws SirixException {
-						final RecordPageContainer container = mNodeLog.isPresent() ? mNodeLog
-								.get().get(pKey) : RecordPageContainer.EMPTY_INSTANCE;
-						if (container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
-							return getNodeFromPage(pKey, PageKind.NODEPAGE);
-						} else {
-							return container;
-						}
-					}
-				});
-		final CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder()
-				.concurrencyLevel(1).maximumSize(20);
-		if (mIndexes.contains(Indexes.PATH)) {
-			mPathCache = builder.build(new CacheLoader<Long, RecordPageContainer>() {
-				public RecordPageContainer load(final Long pKey) throws SirixException {
-					final RecordPageContainer container = mPathLog.isPresent() ? mPathLog
-							.get().get(pKey) : RecordPageContainer.EMPTY_INSTANCE;
-					if (container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
-						return getNodeFromPage(pKey, PageKind.PATHSUMMARYPAGE);
-					} else {
-						return container;
-					}
-				}
-			});
-		} else {
-			mPathCache = null;
-		}
-		if (mIndexes.contains(Indexes.VALUE)) {
-			mValueCache = builder.build(new CacheLoader<Long, RecordPageContainer>() {
-				public RecordPageContainer load(final Long pKey) throws SirixException {
-					final RecordPageContainer container = mValueLog.isPresent() ? mValueLog
-							.get().get(pKey) : null;
-					if (RecordPageContainer.EMPTY_INSTANCE.equals(container)) {
-						return getNodeFromPage(pKey, PageKind.VALUEPAGE);
-					} else {
-						return container;
-					}
-				}
-			});
-		} else {
-			mValueCache = null;
-		}
-
-		final CacheBuilder<Object, Object> pageCacheBuilder = CacheBuilder
-				.newBuilder();
-		// if (persistentCache.isPresent()) {
-		// pageCacheBuilder.removalListener(new RemovalListener<Long, Page>() {
-		// @Override
-		// public void onRemoval(final RemovalNotification<Long, Page> pRemoval) {
-		// final Page page = pRemoval.getValue();
-		// if (page.isDirty()) {
-		// persistentCache.get().put(pRemoval.getKey(), page);
-		// }
-		// }
-		// });
-		// }
-
-		final PageReadTrxImpl impl = this;
-		mPageCache = pageCacheBuilder.build(new CacheLoader<Long, Page>() {
-			public Page load(final Long pKey) throws SirixException {
-				final Page page = mPageLog.isPresent() ? mPageLog.get().get(pKey)
-						: null;
-				if (page == null) {
-					return mPageReader.read(pKey, impl).setDirty(true);
-				} else {
-					return page;
-				}
-			}
-		});
 		mSession = checkNotNull(session);
 		mPageReader = checkNotNull(reader);
 		mUberPage = checkNotNull(uberPage);
@@ -258,28 +180,120 @@ final class PageReadTrxImpl implements PageReadTrx {
 		// Transaction logs which might have to be read because the data hasn't been
 		// commited to the data-file.
 		// =======================================================
-		final File commitFile = session.mCommitFile;
-		final boolean doesExist = commitFile != null && commitFile.exists();
 		mPageLog = doesExist ? Optional.of(new TransactionLogPageCache(
 				session.mResourceConfig.mPath, revision, "page", this)) : Optional
 				.<TransactionLogPageCache> absent();
-		mNodeLog = doesExist ? Optional.of(new TransactionLogCache(
-				session.mResourceConfig.mPath, revision, "node", this)) : Optional
-				.<TransactionLogCache> absent();
+		mNodeLog = doesExist ? Optional
+				.of(new TransactionLogCache<Long, RecordPageImpl>(
+						session.mResourceConfig.mPath, revision, "node", this)) : Optional
+				.<TransactionLogCache<Long, RecordPageImpl>> absent();
 		if (mIndexes.contains(Indexes.PATH)) {
-			mPathLog = doesExist ? Optional.of(new TransactionLogCache(
-					session.mResourceConfig.mPath, revision, "path", this)) : Optional
-					.<TransactionLogCache> absent();
+			mPathLog = doesExist ? Optional
+					.of(new TransactionLogCache<Long, RecordPageImpl>(
+							session.mResourceConfig.mPath, revision, "path", this))
+					: Optional.<TransactionLogCache<Long, RecordPageImpl>> absent();
 		} else {
-			mPathLog = Optional.<TransactionLogCache> absent();
+			mPathLog = Optional.<TransactionLogCache<Long, RecordPageImpl>> absent();
 		}
 		if (mIndexes.contains(Indexes.VALUE)) {
-			mValueLog = doesExist ? Optional.of(new TransactionLogCache(
-					session.mResourceConfig.mPath, revision, "value", this)) : Optional
-					.<TransactionLogCache> absent();
+			mValueLog = doesExist ? Optional
+					.of(new TransactionLogCache<Long, RecordPageImpl>(
+							session.mResourceConfig.mPath, revision, "value", this))
+					: Optional.<TransactionLogCache<Long, RecordPageImpl>> absent();
 		} else {
-			mValueLog = Optional.<TransactionLogCache> absent();
+			mValueLog = Optional.<TransactionLogCache<Long, RecordPageImpl>> absent();
 		}
+
+		// In memory caches from data directory.
+		// =========================================================
+		mNodeCache = CacheBuilder
+				.newBuilder()
+				.maximumSize(1000)
+				.expireAfterWrite(5000, TimeUnit.SECONDS)
+				.expireAfterAccess(5000, TimeUnit.SECONDS)
+				.concurrencyLevel(1)
+				.build(
+						new CacheLoader<Long, RecordPageContainer<Long, RecordPageImpl>>() {
+							public RecordPageContainer<Long, RecordPageImpl> load(
+									final Long pKey) throws SirixException {
+								@SuppressWarnings("unchecked")
+								final RecordPageContainer<Long, RecordPageImpl> container = mNodeLog
+										.isPresent() ? mNodeLog.get().get(pKey)
+										: (RecordPageContainer<Long, RecordPageImpl>) RecordPageContainer.EMPTY_INSTANCE;
+								if (container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
+									return getNodeFromPage(pKey, PageKind.NODEPAGE);
+								} else {
+									return container;
+								}
+							}
+						});
+		final CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder()
+				.concurrencyLevel(1).maximumSize(20);
+		if (mIndexes.contains(Indexes.PATH)) {
+			mPathCache = builder
+					.build(new CacheLoader<Long, RecordPageContainer<Long, RecordPageImpl>>() {
+						public RecordPageContainer<Long, RecordPageImpl> load(
+								final Long pKey) throws SirixException {
+							@SuppressWarnings("unchecked")
+							final RecordPageContainer<Long, RecordPageImpl> container = mPathLog
+									.isPresent() ? mPathLog.get().get(pKey)
+									: (RecordPageContainer<Long, RecordPageImpl>) RecordPageContainer.EMPTY_INSTANCE;
+							if (container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
+								return getNodeFromPage(pKey, PageKind.PATHSUMMARYPAGE);
+							} else {
+								return container;
+							}
+						}
+					});
+		} else {
+			mPathCache = null;
+		}
+		if (mIndexes.contains(Indexes.VALUE)) {
+			mValueCache = builder
+					.build(new CacheLoader<Long, RecordPageContainer<Long, RecordPageImpl>>() {
+						public RecordPageContainer<Long, RecordPageImpl> load(
+								final Long pKey) throws SirixException {
+							@SuppressWarnings("unchecked")
+							final RecordPageContainer<Long, RecordPageImpl> container = mValueLog
+									.isPresent() ? mValueLog.get().get(pKey)
+									: (RecordPageContainer<Long, RecordPageImpl>) RecordPageContainer.EMPTY_INSTANCE;
+							if (RecordPageContainer.EMPTY_INSTANCE.equals(container)) {
+								return getNodeFromPage(pKey, PageKind.VALUEPAGE);
+							} else {
+								return container;
+							}
+						}
+					});
+		} else {
+			mValueCache = null;
+		}
+
+		final CacheBuilder<Object, Object> pageCacheBuilder = CacheBuilder
+				.newBuilder();
+		final PageReadTrxImpl impl = this;
+		mPageCache = pageCacheBuilder.build(new CacheLoader<Long, Page>() {
+			public Page load(final Long key) throws SirixException {
+				final Page page = mPageLog.isPresent() ? mPageLog.get().get(key) : null;
+				if (page == null) {
+					return mPageReader.read(key, impl).setDirty(true);
+				} else {
+					return page;
+				}
+			}
+		});
+
+		// if (mPageLog.isPresent()) {
+		// pageCacheBuilder.removalListener(new RemovalListener<Long, Page>() {
+		// @Override
+		// public void onRemoval(final RemovalNotification<Long, Page> pRemoval) {
+		// final Page page = pRemoval.getValue();
+		// if (page.isDirty()) {
+		// mPageLog.get().put(pRemoval.getKey(), page);
+		// }
+		// }
+		// });
+		// }
+
 		// Load revision root.
 		mRootPage = loadRevRoot(revision);
 		assert mRootPage != null : "root page must not be null!";
@@ -324,7 +338,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final long nodePageKey = nodePageKey(nodeKey);
 		// final int nodePageOffset = nodePageOffset(pNodeKey);
 
-		RecordPageContainer cont;
+		RecordPageContainer<Long, ?> cont;
 		try {
 			switch (pageKind) {
 			case NODEPAGE:
@@ -347,8 +361,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 			return Optional.<Record> absent();
 		}
 
-		final Record retVal = cont.getComplete().getNode(nodeKey);
-		return Optional.fromNullable(checkItemIfDeleted(retVal));
+		final Record retVal = cont.getComplete().getRecord(nodeKey);
+		return checkItemIfDeleted(retVal);
 	}
 
 	/**
@@ -358,11 +372,11 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *          node to check
 	 * @return the {@code node} if it is valid, {@code null} otherwise
 	 */
-	final Record checkItemIfDeleted(final @Nullable Record toCheck) {
+	final Optional<Record> checkItemIfDeleted(final @Nullable Record toCheck) {
 		if (toCheck instanceof DeletedNode) {
-			return null;
+			return Optional.absent();
 		} else {
-			return toCheck;
+			return Optional.fromNullable(toCheck);
 		}
 	}
 
@@ -533,20 +547,22 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * 
 	 * @param nodePageKey
 	 *          key of node page
+	 * @param pageKind
+	 * 					kind of page, that is the type of tree to dereference
 	 * @return dereferenced pages
 	 * 
 	 * @throws SirixIOException
 	 *           if an I/O-error occurs within the creation process
 	 */
-	final RecordPage[] getSnapshotPages(final @Nonnegative long nodePageKey,
-			final @Nonnull PageKind pageKind) throws SirixIOException {
+	final List<RecordPageImpl> getSnapshotPages(
+			final @Nonnegative long nodePageKey, final @Nonnull PageKind pageKind)
+			throws SirixIOException {
 		assert nodePageKey >= 0;
 		assert pageKind != null;
-		// TODO:
-		final List<RecordPage> pages = new ArrayList<>();
-		final Set<Long> keys = new HashSet<>();
 		final ResourceConfiguration config = mSession.getResourceConfig();
 		final int revsToRestore = config.mRevisionsToRestore;
+		final List<RecordPageImpl> pages = new ArrayList<>(revsToRestore);
+		final Set<Long> keys = new HashSet<>(revsToRestore);
 		for (int i = mRootPage.getRevision(); i >= 0; i--) {
 			final PageReference tmpRef = getPageReference(loadRevRoot(i), pageKind);
 			final PageReference ref = dereferenceLeafOfTree(tmpRef, nodePageKey,
@@ -555,7 +571,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 					&& (ref.getPage() != null || ref.getKey() != Constants.NULL_ID)) {
 				// Probably save page.
 				if (ref.getKey() == Constants.NULL_ID || (!keys.contains(ref.getKey()))) {
-					final RecordPage page = (RecordPage) (ref.getPage() == null ? mPageReader
+					final RecordPageImpl page = (RecordPageImpl) (ref.getPage() == null ? mPageReader
 							.read(ref.getKey(), this) : ref.getPage());
 					ref.setPageKind(pageKind);
 					pages.add(page);
@@ -563,13 +579,15 @@ final class PageReadTrxImpl implements PageReadTrx {
 						keys.add(ref.getKey());
 					}
 					if (page.entrySet().size() == Constants.NDP_NODE_COUNT) {
-						// Page is full, thus we can skip reconstructing pages with elder versions.
+						// Page is full, thus we can skip reconstructing pages with elder
+						// versions.
 						break;
 					}
 				}
 				if (pages.size() == revsToRestore
 						|| config.mRevisionKind == Revisioning.FULL
-						|| (config.mRevisionKind == Revisioning.DIFFERENTIAL && pages.size() == 2)) {
+						|| (config.mRevisionKind == Revisioning.DIFFERENTIAL && pages
+								.size() == 2)) {
 					break;
 				}
 				if (config.mRevisionKind == Revisioning.DIFFERENTIAL) {
@@ -586,7 +604,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			}
 		}
 
-		return pages.toArray(new RecordPage[pages.size()]);
+		return pages;
 	}
 
 	/**
@@ -702,13 +720,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 	/**
 	 * Calculate node page key from a given node key.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          node key to find node page key for
 	 * @return node page key
 	 */
-	final long nodePageKey(final @Nonnegative long pNodeKey) {
-		checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
-		return pNodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+	final long nodePageKey(final @Nonnegative long nodeKey) {
+		checkArgument(nodeKey >= 0, "pNodeKey must not be negative!");
+		return nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
 	}
 
 	// /**
@@ -740,20 +758,22 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public RecordPageContainer getNodeFromPage(
-			final @Nonnegative long nodePageKey, final @Nonnull PageKind pPage)
+	public RecordPageContainer<Long, RecordPageImpl> getNodeFromPage(
+			final @Nonnegative long nodePageKey, final @Nonnull PageKind pageKind)
 			throws SirixIOException {
 		assertNotClosed();
-		final RecordPage[] revs = getSnapshotPages(nodePageKey, pPage);
-		if (revs.length == 0) {
-			return RecordPageContainer.EMPTY_INSTANCE;
+		final List<RecordPageImpl> revs = getSnapshotPages(nodePageKey, pageKind);
+		if (revs.size() == 0) {
+			@SuppressWarnings("unchecked")
+			final RecordPageContainer<Long, RecordPageImpl> emptyInstance = (RecordPageContainer<Long, RecordPageImpl>) RecordPageContainer.EMPTY_INSTANCE;
+			return emptyInstance;
 		}
 
 		final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
 		final Revisioning revisioning = mResourceConfig.mRevisionKind;
-		final RecordPage completePage = revisioning.combineNodePages(revs,
+		final RecordPageImpl completePage = revisioning.combineNodePages(revs,
 				mileStoneRevision, this);
-		return new RecordPageContainer(completePage);
+		return new RecordPageContainer<Long, RecordPageImpl>(completePage);
 	}
 
 	@Override
@@ -767,9 +787,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public int getNameCount(int pKey, @Nonnull Kind pKind) {
+	public int getNameCount(int key, @Nonnull Kind kind) {
 		assertNotClosed();
-		return mNamePage.getCount(pKey, pKind);
+		return mNamePage.getCount(key, kind);
 	}
 
 	@Override
@@ -784,21 +804,21 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public Page getFromPageCache(final @Nonnegative long pKey)
+	public Page getFromPageCache(final @Nonnegative long key)
 			throws SirixIOException {
 		assertNotClosed();
 		Page retVal = null;
 		try {
-			retVal = mPageCache.get(pKey);
-		} catch (ExecutionException e) {
+			retVal = mPageCache.get(key);
+		} catch (final ExecutionException e) {
 			throw new SirixIOException(e.getCause());
 		}
 		return retVal;
 	}
 
 	@Override
-	public void putPageCache(final @Nonnull TransactionLogPageCache pPageLog) {
+	public void putPageCache(final @Nonnull TransactionLogPageCache pageLog) {
 		assertNotClosed();
-		pPageLog.putAll(mPageCache.asMap());
+		pageLog.putAll(mPageCache.asMap());
 	}
 }

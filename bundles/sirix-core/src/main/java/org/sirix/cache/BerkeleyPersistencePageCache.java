@@ -198,8 +198,8 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, Page> map) {
-		for (final Entry<Long, Page> entry : map.entrySet()) {
+	public void putAll(final @Nonnull Map<? extends Long, ? extends Page> map) {
+		for (final Entry<? extends Long, ? extends Page> entry : map.entrySet()) {
 			put(entry.getKey(), entry.getValue());
 		}
 	}

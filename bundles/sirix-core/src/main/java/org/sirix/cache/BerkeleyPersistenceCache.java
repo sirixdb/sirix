@@ -38,6 +38,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
+import org.sirix.page.interfaces.RecordPage;
 
 import com.google.common.collect.ImmutableMap;
 import com.sleepycat.bind.tuple.TupleBinding;
@@ -58,8 +59,8 @@ import com.sleepycat.je.OperationStatus;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class BerkeleyPersistenceCache extends
-		AbstractPersistenceCache<Long, RecordPageContainer> {
+public final class BerkeleyPersistenceCache<S, T extends RecordPage<S>> extends
+		AbstractPersistenceCache<Long, RecordPageContainer<S, T>> {
 
 	/**
 	 * Flush after defined value.
@@ -89,7 +90,7 @@ public final class BerkeleyPersistenceCache extends
 	/**
 	 * Binding for the value which is a page with related Nodes.
 	 */
-	private final PageContainerBinding mValueBinding;
+	private final PageContainerBinding<S, T> mValueBinding;
 
 	/** Cache entries. */
 	private long mEntries;
@@ -112,8 +113,7 @@ public final class BerkeleyPersistenceCache extends
 	 */
 	public BerkeleyPersistenceCache(final @Nonnull File file,
 			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull PageReadTrx pageReadTrx)
-			throws SirixIOException {
+			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
 		super(file, revision, logType);
 		try {
 			// Create a new, transactional database environment.
@@ -132,7 +132,7 @@ public final class BerkeleyPersistenceCache extends
 			mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
 			mKeyBinding = TupleBinding.getPrimitiveBinding(Long.class);
-			mValueBinding = new PageContainerBinding(pageReadTrx);
+			mValueBinding = new PageContainerBinding<>(pageReadTrx);
 			mEntries = 0;
 		} catch (final DatabaseException e) {
 			throw new SirixIOException(e.getCause());
@@ -141,7 +141,7 @@ public final class BerkeleyPersistenceCache extends
 
 	@Override
 	public void putPersistent(final @Nonnull Long key,
-			final @Nonnull RecordPageContainer page) throws SirixIOException {
+			final @Nonnull RecordPageContainer<S, T> page) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mEntries++;
@@ -176,7 +176,7 @@ public final class BerkeleyPersistenceCache extends
 	}
 
 	@Override
-	public RecordPageContainer getPersistent(final @Nonnull Long key)
+	public RecordPageContainer<S, T> getPersistent(final @Nonnull Long key)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -184,10 +184,9 @@ public final class BerkeleyPersistenceCache extends
 		try {
 			final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry,
 					LockMode.DEFAULT);
-			RecordPageContainer val = null;
-			if (status == OperationStatus.SUCCESS) {
-				val = mValueBinding.entryToObject(valueEntry);
-			}
+			@SuppressWarnings("unchecked")
+			final RecordPageContainer<S, T> val = (RecordPageContainer<S, T>) (status == OperationStatus.SUCCESS ? mValueBinding
+					.entryToObject(valueEntry) : null);
 			return val;
 		} catch (final DatabaseException e) {
 			throw new SirixIOException(e);
@@ -195,14 +194,16 @@ public final class BerkeleyPersistenceCache extends
 	}
 
 	@Override
-	public ImmutableMap<Long, RecordPageContainer> getAll(
+	public ImmutableMap<Long, RecordPageContainer<S, T>> getAll(
 			final @Nonnull Iterable<? extends Long> keys) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<Long, RecordPageContainer> map) {
-		for (final Entry<Long, RecordPageContainer> entry : map.entrySet()) {
+	public void putAll(
+			final @Nonnull Map<? extends Long, ? extends RecordPageContainer<S, T>> map) {
+		for (final Entry<? extends Long, ? extends RecordPageContainer<S, T>> entry : map
+				.entrySet()) {
 			put(entry.getKey(), entry.getValue());
 		}
 	}

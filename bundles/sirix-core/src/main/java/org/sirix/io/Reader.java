@@ -27,7 +27,7 @@
 
 package org.sirix.io;
 
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
@@ -65,7 +65,7 @@ public interface Reader {
 	 * @throws SirixIOException
 	 *           if something bad happens during read
 	 */
-	Page read(long key, @Nonnull PageReadTrx pageReadTrx)
+	Page read(long key, @Nullable PageReadTrx pageReadTrx)
 			throws SirixIOException;
 
 	/**

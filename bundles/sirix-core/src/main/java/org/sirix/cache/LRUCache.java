@@ -72,6 +72,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	 *          when it gets removed from the first one.
 	 */
 	public LRUCache(final @Nonnull Cache<K, V> secondCache) {
+		// Assertion instead of checkNotNull(...).
 		assert secondCache != null;
 		mSecondCache = secondCache;
 		mMap = new LinkedHashMap<K, V>(CACHE_CAPACITY) {
@@ -111,9 +112,9 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	 */
 	@Override
 	public V get(final @Nonnull K key) {
-		V page = mMap.get(key);
+		V page = (V) mMap.get(key);
 		if (page == null) {
-			page = mSecondCache.get(key);
+			page = (V) mSecondCache.get(key);
 		}
 		return page;
 	}
@@ -156,8 +157,8 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	 * 
 	 * @return a {@code Collection} with a copy of the cache content
 	 */
-	public Collection<Map.Entry<K, V>> getAll() {
-		return new ArrayList<>(mMap.entrySet());
+	public Collection<Map.Entry<? super K, ? super V>> getAll() {
+		return new ArrayList<Map.Entry<? super K, ? super V>>(mMap.entrySet());
 	}
 
 	@Override
@@ -178,7 +179,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<K, V> map) {
+	public void putAll(final @Nonnull Map<? extends K, ? extends V> map) {
 		mMap.putAll(checkNotNull(map));
 	}
 

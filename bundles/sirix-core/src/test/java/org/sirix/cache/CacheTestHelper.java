@@ -31,7 +31,7 @@ import org.sirix.Holder;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.page.RecordPage;
+import org.sirix.page.RecordPageImpl;
 
 /**
  * Helper class for testing the cache.
@@ -43,22 +43,22 @@ public class CacheTestHelper {
 
 	private static PageReadTrx PAGE_READ_TRX;
 	
-	protected static RecordPage[][] PAGES;
+	protected static RecordPageImpl[][] PAGES;
 
-	public static void setUp(final Cache<Long, RecordPageContainer> cache)
+	public static void setUp(final Cache<Long, RecordPageContainer<Long, RecordPageImpl>> cache)
 			throws SirixException {
 		PAGE_READ_TRX = Holder.generateSession().getSession().beginPageReadTrx();
-		PAGES = new RecordPage[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
+		PAGES = new RecordPageImpl[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
 		for (int i = 0; i < PAGES.length; i++) {
-			final RecordPage page = new RecordPage(i, 0, PAGE_READ_TRX);
-			final RecordPage[] revs = new RecordPage[ResourceConfiguration.VERSIONSTORESTORE];
+			final RecordPageImpl page = new RecordPageImpl(i, 0, PAGE_READ_TRX);
+			final RecordPageImpl[] revs = new RecordPageImpl[ResourceConfiguration.VERSIONSTORESTORE];
 
 			for (int j = 0; j < ResourceConfiguration.VERSIONSTORESTORE; j++) {
-				PAGES[i][j + 1] = new RecordPage(i, 0, PAGE_READ_TRX);
+				PAGES[i][j + 1] = new RecordPageImpl(i, 0, PAGE_READ_TRX);
 				revs[j] = PAGES[i][j + 1];
 			}
 			PAGES[i][0] = page;
-			cache.put((long) i, new RecordPageContainer(page));
+			cache.put((long) i, new RecordPageContainer<>(page));
 		}
 	}
 

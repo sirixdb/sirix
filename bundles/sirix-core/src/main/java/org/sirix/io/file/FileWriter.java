@@ -34,10 +34,9 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
-import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.Reader;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.PagePersistenter;
@@ -54,7 +53,7 @@ import com.google.common.io.ByteStreams;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class FileWriter implements Writer {
+public final class FileWriter extends AbstractForwardingFileReader implements Writer {
 
 	/** Random access to work on. */
 	private final RandomAccessFile mFile;
@@ -153,15 +152,8 @@ public final class FileWriter implements Writer {
 	}
 
 	@Override
-	public Page read(final long pKey, final @Nullable PageReadTrx pageReadTrx)
-			throws SirixIOException {
-		return mReader.read(pKey, pageReadTrx);
-	}
-
-	@Override
-	public PageReference readFirstReference()
-			throws SirixIOException {
-		return mReader.readFirstReference();
+	protected Reader delegate() {
+		return mReader;
 	}
 
 }

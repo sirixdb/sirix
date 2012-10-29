@@ -30,7 +30,7 @@ public class EmptyCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public void putAll(@Nonnull Map<K, V> map) {
+	public void putAll(@Nonnull Map<? extends K, ? extends V> map) {
 	}
 
 	@Override
