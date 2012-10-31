@@ -44,8 +44,8 @@ import com.sleepycat.bind.tuple.TupleOutput;
 /**
  * Binding for {@link RecordPageContainer} reference.
  */
-public class PageContainerBinding<S, T extends RecordPage<S>> extends
-		TupleBinding<RecordPageContainer<?, ? extends RecordPage<?>>> {
+public class PageContainerBinding<T extends RecordPage<?>> extends
+		TupleBinding<RecordPageContainer<? extends RecordPage<?>>> {
 
 	/** {@link ResourceConfiguration} instance. */
 	private final PageReadTrx mPageReadTrx;
@@ -62,7 +62,7 @@ public class PageContainerBinding<S, T extends RecordPage<S>> extends
 	}
 
 	@Override
-	public RecordPageContainer<?, ? extends RecordPage<?>> entryToObject(
+	public RecordPageContainer<? extends RecordPage<?>> entryToObject(
 			final @Nullable TupleInput input) {
 		if (input == null) {
 			return RecordPageContainer.EMPTY_INSTANCE;
@@ -75,12 +75,12 @@ public class PageContainerBinding<S, T extends RecordPage<S>> extends
 		@SuppressWarnings("unchecked")
 		final T modified = (T) PagePersistenter
 				.deserializePage(source, mPageReadTrx);
-		return new RecordPageContainer<S, T>(current, modified);
+		return new RecordPageContainer<T>(current, modified);
 	}
 
 	@Override
 	public void objectToEntry(
-			final @Nullable RecordPageContainer<?, ? extends RecordPage<?>> pageContainer,
+			final @Nullable RecordPageContainer<? extends RecordPage<?>> pageContainer,
 			final @Nullable TupleOutput output) {
 		if (pageContainer != null && output != null) {
 			pageContainer.serialize(output);

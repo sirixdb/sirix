@@ -52,14 +52,14 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SynchronizedTransactionLogCache<S, T extends RecordPage<S>> implements
-		Cache<Long, RecordPageContainer<S, T>> {
+public final class SynchronizedTransactionLogCache<T extends RecordPage<?>> implements
+		Cache<Long, RecordPageContainer<T>> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<Long, RecordPageContainer<S, T>> mFirstCache;
+	private final LRUCache<Long, RecordPageContainer<T>> mFirstCache;
 
 	/** Persistend second cache. */
-	private final BerkeleyPersistenceCache<S, T> mSecondCache;
+	private final BerkeleyPersistenceCache<T> mSecondCache;
 
 	/** {@link ReadWriteLock} instance. */
 	private final ReadWriteLock mLock = new ReentrantReadWriteLock();
@@ -90,7 +90,7 @@ public final class SynchronizedTransactionLogCache<S, T extends RecordPage<S>> i
 			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
 		mSecondCache = new BerkeleyPersistenceCache<>(file, revision, logType,
 				pageReadTrx);
-		mFirstCache = new LRUCache<Long, RecordPageContainer<S, T>>(mSecondCache);
+		mFirstCache = new LRUCache<Long, RecordPageContainer<T>>(mSecondCache);
 	}
 
 	@Override
@@ -104,9 +104,9 @@ public final class SynchronizedTransactionLogCache<S, T extends RecordPage<S>> i
 	}
 
 	@Override
-	public ImmutableMap<Long, RecordPageContainer<S, T>> getAll(
+	public ImmutableMap<Long, RecordPageContainer<T>> getAll(
 			final @Nonnull Iterable<? extends Long> pKeys) {
-		final ImmutableMap.Builder<Long, RecordPageContainer<S, T>> builder = new ImmutableMap.Builder<>();
+		final ImmutableMap.Builder<Long, RecordPageContainer<T>> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
 			for (final Long key : pKeys) {
@@ -131,9 +131,9 @@ public final class SynchronizedTransactionLogCache<S, T extends RecordPage<S>> i
 	}
 
 	@Override
-	public RecordPageContainer<S, T> get(final @Nonnull Long key) {
+	public RecordPageContainer<T> get(final @Nonnull Long key) {
 		@SuppressWarnings("unchecked")
-		RecordPageContainer<S, T> container = (RecordPageContainer<S, T>) RecordPageContainer.EMPTY_INSTANCE;
+		RecordPageContainer<T> container = (RecordPageContainer<T>) RecordPageContainer.EMPTY_INSTANCE;
 		try {
 			mReadLock.lock();
 			if (mFirstCache.get(key) != null) {
@@ -147,7 +147,7 @@ public final class SynchronizedTransactionLogCache<S, T extends RecordPage<S>> i
 
 	@Override
 	public void put(final @Nonnull Long key,
-			final @Nonnull RecordPageContainer<S, T> value) {
+			final @Nonnull RecordPageContainer<T> value) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(key, value);
@@ -158,7 +158,7 @@ public final class SynchronizedTransactionLogCache<S, T extends RecordPage<S>> i
 
 	@Override
 	public void putAll(
-			final @Nonnull Map<? extends Long, ? extends RecordPageContainer<S, T>> map) {
+			final @Nonnull Map<? extends Long, ? extends RecordPageContainer<T>> map) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.putAll(map);

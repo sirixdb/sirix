@@ -39,11 +39,11 @@ import org.sirix.TestHelper;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.page.RecordPageImpl;
+import org.sirix.page.UnorderedRecordPage;
 
 public class BerkeleyPersistentCacheTest {
 
-	private Cache<Long, RecordPageContainer<Long, RecordPageImpl>> cache;
+	private Cache<Long, RecordPageContainer<UnorderedRecordPage>> cache;
 
 	private Holder holder;
 	
@@ -64,8 +64,8 @@ public class BerkeleyPersistentCacheTest {
 	@Test
 	public void test() {
 		for (long i = 0; i < CacheTestHelper.PAGES.length; i++) {
-			final RecordPageContainer<Long, RecordPageImpl> cont = cache.get(i);
-			final RecordPageImpl current = (RecordPageImpl) cont.getComplete();
+			final RecordPageContainer<UnorderedRecordPage> cont = cache.get(i);
+			final UnorderedRecordPage current = (UnorderedRecordPage) cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[(int) i][0], current);
 		}
 		cache.clear();

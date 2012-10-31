@@ -33,7 +33,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.exception.SirixException;
-import org.sirix.page.RecordPageImpl;
+import org.sirix.page.UnorderedRecordPage;
 
 /**
  * @author Sebastian Graf, University of Konstanz
@@ -41,7 +41,7 @@ import org.sirix.page.RecordPageImpl;
  */
 public class LRUCacheTest {
 
-	private Cache<Long, RecordPageContainer<Long, RecordPageImpl>> cache;
+	private Cache<Long, RecordPageContainer<UnorderedRecordPage>> cache;
 
 	@Before
 	public void setUp() throws SirixException {
@@ -57,12 +57,12 @@ public class LRUCacheTest {
 	@Test
 	public void test() {
 		for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
-			final RecordPageContainer<Long, RecordPageImpl> cont = cache.get((long) i);
-			final RecordPageImpl current = (RecordPageImpl) cont.getComplete();
+			final RecordPageContainer<UnorderedRecordPage> cont = cache.get((long) i);
+			final UnorderedRecordPage current = (UnorderedRecordPage) cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[i][0], current);
 		}
 
-		final RecordPageContainer<Long, RecordPageImpl> page = cache.get(0L);
+		final RecordPageContainer<UnorderedRecordPage> page = cache.get(0L);
 		assertNull(page);
 	}
 

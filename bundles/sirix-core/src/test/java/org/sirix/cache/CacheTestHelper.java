@@ -31,7 +31,7 @@ import org.sirix.Holder;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.page.RecordPageImpl;
+import org.sirix.page.UnorderedRecordPage;
 
 /**
  * Helper class for testing the cache.
@@ -41,20 +41,32 @@ import org.sirix.page.RecordPageImpl;
  */
 public class CacheTestHelper {
 
+	/** Page reading transaction. */
 	private static PageReadTrx PAGE_READ_TRX;
-	
-	protected static RecordPageImpl[][] PAGES;
 
-	public static void setUp(final Cache<Long, RecordPageContainer<Long, RecordPageImpl>> cache)
+	/** Unordered record pages. */
+	protected static UnorderedRecordPage[][] PAGES;
+
+	/**
+	 * Setup the cache.
+	 * 
+	 * @param cache
+	 *          cache to fill
+	 * @throws SirixException
+	 *           if setting up Sirix session fails
+	 */
+	public static void setUp(
+			final Cache<Long, RecordPageContainer<UnorderedRecordPage>> cache)
 			throws SirixException {
 		PAGE_READ_TRX = Holder.generateSession().getSession().beginPageReadTrx();
-		PAGES = new RecordPageImpl[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
+		PAGES = new UnorderedRecordPage[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
 		for (int i = 0; i < PAGES.length; i++) {
-			final RecordPageImpl page = new RecordPageImpl(i, 0, PAGE_READ_TRX);
-			final RecordPageImpl[] revs = new RecordPageImpl[ResourceConfiguration.VERSIONSTORESTORE];
+			final UnorderedRecordPage page = new UnorderedRecordPage(i, 0,
+					PAGE_READ_TRX);
+			final UnorderedRecordPage[] revs = new UnorderedRecordPage[ResourceConfiguration.VERSIONSTORESTORE];
 
 			for (int j = 0; j < ResourceConfiguration.VERSIONSTORESTORE; j++) {
-				PAGES[i][j + 1] = new RecordPageImpl(i, 0, PAGE_READ_TRX);
+				PAGES[i][j + 1] = new UnorderedRecordPage(i, 0, PAGE_READ_TRX);
 				revs[j] = PAGES[i][j + 1];
 			}
 			PAGES[i][0] = page;

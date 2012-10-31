@@ -59,8 +59,8 @@ import com.sleepycat.je.OperationStatus;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class BerkeleyPersistenceCache<S, T extends RecordPage<S>> extends
-		AbstractPersistenceCache<Long, RecordPageContainer<S, T>> {
+public final class BerkeleyPersistenceCache<T extends RecordPage<?>> extends
+		AbstractPersistenceCache<Long, RecordPageContainer<T>> {
 
 	/**
 	 * Flush after defined value.
@@ -90,7 +90,7 @@ public final class BerkeleyPersistenceCache<S, T extends RecordPage<S>> extends
 	/**
 	 * Binding for the value which is a page with related Nodes.
 	 */
-	private final PageContainerBinding<S, T> mValueBinding;
+	private final PageContainerBinding<T> mValueBinding;
 
 	/** Cache entries. */
 	private long mEntries;
@@ -141,7 +141,7 @@ public final class BerkeleyPersistenceCache<S, T extends RecordPage<S>> extends
 
 	@Override
 	public void putPersistent(final @Nonnull Long key,
-			final @Nonnull RecordPageContainer<S, T> page) throws SirixIOException {
+			final @Nonnull RecordPageContainer<T> page) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mEntries++;
@@ -176,7 +176,7 @@ public final class BerkeleyPersistenceCache<S, T extends RecordPage<S>> extends
 	}
 
 	@Override
-	public RecordPageContainer<S, T> getPersistent(final @Nonnull Long key)
+	public RecordPageContainer<T> getPersistent(final @Nonnull Long key)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -185,7 +185,7 @@ public final class BerkeleyPersistenceCache<S, T extends RecordPage<S>> extends
 			final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry,
 					LockMode.DEFAULT);
 			@SuppressWarnings("unchecked")
-			final RecordPageContainer<S, T> val = (RecordPageContainer<S, T>) (status == OperationStatus.SUCCESS ? mValueBinding
+			final RecordPageContainer<T> val = (RecordPageContainer<T>) (status == OperationStatus.SUCCESS ? mValueBinding
 					.entryToObject(valueEntry) : null);
 			return val;
 		} catch (final DatabaseException e) {
@@ -194,15 +194,15 @@ public final class BerkeleyPersistenceCache<S, T extends RecordPage<S>> extends
 	}
 
 	@Override
-	public ImmutableMap<Long, RecordPageContainer<S, T>> getAll(
+	public ImmutableMap<Long, RecordPageContainer<T>> getAll(
 			final @Nonnull Iterable<? extends Long> keys) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public void putAll(
-			final @Nonnull Map<? extends Long, ? extends RecordPageContainer<S, T>> map) {
-		for (final Entry<? extends Long, ? extends RecordPageContainer<S, T>> entry : map
+			final @Nonnull Map<? extends Long, ? extends RecordPageContainer<T>> map) {
+		for (final Entry<? extends Long, ? extends RecordPageContainer<T>> entry : map
 				.entrySet()) {
 			put(entry.getKey(), entry.getValue());
 		}

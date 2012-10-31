@@ -71,7 +71,7 @@ import org.sirix.io.StorageType;
 import org.sirix.io.Writer;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
-import org.sirix.page.RecordPageImpl;
+import org.sirix.page.UnorderedRecordPage;
 import org.sirix.page.UberPage;
 
 import com.google.common.base.Objects;
@@ -478,7 +478,7 @@ public final class SessionImpl implements Session {
 	 * 
 	 */
 	protected synchronized void syncLogs(
-			final @Nonnull RecordPageContainer<Long, RecordPageImpl> pContToSync,
+			final @Nonnull RecordPageContainer<UnorderedRecordPage> pContToSync,
 			final @Nonnegative long pTransactionID, final @Nonnull PageKind pPage)
 			throws SirixThreadedException {
 		final ExecutorService pool = Executors.newCachedThreadPool();
@@ -538,7 +538,7 @@ public final class SessionImpl implements Session {
 		private final PageWriteTrx mPageWriteTrx;
 
 		/** {@link RecordPageContainer} reference. */
-		private final RecordPageContainer<Long, RecordPageImpl> mCont;
+		private final RecordPageContainer<UnorderedRecordPage> mCont;
 
 		/** Type of page. */
 		private final PageKind mPage;
@@ -554,7 +554,7 @@ public final class SessionImpl implements Session {
 		 *          page type
 		 */
 		LogSyncer(final @Nonnull PageWriteTrx pPageWriteTransaction,
-				final @Nonnull RecordPageContainer<Long, RecordPageImpl> pNodePageCont,
+				final @Nonnull RecordPageContainer<UnorderedRecordPage> pNodePageCont,
 				final @Nonnull PageKind pPage) {
 			mPageWriteTrx = checkNotNull(pPageWriteTransaction);
 			mCont = checkNotNull(pNodePageCont);

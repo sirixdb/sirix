@@ -16,22 +16,24 @@ import com.google.common.collect.ForwardingObject;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbstractForwardingFileReader extends ForwardingObject implements Reader {
+public abstract class AbstractForwardingFileReader extends ForwardingObject
+		implements Reader {
 
 	/** Constructor for use by subclasses. */
 	protected AbstractForwardingFileReader() {
 	}
-	
+
 	@Override
-	public Page read(long key, @Nullable PageReadTrx pageReadTrx) throws SirixIOException {
+	public Page read(long key, @Nullable PageReadTrx pageReadTrx)
+			throws SirixIOException {
 		return delegate().read(key, pageReadTrx);
 	}
-	
+
 	@Override
 	public PageReference readFirstReference() throws SirixIOException {
 		return delegate().readFirstReference();
 	}
-	
+
 	@Override
 	protected abstract Reader delegate();
 }

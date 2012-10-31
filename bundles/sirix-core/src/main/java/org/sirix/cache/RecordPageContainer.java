@@ -31,7 +31,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.page.PagePersistenter;
-import org.sirix.page.RecordPageImpl;
+import org.sirix.page.UnorderedRecordPage;
 import org.sirix.page.interfaces.RecordPage;
 
 import com.google.common.base.Objects;
@@ -60,16 +60,16 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class RecordPageContainer<S, T extends RecordPage<S>> {
+public final class RecordPageContainer<T extends RecordPage<?>> {
 
-	/** {@link RecordPageImpl} reference, which references the complete node page. */
+	/** {@link UnorderedRecordPage} reference, which references the complete node page. */
 	private final T mComplete;
 
-	/** {@link RecordPageImpl} reference, which references the modified node page. */
+	/** {@link UnorderedRecordPage} reference, which references the modified node page. */
 	private final T mModified;
 
 	/** Empty instance. */
-	public static final RecordPageContainer<?, ? extends RecordPage<?>> EMPTY_INSTANCE = new RecordPageContainer<>();
+	public static final RecordPageContainer<? extends RecordPage<?>> EMPTY_INSTANCE = new RecordPageContainer<>();
 
 	/** Private constructor for empty instance. */
 	private RecordPageContainer() {
@@ -146,7 +146,7 @@ public final class RecordPageContainer<S, T extends RecordPage<S>> {
 	@Override
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof RecordPageContainer) {
-			final RecordPageContainer<?, ?> other = (RecordPageContainer<?, ?>) obj;
+			final RecordPageContainer<?> other = (RecordPageContainer<?>) obj;
 			return Objects.equal(mComplete, other.mComplete)
 					&& Objects.equal(mModified, other.mModified);
 		}

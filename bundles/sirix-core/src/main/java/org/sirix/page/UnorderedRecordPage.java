@@ -26,8 +26,6 @@
  */
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -59,7 +57,7 @@ import com.google.common.io.ByteArrayDataOutput;
  * A record page stores a set of records commonly nodes.
  * </p>
  */
-public final class RecordPageImpl implements RecordPage<Long> {
+public final class UnorderedRecordPage implements RecordPage<Long> {
 
 	/** Key of record page. This is the base key of all contained nodes. */
 	private final long mRecordPageKey;
@@ -84,7 +82,7 @@ public final class RecordPageImpl implements RecordPage<Long> {
 	 * @param revision
 	 *          revision the page belongs to
 	 */
-	public RecordPageImpl(final @Nonnegative long recordPageKey,
+	public UnorderedRecordPage(final @Nonnegative long recordPageKey,
 			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
@@ -106,7 +104,7 @@ public final class RecordPageImpl implements RecordPage<Long> {
 	 * @param pageReadTrx
 	 *          {@link 
 	 */
-	protected RecordPageImpl(final @Nonnull ByteArrayDataInput in,
+	protected UnorderedRecordPage(final @Nonnull ByteArrayDataInput in,
 			final @Nonnull PageReadTrx pageReadTrx) {
 		mRevision = in.readInt();
 		mRecordPageKey = in.readLong();
@@ -175,8 +173,8 @@ public final class RecordPageImpl implements RecordPage<Long> {
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof RecordPageImpl) {
-			final RecordPageImpl other = (RecordPageImpl) obj;
+		if (obj instanceof UnorderedRecordPage) {
+			final UnorderedRecordPage other = (UnorderedRecordPage) obj;
 			return Objects.equal(mRecordPageKey, other.mRecordPageKey)
 					&& Objects.equal(mRecords, other.mRecords);
 		}
@@ -228,7 +226,6 @@ public final class RecordPageImpl implements RecordPage<Long> {
 	@Override
 	public <C extends RecordPage<Long>> C newInstance(final long recordPageKey,
 			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
-		return (C) new RecordPageImpl(recordPageKey, revision, pageReadTrx);
+		return (C) new UnorderedRecordPage(recordPageKey, revision, pageReadTrx);
 	}
-
 }

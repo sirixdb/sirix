@@ -67,7 +67,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 	 *          {@link PageWriteTrx} for persistent storage
 	 */
 	private AVLTree(final @Nonnull PageWriteTrx pageWriteTrx) {
-		mPageWriteTrx = pageWriteTrx;
+		mPageWriteTrx = checkNotNull(pageWriteTrx);
 		mClosed = false;
 
 		try {
@@ -93,7 +93,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 	 */
 	public static <KE extends Comparable<? super KE>, VA> AVLTree<KE, VA> getInstance(
 			final @Nonnull PageWriteTrx pageWriteTrx) {
-		return new AVLTree<KE, VA>(checkNotNull(pageWriteTrx));
+		return new AVLTree<KE, VA>(pageWriteTrx);
 	}
 
 	/**

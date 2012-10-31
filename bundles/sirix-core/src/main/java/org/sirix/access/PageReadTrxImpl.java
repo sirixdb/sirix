@@ -60,7 +60,7 @@ import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathSummaryPage;
-import org.sirix.page.RecordPageImpl;
+import org.sirix.page.UnorderedRecordPage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.ValuePage;
@@ -95,13 +95,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 	private final RevisionRootPage mRootPage;
 
 	/** Internal reference to node cache. */
-	private final LoadingCache<Long, RecordPageContainer<Long, RecordPageImpl>> mNodeCache;
+	private final LoadingCache<Long, RecordPageContainer<UnorderedRecordPage>> mNodeCache;
 
 	/** Internal reference to path cache. */
-	private final LoadingCache<Long, RecordPageContainer<Long, RecordPageImpl>> mPathCache;
+	private final LoadingCache<Long, RecordPageContainer<UnorderedRecordPage>> mPathCache;
 
 	/** Internal reference to value cache. */
-	private final LoadingCache<Long, RecordPageContainer<Long, RecordPageImpl>> mValueCache;
+	private final LoadingCache<Long, RecordPageContainer<UnorderedRecordPage>> mValueCache;
 
 	/** Internal reference to page cache. */
 	private final LoadingCache<Long, Page> mPageCache;
@@ -128,19 +128,19 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * Optional path transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache<Long, RecordPageImpl>> mPathLog;
+	private final Optional<TransactionLogCache<UnorderedRecordPage>> mPathLog;
 
 	/**
 	 * Optional value transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache<Long, RecordPageImpl>> mValueLog;
+	private final Optional<TransactionLogCache<UnorderedRecordPage>> mValueLog;
 
 	/**
 	 * Optional node transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache<Long, RecordPageImpl>> mNodeLog;
+	private final Optional<TransactionLogCache<UnorderedRecordPage>> mNodeLog;
 
 	/**
 	 * {@link ResourceConfiguration} instance.
@@ -184,24 +184,24 @@ final class PageReadTrxImpl implements PageReadTrx {
 				session.mResourceConfig.mPath, revision, "page", this)) : Optional
 				.<TransactionLogPageCache> absent();
 		mNodeLog = doesExist ? Optional
-				.of(new TransactionLogCache<Long, RecordPageImpl>(
+				.of(new TransactionLogCache<UnorderedRecordPage>(
 						session.mResourceConfig.mPath, revision, "node", this)) : Optional
-				.<TransactionLogCache<Long, RecordPageImpl>> absent();
+				.<TransactionLogCache<UnorderedRecordPage>> absent();
 		if (mIndexes.contains(Indexes.PATH)) {
 			mPathLog = doesExist ? Optional
-					.of(new TransactionLogCache<Long, RecordPageImpl>(
+					.of(new TransactionLogCache<UnorderedRecordPage>(
 							session.mResourceConfig.mPath, revision, "path", this))
-					: Optional.<TransactionLogCache<Long, RecordPageImpl>> absent();
+					: Optional.<TransactionLogCache<UnorderedRecordPage>> absent();
 		} else {
-			mPathLog = Optional.<TransactionLogCache<Long, RecordPageImpl>> absent();
+			mPathLog = Optional.<TransactionLogCache<UnorderedRecordPage>> absent();
 		}
 		if (mIndexes.contains(Indexes.VALUE)) {
 			mValueLog = doesExist ? Optional
-					.of(new TransactionLogCache<Long, RecordPageImpl>(
+					.of(new TransactionLogCache<UnorderedRecordPage>(
 							session.mResourceConfig.mPath, revision, "value", this))
-					: Optional.<TransactionLogCache<Long, RecordPageImpl>> absent();
+					: Optional.<TransactionLogCache<UnorderedRecordPage>> absent();
 		} else {
-			mValueLog = Optional.<TransactionLogCache<Long, RecordPageImpl>> absent();
+			mValueLog = Optional.<TransactionLogCache<UnorderedRecordPage>> absent();
 		}
 
 		// In memory caches from data directory.
@@ -213,13 +213,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 				.expireAfterAccess(5000, TimeUnit.SECONDS)
 				.concurrencyLevel(1)
 				.build(
-						new CacheLoader<Long, RecordPageContainer<Long, RecordPageImpl>>() {
-							public RecordPageContainer<Long, RecordPageImpl> load(
+						new CacheLoader<Long, RecordPageContainer<UnorderedRecordPage>>() {
+							public RecordPageContainer<UnorderedRecordPage> load(
 									final Long pKey) throws SirixException {
 								@SuppressWarnings("unchecked")
-								final RecordPageContainer<Long, RecordPageImpl> container = mNodeLog
+								final RecordPageContainer<UnorderedRecordPage> container = mNodeLog
 										.isPresent() ? mNodeLog.get().get(pKey)
-										: (RecordPageContainer<Long, RecordPageImpl>) RecordPageContainer.EMPTY_INSTANCE;
+										: (RecordPageContainer<UnorderedRecordPage>) RecordPageContainer.EMPTY_INSTANCE;
 								if (container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
 									return getNodeFromPage(pKey, PageKind.NODEPAGE);
 								} else {
@@ -231,13 +231,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 				.concurrencyLevel(1).maximumSize(20);
 		if (mIndexes.contains(Indexes.PATH)) {
 			mPathCache = builder
-					.build(new CacheLoader<Long, RecordPageContainer<Long, RecordPageImpl>>() {
-						public RecordPageContainer<Long, RecordPageImpl> load(
+					.build(new CacheLoader<Long, RecordPageContainer<UnorderedRecordPage>>() {
+						public RecordPageContainer<UnorderedRecordPage> load(
 								final Long pKey) throws SirixException {
 							@SuppressWarnings("unchecked")
-							final RecordPageContainer<Long, RecordPageImpl> container = mPathLog
+							final RecordPageContainer<UnorderedRecordPage> container = mPathLog
 									.isPresent() ? mPathLog.get().get(pKey)
-									: (RecordPageContainer<Long, RecordPageImpl>) RecordPageContainer.EMPTY_INSTANCE;
+									: (RecordPageContainer<UnorderedRecordPage>) RecordPageContainer.EMPTY_INSTANCE;
 							if (container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
 								return getNodeFromPage(pKey, PageKind.PATHSUMMARYPAGE);
 							} else {
@@ -250,13 +250,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 		}
 		if (mIndexes.contains(Indexes.VALUE)) {
 			mValueCache = builder
-					.build(new CacheLoader<Long, RecordPageContainer<Long, RecordPageImpl>>() {
-						public RecordPageContainer<Long, RecordPageImpl> load(
+					.build(new CacheLoader<Long, RecordPageContainer<UnorderedRecordPage>>() {
+						public RecordPageContainer<UnorderedRecordPage> load(
 								final Long pKey) throws SirixException {
 							@SuppressWarnings("unchecked")
-							final RecordPageContainer<Long, RecordPageImpl> container = mValueLog
+							final RecordPageContainer<UnorderedRecordPage> container = mValueLog
 									.isPresent() ? mValueLog.get().get(pKey)
-									: (RecordPageContainer<Long, RecordPageImpl>) RecordPageContainer.EMPTY_INSTANCE;
+									: (RecordPageContainer<UnorderedRecordPage>) RecordPageContainer.EMPTY_INSTANCE;
 							if (RecordPageContainer.EMPTY_INSTANCE.equals(container)) {
 								return getNodeFromPage(pKey, PageKind.VALUEPAGE);
 							} else {
@@ -338,7 +338,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final long nodePageKey = nodePageKey(nodeKey);
 		// final int nodePageOffset = nodePageOffset(pNodeKey);
 
-		RecordPageContainer<Long, ?> cont;
+		RecordPageContainer<UnorderedRecordPage> cont;
 		try {
 			switch (pageKind) {
 			case NODEPAGE:
@@ -554,14 +554,14 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws SirixIOException
 	 *           if an I/O-error occurs within the creation process
 	 */
-	final List<RecordPageImpl> getSnapshotPages(
+	final List<UnorderedRecordPage> getSnapshotPages(
 			final @Nonnegative long nodePageKey, final @Nonnull PageKind pageKind)
 			throws SirixIOException {
 		assert nodePageKey >= 0;
 		assert pageKind != null;
 		final ResourceConfiguration config = mSession.getResourceConfig();
 		final int revsToRestore = config.mRevisionsToRestore;
-		final List<RecordPageImpl> pages = new ArrayList<>(revsToRestore);
+		final List<UnorderedRecordPage> pages = new ArrayList<>(revsToRestore);
 		final Set<Long> keys = new HashSet<>(revsToRestore);
 		for (int i = mRootPage.getRevision(); i >= 0; i--) {
 			final PageReference tmpRef = getPageReference(loadRevRoot(i), pageKind);
@@ -571,7 +571,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 					&& (ref.getPage() != null || ref.getKey() != Constants.NULL_ID)) {
 				// Probably save page.
 				if (ref.getKey() == Constants.NULL_ID || (!keys.contains(ref.getKey()))) {
-					final RecordPageImpl page = (RecordPageImpl) (ref.getPage() == null ? mPageReader
+					final UnorderedRecordPage page = (UnorderedRecordPage) (ref.getPage() == null ? mPageReader
 							.read(ref.getKey(), this) : ref.getPage());
 					ref.setPageKind(pageKind);
 					pages.add(page);
@@ -758,22 +758,22 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public RecordPageContainer<Long, RecordPageImpl> getNodeFromPage(
+	public RecordPageContainer<UnorderedRecordPage> getNodeFromPage(
 			final @Nonnegative long nodePageKey, final @Nonnull PageKind pageKind)
 			throws SirixIOException {
 		assertNotClosed();
-		final List<RecordPageImpl> revs = getSnapshotPages(nodePageKey, pageKind);
+		final List<UnorderedRecordPage> revs = getSnapshotPages(nodePageKey, pageKind);
 		if (revs.size() == 0) {
 			@SuppressWarnings("unchecked")
-			final RecordPageContainer<Long, RecordPageImpl> emptyInstance = (RecordPageContainer<Long, RecordPageImpl>) RecordPageContainer.EMPTY_INSTANCE;
+			final RecordPageContainer<UnorderedRecordPage> emptyInstance = (RecordPageContainer<UnorderedRecordPage>) RecordPageContainer.EMPTY_INSTANCE;
 			return emptyInstance;
 		}
 
 		final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
 		final Revisioning revisioning = mResourceConfig.mRevisionKind;
-		final RecordPageImpl completePage = revisioning.combineNodePages(revs,
+		final UnorderedRecordPage completePage = revisioning.combineRecordPages(revs,
 				mileStoneRevision, this);
-		return new RecordPageContainer<Long, RecordPageImpl>(completePage);
+		return new RecordPageContainer<UnorderedRecordPage>(completePage);
 	}
 
 	@Override

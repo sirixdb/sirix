@@ -33,7 +33,7 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.exception.SirixException;
-import org.sirix.page.RecordPageImpl;
+import org.sirix.page.UnorderedRecordPage;
 
 /**
  * Testing the RAMCache.
@@ -43,7 +43,7 @@ import org.sirix.page.RecordPageImpl;
  */
 public class RAMCacheTest {
 
-	private Cache<Long, RecordPageContainer<Long, RecordPageImpl>> cache;
+	private Cache<Long, RecordPageContainer<UnorderedRecordPage>> cache;
 
 	@Before
 	public void setUp() throws SirixException {

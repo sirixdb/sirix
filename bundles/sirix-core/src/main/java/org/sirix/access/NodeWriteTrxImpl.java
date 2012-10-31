@@ -718,7 +718,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		}
 		acquireLock();
 		try {
-			if (getCurrentNode() instanceof StructNode) {
+			if (getCurrentNode() instanceof StructNode
+					&& getCurrentNode().getKind() != Kind.DOCUMENT_ROOT) {
 				checkAccessAndCommit();
 
 				final long key = getCurrentNode().getNodeKey();
@@ -972,7 +973,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		}
 		acquireLock();
 		try {
-			if (getCurrentNode() instanceof StructNode) {
+			if (getCurrentNode() instanceof StructNode
+					&& (getCurrentNode().getKind() != Kind.DOCUMENT_ROOT || (getCurrentNode()
+							.getKind() == Kind.DOCUMENT_ROOT && insert == Insert.ASFIRSTCHILD))) {
 				checkAccessAndCommit();
 
 				// Insert new comment node.
@@ -1031,9 +1034,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		checkNotNull(value);
 		acquireLock();
 		try {
-			if (getCurrentNode() instanceof StructNode
-					&& getCurrentNode().getKind() != Kind.DOCUMENT_ROOT
-					&& !value.isEmpty()) {
+			if (getCurrentNode() instanceof StructNode && !value.isEmpty()) {
 				checkAccessAndCommit();
 
 				final long parentKey = getCurrentNode().getNodeKey();
@@ -1544,7 +1545,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				removeName();
 				moveToParent();
 			}
-			
+
 			return this;
 		} finally {
 			unLock();
@@ -1712,7 +1713,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					mNodeRtx.setCurrentNode(node);
 					adaptHashedWithUpdate(oldHash);
 				}
-				
+
 				return this;
 			} else {
 				throw new SirixUsageException(
@@ -2096,20 +2097,21 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public NodeWriteTrx setValue(final @Nonnull String value) throws SirixException {
+	public NodeWriteTrx setValue(final @Nonnull String value)
+			throws SirixException {
 		checkNotNull(value);
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof ValueNode) {
 				checkAccessAndCommit();
-				
+
 				// If an empty value is specified the node needs to be removed (see
 				// XDM).
 				if (value.isEmpty()) {
 					remove();
 					return this;
 				}
-				
+
 				final long oldHash = mNodeRtx.getCurrentNode().hashCode();
 				final byte[] byteVal = getBytes(value);
 
@@ -2125,7 +2127,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				// Index new value.
 				indexText(byteVal);
-				
+
 				return this;
 			} else {
 				throw new SirixUsageException(
@@ -2182,10 +2184,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				if (mModificationCount > 0) {
 					throw new SirixUsageException("Must commit/abort transaction first");
 				}
-				
+
 				// Delete commit file.
 				mNodeRtx.mSession.mCommitFile.delete();
-				
+
 				// Release all state immediately.
 				mNodeRtx.mSession.closeWriteTransaction(getTransactionID());
 				mNodeRtx.close();

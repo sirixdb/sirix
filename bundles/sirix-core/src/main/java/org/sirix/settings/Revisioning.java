@@ -37,7 +37,6 @@ import javax.annotation.Nonnull;
 import org.sirix.api.PageReadTrx;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.RecordPageImpl;
 import org.sirix.page.interfaces.RecordPage;
 
 /**
@@ -55,7 +54,7 @@ public enum Revisioning {
 	 */
 	FULL {
 		@Override
-		public <S, T extends RecordPage<S>> T combineNodePages(
+		public <S, T extends RecordPage<S>> T combineRecordPages(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() == 1 : "Only one version of the page!";
@@ -63,7 +62,7 @@ public enum Revisioning {
 		}
 
 		@Override
-		public <S, T extends RecordPage<S>> RecordPageContainer<S, T> combineNodePagesForModification(
+		public <S, T extends RecordPage<S>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final @Nonnegative int mileStoneRevision,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() == 1;
@@ -80,7 +79,7 @@ public enum Revisioning {
 				returnVal.get(1).setRecord(nodes);
 			}
 
-			final RecordPageContainer<S, T> cont = new RecordPageContainer<>(
+			final RecordPageContainer<T> cont = new RecordPageContainer<>(
 					returnVal.get(0), returnVal.get(1));
 			return cont;
 		}
@@ -92,7 +91,7 @@ public enum Revisioning {
 	 */
 	DIFFERENTIAL {
 		@Override
-		public <S, T extends RecordPage<S>> T combineNodePages(
+		public <S, T extends RecordPage<S>> T combineRecordPages(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= 2;
@@ -112,14 +111,16 @@ public enum Revisioning {
 				returnVal.setRecord(node);
 			}
 
-			for (final Record node : latest.values()) {
-				returnVal.setRecord(node);
+			if (pages.size() == 2) {
+				for (final Record node : latest.values()) {
+					returnVal.setRecord(node);
+				}
 			}
 			return returnVal;
 		}
 
 		@Override
-		public <S, T extends RecordPage<S>> RecordPageContainer<S, T> combineNodePagesForModification(
+		public <S, T extends RecordPage<S>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= 2;
@@ -149,7 +150,7 @@ public enum Revisioning {
 				returnVal.get(1).setRecord(node);
 			}
 
-			final RecordPageContainer<S, T> cont = new RecordPageContainer<>(
+			final RecordPageContainer<T> cont = new RecordPageContainer<>(
 					returnVal.get(0), returnVal.get(1));
 			return cont;
 		}
@@ -161,7 +162,7 @@ public enum Revisioning {
 	 */
 	INCREMENTAL {
 		@Override
-		public <S, T extends RecordPage<S>> T combineNodePages(
+		public <S, T extends RecordPage<S>> T combineRecordPages(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= revToRestore;
@@ -187,7 +188,7 @@ public enum Revisioning {
 		}
 
 		@Override
-		public <S, T extends RecordPage<S>> RecordPageContainer<S, T> combineNodePagesForModification(
+		public <S, T extends RecordPage<S>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final T firstPage = pages.get(0);
@@ -215,39 +216,39 @@ public enum Revisioning {
 				}
 			}
 
-			final RecordPageContainer<S, T> cont = new RecordPageContainer<>(
+			final RecordPageContainer<T> cont = new RecordPageContainer<>(
 					returnVal.get(0), returnVal.get(1));
 			return cont;
 		}
 	};
 
 	/**
-	 * Method to reconstrunodeKeyct a complete {@link RecordPageImpl} with the
+	 * Method to reconstruct a complete {@link RecordPage} with the
 	 * help of partly filled pages plus a revision-delta which determines the
 	 * necessary steps back.
 	 * 
 	 * @param pages
-	 *          the base of the complete {@link RecordPageImpl}
+	 *          the base of the complete {@link RecordPage}
 	 * @param revToRestore
 	 *          the revision needed to build up the complete milestone
-	 * @return the complete {@link RecordPageImpl}
+	 * @return the complete {@link RecordPage}
 	 */
-	public abstract <S, T extends RecordPage<S>> T combineNodePages(
+	public abstract <S, T extends RecordPage<S>> T combineRecordPages(
 			final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 			final @Nonnull PageReadTrx pageReadTrx);
 
 	/**
-	 * Method to reconstruct a complete {@link RecordPageImpl} for reading as well
-	 * as a NodePage for serializing with the Nodes to write already on there.
+	 * Method to reconstruct a complete {@link RecordPage} for reading as well
+	 * as a {@link RecordPage} for serializing with the nodes to write.
 	 * 
 	 * @param pages
-	 *          the base of the complete {@link RecordPageImpl}
+	 *          the base of the complete {@link RecordPage}
 	 * @param mileStoneRevision
 	 *          the revision needed to build up the complete milestone
 	 * @return a {@link RecordPageContainer} holding a complete
-	 *         {@link RecordPageImpl} for reading and one for writing
+	 *         {@link RecordPage} for reading and one for writing
 	 */
-	public abstract <S, T extends RecordPage<S>> RecordPageContainer<S, T> combineNodePagesForModification(
+	public abstract <S, T extends RecordPage<S>> RecordPageContainer<T> combineRecordPagesForModification(
 			final @Nonnull List<T> pages, final @Nonnegative int mileStoneRevision,
 			final @Nonnull PageReadTrx pageReadTrx);
 }

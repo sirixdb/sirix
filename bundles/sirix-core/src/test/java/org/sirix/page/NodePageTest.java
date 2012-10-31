@@ -79,7 +79,7 @@ public class NodePageTest {
 
 	@Test
 	public void testSerializeDeserialize() {
-		final RecordPageImpl page1 = new RecordPageImpl(0L, 0, mPageReadTrx);
+		final UnorderedRecordPage page1 = new UnorderedRecordPage(0L, 0, mPageReadTrx);
 		assertEquals(0L, page1.getRecordPageKey());
 
 		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0,
@@ -101,7 +101,7 @@ public class NodePageTest {
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
 		PagePersistenter.serializePage(out, page1);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final RecordPageImpl page2 = (RecordPageImpl) PagePersistenter.deserializePage(in,
+		final UnorderedRecordPage page2 = (UnorderedRecordPage) PagePersistenter.deserializePage(in,
 				mPageReadTrx);
 		// assertEquals(position, out.position());
 		final ElementNode element = (ElementNode) page2.getRecord(0l);
