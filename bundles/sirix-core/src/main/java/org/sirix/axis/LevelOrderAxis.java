@@ -75,6 +75,17 @@ public final class LevelOrderAxis extends AbstractAxis {
 
 	/** Current level. */
 	private int mLevel;
+	
+	/**
+	 * Get a new builder instance.
+	 * 
+	 * @param rtx
+	 *          the {@link NodeReadTrx} to iterate with
+	 * @return {@link Builder} instance
+	 */
+	public static Builder builder(final @Nonnull NodeReadTrx rtx) {
+		return new Builder(rtx);
+	}
 
 	/** Builder. */
 	public static class Builder {

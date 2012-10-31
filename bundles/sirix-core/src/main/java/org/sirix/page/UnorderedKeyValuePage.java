@@ -43,7 +43,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
-import org.sirix.page.interfaces.RecordPage;
+import org.sirix.page.interfaces.KeyValuePage;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
@@ -57,7 +57,7 @@ import com.google.common.io.ByteArrayDataOutput;
  * A record page stores a set of records commonly nodes.
  * </p>
  */
-public final class UnorderedRecordPage implements RecordPage<Long> {
+public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	/** Key of record page. This is the base key of all contained nodes. */
 	private final long mRecordPageKey;
@@ -82,7 +82,7 @@ public final class UnorderedRecordPage implements RecordPage<Long> {
 	 * @param revision
 	 *          revision the page belongs to
 	 */
-	public UnorderedRecordPage(final @Nonnegative long recordPageKey,
+	public UnorderedKeyValuePage(final @Nonnegative long recordPageKey,
 			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
@@ -104,7 +104,7 @@ public final class UnorderedRecordPage implements RecordPage<Long> {
 	 * @param pageReadTrx
 	 *          {@link 
 	 */
-	protected UnorderedRecordPage(final @Nonnull ByteArrayDataInput in,
+	protected UnorderedKeyValuePage(final @Nonnull ByteArrayDataInput in,
 			final @Nonnull PageReadTrx pageReadTrx) {
 		mRevision = in.readInt();
 		mRecordPageKey = in.readLong();
@@ -173,8 +173,8 @@ public final class UnorderedRecordPage implements RecordPage<Long> {
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof UnorderedRecordPage) {
-			final UnorderedRecordPage other = (UnorderedRecordPage) obj;
+		if (obj instanceof UnorderedKeyValuePage) {
+			final UnorderedKeyValuePage other = (UnorderedKeyValuePage) obj;
 			return Objects.equal(mRecordPageKey, other.mRecordPageKey)
 					&& Objects.equal(mRecords, other.mRecords);
 		}
@@ -224,8 +224,8 @@ public final class UnorderedRecordPage implements RecordPage<Long> {
 
 	@SuppressWarnings("unchecked")
 	@Override
-	public <C extends RecordPage<Long>> C newInstance(final long recordPageKey,
+	public <C extends KeyValuePage<Long, Record>> C newInstance(final long recordPageKey,
 			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
-		return (C) new UnorderedRecordPage(recordPageKey, revision, pageReadTrx);
+		return (C) new UnorderedKeyValuePage(recordPageKey, revision, pageReadTrx);
 	}
 }

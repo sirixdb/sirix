@@ -13,7 +13,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
-import org.sirix.page.UnorderedRecordPage;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.UberPage;
 
 /**
@@ -134,7 +134,7 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code nodePageCont} or {@code page} is {@code null}
 	 */
-	void updateDataContainer(@Nonnull RecordPageContainer<UnorderedRecordPage> nodePageCont,
+	void updateDataContainer(@Nonnull RecordPageContainer<UnorderedKeyValuePage> nodePageCont,
 			@Nonnull PageKind page);
 
 	/**

@@ -31,8 +31,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.page.PagePersistenter;
-import org.sirix.page.UnorderedRecordPage;
-import org.sirix.page.interfaces.RecordPage;
+import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.interfaces.KeyValuePage;
 
 import com.google.common.base.Objects;
 import com.google.common.io.ByteArrayDataOutput;
@@ -43,15 +43,15 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * <h1>PageContainer</h1>
  * 
  * <p>
- * This class acts as a container for revisioned {@link RecordPage}s. Each
- * {@link RecordPage} is stored in a versioned manner. If modifications
- * occur, the versioned {@link RecordPage}s are dereferenced and
+ * This class acts as a container for revisioned {@link KeyValuePage}s. Each
+ * {@link KeyValuePage} is stored in a versioned manner. If modifications
+ * occur, the versioned {@link KeyValuePage}s are dereferenced and
  * reconstructed. Afterwards, this container is used to store a complete
- * {@link RecordPage} as well as one for upcoming modifications.
+ * {@link KeyValuePage} as well as one for upcoming modifications.
  * </p>
  * 
  * <p>
- * Both {@link RecordPage}s can differ since the complete one is mainly used
+ * Both {@link KeyValuePage}s can differ since the complete one is mainly used
  * for read access and the modifying one for write access (and therefore mostly
  * lazy dereferenced).
  * </p>
@@ -60,16 +60,16 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class RecordPageContainer<T extends RecordPage<?>> {
+public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
-	/** {@link UnorderedRecordPage} reference, which references the complete node page. */
+	/** {@link UnorderedKeyValuePage} reference, which references the complete node page. */
 	private final T mComplete;
 
-	/** {@link UnorderedRecordPage} reference, which references the modified node page. */
+	/** {@link UnorderedKeyValuePage} reference, which references the modified node page. */
 	private final T mModified;
 
 	/** Empty instance. */
-	public static final RecordPageContainer<? extends RecordPage<?>> EMPTY_INSTANCE = new RecordPageContainer<>();
+	public static final RecordPageContainer<? extends KeyValuePage<?, ?>> EMPTY_INSTANCE = new RecordPageContainer<>();
 
 	/** Private constructor for empty instance. */
 	private RecordPageContainer() {

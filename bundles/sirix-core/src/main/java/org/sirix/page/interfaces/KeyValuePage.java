@@ -16,21 +16,21 @@ import org.sirix.node.interfaces.Record;
  * @author Johannes Lichtenberger
  * 
  */
-public interface RecordPage<K> extends Page {
+public interface KeyValuePage<K, V extends Record> extends Page {
 	/**
 	 * Entry set of all nodes in the page. Changes to the set are reflected in the
 	 * internal data structure
 	 * 
 	 * @return an entry set
 	 */
-	Set<Entry<K, Record>> entrySet();
+	Set<Entry<K, V>> entrySet();
 
 	/**
 	 * All available records.
 	 * 
 	 * @return all records
 	 */
-	Collection<Record> values();
+	Collection<V> values();
 
 	/**
 	 * Get the unique page record identifier.
@@ -56,7 +56,7 @@ public interface RecordPage<K> extends Page {
 	 * @param record
 	 *          record to store
 	 */
-	void setRecord(@Nonnull Record record);
+	void setRecord(@Nonnull V record);
 
 	/**
 	 * Create a new instance.
@@ -67,9 +67,9 @@ public interface RecordPage<K> extends Page {
 	 *          the revision
 	 * @param pageReadTrx
 	 *          transaction to read pages
-	 * @return a new {@link RecordPage} instance
+	 * @return a new {@link KeyValuePage} instance
 	 */
-	<C extends RecordPage<K>> C newInstance(long recordPageKey,
+	<C extends KeyValuePage<K, V>> C newInstance(long recordPageKey,
 			@Nonnegative int revision, @Nonnull PageReadTrx pageReadTrx);
 
 	/**

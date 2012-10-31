@@ -39,7 +39,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.page.interfaces.RecordPage;
+import org.sirix.page.interfaces.KeyValuePage;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
@@ -52,7 +52,7 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SynchronizedTransactionLogCache<T extends RecordPage<?>> implements
+public final class SynchronizedTransactionLogCache<T extends KeyValuePage<?, ?>> implements
 		Cache<Long, RecordPageContainer<T>> {
 
 	/** RAM-Based first cache. */

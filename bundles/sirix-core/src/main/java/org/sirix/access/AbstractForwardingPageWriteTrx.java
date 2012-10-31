@@ -11,7 +11,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
-import org.sirix.page.UnorderedRecordPage;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.UberPage;
 
 /**
@@ -64,7 +64,7 @@ public abstract class AbstractForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public void updateDataContainer(@Nonnull RecordPageContainer<UnorderedRecordPage> nodePageContainer,
+	public void updateDataContainer(@Nonnull RecordPageContainer<UnorderedKeyValuePage> nodePageContainer,
 			@Nonnull PageKind page) {
 		delegate().updateDataContainer(nodePageContainer, page);
 	}

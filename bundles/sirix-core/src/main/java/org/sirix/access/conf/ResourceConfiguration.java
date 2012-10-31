@@ -162,7 +162,7 @@ public final class ResourceConfiguration {
 	public static final StorageType STORAGE = StorageType.FILE;
 
 	/** Standard Versioning Approach. */
-	public static final Revisioning VERSIONING = Revisioning.FULL;
+	public static final Revisioning VERSIONING = Revisioning.DIFFERENTIAL;
 
 	/** Type of hashing. */
 	public static final HashKind HASHKIND = HashKind.ROLLING;
@@ -213,7 +213,24 @@ public final class ResourceConfiguration {
 
 	/** Determines if dewey IDs should be stored or not. */
 	public final boolean mDeweyIDsStored;
+
 	// END MEMBERS FOR FIXED FIELDS
+
+	/**
+	 * Get a new builder instance.
+	 * 
+	 * @param resource
+	 *          the name of the resource
+	 * @param config
+	 *          the related {@link DatabaseConfiguration}
+	 * @throws NullPointerException
+	 *           if {@code resource} or {@code config} is {@code null}
+	 * @return {@link Builder} instance
+	 */
+	public static Builder builder(final @Nonnull String resource,
+			final @Nonnull DatabaseConfiguration config) {
+		return new Builder(resource, config);
+	}
 
 	/**
 	 * Convenience constructor using the standard settings.

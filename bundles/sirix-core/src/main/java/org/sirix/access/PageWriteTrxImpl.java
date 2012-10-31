@@ -57,11 +57,11 @@ import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
-import org.sirix.page.UnorderedRecordPage;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
-import org.sirix.page.interfaces.RecordPage;
+import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.Revisioning;
@@ -91,16 +91,16 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	private final Cache<Long, Page> mPageLog;
 
 	/** Cache to store the changes in this transaction log. */
-	private final Cache<Long, RecordPageContainer<UnorderedRecordPage>> mNodeLog;
+	private final Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> mNodeLog;
 
 	/** Cache to store path changes in this transaction log. */
-	private final Cache<Long, RecordPageContainer<UnorderedRecordPage>> mPathLog;
+	private final Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> mPathLog;
 
 	/** Cache to store value changes in this transaction log. */
-	private final Cache<Long, RecordPageContainer<UnorderedRecordPage>> mValueLog;
+	private final Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> mValueLog;
 
 	/** Last references to the Nodepage, needed for pre/postcondition check. */
-	private RecordPageContainer<UnorderedRecordPage> mNodePageCon;
+	private RecordPageContainer<UnorderedKeyValuePage> mNodePageCon;
 
 	/** Last reference to the actual revRoot. */
 	private final RevisionRootPage mNewRoot;
@@ -274,7 +274,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
 		// final int nodePageOffset = mPageRtx.nodePageOffset(nodeKey);
 		prepareNodePage(nodePageKey, page);
-		final RecordPage<?> modified = mNodePageCon.getModified();
+		final KeyValuePage<Long, Record> modified = mNodePageCon.getModified();
 		modified.setRecord(node);
 		finishNodeModification(node.getNodeKey(), page);
 		return node;
@@ -308,7 +308,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		final long nodePageKey = mPageRtx.nodePageKey(nodeKey);
 		// final int nodePageOffset = mPageRtx.nodePageOffset(pNodeKey);
 
-		final RecordPageContainer<UnorderedRecordPage> pageCont = getPageContainer(
+		final RecordPageContainer<UnorderedKeyValuePage> pageCont = getPageContainer(
 				page, nodePageKey);
 		if (pageCont.equals(RecordPageContainer.EMPTY_INSTANCE)) {
 			return mPageRtx.getNode(nodeKey, page);
@@ -330,7 +330,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 *          the node page key
 	 * @return the {@link RecordPageContainer} instance from the write ahead log
 	 */
-	private RecordPageContainer<UnorderedRecordPage> getPageContainer(
+	private RecordPageContainer<UnorderedKeyValuePage> getPageContainer(
 			final @Nullable PageKind pageKind, final @Nonnegative long nodePageKey) {
 		if (pageKind != null) {
 			switch (pageKind) {
@@ -345,7 +345,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			}
 		}
 		@SuppressWarnings("unchecked")
-		final RecordPageContainer<UnorderedRecordPage> emptyContainer = (RecordPageContainer<UnorderedRecordPage>) RecordPageContainer.EMPTY_INSTANCE;
+		final RecordPageContainer<UnorderedKeyValuePage> emptyContainer = (RecordPageContainer<UnorderedKeyValuePage>) RecordPageContainer.EMPTY_INSTANCE;
 		return emptyContainer;
 	}
 
@@ -406,7 +406,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			// First, try to get one from the transaction log.
 			final long nodePageKey = reference.getNodePageKey();
 			final PageKind pageKind = reference.getPageKind();
-			final RecordPageContainer<UnorderedRecordPage> cont = nodePageKey == -1 ? null
+			final RecordPageContainer<UnorderedKeyValuePage> cont = nodePageKey == -1 ? null
 					: getPageContainer(pageKind, nodePageKey);
 			if (cont != null) {
 				page = cont.getModified();
@@ -418,7 +418,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				// the one from the reference.
 				page = reference.getPage();
 
-				if (page instanceof UnorderedRecordPage) {
+				if (page instanceof UnorderedKeyValuePage) {
 					// Revision to commit is not a full dump => return immediately.
 					if (!page.isDirty()
 							&& ((page.getRevision()
@@ -562,16 +562,16 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 */
 	private void prepareNodePage(final @Nonnegative long nodePageKey,
 			final @Nonnull PageKind page) throws SirixIOException {
-		RecordPageContainer<UnorderedRecordPage> cont = getPageContainer(page,
+		RecordPageContainer<UnorderedKeyValuePage> cont = getPageContainer(page,
 				nodePageKey);
 		if (cont.equals(RecordPageContainer.EMPTY_INSTANCE)) {
 			// Indirect reference.
 			final PageReference reference = prepareLeafOfTree(
 					mPageRtx.getPageReference(mNewRoot, page), nodePageKey, page);
-			final UnorderedRecordPage nodePage = (UnorderedRecordPage) reference.getPage();
+			final UnorderedKeyValuePage nodePage = (UnorderedKeyValuePage) reference.getPage();
 			if (nodePage == null) {
 				if (reference.getKey() == Constants.NULL_ID) {
-					cont = new RecordPageContainer<>(new UnorderedRecordPage(nodePageKey,
+					cont = new RecordPageContainer<>(new UnorderedKeyValuePage(nodePageKey,
 							Constants.UBP_ROOT_REVISION_NUMBER, mPageRtx));
 				} else {
 					cont = dereferenceNodePageForModification(nodePageKey, page);
@@ -641,14 +641,14 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	/**
 	 * Prepare the leaf of a tree, namely the reference to a
-	 * {@link UnorderedRecordPage}.
+	 * {@link UnorderedKeyValuePage}.
 	 * 
 	 * @param startReference
 	 *          start reference
 	 * @param key
 	 *          page key to lookup
 	 * @return {@link PageReference} instance pointing to the right
-	 *         {@link UnorderedRecordPage} with the {@code pKey}
+	 *         {@link UnorderedKeyValuePage} with the {@code pKey}
 	 * @throws SirixIOException
 	 *           if an I/O error occured
 	 */
@@ -683,10 +683,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private RecordPageContainer<UnorderedRecordPage> dereferenceNodePageForModification(
+	private RecordPageContainer<UnorderedKeyValuePage> dereferenceNodePageForModification(
 			final @Nonnegative long nodePageKey, final @Nonnull PageKind page)
 			throws SirixIOException {
-		final List<UnorderedRecordPage> revs = mPageRtx.getSnapshotPages(nodePageKey,
+		final List<UnorderedKeyValuePage> revs = mPageRtx.getSnapshotPages(nodePageKey,
 				page);
 		final Revisioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
 		final int mileStoneRevision = mPageRtx.mSession.mResourceConfig.mRevisionsToRestore;
@@ -709,7 +709,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 */
 	@Override
 	public void updateDataContainer(
-			@Nonnull RecordPageContainer<UnorderedRecordPage> container,
+			@Nonnull RecordPageContainer<UnorderedKeyValuePage> container,
 			final @Nonnull PageKind page) {
 		final long nodePageKey = container.getComplete().getRecordPageKey();
 		switch (page) {

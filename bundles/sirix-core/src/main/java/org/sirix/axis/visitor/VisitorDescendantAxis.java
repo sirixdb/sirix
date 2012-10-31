@@ -70,6 +70,17 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 	/** Determines if it is the first call. */
 	private boolean mFirst;
 
+	/**
+	 * Get a new builder instance.
+	 * 
+	 * @param rtx
+	 *          the {@link NodeReadTrx} to iterate with
+	 * @return {@link Builder} instance
+	 */
+	public static Builder builder(final @Nonnull NodeReadTrx rtx) {
+		return new Builder(rtx);
+	}
+
 	/** The builder. */
 	public static class Builder {
 

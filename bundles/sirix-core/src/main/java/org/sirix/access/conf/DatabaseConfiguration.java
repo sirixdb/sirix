@@ -128,7 +128,6 @@ public final class DatabaseConfiguration {
 			}
 			return existing - values().length + 1;
 		}
-
 	}
 
 	// STATIC STANDARD FIELDS

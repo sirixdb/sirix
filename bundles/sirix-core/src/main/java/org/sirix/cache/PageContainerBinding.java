@@ -33,7 +33,7 @@ import javax.annotation.Nullable;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.page.PagePersistenter;
-import org.sirix.page.interfaces.RecordPage;
+import org.sirix.page.interfaces.KeyValuePage;
 
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteStreams;
@@ -44,8 +44,8 @@ import com.sleepycat.bind.tuple.TupleOutput;
 /**
  * Binding for {@link RecordPageContainer} reference.
  */
-public class PageContainerBinding<T extends RecordPage<?>> extends
-		TupleBinding<RecordPageContainer<? extends RecordPage<?>>> {
+public class PageContainerBinding<T extends KeyValuePage<?, ?>> extends
+		TupleBinding<RecordPageContainer<T>> {
 
 	/** {@link ResourceConfiguration} instance. */
 	private final PageReadTrx mPageReadTrx;
@@ -61,11 +61,14 @@ public class PageContainerBinding<T extends RecordPage<?>> extends
 		mPageReadTrx = pageReadTrx;
 	}
 
+
 	@Override
-	public RecordPageContainer<? extends RecordPage<?>> entryToObject(
+	public RecordPageContainer<T> entryToObject(
 			final @Nullable TupleInput input) {
 		if (input == null) {
-			return RecordPageContainer.EMPTY_INSTANCE;
+			@SuppressWarnings("unchecked")
+			final RecordPageContainer<T> emptyInstance = (RecordPageContainer<T>) RecordPageContainer.EMPTY_INSTANCE;
+			return emptyInstance;
 		}
 		final ByteArrayDataInput source = ByteStreams.newDataInput(input
 				.getBufferBytes());
@@ -80,7 +83,7 @@ public class PageContainerBinding<T extends RecordPage<?>> extends
 
 	@Override
 	public void objectToEntry(
-			final @Nullable RecordPageContainer<? extends RecordPage<?>> pageContainer,
+			final @Nullable RecordPageContainer<T> pageContainer,
 			final @Nullable TupleOutput output) {
 		if (pageContainer != null && output != null) {
 			pageContainer.serialize(output);

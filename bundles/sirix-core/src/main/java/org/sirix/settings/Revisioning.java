@@ -30,6 +30,7 @@ package org.sirix.settings;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.Set;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -37,7 +38,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.PageReadTrx;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.interfaces.RecordPage;
+import org.sirix.page.interfaces.KeyValuePage;
 
 /**
  * Enum for providing different revision algorithms. Each kind must implement
@@ -54,7 +55,7 @@ public enum Revisioning {
 	 */
 	FULL {
 		@Override
-		public <S, T extends RecordPage<S>> T combineRecordPages(
+		public <K, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() == 1 : "Only one version of the page!";
@@ -62,7 +63,7 @@ public enum Revisioning {
 		}
 
 		@Override
-		public <S, T extends RecordPage<S>> RecordPageContainer<T> combineRecordPagesForModification(
+		public <K, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final @Nonnegative int mileStoneRevision,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() == 1;
@@ -74,7 +75,7 @@ public enum Revisioning {
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getRevision() + 1, pageReadTrx));
 
-			for (final Record nodes : pages.get(0).values()) {
+			for (final V nodes : pages.get(0).values()) {
 				returnVal.get(0).setRecord(nodes);
 				returnVal.get(1).setRecord(nodes);
 			}
@@ -91,7 +92,7 @@ public enum Revisioning {
 	 */
 	DIFFERENTIAL {
 		@Override
-		public <S, T extends RecordPage<S>> T combineRecordPages(
+		public <K, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= 2;
@@ -107,20 +108,23 @@ public enum Revisioning {
 			assert latest.getRecordPageKey() == recordPageKey;
 			assert fullDump.getRecordPageKey() == recordPageKey;
 
-			for (final Record node : fullDump.values()) {
+			for (final V node : latest.values()) {
 				returnVal.setRecord(node);
 			}
 
+			// Skip full dump if not needed (fulldump equals latest page).
 			if (pages.size() == 2) {
-				for (final Record node : latest.values()) {
-					returnVal.setRecord(node);
+				for (final Entry<K, V> node : fullDump.entrySet()) {
+					if (returnVal.getRecord(node.getKey()) == null) {
+						returnVal.setRecord(node.getValue());
+					}
 				}
 			}
 			return returnVal;
 		}
 
 		@Override
-		public <S, T extends RecordPage<S>> RecordPageContainer<T> combineRecordPagesForModification(
+		public <K, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= 2;
@@ -135,7 +139,7 @@ public enum Revisioning {
 			final T latest = firstPage;
 			T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
 
-			for (final Record node : fullDump.values()) {
+			for (final V node : fullDump.values()) {
 				returnVal.get(0).setRecord(node);
 
 				if ((latest.getRevision() + 1) % revToRestore == 0) {
@@ -145,7 +149,7 @@ public enum Revisioning {
 			}
 
 			// iterate through all nodes
-			for (final Record node : latest.values()) {
+			for (final V node : latest.values()) {
 				returnVal.get(0).setRecord(node);
 				returnVal.get(1).setRecord(node);
 			}
@@ -162,7 +166,7 @@ public enum Revisioning {
 	 */
 	INCREMENTAL {
 		@Override
-		public <S, T extends RecordPage<S>> T combineRecordPages(
+		public <K, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= revToRestore;
@@ -174,10 +178,10 @@ public enum Revisioning {
 				returnVal.setDirty(true);
 			}
 
-			for (final RecordPage<S> page : pages) {
+			for (final KeyValuePage<K, V> page : pages) {
 				assert page.getRecordPageKey() == recordPageKey;
-				for (final Entry<S, Record> node : page.entrySet()) {
-					final S nodeKey = node.getKey();
+				for (final Entry<K, V> node : page.entrySet()) {
+					final K nodeKey = node.getKey();
 					if (returnVal.getRecord(nodeKey) == null) {
 						returnVal.setRecord(node.getValue());
 					}
@@ -188,7 +192,7 @@ public enum Revisioning {
 		}
 
 		@Override
-		public <S, T extends RecordPage<S>> RecordPageContainer<T> combineRecordPagesForModification(
+		public <K, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final T firstPage = pages.get(0);
@@ -202,9 +206,9 @@ public enum Revisioning {
 			for (final T page : pages) {
 				assert page.getRecordPageKey() == recordPageKey;
 
-				for (final Entry<S, Record> node : page.entrySet()) {
+				for (final Entry<K, V> node : page.entrySet()) {
 					// Caching the complete page.
-					final S nodeKey = node.getKey();
+					final K nodeKey = node.getKey();
 					if (node != null && returnVal.get(0).getRecord(nodeKey) == null) {
 						returnVal.get(0).setRecord(node.getValue());
 
@@ -223,32 +227,32 @@ public enum Revisioning {
 	};
 
 	/**
-	 * Method to reconstruct a complete {@link RecordPage} with the
-	 * help of partly filled pages plus a revision-delta which determines the
-	 * necessary steps back.
+	 * Method to reconstruct a complete {@link KeyValuePage} with the help of partly
+	 * filled pages plus a revision-delta which determines the necessary steps
+	 * back.
 	 * 
 	 * @param pages
-	 *          the base of the complete {@link RecordPage}
+	 *          the base of the complete {@link KeyValuePage}
 	 * @param revToRestore
 	 *          the revision needed to build up the complete milestone
-	 * @return the complete {@link RecordPage}
+	 * @return the complete {@link KeyValuePage}
 	 */
-	public abstract <S, T extends RecordPage<S>> T combineRecordPages(
+	public abstract <K, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
 			final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 			final @Nonnull PageReadTrx pageReadTrx);
 
 	/**
-	 * Method to reconstruct a complete {@link RecordPage} for reading as well
-	 * as a {@link RecordPage} for serializing with the nodes to write.
+	 * Method to reconstruct a complete {@link KeyValuePage} for reading as well as
+	 * a {@link KeyValuePage} for serializing with the nodes to write.
 	 * 
 	 * @param pages
-	 *          the base of the complete {@link RecordPage}
+	 *          the base of the complete {@link KeyValuePage}
 	 * @param mileStoneRevision
 	 *          the revision needed to build up the complete milestone
-	 * @return a {@link RecordPageContainer} holding a complete
-	 *         {@link RecordPage} for reading and one for writing
+	 * @return a {@link RecordPageContainer} holding a complete {@link KeyValuePage}
+	 *         for reading and one for writing
 	 */
-	public abstract <S, T extends RecordPage<S>> RecordPageContainer<T> combineRecordPagesForModification(
+	public abstract <K, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 			final @Nonnull List<T> pages, final @Nonnegative int mileStoneRevision,
 			final @Nonnull PageReadTrx pageReadTrx);
 }

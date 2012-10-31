@@ -98,7 +98,7 @@ public class PageTest {
 		// final RevisionRootPage revRootPage = new RevisionRootPage();
 
 		// NodePage setup.
-		final UnorderedRecordPage nodePage = new UnorderedRecordPage(
+		final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(
 				TestHelper.random.nextInt(Integer.MAX_VALUE),
 				TestHelper.random.nextInt(Integer.MAX_VALUE), mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {

@@ -38,7 +38,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.page.interfaces.RecordPage;
+import org.sirix.page.interfaces.KeyValuePage;
 
 import com.google.common.collect.ImmutableMap;
 import com.sleepycat.bind.tuple.TupleBinding;
@@ -59,7 +59,7 @@ import com.sleepycat.je.OperationStatus;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class BerkeleyPersistenceCache<T extends RecordPage<?>> extends
+public final class BerkeleyPersistenceCache<T extends KeyValuePage<?, ?>> extends
 		AbstractPersistenceCache<Long, RecordPageContainer<T>> {
 
 	/**
@@ -184,8 +184,7 @@ public final class BerkeleyPersistenceCache<T extends RecordPage<?>> extends
 		try {
 			final OperationStatus status = mDatabase.get(null, keyEntry, valueEntry,
 					LockMode.DEFAULT);
-			@SuppressWarnings("unchecked")
-			final RecordPageContainer<T> val = (RecordPageContainer<T>) (status == OperationStatus.SUCCESS ? mValueBinding
+			final RecordPageContainer<T> val = (status == OperationStatus.SUCCESS ? mValueBinding
 					.entryToObject(valueEntry) : null);
 			return val;
 		} catch (final DatabaseException e) {
