@@ -82,7 +82,7 @@ public class DBStore implements Store, AutoCloseable {
 			try {
 				final Database database = Databases.openDatabase(dbConf.getFile());
 				mDatabases.add(database);
-				return new DBCollection<AbstractTemporalNode>(name, database, mUpdating);
+				return new DBCollection(name, database, mUpdating);
 			} catch (final SirixException e) {
 				throw new DocumentException(e.getCause());
 			}
@@ -102,7 +102,7 @@ public class DBStore implements Store, AutoCloseable {
 
 			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
-			return new DBCollection<AbstractTemporalNode>(name, database, mUpdating);
+			return new DBCollection(name, database, mUpdating);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
 		}
@@ -119,14 +119,14 @@ public class DBStore implements Store, AutoCloseable {
 			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
 			database.createResource(new ResourceConfiguration.Builder("shredded",
-					dbConf).build());
+					dbConf).useDeweyIDs(true).build());
 			final Session session = database
 					.getSession(new SessionConfiguration.Builder("shredded").build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 
-			final DBCollection<DBNode> collection = new DBCollection<DBNode>(name,
+			final DBCollection collection = new DBCollection(name,
 					database, mUpdating);
-			parser.parse(new SubtreeBuilder<DBNode>(collection, wtx,
+			parser.parse(new SubtreeBuilder(collection, wtx,
 					Insert.ASFIRSTCHILD, Collections
 							.<SubtreeListener<? super AbstractTemporalNode>> emptyList()));
 			wtx.commit();
@@ -161,14 +161,14 @@ public class DBStore implements Store, AutoCloseable {
 							@Override
 							public Void call() throws DocumentException, SirixException {
 								database.createResource(new ResourceConfiguration.Builder(
-										resource, dbConf).build());
+										resource, dbConf).useDeweyIDs(true).build());
 								final Session session = database
 										.getSession(new SessionConfiguration.Builder(resource)
 												.build());
 								final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-								final DBCollection<DBNode> collection = new DBCollection<DBNode>(
+								final DBCollection collection = new DBCollection(
 										name, database, mUpdating);
-								nextParser.parse(new SubtreeBuilder<DBNode>(collection, wtx,
+								nextParser.parse(new SubtreeBuilder(collection, wtx,
 										Insert.ASFIRSTCHILD, Collections
 												.<SubtreeListener<? super AbstractTemporalNode>> emptyList()));
 								wtx.commit();
@@ -183,7 +183,7 @@ public class DBStore implements Store, AutoCloseable {
 				}
 				pool.shutdown();
 				pool.awaitTermination(5, TimeUnit.MINUTES);
-				return new DBCollection<>(name, database, mUpdating);
+				return new DBCollection(name, database, mUpdating);
 			} catch (final SirixException | InterruptedException e) {
 				throw new DocumentException(e.getCause());
 			}

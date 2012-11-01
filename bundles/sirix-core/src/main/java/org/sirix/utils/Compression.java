@@ -64,7 +64,7 @@ public class Compression {
 	/**
 	 * Compress data based on the {@link Deflater}.
 	 * 
-	 * @param pToCompress
+	 * @param toCompress
 	 *          input byte-array
 	 * @param pLevel
 	 *          compression level (between -1 and 9 whereas 0 is the weakest and
@@ -73,9 +73,9 @@ public class Compression {
 	 * @throws NullPointerException
 	 *           if {@code pToCompress} is {@code null}
 	 */
-	public static byte[] compress(@Nonnull final byte[] pToCompress,
+	public static byte[] compress(final @Nonnull byte[] toCompress,
 			final int pLevel) {
-		checkNotNull(pToCompress);
+		checkNotNull(toCompress);
 		checkArgument(pLevel >= -1 && pLevel <= 9,
 				"pLevel must be between 0 and 9!");
 
@@ -87,7 +87,7 @@ public class Compression {
 
 		// Give the compressor the data to compress.
 		mCompressor.reset();
-		mCompressor.setInput(pToCompress);
+		mCompressor.setInput(toCompress);
 		mCompressor.finish();
 
 		/*
@@ -97,7 +97,7 @@ public class Compression {
 		 * data.
 		 */
 		try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(
-				pToCompress.length)) {
+				toCompress.length)) {
 			// Compress the data.
 			final byte[] buf = new byte[BUFFER_SIZE];
 			while (!mCompressor.finished()) {
@@ -117,24 +117,24 @@ public class Compression {
 	/**
 	 * Decompress data based on the {@link Inflater}.
 	 * 
-	 * @param pCompressed
+	 * @param compressed
 	 *          input string
 	 * @return compressed byte-array
 	 * @throws NullPointerException
 	 *           if {@code pCompressed} is {@code null}
 	 */
-	public static byte[] decompress(@Nonnull final byte[] pCompressed) {
-		checkNotNull(pCompressed);
+	public static byte[] decompress(final @Nonnull byte[] compressed) {
+		checkNotNull(compressed);
 
 		// Reset the decompressor and give it the data to compress.
 		mDecompressor.reset();
-		mDecompressor.setInput(pCompressed);
+		mDecompressor.setInput(compressed);
 
 		byte[] decompressed = new byte[] {};
 
 		// Create an expandable byte array to hold the decompressed data.
 		try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(
-				pCompressed.length)) {
+				compressed.length)) {
 			// Decompress the data.
 			final byte[] buf = new byte[BUFFER_SIZE];
 			while (!mDecompressor.finished()) {

@@ -30,7 +30,6 @@ package org.sirix.settings;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
-import java.util.Set;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -161,7 +160,7 @@ public enum Revisioning {
 	},
 
 	/**
-	 * Incremental Revisioning. Each Revision can be reconstructed with the help
+	 * Incremental revisioning. Each revision can be reconstructed with the help
 	 * of the last full-dump plus the incremental steps between.
 	 */
 	INCREMENTAL {

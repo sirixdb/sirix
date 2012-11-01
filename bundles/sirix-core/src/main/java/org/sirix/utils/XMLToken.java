@@ -174,15 +174,15 @@ public final class XMLToken {
 	/**
 	 * Determines if the provided {@code namespaceURI} is a valid {@code URI}.
 	 * 
-	 * @param pNamespaceURI
+	 * @param namespaceURI
 	 *          the {@code URI} to check
 	 * @return {@code true} if {@code namespaceURI} is valid, {@code false}
 	 *         otherwise
 	 */
-	private boolean isUrl(final String pNamespaceURI) {
+	private boolean isUrl(final String namespaceURI) {
 		// NamespaceURI is never null.
 		try {
-			new URL(pNamespaceURI).toURI();
+			new URL(namespaceURI).toURI();
 		} catch (final MalformedURLException | URISyntaxException e) {
 			return false;
 		}
@@ -278,16 +278,16 @@ public final class XMLToken {
 	/**
 	 * Escape characters not allowed in attribute values.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          the string value to escape
 	 * @return escaped value
 	 * @throws NullPointerException
 	 *           if {@code pValue} is {@code null}
 	 */
-	public static String escapeAttribute(@Nonnull final String pValue) {
-		checkNotNull(pValue);
+	public static String escapeAttribute(@Nonnull final String value) {
+		checkNotNull(value);
 		final StringBuilder escape = new StringBuilder();
-		for (final char i : pValue.toCharArray()) {
+		for (final char i : value.toCharArray()) {
 			switch (i) {
 			case '&':
 				escape.append("&amp;");
@@ -314,16 +314,16 @@ public final class XMLToken {
 	/**
 	 * Escape characters not allowed text content.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          the string value to escape
 	 * @return escaped value
 	 * @throws NullPointerException
 	 *           if {@code pValue} is {@code null}
 	 */
-	public static String escapeContent(@Nonnull final String pValue) {
-		checkNotNull(pValue);
+	public static String escapeContent(@Nonnull final String value) {
+		checkNotNull(value);
 		final StringBuilder escape = new StringBuilder();
-		for (final char i : pValue.toCharArray()) {
+		for (final char i : value.toCharArray()) {
 			switch (i) {
 			case '&':
 				escape.append("&amp;");

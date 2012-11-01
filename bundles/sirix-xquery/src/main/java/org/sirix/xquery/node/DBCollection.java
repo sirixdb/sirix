@@ -27,18 +27,16 @@ import org.sirix.exception.SirixIOException;
  * Database collection.
  * 
  * @author Johannes Lichtenberger
- * 
- * @param <E>
- *          generic parameter, usually a {@link DBNode}
+ *
  */
-public class DBCollection<E extends AbstractTemporalNode> extends
+public class DBCollection extends
 		AbstractCollection<AbstractTemporalNode> implements AutoCloseable {
 
 	/** ID sequence. */
 	private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
 
 	/** {@link Sirix} database. */
-	private final Database mDatabase;
+	final Database mDatabase;
 
 	/** Determines if collection needs to be updatable. */
 	private final boolean mUpdating;
@@ -100,7 +98,7 @@ public class DBCollection<E extends AbstractTemporalNode> extends
 		}
 		try {
 			final Session session = mDatabase
-					.getSession(new SessionConfiguration.Builder(resources[0]).build());
+					.getSession(SessionConfiguration.builder(resources[0]).build());
 			final NodeReadTrx rtx = mUpdating ? session.beginNodeWriteTrx()
 					: session.beginNodeReadTrx();
 			return new DBNode(rtx, this);
@@ -117,7 +115,7 @@ public class DBCollection<E extends AbstractTemporalNode> extends
 		for (final String resource : resources) {
 			try {
 				final Session session = mDatabase
-						.getSession(new SessionConfiguration.Builder(resource).build());
+						.getSession(SessionConfiguration.builder(resource).build());
 				final NodeReadTrx rtx = mUpdating ? session.beginNodeWriteTrx()
 						: session.beginNodeReadTrx();
 				documents.add(new DBNode(rtx, this));
@@ -125,7 +123,7 @@ public class DBCollection<E extends AbstractTemporalNode> extends
 				throw new DocumentException(e.getCause());
 			}
 		}
-		return new ArrayStream<AbstractTemporalNode>(
+		return new ArrayStream<DBNode>(
 				documents.toArray(new DBNode[documents.size()]));
 	}
 

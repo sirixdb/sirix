@@ -7,8 +7,6 @@ import javax.annotation.Nonnull;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.xquery.node.AbstractTemporalNode;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
 
@@ -23,10 +21,7 @@ public class SirixStream implements Stream<DBNode> {
 	private final Axis mAxis;
 
 	/** {@link DBCollection} the nodes belong to. */
-	private final DBCollection<? extends AbstractTemporalNode> mCollection;
-
-	/** Sirix {@link NodeReadTrx}. */
-	private final NodeReadTrx mRtx;
+	private final DBCollection mCollection;
 
 	/**
 	 * Constructor.
@@ -37,17 +32,15 @@ public class SirixStream implements Stream<DBNode> {
 	 *          {@link DBCollection} the nodes belong to
 	 */
 	public SirixStream(final @Nonnull Axis axis,
-			final @Nonnull DBCollection<? extends AbstractTemporalNode> collection) {
+			final @Nonnull DBCollection collection) {
 		mAxis = checkNotNull(axis);
-		mRtx = mAxis.getTrx();
 		mCollection = checkNotNull(collection);
 	}
 
 	@Override
 	public DBNode next() throws DocumentException {
-		if (mAxis.hasNext()) {
-			mAxis.next();
-			return new DBNode(mRtx, mCollection);
+		for (@SuppressWarnings("unused") final long nodeKey : mAxis) {
+			return new DBNode(mAxis.getTrx(), mCollection);
 		}
 		return null;
 	}
@@ -55,5 +48,4 @@ public class SirixStream implements Stream<DBNode> {
 	@Override
 	public void close() {
 	}
-
 }

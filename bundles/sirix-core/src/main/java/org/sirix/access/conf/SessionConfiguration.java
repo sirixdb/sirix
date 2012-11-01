@@ -36,6 +36,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.access.conf.ResourceConfiguration.Builder;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
@@ -138,6 +139,19 @@ public final class SessionConfiguration {
 	public String getResource() {
 		return mResource;
 	}
+	
+	/**
+	 * Get a new builder instance.
+	 * 
+	 * @param resource
+	 *          the name of the resource
+	 * @throws NullPointerException
+	 *           if {@code resource} or {@code config} is {@code null}
+	 * @return {@link Builder} instance
+	 */
+	public static Builder builder(final @Nonnull String resource) {
+		return new Builder(resource);
+	}
 
 	/**
 	 * Builder class for generating new {@link SessionConfiguration} instance.
@@ -162,11 +176,11 @@ public final class SessionConfiguration {
 		/**
 		 * Constructor for the {@link Builder} with fixed fields to be set.
 		 * 
-		 * @param res
-		 *          to be set.
+		 * @param resource
+		 *          the resource
 		 */
-		public Builder(@Nonnull final String res) {
-			mResource = checkNotNull(res);
+		public Builder(@Nonnull final String resource) {
+			mResource = checkNotNull(resource);
 		}
 
 		/**

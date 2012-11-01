@@ -1208,6 +1208,52 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	/**
+	 * Get an optional namespace {@link SirixDeweyID} reference.
+	 * 
+	 * @return optional namespace {@link SirixDeweyID} reference
+	 * @throws SirixException
+	 *           if generating an ID fails
+	 */
+	private Optional<SirixDeweyID> newNamespaceID() throws SirixException {
+		Optional<SirixDeweyID> id = Optional.<SirixDeweyID> absent();
+		if (mDeweyIDsStored) {
+			if (mNodeRtx.hasNamespaces()) {
+				mNodeRtx.moveToNamespace(mNodeRtx.getNamespaceCount() - 1);
+				id = Optional.of(SirixDeweyID.newBetween(mNodeRtx.getNode()
+						.getDeweyID().get(), null));
+				mNodeRtx.moveToParent();
+			} else {
+				id = Optional.of(mNodeRtx.getCurrentNode().getDeweyID().get()
+						.getNewNamespaceID());
+			}
+		}
+		return id;
+	}
+
+	/**
+	 * Get an optional attribute {@link SirixDeweyID} reference.
+	 * 
+	 * @return optional attribute {@link SirixDeweyID} reference
+	 * @throws SirixException
+	 *           if generating an ID fails
+	 */
+	private Optional<SirixDeweyID> newAttributeID() throws SirixException {
+		Optional<SirixDeweyID> id = Optional.<SirixDeweyID> absent();
+		if (mDeweyIDsStored) {
+			if (mNodeRtx.hasAttributes()) {
+				mNodeRtx.moveToAttribute(mNodeRtx.getAttributeCount() - 1);
+				id = Optional.of(SirixDeweyID.newBetween(mNodeRtx.getNode()
+						.getDeweyID().get(), null));
+				mNodeRtx.moveToParent();
+			} else {
+				id = Optional.of(mNodeRtx.getCurrentNode().getDeweyID().get()
+						.getNewAttributeID());
+			}
+		}
+		return id;
+	}
+
+	/**
 	 * Get an optional first child {@link SirixDeweyID} reference.
 	 * 
 	 * @return optional first child {@link SirixDeweyID} reference
@@ -1362,9 +1408,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						name, Kind.ATTRIBUTE) : 0;
 				final byte[] attValue = getBytes(value);
 
-				Optional<SirixDeweyID> id = mDeweyIDsStored ? Optional.of(mNodeRtx
-						.getCurrentNode().getDeweyID().get().getNewAttributeID())
-						: Optional.<SirixDeweyID> absent();
+				final Optional<SirixDeweyID> id = newAttributeID();
 				final long elementKey = getCurrentNode().getNodeKey();
 				final AttributeNode node = mNodeFactory.createAttributeNode(elementKey,
 						name, attValue, pathNodeKey, id);
@@ -1426,9 +1470,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						name.getPrefix(), Kind.NAMESPACE);
 				final long elementKey = getCurrentNode().getNodeKey();
 
-				Optional<SirixDeweyID> id = mDeweyIDsStored ? Optional.of(mNodeRtx
-						.getCurrentNode().getDeweyID().get().getNewNamespaceID())
-						: Optional.<SirixDeweyID> absent();
+				final Optional<SirixDeweyID> id = newNamespaceID();
 				final NamespaceNode node = mNodeFactory.createNamespaceNode(elementKey,
 						uriKey, prefixKey, pathNodeKey, id);
 

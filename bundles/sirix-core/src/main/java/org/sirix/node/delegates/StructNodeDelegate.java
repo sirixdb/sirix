@@ -200,7 +200,6 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 		return Objects.toStringHelper(this).add("first child", getFirstChildKey())
 				.add("left sib", getLeftSiblingKey())
 				.add("right sib", getRightSiblingKey())
-				.add("first child", getFirstChildKey())
 				.add("child count", getChildCount())
 				.add("descendant count", getDescendantCount()).toString();
 	}

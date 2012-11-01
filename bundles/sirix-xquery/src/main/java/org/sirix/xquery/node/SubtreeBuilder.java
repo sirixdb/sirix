@@ -27,7 +27,7 @@ import org.sirix.service.xml.shredder.Insert;
  * @param <E>
  *          temporal node which extends {@link AbstractTemporalNode}
  */
-public final class SubtreeBuilder<E extends AbstractTemporalNode> extends
+public final class SubtreeBuilder extends
 		AbstractShredder implements SubtreeHandler {
 
 	/** {@link SubtreeProcessor} for listeners. */
@@ -40,7 +40,7 @@ public final class SubtreeBuilder<E extends AbstractTemporalNode> extends
 	private final Deque<DBNode> mParents;
 
 	/** Collection. */
-	private final DBCollection<? extends AbstractTemporalNode> mCollection;
+	private final DBCollection mCollection;
 	
 	/** First element. */
 	private boolean mFirst;
@@ -63,7 +63,7 @@ public final class SubtreeBuilder<E extends AbstractTemporalNode> extends
 	 *           new reading transaction failed (might indicate that a few
 	 */
 	public SubtreeBuilder(
-			final @Nonnull DBCollection<? extends AbstractTemporalNode> collection,
+			final @Nonnull DBCollection collection,
 			final @Nonnull NodeWriteTrx wtx, final @Nonnull Insert insertPos,
 			final @Nonnull List<SubtreeListener<? super AbstractTemporalNode>> listeners)
 			throws SirixException {

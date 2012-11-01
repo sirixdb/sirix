@@ -752,9 +752,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("Session: ", mSession)
-				.add("PageReader: ", mPageReader).add("UberPage: ", mUberPage)
-				.add("RevRootPage: ", mRootPage).toString();
+		return Objects.toStringHelper(this).add("Session", mSession)
+				.add("PageReader", mPageReader).add("UberPage", mUberPage)
+				.add("RevRootPage", mRootPage).toString();
 	}
 
 	@Override
