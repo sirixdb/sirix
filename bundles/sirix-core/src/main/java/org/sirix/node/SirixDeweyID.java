@@ -263,9 +263,11 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 			if (prefixBit) { // still parsing the prefix
 				if ((deweyIDbytes[bitIndex / 8] & helpFindingBit) == helpFindingBit) {
 					// bit is set
-					binaryTreeSearchIndex = (((2 * binaryTreeSearchIndex) + 2));
+					// binaryTreeSearchIndex = (((2 * binaryTreeSearchIndex) + 2));
+					binaryTreeSearchIndex = (((binaryTreeSearchIndex << 1) + 2));
 				} else { // bit is not set
-					binaryTreeSearchIndex = (((2 * binaryTreeSearchIndex) + 1));
+					// binaryTreeSearchIndex = (((2 * binaryTreeSearchIndex) + 1));
+					binaryTreeSearchIndex = (((binaryTreeSearchIndex << 1) + 1));
 				}
 
 				if ((binaryTreeSearchArray.length > binaryTreeSearchIndex)

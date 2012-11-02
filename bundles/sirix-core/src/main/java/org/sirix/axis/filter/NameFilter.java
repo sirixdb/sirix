@@ -30,7 +30,6 @@ package org.sirix.axis.filter;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
-import org.sirix.node.interfaces.NameNode;
 
 /**
  * <h1>NameAxisTest</h1>
@@ -39,7 +38,7 @@ import org.sirix.node.interfaces.NameNode;
  * Match local part of ELEMENT or ATTRIBUTE by key.
  * </p>
  */
-public class NameFilter extends AbstractFilter {
+public final class NameFilter extends AbstractFilter {
 
 	/** Key of name to test. */
 	private final int mLocalPartKey;
@@ -47,19 +46,19 @@ public class NameFilter extends AbstractFilter {
 	/**
 	 * Default constructor.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          {@link NodeReadTrx} this filter is bound to
-	 * @param pLocalPart
+	 * @param localPart
 	 *          local part to check
 	 */
-	public NameFilter(@Nonnull final NodeReadTrx pRtx,
-			@Nonnull final String pLocalPart) {
-		super(pRtx);
-		mLocalPartKey = pRtx.keyForName(pLocalPart);
+	public NameFilter(final @Nonnull NodeReadTrx rtx,
+			final @Nonnull String localPart) {
+		super(rtx);
+		mLocalPartKey = rtx.keyForName(localPart);
 	}
 
 	@Override
-	public final boolean filter() {
+	public boolean filter() {
 		boolean returnVal = false;
 		if (getTrx().isNameNode()) {
 			returnVal = (getTrx().getNameKey() == mLocalPartKey);

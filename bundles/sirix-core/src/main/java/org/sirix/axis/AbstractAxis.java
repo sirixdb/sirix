@@ -37,7 +37,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
-import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.settings.Fixed;
@@ -58,7 +57,7 @@ import org.sirix.settings.Fixed;
 public abstract class AbstractAxis implements Axis {
 
 	/** Iterate over transaction exclusive to this step. */
-	private final NodeCursor mRtx;
+	private final NodeReadTrx mRtx;
 
 	/** Key of next node. */
 	private long mKey;
@@ -278,11 +277,7 @@ public abstract class AbstractAxis implements Axis {
 	 */
 	@Override
 	public NodeReadTrx getTrx() {
-		if (mRtx instanceof NodeReadTrx) {
-			return (NodeReadTrx) mRtx;
-		} else {
-			return null;
-		}
+		return mRtx;
 	}
 
 	/**

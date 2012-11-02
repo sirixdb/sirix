@@ -58,22 +58,22 @@ public class PredicateFilterAxis extends AbstractAxis {
 	 * Constructor. Initializes the internal state.
 	 * 
 	 * @param rtx
-	 *          Exclusive (immutable) trx to iterate with.
-	 * @param pPredicate
+	 *          exclusive (immutable) trx to iterate with
+	 * @param predicate
 	 *          predicate expression
 	 */
-	public PredicateFilterAxis(@Nonnull final NodeReadTrx pRtx,
-			@Nonnull final Axis pPredicate) {
-		super(pRtx);
+	public PredicateFilterAxis(final @Nonnull NodeReadTrx rtx,
+			final @Nonnull Axis predicate) {
+		super(rtx);
 		mIsFirst = true;
-		mPredicate = checkNotNull(pPredicate);
+		mPredicate = checkNotNull(predicate);
 	}
 
 	@Override
-	public final void reset(final long pNodeKey) {
-		super.reset(pNodeKey);
+	public final void reset(final long nodeKey) {
+		super.reset(nodeKey);
 		if (mPredicate != null) {
-			mPredicate.reset(pNodeKey);
+			mPredicate.reset(nodeKey);
 		}
 		mIsFirst = true;
 	}

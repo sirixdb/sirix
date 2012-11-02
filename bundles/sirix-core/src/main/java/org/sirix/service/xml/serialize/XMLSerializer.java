@@ -396,6 +396,42 @@ public final class XMLSerializer extends AbstractSerializer {
 		LOGWRAPPER
 				.info(" done [" + (System.nanoTime() - time) / 1_000_000 + "ms].");
 	}
+	
+	/**
+	 * Constructor, setting the necessary stuff.
+	 * 
+	 * @param session
+	 *          Sirix {@link Session}
+	 * @param stream
+	 *          {@link OutputStream} to write to
+	 * @param revisions
+	 *          revisions to serialize
+	 */
+	public static XMLSerializerBuilder builder(final @Nonnull Session session,
+			final @Nonnull OutputStream stream, final int... revisions) {
+		return new XMLSerializerBuilder(session, stream, revisions);
+	}
+	
+	/**
+	 * Constructor.
+	 * 
+	 * @param session
+	 *          Sirix {@link Session}
+	 * @param nodeKey
+	 *          root node key of subtree to shredder
+	 * @param stream
+	 *          {@link OutputStream} to write to
+	 * @param properties
+	 *          {@link XMLSerializerProperties} to use
+	 * @param revisions
+	 *          revisions to serialize
+	 */
+	public static XMLSerializerBuilder builder(final @Nonnull Session session,
+			final @Nonnegative long nodeKey, final @Nonnull OutputStream stream,
+			final @Nonnull XMLSerializerProperties properties,
+			final int... revisions) {
+		return new XMLSerializerBuilder(session, nodeKey, stream, properties, revisions);
+	}
 
 	/**
 	 * XMLSerializerBuilder to setup the XMLSerializer.
@@ -439,7 +475,7 @@ public final class XMLSerializer extends AbstractSerializer {
 		private int mVersion;
 
 		/** Node key of subtree to shredder. */
-		private final long mNodeKey;
+		private long mNodeKey;
 
 		/**
 		 * Constructor, setting the necessary stuff.
@@ -478,8 +514,8 @@ public final class XMLSerializer extends AbstractSerializer {
 		 *          {@link OutputStream} to write to
 		 * @param properties
 		 *          {@link XMLSerializerProperties} to use
-		 * @param paramVersions
-		 *          version(s) to serialize
+		 * @param revisions
+		 *          revisions to serialize
 		 */
 		public XMLSerializerBuilder(final @Nonnull Session session,
 				final @Nonnegative long nodeKey, final @Nonnull OutputStream stream,
@@ -505,16 +541,28 @@ public final class XMLSerializer extends AbstractSerializer {
 			mIndentSpaces = checkNotNull((Integer) map.get(S_INDENT_SPACES[0]));
 			mDeclaration = checkNotNull((Boolean) map.get(S_XMLDECL[0]));
 		}
+		
+		/**
+		 * Setting the start node key.
+		 * 
+		 * @param nodeKey
+		 *          node key to start serialization from
+		 * @return XMLSerializerBuilder reference
+		 */
+		public XMLSerializerBuilder startNodeKey(final long nodeKey) {
+			mNodeKey = nodeKey;
+			return this;
+		}
 
 		/**
 		 * Setting the indendation.
 		 * 
-		 * @param pIndent
+		 * @param indent
 		 *          determines if it should be indented
 		 * @return XMLSerializerBuilder reference
 		 */
-		public XMLSerializerBuilder setIndend(final boolean pIndent) {
-			mIndent = pIndent;
+		public XMLSerializerBuilder doIndend(final boolean indent) {
+			mIndent = indent;
 			return this;
 		}
 
@@ -525,7 +573,7 @@ public final class XMLSerializer extends AbstractSerializer {
 		 *          set RESTful
 		 * @return XMLSerializerBuilder reference
 		 */
-		public XMLSerializerBuilder setREST(final boolean isRESTful) {
+		public XMLSerializerBuilder isRESTful(final boolean isRESTful) {
 			mREST = isRESTful;
 			return this;
 		}
@@ -561,7 +609,7 @@ public final class XMLSerializer extends AbstractSerializer {
 		 *          versions to serialize
 		 * @return XMLSerializerBuilder reference
 		 */
-		public XMLSerializerBuilder setVersions(final int[] versions) {
+		public XMLSerializerBuilder versions(final int[] versions) {
 			mVersions = checkNotNull(versions);
 			return this;
 		}

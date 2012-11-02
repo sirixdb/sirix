@@ -1,8 +1,10 @@
 package org.sirix.xquery;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.PrintStream;
 import java.util.Date;
 import java.util.Random;
@@ -10,19 +12,38 @@ import java.util.Random;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
-import org.brackit.xquery.xdm.Sequence;
-import org.brackit.xquery.xdm.Store;
+import org.sirix.access.Databases;
+import org.sirix.access.conf.SessionConfiguration;
+import org.sirix.api.Database;
+import org.sirix.api.NodeReadTrx;
+import org.sirix.api.Session;
+import org.sirix.axis.DescendantAxis;
+import org.sirix.axis.NestedAxis;
+import org.sirix.axis.concurrent.ConcurrentUnionAxis;
+import org.sirix.axis.filter.ElementFilter;
+import org.sirix.axis.filter.FilterAxis;
+import org.sirix.axis.filter.NameFilter;
+import org.sirix.axis.filter.PredicateFilterAxis;
+import org.sirix.axis.filter.ValueFilter;
+import org.sirix.exception.SirixException;
+import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.xquery.node.DBStore;
 
 public class Main {
+
+	/** User home directory. */
+	private static final String USER_HOME = System.getProperty("user.home");
+
+	/** Storage for databases: Sirix data in home directory. */
+	private static final File LOCATION = new File(USER_HOME, "sirix-data");
 
 	enum Severity {
 		low, high, critical
 	};
 
-	public static void main(String[] args) {
+	public static void main(String[] args) throws SirixException {
 		try {
-			loadDocumentAndQuery();
+//			loadDocumentAndQuery();
 			System.out.println();
 			loadDocumentAndUpdate();
 			System.out.println();
@@ -38,11 +59,15 @@ public class Main {
 		}
 	}
 
-	private static void loadDocumentAndQuery() throws QueryException, IOException {
+	private static void loadDocumentAndQuery() throws QueryException,
+			IOException, SirixException {
 		// prepare sample document
-		File tmpDir = new File(System.getProperty("java.io.tmpdir"));
-		File doc = generateSampleDoc(tmpDir, "sample", 0);
-		doc.deleteOnExit();
+		// File tmpDir = new File(System.getProperty("java.io.tmpdir"));
+		// File doc = generateSampleDoc(tmpDir, "sample", 0);
+		// doc.deleteOnExit();
+		File doc = new File(new StringBuilder(File.separator).append("home")
+				.append(File.separator).append("johannes").append(File.separator)
+				.append("Desktop").append(File.separator).append("test.xml").toString());
 
 		// initialize query context and store
 		final DBStore store = new DBStore();
@@ -54,13 +79,38 @@ public class Main {
 		System.out.println(xq1);
 		new XQuery(xq1).evaluate(ctx);
 
+		try (final Database database = Databases.openDatabase(new File(
+				new StringBuilder(3).append(LOCATION).append(File.separator)
+						.append("mydoc.xml").toString()))) {
+			final Session session = database.getSession(SessionConfiguration.builder(
+					"shredded").build());
+			final NodeReadTrx rtx = session.beginNodeReadTrx();
+			final NodeReadTrx firstPredicateRtx = session.beginNodeReadTrx();
+			final NodeReadTrx secondPredicateRtx = session.beginNodeReadTrx();
+
+			for (final long nodeKey : new NestedAxis(new FilterAxis(
+					new DescendantAxis(rtx), new ElementFilter(rtx), new NameFilter(rtx,
+							"nachricht")), new ConcurrentUnionAxis(rtx,
+					new PredicateFilterAxis(firstPredicateRtx, new FilterAxis(
+							new DescendantAxis(firstPredicateRtx), new ValueFilter(
+									firstPredicateRtx, "sommer"))), new PredicateFilterAxis(
+							secondPredicateRtx, new FilterAxis(new DescendantAxis(
+									secondPredicateRtx), new ValueFilter(secondPredicateRtx,
+									"strand")))))) {
+				final OutputStream out = new ByteArrayOutputStream();
+				XMLSerializer.builder(session, out).startNodeKey(nodeKey)
+						.doIndend(true).setDeclaration(false).build().call();
+				System.out.println(out.toString());
+			}
+		}
+
 		// reuse store and query loaded document
 		QueryContext ctx2 = new QueryContext(store);
 		System.out.println();
 		System.out.println("Query loaded document:");
-		String xq2 = "doc('mydoc.xml')//msg";
+		String xq2 = "doc('mydoc.xml')/nachrichten/nachricht[betreff/text()='sommer' or betreff/text()='strand' or text/text()='sommer' or text/text()='strand']";
 		System.out.println(xq2);
-		new XQuery(xq2).serialize(ctx2, System.out);
+		new XQuery(xq2).setPrettyPrint(true).serialize(ctx2, System.out);
 		System.out.println();
 		store.close();
 	}
@@ -73,8 +123,8 @@ public class Main {
 		doc.deleteOnExit();
 
 		// initialize query context and store
-		try (final DBStore store = new DBStore().isUpdating(true)) {
-			QueryContext ctx = new QueryContext();
+		try (final DBStore store = new DBStore(true)) {
+			QueryContext ctx = new QueryContext(store);
 
 			// use XQuery to load sample document into store
 			System.out.println("Loading document:");
@@ -110,7 +160,7 @@ public class Main {
 		}
 
 		// initialize query context and store
-		try (final DBStore store = new DBStore().isUpdating(true)) {
+		try (final DBStore store = new DBStore(true)) {
 			QueryContext ctx = new QueryContext(store);
 
 			// use XQuery to load all sample documents into store

@@ -95,8 +95,8 @@ public class DBNode extends AbstractTemporalNode {
 		mIsWtx = mRtx instanceof NodeWriteTrx;
 		mNodeKey = mRtx.getNodeKey();
 		mKind = mRtx.getKind();
-		mScope = new SirixScope(collection);
 		mDeweyID = mRtx.getNode().getDeweyID();
+		mScope = new SirixScope(this);
 	}
 
 	/**

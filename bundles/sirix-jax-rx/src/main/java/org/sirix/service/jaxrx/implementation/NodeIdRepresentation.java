@@ -445,7 +445,7 @@ public class NodeIdRepresentation {
 					final XMLSerializerProperties props = new XMLSerializerProperties();
 					final XMLSerializerBuilder builder = new XMLSerializerBuilder(
 							session, nodeId, output, props);
-					builder.setREST(doNodeId);
+					builder.isRESTful(doNodeId);
 					builder.setID(doNodeId);
 					builder.setDeclaration(false);
 					final XMLSerializer serializer = builder.build();
@@ -455,7 +455,7 @@ public class NodeIdRepresentation {
 					final XMLSerializerProperties props = new XMLSerializerProperties();
 					final XMLSerializerBuilder builder = new XMLSerializerBuilder(
 							session, nodeId, output, props);
-					builder.setREST(doNodeId);
+					builder.isRESTful(doNodeId);
 					builder.setID(doNodeId);
 					builder.setDeclaration(false);
 					final XMLSerializer serializer = builder.build();
@@ -560,10 +560,10 @@ public class NodeIdRepresentation {
 						final XMLSerializerProperties props = new XMLSerializerProperties();
 						final XMLSerializerBuilder builder = new XMLSerializerBuilder(
 								session, rtx.getNodeKey(), output, props);
-						builder.setREST(doNodeId);
+						builder.isRESTful(doNodeId);
 						builder.setID(doNodeId);
 						builder.setDeclaration(false);
-						builder.setIndend(false);
+						builder.doIndend(false);
 						final XMLSerializer serializer = builder.build();
 						serializer.call();
 
@@ -572,10 +572,10 @@ public class NodeIdRepresentation {
 						final XMLSerializerProperties props = new XMLSerializerProperties();
 						final XMLSerializerBuilder builder = new XMLSerializerBuilder(
 								session, rtx.getNodeKey(), output, props);
-						builder.setREST(doNodeId);
+						builder.isRESTful(doNodeId);
 						builder.setID(doNodeId);
 						builder.setDeclaration(false);
-						builder.setIndend(false);
+						builder.doIndend(false);
 						final XMLSerializer serializer = builder.build();
 						serializer.call();
 					}

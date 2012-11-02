@@ -29,9 +29,10 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.NameNode;
 
 /**
  * <h1>WildcardFilter</h1>
@@ -60,20 +61,20 @@ public class WildcardFilter extends AbstractFilter {
 	/**
 	 * Default constructor.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          transaction to operate on
-	 * @param pKnownPart
+	 * @param knownPart
 	 *          part of the qualified name that is specified. This can be either
 	 *          the namespace prefix, or the local name
 	 * @param pIsName
 	 *          defines, if the specified part is the prefix, or the local name
 	 *          (true, if it is the local name)
 	 */
-	public WildcardFilter(final NodeReadTrx pRtx, final String pKnownPart,
-			final EType pType) {
-		super(pRtx);
-		mType = checkNotNull(pType);
-		mKnownPartKey = getTrx().keyForName(checkNotNull(pKnownPart));
+	public WildcardFilter(final @Nonnull NodeReadTrx rtx, final @Nonnull String knownPart,
+			final @Nonnull EType type) {
+		super(rtx);
+		mType = checkNotNull(type);
+		mKnownPartKey = getTrx().keyForName(checkNotNull(knownPart));
 	}
 
 	@Override

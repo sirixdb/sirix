@@ -531,7 +531,7 @@ public interface NodeReadTrx extends NodeCursor {
 	String getNamespaceURI();
 
 	@Override
-	public Move<? extends NodeReadTrx> moveTo(long pKey);
+	public Move<? extends NodeReadTrx> moveTo(long key);
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToDocumentRoot();

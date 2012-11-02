@@ -5,7 +5,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
-import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummary;
 import org.sirix.node.Kind;
 
@@ -23,16 +22,16 @@ public class PathKindFilter extends AbstractFilter {
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          transaction this filter is bound to
-	 * @param pType
+	 * @param type
 	 *          type to match
 	 */
-	public PathKindFilter(final @Nonnull NodeReadTrx pRtx,
-			final @Nonnull Kind pType) {
-		super(pRtx);
-		checkArgument(pRtx instanceof PathSummary);
-		mType = pType;
+	public PathKindFilter(final @Nonnull NodeReadTrx rtx,
+			final @Nonnull Kind type) {
+		super(rtx);
+		checkArgument(rtx instanceof PathSummary);
+		mType = type;
 	}
 
 	@Override

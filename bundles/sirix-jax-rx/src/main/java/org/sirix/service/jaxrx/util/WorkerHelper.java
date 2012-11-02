@@ -156,7 +156,7 @@ public final class WorkerHelper {
 		final XMLSerializerBuilder builder;
 		if (revision == null) builder = new XMLSerializerBuilder(session, out);
 		else builder = new XMLSerializerBuilder(session, out, revision);
-		builder.setREST(serializeRest);
+		builder.isRESTful(serializeRest);
 		builder.setID(serializeRest);
 		builder.setDeclaration(serializeXMLDec);
 		final XMLSerializer serializer = builder.build();
@@ -193,8 +193,8 @@ public final class WorkerHelper {
 			assert revision != null;
 			builder = new XMLSerializerBuilder(session, nodekey, out, props, revision);
 		}
-		builder.setREST(serializeRest).setID(serializeRest)
-				.setDeclaration(serializeXMLDec).setIndend(false);
+		builder.isRESTful(serializeRest).setID(serializeRest)
+				.setDeclaration(serializeXMLDec).doIndend(false);
 		final XMLSerializer serializer = builder.build();
 		return serializer;
 	}

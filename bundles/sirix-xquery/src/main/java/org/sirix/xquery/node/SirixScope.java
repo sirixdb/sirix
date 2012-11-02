@@ -8,12 +8,19 @@ import org.brackit.xquery.xdm.Stream;
 
 public final class SirixScope implements Scope {
 
-	private final DBCollection mCollection;
+	/** Database node. */
+	private final DBNode mNode;
 
-	public SirixScope(final @Nonnull DBCollection collection) {
+	/**
+	 * Constructor.
+	 * 
+	 * @param node
+	 * 					database node
+	 */
+	public SirixScope(final @Nonnull DBNode node) {
 		// Assertion instead of checkNotNull(...) (part of internal API).
-		assert collection != null;
-		mCollection = collection;
+		assert node != null;
+		mNode = node;
 	}
 	
 	@Override

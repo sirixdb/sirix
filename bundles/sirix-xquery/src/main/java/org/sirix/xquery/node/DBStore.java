@@ -54,7 +54,19 @@ public class DBStore implements Store, AutoCloseable {
 	 * Constructor.
 	 */
 	public DBStore() {
+		this(false);
+	}
+
+	/**
+	 * Constructor.
+	 * 
+	 * @param updating
+	 *          determines if the store should generate updatable collections or
+	 *          not
+	 */
+	public DBStore(final boolean updating) {
 		mDatabases = new HashSet<>();
+		mUpdating = updating;
 	}
 
 	/** Get the location of the generated collections/databases. */
@@ -124,10 +136,10 @@ public class DBStore implements Store, AutoCloseable {
 					.getSession(new SessionConfiguration.Builder("shredded").build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 
-			final DBCollection collection = new DBCollection(name,
-					database, mUpdating);
-			parser.parse(new SubtreeBuilder(collection, wtx,
-					Insert.ASFIRSTCHILD, Collections
+			final DBCollection collection = new DBCollection(name, database,
+					mUpdating);
+			parser.parse(new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD,
+					Collections
 							.<SubtreeListener<? super AbstractTemporalNode>> emptyList()));
 			wtx.commit();
 			wtx.close();
@@ -166,10 +178,13 @@ public class DBStore implements Store, AutoCloseable {
 										.getSession(new SessionConfiguration.Builder(resource)
 												.build());
 								final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-								final DBCollection collection = new DBCollection(
-										name, database, mUpdating);
-								nextParser.parse(new SubtreeBuilder(collection, wtx,
-										Insert.ASFIRSTCHILD, Collections
+								final DBCollection collection = new DBCollection(name,
+										database, mUpdating);
+								nextParser.parse(new SubtreeBuilder(
+										collection,
+										wtx,
+										Insert.ASFIRSTCHILD,
+										Collections
 												.<SubtreeListener<? super AbstractTemporalNode>> emptyList()));
 								wtx.commit();
 								wtx.close();

@@ -145,9 +145,8 @@ public enum GUICommands implements IGUICommand {
 						final ExecutorService executor = Executors
 								.newSingleThreadExecutor();
 						final XMLSerializer serializer = new XMLSerializerBuilder(session,
-								outputStream).setIndend(true)
-								.setVersions(new int[] { mActionListener.getRevision() })
-								.build();
+								outputStream).doIndend(true)
+								.versions(new int[] { mActionListener.getRevision() }).build();
 						executor.submit(serializer);
 						executor.shutdown();
 						try {

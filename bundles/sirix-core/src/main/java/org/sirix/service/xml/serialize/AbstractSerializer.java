@@ -214,7 +214,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
 	 * @param rtx
 	 *          Sirix {@link NodeReadTrx}
 	 */
-	protected abstract void emitStartElement(@Nonnull final NodeReadTrx rtx);
+	protected abstract void emitStartElement(final @Nonnull NodeReadTrx rtx);
 
 	/**
 	 * Emit end tag.
@@ -222,7 +222,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
 	 * @param rtx
 	 *          Sirix {@link NodeReadTrx}
 	 */
-	protected abstract void emitEndElement(@Nonnull final NodeReadTrx rtx);
+	protected abstract void emitEndElement(final @Nonnull NodeReadTrx rtx);
 
 	/**
 	 * Emit a start tag, which specifies a revision.

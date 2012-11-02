@@ -38,8 +38,8 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.Session;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.utils.DocumentCreater;
@@ -89,11 +89,7 @@ public class XMLSerializerTest {
 
 		// Generate from this session.
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		final XMLSerializerBuilder builder = new XMLSerializerBuilder(session, out);
-		builder.setREST(true);
-		builder.setID(true);
-		builder.setDeclaration(true);
-		final XMLSerializer serializer = builder.build();
+		final XMLSerializer serializer = XMLSerializer.builder(session, out).isRESTful(true).setID(true).setDeclaration(true).build();
 		serializer.call();
 		assertEquals(DocumentCreater.REST, out.toString());
 

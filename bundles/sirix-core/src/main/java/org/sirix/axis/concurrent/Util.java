@@ -9,6 +9,7 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
+/** Utilities. */
 public final class Util {
 
 	/** Logger. */
@@ -18,13 +19,13 @@ public final class Util {
 	/**
 	 * Get next key.
 	 * 
-	 * @param pAxis
+	 * @param axis
 	 *          the {@link Axis}
 	 * @return the next result of the axis. If the axis has no next result, the
 	 *         null node key is returned.
 	 */
-	public static long getNext(@Nonnull final Axis pAxis) {
-		return (pAxis.hasNext()) ? pAxis.next() : Fixed.NULL_NODE_KEY
+	public static long getNext(final @Nonnull Axis axis) {
+		return (axis.hasNext()) ? axis.next() : Fixed.NULL_NODE_KEY
 				.getStandardProperty();
 	}
 

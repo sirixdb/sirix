@@ -612,7 +612,7 @@ public class DatabaseRepresentation {
 			final XMLSerializerBuilder builder;
 			if (revision == null) builder = new XMLSerializerBuilder(session, output);
 			else builder = new XMLSerializerBuilder(session, output, revision);
-			builder.setREST(nodeid);
+			builder.isRESTful(nodeid);
 			builder.setID(nodeid);
 			builder.setDeclaration(false);
 			final XMLSerializer serializer = builder.build();
