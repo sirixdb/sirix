@@ -78,8 +78,6 @@ public final class ConcurrentUnionAxis extends AbstractAxis {
 	public ConcurrentUnionAxis(final @Nonnull NodeReadTrx rtx,
 			final @Nonnull Axis operand1, final @Nonnull Axis operand2) {
 		super(rtx);
-//		operand1.getTrx().moveTo(rtx.getNodeKey());
-//		operand2.getTrx().moveTo(rtx.getNodeKey());
 		mOp1 = new ConcurrentAxis(rtx, operand1);
 		mOp2 = new ConcurrentAxis(rtx, operand2);
 		mFirst = true;

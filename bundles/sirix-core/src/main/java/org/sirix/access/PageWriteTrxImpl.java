@@ -123,6 +123,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/** Determines if transaction is closed. */
 	private boolean mIsClosed;
 
+	/** Set of indexes. */
 	private Set<Indexes> mIndexes;
 
 	/**

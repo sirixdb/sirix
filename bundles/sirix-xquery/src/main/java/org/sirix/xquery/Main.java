@@ -12,6 +12,9 @@ import java.util.Random;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.xdm.Iter;
+import org.brackit.xquery.xdm.Sequence;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
@@ -27,6 +30,7 @@ import org.sirix.axis.filter.PredicateFilterAxis;
 import org.sirix.axis.filter.ValueFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
+import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
 
 public class Main {
@@ -43,7 +47,7 @@ public class Main {
 
 	public static void main(String[] args) throws SirixException {
 		try {
-//			loadDocumentAndQuery();
+			loadDocumentAndQuery();
 			System.out.println();
 			loadDocumentAndUpdate();
 			System.out.println();
@@ -102,15 +106,27 @@ public class Main {
 						.doIndend(true).setDeclaration(false).build().call();
 				System.out.println(out.toString());
 			}
+
+			// reuse store and query loaded document
+			QueryContext ctx2 = new QueryContext(store);
+			System.out.println();
+			System.out.println("Query loaded document:");
+			String xq2 = "doc('mydoc.xml')/nachrichten/nachricht[betreff/text()='sommer' or betreff/text()='strand' or text/text()='sommer' or text/text()='strand']";
+			System.out.println(xq2);
+			final XQuery query = new XQuery(xq2);
+			query.setPrettyPrint(true).serialize(ctx2, System.out);
+			final Sequence result = query.evaluate(ctx2);
+			final Iter iterator = result.iterate();
+			Item item;
+			while ((item = iterator.next()) != null) {
+				final DBNode node = (DBNode) item;
+				final OutputStream out = new ByteArrayOutputStream();
+				XMLSerializer.builder(session, out).startNodeKey(node.getNodeKey())
+						.doIndend(true).setDeclaration(false).build().call();
+				System.out.println(out.toString());
+			}
 		}
 
-		// reuse store and query loaded document
-		QueryContext ctx2 = new QueryContext(store);
-		System.out.println();
-		System.out.println("Query loaded document:");
-		String xq2 = "doc('mydoc.xml')/nachrichten/nachricht[betreff/text()='sommer' or betreff/text()='strand' or text/text()='sommer' or text/text()='strand']";
-		System.out.println(xq2);
-		new XQuery(xq2).setPrettyPrint(true).serialize(ctx2, System.out);
 		System.out.println();
 		store.close();
 	}

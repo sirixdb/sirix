@@ -27,6 +27,8 @@
 
 package org.sirix.axis.concurrent;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbstractAxis;
@@ -71,8 +73,8 @@ public final class ConcurrentIntersectAxis extends AbstractAxis {
 	 *           if {@code rtx}, {@code operand1} or {@code operand2} is
 	 *           {@code null}
 	 */
-	public ConcurrentIntersectAxis(final NodeReadTrx rtx, final Axis operand1,
-			final Axis operand2) {
+	public ConcurrentIntersectAxis(final @Nonnull NodeReadTrx rtx,
+			final @Nonnull Axis operand1, final @Nonnull Axis operand2) {
 		super(rtx);
 		mOp1 = new ConcurrentAxis(rtx, operand1);
 		mOp2 = new ConcurrentAxis(rtx, operand2);
@@ -83,7 +85,6 @@ public final class ConcurrentIntersectAxis extends AbstractAxis {
 
 	@Override
 	public synchronized void reset(final long nodeKey) {
-
 		super.reset(nodeKey);
 
 		if (mOp1 != null) {
