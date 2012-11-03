@@ -49,9 +49,15 @@ public class NodeFactoryImpl implements NodeFactory {
 	 * 
 	 * @param pageWriteTrx
 	 *          {@link PageWriteTrx} implementation
+	 * @throws SirixIOException 
+	 * 						if an I/O exception occured due to name key creation
 	 */
-	public NodeFactoryImpl(final @Nonnull PageWriteTrx pageWriteTrx) {
+	public NodeFactoryImpl(final @Nonnull PageWriteTrx pageWriteTrx) throws SirixIOException {
 		mPageWriteTrx = checkNotNull(pageWriteTrx);
+		mPageWriteTrx.createNameKey("xs:untyped", Kind.ATTRIBUTE);
+		mPageWriteTrx.createNameKey("xs:untyped", Kind.NAMESPACE);
+		mPageWriteTrx.createNameKey("xs:untyped", Kind.ELEMENT);
+		mPageWriteTrx.createNameKey("xs:untyped", Kind.PROCESSING);
 	}
 
 	@Override

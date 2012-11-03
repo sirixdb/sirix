@@ -30,6 +30,7 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
@@ -57,11 +58,11 @@ import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
-import org.sirix.page.interfaces.Page;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
+import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.settings.Revisioning;
@@ -77,7 +78,7 @@ import com.google.common.base.Optional;
  * to the persistent storage layer.
  * </p>
  * 
- * @author Marc Kramis, Seabix GmbH
+ * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */
@@ -124,7 +125,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	private boolean mIsClosed;
 
 	/** Set of indexes. */
-	private Set<Indexes> mIndexes;
+	private EnumSet<Indexes> mIndexes;
 
 	/**
 	 * Standard constructor.

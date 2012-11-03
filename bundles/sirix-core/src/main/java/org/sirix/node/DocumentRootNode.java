@@ -49,7 +49,7 @@ import com.google.common.base.Objects;
  * revision 0 and can not be removed.
  * </p>
  */
-public final class DocumentRootNode extends AbstructStructForwardingNode
+public final class DocumentRootNode extends AbstractStructForwardingNode
 		implements StructNode {
 
 	/** {@link NodeDelegate} reference. */

@@ -159,7 +159,7 @@ public class NodeDelegate implements Node {
 	public String toString() {
 		return Objects.toStringHelper(this).add("node key", mNodeKey)
 				.add("parent key", mParentKey).add("type key", mTypeKey)
-				.add("hash", mHash).toString();
+				.add("hash", mHash).add("deweyID", mID).toString();
 	}
 
 	@Override

@@ -23,7 +23,7 @@ import com.google.common.io.ByteArrayDataOutput;
 public final class Names {
 
 	/** Map the hash of a name to its name. */
-	private final Map<Integer, String> mNameMap;
+	private final Map<Integer, byte[]> mNameMap;
 
 	/** Map which is used to count the occurences of a name mapping. */
 	private final Map<Integer, Integer> mCountNameMapping;
@@ -53,7 +53,7 @@ public final class Names {
 			for (int j = 0; j < bytes.length; j++) {
 				bytes[j] = in.readByte();
 			}
-			mNameMap.put(key, new String(bytes));
+			mNameMap.put(key, bytes);
 			mCountNameMapping.put(key, in.readInt());
 		}
 	}
@@ -66,9 +66,9 @@ public final class Names {
 	 */
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
 		out.writeInt(mNameMap.size());
-		for (final Entry<Integer, String> entry : mNameMap.entrySet()) {
+		for (final Entry<Integer, byte[]> entry : mNameMap.entrySet()) {
 			out.writeInt(entry.getKey());
-			final byte[] bytes = getBytes(entry.getValue());
+			final byte[] bytes = entry.getValue();
 			out.writeInt(bytes.length);
 			for (final byte byteVal : bytes) {
 				out.writeByte(byteVal);
@@ -117,7 +117,7 @@ public final class Names {
 	public void setName(final int pKey, final @Nonnull String name) {
 		final Integer prevValue = mCountNameMapping.get(pKey);
 		if (prevValue == null) {
-			mNameMap.put(pKey, checkNotNull(name));
+			mNameMap.put(pKey, checkNotNull(getBytes(name)));
 			mCountNameMapping.put(pKey, 1);
 		} else {
 			mCountNameMapping.put(pKey, prevValue + 1);
@@ -129,10 +129,14 @@ public final class Names {
 	 * 
 	 * @param key
 	 *          the key to look up
-	 * @return the string the key maps to
+	 * @return the string the key maps to, or {@code null} if no mapping exists
 	 */
 	public String getName(final int key) {
-		return mNameMap.get(key);
+		final byte[] name = mNameMap.get(key);
+		if (name == null) {
+			return null;
+		}
+		return new String(name, Constants.DEFAULT_ENCODING);
 	}
 
 	/**
@@ -158,7 +162,7 @@ public final class Names {
 	 * @return the byte-array representing the string the key maps to
 	 */
 	public byte[] getRawName(final int key) {
-		return getBytes(mNameMap.get(key));
+		return mNameMap.get(key);
 	}
 
 	/**

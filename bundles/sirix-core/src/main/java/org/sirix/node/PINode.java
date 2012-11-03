@@ -25,7 +25,7 @@ import com.google.common.base.Objects;
  * Node representing a processing instruction.
  * </p>
  */
-public final class PINode extends AbstructStructForwardingNode implements
+public final class PINode extends AbstractStructForwardingNode implements
 		ValueNode, NameNode {
 
 	/** Delegate for name node information. */

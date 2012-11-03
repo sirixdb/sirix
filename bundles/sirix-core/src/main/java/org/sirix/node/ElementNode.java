@@ -58,7 +58,7 @@ import com.google.common.collect.BiMap;
  * 
  * <strong>This class is not part of the public API and might change.</strong>
  */
-public final class ElementNode extends AbstructStructForwardingNode implements
+public final class ElementNode extends AbstractStructForwardingNode implements
 		NameNode {
 
 	/** Delegate for name node information. */

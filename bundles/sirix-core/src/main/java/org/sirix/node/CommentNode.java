@@ -24,7 +24,7 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger
  * 
  */
-public class CommentNode extends AbstructStructForwardingNode implements
+public class CommentNode extends AbstractStructForwardingNode implements
 		ValueNode {
 
 	/** {@link StructNodeDelegate} reference. */
