@@ -138,10 +138,10 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 		}
 		mNewRtxMoved = mNewRtx.moveTo(pBuilder.mNewStartKey).hasMoved();
 		mOldRtxMoved = mOldRtx.moveTo(pBuilder.mOldStartKey).hasMoved();
-		if (mNewRtx.getKind() == Kind.DOCUMENT_ROOT) {
+		if (mNewRtx.getKind() == Kind.DOCUMENT) {
 			mNewRtx.moveToFirstChild();
 		}
-		if (mOldRtx.getKind() == Kind.DOCUMENT_ROOT) {
+		if (mOldRtx.getKind() == Kind.DOCUMENT) {
 			mOldRtx.moveToFirstChild();
 		}
 		mRootKey = pBuilder.mNewStartKey;
@@ -200,14 +200,14 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 		// Iterate over new revision (order of operators significant -- regarding
 		// the OR).
 		if (mDiff != DiffType.SAMEHASH) {
-			while ((mOldRtx.getKind() != Kind.DOCUMENT_ROOT && mDiff == DiffType.DELETED)
+			while ((mOldRtx.getKind() != Kind.DOCUMENT && mDiff == DiffType.DELETED)
 					|| moveCursor(mNewRtx, Revision.NEW, Move.FOLLOWING)) {
 				if (mDiff != DiffType.INSERTED) {
 					moveCursor(mOldRtx, Revision.OLD, Move.FOLLOWING);
 				}
 
-				if (mNewRtx.getKind() != Kind.DOCUMENT_ROOT
-						|| mOldRtx.getKind() != Kind.DOCUMENT_ROOT) {
+				if (mNewRtx.getKind() != Kind.DOCUMENT
+						|| mOldRtx.getKind() != Kind.DOCUMENT) {
 					if (mHashKind == HashKind.NONE || mDiffKind == DiffOptimized.NO) {
 						mDiff = diff(mNewRtx, mOldRtx, mDepth);
 					} else {
@@ -217,7 +217,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 			}
 
 			// Nodes deleted in old rev at the end of the tree.
-			if (mOldRtx.getKind() != Kind.DOCUMENT_ROOT) {
+			if (mOldRtx.getKind() != Kind.DOCUMENT) {
 				mRootKey = mOldRootKey;
 				// First time it might be EDiff.INSERTED where the cursor doesn't move.
 				if (mDiff == DiffType.INSERTED) {
@@ -303,7 +303,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 
 		boolean moved = false;
 
-		if (rtx.getKind() != Kind.DOCUMENT_ROOT) {
+		if (rtx.getKind() != Kind.DOCUMENT) {
 			switch (mDiff) {
 			case SAME:
 			case SAMEHASH:
@@ -317,7 +317,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 			case DELETED:
 				if (move == Move.FOLLOWING
 						&& (mDiff == DiffType.INSERTED || mDiff == DiffType.DELETED)) {
-					if (rtx.getKind() == Kind.DOCUMENT_ROOT) {
+					if (rtx.getKind() == Kind.DOCUMENT) {
 						moved = false;
 					} else {
 						moved = true;
@@ -337,7 +337,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 			final @Nonnull Revision pRevision) {
 		boolean moved = false;
 		if (pRtx.hasFirstChild()) {
-			if (pRtx.getKind() != Kind.DOCUMENT_ROOT
+			if (pRtx.getKind() != Kind.DOCUMENT
 					&& mDiffKind == DiffOptimized.HASHED && mDiff == DiffType.SAMEHASH) {
 				moved = pRtx.moveToRightSibling().hasMoved();
 
@@ -429,7 +429,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 
 		// Check for modifications.
 		switch (pNewRtx.getKind()) {
-		case DOCUMENT_ROOT:
+		case DOCUMENT:
 		case TEXT:
 		case ELEMENT:
 			if (checkNodes(pNewRtx, pOldRtx)) {
@@ -470,7 +470,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 
 		// Check for modifications.
 		switch (pNewRtx.getKind()) {
-		case DOCUMENT_ROOT:
+		case DOCUMENT:
 		case TEXT:
 		case ELEMENT:
 			if (pNewRtx.getNodeKey() != pOldRtx.getNodeKey()

@@ -125,7 +125,7 @@ public class FNString extends AbstractFunction {
 			if (getTrx().getKind() == Kind.ATTRIBUTE
 					|| getTrx().getKind() == Kind.TEXT) {
 				value.append(getTrx().getValue());
-			} else if (getTrx().getKind() == Kind.DOCUMENT_ROOT
+			} else if (getTrx().getKind() == Kind.DOCUMENT
 					|| getTrx().getKind() == Kind.ELEMENT) {
 				final Axis axis = new FilterAxis(new DescendantAxis(getTrx()),
 						new TextFilter(getTrx()));

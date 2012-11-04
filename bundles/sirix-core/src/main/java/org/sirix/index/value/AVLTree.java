@@ -634,8 +634,8 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 
 	@Override
 	public Kind getParentKind() {
-		if (mCurrentNode.getKind() == Kind.DOCUMENT_ROOT) {
-			return Kind.DOCUMENT_ROOT;
+		if (mCurrentNode.getKind() == Kind.DOCUMENT) {
+			return Kind.DOCUMENT;
 		}
 		return Kind.AVL;
 	}

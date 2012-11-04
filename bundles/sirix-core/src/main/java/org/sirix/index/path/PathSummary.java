@@ -595,8 +595,8 @@ public final class PathSummary implements NodeReadTrx {
 
 	@Override
 	public Kind getParentKind() {
-		if (mCurrentNode.getKind() == Kind.DOCUMENT_ROOT) {
-			return Kind.DOCUMENT_ROOT;
+		if (mCurrentNode.getKind() == Kind.DOCUMENT) {
+			return Kind.DOCUMENT;
 		}
 		return Kind.PATH;
 	}
@@ -612,7 +612,7 @@ public final class PathSummary implements NodeReadTrx {
 	 * @return number of references of a node
 	 */
 	public int getReferences() {
-		if (mCurrentNode.getKind() == Kind.DOCUMENT_ROOT) {
+		if (mCurrentNode.getKind() == Kind.DOCUMENT) {
 			return 1;
 		} else {
 			return getPathNode().getReferences();

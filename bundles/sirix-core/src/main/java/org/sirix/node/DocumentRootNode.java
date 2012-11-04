@@ -74,7 +74,7 @@ public final class DocumentRootNode extends AbstractStructForwardingNode
 
 	@Override
 	public Kind getKind() {
-		return Kind.DOCUMENT_ROOT;
+		return Kind.DOCUMENT;
 	}
 
 	@Override

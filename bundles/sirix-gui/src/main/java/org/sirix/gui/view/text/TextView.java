@@ -346,7 +346,7 @@ public final class TextView extends JScrollPane implements View {
 
 		try {
 			switch (rtx.getKind()) {
-			case DOCUMENT_ROOT:
+			case DOCUMENT:
 			case ELEMENT:
 				mText.setText("");
 				if (mAxis == null) {

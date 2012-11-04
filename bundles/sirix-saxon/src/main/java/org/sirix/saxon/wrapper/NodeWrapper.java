@@ -158,7 +158,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 
 		switch (mNodeKind) {
 		case COMMENT:
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			// The content as an instance of the xs:string data type.
 			value = new StringValue(getStringValueCS());
 			break;
@@ -299,7 +299,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 					.toString();
 			break;
 		case NAMESPACE:
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			dName = getLocalPart();
 			break;
 		default:
@@ -361,7 +361,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 		switch (mNodeKind) {
 		case ELEMENT:
 		case ATTRIBUTE:
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			// case NAMESPACE_KIND:
 			nameCode = mDocWrapper.getNamePool().allocate(getPrefix(), getURI(),
 					getLocalPart());
@@ -436,27 +436,27 @@ public final class NodeWrapper implements SiblingCountingNode {
 
 	@Override
 	public final CharSequence getStringValueCS() {
-		String mValue = "";
+		String value = "";
 		try {
 			final NodeReadTrx rtx = createRtxAndMove();
 
 			switch (mNodeKind) {
-			case DOCUMENT_ROOT:
+			case DOCUMENT:
 			case ELEMENT:
-				mValue = expandString();
+				value = expandString();
 				break;
 			case ATTRIBUTE:
-				mValue = emptyIfNull(rtx.getValue());
+				value = emptyIfNull(rtx.getValue());
 				break;
 			case TEXT:
-				mValue = rtx.getValue();
+				value = rtx.getValue();
 				break;
 			case COMMENT:
-			case PROCESSING:
-				mValue = emptyIfNull(rtx.getValue());
+			case PROCESSING_INSTRUCTION:
+				value = emptyIfNull(rtx.getValue());
 				break;
 			default:
-				mValue = "";
+				value = "";
 			}
 
 			rtx.close();
@@ -464,7 +464,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 			LOGGER.error(exc.toString());
 		}
 
-		return mValue;
+		return value;
 	}
 
 	/**
@@ -480,10 +480,8 @@ public final class NodeWrapper implements SiblingCountingNode {
 					new TextFilter(rtx));
 
 			while (axis.hasNext()) {
-				if (rtx.getKind() == Kind.TEXT) {
-					fsb.append(rtx.getValue());
-				}
 				axis.next();
+				fsb.append(rtx.getValue());
 			}
 			rtx.close();
 		} catch (final SirixException exc) {
@@ -594,7 +592,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 
 			switch (axisNumber) {
 			case Axis.ANCESTOR:
-				if (getNodeKind() == Kind.DOCUMENT_ROOT.getId()) {
+				if (getNodeKind() == Kind.DOCUMENT.getId()) {
 					returnVal = EmptyIterator.getInstance();
 				} else {
 					returnVal = new Navigator.AxisFilter(new SaxonEnumeration(
@@ -602,7 +600,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 				}
 				break;
 			case Axis.ANCESTOR_OR_SELF:
-				if (getNodeKind() == Kind.DOCUMENT_ROOT.getId()) {
+				if (getNodeKind() == Kind.DOCUMENT.getId()) {
 					returnVal = Navigator.filteredSingleton(this, nodeTest);
 				} else {
 					returnVal = new Navigator.AxisFilter(new SaxonEnumeration(
@@ -643,7 +641,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 				break;
 			case Axis.FOLLOWING_SIBLING:
 				switch (mNodeKind) {
-				case DOCUMENT_ROOT:
+				case DOCUMENT:
 				case ATTRIBUTE:
 				case NAMESPACE:
 					returnVal = EmptyIterator.getInstance();
@@ -662,7 +660,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 				}
 				break;
 			case Axis.PARENT:
-				if (rtx.getParentKey() == Kind.DOCUMENT_ROOT.getId()) {
+				if (rtx.getParentKey() == Kind.DOCUMENT.getId()) {
 					returnVal = EmptyIterator.getInstance();
 				} else {
 					returnVal = new Navigator.AxisFilter(new SaxonEnumeration(
@@ -674,7 +672,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 				break;
 			case Axis.PRECEDING_SIBLING:
 				switch (mNodeKind) {
-				case DOCUMENT_ROOT:
+				case DOCUMENT:
 				case ATTRIBUTE:
 				case NAMESPACE:
 					returnVal = EmptyIterator.getInstance();
@@ -745,8 +743,8 @@ public final class NodeWrapper implements SiblingCountingNode {
 	 * Treat a node value of null as an empty string.
 	 * 
 	 * @param s
-	 *          The node value.
-	 * @return a zero-length string if s is null, otherwise s.
+	 *          the node value
+	 * @return a zero-length string if s is null, otherwise s
 	 */
 	private static String emptyIfNull(final String s) {
 		return (s == null ? "" : s);

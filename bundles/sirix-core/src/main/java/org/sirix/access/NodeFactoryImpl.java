@@ -57,7 +57,7 @@ public class NodeFactoryImpl implements NodeFactory {
 		mPageWriteTrx.createNameKey("xs:untyped", Kind.ATTRIBUTE);
 		mPageWriteTrx.createNameKey("xs:untyped", Kind.NAMESPACE);
 		mPageWriteTrx.createNameKey("xs:untyped", Kind.ELEMENT);
-		mPageWriteTrx.createNameKey("xs:untyped", Kind.PROCESSING);
+		mPageWriteTrx.createNameKey("xs:untyped", Kind.PROCESSING_INSTRUCTION);
 	}
 
 	@Override
@@ -177,7 +177,7 @@ public class NodeFactoryImpl implements NodeFactory {
 			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(target),
-				Kind.PROCESSING);
+				Kind.PROCESSING_INSTRUCTION);
 		final int uriKey = mPageWriteTrx.createNameKey(target.getNamespaceURI(),
 				Kind.NAMESPACE);
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx

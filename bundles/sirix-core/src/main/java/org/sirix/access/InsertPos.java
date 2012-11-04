@@ -145,7 +145,7 @@ enum InsertPos {
 			assert wtx != null;
 			assert rtx != null;
 			assert wtx.getKind() == Kind.ELEMENT
-					|| wtx.getKind() == Kind.DOCUMENT_ROOT;
+					|| wtx.getKind() == Kind.DOCUMENT;
 			switch (rtx.getKind()) {
 			case ELEMENT:
 				wtx.insertElementAsFirstChild(rtx.getName());

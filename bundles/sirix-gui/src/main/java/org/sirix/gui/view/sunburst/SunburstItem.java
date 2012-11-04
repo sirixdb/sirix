@@ -673,7 +673,7 @@ public final class SunburstItem implements VisualItem {
 				break;
 			case TEXT:
 			case COMMENT:
-			case PROCESSING:
+			case PROCESSING_INSTRUCTION:
 				final int from = pGraphic.color(mGUI.getHueStart(),
 						mGUI.getSaturationStart(), mGUI.getBrightnessStart());
 				final int to = pGraphic.color(mGUI.getHueEnd(),

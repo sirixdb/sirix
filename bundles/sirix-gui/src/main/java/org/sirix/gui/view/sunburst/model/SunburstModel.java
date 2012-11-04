@@ -415,7 +415,7 @@ public final class SunburstModel extends
 					mDepth = 0;
 					boolean first = true;
 
-					if (mRtx.getKind() == Kind.DOCUMENT_ROOT) {
+					if (mRtx.getKind() == Kind.DOCUMENT) {
 						mRtx.moveToFirstChild();
 					}
 					final long key = mRtx.getNodeKey();
@@ -495,7 +495,7 @@ public final class SunburstModel extends
 					boolean firstNode = true;
 					for (final Axis axis = new DescendantAxis(mRtx, IncludeSelf.YES); axis
 							.hasNext(); axis.next()) {
-						if (axis.getTrx().getKind() != Kind.DOCUMENT_ROOT) {
+						if (axis.getTrx().getKind() != Kind.DOCUMENT) {
 							// try {
 							final Future<Integer> futureSubmitted = executor.submit(Callables
 									.returning((int) mRtx.getDescendantCount() + 1));// */new

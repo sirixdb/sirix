@@ -180,11 +180,11 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
       mRTX.moveTo(node.getNodeKey());
       pValue = new StringBuilder("<!-- ").append(mRTX.getValue()).append(" -->").toString();
       break;
-    case PROCESSING:
+    case PROCESSING_INSTRUCTION:
       mRTX.moveTo(node.getNodeKey());
       pValue = new StringBuilder("<? ").append(mRTX.getValue()).append(" ?>").toString();
       break;
-    case DOCUMENT_ROOT:
+    case DOCUMENT:
       pValue = "Doc: " + mPATH;
       break;
     case WHITESPACE:
@@ -201,7 +201,7 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
     setBackgroundSelectionColor(null);
     if (!selected) {
       switch (node.getKind()) {
-      case DOCUMENT_ROOT:
+      case DOCUMENT:
         setForeground(DOC_COLOR);
         break;
       case ELEMENT:

@@ -142,7 +142,7 @@ public final class XMLSerializer extends AbstractSerializer {
 	protected void emitStartElement(final @Nonnull NodeReadTrx rtx) {
 		try {
 			switch (rtx.getKind()) {
-			case DOCUMENT_ROOT:
+			case DOCUMENT:
 				if (mIndent) {
 					mOut.write(CharsForSerializing.NEWLINE.getBytes());
 				}
@@ -221,7 +221,7 @@ public final class XMLSerializer extends AbstractSerializer {
 					mOut.write(CharsForSerializing.NEWLINE.getBytes());
 				}
 				break;
-			case PROCESSING:
+			case PROCESSING_INSTRUCTION:
 				indent();
 				mOut.write(CharsForSerializing.OPENPI.getBytes());
 				mOut.write(rtx.rawNameForKey(rtx.getNameKey()));

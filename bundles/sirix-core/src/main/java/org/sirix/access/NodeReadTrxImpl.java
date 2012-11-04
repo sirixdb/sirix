@@ -153,13 +153,13 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 			return ImmutableText.of((TextNode) mCurrentNode);
 		case COMMENT:
 			return ImmutableComment.of((CommentNode) mCurrentNode);
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			return ImmutablePI.of((PINode) mCurrentNode);
 		case ATTRIBUTE:
 			return ImmutableAttribute.of((AttributeNode) mCurrentNode);
 		case NAMESPACE:
 			return ImmutableNamespace.of((NamespaceNode) mCurrentNode);
-		case DOCUMENT_ROOT:
+		case DOCUMENT:
 			return ImmutableDocument.of((DocumentRootNode) mCurrentNode);
 		default:
 			throw new IllegalStateException("Node kind not known!");
@@ -413,7 +413,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 			helper.add("Value of Node", getValue());
 		}
 
-		if (mCurrentNode.getKind() == Kind.DOCUMENT_ROOT) {
+		if (mCurrentNode.getKind() == Kind.DOCUMENT) {
 			helper.addValue("Node is DocumentRoot");
 		}
 		helper.add("node", mCurrentNode.toString());
@@ -880,7 +880,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public boolean isDocumentRoot() {
 		assertNotClosed();
-		return mCurrentNode.getKind() == Kind.DOCUMENT_ROOT;
+		return mCurrentNode.getKind() == Kind.DOCUMENT;
 	}
 
 	@Override
@@ -904,7 +904,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public boolean isPI() {
 		assertNotClosed();
-		return mCurrentNode.getKind() == Kind.PROCESSING;
+		return mCurrentNode.getKind() == Kind.PROCESSING_INSTRUCTION;
 	}
 
 	@Override

@@ -65,7 +65,7 @@ final class StructuralDiff extends AbstractDiff {
 					found = true;
 				}
 				break;
-			case PROCESSING:
+			case PROCESSING_INSTRUCTION:
 				found = newRtx.getValue().equals(oldRtx.getValue())
 						&& newRtx.getName().equals(oldRtx.getName());
 				break;

@@ -297,13 +297,13 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 		mParent = ((AbstractModel<?, ?>) mModel).getParent();
 		mDepth = pContainer.getDepth();
 		mOldRtx.moveTo(pContainer.getNewStartKey());
-		if (mOldRtx.getKind() == Kind.DOCUMENT_ROOT) {
+		if (mOldRtx.getKind() == Kind.DOCUMENT) {
 			mOldRtx.moveToFirstChild();
 		}
 		mOldStartKey = pContainer.getNewStartKey() == 0 ? mOldRtx.getNodeKey()
 				: pContainer.getNewStartKey();
 		mNewRtx.moveTo(pContainer.getNewStartKey());
-		if (mNewRtx.getKind() == Kind.DOCUMENT_ROOT) {
+		if (mNewRtx.getKind() == Kind.DOCUMENT) {
 			mNewRtx.moveToFirstChild();
 		}
 		mNewStartKey = pContainer.getNewStartKey() == 0 ? mNewRtx.getNodeKey()

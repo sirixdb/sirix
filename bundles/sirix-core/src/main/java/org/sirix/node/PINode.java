@@ -58,7 +58,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 
 	@Override
 	public Kind getKind() {
-		return Kind.PROCESSING;
+		return Kind.PROCESSING_INSTRUCTION;
 	}
 
 	@Override

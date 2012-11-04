@@ -216,7 +216,7 @@ public enum Kind implements RecordPersistenter {
 	},
 
 	/** Node kind is processing instruction. */
-	PROCESSING((byte) 7, PINode.class) {
+	PROCESSING_INSTRUCTION((byte) 7, PINode.class) {
 		@Override
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
@@ -293,7 +293,7 @@ public enum Kind implements RecordPersistenter {
 
 	/** Node kind is document root. */
 	// Virtualize document root node?
-	DOCUMENT_ROOT((byte) 9, DocumentRootNode.class) {
+	DOCUMENT((byte) 9, DocumentRootNode.class) {
 		@Override
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {

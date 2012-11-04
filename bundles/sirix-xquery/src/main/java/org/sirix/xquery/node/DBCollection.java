@@ -27,16 +27,16 @@ import org.sirix.exception.SirixIOException;
  * Database collection.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
-public class DBCollection extends
-		AbstractCollection<AbstractTemporalNode> implements AutoCloseable {
+public class DBCollection extends AbstractCollection<AbstractTemporalNode>
+		implements AutoCloseable {
 
 	/** ID sequence. */
 	private static final AtomicInteger ID_SEQUENCE = new AtomicInteger();
 
 	/** {@link Sirix} database. */
-	final Database mDatabase;
+	private final Database mDatabase;
 
 	/** Determines if collection needs to be updatable. */
 	private final boolean mUpdating;
@@ -69,6 +69,15 @@ public class DBCollection extends
 		return mID;
 	}
 
+	/**
+	 * Get the underlying Sirix {@link Database}.
+	 * 
+	 * @return Sirix {@link Database}
+	 */
+	public Database getDatabase() {
+		return mDatabase;
+	}
+
 	@Override
 	public void delete() throws DocumentException {
 		try {
@@ -83,9 +92,9 @@ public class DBCollection extends
 	public void remove(final long documentID)
 			throws OperationNotSupportedException, DocumentException {
 		if (documentID >= 0) {
-			final String documentName = mDatabase.getResourceName((int) documentID);
-			if (documentName != null) {
-				mDatabase.truncateResource(mDatabase.getResourceName((int) documentID));
+			final String resource = mDatabase.getResourceName((int) documentID);
+			if (resource != null) {
+				mDatabase.truncateResource(resource);
 			}
 		}
 	}
@@ -97,10 +106,10 @@ public class DBCollection extends
 			throw new DocumentException("More than one document stored!");
 		}
 		try {
-			final Session session = mDatabase
-					.getSession(SessionConfiguration.builder(resources[0]).build());
-			final NodeReadTrx rtx = mUpdating ? session.beginNodeWriteTrx()
-					: session.beginNodeReadTrx();
+			final Session session = mDatabase.getSession(SessionConfiguration
+					.builder(resources[0]).build());
+			final NodeReadTrx rtx = mUpdating ? session.beginNodeWriteTrx() : session
+					.beginNodeReadTrx();
 			return new DBNode(rtx, this);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
@@ -114,8 +123,8 @@ public class DBCollection extends
 		final List<DBNode> documents = new ArrayList<>(resources.length);
 		for (final String resource : resources) {
 			try {
-				final Session session = mDatabase
-						.getSession(SessionConfiguration.builder(resource).build());
+				final Session session = mDatabase.getSession(SessionConfiguration
+						.builder(resource).build());
 				final NodeReadTrx rtx = mUpdating ? session.beginNodeWriteTrx()
 						: session.beginNodeReadTrx();
 				documents.add(new DBNode(rtx, this));
@@ -123,8 +132,8 @@ public class DBCollection extends
 				throw new DocumentException(e.getCause());
 			}
 		}
-		return new ArrayStream<DBNode>(
-				documents.toArray(new DBNode[documents.size()]));
+		return new ArrayStream<DBNode>(documents.toArray(new DBNode[documents
+				.size()]));
 	}
 
 	@Override

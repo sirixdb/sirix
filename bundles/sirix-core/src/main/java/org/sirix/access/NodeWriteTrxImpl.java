@@ -595,7 +595,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			final @Nonnull Kind pathKind) throws SirixException {
 		final Kind kind = mNodeRtx.getCurrentNode().getKind();
 		int level = 0;
-		if (kind == Kind.DOCUMENT_ROOT) {
+		if (kind == Kind.DOCUMENT) {
 			mPathSummary.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		} else {
 			movePathSummary();
@@ -681,7 +681,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			final Kind kind = mNodeRtx.getCurrentNode().getKind();
-			if (kind == Kind.ELEMENT || kind == Kind.DOCUMENT_ROOT) {
+			if (kind == Kind.ELEMENT || kind == Kind.DOCUMENT) {
 				checkAccessAndCommit();
 
 				final long parentKey = mNodeRtx.getCurrentNode().getNodeKey();
@@ -719,7 +719,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof StructNode
-					&& getCurrentNode().getKind() != Kind.DOCUMENT_ROOT) {
+					&& getCurrentNode().getKind() != Kind.DOCUMENT) {
 				checkAccessAndCommit();
 
 				final long key = getCurrentNode().getNodeKey();
@@ -913,7 +913,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				final QName targetName = new QName(target);
 				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
-						targetName, Kind.PROCESSING) : 0;
+						targetName, Kind.PROCESSING_INSTRUCTION) : 0;
 				final PINode node = mNodeFactory.createPINode(parentKey, leftSibKey,
 						rightSibKey, targetName, processingContent, mCompression,
 						pathNodeKey, id);
@@ -974,8 +974,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof StructNode
-					&& (getCurrentNode().getKind() != Kind.DOCUMENT_ROOT || (getCurrentNode()
-							.getKind() == Kind.DOCUMENT_ROOT && insert == Insert.ASFIRSTCHILD))) {
+					&& (getCurrentNode().getKind() != Kind.DOCUMENT || (getCurrentNode()
+							.getKind() == Kind.DOCUMENT && insert == Insert.ASFIRSTCHILD))) {
 				checkAccessAndCommit();
 
 				// Insert new comment node.
@@ -1085,7 +1085,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof StructNode
-					&& getCurrentNode().getKind() != Kind.DOCUMENT_ROOT
+					&& getCurrentNode().getKind() != Kind.DOCUMENT
 					&& !value.isEmpty()) {
 				checkAccessAndCommit();
 
@@ -1150,7 +1150,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof StructNode
-					&& getCurrentNode().getKind() != Kind.DOCUMENT_ROOT
+					&& getCurrentNode().getKind() != Kind.DOCUMENT
 					&& !value.isEmpty()) {
 				checkAccessAndCommit();
 
@@ -1520,7 +1520,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		checkAccessAndCommit();
 		acquireLock();
 		try {
-			if (getCurrentNode().getKind() == Kind.DOCUMENT_ROOT) {
+			if (getCurrentNode().getKind() == Kind.DOCUMENT) {
 				throw new SirixUsageException("Document root can not be removed.");
 			} else if (getCurrentNode() instanceof StructNode) {
 				final StructNode node = (StructNode) mNodeRtx.getCurrentNode();
@@ -1637,7 +1637,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			page.removeName(node.getNameKey(), nodeKind);
 			page.removeName(node.getURIKey(), Kind.NAMESPACE);
 
-			assert nodeKind != Kind.DOCUMENT_ROOT;
+			assert nodeKind != Kind.DOCUMENT;
 			if (mIndexes.contains(Indexes.PATH)
 					&& mPathSummary.moveTo(node.getPathNodeKey()).hasMoved()) {
 				if (mPathSummary.getReferences() == 1) {
@@ -1807,7 +1807,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				processFoundPathNode(oldPathNodeKey, mPathSummary.getNodeKey(),
 						node.getNodeKey(), nameKey, uriKey, Remove.YES, type);
 			} else {
-				if (mPathSummary.getKind() != Kind.DOCUMENT_ROOT) {
+				if (mPathSummary.getKind() != Kind.DOCUMENT) {
 					mPathSummary.moveTo(oldPathNodeKey);
 					final PathNode pathNode = (PathNode) getPageTransaction()
 							.prepareNodeForModification(mPathSummary.getNodeKey(),
@@ -2111,7 +2111,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		// Get parent path node and level.
 		moveToParent();
 		int level = 0;
-		if (mNodeRtx.getCurrentNode().getKind() == Kind.DOCUMENT_ROOT) {
+		if (mNodeRtx.getCurrentNode().getKind() == Kind.DOCUMENT) {
 			mPathSummary.moveToDocumentRoot();
 		} else {
 			movePathSummary();
@@ -3080,7 +3080,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		assert rtx.getRevisionNumber() == pRtx.getRevisionNumber();
 		rtx.moveTo(pRtx.getNodeKey());
 		assert rtx.getNodeKey() == pRtx.getNodeKey();
-		if (rtx.getKind() == Kind.DOCUMENT_ROOT) {
+		if (rtx.getKind() == Kind.DOCUMENT) {
 			rtx.moveToFirstChild();
 		}
 		if (!(rtx.isStructuralNode())) {

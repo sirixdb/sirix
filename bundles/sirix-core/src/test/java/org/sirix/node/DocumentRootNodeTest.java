@@ -90,7 +90,7 @@ public class DocumentRootNodeTest {
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
 		node1.getKind().serialize(out, node1, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT_ROOT
+		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT
 				.deserialize(in, mPageReadTrx);
 		check(node2);
 
@@ -108,7 +108,7 @@ public class DocumentRootNodeTest {
 		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(),
 				node.getRightSiblingKey());
 		assertEquals(0L, node.getChildCount());
-		assertEquals(Kind.DOCUMENT_ROOT, node.getKind());
+		assertEquals(Kind.DOCUMENT, node.getKind());
 	}
 
 }

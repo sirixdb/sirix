@@ -77,7 +77,7 @@ public final class TreeModel extends AbstractTreeModel {
 		mRtx.moveTo(parentNodeKey);
 
 		switch (parentNode.getKind()) {
-		case DOCUMENT_ROOT:
+		case DOCUMENT:
 			assert pIndex == 0;
 			mRtx.moveToFirstChild();
 			return mRtx.getNode();
@@ -132,7 +132,7 @@ public final class TreeModel extends AbstractTreeModel {
 		mRtx.moveTo(((Node) parent).getNodeKey());
 
 		switch (mRtx.getKind()) {
-		case DOCUMENT_ROOT:
+		case DOCUMENT:
 			assert mRtx.hasFirstChild();
 			return 1;
 		case ELEMENT:
@@ -196,7 +196,7 @@ public final class TreeModel extends AbstractTreeModel {
 			break;
 		case ELEMENT:
 		case COMMENT:
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 		case TEXT:
 			if (parentNode.getKind() == Kind.ELEMENT) {
 				namespCount = mRtx.getNamespaceCount();
@@ -239,7 +239,7 @@ public final class TreeModel extends AbstractTreeModel {
 		mRtx.moveTo(((Node) pNode).getNodeKey());
 
 		switch (mRtx.getKind()) {
-		case DOCUMENT_ROOT:
+		case DOCUMENT:
 			return false;
 		case ELEMENT:
 			if (mRtx.getNamespaceCount() > 0) {

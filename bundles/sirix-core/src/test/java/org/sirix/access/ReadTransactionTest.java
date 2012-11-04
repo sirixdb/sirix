@@ -80,7 +80,7 @@ public class ReadTransactionTest {
 	@Test
 	public void testDocumentRoot() throws SirixException {
 		assertEquals(true, holder.getRtx().moveToDocumentRoot().hasMoved());
-		assertEquals(Kind.DOCUMENT_ROOT, holder.getRtx().getKind());
+		assertEquals(Kind.DOCUMENT, holder.getRtx().getKind());
 		assertEquals(false, holder.getRtx().hasParent());
 		assertEquals(false, holder.getRtx().hasLeftSibling());
 		assertEquals(false, holder.getRtx().hasRightSibling());

@@ -192,7 +192,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	private void emitNode(final NodeReadTrx pRTX) {
 		assert pRTX != null;
 		switch (pRTX.getKind()) {
-		case DOCUMENT_ROOT:
+		case DOCUMENT:
 			mEvent = mFac.createStartDocument();
 			break;
 		case ELEMENT:

@@ -102,7 +102,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 	@Override
 	protected void emitStartElement(final @Nonnull NodeReadTrx rtx) {
 		switch (rtx.getKind()) {
-		case DOCUMENT_ROOT:
+		case DOCUMENT:
 			break;
 		case ELEMENT:
 			generateElement(rtx);
@@ -113,7 +113,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 		case COMMENT:
 			generateComment(rtx);
 			break;
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			generatePI(rtx);
 			break;
 		default:

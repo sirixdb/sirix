@@ -86,7 +86,7 @@ public final class AncestorAxis extends AbstractAxis {
 			return getTrx().getNodeKey();
 		}
 
-		if (getTrx().getKind() != Kind.DOCUMENT_ROOT
+		if (getTrx().getKind() != Kind.DOCUMENT
 				&& getTrx().hasParent()
 				&& getTrx().getParentKey() != Fixed.DOCUMENT_NODE_KEY
 						.getStandardProperty()) {

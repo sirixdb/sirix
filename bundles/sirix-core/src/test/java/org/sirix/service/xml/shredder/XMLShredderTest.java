@@ -37,7 +37,6 @@ import javax.xml.stream.events.XMLEvent;
 import org.custommonkey.xmlunit.XMLTestCase;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
@@ -51,8 +50,6 @@ import org.sirix.api.Session;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.node.ElementNode;
-import org.sirix.node.interfaces.StructNode;
 import org.sirix.utils.DocumentCreater;
 
 public class XMLShredderTest extends XMLTestCase {

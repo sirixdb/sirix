@@ -387,7 +387,7 @@ public abstract class AbstractModel<S, T extends VisualItem> extends AbstractObs
       try {
         mRTX = mSession.beginNodeReadTrx(mRtx.getRevisionNumber());
         mRTX.moveTo(mKey);
-        if (mRTX.getKind() == Kind.DOCUMENT_ROOT) {
+        if (mRTX.getKind() == Kind.DOCUMENT) {
           mRTX.moveToFirstChild();
         }
       } catch (final SirixException exc) {

@@ -33,6 +33,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
+import org.sirix.settings.Fixed;
 
 /**
  * <h1>NonStructuralWrapperAxis</h1>
@@ -54,6 +55,9 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 	/** Attribute index. */
 	private int mAttIndex;
 
+	/** Determines if transaction has moved to the next structural node at first. */
+	private boolean mFirst;
+
 	/**
 	 * Constructor initializing internal state.
 	 * 
@@ -73,11 +77,41 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 		if (mParentAxis != null) {
 			mParentAxis.reset(nodeKey);
 		}
+		mNspIndex = 0;
+		mAttIndex = 0;
+		mFirst = true;
 	}
 
 	@Override
 	protected long nextKey() {
 		final NodeReadTrx trx = mParentAxis.getTrx();
+		if (mParentAxis.isSelfIncluded() == IncludeSelf.NO || !mFirst) {
+			final long nodeKey = nonStructural(trx);
+			if (nodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
+				return nodeKey;
+			}
+		}
+
+		if (mParentAxis.hasNext()) {
+			long key = mParentAxis.next();
+			mFirst = false;
+			mNspIndex = 0;
+			mAttIndex = 0;
+			return key;
+		}
+
+		return done();
+	}
+
+	/**
+	 * Determine if non structural nodes must be emitted.
+	 * 
+	 * @param trx
+	 *          Sirix {@link NodeReadTrx}
+	 * @return the node key of the non structural node, or the
+	 *         {@code NULL_NODE_KEY}
+	 */
+	private long nonStructural(final @Nonnull NodeReadTrx trx) {
 		if (trx.isNamespace()) {
 			trx.moveToParent();
 		}
@@ -92,15 +126,6 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 			trx.moveToAttribute(mAttIndex++);
 			return trx.getNodeKey();
 		}
-
-		if (mParentAxis.hasNext()) {
-			long key = mParentAxis.next();
-			if (!trx.isElement()) {
-				mNspIndex = 0;
-				mAttIndex = 0;
-			}
-			return key;
-		}
-		return done();
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 }

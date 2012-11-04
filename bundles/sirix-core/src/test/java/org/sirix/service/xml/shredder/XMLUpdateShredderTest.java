@@ -35,7 +35,9 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
+import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
+import org.custommonkey.xmlunit.Difference;
 import org.custommonkey.xmlunit.XMLTestCase;
 import org.custommonkey.xmlunit.XMLUnit;
 import org.junit.After;
@@ -46,8 +48,8 @@ import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.Session;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
@@ -299,17 +301,15 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 				final StringBuilder sBuilder = TestHelper.readFile(
 						file.getAbsoluteFile(), false);
 
-				// System.out.println(out.toString());
 				final Diff diff = new Diff(sBuilder.toString(), out.toString());
-				// final DetailedDiff detDiff = new DetailedDiff(diff);
-				// @SuppressWarnings("unchecked")
-				// final List<Difference> differences =
-				// detDiff.getAllDifferences();
-				// for (final Difference difference : differences) {
-				// // System.out.println("***********************");
-				// // System.out.println(difference);
-				// // System.out.println("***********************");
-				// }
+				final DetailedDiff detDiff = new DetailedDiff(diff);
+				@SuppressWarnings("unchecked")
+				final List<Difference> differences = detDiff.getAllDifferences();
+				for (final Difference difference : differences) {
+					System.out.println("***********************");
+					System.out.println(difference);
+					System.out.println("***********************");
+				}
 
 				assertTrue("pieces of XML are similar " + diff, diff.similar());
 				assertTrue("but are they identical? " + diff, diff.identical());

@@ -186,7 +186,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 */
 	private void emitNode(final @Nonnull NodeReadTrx rtx) {
 		switch (rtx.getKind()) {
-		case DOCUMENT_ROOT:
+		case DOCUMENT:
 			mEvent = mFac.createStartDocument();
 			break;
 		case ELEMENT:
@@ -202,7 +202,7 @@ public final class StAXSerializer implements XMLEventReader {
 		case COMMENT:
 			mEvent = mFac.createComment(XMLToken.escapeContent(rtx.getValue()));
 			break;
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			mEvent = mFac.createProcessingInstruction(rtx.getName().getLocalPart(),
 					rtx.getValue());
 			break;
@@ -403,7 +403,7 @@ public final class StAXSerializer implements XMLEventReader {
 		case ELEMENT:
 			emitEndTag(mAxis.getTrx());
 			break;
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 		case COMMENT:
 		case TEXT:
 			emitNode(mAxis.getTrx());

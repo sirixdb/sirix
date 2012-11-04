@@ -91,7 +91,7 @@ public final class OverallTest extends TestCase {
 				case NAMESPACE:
 					holder.getWtx().setName(new QName(getString()));
 					break;
-				case PROCESSING:
+				case PROCESSING_INSTRUCTION:
 				case TEXT:
 				case COMMENT:
 					holder.getWtx().setValue(getString());

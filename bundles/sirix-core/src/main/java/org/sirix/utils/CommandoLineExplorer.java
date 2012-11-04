@@ -271,13 +271,13 @@ public final class CommandoLineExplorer {
 					builder.append("Namespace\n");
 					builder.append(mCurrentRtx.getName());
 					break;
-				case PROCESSING:
+				case PROCESSING_INSTRUCTION:
 					builder.append("Processing instruction\n");
 					break;
 				case COMMENT:
 					builder.append("Comment\n");
 					break;
-				case DOCUMENT_ROOT:
+				case DOCUMENT:
 					builder.append("Document Root\n");
 					break;
 				default:

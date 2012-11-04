@@ -51,7 +51,7 @@ public class DocumentRootNodeFilter extends AbstractFilter {
 
 	@Override
 	public final boolean filter() {
-		return getTrx().getKind() == Kind.DOCUMENT_ROOT;
+		return getTrx().getKind() == Kind.DOCUMENT;
 	}
 
 }

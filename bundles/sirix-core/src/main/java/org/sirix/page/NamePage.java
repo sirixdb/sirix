@@ -117,7 +117,7 @@ public final class NamePage implements Page {
 		case ATTRIBUTE:
 			rawName = mAttributes.getRawName(key);
 			break;
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			rawName = mPIs.getRawName(key);
 			break;
 		default:
@@ -145,7 +145,7 @@ public final class NamePage implements Page {
 		case ATTRIBUTE:
 			name = mAttributes.getName(key);
 			break;
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			name = mPIs.getName(key);
 			break;
 		default:
@@ -173,7 +173,7 @@ public final class NamePage implements Page {
 		case ATTRIBUTE:
 			count = mAttributes.getCount(key);
 			break;
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			count = mPIs.getCount(key);
 			break;
 		default:
@@ -204,7 +204,7 @@ public final class NamePage implements Page {
 		case ATTRIBUTE:
 			mAttributes.setName(key, name);
 			break;
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			mPIs.setName(key, name);
 			break;
 		default:
@@ -245,7 +245,7 @@ public final class NamePage implements Page {
 		case ATTRIBUTE:
 			mAttributes.removeName(key);
 			break;
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			mPIs.removeName(key);
 			break;
 		default:

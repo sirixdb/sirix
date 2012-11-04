@@ -63,7 +63,7 @@ public final class ParentAxis extends AbstractAxis {
 	@Override
 	protected long nextKey() {
 		final NodeReadTrx rtx = getTrx();
-		if (rtx.getKind() != Kind.DOCUMENT_ROOT && mFirst && rtx.hasParent()
+		if (rtx.getKind() != Kind.DOCUMENT && mFirst && rtx.hasParent()
 				&& rtx.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
 			mFirst = false;
 			return rtx.getParentKey();

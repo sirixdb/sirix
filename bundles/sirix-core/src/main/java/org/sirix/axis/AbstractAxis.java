@@ -41,6 +41,8 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.settings.Fixed;
 
+import com.google.common.base.Objects;
+
 /**
  * <h1>AbsAxis</h1>
  * 
@@ -348,5 +350,10 @@ public abstract class AbstractAxis implements Axis {
 			}
 			return retVal;
 		}
+	}
+	
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("trx", mRtx).toString();
 	}
 }

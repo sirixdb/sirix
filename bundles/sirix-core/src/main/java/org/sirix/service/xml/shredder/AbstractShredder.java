@@ -115,7 +115,7 @@ public abstract class AbstractShredder implements Shredder<String, QName> {
 			}
 			break;
 		case ASRIGHTSIBLING:
-			if (mWtx.getKind() == Kind.DOCUMENT_ROOT
+			if (mWtx.getKind() == Kind.DOCUMENT
 					|| mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY
 							.getStandardProperty()) {
 				throw new IllegalStateException(
@@ -125,7 +125,7 @@ public abstract class AbstractShredder implements Shredder<String, QName> {
 			mInsertLocation = Insert.ASFIRSTCHILD;
 			break;
 		case ASLEFTSIBLING:
-			if (mWtx.getKind() == Kind.DOCUMENT_ROOT
+			if (mWtx.getKind() == Kind.DOCUMENT
 					|| mWtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY
 							.getStandardProperty()) {
 				throw new IllegalStateException(

@@ -108,7 +108,7 @@ public class SessionTest {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
 		DocumentCreater.create(wtx);
 		assertNotNull(wtx.moveToDocumentRoot());
-		assertEquals(Kind.DOCUMENT_ROOT, wtx.getKind());
+		assertEquals(Kind.DOCUMENT, wtx.getKind());
 
 		assertNotNull(wtx.moveToFirstChild());
 		assertEquals(Kind.ELEMENT, wtx.getKind());

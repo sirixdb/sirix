@@ -53,7 +53,7 @@ public class PIFilter extends AbstractFilter {
 
 	@Override
 	public final boolean filter() {
-		return getTrx().getKind() == Kind.PROCESSING;
+		return getTrx().getKind() == Kind.PROCESSING_INSTRUCTION;
 	}
 
 }

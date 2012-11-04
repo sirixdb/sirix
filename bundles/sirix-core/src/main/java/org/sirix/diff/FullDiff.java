@@ -79,7 +79,7 @@ final class FullDiff extends AbstractDiff {
 					}
 				}
 				break;
-			case PROCESSING:
+			case PROCESSING_INSTRUCTION:
 				found = firstRtx.getValue().equals(secondRtx.getValue())
 						&& firstRtx.getName().equals(secondRtx.getName());
 				break;

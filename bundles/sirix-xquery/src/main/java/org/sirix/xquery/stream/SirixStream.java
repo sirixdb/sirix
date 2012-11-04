@@ -10,8 +10,10 @@ import org.sirix.api.Axis;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
 
+import com.google.common.base.Objects;
+
 /**
- * Stream wrapping a Sirix {@link Axis}.
+ * {@link Stream}, wrapping a Sirix {@link Axis}.
  * 
  * @author Johannes Lichtenberger
  * 
@@ -39,7 +41,8 @@ public class SirixStream implements Stream<DBNode> {
 
 	@Override
 	public DBNode next() throws DocumentException {
-		for (@SuppressWarnings("unused") final long nodeKey : mAxis) {
+		if (mAxis.hasNext()) {
+			mAxis.next();
 			return new DBNode(mAxis.getTrx(), mCollection);
 		}
 		return null;
@@ -47,5 +50,10 @@ public class SirixStream implements Stream<DBNode> {
 
 	@Override
 	public void close() {
+	}
+
+	@Override
+	public String toString() {
+		return Objects.toStringHelper(this).add("axis", mAxis).toString();
 	}
 }

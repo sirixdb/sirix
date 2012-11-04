@@ -500,7 +500,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 		try {
 			if (pos == 0) {
 				assert wtx.getKind() == Kind.ELEMENT
-						|| wtx.getKind() == Kind.DOCUMENT_ROOT;
+						|| wtx.getKind() == Kind.DOCUMENT;
 				if (wtx.getFirstChildKey() == child) {
 					LOGWRAPPER
 							.error("Something went wrong: First child and child may never be the same!");
@@ -524,7 +524,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 							}
 						}
 
-						if (wtx.getKind() == Kind.DOCUMENT_ROOT) {
+						if (wtx.getKind() == Kind.DOCUMENT) {
 							rtx.moveTo(child);
 							wtx.moveTo(wtx.copySubtreeAsFirstChild(rtx).getNodeKey());
 						} else {
@@ -636,13 +636,13 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 			case ELEMENT:
 			case ATTRIBUTE:
 			case NAMESPACE:
-			case PROCESSING:
+			case PROCESSING_INSTRUCTION:
 				assert rtx.getKind() == Kind.ELEMENT || rtx.getKind() == Kind.ATTRIBUTE
 						|| rtx.getKind() == Kind.NAMESPACE
-						|| rtx.getKind() == Kind.PROCESSING;
+						|| rtx.getKind() == Kind.PROCESSING_INSTRUCTION;
 				wtx.setName(rtx.getName());
 
-				if (wtx.getKind() == Kind.ATTRIBUTE || wtx.getKind() == Kind.PROCESSING) {
+				if (wtx.getKind() == Kind.ATTRIBUTE || wtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
 					wtx.setValue(rtx.getValue());
 				}
 				break;
@@ -981,8 +981,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 		// Remove roots ('/') from labels and append them to mapping.
 		final Map<Kind, List<Long>> oldLabels = mLabelOldRevVisitor.getLabels();
 		final Map<Kind, List<Long>> newLabels = mLabelNewRevVisitor.getLabels();
-		oldLabels.remove(Kind.DOCUMENT_ROOT);
-		newLabels.remove(Kind.DOCUMENT_ROOT);
+		oldLabels.remove(Kind.DOCUMENT);
+		newLabels.remove(Kind.DOCUMENT);
 
 		wtx.moveTo(mOldStartKey);
 		rtx.moveTo(mNewStartKey);
@@ -1192,7 +1192,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 		case COMMENT:
 			retVal.append(rtx.getValue());
 			break;
-		case PROCESSING:
+		case PROCESSING_INSTRUCTION:
 			retVal.append(rtx.getName().getLocalPart()).append(" ")
 					.append(rtx.getValue());
 			break;
@@ -1224,11 +1224,11 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 			double ratio = 0;
 
 			if (mWtx.getKind() == Kind.ATTRIBUTE || mWtx.getKind() == Kind.NAMESPACE
-					|| mWtx.getKind() == Kind.PROCESSING) {
+					|| mWtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
 				if (mWtx.getName().equals(mRtx.getName())) {
 					ratio = 1;
 					if (mWtx.getKind() == Kind.ATTRIBUTE
-							|| mWtx.getKind() == Kind.PROCESSING) {
+							|| mWtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
 						ratio = calculateRatio(mWtx.getValue(), mRtx.getValue());
 					}
 
