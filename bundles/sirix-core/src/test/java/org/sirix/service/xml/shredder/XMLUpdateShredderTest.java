@@ -174,10 +174,10 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 		test(XMLDELETEFOURTH);
 	}
 
-	// @Test
-	// public void testAllFirst() throws Exception {
-	// test(XMLALLFIRST);
-	// }
+//	@Test
+//	public void testAllFirst() throws Exception {
+//		test(XMLALLFIRST);
+//	}
 
 	@Test
 	public void testAllSecond() throws Exception {
