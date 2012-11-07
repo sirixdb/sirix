@@ -51,7 +51,7 @@ public final class DescendantAxis extends AbstractAxis {
 
 	/** Determines if it's the first call to hasNext(). */
 	private boolean mFirst;
-
+	
 	/**
 	 * Constructor initializing internal state.
 	 * 

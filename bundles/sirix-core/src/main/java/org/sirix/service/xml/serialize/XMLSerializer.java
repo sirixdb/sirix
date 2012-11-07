@@ -387,7 +387,7 @@ public final class XMLSerializer extends AbstractSerializer {
 				final Session session = db.getSession(new SessionConfiguration.Builder(
 						"shredded").build());
 
-				final XMLSerializer serializer = new XMLSerializerBuilder(session,
+				final XMLSerializer serializer = XMLSerializer.builder(session,
 						outputStream).build();
 				serializer.call();
 			}

@@ -113,7 +113,7 @@ public class Main {
 			System.out.println("Query loaded document:");
 			String xq2 = "doc('mydoc.xml')/nachrichten/nachricht[betreff/text()='sommer' or betreff/text()='strand' or text/text()='sommer' or text/text()='strand']";
 			System.out.println(xq2);
-			final XQuery query = new XQuery(xq2);
+			XQuery query = new XQuery(xq2);
 			query.setPrettyPrint(true).serialize(ctx2, System.out);
 			final Sequence result = query.evaluate(ctx2);
 			final Iter iterator = result.iterate();
@@ -124,6 +124,16 @@ public class Main {
 				XMLSerializer.builder(session, out).startNodeKey(node.getNodeKey())
 						.doIndend(true).setDeclaration(false).build().call();
 				System.out.println(out.toString());
+			}
+
+			try (final PrintStream out = new PrintStream(new FileOutputStream(
+					new File(new StringBuilder(File.separator).append("home")
+							.append(File.separator).append("johannes").append(File.separator)
+							.append("Desktop").append(File.separator).append("output.xml")
+							.toString())))) {
+				String xq3 = String.format("bit:serialize(doc('mydoc.xml'))");
+				query = new XQuery(xq3);
+				query.setPrettyPrint(true).serialize(ctx2, out);
 			}
 		}
 

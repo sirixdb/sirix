@@ -59,7 +59,7 @@ import com.google.common.base.Objects;
 public abstract class AbstractAxis implements Axis {
 
 	/** Iterate over transaction exclusive to this step. */
-	private final NodeReadTrx mRtx;
+	protected final NodeReadTrx mRtx;
 
 	/** Key of next node. */
 	private long mKey;
@@ -71,10 +71,10 @@ public abstract class AbstractAxis implements Axis {
 	private final IncludeSelf mIncludeSelf;
 
 	/** Current state. */
-	private EState mState = EState.NOT_READY;
+	private State mState = State.NOT_READY;
 
 	/** State of the iterator. */
-	private enum EState {
+	private enum State {
 		/** We have computed the next element and haven't returned it yet. */
 		READY,
 
@@ -152,7 +152,7 @@ public abstract class AbstractAxis implements Axis {
 	@Override
 	public final boolean hasNext() {
 		// First check the state.
-		checkState(mState != EState.FAILED);
+		checkState(mState != State.FAILED);
 		switch (mState) {
 		case DONE:
 			return false;
@@ -180,16 +180,16 @@ public abstract class AbstractAxis implements Axis {
 	 * @return {@code true} if next node key exists, {@code false} otherwise
 	 */
 	private boolean tryToComputeNext() {
-		mState = EState.FAILED; // temporary pessimism
+		mState = State.FAILED; // temporary pessimism
 		// Template method.
 		mKey = nextKey();
 		if (mKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-			mState = EState.DONE;
+			mState = State.DONE;
 		}
-		if (mState == EState.DONE) {
+		if (mState == State.DONE) {
 			return false;
 		}
-		mState = EState.READY;
+		mState = State.READY;
 		return true;
 	}
 
@@ -236,7 +236,7 @@ public abstract class AbstractAxis implements Axis {
 		if (!hasNext()) {
 			throw new NoSuchElementException();
 		}
-		mState = EState.NOT_READY;
+		mState = State.NOT_READY;
 
 		// Move to next.
 		if (mKey >= 0) {
@@ -269,7 +269,7 @@ public abstract class AbstractAxis implements Axis {
 	public void reset(@Nonnegative final long pNodeKey) {
 		mStartKey = pNodeKey;
 		mKey = pNodeKey;
-		mState = EState.NOT_READY;
+		mState = State.NOT_READY;
 	}
 
 	/**
