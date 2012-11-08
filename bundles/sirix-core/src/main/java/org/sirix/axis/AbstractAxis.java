@@ -262,13 +262,13 @@ public abstract class AbstractAxis implements Axis {
 	/**
 	 * Resetting the nodekey of this axis to a given nodekey.
 	 * 
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          the nodekey where the reset should occur to
 	 */
 	@Override
-	public void reset(@Nonnegative final long pNodeKey) {
-		mStartKey = pNodeKey;
-		mKey = pNodeKey;
+	public void reset(@Nonnegative final long nodeKey) {
+		mStartKey = nodeKey;
+		mKey = nodeKey;
 		mState = State.NOT_READY;
 	}
 
@@ -329,15 +329,15 @@ public abstract class AbstractAxis implements Axis {
 	/**
 	 * Implements a simple foreach-method.
 	 * 
-	 * @param pVisitor
+	 * @param visitor
 	 *          {@link IVisitor} implementation
 	 */
 	@Override
-	public final void foreach(@Nonnull final Visitor pVisitor) {
-		checkNotNull(pVisitor);
+	public final void foreach(@Nonnull final Visitor visitor) {
+		checkNotNull(visitor);
 		while (hasNext()) {
 			next();
-			mRtx.acceptVisitor(pVisitor);
+			mRtx.acceptVisitor(visitor);
 		}
 	}
 

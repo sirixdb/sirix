@@ -13,6 +13,7 @@ import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeListener;
+import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
@@ -31,7 +32,7 @@ public final class SubtreeBuilder extends
 		AbstractShredder implements SubtreeHandler {
 
 	/** {@link SubtreeProcessor} for listeners. */
-	private final SubtreeProcessor<AbstractTemporalNode> mSubtreeProcessor;
+	private final SubtreeProcessor<AbstractTemporalNode<DBNode>> mSubtreeProcessor;
 
 	/** Sirix {@link NodeWriteTrx}. */
 	private final NodeWriteTrx mWtx;
@@ -65,11 +66,11 @@ public final class SubtreeBuilder extends
 	public SubtreeBuilder(
 			final @Nonnull DBCollection collection,
 			final @Nonnull NodeWriteTrx wtx, final @Nonnull Insert insertPos,
-			final @Nonnull List<SubtreeListener<? super AbstractTemporalNode>> listeners)
+			final @Nonnull List<SubtreeListener<? super AbstractTemporalNode<DBNode>>> listeners)
 			throws SirixException {
 		super(wtx, insertPos);
 		mCollection = checkNotNull(collection);
-		mSubtreeProcessor = new SubtreeProcessor<AbstractTemporalNode>(
+		mSubtreeProcessor = new SubtreeProcessor<AbstractTemporalNode<DBNode>>(
 				checkNotNull(listeners));
 		mWtx = checkNotNull(wtx);
 		mParents = new ArrayDeque<>();

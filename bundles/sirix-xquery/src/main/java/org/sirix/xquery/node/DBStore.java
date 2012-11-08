@@ -11,10 +11,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.node.parser.SubtreeParser;
+import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.Collection;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Store;
@@ -140,7 +143,7 @@ public class DBStore implements Store, AutoCloseable {
 					mUpdating);
 			parser.parse(new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD,
 					Collections
-							.<SubtreeListener<? super AbstractTemporalNode>> emptyList()));
+							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
 			wtx.commit();
 			wtx.close();
 			return collection;
@@ -185,7 +188,7 @@ public class DBStore implements Store, AutoCloseable {
 										wtx,
 										Insert.ASFIRSTCHILD,
 										Collections
-												.<SubtreeListener<? super AbstractTemporalNode>> emptyList()));
+												.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
 								wtx.commit();
 								wtx.close();
 								return null;

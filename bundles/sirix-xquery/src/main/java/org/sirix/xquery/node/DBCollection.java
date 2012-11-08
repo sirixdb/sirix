@@ -6,11 +6,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.brackit.xquery.node.AbstractCollection;
 import org.brackit.xquery.node.parser.SubtreeParser;
 import org.brackit.xquery.node.stream.ArrayStream;
+import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.OperationNotSupportedException;
 import org.brackit.xquery.xdm.Stream;
@@ -19,6 +21,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -29,7 +32,7 @@ import org.sirix.exception.SirixIOException;
  * @author Johannes Lichtenberger
  * 
  */
-public class DBCollection extends AbstractCollection<AbstractTemporalNode>
+public class DBCollection extends AbstractCollection<AbstractTemporalNode<DBNode>>
 		implements AutoCloseable {
 
 	/** ID sequence. */
@@ -100,16 +103,21 @@ public class DBCollection extends AbstractCollection<AbstractTemporalNode>
 	}
 
 	@Override
-	public AbstractTemporalNode getDocument() throws DocumentException {
+	public AbstractTemporalNode<DBNode> getDocument(final @Nonnegative int revision) throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		if (resources.length > 1) {
 			throw new DocumentException("More than one document stored!");
 		}
 		try {
+
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.builder(resources[0]).build());
+			final int version = revision == -1 ? session.getLastRevisionNumber() : revision;
 			final NodeReadTrx rtx = mUpdating ? session.beginNodeWriteTrx() : session
-					.beginNodeReadTrx();
+					.beginNodeReadTrx(version);
+			if (mUpdating && version < session.getLastRevisionNumber()) {
+				((NodeWriteTrx) rtx).revertTo(version);
+			}
 			return new DBNode(rtx, this);
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
@@ -117,7 +125,7 @@ public class DBCollection extends AbstractCollection<AbstractTemporalNode>
 	}
 
 	@Override
-	public Stream<? extends AbstractTemporalNode> getDocuments()
+	public Stream<? extends AbstractTemporalNode<DBNode>> getDocuments()
 			throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		final List<DBNode> documents = new ArrayList<>(resources.length);
@@ -137,7 +145,7 @@ public class DBCollection extends AbstractCollection<AbstractTemporalNode>
 	}
 
 	@Override
-	public AbstractTemporalNode add(final SubtreeParser parser)
+	public AbstractTemporalNode<DBNode> add(final SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
 		return null;
 	}
@@ -145,5 +153,10 @@ public class DBCollection extends AbstractCollection<AbstractTemporalNode>
 	@Override
 	public void close() throws SirixException {
 		mDatabase.close();
+	}
+
+	@Override
+	public long getDocumentCount() {
+		return mDatabase.listResources().length;
 	}
 }

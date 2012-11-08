@@ -8,11 +8,10 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
+import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.AbstractIterator;
 
 /**
  * Open the next revision and try to move to the node with the given node key.
@@ -20,7 +19,7 @@ import com.google.common.collect.AbstractIterator;
  * @author Johannes Lichtenberger
  * 
  */
-public class NextAxis extends AbstractIterator<NodeReadTrx> {
+public class NextAxis extends AbstractTemporalAxis {
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
 			LoggerFactory.getLogger(NextAxis.class));
@@ -74,5 +73,10 @@ public class NextAxis extends AbstractIterator<NodeReadTrx> {
 		} else {
 			return endOfData();
 		}
+	}
+	
+	@Override
+	public NodeReadTrx getTrx() {
+		return mRtx;
 	}
 }

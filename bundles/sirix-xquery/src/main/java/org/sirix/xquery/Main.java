@@ -52,6 +52,8 @@ public class Main {
 			loadDocumentAndUpdate();
 			System.out.println();
 			loadCollectionAndQuery();
+			System.out.println();
+			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
 			System.err.println(e.getMessage());
@@ -209,6 +211,46 @@ public class Main {
 			q.setPrettyPrint(true);
 			q.serialize(ctx2, System.out);
 			System.out.println();
+		}
+	}
+
+	private static void loadDocumentAndQueryTemporal() throws QueryException,
+			IOException {
+		// prepare sample document
+		File tmpDir = new File(System.getProperty("java.io.tmpdir"));
+		File doc = generateSampleDoc(tmpDir, "sample", 0);
+		doc.deleteOnExit();
+
+		// initialize query context and store
+		try (final DBStore store = new DBStore(true)) {
+			QueryContext ctx = new QueryContext(store);
+
+			// use XQuery to load sample document into store
+			System.out.println("Loading document:");
+			String xq1 = String.format("bit:load('mydoc.xml', '%s')", doc);
+			System.out.println(xq1);
+			new XQuery(xq1).evaluate(ctx);
+
+			// reuse store and query loaded document
+			QueryContext ctx2 = new QueryContext(store);
+			System.out.println();
+			System.out.println("Query loaded document:");
+			String xq2 = "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
+			System.out.println(xq2);
+			// final Sequence seq = new XQuery(xq2).evaluate(ctx2);
+			new XQuery(xq2).execute(ctx2);
+			store.commitAll();
+			System.out.println();
+		}
+		try (final DBStore store = new DBStore()) {		
+			QueryContext ctx3 = new QueryContext(store);
+			System.out.println();
+			System.out.println("Query loaded document:");
+			String xq3 = "doc('mydoc.xml', 0)/log/future-or-self::*";
+			System.out.println(xq3);
+			XQuery q = new XQuery(xq3);
+			q.setPrettyPrint(true);
+			q.serialize(ctx3, System.out);
 		}
 	}
 
