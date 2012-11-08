@@ -129,10 +129,9 @@ public class Main {
 			}
 
 			try (final PrintStream out = new PrintStream(new FileOutputStream(
-					new File(new StringBuilder(File.separator).append("home")
-							.append(File.separator).append("johannes").append(File.separator)
-							.append("Desktop").append(File.separator).append("output.xml")
-							.toString())))) {
+					new File(new StringBuilder(System.getProperty("user.home"))
+							.append(File.separator).append("Desktop").append(File.separator)
+							.append("output.xml").toString())))) {
 				String xq3 = String.format("bit:serialize(doc('mydoc.xml'))");
 				query = new XQuery(xq3);
 				query.setPrettyPrint(true).serialize(ctx2, out);
@@ -242,7 +241,7 @@ public class Main {
 			store.commitAll();
 			System.out.println();
 		}
-		try (final DBStore store = new DBStore()) {		
+		try (final DBStore store = new DBStore()) {
 			QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
@@ -251,6 +250,25 @@ public class Main {
 			XQuery q = new XQuery(xq3);
 			q.setPrettyPrint(true);
 			q.serialize(ctx3, System.out);
+
+			QueryContext ctx4 = new QueryContext(store);
+			String xq4 = String.format("bit:serialize(doc('mydoc.xml', 0))");
+			q = new XQuery(xq4);
+			try (final PrintStream out = new PrintStream(new FileOutputStream(
+					new File(new StringBuilder(System.getProperty("user.home"))
+							.append(File.separator).append("Desktop").append(File.separator)
+							.append("output-revision-0.xml").toString())))) {
+				q.setPrettyPrint(true).serialize(ctx4, out);
+			}
+			QueryContext ctx5 = new QueryContext(store);
+			String xq5 = String.format("bit:serialize(doc('mydoc.xml', 1))");
+			q = new XQuery(xq5);
+			try (final PrintStream out = new PrintStream(new FileOutputStream(
+					new File(new StringBuilder(System.getProperty("user.home"))
+							.append(File.separator).append("Desktop").append(File.separator)
+							.append("output-revision-1.xml").toString())))) {
+				q.setPrettyPrint(true).serialize(ctx5, out);
+			}
 		}
 	}
 
