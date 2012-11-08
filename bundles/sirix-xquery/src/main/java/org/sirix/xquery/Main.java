@@ -245,7 +245,7 @@ public class Main {
 			QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			String xq3 = "doc('mydoc.xml', 0)/log/future-or-self::*";
+			String xq3 = "doc('mydoc.xml', 0)/log/future-or-self::*/*";
 			System.out.println(xq3);
 			XQuery q = new XQuery(xq3);
 			q.setPrettyPrint(true);
@@ -260,6 +260,7 @@ public class Main {
 							.append("output-revision-0.xml").toString())))) {
 				q.setPrettyPrint(true).serialize(ctx4, out);
 			}
+			System.out.println();
 			QueryContext ctx5 = new QueryContext(store);
 			String xq5 = String.format("bit:serialize(doc('mydoc.xml', 1))");
 			q = new XQuery(xq5);
@@ -269,6 +270,7 @@ public class Main {
 							.append("output-revision-1.xml").toString())))) {
 				q.setPrettyPrint(true).serialize(ctx5, out);
 			}
+			System.out.println();
 		}
 	}
 
