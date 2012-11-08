@@ -34,7 +34,6 @@ import javax.annotation.Nonnull;
 
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
-import org.sirix.node.interfaces.StructNode;
 
 /**
  * Implements {@link DiffObservable}, which can be used for all classes, which

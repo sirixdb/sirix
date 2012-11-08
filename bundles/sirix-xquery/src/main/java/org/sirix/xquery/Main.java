@@ -33,6 +33,12 @@ import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
 
+/**
+ * A few examples (some taken from the official brackit examples).
+ * 
+ * @author Johannes Lichtenberger
+ * 
+ */
 public class Main {
 
 	/** User home directory. */
@@ -45,7 +51,13 @@ public class Main {
 		low, high, critical
 	};
 
-	public static void main(String[] args) throws SirixException {
+	/**
+	 * Main method.
+	 * 
+	 * @param args
+	 *          not used
+	 */
+	public static void main(final String[] args) throws SirixException {
 		try {
 			loadDocumentAndQuery();
 			System.out.println();
@@ -65,21 +77,24 @@ public class Main {
 		}
 	}
 
+	/**
+	 * Load a document and query it.
+	 */
 	private static void loadDocumentAndQuery() throws QueryException,
 			IOException, SirixException {
 		// prepare sample document
 		// File tmpDir = new File(System.getProperty("java.io.tmpdir"));
 		// File doc = generateSampleDoc(tmpDir, "sample", 0);
 		// doc.deleteOnExit();
-		File doc = new File(new StringBuilder(File.separator).append("home")
-				.append(File.separator).append("johannes").append(File.separator)
-				.append("Desktop").append(File.separator).append("test.xml").toString());
+		final File doc = new File(new StringBuilder("src")
+				.append(File.separator).append("test").append(File.separator)
+				.append("resources").append(File.separator).append("test.xml").toString());
 
-		// initialize query context and store
+		// Initialize query context and store.
 		final DBStore store = new DBStore();
 		QueryContext ctx = new QueryContext(store);
 
-		// use XQuery to load sample document into store
+		// Use XQuery to load sample document into store.
 		System.out.println("Loading document:");
 		String xq1 = String.format("bit:load('mydoc.xml', '%s')", doc);
 		System.out.println(xq1);
@@ -94,6 +109,7 @@ public class Main {
 			final NodeReadTrx firstPredicateRtx = session.beginNodeReadTrx();
 			final NodeReadTrx secondPredicateRtx = session.beginNodeReadTrx();
 
+			// Not exactly the same as the next "real" query.
 			for (final long nodeKey : new NestedAxis(new FilterAxis(
 					new DescendantAxis(rtx), new ElementFilter(rtx), new NameFilter(rtx,
 							"nachricht")), new ConcurrentUnionAxis(rtx,
@@ -109,11 +125,11 @@ public class Main {
 				System.out.println(out.toString());
 			}
 
-			// reuse store and query loaded document
-			QueryContext ctx2 = new QueryContext(store);
+			// Reuse store and query loaded document.
+			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			String xq2 = "doc('mydoc.xml')/nachrichten/nachricht[betreff/text()='sommer' or betreff/text()='strand' or text/text()='sommer' or text/text()='strand']";
+			final String xq2 = "doc('mydoc.xml')/nachrichten/nachricht[betreff/text()='sommer' or betreff/text()='strand' or text/text()='sommer' or text/text()='strand']";
 			System.out.println(xq2);
 			XQuery query = new XQuery(xq2);
 			query.setPrettyPrint(true).serialize(ctx2, System.out);
@@ -129,9 +145,8 @@ public class Main {
 			}
 
 			try (final PrintStream out = new PrintStream(new FileOutputStream(
-					new File(new StringBuilder(System.getProperty("user.home"))
-							.append(File.separator).append("Desktop").append(File.separator)
-							.append("output.xml").toString())))) {
+					new File(new StringBuilder(LOCATION.getAbsolutePath())
+							.append(File.separator).append("output.xml").toString())))) {
 				String xq3 = String.format("bit:serialize(doc('mydoc.xml'))");
 				query = new XQuery(xq3);
 				query.setPrettyPrint(true).serialize(ctx2, out);
@@ -142,39 +157,44 @@ public class Main {
 		store.close();
 	}
 
+	/**
+	 * Load a document and update it.
+	 */
 	private static void loadDocumentAndUpdate() throws QueryException,
 			IOException {
-		// prepare sample document
-		File tmpDir = new File(System.getProperty("java.io.tmpdir"));
-		File doc = generateSampleDoc(tmpDir, "sample", 0);
+		// Prepare sample document.
+		final File tmpDir = new File(System.getProperty("java.io.tmpdir"));
+		final File doc = generateSampleDoc(tmpDir, "sample");
 		doc.deleteOnExit();
 
-		// initialize query context and store
+		// Initialize query context and store.
 		try (final DBStore store = new DBStore(true)) {
-			QueryContext ctx = new QueryContext(store);
+			final QueryContext ctx = new QueryContext(store);
 
-			// use XQuery to load sample document into store
+			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
-			String xq1 = String.format("bit:load('mydoc.xml', '%s')", doc);
+			final String xq1 = String.format("bit:load('mydoc.xml', '%s')", doc);
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
 
-			// reuse store and query loaded document
-			QueryContext ctx2 = new QueryContext(store);
+			// Reuse store and query loaded document.
+			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			String xq2 = "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
+			final String xq2 = "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
 			System.out.println(xq2);
-			// final Sequence seq = new XQuery(xq2).evaluate(ctx2);
 			new XQuery(xq2).execute(ctx2);
 			store.commitAll();
 			System.out.println();
 		}
 	}
 
+	/**
+	 * Load a collection and query it.
+	 */
 	private static void loadCollectionAndQuery() throws QueryException,
 			IOException {
-		// prepare directory with sample documents
+		// Prepare directory with sample documents.
 		File tmpDir = new File(System.getProperty("java.io.tmpdir"));
 		File dir = new File(tmpDir + File.separator + "docs"
 				+ System.currentTimeMillis());
@@ -183,58 +203,61 @@ public class Main {
 		}
 		dir.deleteOnExit();
 		for (int i = 0; i < 10; i++) {
-			generateSampleDoc(dir, "sample", i);
+			generateSampleDoc(dir, "sample");
 		}
 
-		// initialize query context and store
+		// Initialize query context and store.
 		try (final DBStore store = new DBStore(true)) {
-			QueryContext ctx = new QueryContext(store);
+			final QueryContext ctx = new QueryContext(store);
 
-			// use XQuery to load all sample documents into store
+			// Use XQuery to load all sample documents into store.
 			System.out.println("Load collection from files:");
-			String xq1 = String.format(
+			final String xq1 = String.format(
 					"bit:load('mydocs.col', io:ls('%s', '\\.xml$'))", dir);
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
 
-			// reuse store and query loaded collection
-			QueryContext ctx2 = new QueryContext(store);
+			// Reuse store and query loaded collection.
+			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded collection:");
-			String xq2 = "for $log in collection('mydocs.col')/log\n"
+			final String xq2 = "for $log in collection('mydocs.col')/log\n"
 					+ "where $log/@severity='critical'\n" + "return\n" + "<message>\n"
 					+ "  <from>{$log/src/text()}</from>\n"
 					+ "  <body>{$log/msg/text()}</body>\n" + "</message>\n";
 			System.out.println(xq2);
-			XQuery q = new XQuery(xq2);
+			final XQuery q = new XQuery(xq2);
 			q.setPrettyPrint(true);
 			q.serialize(ctx2, System.out);
 			System.out.println();
 		}
 	}
 
+	/**
+	 * Load a document and query it (temporal).
+	 */
 	private static void loadDocumentAndQueryTemporal() throws QueryException,
 			IOException {
-		// prepare sample document
+		// Prepare sample document.
 		File tmpDir = new File(System.getProperty("java.io.tmpdir"));
-		File doc = generateSampleDoc(tmpDir, "sample", 0);
+		File doc = generateSampleDoc(tmpDir, "sample");
 		doc.deleteOnExit();
 
-		// initialize query context and store
+		// Initialize query context and store.
 		try (final DBStore store = new DBStore(true)) {
-			QueryContext ctx = new QueryContext(store);
+			final QueryContext ctx = new QueryContext(store);
 
-			// use XQuery to load sample document into store
+			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
-			String xq1 = String.format("bit:load('mydoc.xml', '%s')", doc);
+			final String xq1 = String.format("bit:load('mydoc.xml', '%s')", doc);
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
 
-			// reuse store and query loaded document
-			QueryContext ctx2 = new QueryContext(store);
+			// Reuse store and query loaded document.
+			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			String xq2 = "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
+			final String xq2 = "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
 			System.out.println(xq2);
 			// final Sequence seq = new XQuery(xq2).evaluate(ctx2);
 			new XQuery(xq2).execute(ctx2);
@@ -242,31 +265,31 @@ public class Main {
 			System.out.println();
 		}
 		try (final DBStore store = new DBStore()) {
-			QueryContext ctx3 = new QueryContext(store);
+			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			String xq3 = "doc('mydoc.xml', 0)/log/future-or-self::*/*";
+			final String xq3 = "doc('mydoc.xml', 0)/log/future-or-self::*/*";
 			System.out.println(xq3);
 			XQuery q = new XQuery(xq3);
 			q.setPrettyPrint(true);
 			q.serialize(ctx3, System.out);
 
-			QueryContext ctx4 = new QueryContext(store);
-			String xq4 = String.format("bit:serialize(doc('mydoc.xml', 0))");
+			final QueryContext ctx4 = new QueryContext(store);
+			final String xq4 = "bit:serialize(doc('mydoc.xml', 0))";
 			q = new XQuery(xq4);
 			try (final PrintStream out = new PrintStream(new FileOutputStream(
-					new File(new StringBuilder(System.getProperty("user.home"))
-							.append(File.separator).append("Desktop").append(File.separator)
-							.append("output-revision-0.xml").toString())))) {
+					new File(new StringBuilder(LOCATION.getAbsolutePath())
+							.append(File.separator).append("output-revision-0.xml")
+							.toString())))) {
 				q.setPrettyPrint(true).serialize(ctx4, out);
 			}
 			System.out.println();
-			QueryContext ctx5 = new QueryContext(store);
-			String xq5 = String.format("bit:serialize(doc('mydoc.xml', 1))");
+			final QueryContext ctx5 = new QueryContext(store);
+			final String xq5 = "bit:serialize(doc('mydoc.xml', 1))";
 			q = new XQuery(xq5);
 			try (final PrintStream out = new PrintStream(new FileOutputStream(
-					new File(new StringBuilder(System.getProperty("user.home"))
-							.append(File.separator).append("Desktop").append(File.separator)
+					new File(new StringBuilder(LOCATION.getAbsolutePath())
+							.append(File.separator).append(File.separator)
 							.append("output-revision-1.xml").toString())))) {
 				q.setPrettyPrint(true).serialize(ctx5, out);
 			}
@@ -274,9 +297,19 @@ public class Main {
 		}
 	}
 
-	private static File generateSampleDoc(File dir, String prefix, int no)
-			throws IOException {
-		File file = File.createTempFile("sample", ".xml", dir);
+	/**
+	 * Generate a small sample document.
+	 * 
+	 * @param dir
+	 *          the directory
+	 * @param prefix
+	 *          prefix of name to use
+	 * @return the generated file
+	 * @throws IOException
+	 *           if any I/O exception occured
+	 */
+	private static File generateSampleDoc(final File dir, final String prefix) throws IOException {
+		File file = File.createTempFile(prefix, ".xml", dir);
 		file.deleteOnExit();
 		PrintStream out = new PrintStream(new FileOutputStream(file));
 		Random rnd = new Random();

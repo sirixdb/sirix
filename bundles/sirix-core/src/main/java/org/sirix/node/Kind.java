@@ -673,7 +673,7 @@ public enum Kind implements RecordPersistenter {
 		final long revision = getLong(source);
 		Optional<SirixDeweyID> id = Optional.<SirixDeweyID> absent();
 		if (pageReadTrx.getSession().getResourceConfig().mDeweyIDsStored) {
-			final int deweyIDLength = source.readInt();
+			final byte deweyIDLength = source.readByte();
 			final byte[] deweyID = new byte[deweyIDLength];
 			source.readFully(deweyID, 0, deweyIDLength);
 			id = Optional.of(new SirixDeweyID(deweyID));
@@ -702,7 +702,7 @@ public enum Kind implements RecordPersistenter {
 			final Optional<SirixDeweyID> id = nodeDel.getDeweyID();
 			if (id.isPresent()) {
 				final byte[] deweyID = nodeDel.getDeweyID().get().toBytes();
-				sink.writeInt(deweyID.length);
+				sink.writeByte(deweyID.length);
 				sink.write(deweyID);
 			}
 		}
