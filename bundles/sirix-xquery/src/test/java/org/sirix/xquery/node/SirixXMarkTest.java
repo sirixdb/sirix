@@ -22,7 +22,7 @@ public final class SirixXMarkTest extends XMarkTest {
 	@Override
 	protected Collection<?> createDoc(final @Nonnull DocumentParser parser)
 			throws DocumentException {
-		mStore = new DBStore(true);
+		mStore = new DBStore();
 		mStore.create("testCollection", parser);
 		return mStore.lookup("testCollection");
 	}

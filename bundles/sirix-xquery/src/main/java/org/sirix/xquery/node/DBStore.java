@@ -47,16 +47,30 @@ public class DBStore implements Store, AutoCloseable {
 	private static final File LOCATION = new File(USER_HOME, "sirix-data");
 
 	/** Determines if collections have to be updating or not. */
-	private boolean mUpdating;
+	public enum Updating {
+		/**
+		 * Yes, collections generated with this BDStore instance should be
+		 * updatable.
+		 */
+		YES,
+
+		/**
+		 * No, collections generated with this BDStore instance should be updatable.
+		 */
+		NO;
+	}
+
+	private Updating mUpdating;
 
 	/** {@link Set} of databases. */
 	private final Set<Database> mDatabases;
 
 	/**
-	 * Constructor.
+	 * Default constructor. Collections created with this DBStore instance are not
+	 * updatable via XQuery Update Facility.
 	 */
 	public DBStore() {
-		this(false);
+		this(Updating.NO);
 	}
 
 	/**
@@ -66,7 +80,7 @@ public class DBStore implements Store, AutoCloseable {
 	 *          determines if the store should generate updatable collections or
 	 *          not
 	 */
-	public DBStore(final boolean updating) {
+	public DBStore(final Updating updating) {
 		mDatabases = new HashSet<>();
 		mUpdating = updating;
 	}
@@ -82,7 +96,7 @@ public class DBStore implements Store, AutoCloseable {
 	 * @param updating
 	 *          {@code true} if they should be updatable, {@code false} otherwise
 	 */
-	public DBStore isUpdating(final boolean updating) {
+	public DBStore isUpdating(final Updating updating) {
 		mUpdating = updating;
 		return this;
 	}
@@ -140,9 +154,13 @@ public class DBStore implements Store, AutoCloseable {
 
 			final DBCollection collection = new DBCollection(name, database,
 					mUpdating);
-			parser.parse(new SubtreeBuilder(collection, wtx, Insert.ASFIRSTCHILD,
-					Collections
-							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
+			parser
+					.parse(new SubtreeBuilder(
+							collection,
+							wtx,
+							Insert.ASFIRSTCHILD,
+							Collections
+									.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList()));
 			wtx.commit();
 			wtx.close();
 			return collection;

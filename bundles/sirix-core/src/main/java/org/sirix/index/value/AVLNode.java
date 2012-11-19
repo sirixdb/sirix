@@ -25,10 +25,10 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
 	private V mValue;
 
 	/** Reference to the left node. */
-	private long mLeft;
+	private long mLeft = Fixed.NULL_NODE_KEY.getStandardProperty();
 
 	/** Reference to the right node. */
-	private long mRight;
+	private long mRight = Fixed.NULL_NODE_KEY.getStandardProperty();
 
 	/** 'changed' status of tree node. */
 	private boolean mChanged;
@@ -113,7 +113,7 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
 
 	@Override
 	public void setRightChildKey(final long right) {
-		mLeft = right;
+		mRight = right;
 	}
 
 	@Override

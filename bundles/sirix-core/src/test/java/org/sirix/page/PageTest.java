@@ -110,7 +110,7 @@ public class PageTest {
 				new String(TestHelper.generateRandomBytes(256)), Kind.ELEMENT);
 
 		// ValuePage setup.
-		final ValuePage valuePage = new ValuePage(0);
+		final TextValuePage valuePage = new TextValuePage(0);
 
 		// PathSummaryPage setup.
 		final PathSummaryPage pathSummaryPage = new PathSummaryPage(0);

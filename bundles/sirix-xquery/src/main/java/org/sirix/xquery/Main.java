@@ -32,6 +32,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
+import org.sirix.xquery.node.DBStore.Updating;
 
 /**
  * A few examples (some taken from the official brackit examples).
@@ -168,7 +169,7 @@ public class Main {
 		doc.deleteOnExit();
 
 		// Initialize query context and store.
-		try (final DBStore store = new DBStore(true)) {
+		try (final DBStore store = new DBStore(Updating.YES)) {
 			final QueryContext ctx = new QueryContext(store);
 
 			// Use XQuery to load sample document into store.
@@ -207,7 +208,7 @@ public class Main {
 		}
 
 		// Initialize query context and store.
-		try (final DBStore store = new DBStore(true)) {
+		try (final DBStore store = new DBStore()) {
 			final QueryContext ctx = new QueryContext(store);
 
 			// Use XQuery to load all sample documents into store.
@@ -230,6 +231,13 @@ public class Main {
 			q.setPrettyPrint(true);
 			q.serialize(ctx2, System.out);
 			System.out.println();
+			
+			// Use XQuery to load all sample documents once more into store.
+			System.out.println("Load collection from files:");
+			final String xq3 = String.format(
+					"bit:load('mydocs.col', io:ls('%s', '\\.xml$'), fn:false())", dir);
+			System.out.println(xq3);
+			new XQuery(xq3).evaluate(ctx);
 		}
 	}
 
@@ -244,7 +252,7 @@ public class Main {
 		doc.deleteOnExit();
 
 		// Initialize query context and store.
-		try (final DBStore store = new DBStore(true)) {
+		try (final DBStore store = new DBStore(Updating.YES)) {
 			final QueryContext ctx = new QueryContext(store);
 
 			// Use XQuery to load sample document into store.
@@ -268,7 +276,7 @@ public class Main {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq3 = "doc('mydoc.xml', 0)/log/future-or-self::*/*";
+			final String xq3 = "doc('mydoc.xml', 0)/log/all-time::*/*";
 			System.out.println(xq3);
 			XQuery q = new XQuery(xq3);
 			q.setPrettyPrint(true);

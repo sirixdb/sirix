@@ -48,7 +48,7 @@ public class TextReferences implements Record {
 	 *          node key to lookup
 	 * @return {@code true} if it is indexed, {@code false} otherwise
 	 */
-	public boolean getNodeKey(final @Nonnegative long nodeKey) {
+	public boolean isPresent(final @Nonnegative long nodeKey) {
 		return mNodeKeys.contains(nodeKey);
 	}
 

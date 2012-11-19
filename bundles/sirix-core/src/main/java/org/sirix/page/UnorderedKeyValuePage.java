@@ -39,6 +39,7 @@ import javax.annotation.Nullable;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.delegates.PageDelegate;
@@ -51,10 +52,11 @@ import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 
 /**
- * <h1>RecordPage</h1>
+ * <h1>UnorderedKeyValuePage</h1>
  * 
  * <p>
- * A record page stores a set of records commonly nodes.
+ * An UnorderedKeyValuePage stores a set of records, commonly nodes in an
+ * unordered datastructure.
  * </p>
  */
 public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
@@ -115,6 +117,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		for (int offset = 0; offset < size; offset++) {
 			final Record node = persistenter.deserialize(in, pageReadTrx);
 			mRecords.put(node.getNodeKey(), node);
+//			if (node.getKind() == Kind.AVL) {
+//				offset += 2;
+//			}
+//			offset++;
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
@@ -142,11 +148,23 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
 		out.writeInt(mRevision);
 		out.writeLong(mRecordPageKey);
-		out.writeInt(mRecords.size());
+		int size = 0;
+		for (final Record node : mRecords.values()) {
+			if (node.getKind() != Kind.ATTRIBUTE_VALUE
+					&& node.getKind() != Kind.TEXT_VALUE
+					&& node.getKind() != Kind.TEXT_REFERENCES) {
+				size++;
+			}
+		}
+		out.writeInt(size);
 		final RecordPersistenter persistenter = mPageReadTrx.getSession()
 				.getResourceConfig().mPersistenter;
 		for (final Record node : mRecords.values()) {
-			persistenter.serialize(out, node, mPageReadTrx);
+			if (node.getKind() != Kind.ATTRIBUTE_VALUE
+					&& node.getKind() != Kind.TEXT_VALUE
+					&& node.getKind() != Kind.TEXT_REFERENCES) {
+				persistenter.serialize(out, node, mPageReadTrx);
+			}
 		}
 	}
 
@@ -224,8 +242,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	@SuppressWarnings("unchecked")
 	@Override
-	public <C extends KeyValuePage<Long, Record>> C newInstance(final long recordPageKey,
-			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
+	public <C extends KeyValuePage<Long, Record>> C newInstance(
+			final long recordPageKey, final @Nonnegative int revision,
+			final @Nonnull PageReadTrx pageReadTrx) {
 		return (C) new UnorderedKeyValuePage(recordPageKey, revision, pageReadTrx);
 	}
 }

@@ -97,8 +97,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/** Cache to store path changes in this transaction log. */
 	private final Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> mPathLog;
 
-	/** Cache to store value changes in this transaction log. */
-	private final Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> mValueLog;
+	/** Cache to store text value changes in this transaction log. */
+	private final Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> mTextValueLog;
+
+	/** Cache to store attribute value changes in this transaction log. */
+	private final Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> mAttributeValueLog;
 
 	/** Last references to the Nodepage, needed for pre/postcondition check. */
 	private RecordPageContainer<UnorderedKeyValuePage> mNodePageCon;
@@ -165,11 +168,17 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		} else {
 			mPathLog = null;
 		}
-		if (mIndexes.contains(Indexes.VALUE)) {
-			mValueLog = new TransactionLogCache<>(session.mResourceConfig.mPath,
-					revision, "value", mPageRtx);
+		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
+			mTextValueLog = new TransactionLogCache<>(session.mResourceConfig.mPath,
+					revision, "textValue", mPageRtx);
 		} else {
-			mValueLog = null;
+			mTextValueLog = null;
+		}
+		if (mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
+			mAttributeValueLog = new TransactionLogCache<>(
+					session.mResourceConfig.mPath, revision, "attributeValue", mPageRtx);
+		} else {
+			mAttributeValueLog = null;
 		}
 		mPageWriter = writer;
 		mTransactionID = id;
@@ -183,8 +192,13 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		if (indexes.contains(Indexes.PATH)) {
 			mNewRoot.setMaxPathNodeKey(lastCommitedRoot.getMaxPathNodeKey());
 		}
-		if (indexes.contains(Indexes.VALUE)) {
-			mNewRoot.setMaxValueNodeKey(lastCommitedRoot.getMaxValueNodeKey());
+		if (indexes.contains(Indexes.TEXT_VALUE)) {
+			mNewRoot
+					.setMaxTextValueNodeKey(lastCommitedRoot.getMaxTextValueNodeKey());
+		}
+		if (indexes.contains(Indexes.ATTRIBUTE_VALUE)) {
+			mNewRoot.setMaxAttributeValueNodeKey(lastCommitedRoot
+					.getMaxAttributeValueNodeKey());
 		}
 	}
 
@@ -229,7 +243,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				|| (mNodeLog.get(nodePageKey)
 						.equals(RecordPageContainer.EMPTY_INSTANCE)
 						&& mPathLog.get(nodePageKey).equals(
-								RecordPageContainer.EMPTY_INSTANCE) && mValueLog.get(
+								RecordPageContainer.EMPTY_INSTANCE)
+						&& mTextValueLog.get(nodePageKey).equals(
+								RecordPageContainer.EMPTY_INSTANCE) && mAttributeValueLog.get(
 						nodePageKey).equals(RecordPageContainer.EMPTY_INSTANCE))) {
 			throw new IllegalStateException();
 		}
@@ -241,8 +257,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		case PATHSUMMARYPAGE:
 			mPathLog.put(nodePageKey, mNodePageCon);
 			break;
-		case VALUEPAGE:
-			mValueLog.put(nodePageKey, mNodePageCon);
+		case TEXTVALUEPAGE:
+			mTextValueLog.put(nodePageKey, mNodePageCon);
+			break;
+		case ATTRIBUTEVALUEPAGE:
+			mAttributeValueLog.put(nodePageKey, mNodePageCon);
 			break;
 		default:
 			throw new IllegalStateException();
@@ -265,9 +284,13 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			mNewRoot.incrementMaxPathNodeKey();
 			nodeKey = mNewRoot.getMaxPathNodeKey();
 			break;
-		case VALUEPAGE:
-			mNewRoot.incrementMaxValueNodeKey();
-			nodeKey = mNewRoot.getMaxValueNodeKey();
+		case TEXTVALUEPAGE:
+			mNewRoot.incrementMaxTextValueNodeKey();
+			nodeKey = mNewRoot.getMaxTextValueNodeKey();
+			break;
+		case ATTRIBUTEVALUEPAGE:
+			mNewRoot.incrementMaxAttributeValueNodeKey();
+			nodeKey = mNewRoot.getMaxAttributeValueNodeKey();
 			break;
 		default:
 			throw new IllegalStateException();
@@ -340,8 +363,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				return mNodeLog.get(nodePageKey);
 			case PATHSUMMARYPAGE:
 				return mPathLog.get(nodePageKey);
-			case VALUEPAGE:
-				return mValueLog.get(nodePageKey);
+			case TEXTVALUEPAGE:
+				return mTextValueLog.get(nodePageKey);
+			case ATTRIBUTEVALUEPAGE:
+				return mAttributeValueLog.get(nodePageKey);
 			default:
 				throw new IllegalStateException();
 			}
@@ -516,8 +541,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			if (mPathLog != null) {
 				mPathLog.close();
 			}
-			if (mValueLog != null) {
-				mValueLog.close();
+			if (mTextValueLog != null) {
+				mTextValueLog.close();
+			}
+			if (mAttributeValueLog != null) {
+				mAttributeValueLog.close();
 			}
 			mPageWriter.close();
 			mIsClosed = true;
@@ -570,11 +598,12 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			// Indirect reference.
 			final PageReference reference = prepareLeafOfTree(
 					mPageRtx.getPageReference(mNewRoot, page), nodePageKey, page);
-			final UnorderedKeyValuePage nodePage = (UnorderedKeyValuePage) reference.getPage();
+			final UnorderedKeyValuePage nodePage = (UnorderedKeyValuePage) reference
+					.getPage();
 			if (nodePage == null) {
 				if (reference.getKey() == Constants.NULL_ID) {
-					cont = new RecordPageContainer<>(new UnorderedKeyValuePage(nodePageKey,
-							Constants.UBP_ROOT_REVISION_NUMBER, mPageRtx));
+					cont = new RecordPageContainer<>(new UnorderedKeyValuePage(
+							nodePageKey, Constants.UBP_ROOT_REVISION_NUMBER, mPageRtx));
 				} else {
 					cont = dereferenceNodePageForModification(nodePageKey, page);
 				}
@@ -593,8 +622,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			case PATHSUMMARYPAGE:
 				mPathLog.put(nodePageKey, cont);
 				break;
-			case VALUEPAGE:
-				mValueLog.put(nodePageKey, cont);
+			case TEXTVALUEPAGE:
+				mTextValueLog.put(nodePageKey, cont);
+				break;
+			case ATTRIBUTEVALUEPAGE:
+				mAttributeValueLog.put(nodePageKey, cont);
 				break;
 			default:
 				throw new IllegalStateException("Page kind not known!");
@@ -688,12 +720,12 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	private RecordPageContainer<UnorderedKeyValuePage> dereferenceNodePageForModification(
 			final @Nonnegative long nodePageKey, final @Nonnull PageKind page)
 			throws SirixIOException {
-		final List<UnorderedKeyValuePage> revs = mPageRtx.getSnapshotPages(nodePageKey,
-				page);
+		final List<UnorderedKeyValuePage> revs = mPageRtx.getSnapshotPages(
+				nodePageKey, page);
 		final Revisioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
 		final int mileStoneRevision = mPageRtx.mSession.mResourceConfig.mRevisionsToRestore;
-		return revisioning.combineRecordPagesForModification(revs, mileStoneRevision,
-				mPageRtx);
+		return revisioning.combineRecordPagesForModification(revs,
+				mileStoneRevision, mPageRtx);
 	}
 
 	@Override
@@ -718,8 +750,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		case PATHSUMMARYPAGE:
 			container = mPathLog.get(nodePageKey);
 			break;
-		case VALUEPAGE:
-			container = mValueLog.get(nodePageKey);
+		case TEXTVALUEPAGE:
+			container = mTextValueLog.get(nodePageKey);
+			break;
+		case ATTRIBUTEVALUEPAGE:
+			container = mAttributeValueLog.get(nodePageKey);
 			break;
 		case NODEPAGE:
 			container = mNodeLog.get(nodePageKey);
@@ -754,8 +789,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		if (mPathLog != null) {
 			mPathLog.clear();
 		}
-		if (mValueLog != null) {
-			mValueLog.clear();
+		if (mTextValueLog != null) {
+			mTextValueLog.clear();
 		}
 	}
 }

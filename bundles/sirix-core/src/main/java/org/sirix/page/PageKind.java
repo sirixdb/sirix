@@ -201,20 +201,20 @@ public enum PageKind {
 	},
 
 	/**
-	 * {@link ValuePage}.
+	 * {@link TextValuePage}.
 	 */
-	VALUEPAGE((byte) 7, ValuePage.class) {
+	TEXTVALUEPAGE((byte) 7, TextValuePage.class) {
 		@Override
 		@Nonnull
 		Page deserializePage(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new ValuePage(source);
+			return new TextValuePage(source);
 		}
 
 		@Override
 		void serializePage(final @Nonnull ByteArrayDataOutput sink,
 				final @Nonnull Page page) {
-			sink.writeByte(VALUEPAGE.mId);
+			sink.writeByte(TEXTVALUEPAGE.mId);
 			page.serialize(sink);
 		}
 
@@ -222,7 +222,33 @@ public enum PageKind {
 		public @Nonnull
 		Page getInstance(final @Nonnull Page pPage,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new ValuePage(pPage.getRevision());
+			return new TextValuePage(pPage.getRevision());
+		}
+	},
+	
+	/**
+	 * {@link AttributeValuePage}.
+	 */
+	ATTRIBUTEVALUEPAGE((byte) 8, AttributeValuePage.class) {
+		@Override
+		@Nonnull
+		Page deserializePage(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull PageReadTrx pageReadTrx) {
+			return new AttributeValuePage(source);
+		}
+
+		@Override
+		void serializePage(final @Nonnull ByteArrayDataOutput sink,
+				final @Nonnull Page page) {
+			sink.writeByte(ATTRIBUTEVALUEPAGE.mId);
+			page.serialize(sink);
+		}
+
+		@Override
+		public @Nonnull
+		Page getInstance(final @Nonnull Page pPage,
+				final @Nonnull PageReadTrx pageReadTrx) {
+			return new AttributeValuePage(pPage.getRevision());
 		}
 	};
 

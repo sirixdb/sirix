@@ -226,7 +226,8 @@ public final class UberPage extends AbstractForwardingPage {
 		case PATHSUMMARYPAGE:
 			inpLevelPageCountExp = Constants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
 			break;
-		case VALUEPAGE:
+		case ATTRIBUTEVALUEPAGE:
+		case TEXTVALUEPAGE:
 		case NODEPAGE:
 			inpLevelPageCountExp = Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
 			break;

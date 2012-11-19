@@ -66,8 +66,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	/** Offset of path summary page reference. */
 	private static final int PATH_SUMMARY_REFERENCE_OFFSET = 2;
 
-	/** Offset of value page reference. */
-	private static final int VALUE_REFERENCE_OFFSET = 3;
+	/** Offset of text value page reference. */
+	private static final int TEXT_VALUE_REFERENCE_OFFSET = 3;
+
+	/** Offset of text value page reference. */
+	private static final int ATTRIBUTE_VALUE_REFERENCE_OFFSET = 4;
 
 	/** Last allocated node key. */
 	private long mMaxNodeKey;
@@ -75,8 +78,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	/** Last allocated path node key. */
 	private long mMaxPathNodeKey;
 
-	/** Last allocated value node key. */
-	private long mMaxValueNodeKey;
+	/** Last allocated text value node key. */
+	private long mMaxTextValueNodeKey;
+
+	/** Last allocated attribute value node key. */
+	private long mMaxAttributeValueNodeKey;
 
 	/** Timestamp of revision. */
 	private long mRevisionTimestamp;
@@ -88,16 +94,19 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 * Create revision root page.
 	 */
 	public RevisionRootPage() {
-		mDelegate = new PageDelegate(4, Constants.UBP_ROOT_REVISION_NUMBER);
+		mDelegate = new PageDelegate(5, Constants.UBP_ROOT_REVISION_NUMBER);
 		getReference(NAME_REFERENCE_OFFSET).setPage(
 				new NamePage(Constants.UBP_ROOT_REVISION_NUMBER));
 		getReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(
 				new PathSummaryPage(Constants.UBP_ROOT_REVISION_NUMBER));
-		getReference(VALUE_REFERENCE_OFFSET).setPage(
-				new ValuePage(Constants.UBP_ROOT_REVISION_NUMBER));
+		getReference(TEXT_VALUE_REFERENCE_OFFSET).setPage(
+				new TextValuePage(Constants.UBP_ROOT_REVISION_NUMBER));
+		getReference(ATTRIBUTE_VALUE_REFERENCE_OFFSET).setPage(
+				new AttributeValuePage(Constants.UBP_ROOT_REVISION_NUMBER));
 		mMaxNodeKey = -1L;
 		mMaxPathNodeKey = -1L;
-		mMaxValueNodeKey = -1L;
+		mMaxTextValueNodeKey = -1L;
+		mMaxAttributeValueNodeKey = -1L;
 	}
 
 	/**
@@ -107,10 +116,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 *          input stream
 	 */
 	protected RevisionRootPage(final @Nonnull ByteArrayDataInput in) {
-		mDelegate = new PageDelegate(4, in);
+		mDelegate = new PageDelegate(5, in);
 		mMaxNodeKey = in.readLong();
 		mMaxPathNodeKey = in.readLong();
-		mMaxValueNodeKey = in.readLong();
+		mMaxTextValueNodeKey = in.readLong();
+		mMaxAttributeValueNodeKey = in.readLong();
 		mRevisionTimestamp = in.readLong();
 	}
 
@@ -128,7 +138,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 		mDelegate = new PageDelegate(committedRevisionRootPage, revisionToUse);
 		mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;
 		mMaxPathNodeKey = committedRevisionRootPage.mMaxPathNodeKey;
-		mMaxValueNodeKey = committedRevisionRootPage.mMaxValueNodeKey;
+		mMaxTextValueNodeKey = committedRevisionRootPage.mMaxTextValueNodeKey;
+		mMaxAttributeValueNodeKey = committedRevisionRootPage.mMaxAttributeValueNodeKey;
 		mRevisionTimestamp = committedRevisionRootPage.mRevisionTimestamp;
 	}
 
@@ -142,12 +153,21 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	}
 
 	/**
-	 * Get value page reference.
+	 * Get text value page reference.
 	 * 
 	 * @return value page reference
 	 */
-	public PageReference getValuePageReference() {
-		return getReference(VALUE_REFERENCE_OFFSET);
+	public PageReference getTextValuePageReference() {
+		return getReference(TEXT_VALUE_REFERENCE_OFFSET);
+	}
+	
+	/**
+	 * Get attribute value page reference.
+	 * 
+	 * @return value page reference
+	 */
+	public PageReference getAttributeValuePageReference() {
+		return getReference(ATTRIBUTE_VALUE_REFERENCE_OFFSET);
 	}
 
 	/**
@@ -196,12 +216,21 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	}
 
 	/**
-	 * Get last allocated value node key.
+	 * Get last allocated text value node key.
 	 * 
 	 * @return last allocated value node key
 	 */
-	public long getMaxValueNodeKey() {
-		return mMaxValueNodeKey;
+	public long getMaxTextValueNodeKey() {
+		return mMaxTextValueNodeKey;
+	}
+
+	/**
+	 * Get last allocated attribute value node key.
+	 * 
+	 * @return last allocated value node key
+	 */
+	public long getMaxAttributeValueNodeKey() {
+		return mMaxAttributeValueNodeKey;
 	}
 
 	/**
@@ -219,10 +248,17 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	}
 
 	/**
-	 * Increment number of value nodes by one while allocating another key.
+	 * Increment number of text value nodes by one while allocating another key.
 	 */
-	public void incrementMaxValueNodeKey() {
-		mMaxValueNodeKey += 1;
+	public void incrementMaxTextValueNodeKey() {
+		mMaxTextValueNodeKey += 1;
+	}
+	
+	/**
+	 * Increment number of attribute value nodes by one while allocating another key.
+	 */
+	public void incrementMaxAttributeValueNodeKey() {
+		mMaxAttributeValueNodeKey += 1;
 	}
 
 	/**
@@ -251,8 +287,18 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 * @param maxNodeKey
 	 *          new maximum node key
 	 */
-	public void setMaxValueNodeKey(final @Nonnegative long maxNodeKey) {
-		mMaxValueNodeKey = maxNodeKey;
+	public void setMaxTextValueNodeKey(final @Nonnegative long maxNodeKey) {
+		mMaxTextValueNodeKey = maxNodeKey;
+	}
+
+	/**
+	 * Set the maximum value node key in the revision.
+	 * 
+	 * @param maxNodeKey
+	 *          new maximum node key
+	 */
+	public void setMaxAttributeValueNodeKey(final @Nonnegative long maxNodeKey) {
+		mMaxAttributeValueNodeKey = maxNodeKey;
 	}
 
 	@Override
@@ -261,18 +307,23 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 		mDelegate.serialize(checkNotNull(pOut));
 		pOut.writeLong(mMaxNodeKey);
 		pOut.writeLong(mMaxPathNodeKey);
-		pOut.writeLong(mMaxValueNodeKey);
+		pOut.writeLong(mMaxTextValueNodeKey);
+		pOut.writeLong(mMaxAttributeValueNodeKey);
 		pOut.writeLong(mRevisionTimestamp);
 	}
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this)
+		return Objects
+				.toStringHelper(this)
 				.add("revisionTimestamp", mRevisionTimestamp)
-				.add("maxNodeKey", mMaxNodeKey).add("delegate", mDelegate)
+				.add("maxNodeKey", mMaxNodeKey)
+				.add("delegate", mDelegate)
 				.add("namePage", getReference(NAME_REFERENCE_OFFSET))
 				.add("pathSummaryPage", getReference(PATH_SUMMARY_REFERENCE_OFFSET))
-				.add("valuePage", getReference(VALUE_REFERENCE_OFFSET))
+				.add("textValuePage", getReference(TEXT_VALUE_REFERENCE_OFFSET))
+				.add("attributeValuePage",
+						getReference(ATTRIBUTE_VALUE_REFERENCE_OFFSET))
 				.add("nodePage", getReference(INDIRECT_REFERENCE_OFFSET)).toString();
 	}
 
@@ -304,19 +355,36 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	}
 
 	/**
-	 * Initialize value tree.
+	 * Initialize text value tree.
 	 * 
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} instance
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} instance
 	 */
-	public void createValueTree(final @Nonnull PageReadTrx pageReadTrx) {
-		final PageReference reference = getValuePageReference().getPage()
+	public void createTextValueTree(final @Nonnull PageReadTrx pageReadTrx) {
+		final PageReference reference = getTextValuePageReference().getPage()
 				.getReference(INDIRECT_REFERENCE_OFFSET);
 		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
-			createTree(reference, PageKind.VALUEPAGE, pageReadTrx);
-			incrementMaxValueNodeKey();
+			createTree(reference, PageKind.TEXTVALUEPAGE, pageReadTrx);
+			incrementMaxTextValueNodeKey();
+		}
+	}
+	
+	/**
+	 * Initialize attribute value tree.
+	 * 
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
+	 * @param revisionRoot
+	 *          {@link RevisionRootPage} instance
+	 */
+	public void createAttributeValueTree(final @Nonnull PageReadTrx pageReadTrx) {
+		final PageReference reference = getAttributeValuePageReference().getPage()
+				.getReference(INDIRECT_REFERENCE_OFFSET);
+		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
+			createTree(reference, PageKind.ATTRIBUTEVALUEPAGE, pageReadTrx);
+			incrementMaxAttributeValueNodeKey();
 		}
 	}
 

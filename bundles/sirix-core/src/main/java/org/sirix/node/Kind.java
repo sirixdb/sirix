@@ -447,9 +447,12 @@ public enum Kind implements RecordPersistenter {
 			final byte[] value = new byte[size];
 			source.readFully(value, 0, size);
 			final long valueNodeKey = getLong(source);
-			final Set<Long> nodeKeys = new HashSet<>(source.readInt());
-			for (final long nodeKey : nodeKeys) {
-				nodeKeys.add(nodeKey);
+			final boolean kind = source.readBoolean();
+			final ValueKind valueKind = kind ? ValueKind.TEXT : ValueKind.ATTRIBUTE;
+			final int keySize = source.readInt();
+			final Set<Long> nodeKeys = new HashSet<>(keySize);
+			for (int i = 0; i < keySize; i++) {
+				nodeKeys.add(source.readLong());
 			}
 			final long referencesNodeKey = getLong(source);
 			// Node delegate.
@@ -460,8 +463,8 @@ public enum Kind implements RecordPersistenter {
 			final long pathNodeKey = getLong(source);
 			final boolean isChanged = source.readBoolean();
 			final AVLNode<TextValue, TextReferences> node = new AVLNode<>(
-					new TextValue(value, valueNodeKey, pathNodeKey), new TextReferences(
-							nodeKeys, referencesNodeKey), nodeDel);
+					new TextValue(value, valueNodeKey, pathNodeKey, valueKind),
+					new TextReferences(nodeKeys, referencesNodeKey), nodeDel);
 			node.setLeftChildKey(leftChild);
 			node.setRightChildKey(rightChild);
 			node.setChanged(isChanged);
@@ -479,6 +482,7 @@ public enum Kind implements RecordPersistenter {
 			sink.writeInt(textValue.length);
 			sink.write(textValue);
 			putLong(sink, key.getNodeKey());
+			sink.writeBoolean(key.getKind() == Kind.TEXT_VALUE ? true : false);
 			final TextReferences value = node.getValue();
 			final Set<Long> nodeKeys = value.getNodeKeys();
 			sink.writeInt(nodeKeys.size());
@@ -499,56 +503,87 @@ public enum Kind implements RecordPersistenter {
 		@Override
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			final long nodeKey = getLong(source);
-			final long pathNodeKey = getLong(source);
-			final byte[] value = new byte[source.readInt()];
-			source.readFully(value);
-			return new TextValue(value, nodeKey, pathNodeKey);
+			throw new UnsupportedOperationException();
+//			final long nodeKey = getLong(source);
+//			final long pathNodeKey = getLong(source);
+//			final byte[] value = new byte[source.readInt()];
+//			source.readFully(value);
+//			return new TextValue(value, nodeKey, pathNodeKey, ValueKind.TEXT);
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
 				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			final TextValue node = (TextValue) toSerialize;
-			putLong(sink, node.getNodeKey());
-			putLong(sink, node.getPathNodeKey());
-			final byte[] value = node.getValue();
-			sink.writeInt(value.length);
-			sink.write(value);
+			throw new UnsupportedOperationException();
+//			final TextValue node = (TextValue) toSerialize;
+//			putLong(sink, node.getNodeKey());
+//			putLong(sink, node.getPathNodeKey());
+//			final byte[] value = node.getValue();
+//			sink.writeInt(value.length);
+//			sink.write(value);
+		}
+	},
+
+	/** Node is a text value. */
+	ATTRIBUTE_VALUE((byte) 19, TextValue.class) {
+		@Override
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull PageReadTrx pageReadTrx) {
+			throw new UnsupportedOperationException();
+//			final long nodeKey = getLong(source);
+//			final long pathNodeKey = getLong(source);
+//			final byte[] value = new byte[source.readInt()];
+//			source.readFully(value);
+//			return new TextValue(value, nodeKey, pathNodeKey, ValueKind.ATTRIBUTE);
+		}
+
+		@Override
+		public void serialize(final @Nonnull ByteArrayDataOutput sink,
+				final @Nonnull Record toSerialize,
+				final @Nonnull PageReadTrx pageReadTrx) {
+			throw new UnsupportedOperationException();
+//			final TextValue node = (TextValue) toSerialize;
+//			putLong(sink, node.getNodeKey());
+//			putLong(sink, node.getPathNodeKey());
+//			final byte[] value = node.getValue();
+//			sink.writeInt(value.length);
+//			sink.write(value);
 		}
 	},
 
 	/** Node includes text node references. */
-	TEXT_REFERENCES((byte) 19, TextReferences.class) {
+	TEXT_REFERENCES((byte) 21, TextReferences.class) {
 		@Override
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			final long nodeKey = source.readLong();
-			final int size = source.readInt();
-			final Set<Long> nodeKeys = new HashSet<>(size);
-			for (int i = 0; i < size; i++) {
-				nodeKeys.add(source.readLong());
-			}
-			return new TextReferences(nodeKeys, nodeKey);
+			throw new UnsupportedOperationException();
+//			final long nodeKey = source.readLong();
+//			final int size = source.readInt();
+//			final Set<Long> nodeKeys = new HashSet<>(size);
+//			for (int i = 0; i < size; i++) {
+//				nodeKeys.add(source.readLong());
+//			}
+//			return new TextReferences(nodeKeys, nodeKey);
 		}
 
 		@Override
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
 				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			final TextReferences node = (TextReferences) toSerialize;
-			sink.writeLong(node.getNodeKey());
-			final Set<Long> nodeKeys = node.getNodeKeys();
-			sink.writeInt(nodeKeys.size());
-			for (final long key : nodeKeys) {
-				sink.writeLong(key);
-			}
+			throw new UnsupportedOperationException();
+//			final TextReferences node = (TextReferences) toSerialize;
+//			sink.writeLong(node.getNodeKey());
+//			final Set<Long> nodeKeys = node.getNodeKeys();
+//			sink.writeInt(nodeKeys.size());
+//			for (final long key : nodeKeys) {
+//				sink.writeLong(key);
+//			}
 		}
 	},
 
 	/** Node type not known. */
-	UNKNOWN((byte) 21, null) {
+	UNKNOWN((byte) 22, null) {
 		@Override
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {

@@ -83,12 +83,14 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.TextNode;
 import org.sirix.node.TextReferences;
 import org.sirix.node.TextValue;
+import org.sirix.node.ValueKind;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
+import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.Insert;
@@ -182,8 +184,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	/** {@link PathSummary} instance. */
 	private PathSummary mPathSummary;
 
-	/** {@link AVLTree} instance. */
-	private AVLTree<TextValue, TextReferences> mAVLTree;
+	/** {@link AVLTree} instance for text value index. */
+	private AVLTree<TextValue, TextReferences> mAVLTextTree;
+
+	/** {@link AVLTree} instance for attribute value index. */
+	private AVLTree<TextValue, TextReferences> mAVLAttributeTree;
 
 	/** Indexes structures used during updates. */
 	private final Set<Indexes> mIndexes;
@@ -252,8 +257,13 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (mIndexes.contains(Indexes.PATH)) {
 			mPathSummary = PathSummary.getInstance(pageWriteTrx, session);
 		}
-		if (mIndexes.contains(Indexes.VALUE)) {
-			mAVLTree = AVLTree.<TextValue, TextReferences> getInstance(pageWriteTrx);
+		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
+			mAVLTextTree = AVLTree.<TextValue, TextReferences> getInstance(
+					pageWriteTrx, ValueKind.TEXT);
+		}
+		if (mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
+			mAVLAttributeTree = AVLTree.<TextValue, TextReferences> getInstance(
+					pageWriteTrx, ValueKind.ATTRIBUTE);
 		}
 
 		// Node factory.
@@ -1066,7 +1076,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				adaptHashesWithAdd();
 
 				// Index text value.
-				indexText(textValue);
+				indexText(textValue, ValueKind.TEXT);
 
 				return this;
 			} else {
@@ -1085,8 +1095,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof StructNode
-					&& getCurrentNode().getKind() != Kind.DOCUMENT
-					&& !value.isEmpty()) {
+					&& getCurrentNode().getKind() != Kind.DOCUMENT && !value.isEmpty()) {
 				checkAccessAndCommit();
 
 				final long parentKey = getCurrentNode().getParentKey();
@@ -1131,7 +1140,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				adaptHashesWithAdd();
 
 				// Index text value.
-				indexText(textValue);
+				indexText(textValue, ValueKind.TEXT);
 
 				return this;
 			} else {
@@ -1150,8 +1159,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof StructNode
-					&& getCurrentNode().getKind() != Kind.DOCUMENT
-					&& !value.isEmpty()) {
+					&& getCurrentNode().getKind() != Kind.DOCUMENT && !value.isEmpty()) {
 				checkAccessAndCommit();
 
 				final long parentKey = getCurrentNode().getParentKey();
@@ -1195,7 +1203,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				adaptHashesWithAdd();
 
 				// Index text value.
-				indexText(textValue);
+				indexText(textValue, ValueKind.TEXT);
 
 				return this;
 			} else {
@@ -1329,27 +1337,62 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void indexText(final @Nonnull byte[] value) throws SirixIOException {
-		if (mIndexes.contains(Indexes.VALUE)) {
+	private void indexText(final @Nonnull byte[] value,
+			final @Nonnull ValueKind kind) throws SirixIOException {
+		final Indexes index = kind == ValueKind.ATTRIBUTE ? Indexes.ATTRIBUTE_VALUE
+				: Indexes.TEXT_VALUE;
+		if (mIndexes.contains(index) && value.length < 15) {
+			final PageKind pageKind = kind == ValueKind.ATTRIBUTE ? PageKind.ATTRIBUTEVALUEPAGE
+					: PageKind.TEXTVALUEPAGE;
+			final PageWriteTrx pageTrx = getPageTransaction();
+			final RevisionRootPage root = pageTrx.getActualRevisionRootPage();
+			final long maxValue = kind == ValueKind.ATTRIBUTE ? root
+					.getMaxAttributeValueNodeKey() : root.getMaxTextValueNodeKey();
+			final long nodeKey = mNodeRtx.getNodeKey();
 			mNodeRtx.moveToParent();
 			final long pathNodeKey = mNodeRtx.isNameNode() ? mNodeRtx
 					.getPathNodeKey() : 0;
-			final PageWriteTrx pageTrx = getPageTransaction();
-			final TextValue textVal = (TextValue) pageTrx.createNode(new TextValue(
-					value, pageTrx.getActualRevisionRootPage().getMaxValueNodeKey() + 1,
-					pathNodeKey), PageKind.VALUEPAGE);
-			final Optional<TextReferences> textReferences = mAVLTree.get(textVal);
+			TextValue textVal = new TextValue(
+					value, maxValue + 1, pathNodeKey, kind);
+			final Optional<TextReferences> textReferences = kind == ValueKind.ATTRIBUTE ? mAVLAttributeTree
+					.get(textVal) : mAVLTextTree.get(textVal);
 			if (textReferences.isPresent()) {
 				final TextReferences references = textReferences.get();
-				references.setNodeKey(mNodeRtx.getCurrentNode().getNodeKey());
-				mAVLTree.index(textVal, references);
+				setRefNodeKey(kind, textVal, references);
 			} else {
-				final TextReferences textRef = (TextReferences) pageTrx.createNode(
-						new TextReferences(new HashSet<Long>(), pageTrx
-								.getActualRevisionRootPage().getMaxValueNodeKey() + 1),
-						PageKind.VALUEPAGE);
-				mAVLTree.index(textVal, textRef);
+				pageTrx.createNode(textVal, pageKind);
+				final TextReferences references = (TextReferences) pageTrx.createNode(
+						new TextReferences(new HashSet<Long>(), maxValue + 2), pageKind);
+				setRefNodeKey(kind, textVal, references);
 			}
+
+			mNodeRtx.moveTo(nodeKey);
+		}
+	}
+
+	/**
+	 * Set new reference node key.
+	 * 
+	 * @param kind
+	 *          kind of value
+	 * @param textVal
+	 *          text value
+	 * @param references
+	 *          the references set
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	private void setRefNodeKey(final ValueKind kind, final TextValue textVal,
+			final @Nonnull TextReferences references) throws SirixIOException {
+		references.setNodeKey(mNodeRtx.getCurrentNode().getNodeKey());
+		switch (kind) {
+		case ATTRIBUTE:
+			mAVLAttributeTree.index(textVal, references);
+			break;
+		case TEXT:
+			mAVLTextTree.index(textVal, references);
+			break;
+		default:
 		}
 	}
 
@@ -1425,6 +1468,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				if (move == Movement.TOPARENT) {
 					moveToParent();
 				}
+				indexText(attValue, ValueKind.ATTRIBUTE);
 				return this;
 			} else {
 				throw new SirixUsageException(
@@ -2168,7 +2212,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				adaptHashedWithUpdate(oldHash);
 
 				// Index new value.
-				indexText(byteVal);
+				indexText(byteVal,
+						getCurrentNode().getKind() == Kind.ATTRIBUTE ? ValueKind.ATTRIBUTE
+								: ValueKind.TEXT);
 
 				return this;
 			} else {
@@ -2235,7 +2281,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				mNodeRtx.close();
 
 				mPathSummary = null;
-				mAVLTree = null;
+				mAVLTextTree = null;
 				mNodeFactory = null;
 
 				// Shutdown pool.
@@ -2301,10 +2347,14 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		// moveTo(nodeKey);
 
 		final File commitFile = mNodeRtx.mSession.mCommitFile;
-		try {
-			commitFile.createNewFile();
-		} catch (final IOException e) {
-			throw new SirixIOException(e.getCause());
+		// Heard of some issues with windows that it's not created in the first
+		// time.
+		while (!commitFile.exists()) {
+			try {
+				commitFile.createNewFile();
+			} catch (final IOException e) {
+				throw new SirixIOException(e.getCause());
+			}
 		}
 
 		// Execute pre-commit hooks.
@@ -2410,9 +2460,16 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		}
 
 		// Get a new avl tree instance.
-		if (mIndexes.contains(Indexes.VALUE)) {
-			mAVLTree = null;
-			mAVLTree = AVLTree.getInstance(getPageTransaction());
+		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
+			mAVLTextTree = null;
+			mAVLTextTree = AVLTree.getInstance(getPageTransaction(), ValueKind.TEXT);
+		}
+
+		// Get a new avl tree instance.
+		if (mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
+			mAVLAttributeTree = null;
+			mAVLAttributeTree = AVLTree.getInstance(getPageTransaction(),
+					ValueKind.ATTRIBUTE);
 		}
 	}
 
@@ -2423,9 +2480,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 *           if an I/O error occurs
 	 */
 	private void postOrderTraversalHashes() throws SirixIOException {
-		for (final Axis axis = new PostOrderAxis(this, IncludeSelf.YES); axis
-				.hasNext();) {
-			axis.next();
+		for (@SuppressWarnings("unused")
+		final long nodeKey : new PostOrderAxis(this, IncludeSelf.YES)) {
 			final StructNode node = mNodeRtx.getStructuralNode();
 			if (node.getKind() == Kind.ELEMENT) {
 				final ElementNode element = (ElementNode) node;
@@ -3352,7 +3408,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	public AVLTree<TextValue, TextReferences> getValueIndex() {
 		acquireLock();
 		try {
-			return mAVLTree;
+			return mAVLTextTree;
 		} finally {
 			unLock();
 		}

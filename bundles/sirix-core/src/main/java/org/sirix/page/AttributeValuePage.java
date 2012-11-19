@@ -43,7 +43,7 @@ import com.google.common.io.ByteArrayDataInput;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class ValuePage extends AbstractForwardingPage {
+public class AttributeValuePage extends AbstractForwardingPage {
 
 	/** {@link PageDelegate} instance. */
 	private final PageDelegate mDelegate;
@@ -59,7 +59,7 @@ public class ValuePage extends AbstractForwardingPage {
 	 * @throws IllegalArgumentException
 	 *           if {@code pRevision} < 0
 	 */
-	public ValuePage(final @Nonnegative int revision) {
+	public AttributeValuePage(final @Nonnegative int revision) {
 		checkArgument(revision >= 0, "pRevision must be >= 0!");
 		mDelegate = new PageDelegate(1, revision);
 	}
@@ -79,7 +79,7 @@ public class ValuePage extends AbstractForwardingPage {
 	 * @param in
 	 *          input bytes to read from
 	 */
-	protected ValuePage(final @Nonnull ByteArrayDataInput in) {
+	protected AttributeValuePage(final @Nonnull ByteArrayDataInput in) {
 		mDelegate = new PageDelegate(1, in);
 	}
 

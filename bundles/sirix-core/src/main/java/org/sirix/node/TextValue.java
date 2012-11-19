@@ -5,13 +5,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Arrays;
 
-import com.google.common.base.Objects;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.node.interfaces.Record;
+import org.sirix.settings.Constants;
+
+import com.google.common.base.Objects;
 
 /**
  * TextValue which saves the value of a text node.
@@ -19,7 +20,7 @@ import org.sirix.node.interfaces.Record;
  * @author Johannes Lichtenberger
  * 
  */
-public class TextValue implements Comparable<Record>, Record {
+public final class TextValue implements Comparable<Record>, Record {
 	/** Value in bytes. */
 	private final byte[] mValue;
 
@@ -28,6 +29,9 @@ public class TextValue implements Comparable<Record>, Record {
 
 	/** Path node key this text value belongs to (that is the parent path). */
 	private long mPathNodeKey;
+
+	/** Kind of value. */
+	private ValueKind mKind;
 
 	/**
 	 * Constructor.
@@ -40,11 +44,13 @@ public class TextValue implements Comparable<Record>, Record {
 	 *          the path node-key
 	 */
 	public TextValue(final @Nonnull byte[] value,
-			final @Nonnegative long nodeKey, final @Nonnegative long pathNodeKey) {
+			final @Nonnegative long nodeKey, final @Nonnegative long pathNodeKey,
+			final @Nonnull ValueKind kind) {
 		mValue = checkNotNull(value);
 		checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
 		mNodeKey = nodeKey;
 		mPathNodeKey = pathNodeKey;
+		mKind = checkNotNull(kind);
 	}
 
 	/**
@@ -59,7 +65,8 @@ public class TextValue implements Comparable<Record>, Record {
 	@Override
 	public int compareTo(final @Nullable Record other) {
 		final TextValue value = (TextValue) other;
-		return new String(mValue).compareTo(new String(value.mValue));
+		return new String(mValue, Constants.DEFAULT_ENCODING).compareTo(new String(
+				value.mValue, Constants.DEFAULT_ENCODING));
 	}
 
 	@Override
@@ -92,7 +99,7 @@ public class TextValue implements Comparable<Record>, Record {
 
 	@Override
 	public Kind getKind() {
-		return Kind.TEXT_VALUE;
+		return mKind.getKind();
 	}
 
 	@Override

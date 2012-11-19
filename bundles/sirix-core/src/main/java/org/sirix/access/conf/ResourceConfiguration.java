@@ -150,8 +150,11 @@ public final class ResourceConfiguration {
 		/** Path summary index. */
 		PATH,
 
-		/** Value index. */
-		VALUE,
+		/** Text value index. */
+		TEXT_VALUE,
+
+		/** Attribute value index. */
+		ATTRIBUTE_VALUE,
 
 		/** No index. */
 		NONE
@@ -171,7 +174,8 @@ public final class ResourceConfiguration {
 	public static final int VERSIONSTORESTORE = 3;
 
 	/** Indexes to use. */
-	public static final EnumSet<Indexes> INDEXES = EnumSet.of(Indexes.PATH);
+	public static final EnumSet<Indexes> INDEXES = EnumSet.of(Indexes.PATH,
+			Indexes.ATTRIBUTE_VALUE, Indexes.TEXT_VALUE);
 
 	/** Persistenter for records. */
 	public static final RecordPersistenter PERSISTENTER = new NodePersistenter();

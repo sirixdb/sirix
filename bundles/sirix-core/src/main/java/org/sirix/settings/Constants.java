@@ -28,8 +28,7 @@
 package org.sirix.settings;
 
 import java.nio.charset.Charset;
-
-import com.google.common.base.Charsets;
+import java.nio.charset.StandardCharsets;
 
 /**
  * <h1>Constants</h1>
@@ -52,7 +51,7 @@ public final class Constants {
 	// ------------------------------------------------------------------
 
 	/** Default internal encoding. */
-	public static final Charset DEFAULT_ENCODING = Charsets.UTF_8;
+	public static final Charset DEFAULT_ENCODING = StandardCharsets.UTF_8;
 
 	// --- Indirect Page
 	// ----------------------------------------------------------

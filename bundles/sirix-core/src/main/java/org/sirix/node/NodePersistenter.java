@@ -13,7 +13,7 @@ import com.google.common.io.ByteArrayDataOutput;
  * Persistenting nodes.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
 public class NodePersistenter implements RecordPersistenter {
 	@Override
