@@ -78,7 +78,7 @@ import com.google.common.base.Optional;
  * to the persistent storage layer.
  * </p>
  * 
- * @author Marc Kramis, Seabix
+ * @author Marc Kramis, Seabix AG
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
  */

@@ -2,6 +2,9 @@ package org.sirix.index.value;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -12,6 +15,7 @@ import org.sirix.api.PageWriteTrx;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.SearchMode;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
@@ -29,6 +33,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Optional;
+import com.google.common.collect.AbstractIterator;
 
 /**
  * Simple AVLTree (balanced binary search-tree -- based on BaseX(.org) version).
@@ -40,7 +45,8 @@ import com.google.common.base.Optional;
  * @param <V>
  *          the value
  */
-public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
+public final class AVLTree<K extends Comparable<? super K> & Record, V extends Record>
+		implements NodeCursor {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
@@ -63,6 +69,12 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 
 	/** Page kind. */
 	private final PageKind mPageKind;
+
+	public enum MoveCursor {
+		TO_DOCUMENT_ROOT,
+
+		NO_MOVE
+	}
 
 	/**
 	 * Private constructor.
@@ -111,7 +123,7 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 	 *          kind of value (attribute/text)
 	 * @return new tree instance
 	 */
-	public static <KE extends Comparable<? super KE>, VA> AVLTree<KE, VA> getInstance(
+	public static <KE extends Comparable<? super KE> & Record, VA extends Record> AVLTree<KE, VA> getInstance(
 			final @Nonnull PageWriteTrx pageWriteTrx, final @Nonnull ValueKind kind) {
 		return new AVLTree<KE, VA>(pageWriteTrx, kind);
 	}
@@ -121,16 +133,23 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 	 * reference. Otherwise, creates a new index entry and returns a reference of
 	 * the indexed token.
 	 * 
-	 * @param token
+	 * @param key
 	 *          token to be indexed
-	 * @return indexed token reference
+	 * @param value
+	 *          node key references
+	 * @param move
+	 *          determines if AVLNode cursor must be moved to document root/root
+	 *          node or not
+	 * @return indexed node key references
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
 	@SuppressWarnings("unchecked")
-	public V index(final @Nonnull K key, final @Nonnull V value)
-			throws SirixIOException {
-		moveToDocumentRoot();
+	public V index(final @Nonnull K key, final @Nonnull V value,
+			final @Nonnull MoveCursor move) throws SirixIOException {
+		if (move == MoveCursor.TO_DOCUMENT_ROOT) {
+			moveToDocumentRoot();
+		}
 		final RevisionRootPage root = mPageWriteTrx.getActualRevisionRootPage();
 		if (mRoot == null) {
 			// Index is empty.. create root node.
@@ -152,8 +171,11 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 			return value;
 		}
 
-		moveTo(mRoot.getNodeKey());
-		AVLNode<K, V> node = mRoot;
+		if (move == MoveCursor.TO_DOCUMENT_ROOT || getAVLNode() == null) {
+			moveTo(mRoot.getNodeKey());
+		}
+		AVLNode<K, V> node = move == MoveCursor.TO_DOCUMENT_ROOT ? mRoot
+				: getAVLNode();
 		while (true) {
 			final int c = key.compareTo(node.getKey());
 			if (c == 0) {
@@ -166,14 +188,14 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 				node = getAVLNode();
 				continue;
 			}
-			
+
 			final long nodeKey = mPageKind == PageKind.TEXTVALUEPAGE ? root
 					.getMaxTextValueNodeKey() + 1
 					: root.getMaxAttributeValueNodeKey() + 1;
 			final AVLNode<K, V> child = (AVLNode<K, V>) mPageWriteTrx.createNode(
-					new AVLNode<>(key, value, new NodeDelegate(nodeKey, Fixed.NULL_NODE_KEY
-							.getStandardProperty(), 0, 0, Optional.<SirixDeweyID> absent())),
-					mPageKind);
+					new AVLNode<>(key, value, new NodeDelegate(nodeKey,
+							Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, Optional
+									.<SirixDeweyID> absent())), mPageKind);
 			node = (AVLNode<K, V>) mPageWriteTrx.prepareNodeForModification(
 					node.getNodeKey(), mPageKind);
 			if (c < 0) {
@@ -208,16 +230,19 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 	 * 
 	 * @param key
 	 *          key to be found
-	 * @return {@link Optional} reference
+	 * @param mode
+	 *          the search mode
+	 * @return {@link Optional} reference (with the found value, or a reference
+	 *         which indicates that the value hasn't been found)
 	 */
-	public Optional<V> get(final @Nonnull K key) {
+	public Optional<V> get(final @Nonnull K key, final @Nonnull SearchMode mode) {
 		if (mRoot == null) {
 			return Optional.absent();
 		}
 		moveTo(mRoot.getNodeKey());
 		AVLNode<K, V> node = mRoot;
 		while (true) {
-			int c = key.compareTo(node.getKey());
+			final int c = mode.compare(node.getKey(), key);
 			if (c == 0) {
 				return Optional.fromNullable(node.getValue());
 			}
@@ -230,6 +255,75 @@ public class AVLTree<K extends Comparable<? super K>, V> implements NodeCursor {
 			}
 		}
 		return Optional.absent();
+	}
+
+	/**
+	 * Iterator supporting different search modes.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	public final class AVLIterator extends AbstractIterator<Optional<V>> {
+
+		/** The key to search. */
+		private final K mKey;
+
+		/** Determines if it's the first call. */
+		private boolean mFirst;
+
+		/** All AVLNode keys which are part of the result sequence. */
+		private final Deque<Long> mKeys;
+
+		/** Search mode. */
+		private final SearchMode mMode;
+
+		/**
+		 * Constructor.
+		 * 
+		 * @param key
+		 *          the key to search for
+		 * @param mode
+		 * 					the search mode
+		 */
+		public AVLIterator(final @Nonnull K key, final @Nonnull SearchMode mode) {
+			mKey = checkNotNull(key);
+			mFirst = true;
+			mKeys = new ArrayDeque<>();
+			mMode = checkNotNull(mode);
+		}
+
+		@Override
+		protected Optional<V> computeNext() {
+			if (!mFirst && mMode == SearchMode.EQUAL) {
+				return endOfData();
+			}
+			if (!mFirst) {
+				if (!mKeys.isEmpty()) {
+					// Subsequent results.
+					final AVLNode<K, V> node = moveTo(mKeys.pop()).get().getAVLNode();
+					if (node.hasRightChild()) {
+						final AVLNode<K, V> right = moveToLastChild().get().getAVLNode();
+						mKeys.push(right.getNodeKey());
+					}
+					if (node.hasLeftChild()) {
+						final AVLNode<K, V> left = moveToFirstChild().get().getAVLNode();
+						mKeys.push(left.getNodeKey());
+					}
+
+					return Optional.of(node.getValue());
+				}
+				return endOfData();
+			}
+
+			// First search.
+			final Optional<V> result = get(mKey, mMode);
+			mFirst = false;
+			if (result.isPresent()) {
+				mKeys.push(getAVLNode().getNodeKey());
+				return result;
+			}
+			return endOfData();
+		}
 	}
 
 	/**

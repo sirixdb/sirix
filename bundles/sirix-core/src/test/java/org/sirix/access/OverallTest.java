@@ -40,7 +40,6 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.node.ElementNode;
 import org.sirix.settings.Fixed;
 
 /** Test a bunch of modification methods. */

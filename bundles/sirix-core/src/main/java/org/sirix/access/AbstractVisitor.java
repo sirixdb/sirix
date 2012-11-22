@@ -59,7 +59,8 @@ import org.sirix.node.immutable.ImmutableText;
  * </pre></code>
  * 
  * <code><pre>
- * final Visitor visitor = new AbsVisitor(rtx) {
+ * // MyVisitor extends AbstractVisitor.
+ * final Visitor visitor = new MyVisitor(rtx) {
  *   public void visit(final ImmutableElement node) {
  *     rtx.moveTo(pNode.getKey());
  *     LOGGER.info("Element name: " + mRtx.getName().getLocalName());

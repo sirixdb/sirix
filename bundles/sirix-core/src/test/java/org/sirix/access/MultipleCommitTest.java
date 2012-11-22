@@ -45,7 +45,6 @@ import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.PostOrderAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import org.sirix.node.ElementNode;
 import org.sirix.utils.DocumentCreater;
 
 public class MultipleCommitTest {

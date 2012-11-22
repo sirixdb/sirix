@@ -504,11 +504,6 @@ public enum Kind implements RecordPersistenter {
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
-//			final long nodeKey = getLong(source);
-//			final long pathNodeKey = getLong(source);
-//			final byte[] value = new byte[source.readInt()];
-//			source.readFully(value);
-//			return new TextValue(value, nodeKey, pathNodeKey, ValueKind.TEXT);
 		}
 
 		@Override
@@ -516,26 +511,15 @@ public enum Kind implements RecordPersistenter {
 				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
-//			final TextValue node = (TextValue) toSerialize;
-//			putLong(sink, node.getNodeKey());
-//			putLong(sink, node.getPathNodeKey());
-//			final byte[] value = node.getValue();
-//			sink.writeInt(value.length);
-//			sink.write(value);
 		}
 	},
 
-	/** Node is a text value. */
+	/** Node is an attribute value. */
 	ATTRIBUTE_VALUE((byte) 19, TextValue.class) {
 		@Override
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
-//			final long nodeKey = getLong(source);
-//			final long pathNodeKey = getLong(source);
-//			final byte[] value = new byte[source.readInt()];
-//			source.readFully(value);
-//			return new TextValue(value, nodeKey, pathNodeKey, ValueKind.ATTRIBUTE);
 		}
 
 		@Override
@@ -543,12 +527,6 @@ public enum Kind implements RecordPersistenter {
 				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
-//			final TextValue node = (TextValue) toSerialize;
-//			putLong(sink, node.getNodeKey());
-//			putLong(sink, node.getPathNodeKey());
-//			final byte[] value = node.getValue();
-//			sink.writeInt(value.length);
-//			sink.write(value);
 		}
 	},
 
@@ -558,13 +536,6 @@ public enum Kind implements RecordPersistenter {
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
-//			final long nodeKey = source.readLong();
-//			final int size = source.readInt();
-//			final Set<Long> nodeKeys = new HashSet<>(size);
-//			for (int i = 0; i < size; i++) {
-//				nodeKeys.add(source.readLong());
-//			}
-//			return new TextReferences(nodeKeys, nodeKey);
 		}
 
 		@Override
@@ -572,16 +543,25 @@ public enum Kind implements RecordPersistenter {
 				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
-//			final TextReferences node = (TextReferences) toSerialize;
-//			sink.writeLong(node.getNodeKey());
-//			final Set<Long> nodeKeys = node.getNodeKeys();
-//			sink.writeInt(nodeKeys.size());
-//			for (final long key : nodeKeys) {
-//				sink.writeLong(key);
-//			}
 		}
 	},
 
+	/** Node includes a deweyID <=> nodeKey mapping. */
+	DEWEYIDMAPPING((byte) 23, DeweyIDMappingNode.class) {
+		@Override
+		public Record deserialize(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull PageReadTrx pageReadTrx) {
+			throw new UnsupportedOperationException();
+		}
+
+		@Override
+		public void serialize(final @Nonnull ByteArrayDataOutput sink,
+				final @Nonnull Record toSerialize,
+				final @Nonnull PageReadTrx pageReadTrx) {
+			throw new UnsupportedOperationException();
+		}
+	},
+	
 	/** Node type not known. */
 	UNKNOWN((byte) 22, null) {
 		@Override
@@ -596,7 +576,7 @@ public enum Kind implements RecordPersistenter {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
-	};
+	},;
 
 	/** Identifier. */
 	private final byte mId;
@@ -620,13 +600,13 @@ public enum Kind implements RecordPersistenter {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pId
+	 * @param id
 	 *          unique identifier
 	 * @param clazz
 	 *          class
 	 */
-	private Kind(final byte pId, final @Nonnull Class<? extends Record> clazz) {
-		mId = pId;
+	private Kind(final byte id, final @Nonnull Class<? extends Record> clazz) {
+		mId = id;
 		mClass = clazz;
 	}
 

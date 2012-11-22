@@ -46,7 +46,6 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.StructNode;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.settings.Fixed;
