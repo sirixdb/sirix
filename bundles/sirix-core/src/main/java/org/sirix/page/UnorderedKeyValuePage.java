@@ -28,6 +28,7 @@ package org.sirix.page;
 
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -39,12 +40,15 @@ import javax.annotation.Nullable;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.index.value.AVLNode;
 import org.sirix.node.Kind;
+import org.sirix.node.TextReferences;
+import org.sirix.node.TextValue;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.delegates.PageDelegate;
-import org.sirix.page.interfaces.Page;
 import org.sirix.page.interfaces.KeyValuePage;
+import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
@@ -93,7 +97,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mRevision = revision;
 		mRecordPageKey = recordPageKey;
-		mRecords = new HashMap<>();
+		mRecords = new LinkedHashMap<>();
 		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
 	}
@@ -111,16 +115,18 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		mRevision = in.readInt();
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
-		mRecords = new HashMap<>(size);
+		mRecords = new LinkedHashMap<>(size);
 		final RecordPersistenter persistenter = pageReadTrx.getSession()
 				.getResourceConfig().mPersistenter;
 		for (int offset = 0; offset < size; offset++) {
 			final Record node = persistenter.deserialize(in, pageReadTrx);
 			mRecords.put(node.getNodeKey(), node);
 //			if (node.getKind() == Kind.AVL) {
-//				offset += 2;
+//				@SuppressWarnings("unchecked")
+//				final AVLNode<TextValue, TextReferences> valueNode = (AVLNode<TextValue, TextReferences>) node;
+//				mRecords.put(valueNode.getKey().getNodeKey(), valueNode.getKey());
+//				mRecords.put(valueNode.getValue().getNodeKey(), valueNode.getValue());
 //			}
-//			offset++;
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;

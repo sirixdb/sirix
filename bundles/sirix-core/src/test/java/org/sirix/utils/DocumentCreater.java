@@ -168,110 +168,110 @@ public final class DocumentCreater {
 	/**
 	 * Create simple test document containing all supported node kinds.
 	 * 
-	 * @param pWtx
+	 * @param wtx
 	 *          {@link NodeWriteTrx} to write to
 	 * @throws SirixException
 	 *           if anything weird happens
 	 */
-	public static void createCommentPI(final @Nonnull NodeWriteTrx pWtx)
+	public static void createCommentPI(final @Nonnull NodeWriteTrx wtx)
 			throws SirixException {
-		assertNotNull(pWtx);
-		assertTrue(pWtx.moveToDocumentRoot().hasMoved());
+		assertNotNull(wtx);
+		assertTrue(wtx.moveToDocumentRoot().hasMoved());
 
-		pWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
-		pWtx.insertNamespace(new QName("ns", "xmlns", "p"));
-		assertTrue(pWtx.moveToParent().hasMoved());
-		pWtx.insertAttribute(new QName("i"), "j");
-		assertTrue(pWtx.moveToParent().hasMoved());
+		wtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
+		wtx.insertNamespace(new QName("ns", "xmlns", "p"));
+		assertTrue(wtx.moveToParent().hasMoved());
+		wtx.insertAttribute(new QName("i"), "j");
+		assertTrue(wtx.moveToParent().hasMoved());
 
-		pWtx.insertCommentAsFirstChild("foo");
-		pWtx.insertTextAsRightSibling("oops1");
+		wtx.insertCommentAsFirstChild("foo");
+		wtx.insertTextAsRightSibling("oops1");
 
-		pWtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertElementAsRightSibling(new QName("b"));
 
-		pWtx.insertTextAsFirstChild("foo");
-		pWtx.insertElementAsRightSibling(new QName("c"));
-		assertTrue(pWtx.moveToParent().hasMoved());
-		assertEquals(2l, pWtx.getDescendantCount());
+		wtx.insertTextAsFirstChild("foo");
+		wtx.insertElementAsRightSibling(new QName("c"));
+		assertTrue(wtx.moveToParent().hasMoved());
+		assertEquals(2l, wtx.getDescendantCount());
 
-		pWtx.insertPIAsRightSibling("bar", "baz=\"foo\"");
-		pWtx.insertTextAsRightSibling("oops2");
+		wtx.insertPIAsRightSibling("bar", "baz=\"foo\"");
+		wtx.insertTextAsRightSibling("oops2");
 
-		pWtx.insertElementAsRightSibling(new QName("b"));
-		pWtx.insertAttribute(new QName("ns", "x", "p"), "y");
-		assertTrue(pWtx.moveToParent().hasMoved());
+		wtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertAttribute(new QName("ns", "x", "p"), "y");
+		assertTrue(wtx.moveToParent().hasMoved());
 
-		pWtx.insertElementAsFirstChild(new QName("c"));
-		pWtx.insertTextAsRightSibling("bar");
-		assertTrue(pWtx.moveToParent().hasMoved());
+		wtx.insertElementAsFirstChild(new QName("c"));
+		wtx.insertTextAsRightSibling("bar");
+		assertTrue(wtx.moveToParent().hasMoved());
 
-		pWtx.insertTextAsRightSibling("oops3");
+		wtx.insertTextAsRightSibling("oops3");
 
-		pWtx.moveToDocumentRoot();
+		wtx.moveToDocumentRoot();
 	}
 
 	/**
 	 * Create simple test document containing all supported node kinds except
 	 * comment- and processing instructions.
 	 * 
-	 * @param pWtx
+	 * @param wtx
 	 *          {@link NodeWriteTrx} to write to
 	 * @throws SirixException
 	 *           if anything weird happens
 	 */
-	public static void create(final @Nonnull NodeWriteTrx pWtx)
+	public static void create(final @Nonnull NodeWriteTrx wtx)
 			throws SirixException {
-		assertNotNull(pWtx);
-		assertTrue(pWtx.moveToDocumentRoot().hasMoved());
+		assertNotNull(wtx);
+		assertTrue(wtx.moveToDocumentRoot().hasMoved());
 
-		pWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
-		pWtx.insertNamespace(new QName("ns", "xmlns", "p"));
-		assertTrue(pWtx.moveToParent().hasMoved());
-		pWtx.insertAttribute(new QName("i"), "j");
-		assertTrue(pWtx.moveToParent().hasMoved());
+		wtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
+		wtx.insertNamespace(new QName("ns", "xmlns", "p"));
+		assertTrue(wtx.moveToParent().hasMoved());
+		wtx.insertAttribute(new QName("i"), "j");
+		assertTrue(wtx.moveToParent().hasMoved());
 
-		pWtx.insertTextAsFirstChild("oops1");
+		wtx.insertTextAsFirstChild("oops1");
 
-		pWtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertElementAsRightSibling(new QName("b"));
 
-		pWtx.insertTextAsFirstChild("foo");
-		pWtx.insertElementAsRightSibling(new QName("c"));
-		assertTrue(pWtx.moveToParent().hasMoved());
+		wtx.insertTextAsFirstChild("foo");
+		wtx.insertElementAsRightSibling(new QName("c"));
+		assertTrue(wtx.moveToParent().hasMoved());
 
-		pWtx.insertTextAsRightSibling("oops2");
+		wtx.insertTextAsRightSibling("oops2");
 
-		pWtx.insertElementAsRightSibling(new QName("b"));
-		pWtx.insertAttribute(new QName("ns", "x", "p"), "y");
-		assertTrue(pWtx.moveToParent().hasMoved());
+		wtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertAttribute(new QName("ns", "x", "p"), "y");
+		assertTrue(wtx.moveToParent().hasMoved());
 
-		pWtx.insertElementAsFirstChild(new QName("c"));
-		pWtx.insertTextAsRightSibling("bar");
-		assertTrue(pWtx.moveToParent().hasMoved());
+		wtx.insertElementAsFirstChild(new QName("c"));
+		wtx.insertTextAsRightSibling("bar");
+		assertTrue(wtx.moveToParent().hasMoved());
 
-		pWtx.insertTextAsRightSibling("oops3");
+		wtx.insertTextAsRightSibling("oops3");
 
-		pWtx.moveToDocumentRoot();
+		wtx.moveToDocumentRoot();
 	}
 
 	/**
 	 * Create simple revision test in current database.
 	 * 
-	 * @param pWtx
+	 * @param wtx
 	 *          {@link NodeWriteTrx} to write to
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public static void createVersioned(final @Nonnull NodeWriteTrx pWtx)
+	public static void createVersioned(final @Nonnull NodeWriteTrx wtx)
 			throws SirixException {
-		assertNotNull(pWtx);
-		create(pWtx);
-		pWtx.commit();
+		assertNotNull(wtx);
+		create(wtx);
+		wtx.commit();
 		for (int i = 0; i <= 1; i++) {
-			pWtx.moveToDocumentRoot();
-			pWtx.moveToFirstChild();
-			pWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
-			pWtx.insertTextAsFirstChild("OOPS4!");
-			pWtx.commit();
+			wtx.moveToDocumentRoot();
+			wtx.moveToFirstChild();
+			wtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
+			wtx.insertTextAsFirstChild("OOPS4!");
+			wtx.commit();
 		}
 	}
 
@@ -284,55 +284,55 @@ public final class DocumentCreater {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public static void createWithoutAttributes(final @Nonnull NodeWriteTrx pWtx)
+	public static void createWithoutAttributes(final @Nonnull NodeWriteTrx wtx)
 			throws SirixException {
-		assertNotNull(pWtx);
-		pWtx.moveToDocumentRoot();
-		pWtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
-		pWtx.insertTextAsFirstChild("oops1");
-		pWtx.insertElementAsRightSibling(new QName("b"));
-		pWtx.insertTextAsFirstChild("foo");
-		pWtx.insertElementAsRightSibling(new QName("c"));
-		pWtx.moveToParent();
-		pWtx.insertTextAsRightSibling("oops2");
-		pWtx.insertElementAsRightSibling(new QName("b"));
-		pWtx.insertElementAsFirstChild(new QName("c"));
-		pWtx.insertTextAsRightSibling("bar");
-		pWtx.moveToParent();
-		pWtx.insertTextAsRightSibling("oops3");
-		pWtx.moveToDocumentRoot();
+		assertNotNull(wtx);
+		wtx.moveToDocumentRoot();
+		wtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
+		wtx.insertTextAsFirstChild("oops1");
+		wtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertTextAsFirstChild("foo");
+		wtx.insertElementAsRightSibling(new QName("c"));
+		wtx.moveToParent();
+		wtx.insertTextAsRightSibling("oops2");
+		wtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertElementAsFirstChild(new QName("c"));
+		wtx.insertTextAsRightSibling("bar");
+		wtx.moveToParent();
+		wtx.insertTextAsRightSibling("oops3");
+		wtx.moveToDocumentRoot();
 	}
 
 	/**
 	 * Create simple test document containing all supported node kinds, but
 	 * ignoring their namespace prefixes.
 	 * 
-	 * @param pWtx
+	 * @param wtx
 	 *          {@link NodeWriteTrx} to write to
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public static void createWithoutNamespace(final @Nonnull NodeWriteTrx pWtx)
+	public static void createWithoutNamespace(final @Nonnull NodeWriteTrx wtx)
 			throws SirixException {
-		assertNotNull(pWtx);
-		pWtx.moveToDocumentRoot();
-		pWtx.insertElementAsFirstChild(new QName("a"));
-		pWtx.insertAttribute(new QName("i"), "j");
-		pWtx.moveToParent();
-		pWtx.insertTextAsFirstChild("oops1");
-		pWtx.insertElementAsRightSibling(new QName("b"));
-		pWtx.insertTextAsFirstChild("foo");
-		pWtx.insertElementAsRightSibling(new QName("c"));
-		pWtx.moveToParent();
-		pWtx.insertTextAsRightSibling("oops2");
-		pWtx.insertElementAsRightSibling(new QName("b"));
-		pWtx.insertAttribute(new QName("x"), "y");
-		pWtx.moveToParent();
-		pWtx.insertElementAsFirstChild(new QName("c"));
-		pWtx.insertTextAsRightSibling("bar");
-		pWtx.moveToParent();
-		pWtx.insertTextAsRightSibling("oops3");
-		pWtx.moveToDocumentRoot();
+		assertNotNull(wtx);
+		wtx.moveToDocumentRoot();
+		wtx.insertElementAsFirstChild(new QName("a"));
+		wtx.insertAttribute(new QName("i"), "j");
+		wtx.moveToParent();
+		wtx.insertTextAsFirstChild("oops1");
+		wtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertTextAsFirstChild("foo");
+		wtx.insertElementAsRightSibling(new QName("c"));
+		wtx.moveToParent();
+		wtx.insertTextAsRightSibling("oops2");
+		wtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertAttribute(new QName("x"), "y");
+		wtx.moveToParent();
+		wtx.insertElementAsFirstChild(new QName("c"));
+		wtx.insertTextAsRightSibling("bar");
+		wtx.moveToParent();
+		wtx.insertTextAsRightSibling("oops3");
+		wtx.moveToDocumentRoot();
 	}
 
 	/**

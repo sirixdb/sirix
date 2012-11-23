@@ -95,14 +95,14 @@ public final class ResourceConfiguration {
 		/**
 		 * Constructor.
 		 * 
-		 * @param pFile
-		 *          to be set
-		 * @param pIsFolder
-		 *          to be set.
+		 * @param file
+		 *          the file
+		 * @param isFolder
+		 *          determines if the file denotes a filer or not
 		 */
-		private Paths(final @Nonnull File pFile, final boolean pIsFolder) {
-			mFile = checkNotNull(pFile);
-			mIsFolder = checkNotNull(pIsFolder);
+		private Paths(final @Nonnull File file, final boolean isFolder) {
+			mFile = file;
+			mIsFolder = isFolder;
 		}
 
 		/**

@@ -36,8 +36,6 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.PathSummary;
 
-import com.google.common.base.Optional;
-
 /**
  * <h1>Session</h1>
  * 
@@ -161,13 +159,6 @@ public interface Session extends AutoCloseable {
 	NodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes,
 			final @Nonnull TimeUnit timeUnit, final int maxTime)
 			throws SirixException;
-
-	/**
-	 * Get the only write-transaction associated with the resource.
-	 * 
-	 * @return optional write-transaction
-	 */
-	Optional<NodeWriteTrx> getNodeWriteTrx();
 
 	/**
 	 * Commit all running {@link NodeWriteTrx}s.

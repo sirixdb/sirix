@@ -460,13 +460,13 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	/**
 	 * Replace the current {@link PageReadTrxImpl}.
 	 * 
-	 * @param pPageReadTransaction
+	 * @param pageReadTransaction
 	 *          {@link PageReadTrxImpl} instance
 	 */
 	final void setPageReadTransaction(
-			@Nullable final PageReadTrx pPageReadTransaction) {
+			@Nullable final PageReadTrx pageReadTransaction) {
 		assertNotClosed();
-		mPageReadTrx = pPageReadTransaction;
+		mPageReadTrx = pageReadTransaction;
 	}
 
 	/**

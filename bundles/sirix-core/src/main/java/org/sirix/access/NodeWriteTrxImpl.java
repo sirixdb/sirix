@@ -50,6 +50,7 @@ import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.XMLEvent;
 
+import org.sirix.access.SessionImpl.Abort;
 import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
@@ -1351,10 +1352,16 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			final long maxValue = kind == ValueKind.ATTRIBUTE ? root
 					.getMaxAttributeValueNodeKey() : root.getMaxTextValueNodeKey();
 			final long nodeKey = mNodeRtx.getNodeKey();
-			mNodeRtx.moveToParent();
+			if (kind == ValueKind.TEXT) {
+				mNodeRtx.moveToParent();
+			}
 			final long pathNodeKey = mNodeRtx.isNameNode() ? mNodeRtx
 					.getPathNodeKey() : 0;
-			TextValue textVal = new TextValue(value, maxValue + 1, pathNodeKey, kind);
+			if (kind == ValueKind.TEXT) {
+				mNodeRtx.moveTo(nodeKey);
+			}
+			final TextValue textVal = new TextValue(value, maxValue + 1, pathNodeKey,
+					kind);
 			final Optional<TextReferences> textReferences = kind == ValueKind.ATTRIBUTE ? mAVLAttributeTree
 					.get(textVal, SearchMode.EQUAL) : mAVLTextTree.get(textVal,
 					SearchMode.EQUAL);
@@ -1367,8 +1374,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						new TextReferences(new HashSet<Long>(), maxValue + 2), pageKind);
 				setRefNodeKey(kind, textVal, references);
 			}
-
-			mNodeRtx.moveTo(nodeKey);
 		}
 	}
 
@@ -1386,13 +1391,14 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 */
 	private void setRefNodeKey(final ValueKind kind, final TextValue textVal,
 			@Nonnull TextReferences references) throws SirixIOException {
-		final PageKind pageKind = kind == ValueKind.ATTRIBUTE ? PageKind.ATTRIBUTEVALUEPAGE
-				: PageKind.TEXTVALUEPAGE;
-		references = (TextReferences) getPageTransaction()
-				.prepareNodeForModification(references.getNodeKey(), pageKind);
+		// final PageKind pageKind = kind == ValueKind.ATTRIBUTE ?
+		// PageKind.ATTRIBUTEVALUEPAGE
+		// : PageKind.TEXTVALUEPAGE;
+		// references = (TextReferences) getPageTransaction()
+		// .prepareNodeForModification(references.getNodeKey(), pageKind);
 		references.setNodeKey(mNodeRtx.getCurrentNode().getNodeKey());
-		getPageTransaction().finishNodeModification(references.getNodeKey(),
-				pageKind);
+		// getPageTransaction().finishNodeModification(references.getNodeKey(),
+		// pageKind);
 		switch (kind) {
 		case ATTRIBUTE:
 			mAVLAttributeTree.index(textVal, references, MoveCursor.NO_MOVE);
@@ -1473,10 +1479,12 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				mNodeRtx.setCurrentNode(node);
 				adaptHashesWithAdd();
+
+				indexText(attValue, ValueKind.ATTRIBUTE);
+
 				if (move == Movement.TOPARENT) {
 					moveToParent();
 				}
-				indexText(attValue, ValueKind.ATTRIBUTE);
 				return this;
 			} else {
 				throw new SirixUsageException(
@@ -2248,7 +2256,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			// Reset internal transaction state to new uber page.
 			mNodeRtx.mSession.closeNodePageWriteTransaction(getTransactionID());
 			final PageWriteTrx trx = mNodeRtx.mSession.createPageWriteTransaction(
-					trxID, revision, revNumber - 1);
+					trxID, revision, revNumber - 1, Abort.NO);
 			mNodeRtx.setPageReadTransaction(null);
 			mNodeRtx.setPageReadTransaction(trx);
 			mNodeRtx.mSession.setNodePageWriteTransaction(getTransactionID(), trx);
@@ -2320,10 +2328,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					: getRevisionNumber() - 1;
 
 			mNodeRtx.getPageTransaction().clearCaches();
+			mNodeRtx.getPageTransaction().closeCaches();
 			mNodeRtx.mSession.closeNodePageWriteTransaction(getTransactionID());
-			final PageWriteTrx trx = mNodeRtx.mSession.createPageWriteTransaction(
-					trxID, revNumber, revNumber);
 			mNodeRtx.setPageReadTransaction(null);
+			final PageWriteTrx trx = mNodeRtx.mSession.createPageWriteTransaction(
+					trxID, revNumber, revNumber, Abort.YES);
 			mNodeRtx.setPageReadTransaction(trx);
 			mNodeRtx.mSession.setNodePageWriteTransaction(getTransactionID(), trx);
 
@@ -2439,7 +2448,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		// Reset page transaction to new uber page.
 		mNodeRtx.mSession.closeNodePageWriteTransaction(getTransactionID());
 		final PageWriteTrx trx = mNodeRtx.mSession.createPageWriteTransaction(
-				trxID, revNumber, revNumber);
+				trxID, revNumber, revNumber, Abort.NO);
 		mNodeRtx.setPageReadTransaction(null);
 		mNodeRtx.setPageReadTransaction(trx);
 		mNodeRtx.mSession.setNodePageWriteTransaction(getTransactionID(), trx);
@@ -3452,10 +3461,20 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public AVLTree<TextValue, TextReferences> getValueIndex() {
+	public AVLTree<TextValue, TextReferences> getTextValueIndex() {
 		acquireLock();
 		try {
 			return mAVLTextTree;
+		} finally {
+			unLock();
+		}
+	}
+
+	@Override
+	public AVLTree<TextValue, TextReferences> getAttributeValueIndex() {
+		acquireLock();
+		try {
+			return mAVLAttributeTree;
 		} finally {
 			unLock();
 		}

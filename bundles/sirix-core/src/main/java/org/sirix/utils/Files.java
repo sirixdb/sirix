@@ -28,9 +28,9 @@ public final class Files {
 	/**
 	 * Recursively remove a directory.
 	 * 
-	 * @param pPath
+	 * @param path
 	 *          {@link Path} to the directory
-	 * @param pOptions
+	 * @param options
 	 *          {@link Set} of {@link FileVisitOption}s (currently only supports
 	 *          following {@code symlinks} or not).
 	 * @throws IOException
@@ -38,12 +38,12 @@ public final class Files {
 	 * @throws NullPointerException
 	 *           if any of the arguments are {@code null}
 	 */
-	public static void recursiveRemove(final Path pPath,
-			final Set<FileVisitOption> pOptions) throws SirixIOException {
+	public static void recursiveRemove(final Path path,
+			final Set<FileVisitOption> options) throws SirixIOException {
 		try {
-			if (java.nio.file.Files.exists(pPath)) {
-				java.nio.file.Files.walkFileTree(checkNotNull(pPath),
-						checkNotNull(pOptions), Integer.MAX_VALUE,
+			if (java.nio.file.Files.exists(path)) {
+				java.nio.file.Files.walkFileTree(checkNotNull(path),
+						checkNotNull(options), Integer.MAX_VALUE,
 						new SimpleFileVisitor<Path>() {
 							@Override
 							public FileVisitResult visitFile(final Path pFile,
@@ -73,14 +73,14 @@ public final class Files {
 	/**
 	 * Recursively remove a directory. Doesn't follow symlinks.
 	 * 
-	 * @param pPath
+	 * @param path
 	 *          {@link Path} to the directory
 	 * @throws IOException
 	 *           if any I/O operation fails
 	 * @throws NullPointerException
 	 *           if any of the arguments are {@code null}
 	 */
-	public static void recursiveRemove(final Path pPath) throws SirixIOException {
-		recursiveRemove(pPath, EnumSet.noneOf(FileVisitOption.class));
+	public static void recursiveRemove(final Path path) throws SirixIOException {
+		recursiveRemove(path, EnumSet.noneOf(FileVisitOption.class));
 	}
 }

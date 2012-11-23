@@ -14,7 +14,9 @@ import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.settings.Fixed;
 
 /**
- * AVLNode.
+ * AVLNode which is mutable.
+ * 
+ * @author Johannes Lichtenberger
  */
 public class AVLNode<K extends Comparable<? super K>, V> extends
 		AbstractForwardingNode implements MutableAVLNode<K, V> {
@@ -127,5 +129,15 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
 				.add("left child", mLeft).add("right child", mRight)
 				.add("changed", mChanged).add("key", mKey).add("value", mValue)
 				.toString();
+	}
+
+	@Override
+	public void setKey(final @Nonnull K key) {
+		mKey = checkNotNull(key);
+	}
+
+	@Override
+	public void setValue(final @Nonnull V value) {
+		mValue = checkNotNull(value);
 	}
 }

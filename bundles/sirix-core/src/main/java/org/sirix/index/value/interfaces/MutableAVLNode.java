@@ -9,6 +9,22 @@ package org.sirix.index.value.interfaces;
 public interface MutableAVLNode<K extends Comparable<? super K>, V> extends
 		ImmutableAVLNode<K, V> {
 	/**
+	 * Set the key.
+	 * 
+	 * @param key
+	 *          key to set
+	 */
+	void setKey(K key);
+
+	/**
+	 * Set the value.
+	 * 
+	 * @param value
+	 *          value to set
+	 */
+	void setValue(V value);
+
+	/**
 	 * Set left child.
 	 * 
 	 * @param left

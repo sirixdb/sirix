@@ -653,10 +653,18 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	PathSummary getPathSummary();
 
 	/**
-	 * Get the value index associated with the current write transaction -- might
+	 * Get the text value index associated with the current write transaction -- might
 	 * be {@code null} if no value index is used.
 	 * 
 	 * @return {@link AVLTree} instance
 	 */
-	AVLTree<TextValue, TextReferences> getValueIndex();
+	AVLTree<TextValue, TextReferences> getTextValueIndex();
+
+	/**
+	 * Get the attribute value index associated with the current write transaction -- might
+	 * be {@code null} if no value index is used.
+	 * 
+	 * @return {@link AVLTree} instance
+	 */
+	AVLTree<TextValue, TextReferences> getAttributeValueIndex();
 }

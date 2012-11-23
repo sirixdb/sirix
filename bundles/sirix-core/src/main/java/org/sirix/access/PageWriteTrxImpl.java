@@ -536,19 +536,44 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			mPageRtx.assertNotClosed();
 			mPageRtx.clearCaches();
 			mPageRtx.closeCaches();
-			mNodeLog.close();
-			mPageLog.close();
-			if (mPathLog != null) {
-				mPathLog.close();
-			}
-			if (mTextValueLog != null) {
-				mTextValueLog.close();
-			}
-			if (mAttributeValueLog != null) {
-				mAttributeValueLog.close();
-			}
+			closeCaches();
 			mPageWriter.close();
 			mIsClosed = true;
+		}
+	}
+	
+	@Override
+	public void clearCaches() {
+		mPageRtx.assertNotClosed();
+		mPageRtx.clearCaches();
+		mPageLog.clear();
+		mNodeLog.clear();
+
+		if (mPathLog != null) {
+			mPathLog.clear();
+		}
+		if (mTextValueLog != null) {
+			mTextValueLog.clear();
+		}
+		if (mAttributeValueLog != null) {
+			mAttributeValueLog.clear();
+		}
+	}
+	
+	@Override
+	public void closeCaches() {
+		mPageRtx.assertNotClosed();
+		mPageRtx.closeCaches();
+		mNodeLog.close();
+		mPageLog.close();
+		if (mPathLog != null) {
+			mPathLog.close();
+		}
+		if (mTextValueLog != null) {
+			mTextValueLog.close();
+		}
+		if (mAttributeValueLog != null) {
+			mAttributeValueLog.close();
 		}
 	}
 
@@ -778,19 +803,5 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	@Override
 	protected PageReadTrx delegate() {
 		return mPageRtx;
-	}
-
-	@Override
-	public void clearCaches() {
-		mPageRtx.assertNotClosed();
-		mPageLog.clear();
-		mNodeLog.clear();
-
-		if (mPathLog != null) {
-			mPathLog.clear();
-		}
-		if (mTextValueLog != null) {
-			mTextValueLog.clear();
-		}
 	}
 }

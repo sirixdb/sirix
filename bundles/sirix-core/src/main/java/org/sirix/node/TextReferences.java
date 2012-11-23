@@ -8,6 +8,7 @@ import java.util.Set;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.node.interfaces.Record;
 
@@ -80,7 +81,26 @@ public class TextReferences implements Record {
 	public Kind getKind() {
 		return Kind.TEXT_REFERENCES;
 	}
+	
+	@Override
+	public long getRevision() {
+		return -1; // Not needed over here
+	}
+	
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mNodeKey, mNodeKeys);
+	}
 
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof TextReferences) {
+			final TextReferences refs = (TextReferences) obj;
+			return mNodeKey == refs.mNodeKey && mNodeKeys.equals(refs.mNodeKeys);
+		}
+		return false;
+	}
+	
 	@Override
 	public String toString() {
 		final ToStringHelper helper = Objects.toStringHelper(this).add(
@@ -89,10 +109,5 @@ public class TextReferences implements Record {
 			helper.add("referenced node key", nodeKey);
 		}
 		return helper.toString();
-	}
-
-	@Override
-	public long getRevision() {
-		return -1; // Not needed over here
 	}
 }

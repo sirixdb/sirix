@@ -26,12 +26,12 @@ public class NotMoved extends Move<NodeCursor> {
 	@Override
 	public NodeCursor get() {
 		throw new IllegalStateException(
-				"Optional.get() cannot be called on an absent value");
+				"NotMoved.get() cannot be called on an absent value");
 	}
 
 	@Override
-	public boolean equals(final @Nullable Object pObject) {
-		return pObject == this;
+	public boolean equals(final @Nullable Object object) {
+		return object == this;
 	}
 
 	@Override

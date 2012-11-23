@@ -112,6 +112,10 @@ public final class AVLTree<K extends Comparable<? super K> & Record, V extends R
 		} catch (final SirixIOException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
+
+		if (((DocumentRootNode) mCurrentNode).hasFirstChild()) {
+			mRoot = moveToFirstChild().get().getAVLNode();
+		}
 	}
 
 	/**
@@ -179,6 +183,12 @@ public final class AVLTree<K extends Comparable<? super K> & Record, V extends R
 		while (true) {
 			final int c = key.compareTo(node.getKey());
 			if (c == 0) {
+				if (!value.equals(node.getValue())) {
+					final AVLNode<K, V> avlNode = (AVLNode<K, V>) mPageWriteTrx
+							.prepareNodeForModification(node.getNodeKey(), mPageKind);
+					avlNode.setValue(value);
+					mPageWriteTrx.finishNodeModification(avlNode.getNodeKey(), mPageKind);
+				}
 				return node.getValue();
 			}
 
@@ -242,7 +252,7 @@ public final class AVLTree<K extends Comparable<? super K> & Record, V extends R
 		moveTo(mRoot.getNodeKey());
 		AVLNode<K, V> node = mRoot;
 		while (true) {
-			final int c = mode.compare(node.getKey(), key);
+			final int c = mode.compare(key, node.getKey());
 			if (c == 0) {
 				return Optional.fromNullable(node.getValue());
 			}
@@ -283,7 +293,7 @@ public final class AVLTree<K extends Comparable<? super K> & Record, V extends R
 		 * @param key
 		 *          the key to search for
 		 * @param mode
-		 * 					the search mode
+		 *          the search mode
 		 */
 		public AVLIterator(final @Nonnull K key, final @Nonnull SearchMode mode) {
 			mKey = checkNotNull(key);

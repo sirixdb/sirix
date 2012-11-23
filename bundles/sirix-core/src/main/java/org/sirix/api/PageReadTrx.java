@@ -157,4 +157,6 @@ public interface PageReadTrx extends AutoCloseable {
 	 *          persistent page log
 	 */
 	void putPageCache(@Nonnull TransactionLogPageCache pageLog);
+
+	void closeCaches();
 }

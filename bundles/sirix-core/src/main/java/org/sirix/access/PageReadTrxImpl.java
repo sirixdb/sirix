@@ -443,12 +443,14 @@ final class PageReadTrxImpl implements PageReadTrx {
 	@Override
 	public void clearCaches() {
 		assertNotClosed();
-
 		if (mIndexes.contains(Indexes.PATH)) {
 			mPathCache.invalidateAll();
 		}
 		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
 			mTextValueCache.invalidateAll();
+		}
+		if (mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
+			mAttributeValueCache.invalidateAll();
 		}
 		mNodeCache.invalidateAll();
 		mPageCache.invalidateAll();
@@ -470,10 +472,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 		}
 	}
 
-	/**
-	 * Close caches.
-	 */
-	void closeCaches() {
+	@Override
+	public void closeCaches() {
+		assertNotClosed();
 		if (mPathLog.isPresent()) {
 			mPathLog.get().close();
 		}
@@ -759,13 +760,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 	@Nullable
 	final PageReference dereferenceLeafOfTree(
 			final @Nonnull PageReference startReference, final @Nonnegative long key,
-			final @Nonnull PageKind pPage) throws SirixIOException {
+			final @Nonnull PageKind pageKind) throws SirixIOException {
 
 		// Initial state pointing to the indirect page of level 0.
 		PageReference reference = checkNotNull(startReference);
 		int offset = 0;
 		long levelKey = key;
-		final int[] inpLevelPageCountExp = mUberPage.getPageCountExp(pPage);
+		final int[] inpLevelPageCountExp = mUberPage.getPageCountExp(pageKind);
 
 		// Iterate through all levels.
 		for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
@@ -786,7 +787,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 		// Return reference to leaf of indirect tree.
 		if (reference != null) {
-			reference.setPageKind(pPage);
+			reference.setPageKind(pageKind);
 		}
 		return reference;
 	}

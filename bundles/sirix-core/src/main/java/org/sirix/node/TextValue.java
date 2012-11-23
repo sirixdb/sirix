@@ -13,6 +13,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
+import com.google.common.collect.ComparisonChain;
 
 /**
  * TextValue which saves the value of a text node.
@@ -40,8 +41,10 @@ public final class TextValue implements Comparable<Record>, Record {
 	 *          the String value in bytes
 	 * @param nodeKey
 	 *          the unique node-key
-	 * @param nodeKey
+	 * @param pathNodeKey
 	 *          the path node-key
+	 * @param kind
+	 *          value kind (attribute/text)
 	 */
 	public TextValue(final @Nonnull byte[] value,
 			final @Nonnegative long nodeKey, final @Nonnegative long pathNodeKey,
@@ -65,8 +68,11 @@ public final class TextValue implements Comparable<Record>, Record {
 	@Override
 	public int compareTo(final @Nullable Record other) {
 		final TextValue value = (TextValue) other;
-		return new String(mValue, Constants.DEFAULT_ENCODING).compareTo(new String(
-				value.mValue, Constants.DEFAULT_ENCODING));
+		return ComparisonChain
+				.start()
+				.compare(new String(mValue, Constants.DEFAULT_ENCODING),
+						new String(value.mValue, Constants.DEFAULT_ENCODING))
+				.compare((Long) mPathNodeKey, (Long) value.mPathNodeKey).result();
 	}
 
 	@Override

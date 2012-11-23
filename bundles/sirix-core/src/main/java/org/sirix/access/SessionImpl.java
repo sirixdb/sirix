@@ -71,11 +71,10 @@ import org.sirix.io.StorageType;
 import org.sirix.io.Writer;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.UberPage;
+import org.sirix.page.UnorderedKeyValuePage;
 
 import com.google.common.base.Objects;
-import com.google.common.base.Optional;
 
 /**
  * <h1>Session</h1>
@@ -134,6 +133,15 @@ public final class SessionImpl implements Session {
 
 	/** File denoting that currently a version is commited. */
 	File mCommitFile;
+
+	/** Abort a write transaction. */
+	enum Abort {
+		/** Yes, abort. */
+		YES,
+
+		/** No, don't abort. */
+		NO
+	}
 
 	/**
 	 * Package private constructor.
@@ -267,7 +275,7 @@ public final class SessionImpl implements Session {
 		final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
 		commitFile(lastRev);
 		final PageWriteTrx pageWtx = createPageWriteTransaction(currentTrxID,
-				lastRev, lastRev);
+				lastRev, lastRev, Abort.NO);
 
 		// Create new node write transaction.
 		final NodeWriteTrx wtx = new NodeWriteTrxImpl(currentTrxID, this, pageWtx,
@@ -296,18 +304,21 @@ public final class SessionImpl implements Session {
 	 * @throws SirixException
 	 *           if an error occurs
 	 */
-	PageWriteTrx createPageWriteTransaction(@Nonnegative final long id,
-			@Nonnegative final int representRevision,
-			@Nonnegative final int storeRevision) throws SirixException {
-		checkArgument(id >= 0, "pId must be >= 0!");
-		checkArgument(representRevision >= 0, "pRepresentRevision must be >= 0!");
-		checkArgument(storeRevision >= 0, "pStoreRevision must be >= 0!");
+	PageWriteTrx createPageWriteTransaction(final @Nonnegative long id,
+			final @Nonnegative int representRevision,
+			final @Nonnegative int storeRevision, final @Nonnull Abort abort)
+			throws SirixException {
+		checkArgument(id >= 0, "id must be >= 0!");
+		checkArgument(representRevision >= 0, "representRevision must be >= 0!");
+		checkArgument(storeRevision >= 0, "storeRevision must be >= 0!");
 		final Writer writer = mFac.getWriter();
 		final int lastCommitedRev = mLastCommittedUberPage.get()
 				.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage.get()
 				.getLastCommitedRevisionNumber() : 0;
-		return new PageWriteTrxImpl(this, new UberPage(
-				mLastCommittedUberPage.get(), storeRevision + 1), writer, id,
+		final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
+		return new PageWriteTrxImpl(this, abort == Abort.YES
+				&& lastCommitedUberPage.isBootstrap() ? new UberPage() : new UberPage(
+				lastCommitedUberPage, storeRevision + 1), writer, id,
 				representRevision, storeRevision, lastCommitedRev);
 	}
 
@@ -349,20 +360,20 @@ public final class SessionImpl implements Session {
 	/**
 	 * Checks for valid revision.
 	 * 
-	 * @param pRevision
+	 * @param revision
 	 *          revision number to check
 	 * @throws IllegalStateException
 	 *           if {@link SessionImpl} is already closed
 	 * @throws IllegalArgumentException
 	 *           if revision isn't valid
 	 */
-	protected void assertAccess(final @Nonnegative long pRevision) {
+	protected void assertAccess(final @Nonnegative long revision) {
 		if (mClosed) {
 			throw new IllegalStateException("Session is already closed!");
 		}
-		if (pRevision < 0) {
+		if (revision < 0) {
 			throw new IllegalArgumentException("Revision must be at least 0!");
-		} else if (pRevision > mLastCommittedUberPage.get().getRevision()) {
+		} else if (revision > mLastCommittedUberPage.get().getRevision()) {
 			throw new IllegalArgumentException(new StringBuilder(
 					"Revision must not be bigger than")
 					.append(Long.toString(mLastCommittedUberPage.get().getRevision()))
@@ -397,14 +408,14 @@ public final class SessionImpl implements Session {
 	/**
 	 * Close a node page transaction.
 	 * 
-	 * @param pTransactionID
+	 * @param transactionID
 	 *          page write transaction ID
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	void closeNodePageWriteTransaction(final @Nonnegative long pTransactionID)
+	void closeNodePageWriteTransaction(final @Nonnegative long transactionID)
 			throws SirixIOException {
-		final PageReadTrx pageRtx = mNodePageTrxMap.remove(pTransactionID);
+		final PageReadTrx pageRtx = mNodePageTrxMap.remove(transactionID);
 		assert pageRtx != null : "Must be in the page trx map!";
 		pageRtx.close();
 	}
@@ -412,12 +423,12 @@ public final class SessionImpl implements Session {
 	/**
 	 * Close a write transaction.
 	 * 
-	 * @param pTransactionID
+	 * @param transactionID
 	 *          write transaction ID
 	 */
-	void closeWriteTransaction(final @Nonnegative long pTransactionID) {
+	void closeWriteTransaction(final @Nonnegative long transactionID) {
 		// Remove from internal map.
-		removeFromPageMapping(pTransactionID);
+		removeFromPageMapping(transactionID);
 
 		// Make new transactions available.
 		mWriteSemaphore.release();
@@ -426,12 +437,12 @@ public final class SessionImpl implements Session {
 	/**
 	 * Close a read transaction.
 	 * 
-	 * @param pTransactionID
+	 * @param transactionID
 	 *          read transaction ID
 	 */
-	void closeReadTransaction(final @Nonnegative long pTransactionID) {
+	void closeReadTransaction(final @Nonnegative long transactionID) {
 		// Remove from internal map.
-		removeFromPageMapping(pTransactionID);
+		removeFromPageMapping(transactionID);
 
 		// Make new transactions available.
 		mReadSemaphore.release();
@@ -440,15 +451,15 @@ public final class SessionImpl implements Session {
 	/**
 	 * Remove from internal maps.
 	 * 
-	 * @param pTransactionID
+	 * @param transactionID
 	 *          transaction ID to remove
 	 */
-	private void removeFromPageMapping(final @Nonnegative long pTransactionID) {
+	private void removeFromPageMapping(final @Nonnegative long transactionID) {
 		// Purge transaction from internal state.
-		mNodeTrxMap.remove(pTransactionID);
+		mNodeTrxMap.remove(transactionID);
 
 		// Removing the write from the own internal mapping
-		mNodePageTrxMap.remove(pTransactionID);
+		mNodePageTrxMap.remove(transactionID);
 	}
 
 	@Override
@@ -470,7 +481,7 @@ public final class SessionImpl implements Session {
 	/**
 	 * Synchronize logs.
 	 * 
-	 * @param pContToSync
+	 * @param contToSync
 	 *          {@link RecordPageContainer} to synchronize
 	 * @param pTransactionId
 	 *          transaction ID
@@ -478,20 +489,20 @@ public final class SessionImpl implements Session {
 	 * 
 	 */
 	protected synchronized void syncLogs(
-			final @Nonnull RecordPageContainer<UnorderedKeyValuePage> pContToSync,
-			final @Nonnegative long pTransactionID, final @Nonnull PageKind pPage)
+			final @Nonnull RecordPageContainer<UnorderedKeyValuePage> contToSync,
+			final @Nonnegative long transactionID, final @Nonnull PageKind pageKind)
 			throws SirixThreadedException {
 		final ExecutorService pool = Executors.newCachedThreadPool();
 		final Collection<Future<Void>> returnVals = new ArrayList<>();
 		for (final Long key : mNodePageTrxMap.keySet()) {
-			if (key != pTransactionID) {
+			if (key != transactionID) {
 				returnVals.add(pool.submit(new LogSyncer(mNodePageTrxMap.get(key),
-						pContToSync, pPage)));
+						contToSync, pageKind)));
 			}
 		}
 		pool.shutdown();
-		if (!mSyncTransactionsReturns.containsKey(pTransactionID)) {
-			mSyncTransactionsReturns.put(pTransactionID,
+		if (!mSyncTransactionsReturns.containsKey(transactionID)) {
+			mSyncTransactionsReturns.put(transactionID,
 					new ConcurrentHashMap<Long, Collection<Future<Void>>>());
 		}
 		// if (mSyncTransactionsReturns.get(pTransactionId).put(
@@ -553,7 +564,8 @@ public final class SessionImpl implements Session {
 		 * @param pPage
 		 *          page type
 		 */
-		LogSyncer(final @Nonnull PageWriteTrx pPageWriteTransaction,
+		LogSyncer(
+				final @Nonnull PageWriteTrx pPageWriteTransaction,
 				final @Nonnull RecordPageContainer<UnorderedKeyValuePage> pNodePageCont,
 				final @Nonnull PageKind pPage) {
 			mPageWriteTrx = checkNotNull(pPageWriteTransaction);
@@ -571,11 +583,11 @@ public final class SessionImpl implements Session {
 	/**
 	 * Set last commited {@link UberPage}.
 	 * 
-	 * @param pPage
+	 * @param page
 	 *          the new {@link UberPage}
 	 */
-	protected void setLastCommittedUberPage(@Nonnull final UberPage pPage) {
-		mLastCommittedUberPage.set(checkNotNull(pPage));
+	protected void setLastCommittedUberPage(final @Nonnull UberPage page) {
+		mLastCommittedUberPage.set(checkNotNull(page));
 	}
 
 	@Override
@@ -589,12 +601,12 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public synchronized PathSummary openPathSummary(@Nonnegative int pRev)
-			throws SirixException {
-		assertAccess(pRev);
+	public synchronized PathSummary openPathSummary(
+			final @Nonnegative int revision) throws SirixException {
+		assertAccess(revision);
 
 		return PathSummary.getInstance(new PageReadTrxImpl(this,
-				mLastCommittedUberPage.get(), pRev, mFac.getReader()), this);
+				mLastCommittedUberPage.get(), revision, mFac.getReader()), this);
 	}
 
 	@Override
@@ -608,9 +620,9 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public synchronized PageReadTrx beginPageReadTrx(@Nonnegative int pRev)
-			throws SirixException {
-		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), pRev,
+	public synchronized PageReadTrx beginPageReadTrx(
+			final @Nonnegative int revision) throws SirixException {
+		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision,
 				mFac.getReader());
 	}
 
@@ -620,12 +632,12 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public synchronized PageWriteTrx beginPageWriteTrx(@Nonnegative int pRev)
-			throws SirixException {
+	public synchronized PageWriteTrx beginPageWriteTrx(
+			final @Nonnegative int revision) throws SirixException {
 		final long currentPageTrxID = mPageTrxIDCounter.incrementAndGet();
 		final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
 		final PageWriteTrx pageWtx = createPageWriteTransaction(currentPageTrxID,
-				lastRev, lastRev);
+				lastRev, lastRev, Abort.NO);
 
 		// Remember page transaction for debugging and safe close.
 		if (mPageTrxMap.put(currentPageTrxID, pageWtx) != null) {
@@ -639,12 +651,6 @@ public final class SessionImpl implements Session {
 	@Override
 	public synchronized Database getDatabase() {
 		return mDatabase;
-	}
-
-	@Override
-	public Optional<NodeWriteTrx> getNodeWriteTrx() {
-		// TODO
-		return null;
 	}
 
 	@Override
