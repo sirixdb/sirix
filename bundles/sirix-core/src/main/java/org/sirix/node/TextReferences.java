@@ -1,6 +1,5 @@
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Collections;
@@ -9,8 +8,6 @@ import java.util.Set;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-
-import org.sirix.node.interfaces.Record;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
@@ -21,12 +18,9 @@ import com.google.common.base.Objects.ToStringHelper;
  * @author Johannes Lichtenberger
  * 
  */
-public class TextReferences implements Record {
+public class TextReferences {
 	/** A {@link Set} of node-keys. */
 	private final Set<Long> mNodeKeys;
-
-	/** Node-ID. */
-	private final long mNodeKey;
 
 	/**
 	 * Constructor.
@@ -36,10 +30,8 @@ public class TextReferences implements Record {
 	 * @param nodeKey
 	 *          node key of this node
 	 */
-	public TextReferences(final @Nonnull Set<Long> nodeKeys, final long nodeKey) {
+	public TextReferences(final @Nonnull Set<Long> nodeKeys) {
 		mNodeKeys = Collections.synchronizedSet(checkNotNull(nodeKeys));
-		checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
-		mNodeKey = nodeKey;
 	}
 
 	/**
@@ -73,38 +65,22 @@ public class TextReferences implements Record {
 	}
 
 	@Override
-	public long getNodeKey() {
-		return mNodeKey;
-	}
-
-	@Override
-	public Kind getKind() {
-		return Kind.TEXT_REFERENCES;
-	}
-	
-	@Override
-	public long getRevision() {
-		return -1; // Not needed over here
-	}
-	
-	@Override
 	public int hashCode() {
-		return Objects.hashCode(mNodeKey, mNodeKeys);
+		return Objects.hashCode(mNodeKeys);
 	}
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof TextReferences) {
 			final TextReferences refs = (TextReferences) obj;
-			return mNodeKey == refs.mNodeKey && mNodeKeys.equals(refs.mNodeKeys);
+			return mNodeKeys.equals(refs.mNodeKeys);
 		}
 		return false;
 	}
 	
 	@Override
 	public String toString() {
-		final ToStringHelper helper = Objects.toStringHelper(this).add(
-				"this nodeKey", mNodeKey);
+		final ToStringHelper helper = Objects.toStringHelper(this);
 		for (final long nodeKey : mNodeKeys) {
 			helper.add("referenced node key", nodeKey);
 		}

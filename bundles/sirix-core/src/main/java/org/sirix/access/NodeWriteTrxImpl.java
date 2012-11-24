@@ -93,7 +93,6 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
-import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.service.xml.shredder.Insert;
@@ -1345,12 +1344,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		final Indexes index = kind == ValueKind.ATTRIBUTE ? Indexes.ATTRIBUTE_VALUE
 				: Indexes.TEXT_VALUE;
 		if (mIndexes.contains(index) && value.length < 15) {
-			final PageKind pageKind = kind == ValueKind.ATTRIBUTE ? PageKind.ATTRIBUTEVALUEPAGE
-					: PageKind.TEXTVALUEPAGE;
-			final PageWriteTrx pageTrx = getPageTransaction();
-			final RevisionRootPage root = pageTrx.getActualRevisionRootPage();
-			final long maxValue = kind == ValueKind.ATTRIBUTE ? root
-					.getMaxAttributeValueNodeKey() : root.getMaxTextValueNodeKey();
 			final long nodeKey = mNodeRtx.getNodeKey();
 			if (kind == ValueKind.TEXT) {
 				mNodeRtx.moveToParent();
@@ -1360,7 +1353,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			if (kind == ValueKind.TEXT) {
 				mNodeRtx.moveTo(nodeKey);
 			}
-			final TextValue textVal = new TextValue(value, maxValue + 1, pathNodeKey,
+			final TextValue textVal = new TextValue(value, pathNodeKey,
 					kind);
 			final Optional<TextReferences> textReferences = kind == ValueKind.ATTRIBUTE ? mAVLAttributeTree
 					.get(textVal, SearchMode.EQUAL) : mAVLTextTree.get(textVal,
@@ -1369,9 +1362,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				final TextReferences references = textReferences.get();
 				setRefNodeKey(kind, textVal, references);
 			} else {
-				pageTrx.createNode(textVal, pageKind);
-				final TextReferences references = (TextReferences) pageTrx.createNode(
-						new TextReferences(new HashSet<Long>(), maxValue + 2), pageKind);
+				final TextReferences references = new TextReferences(new HashSet<Long>());
 				setRefNodeKey(kind, textVal, references);
 			}
 		}
@@ -1391,14 +1382,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 */
 	private void setRefNodeKey(final ValueKind kind, final TextValue textVal,
 			@Nonnull TextReferences references) throws SirixIOException {
-		// final PageKind pageKind = kind == ValueKind.ATTRIBUTE ?
-		// PageKind.ATTRIBUTEVALUEPAGE
-		// : PageKind.TEXTVALUEPAGE;
-		// references = (TextReferences) getPageTransaction()
-		// .prepareNodeForModification(references.getNodeKey(), pageKind);
 		references.setNodeKey(mNodeRtx.getCurrentNode().getNodeKey());
-		// getPageTransaction().finishNodeModification(references.getNodeKey(),
-		// pageKind);
 		switch (kind) {
 		case ATTRIBUTE:
 			mAVLAttributeTree.index(textVal, references, MoveCursor.NO_MOVE);

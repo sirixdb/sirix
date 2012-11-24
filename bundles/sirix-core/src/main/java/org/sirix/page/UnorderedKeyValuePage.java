@@ -27,7 +27,6 @@
 package org.sirix.page;
 
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -40,10 +39,6 @@ import javax.annotation.Nullable;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.index.value.AVLNode;
-import org.sirix.node.Kind;
-import org.sirix.node.TextReferences;
-import org.sirix.node.TextValue;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.delegates.PageDelegate;
@@ -121,12 +116,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		for (int offset = 0; offset < size; offset++) {
 			final Record node = persistenter.deserialize(in, pageReadTrx);
 			mRecords.put(node.getNodeKey(), node);
-//			if (node.getKind() == Kind.AVL) {
-//				@SuppressWarnings("unchecked")
-//				final AVLNode<TextValue, TextReferences> valueNode = (AVLNode<TextValue, TextReferences>) node;
-//				mRecords.put(valueNode.getKey().getNodeKey(), valueNode.getKey());
-//				mRecords.put(valueNode.getValue().getNodeKey(), valueNode.getValue());
-//			}
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
@@ -154,23 +143,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
 		out.writeInt(mRevision);
 		out.writeLong(mRecordPageKey);
-		int size = 0;
-		for (final Record node : mRecords.values()) {
-			if (node.getKind() != Kind.ATTRIBUTE_VALUE
-					&& node.getKind() != Kind.TEXT_VALUE
-					&& node.getKind() != Kind.TEXT_REFERENCES) {
-				size++;
-			}
-		}
-		out.writeInt(size);
+		out.writeInt(mRecords.size());
 		final RecordPersistenter persistenter = mPageReadTrx.getSession()
 				.getResourceConfig().mPersistenter;
 		for (final Record node : mRecords.values()) {
-			if (node.getKind() != Kind.ATTRIBUTE_VALUE
-					&& node.getKind() != Kind.TEXT_VALUE
-					&& node.getKind() != Kind.TEXT_REFERENCES) {
-				persistenter.serialize(out, node, mPageReadTrx);
-			}
+			persistenter.serialize(out, node, mPageReadTrx);
 		}
 	}
 

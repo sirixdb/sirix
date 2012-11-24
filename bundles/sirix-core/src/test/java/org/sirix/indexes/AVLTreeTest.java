@@ -62,15 +62,15 @@ public class AVLTreeTest {
 		final AVLTree<TextValue, TextReferences> attIndex = wtx
 				.getAttributeValueIndex();
 		final Optional<TextReferences> fooRefs = attIndex.get(
-				new TextValue("foo".getBytes(Constants.DEFAULT_ENCODING), 0, 0,
+				new TextValue("foo".getBytes(Constants.DEFAULT_ENCODING), 0,
 						ValueKind.ATTRIBUTE), SearchMode.EQUAL);
 		assertTrue(!fooRefs.isPresent());
 		final Optional<TextReferences> barRefs1 = attIndex.get(
-				new TextValue("bar".getBytes(Constants.DEFAULT_ENCODING), 0, 2,
+				new TextValue("bar".getBytes(Constants.DEFAULT_ENCODING), 2,
 						ValueKind.ATTRIBUTE), SearchMode.EQUAL);
 		check(barRefs1, ImmutableSet.of(2L));
 		final Optional<TextReferences> barRefs2 = attIndex.get(
-				new TextValue("bar".getBytes(Constants.DEFAULT_ENCODING), 0, 5,
+				new TextValue("bar".getBytes(Constants.DEFAULT_ENCODING), 5,
 						ValueKind.ATTRIBUTE), SearchMode.EQUAL);
 		check(barRefs2, ImmutableSet.of(5L));
 	}

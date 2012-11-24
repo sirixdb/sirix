@@ -446,7 +446,6 @@ public enum Kind implements RecordPersistenter {
 			final int size = source.readInt();
 			final byte[] value = new byte[size];
 			source.readFully(value, 0, size);
-			final long valueNodeKey = getLong(source);
 			final boolean kind = source.readBoolean();
 			final ValueKind valueKind = kind ? ValueKind.TEXT : ValueKind.ATTRIBUTE;
 			final int keySize = source.readInt();
@@ -454,7 +453,6 @@ public enum Kind implements RecordPersistenter {
 			for (int i = 0; i < keySize; i++) {
 				nodeKeys.add(source.readLong());
 			}
-			final long referencesNodeKey = getLong(source);
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source,
 					pageReadTrx);
@@ -463,8 +461,8 @@ public enum Kind implements RecordPersistenter {
 			final long pathNodeKey = getLong(source);
 			final boolean isChanged = source.readBoolean();
 			final AVLNode<TextValue, TextReferences> node = new AVLNode<>(
-					new TextValue(value, valueNodeKey, pathNodeKey, valueKind),
-					new TextReferences(nodeKeys, referencesNodeKey), nodeDel);
+					new TextValue(value, pathNodeKey, valueKind),
+					new TextReferences(nodeKeys), nodeDel);
 			node.setLeftChildKey(leftChild);
 			node.setRightChildKey(rightChild);
 			node.setChanged(isChanged);
@@ -481,69 +479,19 @@ public enum Kind implements RecordPersistenter {
 			final byte[] textValue = key.getValue();
 			sink.writeInt(textValue.length);
 			sink.write(textValue);
-			putLong(sink, key.getNodeKey());
-			sink.writeBoolean(key.getKind() == Kind.TEXT_VALUE ? true : false);
+			sink.writeBoolean(key.getKind() == ValueKind.TEXT ? true : false);
 			final TextReferences value = node.getValue();
 			final Set<Long> nodeKeys = value.getNodeKeys();
 			sink.writeInt(nodeKeys.size());
 			for (final long nodeKey : nodeKeys) {
 				sink.writeLong(nodeKey);
 			}
-			putLong(sink, value.getNodeKey());
 			serializeDelegate(node.getNodeDelegate(), sink, pageReadTrx);
 			putLong(sink, node.getLeftChildKey());
 			putLong(sink, node.getRightChildKey());
 			putLong(sink, key.getPathNodeKey());
 			sink.writeBoolean(node.isChanged());
 		};
-	},
-
-	/** Node is a text value. */
-	TEXT_VALUE((byte) 18, TextValue.class) {
-		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnull PageReadTrx pageReadTrx) {
-			throw new UnsupportedOperationException();
-		}
-
-		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record toSerialize,
-				final @Nonnull PageReadTrx pageReadTrx) {
-			throw new UnsupportedOperationException();
-		}
-	},
-
-	/** Node is an attribute value. */
-	ATTRIBUTE_VALUE((byte) 19, TextValue.class) {
-		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnull PageReadTrx pageReadTrx) {
-			throw new UnsupportedOperationException();
-		}
-
-		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record toSerialize,
-				final @Nonnull PageReadTrx pageReadTrx) {
-			throw new UnsupportedOperationException();
-		}
-	},
-
-	/** Node includes text node references. */
-	TEXT_REFERENCES((byte) 21, TextReferences.class) {
-		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnull PageReadTrx pageReadTrx) {
-			throw new UnsupportedOperationException();
-		}
-
-		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record toSerialize,
-				final @Nonnull PageReadTrx pageReadTrx) {
-			throw new UnsupportedOperationException();
-		}
 	},
 
 	/** Node includes a deweyID <=> nodeKey mapping. */

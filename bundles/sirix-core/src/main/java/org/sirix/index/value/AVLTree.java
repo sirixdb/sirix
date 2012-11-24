@@ -45,7 +45,7 @@ import com.google.common.collect.AbstractIterator;
  * @param <V>
  *          the value
  */
-public final class AVLTree<K extends Comparable<? super K> & Record, V extends Record>
+public final class AVLTree<K extends Comparable<? super K>, V>
 		implements NodeCursor {
 
 	/** {@link LogWrapper} reference. */
@@ -127,7 +127,7 @@ public final class AVLTree<K extends Comparable<? super K> & Record, V extends R
 	 *          kind of value (attribute/text)
 	 * @return new tree instance
 	 */
-	public static <KE extends Comparable<? super KE> & Record, VA extends Record> AVLTree<KE, VA> getInstance(
+	public static <KE extends Comparable<? super KE>, VA> AVLTree<KE, VA> getInstance(
 			final @Nonnull PageWriteTrx pageWriteTrx, final @Nonnull ValueKind kind) {
 		return new AVLTree<KE, VA>(pageWriteTrx, kind);
 	}

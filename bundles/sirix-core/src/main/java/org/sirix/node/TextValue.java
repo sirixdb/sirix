@@ -1,6 +1,5 @@
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Arrays;
@@ -9,7 +8,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.node.interfaces.Record;
 import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
@@ -21,12 +19,9 @@ import com.google.common.collect.ComparisonChain;
  * @author Johannes Lichtenberger
  * 
  */
-public final class TextValue implements Comparable<Record>, Record {
+public final class TextValue implements Comparable<TextValue> {
 	/** Value in bytes. */
 	private final byte[] mValue;
-
-	/** Unique node-key. */
-	private final long mNodeKey;
 
 	/** Path node key this text value belongs to (that is the parent path). */
 	private long mPathNodeKey;
@@ -47,13 +42,19 @@ public final class TextValue implements Comparable<Record>, Record {
 	 *          value kind (attribute/text)
 	 */
 	public TextValue(final @Nonnull byte[] value,
-			final @Nonnegative long nodeKey, final @Nonnegative long pathNodeKey,
-			final @Nonnull ValueKind kind) {
+			final @Nonnegative long pathNodeKey, final @Nonnull ValueKind kind) {
 		mValue = checkNotNull(value);
-		checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
-		mNodeKey = nodeKey;
 		mPathNodeKey = pathNodeKey;
 		mKind = checkNotNull(kind);
+	}
+
+	/**
+	 * Get the kind of value (text/attribute).
+	 * 
+	 * @return kind of value
+	 */
+	public ValueKind getKind() {
+		return mKind;
 	}
 
 	/**
@@ -66,7 +67,7 @@ public final class TextValue implements Comparable<Record>, Record {
 	}
 
 	@Override
-	public int compareTo(final @Nullable Record other) {
+	public int compareTo(final @Nullable TextValue other) {
 		final TextValue value = (TextValue) other;
 		return ComparisonChain
 				.start()
@@ -89,11 +90,6 @@ public final class TextValue implements Comparable<Record>, Record {
 		return false;
 	}
 
-	@Override
-	public long getNodeKey() {
-		return mNodeKey;
-	}
-
 	/**
 	 * Get path node key.
 	 * 
@@ -104,18 +100,8 @@ public final class TextValue implements Comparable<Record>, Record {
 	}
 
 	@Override
-	public Kind getKind() {
-		return mKind.getKind();
-	}
-
-	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("nodeKey", mNodeKey)
-				.add("value", new String(mValue)).toString();
-	}
-
-	@Override
-	public long getRevision() {
-		return -1; // Not needed over here
+		return Objects.toStringHelper(this).add("value", new String(mValue))
+				.toString();
 	}
 }
