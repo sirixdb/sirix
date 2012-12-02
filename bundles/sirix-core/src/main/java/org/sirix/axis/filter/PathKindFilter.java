@@ -5,11 +5,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
-import org.sirix.index.path.PathSummary;
+import org.sirix.index.path.PathSummaryReader;
 import org.sirix.node.Kind;
 
 /**
- * Path filter for {@link PathSummary}, filtering specific path types.
+ * Path filter for {@link PathSummaryReader}, filtering specific path types.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -30,7 +30,7 @@ public class PathKindFilter extends AbstractFilter {
 	public PathKindFilter(final @Nonnull NodeReadTrx rtx,
 			final @Nonnull Kind type) {
 		super(rtx);
-		checkArgument(rtx instanceof PathSummary);
+		checkArgument(rtx instanceof PathSummaryReader);
 		mType = type;
 	}
 

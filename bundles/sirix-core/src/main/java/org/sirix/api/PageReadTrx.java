@@ -9,9 +9,9 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
+import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.Optional;
@@ -32,17 +32,17 @@ public interface PageReadTrx extends AutoCloseable {
 	Session getSession();
 
 	/**
-	 * Get a node from persistent storage.
+	 * Get a record from persistent storage.
 	 * 
 	 * @param key
-	 *          the unique node-ID
+	 *          the unique record-ID
 	 * @param page
-	 *          the page from which to fetch the node
+	 *          the page from which to fetch the record
 	 * @return an {@link Optional} reference usually containing the node reference
 	 * @throws SirixIOException
 	 *           if an I/O error occured
 	 */
-	Optional<? extends Record> getNode(final @Nonnegative long key,
+	Optional<? extends Record> getRecord(final @Nonnegative long key,
 			final @Nonnull PageKind page) throws SirixIOException;
 
 	/**
@@ -102,20 +102,26 @@ public interface PageReadTrx extends AutoCloseable {
 	void close() throws SirixIOException;
 
 	/**
-	 * Get a node from the page layer.
+	 * Get a the record page container with the full/modified pages from the page
+	 * layer, given the unique page key and the page kind.
 	 * 
 	 * @param key
-	 *          {@code nodeKey} of node
+	 *          {@code key} of key/value page to get the record from
+	 * @param pageKind
+	 *          kind of page to lookup
 	 * @return {@code the node} or {@code null} if it's not available
 	 * @throws SirixIOException
-	 *           if can't read nodePage
+	 *           if can't read recordPage
 	 * @throws NullPointerException
-	 *           if {@code pPage} is {@code null}
+	 *           if {@code key} is {@code null}
+	 * @throws NullPointerException
+	 *           if {@code pageKind} is {@code null}
 	 * @throws IllegalArgumentException
-	 *           if {@code pKey} is negative
+	 *           if {@code key} is negative
 	 */
-	RecordPageContainer<UnorderedKeyValuePage> getNodeFromPage(@Nonnegative long key,
-			@Nonnull PageKind page) throws SirixIOException;
+	<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
+			@Nonnull @Nonnegative Long key, @Nonnull PageKind pageKind)
+			throws SirixIOException;
 
 	/**
 	 * Get the {@link UberPage}.
@@ -158,5 +164,8 @@ public interface PageReadTrx extends AutoCloseable {
 	 */
 	void putPageCache(@Nonnull TransactionLogPageCache pageLog);
 
+	/**
+	 * Close the caches.
+	 */
 	void closeCaches();
 }

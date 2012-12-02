@@ -45,11 +45,11 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class PathSummary implements NodeReadTrx {
+public final class PathSummaryReader implements NodeReadTrx {
 
 	/** Logger. */
 	private final LogWrapper LOGWRAPPER = new LogWrapper(
-			LoggerFactory.getLogger(PathSummary.class));
+			LoggerFactory.getLogger(PathSummaryReader.class));
 
 	/** Strong reference to currently selected node. */
 	private Node mCurrentNode;
@@ -71,13 +71,13 @@ public final class PathSummary implements NodeReadTrx {
 	 * @param session
 	 *          {@link Session} reference
 	 */
-	private PathSummary(final @Nonnull PageReadTrx pageReadTrx,
+	private PathSummaryReader(final @Nonnull PageReadTrx pageReadTrx,
 			final @Nonnull Session session) {
 		mPageReadTrx = pageReadTrx;
 		mClosed = false;
 		mSession = session;
 		try {
-			final Optional<? extends Record> node = mPageReadTrx.getNode(
+			final Optional<? extends Record> node = mPageReadTrx.getRecord(
 					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
 					PageKind.PATHSUMMARYPAGE);
 			if (node.isPresent()) {
@@ -103,9 +103,9 @@ public final class PathSummary implements NodeReadTrx {
 	 *          {@link IPageReaderTrx} implementation
 	 * @return new path summary instance
 	 */
-	public static final PathSummary getInstance(
+	public static final PathSummaryReader getInstance(
 			final @Nonnull PageReadTrx pageReadTrx, final @Nonnull Session session) {
-		return new PathSummary(checkNotNull(pageReadTrx), checkNotNull(session));
+		return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(session));
 	}
 
 	@Override
@@ -140,7 +140,7 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveTo(final long pNodeKey) {
+	public Move<? extends PathSummaryReader> moveTo(final long pNodeKey) {
 		assertNotClosed();
 
 		// Remember old node and fetch new one.
@@ -150,7 +150,7 @@ public final class PathSummary implements NodeReadTrx {
 			// Immediately return node from item list if node key negative.
 			@SuppressWarnings("unchecked")
 			final Optional<? extends Node> node = (Optional<? extends Node>) mPageReadTrx
-					.getNode(pNodeKey, PageKind.PATHSUMMARYPAGE);
+					.getRecord(pNodeKey, PageKind.PATHSUMMARYPAGE);
 			newNode = node;
 		} catch (final SirixIOException e) {
 			newNode = Optional.absent();
@@ -166,13 +166,13 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToParent() {
+	public Move<? extends PathSummaryReader> moveToParent() {
 		assertNotClosed();
 		return moveTo(getStructuralNode().getParentKey());
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToFirstChild() {
+	public Move<? extends PathSummaryReader> moveToFirstChild() {
 		assertNotClosed();
 		if (!getStructuralNode().hasFirstChild()) {
 			return Move.notMoved();
@@ -181,7 +181,7 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToLeftSibling() {
+	public Move<? extends PathSummaryReader> moveToLeftSibling() {
 		assertNotClosed();
 		if (!getStructuralNode().hasLeftSibling()) {
 			return Move.notMoved();
@@ -190,7 +190,7 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToRightSibling() {
+	public Move<? extends PathSummaryReader> moveToRightSibling() {
 		assertNotClosed();
 		if (!getStructuralNode().hasRightSibling()) {
 			return Move.notMoved();
@@ -221,7 +221,7 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToDocumentRoot() {
+	public Move<? extends PathSummaryReader> moveToDocumentRoot() {
 		return moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 	}
 
@@ -259,17 +259,17 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToAttribute(@Nonnegative int index) {
+	public Move<? extends PathSummaryReader> moveToAttribute(@Nonnegative int index) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToAttributeByName(@Nonnull QName name) {
+	public Move<? extends PathSummaryReader> moveToAttributeByName(@Nonnull QName name) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToNamespace(@Nonnegative int index) {
+	public Move<? extends PathSummaryReader> moveToNamespace(@Nonnegative int index) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -361,7 +361,7 @@ public final class PathSummary implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummary> moveToLastChild() {
+	public Move<? extends PathSummaryReader> moveToLastChild() {
 		assertNotClosed();
 		if (getStructuralNode().hasFirstChild()) {
 			moveToFirstChild();

@@ -38,11 +38,11 @@ import javax.xml.stream.XMLStreamException;
 import org.sirix.access.Movement;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.index.path.PathSummary;
+import org.sirix.index.path.PathSummaryReader;
 import org.sirix.index.value.AVLTree;
+import org.sirix.index.value.References;
+import org.sirix.index.value.Value;
 import org.sirix.node.TextNode;
-import org.sirix.node.TextReferences;
-import org.sirix.node.TextValue;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 
@@ -645,12 +645,12 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	void addPostCommitHook(@Nonnull PostCommitHook hook);
 
 	/**
-	 * Get the {@link PathSummary} associated with the current write transaction
+	 * Get the {@link PathSummaryReader} associated with the current write transaction
 	 * -- might be {@code null} if no path summary index is used.
 	 * 
-	 * @return {@link PathSummary} instance
+	 * @return {@link PathSummaryReader} instance
 	 */
-	PathSummary getPathSummary();
+	PathSummaryReader getPathSummary();
 
 	/**
 	 * Get the text value index associated with the current write transaction -- might
@@ -658,7 +658,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * 
 	 * @return {@link AVLTree} instance
 	 */
-	AVLTree<TextValue, TextReferences> getTextValueIndex();
+	AVLTree<Value, References> getTextValueIndex();
 
 	/**
 	 * Get the attribute value index associated with the current write transaction -- might
@@ -666,5 +666,5 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * 
 	 * @return {@link AVLTree} instance
 	 */
-	AVLTree<TextValue, TextReferences> getAttributeValueIndex();
+	AVLTree<Value, References> getAttributeValueIndex();
 }

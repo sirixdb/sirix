@@ -448,6 +448,6 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
-		ndp.setRecord(new DocumentRootNode(nodeDel, strucDel));
+		ndp.setRecord(0L, new DocumentRootNode(nodeDel, strucDel));
 	}
 }

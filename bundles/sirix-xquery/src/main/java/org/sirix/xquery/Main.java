@@ -60,20 +60,18 @@ public class Main {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-			loadDocumentAndQuery();
-			System.out.println();
-			loadDocumentAndUpdate();
-			System.out.println();
-			loadCollectionAndQuery();
-			System.out.println();
+//			loadDocumentAndQuery();
+//			System.out.println();
+//			loadDocumentAndUpdate();
+//			System.out.println();
+//			loadCollectionAndQuery();
+//			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
 			System.err.println(e.getMessage());
 		} catch (QueryException e) {
 			System.err.print("XQuery error ");
-			System.err.print(e.getCode());
-			System.err.print(": ");
 			System.err.println(e.getMessage());
 		}
 	}
@@ -87,9 +85,9 @@ public class Main {
 		// File tmpDir = new File(System.getProperty("java.io.tmpdir"));
 		// File doc = generateSampleDoc(tmpDir, "sample", 0);
 		// doc.deleteOnExit();
-		final File doc = new File(new StringBuilder("src")
-				.append(File.separator).append("test").append(File.separator)
-				.append("resources").append(File.separator).append("test.xml").toString());
+		final File doc = new File(new StringBuilder("src").append(File.separator)
+				.append("test").append(File.separator).append("resources")
+				.append(File.separator).append("test.xml").toString());
 
 		// Initialize query context and store.
 		final DBStore store = new DBStore();
@@ -231,7 +229,7 @@ public class Main {
 			q.setPrettyPrint(true);
 			q.serialize(ctx2, System.out);
 			System.out.println();
-			
+
 			// Use XQuery to load all sample documents once more into store.
 			System.out.println("Load collection from files:");
 			final String xq3 = String.format(
@@ -265,10 +263,11 @@ public class Main {
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq2 = "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
+			final String xq2 = "copy $c := <x a='a'/> modify (delete node $c/@a, insert node attribute a { 'b' } into $c, replace node $c/@a with attribute a { 'b' }) return $c";// "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
 			System.out.println(xq2);
 			// final Sequence seq = new XQuery(xq2).evaluate(ctx2);
-			new XQuery(xq2).execute(ctx2);
+			final XQuery q = new XQuery(xq2);
+			q.serialize(ctx2, System.out);
 			store.commitAll();
 			System.out.println();
 		}
@@ -316,7 +315,8 @@ public class Main {
 	 * @throws IOException
 	 *           if any I/O exception occured
 	 */
-	private static File generateSampleDoc(final File dir, final String prefix) throws IOException {
+	private static File generateSampleDoc(final File dir, final String prefix)
+			throws IOException {
 		File file = File.createTempFile(prefix, ".xml", dir);
 		file.deleteOnExit();
 		PrintStream out = new PrintStream(new FileOutputStream(file));

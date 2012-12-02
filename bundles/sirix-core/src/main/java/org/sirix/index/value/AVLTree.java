@@ -20,7 +20,6 @@ import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.node.ValueKind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
@@ -70,9 +69,12 @@ public final class AVLTree<K extends Comparable<? super K>, V>
 	/** Page kind. */
 	private final PageKind mPageKind;
 
+	/** Determines movement of the internal cursor. */
 	public enum MoveCursor {
+		/** Cursor should be moved document root. */
 		TO_DOCUMENT_ROOT,
 
+		/** Cursor should not be moved. */
 		NO_MOVE
 	}
 
@@ -101,7 +103,7 @@ public final class AVLTree<K extends Comparable<? super K>, V>
 		mClosed = false;
 
 		try {
-			Optional<? extends Record> node = mPageWriteTrx.getNode(
+			Optional<? extends Record> node = mPageWriteTrx.getRecord(
 					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), mPageKind);
 			if (node.isPresent()) {
 				mCurrentNode = (Node) node.get();
@@ -664,7 +666,7 @@ public final class AVLTree<K extends Comparable<? super K>, V>
 			// Immediately return node from item list if node key negative.
 			@SuppressWarnings("unchecked")
 			final Optional<? extends Node> node = (Optional<? extends Node>) mPageWriteTrx
-					.getNode(nodeKey, mPageKind);
+					.getRecord(nodeKey, mPageKind);
 			newNode = node;
 		} catch (final SirixIOException e) {
 			newNode = Optional.absent();

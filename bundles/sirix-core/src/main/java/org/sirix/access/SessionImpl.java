@@ -64,7 +64,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.index.path.PathSummary;
+import org.sirix.index.path.PathSummaryReader;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;
 import org.sirix.io.StorageType;
@@ -601,16 +601,16 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public synchronized PathSummary openPathSummary(
+	public synchronized PathSummaryReader openPathSummary(
 			final @Nonnegative int revision) throws SirixException {
 		assertAccess(revision);
 
-		return PathSummary.getInstance(new PageReadTrxImpl(this,
+		return PathSummaryReader.getInstance(new PageReadTrxImpl(this,
 				mLastCommittedUberPage.get(), revision, mFac.getReader()), this);
 	}
 
 	@Override
-	public PathSummary openPathSummary() throws SirixException {
+	public PathSummaryReader openPathSummary() throws SirixException {
 		return openPathSummary(mLastCommittedUberPage.get().getRevisionNumber());
 	}
 

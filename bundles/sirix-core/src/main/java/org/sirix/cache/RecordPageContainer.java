@@ -30,6 +30,7 @@ package org.sirix.cache;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -44,10 +45,10 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * 
  * <p>
  * This class acts as a container for revisioned {@link KeyValuePage}s. Each
- * {@link KeyValuePage} is stored in a versioned manner. If modifications
- * occur, the versioned {@link KeyValuePage}s are dereferenced and
- * reconstructed. Afterwards, this container is used to store a complete
- * {@link KeyValuePage} as well as one for upcoming modifications.
+ * {@link KeyValuePage} is stored in a versioned manner. If modifications occur,
+ * the versioned {@link KeyValuePage}s are dereferenced and reconstructed.
+ * Afterwards, this container is used to store a complete {@link KeyValuePage}
+ * as well as one for upcoming modifications.
  * </p>
  * 
  * <p>
@@ -62,10 +63,16 @@ import com.sleepycat.bind.tuple.TupleOutput;
  */
 public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
-	/** {@link UnorderedKeyValuePage} reference, which references the complete node page. */
+	/**
+	 * {@link UnorderedKeyValuePage} reference, which references the complete
+	 * key/value page.
+	 */
 	private final T mComplete;
 
-	/** {@link UnorderedKeyValuePage} reference, which references the modified node page. */
+	/**
+	 * {@link UnorderedKeyValuePage} reference, which references the modified
+	 * key/value page.
+	 */
 	private final T mModified;
 
 	/** Empty instance. */
@@ -75,6 +82,11 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	private RecordPageContainer() {
 		mComplete = null;
 		mModified = null;
+	}
+
+	@SuppressWarnings("unchecked")
+	public static final <T extends KeyValuePage<?, ?>> RecordPageContainer<T> emptyInstance() {
+		return (RecordPageContainer<T>) EMPTY_INSTANCE;
 	}
 
 	/**

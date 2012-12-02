@@ -46,9 +46,9 @@ public abstract class AbstractForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public void removeNode(@Nonnegative long nodeKey, @Nonnull PageKind page)
+	public void removeRecord(@Nonnegative long nodeKey, @Nonnull PageKind page)
 			throws SirixIOException {
-		delegate().removeNode(nodeKey, page);
+		delegate().removeRecord(nodeKey, page);
 	}
 
 	@Override

@@ -11,9 +11,9 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
+import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.Optional;
@@ -38,9 +38,9 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Optional<? extends Record> getNode(@Nonnegative long key,
+	public Optional<? extends Record> getRecord(@Nonnegative long key,
 			@Nonnull PageKind page) throws SirixIOException {
-		return delegate().getNode(key, page);
+		return delegate().getRecord(key, page);
 	}
 
 	@Override
@@ -67,11 +67,12 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	public void close() throws SirixIOException {
 		delegate().close();
 	}
-
+	
 	@Override
-	public RecordPageContainer<UnorderedKeyValuePage> getNodeFromPage(
-			@Nonnegative long key, @Nonnull PageKind page) throws SirixIOException {
-		return delegate().getNodeFromPage(key, page);
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
+			@Nonnull @Nonnegative Long key, @Nonnull PageKind pageKind)
+			throws SirixIOException {
+		return delegate().<K, V, S>getRecordPageContainer(key, pageKind);
 	}
 
 	@Override

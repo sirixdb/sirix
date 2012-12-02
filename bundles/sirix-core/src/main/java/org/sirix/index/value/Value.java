@@ -1,4 +1,4 @@
-package org.sirix.node;
+package org.sirix.index.value;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -19,7 +19,7 @@ import com.google.common.collect.ComparisonChain;
  * @author Johannes Lichtenberger
  * 
  */
-public final class TextValue implements Comparable<TextValue> {
+public final class Value implements Comparable<Value> {
 	/** Value in bytes. */
 	private final byte[] mValue;
 
@@ -41,7 +41,7 @@ public final class TextValue implements Comparable<TextValue> {
 	 * @param kind
 	 *          value kind (attribute/text)
 	 */
-	public TextValue(final @Nonnull byte[] value,
+	public Value(final @Nonnull byte[] value,
 			final @Nonnegative long pathNodeKey, final @Nonnull ValueKind kind) {
 		mValue = checkNotNull(value);
 		mPathNodeKey = pathNodeKey;
@@ -67,8 +67,8 @@ public final class TextValue implements Comparable<TextValue> {
 	}
 
 	@Override
-	public int compareTo(final @Nullable TextValue other) {
-		final TextValue value = (TextValue) other;
+	public int compareTo(final @Nullable Value other) {
+		final Value value = (Value) other;
 		return ComparisonChain
 				.start()
 				.compare(new String(mValue, Constants.DEFAULT_ENCODING),
@@ -83,8 +83,8 @@ public final class TextValue implements Comparable<TextValue> {
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof TextValue) {
-			final TextValue otherValue = (TextValue) obj;
+		if (obj instanceof Value) {
+			final Value otherValue = (Value) obj;
 			return Arrays.equals(otherValue.mValue, mValue);
 		}
 		return false;

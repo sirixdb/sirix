@@ -5,10 +5,10 @@ import static com.google.common.base.Preconditions.checkArgument;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.index.path.PathSummary;
+import org.sirix.index.path.PathSummaryReader;
 
 /**
- * Path filter for {@link PathSummary}, filtering the path levels.
+ * Path filter for {@link PathSummaryReader}, filtering the path levels.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -18,8 +18,8 @@ public class PathLevelFilter extends AbstractFilter {
 	/** Node level to filter. */
 	private int mLevel;
 
-	/** {@link PathSummary} instance. */
-	private final PathSummary mPathSummary;
+	/** {@link PathSummaryReader} instance. */
+	private final PathSummaryReader mPathSummary;
 
 	/**
 	 * Constructor. Initializes the internal state.
@@ -29,7 +29,7 @@ public class PathLevelFilter extends AbstractFilter {
 	 * @param pLevel
 	 *          level of node
 	 */
-	public PathLevelFilter(final @Nonnull PathSummary pRtx,
+	public PathLevelFilter(final @Nonnull PathSummaryReader pRtx,
 			final @Nonnegative int pLevel) {
 		super(pRtx);
 		checkArgument(pLevel >= 0);

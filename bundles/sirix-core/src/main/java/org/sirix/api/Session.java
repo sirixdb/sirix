@@ -34,7 +34,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
-import org.sirix.index.path.PathSummary;
+import org.sirix.index.path.PathSummaryReader;
 
 /**
  * <h1>Session</h1>
@@ -175,23 +175,23 @@ public interface Session extends AutoCloseable {
 	 * 
 	 * @param revision
 	 *          revision key to read from
-	 * @return {@link PathSummary} instance
+	 * @return {@link PathSummaryReader} instance
 	 * @throws SirixException
 	 *           if can't open path summary
 	 * @throws IllegalArgumentException
 	 *           if {@code revision < 0}
 	 */
-	PathSummary openPathSummary(@Nonnegative int revision) throws SirixException;
+	PathSummaryReader openPathSummary(@Nonnegative int revision) throws SirixException;
 
 	/**
 	 * Open the path summary to allow iteration (basically implementation of
 	 * {@link NodeReadTrx}.
 	 * 
-	 * @return {@link PathSummary} instance
+	 * @return {@link PathSummaryReader} instance
 	 * @throws SirixException
 	 *           if can't open path summary
 	 */
-	PathSummary openPathSummary() throws SirixException;
+	PathSummaryReader openPathSummary() throws SirixException;
 
 	/**
 	 * Safely close session and immediately release all resources. If there are

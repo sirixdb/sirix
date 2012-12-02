@@ -148,6 +148,7 @@ public final class PageReference {
 	 *          the page kind
 	 */
 	public void setPageKind(final @Nonnull PageKind pageKind) {
+		assert pageKind != null;
 		mPageKind = pageKind;
 	}
 

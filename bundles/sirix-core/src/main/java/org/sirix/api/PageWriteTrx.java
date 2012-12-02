@@ -93,7 +93,7 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code page} is {@code null}
 	 */
-	void removeNode(@Nonnull long nodeKey, @Nonnull PageKind page)
+	void removeRecord(@Nonnull long nodeKey, @Nonnull PageKind page)
 			throws SirixIOException;
 
 	/**

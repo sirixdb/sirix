@@ -39,6 +39,9 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.index.path.PathNode;
 import org.sirix.index.value.AVLNode;
+import org.sirix.index.value.References;
+import org.sirix.index.value.Value;
+import org.sirix.index.value.ValueKind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -460,9 +463,9 @@ public enum Kind implements RecordPersistenter {
 			final long rightChild = getLong(source);
 			final long pathNodeKey = getLong(source);
 			final boolean isChanged = source.readBoolean();
-			final AVLNode<TextValue, TextReferences> node = new AVLNode<>(
-					new TextValue(value, pathNodeKey, valueKind),
-					new TextReferences(nodeKeys), nodeDel);
+			final AVLNode<Value, References> node = new AVLNode<>(
+					new Value(value, pathNodeKey, valueKind),
+					new References(nodeKeys), nodeDel);
 			node.setLeftChildKey(leftChild);
 			node.setRightChildKey(rightChild);
 			node.setChanged(isChanged);
@@ -474,13 +477,13 @@ public enum Kind implements RecordPersistenter {
 				final @Nonnull Record toSerialize,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			@SuppressWarnings("unchecked")
-			final AVLNode<TextValue, TextReferences> node = (AVLNode<TextValue, TextReferences>) toSerialize;
-			final TextValue key = node.getKey();
+			final AVLNode<Value, References> node = (AVLNode<Value, References>) toSerialize;
+			final Value key = node.getKey();
 			final byte[] textValue = key.getValue();
 			sink.writeInt(textValue.length);
 			sink.write(textValue);
 			sink.writeBoolean(key.getKind() == ValueKind.TEXT ? true : false);
-			final TextReferences value = node.getValue();
+			final References value = node.getValue();
 			final Set<Long> nodeKeys = value.getNodeKeys();
 			sink.writeInt(nodeKeys.size());
 			for (final long nodeKey : nodeKeys) {

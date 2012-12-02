@@ -53,13 +53,13 @@ public final class RESTProps {
 			.append("sirix-data").toString();
 
 	/**
-	 * The sirix file-suffix.
+	 * The document suffix.
 	 */
-	public static final String TNKEND = ".sirix";
+	public static final String SIRIX_DOC_SUFFIX = ".sirix";
 
 	/**
 	 * The collection suffix.
 	 */
-	public static final String COLEND = ".col";
+	public static final String SIRIX_COL_SUFFIX = ".col";
 
 }

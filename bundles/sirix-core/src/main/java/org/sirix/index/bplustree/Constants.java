@@ -6,7 +6,15 @@ package org.sirix.index.bplustree;
  * 
  * @author Christian Gruen, DBIS, University of Konstanz
  */
-public interface Constants {
+public final class Constants {
+	
+	/**
+	 * Private constructor.
+	 */
+	private Constants() {
+		throw new AssertionError();
+	}
+	
   /**
    * Fixed disk block size, represented in bytes.
    */
@@ -18,17 +26,17 @@ public interface Constants {
   int NRBUFFERS = 32;
 
   /**
-   * Number of available integers in a disk block which is usually
+   * Number of available values in a disk block which is usually
    * a quarter of the {@link #BUFFERSIZE}. 
    */
-  int NRINTEGERS = BUFFERSIZE >> 2;
+  int NRENTRIES = BUFFERSIZE >> 2;
 
   /**
    * Number of available leaf values. The chosen number must be an even
-   * value; it is calculated by bisecting and doubling the {@link #NRINTEGERS}
+   * value; it is calculated by bisecting and doubling the {@link #NRENTRIES}
    * integer.
    */
-  int NRLEAVES = NRINTEGERS - 1 >> 1 << 1;
+  int NRLEAVES = NRENTRIES - 1 >> 1 << 1;
 
   /**
    * Number of available values. The chosen number must be an even

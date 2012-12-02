@@ -14,6 +14,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.testng.annotations.AfterClass;
@@ -102,7 +103,8 @@ public class PageTest {
 				TestHelper.random.nextInt(Integer.MAX_VALUE),
 				TestHelper.random.nextInt(Integer.MAX_VALUE), mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
-			nodePage.setRecord(TestHelper.generateOne());
+			final Record record = TestHelper.generateOne();
+			nodePage.setRecord(record.getNodeKey(), record);
 		}
 		// NamePage setup.
 		final NamePage namePage = new NamePage(0);

@@ -1,4 +1,4 @@
-package org.sirix.node;
+package org.sirix.index.value;
 
 /**
  * Determines the kind of value.

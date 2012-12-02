@@ -84,5 +84,4 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
 	public boolean isDirty() {
 		return delegate().isDirty();
 	}
-
 }

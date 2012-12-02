@@ -67,12 +67,12 @@ public final class SirixMediator implements JaxRx {
 	 * 
 	 * Constructor.
 	 * 
-	 * @param pStoragePath
-	 *          where the data should be stored.
+	 * @param storagePath
+	 *          where the data should be stored
 	 */
-	public SirixMediator(final @Nonnull File pStoragePath) {
-		database = new DatabaseRepresentation(pStoragePath);
-		nodeIdResource = new NodeIdRepresentation(pStoragePath);
+	public SirixMediator(final @Nonnull File storagePath) {
+		database = new DatabaseRepresentation(storagePath);
+		nodeIdResource = new NodeIdRepresentation(storagePath);
 	}
 
 	/**
@@ -105,7 +105,7 @@ public final class SirixMediator implements JaxRx {
 		// Here we have to discuss.... because on command in get AND post
 		// request ... enforcement of REST concept
 
-		if (command.equalsIgnoreCase("revert") && path.getDepth() == 1) {
+		if ("revert".equalsIgnoreCase(command) && path.getDepth() == 1) {
 			final String revision = path.getValue(QueryParameter.REVISION);
 			if (revision != null) {
 				try {

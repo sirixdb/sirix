@@ -72,7 +72,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
 
-	/** {@link PageReadTrx} instance. */
+	/** Sirix {@link PageReadTrx}. */
 	private final PageReadTrx mPageReadTrx;
 
 	/**
@@ -127,16 +127,20 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public Record getRecord(final @Nonnegative Long key) {
+	public Record getRecord(final @Nonnull Long key) {
 		assert key != null : "key must not be null!";
-		assert key >= 0 : "key must not be negative!";
 		return mRecords.get(key);
 	}
 
+	/**
+	 * {@inheritDoc}
+	 * 
+	 * The key is not used as it is implicitly in the value (the record ID).
+	 */
 	@Override
-	public void setRecord(final @Nonnull Record record) {
-		assert record != null : "record must not be null!";
-		mRecords.put(record.getNodeKey(), record);
+	public void setRecord(final @Nullable Long key, final @Nonnull Record value) {
+		assert value != null : "record must not be null!";
+		mRecords.put(value.getNodeKey(), value);
 	}
 
 	@Override
@@ -222,7 +226,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	public PageReadTrx getPageReadTrx() {
 		return mPageReadTrx;
 	}
-
+	
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<Long, Record>> C newInstance(

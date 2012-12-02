@@ -36,7 +36,7 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 import com.google.common.base.Optional;
 
 /**
- * <h1>INode</h1>
+ * <h1>Node</h1>
  * 
  * <p>
  * Common interface for all node kinds.

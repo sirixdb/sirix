@@ -18,9 +18,9 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.index.SearchMode;
 import org.sirix.index.value.AVLTree;
-import org.sirix.node.TextReferences;
-import org.sirix.node.TextValue;
-import org.sirix.node.ValueKind;
+import org.sirix.index.value.References;
+import org.sirix.index.value.Value;
+import org.sirix.index.value.ValueKind;
 import org.sirix.settings.Constants;
 
 import com.google.common.base.Optional;
@@ -59,23 +59,23 @@ public class AVLTreeTest {
 		wtx.insertAttribute(new QName("foo"), "bar", Movement.TOPARENT);
 		wtx.insertAttribute(new QName("foobar"), "baz", Movement.TOPARENT);
 		wtx.commit();
-		final AVLTree<TextValue, TextReferences> attIndex = wtx
+		final AVLTree<Value, References> attIndex = wtx
 				.getAttributeValueIndex();
-		final Optional<TextReferences> fooRefs = attIndex.get(
-				new TextValue("foo".getBytes(Constants.DEFAULT_ENCODING), 0,
+		final Optional<References> fooRefs = attIndex.get(
+				new Value("foo".getBytes(Constants.DEFAULT_ENCODING), 0,
 						ValueKind.ATTRIBUTE), SearchMode.EQUAL);
 		assertTrue(!fooRefs.isPresent());
-		final Optional<TextReferences> barRefs1 = attIndex.get(
-				new TextValue("bar".getBytes(Constants.DEFAULT_ENCODING), 2,
+		final Optional<References> barRefs1 = attIndex.get(
+				new Value("bar".getBytes(Constants.DEFAULT_ENCODING), 2,
 						ValueKind.ATTRIBUTE), SearchMode.EQUAL);
 		check(barRefs1, ImmutableSet.of(2L));
-		final Optional<TextReferences> barRefs2 = attIndex.get(
-				new TextValue("bar".getBytes(Constants.DEFAULT_ENCODING), 5,
+		final Optional<References> barRefs2 = attIndex.get(
+				new Value("bar".getBytes(Constants.DEFAULT_ENCODING), 5,
 						ValueKind.ATTRIBUTE), SearchMode.EQUAL);
 		check(barRefs2, ImmutableSet.of(5L));
 	}
 
-	private void check(final @Nonnull Optional<TextReferences> barRefs,
+	private void check(final @Nonnull Optional<References> barRefs,
 			final @Nonnull Set<Long> keys) {
 		assertTrue(barRefs.isPresent());
 		assertEquals(keys, barRefs.get().getNodeKeys());
@@ -89,7 +89,7 @@ public class AVLTreeTest {
 		wtx.insertElementAsRightSibling(new QName("blabla"));
 		wtx.insertTextAsFirstChild("blabla");
 		wtx.commit();
-		final AVLTree<TextValue, TextReferences> textIndex = wtx
+		final AVLTree<Value, References> textIndex = wtx
 				.getTextValueIndex();
 	}
 

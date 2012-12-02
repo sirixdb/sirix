@@ -51,6 +51,7 @@ import org.sirix.service.xml.serialize.XMLSerializer;
 import org.sirix.service.xml.serialize.XMLSerializer.XMLSerializerBuilder;
 import org.sirix.service.xml.serialize.XMLSerializerProperties;
 import org.sirix.service.xml.shredder.Insert;
+import org.sirix.settings.Constants;
 
 /**
  * This class is responsible to work with database specific XML node id's. It
@@ -67,12 +68,13 @@ public class NodeIdRepresentation {
 	 * This field specifies the begin result element of the request.
 	 */
 	private static final byte[] BEGINRESULT = "<jaxrx:result xmlns:jaxrx=\"http://jaxrx.org/\">"
-			.getBytes();
+			.getBytes(Constants.DEFAULT_ENCODING);
 
 	/**
 	 * This field specifies the end result element of the request.
 	 */
-	private static final byte[] ENDRESULT = "</jaxrx:result>".getBytes();
+	private static final byte[] ENDRESULT = "</jaxrx:result>"
+			.getBytes(Constants.DEFAULT_ENCODING);
 
 	private static final String NOTFOUND = "Node id not found";
 
@@ -90,11 +92,11 @@ public class NodeIdRepresentation {
 	 * 
 	 * Constructor.
 	 * 
-	 * @param pStoragePath
+	 * @param storagePath
 	 *          storage to be set
 	 */
-	public NodeIdRepresentation(final File pStoragePath) {
-		mStoragePath = pStoragePath;
+	public NodeIdRepresentation(final File storagePath) {
+		mStoragePath = storagePath;
 	}
 
 	/**

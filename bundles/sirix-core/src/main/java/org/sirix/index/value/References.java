@@ -1,4 +1,4 @@
-package org.sirix.node;
+package org.sirix.index.value;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -18,7 +18,7 @@ import com.google.common.base.Objects.ToStringHelper;
  * @author Johannes Lichtenberger
  * 
  */
-public class TextReferences {
+public class References {
 	/** A {@link Set} of node-keys. */
 	private final Set<Long> mNodeKeys;
 
@@ -30,7 +30,7 @@ public class TextReferences {
 	 * @param nodeKey
 	 *          node key of this node
 	 */
-	public TextReferences(final @Nonnull Set<Long> nodeKeys) {
+	public References(final @Nonnull Set<Long> nodeKeys) {
 		mNodeKeys = Collections.synchronizedSet(checkNotNull(nodeKeys));
 	}
 
@@ -71,8 +71,8 @@ public class TextReferences {
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof TextReferences) {
-			final TextReferences refs = (TextReferences) obj;
+		if (obj instanceof References) {
+			final References refs = (References) obj;
 			return mNodeKeys.equals(refs.mNodeKeys);
 		}
 		return false;

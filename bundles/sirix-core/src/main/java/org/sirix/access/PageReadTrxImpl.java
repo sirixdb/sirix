@@ -65,6 +65,7 @@ import org.sirix.page.RevisionRootPage;
 import org.sirix.page.TextValuePage;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Revisioning;
@@ -226,6 +227,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 		// In memory caches from data directory.
 		// =========================================================
+		@SuppressWarnings("resource")
+		final PageReadTrxImpl pageReadTrx = this;
 		mNodeCache = CacheBuilder
 				.newBuilder()
 				.maximumSize(1000)
@@ -235,16 +238,16 @@ final class PageReadTrxImpl implements PageReadTrx {
 				.build(
 						new CacheLoader<Long, RecordPageContainer<UnorderedKeyValuePage>>() {
 							public RecordPageContainer<UnorderedKeyValuePage> load(
-									final Long pKey) throws SirixException {
-								@SuppressWarnings("unchecked")
+									final Long key) throws SirixException {
 								final RecordPageContainer<UnorderedKeyValuePage> container = mNodeLog
-										.isPresent() ? mNodeLog.get().get(pKey)
-										: (RecordPageContainer<UnorderedKeyValuePage>) RecordPageContainer.EMPTY_INSTANCE;
-								if (container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
-									return getNodeFromPage(pKey, PageKind.NODEPAGE);
-								} else {
-									return container;
-								}
+										.isPresent() ? mNodeLog.get().get(key)
+										: RecordPageContainer
+												.<UnorderedKeyValuePage> emptyInstance();
+								return (RecordPageContainer<UnorderedKeyValuePage>) (container
+										.equals(RecordPageContainer.EMPTY_INSTANCE) == true ? pageReadTrx
+										.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
+												key, PageKind.NODEPAGE)
+										: container);
 							}
 						});
 		final CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder()
@@ -253,16 +256,15 @@ final class PageReadTrxImpl implements PageReadTrx {
 			mPathCache = builder
 					.build(new CacheLoader<Long, RecordPageContainer<UnorderedKeyValuePage>>() {
 						public RecordPageContainer<UnorderedKeyValuePage> load(
-								final Long pKey) throws SirixException {
-							@SuppressWarnings("unchecked")
+								final Long key) throws SirixException {
 							final RecordPageContainer<UnorderedKeyValuePage> container = mPathLog
-									.isPresent() ? mPathLog.get().get(pKey)
-									: (RecordPageContainer<UnorderedKeyValuePage>) RecordPageContainer.EMPTY_INSTANCE;
-							if (container.equals(RecordPageContainer.EMPTY_INSTANCE)) {
-								return getNodeFromPage(pKey, PageKind.PATHSUMMARYPAGE);
-							} else {
-								return container;
-							}
+									.isPresent() ? mPathLog.get().get(key) : RecordPageContainer
+									.<UnorderedKeyValuePage> emptyInstance();
+							return (container.equals(RecordPageContainer
+									.<UnorderedKeyValuePage> emptyInstance()) == true ? pageReadTrx
+									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
+											key, PageKind.PATHSUMMARYPAGE)
+									: container);
 						}
 					});
 		} else {
@@ -272,16 +274,15 @@ final class PageReadTrxImpl implements PageReadTrx {
 			mTextValueCache = builder
 					.build(new CacheLoader<Long, RecordPageContainer<UnorderedKeyValuePage>>() {
 						public RecordPageContainer<UnorderedKeyValuePage> load(
-								final Long pKey) throws SirixException {
-							@SuppressWarnings("unchecked")
+								final Long key) throws SirixException {
 							final RecordPageContainer<UnorderedKeyValuePage> container = mTextValueLog
-									.isPresent() ? mTextValueLog.get().get(pKey)
-									: (RecordPageContainer<UnorderedKeyValuePage>) RecordPageContainer.EMPTY_INSTANCE;
-							if (RecordPageContainer.EMPTY_INSTANCE.equals(container)) {
-								return getNodeFromPage(pKey, PageKind.TEXTVALUEPAGE);
-							} else {
-								return container;
-							}
+									.isPresent() ? mTextValueLog.get().get(key)
+									: RecordPageContainer.<UnorderedKeyValuePage> emptyInstance();
+							return container.equals(RecordPageContainer
+									.<UnorderedKeyValuePage> emptyInstance()) == true ? pageReadTrx
+									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
+											key, PageKind.TEXTVALUEPAGE)
+									: container;
 						}
 					});
 		} else {
@@ -291,16 +292,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 			mAttributeValueCache = builder
 					.build(new CacheLoader<Long, RecordPageContainer<UnorderedKeyValuePage>>() {
 						public RecordPageContainer<UnorderedKeyValuePage> load(
-								final Long pKey) throws SirixException {
-							@SuppressWarnings("unchecked")
+								final Long key) throws SirixException {
 							final RecordPageContainer<UnorderedKeyValuePage> container = mAttributeValueLog
-									.isPresent() ? mAttributeValueLog.get().get(pKey)
-									: (RecordPageContainer<UnorderedKeyValuePage>) RecordPageContainer.EMPTY_INSTANCE;
-							if (RecordPageContainer.EMPTY_INSTANCE.equals(container)) {
-								return getNodeFromPage(pKey, PageKind.ATTRIBUTEVALUEPAGE);
-							} else {
-								return container;
-							}
+									.isPresent() ? mAttributeValueLog.get().get(key)
+									: RecordPageContainer.<UnorderedKeyValuePage> emptyInstance();
+							return container.equals(RecordPageContainer.EMPTY_INSTANCE) == true ? pageReadTrx
+									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
+									key, PageKind.ATTRIBUTEVALUEPAGE) : container;
 						}
 					});
 		} else {
@@ -373,7 +371,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public Optional<Record> getNode(final @Nonnegative long nodeKey,
+	public Optional<Record> getRecord(final @Nonnegative long nodeKey,
 			final @Nonnull PageKind pageKind) throws SirixIOException {
 		checkArgument(nodeKey >= 0);
 		checkNotNull(pageKind);
@@ -586,7 +584,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		ref.setPageKind(PageKind.ATTRIBUTEVALUEPAGE);
 		return (AttributeValuePage) ref.getPage();
 	}
-	
+
 	/**
 	 * Set the page if it is not set already.
 	 * 
@@ -613,10 +611,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	/**
-	 * Dereference node page reference and get all leaves, the {@link RecordPage}s
-	 * from the revision-trees.
+	 * Dereference key/value page reference and get all leaves, the
+	 * {@link KeyValuePage}s from the revision-trees.
 	 * 
-	 * @param nodePageKey
+	 * @param recordPageKey
 	 *          key of node page
 	 * @param pageKind
 	 *          kind of page, that is the type of tree to dereference
@@ -625,26 +623,26 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws SirixIOException
 	 *           if an I/O-error occurs within the creation process
 	 */
-	final List<UnorderedKeyValuePage> getSnapshotPages(
-			final @Nonnegative long nodePageKey, final @Nonnull PageKind pageKind)
+	final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> List<S> getSnapshotPages(
+			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind)
 			throws SirixIOException {
-		assert nodePageKey >= 0;
+		assert recordPageKey >= 0;
 		assert pageKind != null;
 		final ResourceConfiguration config = mSession.getResourceConfig();
 		final int revsToRestore = config.mRevisionsToRestore;
-		final List<UnorderedKeyValuePage> pages = new ArrayList<>(revsToRestore);
+		final List<S> pages = new ArrayList<>(revsToRestore);
 		final Set<Long> keys = new HashSet<>(revsToRestore);
 		for (int i = mRootPage.getRevision(); i >= 0; i--) {
 			final PageReference tmpRef = getPageReference(loadRevRoot(i), pageKind);
-			final PageReference ref = dereferenceLeafOfTree(tmpRef, nodePageKey,
+			final PageReference ref = dereferenceLeafOfTree(tmpRef, recordPageKey,
 					pageKind);
 			if (ref != null
 					&& (ref.getPage() != null || ref.getKey() != Constants.NULL_ID)) {
 				// Probably save page.
 				if (ref.getKey() == Constants.NULL_ID || (!keys.contains(ref.getKey()))) {
-					final UnorderedKeyValuePage page = (UnorderedKeyValuePage) (ref
-							.getPage() == null ? mPageReader.read(ref.getKey(), this) : ref
-							.getPage());
+					@SuppressWarnings("unchecked")
+					final S page = (S) (ref.getPage() == null ? mPageReader.read(
+							ref.getKey(), this) : ref.getPage());
 					ref.setPageKind(pageKind);
 					pages.add(page);
 					if (ref.getKey() != Constants.NULL_ID) {
@@ -833,23 +831,25 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public RecordPageContainer<UnorderedKeyValuePage> getNodeFromPage(
-			final @Nonnegative long nodePageKey, final @Nonnull PageKind pageKind)
-			throws SirixIOException {
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
+			final @Nonnull @Nonnegative Long recordPageKey,
+			final @Nonnull PageKind pageKind) throws SirixIOException {
 		assertNotClosed();
-		final List<UnorderedKeyValuePage> revs = getSnapshotPages(nodePageKey,
-				pageKind);
+		checkArgument(recordPageKey >= 0, "recordPageKey must not be negative!");
+		@SuppressWarnings("unchecked")
+		final List<S> revs = (List<S>) getSnapshotPages(
+				checkNotNull(recordPageKey), checkNotNull(pageKind));
 		if (revs.size() == 0) {
 			@SuppressWarnings("unchecked")
-			final RecordPageContainer<UnorderedKeyValuePage> emptyInstance = (RecordPageContainer<UnorderedKeyValuePage>) RecordPageContainer.EMPTY_INSTANCE;
+			final RecordPageContainer<S> emptyInstance = (RecordPageContainer<S>) RecordPageContainer.EMPTY_INSTANCE;
 			return emptyInstance;
 		}
 
 		final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
 		final Revisioning revisioning = mResourceConfig.mRevisionKind;
-		final UnorderedKeyValuePage completePage = revisioning.combineRecordPages(
-				revs, mileStoneRevision, this);
-		return new RecordPageContainer<UnorderedKeyValuePage>(completePage);
+		final S completePage = revisioning.combineRecordPages(revs,
+				mileStoneRevision, this);
+		return new RecordPageContainer<S>(completePage);
 	}
 
 	@Override

@@ -29,6 +29,7 @@ package org.sirix.settings;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 
 import javax.annotation.Nonnegative;
@@ -54,7 +55,7 @@ public enum Revisioning {
 	 */
 	FULL {
 		@Override
-		public <K, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() == 1 : "Only one version of the page!";
@@ -62,7 +63,7 @@ public enum Revisioning {
 		}
 
 		@Override
-		public <K, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final @Nonnegative int mileStoneRevision,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() == 1;
@@ -74,9 +75,9 @@ public enum Revisioning {
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getRevision() + 1, pageReadTrx));
 
-			for (final V nodes : pages.get(0).values()) {
-				returnVal.get(0).setRecord(nodes);
-				returnVal.get(1).setRecord(nodes);
+			for (final Map.Entry<K, V> node : pages.get(0).entrySet()) {
+				returnVal.get(0).setRecord(node.getKey(), node.getValue());
+				returnVal.get(1).setRecord(node.getKey(), node.getValue());
 			}
 
 			final RecordPageContainer<T> cont = new RecordPageContainer<>(
@@ -91,13 +92,14 @@ public enum Revisioning {
 	 */
 	DIFFERENTIAL {
 		@Override
-		public <K, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= 2;
-			final long recordPageKey = pages.get(0).getRecordPageKey();
-			final T returnVal = pages.get(0).newInstance(recordPageKey,
-					pages.get(0).getRevision(), pageReadTrx);
+			final T firstPage = pages.get(0);
+			final long recordPageKey = firstPage.getRecordPageKey();
+			final T returnVal = firstPage.newInstance(recordPageKey,
+					firstPage.getRevision(), pageReadTrx);
 			if (pages.size() == 2) {
 				returnVal.setDirty(true);
 			}
@@ -107,15 +109,15 @@ public enum Revisioning {
 			assert latest.getRecordPageKey() == recordPageKey;
 			assert fullDump.getRecordPageKey() == recordPageKey;
 
-			for (final V node : latest.values()) {
-				returnVal.setRecord(node);
+			for (final Map.Entry<K, V> node : latest.entrySet()) {
+				returnVal.setRecord(node.getKey(), node.getValue());
 			}
 
 			// Skip full dump if not needed (fulldump equals latest page).
 			if (pages.size() == 2) {
 				for (final Entry<K, V> node : fullDump.entrySet()) {
 					if (returnVal.getRecord(node.getKey()) == null) {
-						returnVal.setRecord(node.getValue());
+						returnVal.setRecord(node.getKey(), node.getValue());
 					}
 				}
 			}
@@ -123,7 +125,7 @@ public enum Revisioning {
 		}
 
 		@Override
-		public <K, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= 2;
@@ -138,19 +140,19 @@ public enum Revisioning {
 			final T latest = firstPage;
 			T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
 
-			for (final V node : fullDump.values()) {
-				returnVal.get(0).setRecord(node);
+			for (final Map.Entry<K, V> node : fullDump.entrySet()) {
+				returnVal.get(0).setRecord(node.getKey(), node.getValue());
 
 				if ((latest.getRevision() + 1) % revToRestore == 0) {
 					// Fulldump.
-					returnVal.get(1).setRecord(node);
+					returnVal.get(1).setRecord(node.getKey(), node.getValue());
 				}
 			}
 
 			// iterate through all nodes
-			for (final V node : latest.values()) {
-				returnVal.get(0).setRecord(node);
-				returnVal.get(1).setRecord(node);
+			for (final Map.Entry<K, V> node : latest.entrySet()) {
+				returnVal.get(0).setRecord(node.getKey(), node.getValue());
+				returnVal.get(1).setRecord(node.getKey(), node.getValue());
 			}
 
 			final RecordPageContainer<T> cont = new RecordPageContainer<>(
@@ -165,7 +167,7 @@ public enum Revisioning {
 	 */
 	INCREMENTAL {
 		@Override
-		public <K, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= revToRestore;
@@ -182,7 +184,7 @@ public enum Revisioning {
 				for (final Entry<K, V> node : page.entrySet()) {
 					final K nodeKey = node.getKey();
 					if (returnVal.getRecord(nodeKey) == null) {
-						returnVal.setRecord(node.getValue());
+						returnVal.setRecord(nodeKey, node.getValue());
 					}
 				}
 			}
@@ -191,7 +193,7 @@ public enum Revisioning {
 		}
 
 		@Override
-		public <K, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final T firstPage = pages.get(0);
@@ -209,11 +211,11 @@ public enum Revisioning {
 					// Caching the complete page.
 					final K nodeKey = node.getKey();
 					if (node != null && returnVal.get(0).getRecord(nodeKey) == null) {
-						returnVal.get(0).setRecord(node.getValue());
+						returnVal.get(0).setRecord(nodeKey, node.getValue());
 
 						if (returnVal.get(1).getRecord(node.getKey()) == null
 								&& returnVal.get(0).getRevision() % revToRestore == 0) {
-							returnVal.get(1).setRecord(node.getValue());
+							returnVal.get(1).setRecord(nodeKey, node.getValue());
 						}
 					}
 				}
@@ -226,9 +228,9 @@ public enum Revisioning {
 	};
 
 	/**
-	 * Method to reconstruct a complete {@link KeyValuePage} with the help of partly
-	 * filled pages plus a revision-delta which determines the necessary steps
-	 * back.
+	 * Method to reconstruct a complete {@link KeyValuePage} with the help of
+	 * partly filled pages plus a revision-delta which determines the necessary
+	 * steps back.
 	 * 
 	 * @param pages
 	 *          the base of the complete {@link KeyValuePage}
@@ -236,22 +238,22 @@ public enum Revisioning {
 	 *          the revision needed to build up the complete milestone
 	 * @return the complete {@link KeyValuePage}
 	 */
-	public abstract <K, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
+	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
 			final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 			final @Nonnull PageReadTrx pageReadTrx);
 
 	/**
-	 * Method to reconstruct a complete {@link KeyValuePage} for reading as well as
-	 * a {@link KeyValuePage} for serializing with the nodes to write.
+	 * Method to reconstruct a complete {@link KeyValuePage} for reading as well
+	 * as a {@link KeyValuePage} for serializing with the nodes to write.
 	 * 
 	 * @param pages
 	 *          the base of the complete {@link KeyValuePage}
 	 * @param mileStoneRevision
 	 *          the revision needed to build up the complete milestone
-	 * @return a {@link RecordPageContainer} holding a complete {@link KeyValuePage}
-	 *         for reading and one for writing
+	 * @return a {@link RecordPageContainer} holding a complete
+	 *         {@link KeyValuePage} for reading and one for writing
 	 */
-	public abstract <K, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
+	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 			final @Nonnull List<T> pages, final @Nonnegative int mileStoneRevision,
 			final @Nonnull PageReadTrx pageReadTrx);
 }

@@ -43,12 +43,12 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.index.path.PathSummary;
+import org.sirix.index.path.PathSummaryReader;
 import org.sirix.node.Kind;
 import org.sirix.utils.DocumentCreater;
 
 /**
- * Test the {@link PathSummary}.
+ * Test the {@link PathSummaryReader}.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -84,7 +84,7 @@ public class PathSummaryTest {
 	 */
 	@Test
 	public void testInsert() throws SirixException {
-		PathSummary pathSummary = mWtx.getPathSummary();
+		PathSummaryReader pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testInsertHelper(pathSummary);
 		mWtx.commit();
@@ -94,10 +94,10 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testInsertHelper(final @Nonnull PathSummary pSummary)
+	private void testInsertHelper(final @Nonnull PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
-		PathSummary summary = next(axis);
+		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
 		assertEquals(Kind.ELEMENT, summary.getPathKind());
 		assertEquals(1L, summary.getNodeKey());
@@ -169,7 +169,7 @@ public class PathSummaryTest {
 	 */
 	@Test
 	public void testDelete() throws SirixException {
-		PathSummary pathSummary = mWtx.getPathSummary();
+		PathSummaryReader pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testInsertHelper(pathSummary);
 		mWtx.commit();
@@ -185,10 +185,10 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testDeleteHelper(final @Nonnull PathSummary pSummary)
+	private void testDeleteHelper(final @Nonnull PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
-		PathSummary summary = next(axis);
+		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
 		assertEquals(Kind.ELEMENT, summary.getPathKind());
 		assertEquals(1L, summary.getNodeKey());
@@ -257,7 +257,7 @@ public class PathSummaryTest {
 	public void testSetQNameFirst() throws SirixException {
 		mWtx.moveTo(9);
 		mWtx.setName(new QName("foo"));
-		PathSummary pathSummary = mWtx.getPathSummary();
+		PathSummaryReader pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNameFirstHelper(pathSummary);
 		mWtx.commit();
@@ -267,10 +267,10 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testSetQNameFirstHelper(final @Nonnull PathSummary pSummary)
+	private void testSetQNameFirstHelper(final @Nonnull PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
-		PathSummary summary = next(axis);
+		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
 		assertEquals(Kind.ELEMENT, summary.getPathKind());
 		assertEquals(1L, summary.getNodeKey());
@@ -374,7 +374,7 @@ public class PathSummaryTest {
 		mWtx.moveTo(9);
 		mWtx.setName(new QName("d"));
 		mWtx.setName(new QName("b"));
-		PathSummary pathSummary = mWtx.getPathSummary();
+		PathSummaryReader pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNameSecondHelper(pathSummary);
 		mWtx.commit();
@@ -384,10 +384,10 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testSetQNameSecondHelper(final @Nonnull PathSummary pSummary)
+	private void testSetQNameSecondHelper(final @Nonnull PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
-		PathSummary summary = next(axis);
+		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
 		assertEquals(Kind.ELEMENT, summary.getPathKind());
 		assertEquals(1L, summary.getNodeKey());
@@ -470,7 +470,7 @@ public class PathSummaryTest {
 		mWtx.setName(new QName("d"));
 		mWtx.moveTo(5);
 		mWtx.setName(new QName("t"));
-		PathSummary pathSummary = mWtx.getPathSummary();
+		PathSummaryReader pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNameThirdHelper(pathSummary);
 		mWtx.commit();
@@ -480,10 +480,10 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testSetQNameThirdHelper(final @Nonnull PathSummary pSummary)
+	private void testSetQNameThirdHelper(final @Nonnull PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
-		PathSummary summary = next(axis);
+		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
 		assertEquals(Kind.ELEMENT, summary.getPathKind());
 		assertEquals(1L, summary.getNodeKey());
@@ -588,7 +588,7 @@ public class PathSummaryTest {
 		mWtx.insertElementAsFirstChild(new QName("b"));
 		mWtx.moveTo(5);
 		mWtx.setName(new QName("d"));
-		PathSummary pathSummary = mWtx.getPathSummary();
+		PathSummaryReader pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		testSetQNameFourthHelper(pathSummary);
 		mWtx.commit();
@@ -598,10 +598,10 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testSetQNameFourthHelper(final @Nonnull PathSummary pSummary)
+	private void testSetQNameFourthHelper(final @Nonnull PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
-		PathSummary summary = next(axis);
+		PathSummaryReader summary = next(axis);
 		assertTrue(summary != null);
 		assertEquals(Kind.ELEMENT, summary.getPathKind());
 		assertEquals(1L, summary.getNodeKey());
@@ -697,7 +697,7 @@ public class PathSummaryTest {
 	public void testFirstMoveToFirstChild() throws SirixException {
 		mWtx.moveTo(5);
 		mWtx.moveSubtreeToFirstChild(9);
-		PathSummary pathSummary = mWtx.getPathSummary();
+		PathSummaryReader pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		mWtx.commit();
 		mWtx.close();
@@ -710,7 +710,7 @@ public class PathSummaryTest {
 		mWtx.moveTo(9);
 		mWtx.insertElementAsFirstChild(new QName("foo"));
 		mWtx.insertElementAsFirstChild(new QName("bar"));
-		PathSummary pathSummary = mWtx.getPathSummary();
+		PathSummaryReader pathSummary = mWtx.getPathSummary();
 		pathSummary.moveToDocumentRoot();
 		mWtx.moveTo(5);
 		mWtx.moveSubtreeToRightSibling(9);
@@ -729,10 +729,10 @@ public class PathSummaryTest {
 	 *          the axis to use
 	 * @return the next path summary
 	 */
-	private PathSummary next(final @Nonnull Axis axis) {
+	private PathSummaryReader next(final @Nonnull Axis axis) {
 		if (axis.hasNext()) {
 			axis.next();
-			return (PathSummary) axis.getTrx();
+			return (PathSummaryReader) axis.getTrx();
 		}
 		return null;
 	}

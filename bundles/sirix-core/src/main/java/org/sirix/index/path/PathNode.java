@@ -19,7 +19,7 @@ import org.sirix.node.interfaces.NameNode;
 import com.google.common.base.Objects;
 
 /**
- * Path node in the {@link PathSummary}.
+ * Path node in the {@link PathSummaryReader}.
  * 
  * @author Johannes Lichtenberger
  * 

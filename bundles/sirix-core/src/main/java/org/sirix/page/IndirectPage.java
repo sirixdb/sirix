@@ -58,7 +58,6 @@ public final class IndirectPage extends AbstractForwardingPage {
 	public IndirectPage(final @Nonnegative int revision) {
 		checkArgument(revision >= 0, "pRevision must be >= 0!");
 		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, revision);
-
 	}
 
 	/**
