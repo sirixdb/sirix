@@ -84,6 +84,11 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 		mModified = null;
 	}
 
+	/**
+	 * Get the empty instance (parameterized).
+	 * 
+	 * @return the empty instance
+	 */
 	@SuppressWarnings("unchecked")
 	public static final <T extends KeyValuePage<?, ?>> RecordPageContainer<T> emptyInstance() {
 		return (RecordPageContainer<T>) EMPTY_INSTANCE;

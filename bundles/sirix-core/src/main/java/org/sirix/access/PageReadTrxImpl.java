@@ -836,13 +836,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 			final @Nonnull PageKind pageKind) throws SirixIOException {
 		assertNotClosed();
 		checkArgument(recordPageKey >= 0, "recordPageKey must not be negative!");
-		@SuppressWarnings("unchecked")
-		final List<S> revs = (List<S>) getSnapshotPages(
+		final List<S> revs = (List<S>) this.<K, V, S>getSnapshotPages(
 				checkNotNull(recordPageKey), checkNotNull(pageKind));
 		if (revs.size() == 0) {
-			@SuppressWarnings("unchecked")
-			final RecordPageContainer<S> emptyInstance = (RecordPageContainer<S>) RecordPageContainer.EMPTY_INSTANCE;
-			return emptyInstance;
+			return RecordPageContainer.<S>emptyInstance();
 		}
 
 		final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
