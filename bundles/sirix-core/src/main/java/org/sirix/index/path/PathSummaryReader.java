@@ -105,7 +105,8 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 */
 	public static final PathSummaryReader getInstance(
 			final @Nonnull PageReadTrx pageReadTrx, final @Nonnull Session session) {
-		return new PathSummaryReader(checkNotNull(pageReadTrx), checkNotNull(session));
+		return new PathSummaryReader(checkNotNull(pageReadTrx),
+				checkNotNull(session));
 	}
 
 	@Override
@@ -140,7 +141,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummaryReader> moveTo(final long pNodeKey) {
+	public Move<? extends PathSummaryReader> moveTo(final long nodeKey) {
 		assertNotClosed();
 
 		// Remember old node and fetch new one.
@@ -150,7 +151,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 			// Immediately return node from item list if node key negative.
 			@SuppressWarnings("unchecked")
 			final Optional<? extends Node> node = (Optional<? extends Node>) mPageReadTrx
-					.getRecord(pNodeKey, PageKind.PATHSUMMARYPAGE);
+					.getRecord(nodeKey, PageKind.PATHSUMMARYPAGE);
 			newNode = node;
 		} catch (final SirixIOException e) {
 			newNode = Optional.absent();
@@ -259,17 +260,20 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends PathSummaryReader> moveToAttribute(@Nonnegative int index) {
+	public Move<? extends PathSummaryReader> moveToAttribute(
+			@Nonnegative int index) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public Move<? extends PathSummaryReader> moveToAttributeByName(@Nonnull QName name) {
+	public Move<? extends PathSummaryReader> moveToAttributeByName(
+			@Nonnull QName name) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public Move<? extends PathSummaryReader> moveToNamespace(@Nonnegative int index) {
+	public Move<? extends PathSummaryReader> moveToNamespace(
+			@Nonnegative int index) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -468,7 +472,14 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	@Override
 	public long getLastChildKey() {
-		throw new UnsupportedOperationException();
+		if (getStructuralNode().hasFirstChild()) {
+			moveToFirstChild();
+			while (getStructuralNode().hasRightSibling()) {
+				moveToRightSibling();
+			}
+			return mCurrentNode.getNodeKey();
+		}
+		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
 
 	@Override
@@ -504,6 +515,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 		if (mCurrentNode instanceof NameNode) {
 			return ((NameNode) mCurrentNode).getNameKey();
 		}
+		// The document root has no name.
 		return -1;
 	}
 
@@ -641,11 +653,15 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	@Override
 	public boolean isAttribute() {
+		// Not sure about this, actually no PathNode is an attribute, but it might
+		// represent an attribute.
 		return false;
 	}
 
 	@Override
 	public boolean isNamespace() {
+		// Not sure about this, actually no PathNode is an attribute, but it might
+		// represent a namespace.
 		return false;
 	}
 
@@ -665,7 +681,8 @@ public final class PathSummaryReader implements NodeReadTrx {
 		final StructNode node = getStructuralNode();
 		if (node.hasLeftSibling()) {
 			// Left sibling node.
-			Move<? extends NodeReadTrx> leftSiblMove = moveTo(node.getLeftSiblingKey());
+			Move<? extends NodeReadTrx> leftSiblMove = moveTo(node
+					.getLeftSiblingKey());
 			// Now move down to rightmost descendant node if it has one.
 			while (leftSiblMove.get().hasFirstChild()) {
 				leftSiblMove = leftSiblMove.get().moveToLastChild();
