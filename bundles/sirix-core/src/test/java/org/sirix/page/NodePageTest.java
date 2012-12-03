@@ -80,7 +80,7 @@ public class NodePageTest {
 	@Test
 	public void testSerializeDeserialize() {
 		final UnorderedKeyValuePage page1 = new UnorderedKeyValuePage(0L, 0, mPageReadTrx);
-		assertEquals(0L, page1.getRecordPageKey());
+		assertEquals(0L, page1.getPageKey());
 
 		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0,
 				Optional.of(SirixDeweyID.newRootID()));
@@ -96,7 +96,7 @@ public class NodePageTest {
 		node1.insertNamespace(99L);
 		node1.insertNamespace(98L);
 		assertEquals(0L, node1.getNodeKey());
-		page1.setRecord(node1.getNodeKey(), node1);
+		page1.setEntry(node1.getNodeKey(), node1);
 
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
 		PagePersistenter.serializePage(out, page1);
@@ -104,8 +104,8 @@ public class NodePageTest {
 		final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) PagePersistenter.deserializePage(in,
 				mPageReadTrx);
 		// assertEquals(position, out.position());
-		final ElementNode element = (ElementNode) page2.getRecord(0l);
-		assertEquals(0L, page2.getRecord(0l).getNodeKey());
+		final ElementNode element = (ElementNode) page2.getValue(0l);
+		assertEquals(0L, page2.getValue(0l).getNodeKey());
 		assertEquals(1L, element.getParentKey());
 		assertEquals(12L, element.getFirstChildKey());
 		assertEquals(3L, element.getLeftSiblingKey());
@@ -117,8 +117,8 @@ public class NodePageTest {
 		assertEquals(87L, element.getAttributeKey(1));
 		assertEquals(99L, element.getNamespaceKey(0));
 		assertEquals(98L, element.getNamespaceKey(1));
-		assertEquals(6, ((NameNode) page2.getRecord(0l)).getNameKey());
-		assertEquals(7, ((NameNode) page2.getRecord(0l)).getURIKey());
+		assertEquals(6, ((NameNode) page2.getValue(0l)).getNameKey());
+		assertEquals(7, ((NameNode) page2.getValue(0l)).getURIKey());
 		assertEquals(NamePageHash.generateHashForString("xs:untyped"),
 				element.getTypeKey());
 	}

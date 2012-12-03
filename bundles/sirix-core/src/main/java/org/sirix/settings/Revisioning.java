@@ -42,7 +42,7 @@ import org.sirix.page.interfaces.KeyValuePage;
 
 /**
  * Enum for providing different revision algorithms. Each kind must implement
- * one method to reconstruct NodePages for Modification and for Reading.
+ * one method to reconstruct key/value pages for modification and for reading.
  * 
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
@@ -68,16 +68,16 @@ public enum Revisioning {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() == 1;
 			final T firstPage = pages.get(0);
-			final long recordPageKey = firstPage.getRecordPageKey();
+			final long recordPageKey = firstPage.getPageKey();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getRevision() + 1, pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getRevision() + 1, pageReadTrx));
 
-			for (final Map.Entry<K, V> node : pages.get(0).entrySet()) {
-				returnVal.get(0).setRecord(node.getKey(), node.getValue());
-				returnVal.get(1).setRecord(node.getKey(), node.getValue());
+			for (final Map.Entry<K, V> entry : pages.get(0).entrySet()) {
+				returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
+				returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
 			}
 
 			final RecordPageContainer<T> cont = new RecordPageContainer<>(
@@ -97,7 +97,7 @@ public enum Revisioning {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= 2;
 			final T firstPage = pages.get(0);
-			final long recordPageKey = firstPage.getRecordPageKey();
+			final long recordPageKey = firstPage.getPageKey();
 			final T returnVal = firstPage.newInstance(recordPageKey,
 					firstPage.getRevision(), pageReadTrx);
 			if (pages.size() == 2) {
@@ -106,18 +106,18 @@ public enum Revisioning {
 			final T latest = pages.get(0);
 			T fullDump = pages.size() == 1 ? pages.get(0) : pages.get(1);
 
-			assert latest.getRecordPageKey() == recordPageKey;
-			assert fullDump.getRecordPageKey() == recordPageKey;
+			assert latest.getPageKey() == recordPageKey;
+			assert fullDump.getPageKey() == recordPageKey;
 
-			for (final Map.Entry<K, V> node : latest.entrySet()) {
-				returnVal.setRecord(node.getKey(), node.getValue());
+			for (final Map.Entry<K, V> entry : latest.entrySet()) {
+				returnVal.setEntry(entry.getKey(), entry.getValue());
 			}
 
 			// Skip full dump if not needed (fulldump equals latest page).
 			if (pages.size() == 2) {
-				for (final Entry<K, V> node : fullDump.entrySet()) {
-					if (returnVal.getRecord(node.getKey()) == null) {
-						returnVal.setRecord(node.getKey(), node.getValue());
+				for (final Entry<K, V> entry : fullDump.entrySet()) {
+					if (returnVal.getValue(entry.getKey()) == null) {
+						returnVal.setEntry(entry.getKey(), entry.getValue());
 					}
 				}
 			}
@@ -130,7 +130,7 @@ public enum Revisioning {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= 2;
 			final T firstPage = pages.get(0);
-			final long recordPageKey = firstPage.getRecordPageKey();
+			final long recordPageKey = firstPage.getPageKey();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getRevision() + 1, pageReadTrx));
@@ -140,19 +140,19 @@ public enum Revisioning {
 			final T latest = firstPage;
 			T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
 
-			for (final Map.Entry<K, V> node : fullDump.entrySet()) {
-				returnVal.get(0).setRecord(node.getKey(), node.getValue());
+			for (final Map.Entry<K, V> entry : fullDump.entrySet()) {
+				returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
 
 				if ((latest.getRevision() + 1) % revToRestore == 0) {
 					// Fulldump.
-					returnVal.get(1).setRecord(node.getKey(), node.getValue());
+					returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
 				}
 			}
 
 			// iterate through all nodes
-			for (final Map.Entry<K, V> node : latest.entrySet()) {
-				returnVal.get(0).setRecord(node.getKey(), node.getValue());
-				returnVal.get(1).setRecord(node.getKey(), node.getValue());
+			for (final Map.Entry<K, V> entry : latest.entrySet()) {
+				returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
+				returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
 			}
 
 			final RecordPageContainer<T> cont = new RecordPageContainer<>(
@@ -172,19 +172,19 @@ public enum Revisioning {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() <= revToRestore;
 			final T firstPage = pages.get(0);
-			final long recordPageKey = firstPage.getRecordPageKey();
-			final T returnVal = firstPage.newInstance(firstPage.getRecordPageKey(),
+			final long recordPageKey = firstPage.getPageKey();
+			final T returnVal = firstPage.newInstance(firstPage.getPageKey(),
 					firstPage.getRevision(), firstPage.getPageReadTrx());
 			if (pages.size() > 1) {
 				returnVal.setDirty(true);
 			}
 
 			for (final KeyValuePage<K, V> page : pages) {
-				assert page.getRecordPageKey() == recordPageKey;
-				for (final Entry<K, V> node : page.entrySet()) {
-					final K nodeKey = node.getKey();
-					if (returnVal.getRecord(nodeKey) == null) {
-						returnVal.setRecord(nodeKey, node.getValue());
+				assert page.getPageKey() == recordPageKey;
+				for (final Entry<K, V> entry : page.entrySet()) {
+					final K nodeKey = entry.getKey();
+					if (returnVal.getValue(nodeKey) == null) {
+						returnVal.setEntry(nodeKey, entry.getValue());
 					}
 				}
 			}
@@ -197,7 +197,7 @@ public enum Revisioning {
 				final @Nonnull List<T> pages, final int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final T firstPage = pages.get(0);
-			final long recordPageKey = firstPage.getRecordPageKey();
+			final long recordPageKey = firstPage.getPageKey();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getRevision() + 1, pageReadTrx));
@@ -205,17 +205,17 @@ public enum Revisioning {
 					firstPage.getRevision() + 1, pageReadTrx));
 
 			for (final T page : pages) {
-				assert page.getRecordPageKey() == recordPageKey;
+				assert page.getPageKey() == recordPageKey;
 
-				for (final Entry<K, V> node : page.entrySet()) {
+				for (final Entry<K, V> entry : page.entrySet()) {
 					// Caching the complete page.
-					final K nodeKey = node.getKey();
-					if (node != null && returnVal.get(0).getRecord(nodeKey) == null) {
-						returnVal.get(0).setRecord(nodeKey, node.getValue());
+					final K key = entry.getKey();
+					if (entry != null && returnVal.get(0).getValue(key) == null) {
+						returnVal.get(0).setEntry(key, entry.getValue());
 
-						if (returnVal.get(1).getRecord(node.getKey()) == null
+						if (returnVal.get(1).getValue(entry.getKey()) == null
 								&& returnVal.get(0).getRevision() % revToRestore == 0) {
-							returnVal.get(1).setRecord(nodeKey, node.getValue());
+							returnVal.get(1).setEntry(key, entry.getValue());
 						}
 					}
 				}

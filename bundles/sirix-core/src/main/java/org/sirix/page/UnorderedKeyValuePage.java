@@ -122,12 +122,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public long getRecordPageKey() {
+	public long getPageKey() {
 		return mRecordPageKey;
 	}
 
 	@Override
-	public Record getRecord(final @Nonnull Long key) {
+	public Record getValue(final @Nonnull Long key) {
 		assert key != null : "key must not be null!";
 		return mRecords.get(key);
 	}
@@ -138,7 +138,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 * The key is not used as it is implicitly in the value (the record ID).
 	 */
 	@Override
-	public void setRecord(final @Nullable Long key, final @Nonnull Record value) {
+	public void setEntry(final @Nullable Long key, final @Nonnull Record value) {
 		assert value != null : "record must not be null!";
 		mRecords.put(value.getNodeKey(), value);
 	}
@@ -197,7 +197,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public void commit(final @Nonnull PageWriteTrx pPageWriteTrx)
+	public <K extends Comparable<? super K>, V extends Record> void commit(PageWriteTrx<K, V> pPageWriteTrx)
 			throws SirixException {
 	}
 

@@ -434,7 +434,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 				Constants.UBP_ROOT_REVISION_NUMBER, pageReadTrx);
 		ndp.setDirty(true);
 		reference.setPage(ndp);
-		reference.setNodePageKey(0);
+		reference.setKeyValuePageKey(0);
 		reference.setPageKind(pageKind);
 
 		final Optional<SirixDeweyID> id = pageReadTrx.getSession()
@@ -448,6 +448,6 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
-		ndp.setRecord(0L, new DocumentRootNode(nodeDel, strucDel));
+		ndp.setEntry(0L, new DocumentRootNode(nodeDel, strucDel));
 	}
 }

@@ -65,7 +65,7 @@ public enum PageKind {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert nodePage instanceof UnorderedKeyValuePage;
 			final UnorderedKeyValuePage page = (UnorderedKeyValuePage) nodePage;
-			return new UnorderedKeyValuePage(page.getRecordPageKey(), page.getRevision(),
+			return new UnorderedKeyValuePage(page.getPageKey(), page.getRevision(),
 					pageReadTrx);
 		}
 	},

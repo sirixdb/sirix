@@ -35,6 +35,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.Page;
 
 /**
@@ -55,8 +56,8 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
 	protected abstract Page delegate();
 
 	@Override
-	public void commit(final @Nonnull PageWriteTrx pageWriteTrx)
-			throws SirixException {
+	public <K extends Comparable<? super K>, V extends Record> void commit(
+			final @Nonnull PageWriteTrx<K, V> pageWriteTrx) throws SirixException {
 		delegate().commit(checkNotNull(pageWriteTrx));
 	}
 

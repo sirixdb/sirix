@@ -39,6 +39,7 @@ import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.index.name.Names;
 import org.sirix.node.Kind;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.Page;
 
 /**
@@ -264,7 +265,8 @@ public final class NamePage implements Page {
 	}
 
 	@Override
-	public void commit(PageWriteTrx pageWriteTrx) throws SirixException {
+	public <K extends Comparable<? super K>, V extends Record> void commit(
+			PageWriteTrx<K, V> pageWriteTrx) throws SirixException {
 	}
 
 	@Override

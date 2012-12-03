@@ -53,8 +53,8 @@ public final class PageReference {
 	/** In-memory deserialized page instance. */
 	private Page mPage;
 
-	/** Corresponding mKey of the related node page. */
-	private long mNodePageKey = -1;
+	/** Corresponding mKey of the related key/value page. */
+	private long mKeyValuePageKey = -1;
 
 	/** Key in persistent storage. */
 	private long mKey = Constants.NULL_ID;;
@@ -74,7 +74,7 @@ public final class PageReference {
 	public PageReference(final @Nonnull PageReference reference) {
 		mPageKind = reference.mPageKind;
 		mPage = reference.mPage;
-		mNodePageKey = reference.mNodePageKey;
+		mKeyValuePageKey = reference.mKeyValuePageKey;
 		mKey = reference.mKey;
 	}
 
@@ -118,18 +118,18 @@ public final class PageReference {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("nodePageKey", mNodePageKey)
+		return Objects.toStringHelper(this).add("keyValuePage", mKeyValuePageKey)
 				.add("key", mKey).add("page", mPage).toString();
 	}
 
 	/**
-	 * Set nodepage key.
+	 * Set keyValuePageKey key.
 	 * 
-	 * @param nodePageKey
-	 *          the nodePageKey to set
+	 * @param keyValuePageKey
+	 *          the keyValuePageKey to set
 	 */
-	public void setNodePageKey(final long nodePageKey) {
-		mNodePageKey = nodePageKey;
+	public void setKeyValuePageKey(final long keyValuePageKey) {
+		mKeyValuePageKey = keyValuePageKey;
 	}
 
 	/**
@@ -137,8 +137,8 @@ public final class PageReference {
 	 * 
 	 * @return the nodePageKey
 	 */
-	public long getNodePageKey() {
-		return mNodePageKey;
+	public long getKeyValuePageKey() {
+		return mKeyValuePageKey;
 	}
 
 	/**

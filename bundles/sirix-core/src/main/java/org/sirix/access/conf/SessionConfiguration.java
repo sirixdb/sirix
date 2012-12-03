@@ -36,7 +36,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.access.conf.ResourceConfiguration.Builder;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;

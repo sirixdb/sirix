@@ -31,6 +31,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 
 import com.google.common.io.ByteArrayDataOutput;
@@ -74,7 +75,7 @@ public interface Page {
 	 * @throws SirixException
 	 *           if something went wrong
 	 */
-	void commit(@Nonnull PageWriteTrx pageWriteTrx) throws SirixException;
+	<K extends Comparable<? super K>, V extends Record> void commit(@Nonnull PageWriteTrx<K, V> pageWriteTrx) throws SirixException;
 
 	/**
 	 * Get the {@link PageReference} at the specified offset

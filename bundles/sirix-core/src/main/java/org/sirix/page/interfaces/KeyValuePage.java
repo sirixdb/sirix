@@ -37,19 +37,19 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * 
 	 * @return page record key/identifier
 	 */
-	long getRecordPageKey();
+	long getPageKey();
 
 	/**
-	 * Get record with the specified key.
+	 * Get value with the specified key.
 	 * 
 	 * @param key
-	 *          record key
-	 * @return record with given key, or {@code null} if not present
+	 *          the key
+	 * @return value with given key, or {@code null} if not present
 	 */
-	V getRecord(K key);
+	V getValue(K key);
 
 	/**
-	 * Store or overwrite a single record. The implementation must make sure if
+	 * Store or overwrite a single entry. The implementation must make sure if
 	 * the key must be permitted, the value or none.
 	 * 
 	 * @param key
@@ -57,7 +57,7 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @param value
 	 *          value to store
 	 */
-	void setRecord(K key, V value);
+	void setEntry(K key, V value);
 
 	/**
 	 * Create a new instance.

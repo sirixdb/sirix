@@ -11,10 +11,10 @@ import org.sirix.page.PageKind;
 public final class BPlusTreeWriter<K extends Comparable<? super K>, V> implements
 		AutoCloseable {
 
-	private final PageWriteTrx mPageWriteTrx;
+	private final BPlusTreePageWriteTrx mPageWriteTrx;
 	private final PageKind mKind;
 
-	private BPlusTreeWriter(final @Nonnull PageWriteTrx pageWriteTrx,
+	private BPlusTreeWriter(final @Nonnull BPlusTreePageWriteTrx pageWriteTrx,
 			final @Nonnull PageKind kind) {
 		mPageWriteTrx = pageWriteTrx;
 		mKind = kind;
@@ -30,7 +30,7 @@ public final class BPlusTreeWriter<K extends Comparable<? super K>, V> implement
 	 * @return new tree instance
 	 */
 	public static <KE extends Comparable<? super KE>, VA> BPlusTreeWriter<KE, VA> getInstance(
-			final @Nonnull PageWriteTrx pageWriteTrx, final @Nonnull PageKind kind) {
+			final @Nonnull BPlusTreePageWriteTrx pageWriteTrx, final @Nonnull PageKind kind) {
 		return new BPlusTreeWriter<KE, VA>(checkNotNull(pageWriteTrx), checkNotNull(kind));
 	}
 	

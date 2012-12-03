@@ -9,12 +9,11 @@ import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.UberPage;
+import org.sirix.page.UnorderedKeyValuePage;
 
 /**
  * Interface for writing pages.
@@ -22,78 +21,77 @@ import org.sirix.page.UberPage;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface PageWriteTrx extends PageReadTrx {
+public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record>
+		extends PageReadTrx {
 
 	/**
-	 * Get {@link UberPage}.
+	 * Create fresh key/value (value must be a record) and prepare key/value-tuple
+	 * for modifications (CoW). The record might be a node, in this case the key
+	 * is the node.
 	 * 
-	 * @return the {@link UberPage} reference
-	 */
-	UberPage getUberPage();
-
-	/**
-	 * Create fresh node and prepare node nodePageReference for modifications
-	 * (COW).
-	 * 
-	 * @param node
-	 *          node to add
-	 * @return unmodified node for convenience
+	 * @param key
+	 *          optional key associated with the record to add (otherwise the
+	 *          record nodeKey is used)
+	 * @param value
+	 *          value to add (usually a node)
+	 * @return unmodified record for convenience
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 * @throws NullPointerException
-	 *           if {@code node} or {@code page} is {@code null}
+	 *           if {@code record} or {@code page} is {@code null}
 	 */
-	Record createNode(@Nonnull Record node, @Nonnull PageKind page)
+	V createEntry(@Nonnull K key, @Nonnull V value, @Nonnull PageKind page)
 			throws SirixIOException;
 
 	/**
-	 * Prepare a node for modification. This is getting the node from the
-	 * (persistence) layer, storing the page in the cache and setting up the node
-	 * for upcoming modification. Note that this only occurs for {@link Node}s.
+	 * Prepare an entry for modification. This is getting the entry from the
+	 * (persistence) layer, storing the page in the cache and setting up the entry
+	 * for upcoming modification. The key of the entry might be the node key and
+	 * the value the node itself.
 	 * 
-	 * @param nodeKey
-	 *          key of the node to be modified
-	 * @return an {@link Node} instance
+	 * @param key
+	 *          key of the entry to be modified
+	 * @return instance of the class implementing the {@link Record} instance
 	 * @throws SirixIOException
 	 *           if an I/O-error occurs
 	 * @throws IllegalArgumentException
-	 *           if {@code nodeKey < 0}
+	 *           if {@code recordKey < 0}
 	 * @throws NullPointerException
 	 *           if {@code page} is {@code null}
 	 */
-	Record prepareNodeForModification(@Nonnegative long nodeKey,
-			@Nonnull PageKind page) throws SirixIOException;
+	V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind page)
+			throws SirixIOException;
 
 	/**
-	 * Finishing the node modification. That is storing the node including the
+	 * Finishing the entry modification. That is storing the entry including the
 	 * page in the cache.
 	 * 
-	 * @param nodeKey
-	 *          node key from node to be removed
-	 * @param page
-	 *          denoting the kind of node page
+	 * @param key
+	 *          key from entry which is modified
+	 * @param pageKind
+	 *          denoting the kind of page (that is the subtree root kind)
 	 * @throws IllegalArgumentException
 	 *           if {@code nodeKey < 0}
 	 * @throws NullPointerException
 	 *           if {@code page} is {@code null}
 	 */
-	void finishNodeModification(@Nonnull long nodeKey, @Nonnull PageKind page);
+	void finishEntryModification(@Nonnull K key, @Nonnull PageKind pageKind);
 
 	/**
-	 * Removing a node from the storage.
+	 * Remove an entry from the storage.
 	 * 
-	 * @param nodeKey
-	 *          node key from node to be removed
-	 * @param page
-	 *          denoting the kind of node page
+	 * @param key
+	 *          entry key from entry to be removed
+	 * @param pageKind
+	 *          denoting the kind of page (that is the subtree root kind)
 	 * @throws SirixIOException
 	 *           if the removal fails
 	 * @throws IllegalArgumentException
-	 *           if {@code nodeKey < 0}
+	 *           if {@code recordKey < 0}
 	 * @throws NullPointerException
 	 *           if {@code page} is {@code null}
 	 */
-	void removeRecord(@Nonnull long nodeKey, @Nonnull PageKind page)
+	void removeEntry(@Nonnull K key, @Nonnull PageKind pageKind)
 			throws SirixIOException;
 
 	/**
@@ -134,7 +132,8 @@ public interface PageWriteTrx extends PageReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code nodePageCont} or {@code page} is {@code null}
 	 */
-	void updateDataContainer(@Nonnull RecordPageContainer<UnorderedKeyValuePage> nodePageCont,
+	void updateDataContainer(
+			@Nonnull RecordPageContainer<UnorderedKeyValuePage> nodePageCont,
 			@Nonnull PageKind page);
 
 	/**
@@ -160,4 +159,11 @@ public interface PageWriteTrx extends PageReadTrx {
 	 *           if {@code restore} is {@code null}
 	 */
 	void restore(@Nonnull Restore restore);
+
+	/**
+	 * Get {@link PageReadTrx}.
+	 * 
+	 * @return the {@link PageReadTrx} reference
+	 */
+	PageReadTrx getPageReadTrx();
 }

@@ -377,8 +377,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		checkNotNull(pageKind);
 		assertNotClosed();
 
-		final long nodePageKey = nodePageKey(nodeKey);
-		// final int nodePageOffset = nodePageOffset(pNodeKey);
+		final long nodePageKey = pageKey(nodeKey);
 
 		RecordPageContainer<UnorderedKeyValuePage> cont;
 		try {
@@ -406,7 +405,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			return Optional.<Record> absent();
 		}
 
-		final Record retVal = cont.getComplete().getRecord(nodeKey);
+		final Record retVal = cont.getComplete().getValue(nodeKey);
 		return checkItemIfDeleted(retVal);
 	}
 
@@ -705,7 +704,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			break;
 		default:
 			throw new IllegalStateException(
-					"Only defined for node pages and path summary pages!");
+					"Only defined for node, path summary, text value and attribute value pages!");
 		}
 		return ref;
 	}
@@ -790,32 +789,12 @@ final class PageReadTrxImpl implements PageReadTrx {
 		return reference;
 	}
 
-	/**
-	 * Calculate node page key from a given node key.
-	 * 
-	 * @param nodeKey
-	 *          node key to find node page key for
-	 * @return node page key
-	 */
-	final long nodePageKey(final @Nonnegative long nodeKey) {
-		checkArgument(nodeKey >= 0, "pNodeKey must not be negative!");
-		return nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+	@Override
+	public long pageKey(final @Nonnegative long recordKey) {
+		assertNotClosed();
+		checkArgument(recordKey >= 0, "recordKey must not be negative!");
+		return recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
 	}
-
-	// /**
-	// * Calculate node page offset for a given node key.
-	// *
-	// * @param pNodeKey
-	// * node key to find offset for
-	// * @return offset into node page
-	// */
-	// final int nodePageOffset(final @Nonnegative long pNodeKey) {
-	// checkArgument(pNodeKey >= 0, "pNodeKey must not be negative!");
-	// final long shift =
-	// ((pNodeKey >> IConstants.NDP_NODE_COUNT_EXPONENT) <<
-	// IConstants.NDP_NODE_COUNT_EXPONENT);
-	// return (int)(pNodeKey - shift);
-	// }
 
 	@Override
 	public RevisionRootPage getActualRevisionRootPage() throws SirixIOException {
@@ -830,6 +809,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 				.add("RevRootPage", mRootPage).toString();
 	}
 
+	// TODO: Write another interface for this internal kind of stuff.
 	@Override
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
 			final @Nonnull @Nonnegative Long recordPageKey,

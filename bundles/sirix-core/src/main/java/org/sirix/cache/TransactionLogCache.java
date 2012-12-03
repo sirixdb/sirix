@@ -78,7 +78,7 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>> implements
 			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
 		mSecondCache = new BerkeleyPersistenceCache<>(file, revision, logType,
 				pageReadTrx);
-		mFirstCache = new LRUCache<Long, RecordPageContainer<T>>(mSecondCache);
+		mFirstCache = new LRUCache<>(mSecondCache);
 	}
 
 	@Override

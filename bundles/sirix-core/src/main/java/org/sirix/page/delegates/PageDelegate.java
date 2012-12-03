@@ -34,6 +34,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
 
@@ -138,8 +139,8 @@ public class PageDelegate implements Page {
 	 *           if a write-error occured
 	 */
 	@Override
-	public final void commit(final @Nonnull PageWriteTrx pageWriteTrx)
-			throws SirixException {
+	public final <K extends Comparable<? super K>, V extends Record> void commit(
+			final @Nonnull PageWriteTrx<K, V> pageWriteTrx) throws SirixException {
 		for (final PageReference reference : mReferences) {
 			pageWriteTrx.commit(reference);
 		}

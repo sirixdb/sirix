@@ -42,6 +42,11 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 			@Nonnull PageKind page) throws SirixIOException {
 		return delegate().getRecord(key, page);
 	}
+	
+	@Override
+	public long pageKey(@Nonnegative long recordKey) {
+		return  delegate().pageKey(recordKey);
+	}
 
 	@Override
 	public RevisionRootPage getActualRevisionRootPage() throws SirixIOException {

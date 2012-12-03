@@ -35,6 +35,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.PathSummaryReader;
+import org.sirix.node.interfaces.Record;
 
 /**
  * <h1>Session</h1>
@@ -92,7 +93,7 @@ public interface Session extends AutoCloseable {
 	 * @throws SirixException
 	 *           if Sirix fails to create a new instance
 	 */
-	PageWriteTrx beginPageWriteTrx() throws SirixException;
+	PageWriteTrx<Long, Record> beginPageWriteTrx() throws SirixException;
 
 	/**
 	 * Begin a new {@link PageWriteTrx}.
@@ -105,7 +106,7 @@ public interface Session extends AutoCloseable {
 	 * @throws IllegalArgumentException
 	 *           if {@code revision < 0}
 	 */
-	PageWriteTrx beginPageWriteTrx(@Nonnegative int revision)
+	PageWriteTrx<Long, Record> beginPageWriteTrx(@Nonnegative int revision)
 			throws SirixException;
 
 	/**
@@ -181,7 +182,8 @@ public interface Session extends AutoCloseable {
 	 * @throws IllegalArgumentException
 	 *           if {@code revision < 0}
 	 */
-	PathSummaryReader openPathSummary(@Nonnegative int revision) throws SirixException;
+	PathSummaryReader openPathSummary(@Nonnegative int revision)
+			throws SirixException;
 
 	/**
 	 * Open the path summary to allow iteration (basically implementation of

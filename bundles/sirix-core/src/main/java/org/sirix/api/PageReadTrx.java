@@ -25,6 +25,13 @@ import com.google.common.base.Optional;
 public interface PageReadTrx extends AutoCloseable {
 
 	/**
+	 * Get {@link UberPage}.
+	 * 
+	 * @return the {@link UberPage} reference
+	 */
+	UberPage getUberPage();
+
+	/**
 	 * Get the session this transaction is bound to.
 	 * 
 	 * @return session instance
@@ -46,12 +53,12 @@ public interface PageReadTrx extends AutoCloseable {
 			final @Nonnull PageKind page) throws SirixIOException;
 
 	/**
-	 * Current reference to actual rev-root page.
+	 * Current reference to actual revision-root page.
 	 * 
 	 * @return the current revision root page
 	 * 
 	 * @throws SirixIOException
-	 *           if something odd happens within the creation process.
+	 *           if something odd happens within the creation process
 	 */
 	RevisionRootPage getActualRevisionRootPage() throws SirixIOException;
 
@@ -60,37 +67,37 @@ public interface PageReadTrx extends AutoCloseable {
 	 * 
 	 * @param nameKey
 	 *          name key for the term to search
-	 * @param kind
-	 *          kind of node
+	 * @param recordKind
+	 *          kind of record
 	 * @return the name
 	 * @throws NullPointerException
-	 *           if {@code pKind} is {@code null}
+	 *           if {@code kind} is {@code null}
 	 */
-	String getName(int nameKey, @Nonnull Kind kind);
+	String getName(int nameKey, @Nonnull Kind recordKind);
 
 	/**
 	 * Get the number of references for a name.
 	 * 
 	 * @param nameKey
 	 *          name key for the term to search
-	 * @param kind
-	 *          node type
+	 * @param recordKind
+	 *          kind of record
 	 * @return the number of references for a given keyy.
 	 */
-	int getNameCount(int nameKey, @Nonnull Kind kind);
+	int getNameCount(int nameKey, @Nonnull Kind recordKind);
 
 	/**
-	 * Getting the raw name related to the name key and the node kind.
+	 * Getting the raw name related to the name key and the record kind.
 	 * 
 	 * @param nameKey
 	 *          name key for the term to search
-	 * @param kind
-	 *          kind of node
+	 * @param recordKind
+	 *          kind of record
 	 * @return a byte array containing the raw name
 	 * @throws NullPointerException
 	 *           if {@code kind} is {@code null}
 	 */
-	byte[] getRawName(int nameKey, @Nonnull Kind kind);
+	byte[] getRawName(int nameKey, @Nonnull Kind recordKind);
 
 	/**
 	 * Close transaction.
@@ -122,13 +129,6 @@ public interface PageReadTrx extends AutoCloseable {
 	<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
 			@Nonnull @Nonnegative Long key, @Nonnull PageKind pageKind)
 			throws SirixIOException;
-
-	/**
-	 * Get the {@link UberPage}.
-	 * 
-	 * @return {@link UberPage} reference
-	 */
-	UberPage getUberPage();
 
 	/** Determines if transaction is closed or not. */
 	boolean isClosed();
@@ -168,4 +168,15 @@ public interface PageReadTrx extends AutoCloseable {
 	 * Close the caches.
 	 */
 	void closeCaches();
+
+	/**
+	 * Calculate record page key from a given record key.
+	 * 
+	 * @param key
+	 *          entry key to find record page key for
+	 * @return record page key
+	 * @throws IllegalArgumentException
+	 *           if {code recordKey} < 0
+	 */
+	long pageKey(@Nonnegative long key);
 }

@@ -167,7 +167,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	}
 
 	@Override
-	public void commit(@Nonnull PageWriteTrx pageWriteTrx) throws SirixException {
+	public <KE extends Comparable<? super KE>, VA extends Record> void commit(
+			PageWriteTrx<KE, VA> pageWriteTrx) throws SirixException {
 	}
 
 	@Override
@@ -197,17 +198,17 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	}
 
 	@Override
-	public long getRecordPageKey() {
+	public long getPageKey() {
 		return mRecordPageKey;
 	}
 
 	@Override
-	public V getRecord(final @Nonnull K key) {
+	public V getValue(final @Nonnull K key) {
 		return mRecords.get(key);
 	}
 
 	@Override
-	public void setRecord(final @Nullable K key, final @Nullable V value) {
+	public void setEntry(final @Nonnull K key, final @Nullable V value) {
 		mRecords.put(key, value);
 	}
 

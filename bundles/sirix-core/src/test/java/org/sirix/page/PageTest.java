@@ -104,7 +104,7 @@ public class PageTest {
 				TestHelper.random.nextInt(Integer.MAX_VALUE), mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 			final Record record = TestHelper.generateOne();
-			nodePage.setRecord(record.getNodeKey(), record);
+			nodePage.setEntry(record.getNodeKey(), record);
 		}
 		// NamePage setup.
 		final NamePage namePage = new NamePage(0);

@@ -104,7 +104,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 */
 	@SuppressWarnings("unchecked")
 	public RecordPageContainer(final @Nonnull T complete) {
-		this(complete, (T) complete.newInstance(complete.getRecordPageKey(),
+		this(complete, (T) complete.newInstance(complete.getPageKey(),
 				complete.getRevision(), complete.getPageReadTrx()));
 	}
 
@@ -121,7 +121,9 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 		assert complete != null;
 		assert modifying != null;
 		mComplete = complete;
+		mComplete.setDirty(true);
 		mModified = modifying;
+		mModified.setDirty(true);
 	}
 
 	/**

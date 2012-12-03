@@ -11,8 +11,8 @@ import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.UberPage;
+import org.sirix.page.UnorderedKeyValuePage;
 
 /**
  * Forwards all methods to the delegate.
@@ -20,35 +20,50 @@ import org.sirix.page.UberPage;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbstractForwardingPageWriteTrx extends
-		AbstractForwardingPageReadTrx implements PageWriteTrx {
+public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? super K>, V extends Record>
+		extends AbstractForwardingPageReadTrx implements PageWriteTrx<K, V> {
 
 	/** Constructor for use by subclasses. */
 	protected AbstractForwardingPageWriteTrx() {
 	}
 
 	@Override
-	public Record createNode(@Nonnull Record node, @Nonnull PageKind page)
+	public void closeCaches() {
+		delegate().closeCaches();
+	}
+
+	@Override
+	public void clearCaches() {
+		delegate().clearCaches();
+	}
+
+	@Override
+	public void close() throws SirixIOException {
+		delegate().close();
+	}
+
+	@Override
+	public V createEntry(@Nonnull K key, @Nonnull V record, @Nonnull PageKind pageKind)
 			throws SirixIOException {
-		return delegate().createNode(node, page);
+		return delegate().createEntry(key, record, pageKind);
 	}
 
 	@Override
-	public Record prepareNodeForModification(@Nonnegative long nodeKey,
-			@Nonnull PageKind page) throws SirixIOException {
-		return delegate().prepareNodeForModification(nodeKey, page);
+	public V prepareEntryForModification(@Nonnegative K recordKey,
+			@Nonnull PageKind pageKind) throws SirixIOException {
+		return delegate().prepareEntryForModification(recordKey, pageKind);
 	}
 
 	@Override
-	public void finishNodeModification(@Nonnegative long nodeKey,
-			@Nonnull PageKind page) {
-		delegate().finishNodeModification(nodeKey, page);
+	public void finishEntryModification(@Nonnegative K recordKey,
+			@Nonnull PageKind pageKind) {
+		delegate().finishEntryModification(recordKey, pageKind);
 	}
 
 	@Override
-	public void removeRecord(@Nonnegative long nodeKey, @Nonnull PageKind page)
+	public void removeEntry(@Nonnegative K recordKey, @Nonnull PageKind pageKind)
 			throws SirixIOException {
-		delegate().removeRecord(nodeKey, page);
+		delegate().removeEntry(recordKey, pageKind);
 	}
 
 	@Override
@@ -64,9 +79,10 @@ public abstract class AbstractForwardingPageWriteTrx extends
 	}
 
 	@Override
-	public void updateDataContainer(@Nonnull RecordPageContainer<UnorderedKeyValuePage> nodePageContainer,
-			@Nonnull PageKind page) {
-		delegate().updateDataContainer(nodePageContainer, page);
+	public void updateDataContainer(
+			@Nonnull RecordPageContainer<UnorderedKeyValuePage> recordPageContainer,
+			@Nonnull PageKind pageKind) {
+		delegate().updateDataContainer(recordPageContainer, pageKind);
 	}
 
 	@Override
@@ -80,6 +96,6 @@ public abstract class AbstractForwardingPageWriteTrx extends
 	}
 
 	@Override
-	protected abstract PageWriteTrx delegate();
+	protected abstract PageWriteTrx<K, V> delegate();
 
 }

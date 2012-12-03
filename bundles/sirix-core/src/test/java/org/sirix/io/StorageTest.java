@@ -99,8 +99,8 @@ public class StorageTest {
 			writer.writeFirstReference(pageRef1);
 			final PageReference pageRef2 = writer.readFirstReference();
 			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
-					.append(" failed.").toString(), pageRef1.getNodePageKey(),
-					pageRef2.getNodePageKey());
+					.append(" failed.").toString(), pageRef1.getKeyValuePageKey(),
+					pageRef2.getKeyValuePageKey());
 			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
 					.append(" failed.").toString(),
 					((UberPage) pageRef1.getPage()).getRevisionCount(),
@@ -111,8 +111,8 @@ public class StorageTest {
 			final Reader reader = handler.getReader();
 			final PageReference pageRef3 = reader.readFirstReference();
 			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
-					.append(" failed.").toString(), pageRef1.getNodePageKey(),
-					pageRef3.getNodePageKey());
+					.append(" failed.").toString(), pageRef1.getKeyValuePageKey(),
+					pageRef3.getKeyValuePageKey());
 			assertEquals(new StringBuilder("Check for ").append(handler.getClass())
 					.append(" failed.").toString(),
 					((UberPage) pageRef1.getPage()).getRevisionCount(),

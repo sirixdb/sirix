@@ -176,17 +176,17 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	}
 
 	@Override
-	public long getRecordPageKey() {
+	public long getPageKey() {
 		return mRecordPageKey;
 	}
 
 	@Override
-	public V getRecord(final @Nonnull K key) {
+	public V getValue(final @Nonnull K key) {
 		return mRecords.get(key);
 	}
 
 	@Override
-	public void setRecord(final @Nonnull K key, final @Nullable V value) {
+	public void setEntry(final @Nonnull K key, final @Nullable V value) {
 		mRecords.put(key, value);
 	}
 
