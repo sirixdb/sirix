@@ -118,12 +118,11 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 */
 	public RecordPageContainer(final @Nonnull T complete,
 			final @Nonnull T modifying) {
+		// Assertions as it's not part of the public API.
 		assert complete != null;
 		assert modifying != null;
 		mComplete = complete;
-		mComplete.setDirty(true);
 		mModified = modifying;
-		mModified.setDirty(true);
 	}
 
 	/**

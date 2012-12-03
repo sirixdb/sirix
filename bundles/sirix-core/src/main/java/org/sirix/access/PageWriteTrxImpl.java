@@ -488,9 +488,13 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 						if ((mPageRtx.getRevisionNumber()
 								% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0)
 								&& mPageRtx.mSession.mResourceConfig.mRevisionKind != Revisioning.FULL) {
+							// Write the whole indirect page tree if it's a full dump, otherwise record pages which have to be emitted 
+							// might not be adressable (the false pages from earlier versions are still reachable).
 							page = mPageRtx.getFromPageCache(key);
 							
-							if (!(page instanceof IndirectPage)) {
+							if (page instanceof IndirectPage) {
+								page.setDirty(true);
+							} else {
 								page = null;
 							}
 						}

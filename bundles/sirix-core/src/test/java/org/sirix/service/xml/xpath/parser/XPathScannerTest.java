@@ -61,7 +61,6 @@ public class XPathScannerTest {
 	 */
 	@Before
 	public void setUp() {
-
 		scanner = new XPathScanner(mQUERY);
 		scanner2 = new XPathScanner(mQUERY2);
 	}
