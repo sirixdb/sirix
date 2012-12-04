@@ -475,23 +475,28 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 					if (page != null && !page.isDirty()) {
 						// Only write dirty pages which have been modified since the
-						// latest full dump (checked in the versioning algorithms through setting the dirty flag).
+						// latest full dump (checked in the versioning algorithms through
+						// setting the dirty flag).
 						page = null;
 					}
 				}
 				if (page == null) {
-					// Then try to get one from the page transaction log.
+					// Then try to get one from the page transaction log (indirect pages
+					// forming a tree below revision root pages).
 					final long key = reference.getKey();
-					if (recordPageKey == -1 && key != Constants.NULL_ID) {
+					if (recordPageKey == -1 && key != Constants.NULL_ID
+							&& reference.getPageKind() != PageKind.UBERPAGE) {
 						page = mPageLog.get(key);
-						
+
 						if ((mPageRtx.getRevisionNumber()
 								% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0)
 								&& mPageRtx.mSession.mResourceConfig.mRevisionKind != Revisioning.FULL) {
-							// Write the whole indirect page tree if it's a full dump, otherwise record pages which have to be emitted 
-							// might not be adressable (the false pages from earlier versions are still reachable).
+							// Write the whole indirect page tree if it's a full dump,
+							// otherwise record pages which have to be emitted
+							// might not be adressable (the false pages from earlier versions
+							// are still reachable).
 							page = mPageRtx.getFromPageCache(key);
-							
+
 							if (page instanceof IndirectPage) {
 								page.setDirty(true);
 							} else {
@@ -536,115 +541,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			}
 		}
 	}
-
-	// @Override
-	// public void commit(final @Nullable PageReference reference)
-	// throws SirixException {
-	// Page page = null;
-	//
-	// // If reference is not null, get one from the persistent storage.
-	// if (reference != null) {
-	// // First, try to get one from the transaction log.
-	// final long recordPageKey = reference.getKeyValuePageKey();
-	// final PageKind pageKind = reference.getPageKind();
-	// RecordPageContainer<? extends KeyValuePage<?, ?>> cont = null;
-	// if (recordPageKey != -1) {
-	// switch (pageKind) {
-	// case TEXTVALUEPAGE:
-	// case ATTRIBUTEVALUEPAGE:
-	// case NODEPAGE:
-	// case PATHSUMMARYPAGE:
-	// cont = getUnorderedRecordPageContainer(pageKind, recordPageKey);
-	// default:
-	//
-	// }
-	// }
-	// if (cont != null) {
-	// page = cont.getModified();
-	// }
-	//
-	// // If none is in the log.
-	// if (page == null) {
-	// // Test if one is instantiated, if so, get
-	// // the one from the reference.
-	// page = reference.getPage();
-	//
-	// if (page == null) {
-	// // Revision to commit is a full dump => get the full page and dump
-	// // it.
-	// if (recordPageKey == -1) {
-	// // Then try to get one from the page transaction log.
-	// if (recordPageKey == -1 && reference.getKey() != Constants.NULL_ID) {
-	// page = mPageLog.get(reference.getKey());
-	// }
-	//
-	// // Then try to get one from the page transaction log.
-	// if (page == null
-	// && recordPageKey == -1
-	// && reference.getKey() != Constants.NULL_ID) {
-	// // && ((mPageRtx.getRevisionNumber()
-	// // % mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) ||
-	// mPageRtx.mSession.mResourceConfig.mRevisionKind == Revisioning.FULL)) {
-	// page = mPageRtx.getFromPageCache(reference.getKey());
-	// if (page != null) {
-	// page.setDirty(true);
-	// }
-	// }
-	// } else {
-	// // Record page (key/value page).
-	// switch (pageKind) {
-	// case TEXTVALUEPAGE:
-	// case ATTRIBUTEVALUEPAGE:
-	// case NODEPAGE:
-	// case PATHSUMMARYPAGE:
-	// if ((mPageRtx.getRevisionNumber()
-	// % mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0) &&
-	// (mPageRtx.mSession.mResourceConfig.mRevisionKind != Revisioning.FULL)) {
-	// page = mPageRtx
-	// .<Long, Record, KeyValuePage<Long, Record>> getRecordPageContainer(
-	// recordPageKey, pageKind).getComplete();
-	// }
-	// default:
-	// }
-	// }
-	// }
-	// // Revision to commit is not a full dump => return immediately.
-	// if (page != null
-	// && !page.isDirty()
-	// && ((page.getRevision()
-	// % mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) ||
-	// mPageRtx.mSession.mResourceConfig.mRevisionKind == Revisioning.FULL)) {
-	// return;
-	// }
-	//
-	// if (page == null) {
-	// return;
-	// }
-	// }
-	//
-	// reference.setPage(page);
-	//
-	// // Recursively commit indirectely referenced pages and then
-	// // write self.
-	// page.commit(this);
-	// mPageWriter.write(reference);
-	//
-	// // Remove from transaction log.
-	// // if (pReference.getPageKind() != null) {
-	// // removePageContainer(pReference.getPageKind(), nodePageKey);
-	// // }
-	//
-	// // Remove page reference.
-	// reference.setPage(null);
-	//
-	// // Afterwards synchronize all logs since the changes must be
-	// // written to the transaction log as well.
-	// if (mMultipleWriteTrx == MultipleWriteTrx.YES && cont != null) {
-	// // mPageRtx.mSession.syncLogs(cont, mTransactionID,
-	// // reference.getPageKind());
-	// }
-	// }
-	// }
 
 	@Override
 	public UberPage commit(final @Nonnull MultipleWriteTrx multipleWriteTrx)

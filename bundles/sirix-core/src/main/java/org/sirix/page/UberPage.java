@@ -91,7 +91,7 @@ public final class UberPage extends AbstractForwardingPage {
 		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
 			page = new IndirectPage(Constants.UBP_ROOT_REVISION_NUMBER);
 			reference.setPage(page);
-			reference.setPageKind(PageKind.INDIRECTPAGE);
+			reference.setPageKind(PageKind.UBERPAGE);
 			reference = page.getReference(0);
 		}
 
