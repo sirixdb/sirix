@@ -13,6 +13,9 @@ import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.interfaces.KeyValuePage;
+
+import com.google.common.base.Optional;
 
 /**
  * Forwards all methods to the delegate.
@@ -20,8 +23,8 @@ import org.sirix.page.UnorderedKeyValuePage;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? super K>, V extends Record>
-		extends AbstractForwardingPageReadTrx implements PageWriteTrx<K, V> {
+public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>>
+		extends AbstractForwardingPageReadTrx implements PageWriteTrx<K, V, S> {
 
 	/** Constructor for use by subclasses. */
 	protected AbstractForwardingPageWriteTrx() {
@@ -43,15 +46,15 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	}
 
 	@Override
-	public V createEntry(@Nonnull K key, @Nonnull V record, @Nonnull PageKind pageKind)
+	public V createEntry(@Nonnull K key, @Nonnull V record, @Nonnull PageKind pageKind, @Nonnull Optional<S> keyValuePage)
 			throws SirixIOException {
-		return delegate().createEntry(key, record, pageKind);
+		return delegate().createEntry(key, record, pageKind, keyValuePage);
 	}
 
 	@Override
 	public V prepareEntryForModification(@Nonnegative K recordKey,
-			@Nonnull PageKind pageKind) throws SirixIOException {
-		return delegate().prepareEntryForModification(recordKey, pageKind);
+			@Nonnull PageKind pageKind, @Nonnull Optional<S> keyValuePage) throws SirixIOException {
+		return delegate().prepareEntryForModification(recordKey, pageKind, keyValuePage);
 	}
 
 	@Override
@@ -61,9 +64,9 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	}
 
 	@Override
-	public void removeEntry(@Nonnegative K recordKey, @Nonnull PageKind pageKind)
+	public void removeEntry(@Nonnegative K recordKey, @Nonnull PageKind pageKind, @Nonnull Optional<S> keyValuePage)
 			throws SirixIOException {
-		delegate().removeEntry(recordKey, pageKind);
+		delegate().removeEntry(recordKey, pageKind, keyValuePage);
 	}
 
 	@Override
@@ -96,6 +99,6 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	}
 
 	@Override
-	protected abstract PageWriteTrx<K, V> delegate();
+	protected abstract PageWriteTrx<K, V, S> delegate();
 
 }

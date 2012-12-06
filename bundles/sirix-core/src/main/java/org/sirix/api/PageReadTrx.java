@@ -8,8 +8,13 @@ import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
+import org.sirix.page.AttributeValuePage;
+import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
+import org.sirix.page.PageReference;
+import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
+import org.sirix.page.TextValuePage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -179,4 +184,70 @@ public interface PageReadTrx extends AutoCloseable {
 	 *           if {code recordKey} < 0
 	 */
 	long pageKey(@Nonnegative long key);
+
+	/**
+	 * Get the {@link NamePage} associated with the current revision root.
+	 * 
+	 * @param revisionRoot
+	 *          {@link RevisionRootPage} for which to get the {@link NamePage}
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	NamePage getNamePage(@Nonnull RevisionRootPage revisionRoot)
+			throws SirixIOException;
+
+	/**
+	 * Get the {@link TextValuePage} associated with the current revision root.
+	 * 
+	 * @param revisionRoot
+	 *          {@link RevisionRootPage} for which to get the {@link NamePage}
+	 * @throws SirixIOException
+	 *           if an I/O error occur@Nonnull RevisionRootPage revisionRoots
+	 */
+	TextValuePage getTextValuePage(@Nonnull RevisionRootPage revisionRoot)
+			throws SirixIOException;
+
+	/**
+	 * Get the {@link AttributeValuePage} associated with the current revision
+	 * root.
+	 * 
+	 * @param revisionRoot
+	 *          {@link RevisionRootPage} for which to get the {@link NamePage}
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	AttributeValuePage getAttributeValuePage(
+			@Nonnull RevisionRootPage revisionRoot) throws SirixIOException;
+
+	/**
+	 * Get the {@link PathSummaryPage} associated with the current revision root.
+	 * 
+	 * @param revisionRoot
+	 *          {@link RevisionRootPage} for which to get the {@link NamePage}
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 */
+	PathSummaryPage getPathSummaryPage(@Nonnull RevisionRootPage revisionRoot)
+			throws SirixIOException;
+
+	/**
+	 * Get the page reference pointing to the page denoted by {@code pageKey}.
+	 * 
+	 * @param startReference
+	 *          the start reference (for instance to the indirect tree or the
+	 *          root-node of a BPlusTree)
+	 * @param pageKey
+	 *          the unique key of the page to search for
+	 * @param pageKind
+	 *          the kind of subtree
+	 * @return {@link PageReference} instance pointing to the page denoted by
+	 *         {@code key}
+	 * @throws SirixIOException
+	 *           if an I/O error occurs
+	 * @throws IllegalArgumentException
+	 *           if {code pageKey} < 0
+	 */
+	PageReference getPageReferenceForPage(@Nonnull PageReference startReference,
+			@Nonnegative long pageKey, @Nonnull PageKind pageKind)
+			throws SirixIOException;
 }

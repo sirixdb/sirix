@@ -36,6 +36,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
+import org.sirix.page.UnorderedKeyValuePage;
 
 /**
  * <h1>Session</h1>
@@ -93,7 +94,7 @@ public interface Session extends AutoCloseable {
 	 * @throws SirixException
 	 *           if Sirix fails to create a new instance
 	 */
-	PageWriteTrx<Long, Record> beginPageWriteTrx() throws SirixException;
+	PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx() throws SirixException;
 
 	/**
 	 * Begin a new {@link PageWriteTrx}.
@@ -106,7 +107,7 @@ public interface Session extends AutoCloseable {
 	 * @throws IllegalArgumentException
 	 *           if {@code revision < 0}
 	 */
-	PageWriteTrx<Long, Record> beginPageWriteTrx(@Nonnegative int revision)
+	PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx(@Nonnegative int revision)
 			throws SirixException;
 
 	/**

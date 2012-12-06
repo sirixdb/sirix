@@ -14,6 +14,9 @@ import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.page.interfaces.KeyValuePage;
+
+import com.google.common.base.Optional;
 
 /**
  * Interface for writing pages.
@@ -21,7 +24,7 @@ import org.sirix.page.UnorderedKeyValuePage;
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record>
+public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>>
 		extends PageReadTrx {
 
 	/**
@@ -40,7 +43,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record>
 	 * @throws NullPointerException
 	 *           if {@code record} or {@code page} is {@code null}
 	 */
-	V createEntry(@Nonnull K key, @Nonnull V value, @Nonnull PageKind page)
+	V createEntry(@Nonnull K key, @Nonnull V value, @Nonnull PageKind page, @Nonnull Optional<S> keyValuePage)
 			throws SirixIOException;
 
 	/**
@@ -59,7 +62,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record>
 	 * @throws NullPointerException
 	 *           if {@code page} is {@code null}
 	 */
-	V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind page)
+	V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind page, @Nonnull Optional<S> keyValuePage)
 			throws SirixIOException;
 
 	/**
@@ -91,7 +94,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record>
 	 * @throws NullPointerException
 	 *           if {@code page} is {@code null}
 	 */
-	void removeEntry(@Nonnull K key, @Nonnull PageKind pageKind)
+	void removeEntry(@Nonnull K key, @Nonnull PageKind pageKind, @Nonnull Optional<S> keyValuePage)
 			throws SirixIOException;
 
 	/**
@@ -127,14 +130,14 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record>
 	 * 
 	 * @param nodePageCont
 	 *          {@link RecordPageContainer} reference to synchronize
-	 * @param page
+	 * @param pageKind
 	 *          type of page
 	 * @throws NullPointerException
 	 *           if {@code nodePageCont} or {@code page} is {@code null}
 	 */
 	void updateDataContainer(
 			@Nonnull RecordPageContainer<UnorderedKeyValuePage> nodePageCont,
-			@Nonnull PageKind page);
+			@Nonnull PageKind pageKind);
 
 	/**
 	 * Committing a {@link NodeWriteTrx}. This method is recursively invoked by

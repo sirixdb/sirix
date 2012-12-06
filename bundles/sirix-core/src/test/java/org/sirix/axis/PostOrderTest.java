@@ -51,6 +51,7 @@ import org.sirix.utils.DocumentCreater;
  */
 public class PostOrderTest {
 
+	/** {@link Holder} reference. */
 	private Holder holder;
 
 	@Before

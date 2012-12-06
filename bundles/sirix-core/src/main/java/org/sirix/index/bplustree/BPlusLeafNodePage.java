@@ -34,7 +34,7 @@ import com.google.common.io.ByteArrayDataOutput;
  * @param <V>
  *          the value
  */
-public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V extends Record>
+public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V extends Record> 
 		implements KeyValuePage<K, V> {
 
 	/** Key of record page. This is the base key of all contained nodes. */
@@ -167,8 +167,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	}
 
 	@Override
-	public <KE extends Comparable<? super KE>, VA extends Record> void commit(
-			PageWriteTrx<KE, VA> pageWriteTrx) throws SirixException {
+	public <KE extends Comparable<? super KE>, VA extends Record, S extends KeyValuePage<KE, VA>> void commit(
+			PageWriteTrx<KE, VA, S> pageWriteTrx) throws SirixException {
 	}
 
 	@Override

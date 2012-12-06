@@ -27,6 +27,7 @@ import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.PageKind;
 import org.sirix.page.RevisionRootPage;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -64,7 +65,7 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 	private Node mCurrentNode;
 
 	/** {@link PageWriteTrx} for persistent storage. */
-	private final PageWriteTrx<Long, Record> mPageWriteTrx;
+	private final PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
 	/** Page kind. */
 	private final PageKind mPageKind;
@@ -86,7 +87,8 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 	 * @param kind
 	 *          kind of value (attribute/text)
 	 */
-	private AVLTree(final @Nonnull PageWriteTrx<Long, Record> pageWriteTrx,
+	private AVLTree(
+			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final @Nonnull ValueKind kind) {
 		mPageWriteTrx = checkNotNull(pageWriteTrx);
 		switch (kind) {
@@ -130,7 +132,8 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 	 * @return new tree instance
 	 */
 	public static <K extends Comparable<? super K>, V> AVLTree<K, V> getInstance(
-			final @Nonnull PageWriteTrx<Long, Record> pageWriteTrx, final @Nonnull ValueKind kind) {
+			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final @Nonnull ValueKind kind) {
 		return new AVLTree<K, V>(pageWriteTrx, kind);
 	}
 
@@ -166,10 +169,12 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 					nodeKey,
 					new AVLNode<>(key, value, new NodeDelegate(nodeKey,
 							Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 0, 0, Optional
-									.<SirixDeweyID> absent())), mPageKind);
+									.<SirixDeweyID> absent())), mPageKind, Optional
+							.<UnorderedKeyValuePage> absent());
 			final DocumentRootNode document = (DocumentRootNode) mPageWriteTrx
 					.prepareEntryForModification(
-							Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), mPageKind);
+							Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), mPageKind,
+							Optional.<UnorderedKeyValuePage> absent());
 			document.setFirstChildKey(mRoot.getNodeKey());
 			document.incrementChildCount();
 			document.incrementDescendantCount();
@@ -188,10 +193,11 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 			if (c == 0) {
 				if (!value.equals(node.getValue())) {
 					final AVLNode<K, V> avlNode = (AVLNode<K, V>) mPageWriteTrx
-							.prepareEntryForModification(node.getNodeKey(), mPageKind);
+							.prepareEntryForModification(node.getNodeKey(), mPageKind,
+									Optional.<UnorderedKeyValuePage> absent());
 					avlNode.setValue(value);
-					mPageWriteTrx.finishEntryModification(avlNode.getNodeKey(),
-							mPageKind);
+					mPageWriteTrx
+							.finishEntryModification(avlNode.getNodeKey(), mPageKind);
 				}
 				return node.getValue();
 			}
@@ -207,11 +213,14 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 					.getMaxTextValueNodeKey() + 1
 					: root.getMaxAttributeValueNodeKey() + 1;
 			final AVLNode<K, V> child = (AVLNode<K, V>) mPageWriteTrx.createEntry(
-					nodeKey, new AVLNode<>(key, value, new NodeDelegate(
-							nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0,
-							Optional.<SirixDeweyID> absent())), mPageKind);
+					nodeKey,
+					new AVLNode<>(key, value, new NodeDelegate(nodeKey,
+							Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, Optional
+									.<SirixDeweyID> absent())), mPageKind, Optional
+							.<UnorderedKeyValuePage> absent());
 			node = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(
-					node.getNodeKey(), mPageKind);
+					node.getNodeKey(), mPageKind,
+					Optional.<UnorderedKeyValuePage> absent());
 			if (c < 0) {
 				node.setLeftChildKey(child.getNodeKey());
 				adjust(child);
@@ -412,7 +421,8 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 			final boolean changed) throws SirixIOException {
 		@SuppressWarnings("unchecked")
 		final AVLNode<K, V> node = (AVLNode<K, V>) mPageWriteTrx
-				.prepareEntryForModification(nodeToChange.getNodeKey(), mPageKind);
+				.prepareEntryForModification(nodeToChange.getNodeKey(), mPageKind,
+						Optional.<UnorderedKeyValuePage> absent());
 		node.setChanged(changed);
 		mPageWriteTrx.finishEntryModification(node.getNodeKey(), mPageKind);
 	}
@@ -476,21 +486,24 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 
 		AVLNode<K, V> right = (AVLNode<K, V>) moveToLastChild().get().getAVLNode();
 
-		node = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(
-				node.getNodeKey(), mPageKind);
+		node = (AVLNode<K, V>) mPageWriteTrx
+				.prepareEntryForModification(node.getNodeKey(), mPageKind,
+						Optional.<UnorderedKeyValuePage> absent());
 		node.setRightChildKey(right.getLeftChildKey());
 		mPageWriteTrx.finishEntryModification(node.getNodeKey(), mPageKind);
 
 		if (right.hasLeftChild()) {
 			final AVLNode<K, V> rightLeftChild = (AVLNode<K, V>) mPageWriteTrx
-					.prepareEntryForModification(right.getLeftChildKey(), mPageKind);
+					.prepareEntryForModification(right.getLeftChildKey(), mPageKind,
+							Optional.<UnorderedKeyValuePage> absent());
 			rightLeftChild.setParentKey(node.getNodeKey());
 			mPageWriteTrx.finishEntryModification(rightLeftChild.getNodeKey(),
 					mPageKind);
 		}
 
 		right = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(
-				right.getNodeKey(), mPageKind);
+				right.getNodeKey(), mPageKind,
+				Optional.<UnorderedKeyValuePage> absent());
 		right.setParentKey(node.getParentKey());
 		mPageWriteTrx.finishEntryModification(right.getNodeKey(), mPageKind);
 
@@ -499,23 +512,27 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 		} else if (moveTo(node.getParentKey()).hasMoved()
 				&& getAVLNode().getLeftChildKey() == node.getNodeKey()) {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
-					.prepareEntryForModification(mCurrentNode.getNodeKey(), mPageKind);
+					.prepareEntryForModification(mCurrentNode.getNodeKey(), mPageKind,
+							Optional.<UnorderedKeyValuePage> absent());
 			parent.setLeftChildKey(right.getNodeKey());
 			mPageWriteTrx.finishEntryModification(parent.getNodeKey(), mPageKind);
 		} else {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
-					.prepareEntryForModification(mCurrentNode.getNodeKey(), mPageKind);
+					.prepareEntryForModification(mCurrentNode.getNodeKey(), mPageKind,
+							Optional.<UnorderedKeyValuePage> absent());
 			parent.setRightChildKey(right.getNodeKey());
 			mPageWriteTrx.finishEntryModification(parent.getNodeKey(), mPageKind);
 		}
 
 		right = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(
-				right.getNodeKey(), mPageKind);
+				right.getNodeKey(), mPageKind,
+				Optional.<UnorderedKeyValuePage> absent());
 		right.setLeftChildKey(node.getNodeKey());
 		mPageWriteTrx.finishEntryModification(right.getNodeKey(), mPageKind);
 
-		node = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(
-				node.getNodeKey(), mPageKind);
+		node = (AVLNode<K, V>) mPageWriteTrx
+				.prepareEntryForModification(node.getNodeKey(), mPageKind,
+						Optional.<UnorderedKeyValuePage> absent());
 		node.setParentKey(right.getNodeKey());
 		mPageWriteTrx.finishEntryModification(node.getNodeKey(), mPageKind);
 	}
@@ -534,21 +551,24 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 
 		AVLNode<K, V> leftChild = (AVLNode<K, V>) moveToFirstChild().get()
 				.getAVLNode();
-		node = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(
-				node.getNodeKey(), mPageKind);
+		node = (AVLNode<K, V>) mPageWriteTrx
+				.prepareEntryForModification(node.getNodeKey(), mPageKind,
+						Optional.<UnorderedKeyValuePage> absent());
 		node.setLeftChildKey(leftChild.getRightChildKey());
 		mPageWriteTrx.finishEntryModification(node.getNodeKey(), mPageKind);
 
 		if (leftChild.hasRightChild()) {
 			final Node leftRightChild = (Node) mPageWriteTrx
-					.prepareEntryForModification(leftChild.getRightChildKey(), mPageKind);
+					.prepareEntryForModification(leftChild.getRightChildKey(), mPageKind,
+							Optional.<UnorderedKeyValuePage> absent());
 			leftRightChild.setParentKey(node.getNodeKey());
 			mPageWriteTrx.finishEntryModification(leftRightChild.getNodeKey(),
 					mPageKind);
 		}
 
 		leftChild = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(
-				leftChild.getNodeKey(), mPageKind);
+				leftChild.getNodeKey(), mPageKind,
+				Optional.<UnorderedKeyValuePage> absent());
 		leftChild.setParentKey(node.getParentKey());
 		mPageWriteTrx.finishEntryModification(leftChild.getNodeKey(), mPageKind);
 
@@ -557,23 +577,27 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 		} else if (moveTo(node.getParentKey()).hasMoved()
 				&& getAVLNode().getRightChildKey() == node.getNodeKey()) {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
-					.prepareEntryForModification(mCurrentNode.getNodeKey(), mPageKind);
+					.prepareEntryForModification(mCurrentNode.getNodeKey(), mPageKind,
+							Optional.<UnorderedKeyValuePage> absent());
 			parent.setRightChildKey(leftChild.getNodeKey());
 			mPageWriteTrx.finishEntryModification(parent.getNodeKey(), mPageKind);
 		} else {
 			final AVLNode<K, V> parent = (AVLNode<K, V>) mPageWriteTrx
-					.prepareEntryForModification(mCurrentNode.getNodeKey(), mPageKind);
+					.prepareEntryForModification(mCurrentNode.getNodeKey(), mPageKind,
+							Optional.<UnorderedKeyValuePage> absent());
 			parent.setLeftChildKey(leftChild.getNodeKey());
 			mPageWriteTrx.finishEntryModification(parent.getNodeKey(), mPageKind);
 		}
 
 		leftChild = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(
-				leftChild.getNodeKey(), mPageKind);
+				leftChild.getNodeKey(), mPageKind,
+				Optional.<UnorderedKeyValuePage> absent());
 		leftChild.setRightChildKey(node.getNodeKey());
 		mPageWriteTrx.finishEntryModification(leftChild.getNodeKey(), mPageKind);
 
-		node = (AVLNode<K, V>) mPageWriteTrx.prepareEntryForModification(
-				node.getNodeKey(), mPageKind);
+		node = (AVLNode<K, V>) mPageWriteTrx
+				.prepareEntryForModification(node.getNodeKey(), mPageKind,
+						Optional.<UnorderedKeyValuePage> absent());
 		node.setParentKey(leftChild.getNodeKey());
 		mPageWriteTrx.finishEntryModification(node.getNodeKey(), mPageKind);
 	}

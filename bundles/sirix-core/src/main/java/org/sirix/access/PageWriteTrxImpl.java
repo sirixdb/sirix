@@ -83,7 +83,7 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger
  */
 final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
-		PageWriteTrx<Long, Record> {
+		PageWriteTrx<Long, Record, UnorderedKeyValuePage> {
 
 	/** Page writer to serialize. */
 	private final Writer mPageWriter;
@@ -209,7 +209,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	@Override
 	public Record prepareEntryForModification(final @Nonnegative Long recordKey,
-			final @Nonnull PageKind page) throws SirixIOException {
+			final @Nonnull PageKind page,
+			final @Nonnull Optional<UnorderedKeyValuePage> keyValuePage)
+			throws SirixIOException {
+		mPageRtx.assertNotClosed();
 		if (recordKey < 0) {
 			throw new IllegalArgumentException("recordKey must be >= 0!");
 		}
@@ -239,6 +242,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	@Override
 	public void finishEntryModification(final @Nonnull Long nodeKey,
 			final @Nonnull PageKind page) {
+		mPageRtx.assertNotClosed();
 		final long nodePageKey = mPageRtx.pageKey(nodeKey);
 		if (mUnorderedRecordPageCon == null
 				|| (mNodeLog.get(nodePageKey)
@@ -273,8 +277,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	@Override
 	public Record createEntry(final @Nonnull Long key,
-			final @Nonnull Record record, final @Nonnull PageKind pageKind)
+			final @Nonnull Record record, final @Nonnull PageKind pageKind,
+			final @Nonnull Optional<UnorderedKeyValuePage> keyValuePage)
 			throws SirixIOException {
+		mPageRtx.assertNotClosed();
 		// Allocate record key and increment record count.
 		long recordKey;
 		switch (pageKind) {
@@ -309,7 +315,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	@Override
 	public void removeEntry(@Nonnull final Long recordKey,
-			@Nonnull final PageKind pageKind) throws SirixIOException {
+			@Nonnull final PageKind pageKind,
+			final @Nonnull Optional<UnorderedKeyValuePage> keyValuePage)
+			throws SirixIOException {
+		mPageRtx.assertNotClosed();
 		final long nodePageKey = mPageRtx.pageKey(recordKey);
 		prepareRecordPage(nodePageKey, pageKind);
 		final Optional<Record> node = getRecord(recordKey, pageKind);
@@ -330,6 +339,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	@Override
 	public Optional<Record> getRecord(final @Nonnegative long recordKey,
 			final @Nonnull PageKind pageKind) throws SirixIOException {
+		mPageRtx.assertNotClosed();
 		checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
 		checkNotNull(pageKind);
 		// Calculate page.
@@ -402,6 +412,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	@Override
 	public String getName(final int nameKey, final @Nonnull Kind nodeKind) {
+		mPageRtx.assertNotClosed();
 		final NamePage currentNamePage = (NamePage) mNewRoot.getNamePageReference()
 				.getPage();
 		// if currentNamePage == null -> state was commited and no prepareNodepage
@@ -414,6 +425,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	@Override
 	public int createNameKey(final @Nullable String name,
 			final @Nonnull Kind nodeKind) throws SirixIOException {
+		mPageRtx.assertNotClosed();
 		checkNotNull(nodeKind);
 		final String string = (name == null ? "" : name);
 		final int nameKey = NamePageHash.generateHashForString(string);
@@ -491,10 +503,12 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 						if ((mPageRtx.getRevisionNumber()
 								% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0)
 								&& mPageRtx.mSession.mResourceConfig.mRevisionKind != Revisioning.FULL) {
-							// Write the whole indirect page tree if it's a full dump,
-							// otherwise record pages which have to be emitted
-							// might not be adressable (the false pages from earlier versions
-							// are still reachable).
+							/*
+							 * Write the whole indirect page tree if it's a full dump,
+							 * otherwise record pages which have to be emitted might not be
+							 * adressable (the pages from earlier versions would still be
+							 * reachable).
+							 */
 							page = mPageRtx.getFromPageCache(key);
 
 							if (page instanceof IndirectPage) {

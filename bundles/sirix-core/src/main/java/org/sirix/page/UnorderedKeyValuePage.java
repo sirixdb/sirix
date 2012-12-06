@@ -197,8 +197,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public <K extends Comparable<? super K>, V extends Record> void commit(PageWriteTrx<K, V> pPageWriteTrx)
-			throws SirixException {
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+			PageWriteTrx<K, V, S> pPageWriteTrx) throws SirixException {
 	}
 
 	@Override
@@ -226,7 +226,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	public PageReadTrx getPageReadTrx() {
 		return mPageReadTrx;
 	}
-	
+
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<Long, Record>> C newInstance(

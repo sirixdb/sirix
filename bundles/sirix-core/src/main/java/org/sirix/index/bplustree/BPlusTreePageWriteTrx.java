@@ -6,6 +6,7 @@ import java.util.EnumSet;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.access.AbstractForwardingPageReadTrx;
 import org.sirix.access.MultipleWriteTrx;
@@ -29,15 +30,17 @@ import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.settings.Constants;
 
+import com.google.common.base.Optional;
+
 /**
  * BPlusTree page write transaction with method implementations specific to
- * writing a BPlusTree.
+ * writing a BPlusTree to disk.
  * 
  * @author Johannes Lichtenberger
  * 
  */
 public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>>
-		extends AbstractForwardingPageReadTrx implements PageWriteTrx<K, V> {
+		extends AbstractForwardingPageReadTrx implements PageWriteTrx<K, V, S> {
 
 	/** {@link PageReadTrx} for retrieval from persistent storage. */
 	private final PageReadTrx mPageReadTrx;
@@ -53,6 +56,14 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 	/** Indexes to update. */
 	private final EnumSet<Indexes> mIndexes;
 
+	private final BPlusPageType mPageType;
+
+	public enum BPlusPageType {
+		INNER,
+
+		LEAF
+	}
+
 	/**
 	 * Constructor.
 	 * 
@@ -61,8 +72,8 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 	 * @throws SirixIOException
 	 *           if an I/O error occured
 	 */
-	private BPlusTreePageWriteTrx(final @Nonnull PageReadTrx pageReadTrx)
-			throws SirixIOException {
+	private BPlusTreePageWriteTrx(final @Nonnull PageReadTrx pageReadTrx,
+			final @Nonnull BPlusPageType pageType) throws SirixIOException {
 		mPageReadTrx = pageReadTrx;
 
 		final Session session = mPageReadTrx.getSession();
@@ -81,6 +92,8 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 		} else {
 			mAttributeValueLog = null;
 		}
+
+		mPageType = pageType;
 	}
 
 	/**
@@ -88,8 +101,9 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 	 * 
 	 * @param pageWriteTrx
 	 *          {@link PageWriteTrx} for persistent storage
-	 * @param kind
-	 *          kind of page (of subtree root)
+	 * @param pageKind
+	 *          kind of page (of subtree root), that is
+	 * 
 	 * @return new {@link BPlusTreePageWriteTrx} instance
 	 * @throws SirixIOException
 	 *           if an I/O error occured
@@ -98,14 +112,16 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 	 *           if {@code pageWriteTrx} or {@code kind} is {@code null}, S
 	 */
 	public static <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> BPlusTreePageWriteTrx<K, V, S> getInstance(
-			final @Nonnull PageReadTrx pageReadTrx, final @Nonnull PageKind kind)
-			throws SirixIOException {
-		return new BPlusTreePageWriteTrx<K, V, S>(checkNotNull(pageReadTrx));
+			final @Nonnull PageReadTrx pageReadTrx,
+			final @Nonnull BPlusPageType pageType) throws SirixIOException {
+		return new BPlusTreePageWriteTrx<K, V, S>(checkNotNull(pageReadTrx),
+				checkNotNull(pageType));
 	}
 
 	@Override
 	public V createEntry(final @Nonnull K key, final @Nonnull V value,
-			final @Nonnull PageKind pageKind) throws SirixIOException {
+			final @Nonnull PageKind pageKind, final @Nonnull Optional<S> keyValuePage)
+			throws SirixIOException {
 		// Allocate record key and increment record count.
 		long entryKey;
 		final RevisionRootPage root = mPageReadTrx.getActualRevisionRootPage();
@@ -123,7 +139,7 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 		}
 
 		final long pageKey = mPageReadTrx.pageKey(entryKey);
-		prepareRecordPage(pageKey, pageKind);
+		prepareRecordPage(pageKey, pageKind, keyValuePage.get());
 		final KeyValuePage<K, V> modified = mRecordPageCon.getModified();
 		modified.setEntry(key, value);
 		finishEntryModification(key, pageKind);
@@ -141,45 +157,61 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 	 *           if an I/O error occurs
 	 */
 	private void prepareRecordPage(final @Nonnegative long recordPageKey,
-			final @Nonnull PageKind pageKind) throws SirixIOException {
+			final @Nonnull PageKind pageKind, final @Nonnull S keyValuePage)
+			throws SirixIOException {
 		assert recordPageKey >= 0;
 		assert pageKind != null;
-//		RecordPageContainer<S> cont = getOrderedRecordPageContainer(pageKind,
-//				recordPageKey);
-//		if (cont.equals(RecordPageContainer.EMPTY_INSTANCE)) {
-//			// Indirect reference.
-//			final PageReference reference = prepareLeafOfTree(
-//					getPageReference(mPageReadTrx.getActualRevisionRootPage(), pageKind),
-//					recordPageKey, pageKind);
-//			@SuppressWarnings("unchecked")
-//			final S recordPage = (S) reference.getPage();
-//			if (recordPage == null) {
-//				if (reference.getKey() == Constants.NULL_ID) {
-//					cont = new RecordPageContainer<>(new UnorderedKeyValuePage(
-//							recordPageKey, Constants.UBP_ROOT_REVISION_NUMBER, mPageReadTrx));
-//				} else {
-//					cont = dereferenceRecordPageForModification(recordPageKey, pageKind);
-//				}
-//			} else {
-//				cont = new RecordPageContainer<>(recordPage);
-//			}
-//
-//			assert cont != null;
-//			reference.setKeyValuePageKey(recordPageKey);
-//			reference.setPageKind(pageKind);
-//
-//			switch (pageKind) {
-//			case TEXTVALUEPAGE:
-//				mTextValueLog.put(recordPageKey, cont);
-//				break;
-//			case ATTRIBUTEVALUEPAGE:
-//				mAttributeValueLog.put(recordPageKey, cont);
-//				break;
-//			default:
-//				throw new IllegalStateException("Page kind not known!");
-//			}
-//		}
-//		mRecordPageCon = cont;
+		RecordPageContainer<S> cont = getOrderedRecordPageContainer(pageKind,
+				recordPageKey);
+		if (cont.equals(RecordPageContainer.EMPTY_INSTANCE)) {
+			// // Indirect reference.
+			// final PageReference reference = prepareLeafOfTree(
+			// getPageReference(mPageReadTrx.getActualRevisionRootPage(), pageKind),
+			// recordPageKey, pageKind);
+			// @SuppressWarnings("unchecked")
+			// final S recordPage = (S) reference.getPage();
+			// if (recordPage == null) {
+			// if (reference.getKey() == Constants.NULL_ID) {
+			// cont = new RecordPageContainer<>(new UnorderedKeyValuePage(
+			// recordPageKey, Constants.UBP_ROOT_REVISION_NUMBER, mPageReadTrx));
+			// } else {
+			// cont = dereferenceRecordPageForModification(recordPageKey, pageKind);
+			// }
+			// } else {
+			// cont = new RecordPageContainer<>(recordPage);
+			// }
+			//
+			// assert cont != null;
+			// reference.setKeyValuePageKey(recordPageKey);
+			// reference.setPageKind(pageKind);
+			//
+			// switch (pageKind) {
+			// case TEXTVALUEPAGE:
+			// mTextValueLog.put(recordPageKey, cont);
+			// break;
+			// case ATTRIBUTEVALUEPAGE:
+			// mAttributeValueLog.put(recordPageKey, cont);
+			// break;
+			// default:
+			// throw new IllegalStateException("Page kind not known!");
+			// }
+		}
+		mRecordPageCon = cont;
+	}
+
+	private RecordPageContainer<S> getOrderedRecordPageContainer(
+			PageKind pageKind, long recordPageKey) {
+		if (pageKind != null) {
+			switch (pageKind) {
+			case TEXTVALUEPAGE:
+				return mTextValueLog.get(recordPageKey);
+			case ATTRIBUTEVALUEPAGE:
+				return mAttributeValueLog.get(recordPageKey);
+			default:
+				throw new IllegalStateException();
+			}
+		}
+		return RecordPageContainer.<S> emptyInstance();
 	}
 
 	/**
@@ -195,17 +227,19 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 			final @Nonnull PageKind pPage) throws SirixIOException {
 		assert revisionRoot != null;
 		PageReference ref = null;
-//		switch (pPage) {
-//		case TEXTVALUEPAGE:
-//			ref = getTextValuePage(revisionRoot).getIndirectPageReference();
-//			break;
-//		case ATTRIBUTEVALUEPAGE:
-//			ref = getAttributeValuePage(revisionRoot).getIndirectPageReference();
-//			break;
-//		default:
-//			throw new IllegalStateException(
-//					"Only defined for node, path summary, text value and attribute value pages!");
-//		}
+		switch (pPage) {
+		case TEXTVALUEPAGE:
+			ref = mPageReadTrx.getTextValuePage(revisionRoot)
+					.getIndirectPageReference();
+			break;
+		case ATTRIBUTEVALUEPAGE:
+			ref = mPageReadTrx.getAttributeValuePage(revisionRoot)
+					.getIndirectPageReference();
+			break;
+		default:
+			throw new IllegalStateException(
+					"Only defined for node, path summary, text value and attribute value pages!");
+		}
 		return ref;
 	}
 
@@ -227,8 +261,8 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 	}
 
 	@Override
-	public V prepareEntryForModification(K key, PageKind page)
-			throws SirixIOException {
+	public V prepareEntryForModification(K key, PageKind page,
+			final @Nonnull Optional<S> keyValuePage) throws SirixIOException {
 		// TODO Auto-generated method stub
 		return null;
 	}
@@ -240,41 +274,38 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 	}
 
 	@Override
-	public void removeEntry(K key, PageKind pageKind) throws SirixIOException {
+	public void removeEntry(K key, PageKind pageKind,
+			final @Nonnull Optional<S> keyValuePage) throws SirixIOException {
 		// TODO Auto-generated method stub
 
 	}
 
 	@Override
 	public int createNameKey(String name, Kind kind) throws SirixIOException {
-		// TODO Auto-generated method stub
-		return 0;
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public UberPage commit(MultipleWriteTrx multipleWriteTrx)
 			throws SirixException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public void updateDataContainer(
 			RecordPageContainer<UnorderedKeyValuePage> nodePageCont, PageKind page) {
-		// TODO Auto-generated method stub
-
+		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void commit(PageReference reference) throws SirixException {
+	public void commit(final @Nullable PageReference reference)
+			throws SirixException {
 		// TODO Auto-generated method stub
 
 	}
 
 	@Override
 	public void restore(Restore restore) {
-		// TODO Auto-generated method stub
-
 	}
 
 	@Override

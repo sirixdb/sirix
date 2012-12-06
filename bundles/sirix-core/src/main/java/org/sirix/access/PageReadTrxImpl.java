@@ -181,7 +181,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		mIndexes = session.mResourceConfig.mIndexes;
 		mResourceConfig = session.mResourceConfig;
 
-		final File commitFile = session.mCommitFile;
+		final File commitFile = session.commitFile(revision);
 		final boolean doesExist = commitFile != null && commitFile.exists();
 
 		mSession = checkNotNull(session);
@@ -351,7 +351,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			getAttributeValuePage(mRootPage);
 			mRootPage.createAttributeValueTree(this);
 		}
-		mNamePage = getNamePage();
+		mNamePage = getNamePage(mRootPage);
 		mClosed = false;
 	}
 
@@ -508,7 +508,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 		// The indirect page reference either fails horribly or returns a non null
 		// instance.
-		final PageReference ref = dereferenceLeafOfTree(
+		final PageReference ref = getPageReferenceForPage(
 				mUberPage.getIndirectPageReference(), revisionKey, PageKind.UBERPAGE);
 		RevisionRootPage page = (RevisionRootPage) ref.getPage();
 
@@ -525,60 +525,38 @@ final class PageReadTrxImpl implements PageReadTrx {
 		return page;
 	}
 
-	/**
-	 * Initialize NamePage.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	private final NamePage getNamePage() throws SirixIOException {
+	@Override
+	public final NamePage getNamePage(final @Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
 		assertNotClosed();
-		final PageReference ref = mRootPage.getNamePageReference();
+		final PageReference ref = revisionRoot.getNamePageReference();
 		setPage(ref);
 		ref.setPageKind(PageKind.NAMEPAGE);
 		return (NamePage) ref.getPage();
 	}
 
-	/**
-	 * Initialize PathSummaryPage.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	private final PathSummaryPage getPathSummaryPage(
-			final @Nonnull RevisionRootPage page) throws SirixIOException {
+	@Override
+	public final PathSummaryPage getPathSummaryPage(final @Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
 		assertNotClosed();
-		final PageReference ref = page.getPathSummaryPageReference();
+		final PageReference ref = revisionRoot.getPathSummaryPageReference();
 		setPage(ref);
 		ref.setPageKind(PageKind.PATHSUMMARYPAGE);
 		return (PathSummaryPage) ref.getPage();
 	}
 
-	/**
-	 * Initialize TextValuePage.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	private final TextValuePage getTextValuePage(
-			final @Nonnull RevisionRootPage page) throws SirixIOException {
+	@Override
+	public final TextValuePage getTextValuePage(final @Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
 		assertNotClosed();
-		final PageReference ref = page.getTextValuePageReference();
+		checkNotNull(revisionRoot);
+		final PageReference ref = revisionRoot.getTextValuePageReference();
 		setPage(ref);
 		ref.setPageKind(PageKind.TEXTVALUEPAGE);
 		return (TextValuePage) ref.getPage();
 	}
 
-	/**
-	 * Initialize AttributeValuePage.
-	 * 
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	private final AttributeValuePage getAttributeValuePage(
-			final @Nonnull RevisionRootPage page) throws SirixIOException {
+	@Override
+	public final AttributeValuePage getAttributeValuePage(final @Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
 		assertNotClosed();
-		final PageReference ref = page.getAttributeValuePageReference();
+		final PageReference ref = revisionRoot.getAttributeValuePageReference();
 		setPage(ref);
 		ref.setPageKind(PageKind.ATTRIBUTEVALUEPAGE);
 		return (AttributeValuePage) ref.getPage();
@@ -608,6 +586,26 @@ final class PageReadTrxImpl implements PageReadTrx {
 		assertNotClosed();
 		return mUberPage;
 	}
+	
+	// TODO: Write another interface for this internal kind of stuff.
+	@Override
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
+			final @Nonnull @Nonnegative Long recordPageKey,
+			final @Nonnull PageKind pageKind) throws SirixIOException {
+		assertNotClosed();
+		checkArgument(recordPageKey >= 0, "recordPageKey must not be negative!");
+		final List<S> revs = (List<S>) this.<K, V, S>getSnapshotPages(
+				checkNotNull(recordPageKey), checkNotNull(pageKind));
+		if (revs.size() == 0) {
+			return RecordPageContainer.<S>emptyInstance();
+		}
+
+		final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
+		final Revisioning revisioning = mResourceConfig.mRevisionKind;
+		final S completePage = revisioning.combineRecordPages(revs,
+				mileStoneRevision, this);
+		return new RecordPageContainer<S>(completePage);
+	}
 
 	/**
 	 * Dereference key/value page reference and get all leaves, the
@@ -633,7 +631,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final Set<Long> keys = new HashSet<>(revsToRestore);
 		for (int i = mRootPage.getRevision(); i >= 0; i--) {
 			final PageReference tmpRef = getPageReference(loadRevRoot(i), pageKind);
-			final PageReference ref = dereferenceLeafOfTree(tmpRef, recordPageKey,
+			final PageReference ref = getPageReferenceForPage(tmpRef, recordPageKey,
 					pageKind);
 			if (ref != null
 					&& (ref.getPage() != null || ref.getKey() != Constants.NULL_ID)) {
@@ -755,7 +753,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *           if an I/O error occurs
 	 */
 	@Nullable
-	final PageReference dereferenceLeafOfTree(
+	@Override
+	public final PageReference getPageReferenceForPage(
 			final @Nonnull PageReference startReference, final @Nonnegative long key,
 			final @Nonnull PageKind pageKind) throws SirixIOException {
 
@@ -807,26 +806,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 		return Objects.toStringHelper(this).add("Session", mSession)
 				.add("PageReader", mPageReader).add("UberPage", mUberPage)
 				.add("RevRootPage", mRootPage).toString();
-	}
-
-	// TODO: Write another interface for this internal kind of stuff.
-	@Override
-	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
-			final @Nonnull @Nonnegative Long recordPageKey,
-			final @Nonnull PageKind pageKind) throws SirixIOException {
-		assertNotClosed();
-		checkArgument(recordPageKey >= 0, "recordPageKey must not be negative!");
-		final List<S> revs = (List<S>) this.<K, V, S>getSnapshotPages(
-				checkNotNull(recordPageKey), checkNotNull(pageKind));
-		if (revs.size() == 0) {
-			return RecordPageContainer.<S>emptyInstance();
-		}
-
-		final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
-		final Revisioning revisioning = mResourceConfig.mRevisionKind;
-		final S completePage = revisioning.combineRecordPages(revs,
-				mileStoneRevision, this);
-		return new RecordPageContainer<S>(completePage);
 	}
 
 	@Override
