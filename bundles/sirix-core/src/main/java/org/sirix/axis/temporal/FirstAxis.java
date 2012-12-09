@@ -22,13 +22,13 @@ import org.slf4j.LoggerFactory;
 public class FirstAxis extends AbstractTemporalAxis {
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(AllTimeAxis.class));
+			LoggerFactory.getLogger(FirstAxis.class));
 
 	/** Sirix {@link Session}. */
 	private final Session mSession;
 
 	/** Node key to lookup and retrieve. */
-	private long mNodeKey;
+	private final long mNodeKey;
 
 	/** Sirix {@link NodeReadTrx}. */
 	private NodeReadTrx mRtx;

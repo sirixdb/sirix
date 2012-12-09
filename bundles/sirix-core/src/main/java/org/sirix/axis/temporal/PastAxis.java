@@ -23,11 +23,11 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger
  * 
  */
-public class EarlierAxis extends AbstractTemporalAxis {
+public class PastAxis extends AbstractTemporalAxis {
 
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(AllTimeAxis.class));
+			LoggerFactory.getLogger(PastAxis.class));
 
 	/** The revision number. */
 	private int mRevision;
@@ -51,7 +51,7 @@ public class EarlierAxis extends AbstractTemporalAxis {
 	 * @param revision
 	 *          current revision
 	 */
-	public EarlierAxis(final @Nonnull Session session,
+	public PastAxis(final @Nonnull Session session,
 			final @Nonnegative long nodeKey, final @Nonnegative int revision) {
 		// Using telescope pattern instead of builder (only one optional parameter.
 		this(session, nodeKey, revision, IncludeSelf.NO);
@@ -69,7 +69,7 @@ public class EarlierAxis extends AbstractTemporalAxis {
 	 * @param includeSelf
 	 * 					determines if current revision must be included or not
 	 */
-	public EarlierAxis(final @Nonnull Session session,
+	public PastAxis(final @Nonnull Session session,
 			final @Nonnegative long nodeKey, final @Nonnegative int revision,
 			final @Nonnull IncludeSelf includeSelf) {
 		mSession = checkNotNull(session);

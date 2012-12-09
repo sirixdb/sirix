@@ -38,8 +38,8 @@ import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.NonStructuralWrapperAxis;
 import org.sirix.axis.PrecedingAxis;
 import org.sirix.axis.temporal.AllTimeAxis;
-import org.sirix.axis.temporal.EarlierAxis;
-import org.sirix.axis.temporal.FirstAxis;
+import org.sirix.axis.temporal.PastAxis;
+import org.sirix.axis.temporal.FirstAxisTest;
 import org.sirix.axis.temporal.FutureAxis;
 import org.sirix.axis.temporal.LastAxis;
 import org.sirix.axis.temporal.NextAxis;
@@ -1514,7 +1514,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	@Override
 	public DBNode getFirst() {
 		moveRtx();
-		final AbstractTemporalAxis axis = new FirstAxis(mRtx.getSession(), mNodeKey);
+		final AbstractTemporalAxis axis = new FirstAxisTest(mRtx.getSession(), mNodeKey);
 		return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
 	}
 
@@ -1530,7 +1530,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		moveRtx();
 		try {
 			final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
-			return new TemporalSirixStream(new EarlierAxis(mRtx.getSession(),
+			return new TemporalSirixStream(new PastAxis(mRtx.getSession(),
 					mNodeKey, mRtx.getRevisionNumber(), include), mCollection);
 		} catch (final SirixIOException e) {
 			LOGWRAPPER.error(e.getMessage(), e);

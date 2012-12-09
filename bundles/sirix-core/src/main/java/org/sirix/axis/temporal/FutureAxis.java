@@ -27,7 +27,7 @@ public class FutureAxis extends AbstractTemporalAxis {
 
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(AllTimeAxis.class));
+			LoggerFactory.getLogger(FutureAxis.class));
 
 	/** The revision number. */
 	private int mRevision;
@@ -53,7 +53,7 @@ public class FutureAxis extends AbstractTemporalAxis {
 	 */
 	public FutureAxis(final @Nonnull Session session,
 			final @Nonnegative long nodeKey, final @Nonnegative int revision) {
-		// Using telescope pattern instead of builder (only one optional parameter.
+		// Using telescope pattern instead of builder (only one optional parameter).
 		this(session, nodeKey, revision, IncludeSelf.NO);
 	}
 
@@ -83,6 +83,7 @@ public class FutureAxis extends AbstractTemporalAxis {
 
 	@Override
 	protected NodeReadTrx computeNext() {
+		// != a little bit faster?
 		if (mRevision <= mSession.getLastRevisionNumber()) {
 			try {
 				mRtx = mSession.beginNodeReadTrx(mRevision++);

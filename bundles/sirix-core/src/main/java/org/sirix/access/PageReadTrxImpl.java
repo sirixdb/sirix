@@ -839,13 +839,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	public Page getFromPageCache(final @Nonnegative long key)
 			throws SirixIOException {
 		assertNotClosed();
-		Page retVal = null;
-		try {
-			retVal = mPageCache.get(key);
-		} catch (final ExecutionException e) {
-			throw new SirixIOException(e.getCause());
-		}
-		return retVal;
+		return mPageCache.getIfPresent(key);
 	}
 
 	@Override

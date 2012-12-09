@@ -141,7 +141,7 @@ public class NodeDelegate implements Node {
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mNodeKey, mTypeKey, mHash);
+		return Objects.hashCode(mNodeKey, mTypeKey, mHash, mParentKey);
 	}
 
 	@Override
@@ -150,7 +150,8 @@ public class NodeDelegate implements Node {
 			final NodeDelegate other = (NodeDelegate) pObj;
 			return Objects.equal(mNodeKey, other.mNodeKey)
 					&& Objects.equal(mTypeKey, other.mTypeKey)
-					&& Objects.equal(mHash, other.mHash);
+					&& Objects.equal(mHash, other.mHash)
+					&& Objects.equal(mParentKey, other.mParentKey);
 		}
 		return false;
 	}

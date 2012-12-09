@@ -22,7 +22,7 @@ import org.slf4j.LoggerFactory;
 public class PreviousAxis extends AbstractTemporalAxis {
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(AllTimeAxis.class));
+			LoggerFactory.getLogger(PreviousAxis.class));
 
 	/** Determines if it's the first call. */
 	private boolean mFirst;

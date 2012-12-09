@@ -28,6 +28,8 @@
 package org.sirix.axis;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Iterator;
 
 import javax.xml.stream.XMLStreamException;
 
@@ -43,6 +45,10 @@ import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.DocumentCreater;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.testing.IteratorFeature;
+import com.google.common.collect.testing.IteratorTester;
+
 /**
  * Test {@link PostOrderAxis}.
  * 
@@ -50,6 +56,8 @@ import org.sirix.utils.DocumentCreater;
  * 
  */
 public class PostOrderTest {
+
+	private static final int ITERATIONS = 5;
 
 	/** {@link Holder} reference. */
 	private Holder holder;
@@ -74,23 +82,62 @@ public class PostOrderTest {
 		rtx.moveToDocumentRoot();
 		AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] { 4L,
 				6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L });
+		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+				ImmutableList.of(4L, 6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L), null) {
+			{
+				ignoreSunJavaBug6529795();
+			}
+
+			@Override
+			protected Iterator<Long> newTargetIterator() {
+				final NodeReadTrx rtx = holder.getRtx();
+				rtx.moveToDocumentRoot();
+				return new PostOrderAxis(rtx);
+			}
+		}.test();
 	}
 
 	@Test
 	public void testIterateFirstSubtree() throws SirixException {
 		final NodeReadTrx rtx = holder.getRtx();
 
-		rtx.moveTo(5);
+		rtx.moveTo(5L);
 		AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] { 6L,
 				7L });
+		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+				ImmutableList.of(6L, 7L), null) {
+			{
+				ignoreSunJavaBug6529795();
+			}
+
+			@Override
+			protected Iterator<Long> newTargetIterator() {
+				final NodeReadTrx rtx = holder.getRtx();
+				rtx.moveTo(5L);
+				return new PostOrderAxis(rtx);
+			}
+		}.test();
 	}
 
 	@Test
 	public void testIterateZero() throws SirixException {
 		final NodeReadTrx rtx = holder.getRtx();
 
-		rtx.moveTo(8);
+		rtx.moveTo(8L);
 		AbsAxisTest.testIAxisConventions(new PostOrderAxis(rtx), new long[] {});
+		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+				Collections.<Long> emptyList(), null) {
+			{
+				ignoreSunJavaBug6529795();
+			}
+
+			@Override
+			protected Iterator<Long> newTargetIterator() {
+				final NodeReadTrx rtx = holder.getRtx();
+				rtx.moveTo(8L);
+				return new PostOrderAxis(rtx);
+			}
+		}.test();
 	}
 
 	@Test
@@ -102,19 +149,70 @@ public class PostOrderTest {
 					XMLShredder.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
 					Insert.ASFIRSTCHILD);
 			wtx.commit();
-			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] { 17,
-					19, 20, 18, 21, 24, 25, 22, 26 });
-			wtx.moveTo(14);
+			final long key = wtx.getNodeKey();
+			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] {
+					17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L });
+			new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+					ImmutableList.of(17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L), null) {
+				{
+					ignoreSunJavaBug6529795();
+				}
+
+				@Override
+				protected Iterator<Long> newTargetIterator() {
+					wtx.moveTo(key);
+					return new PostOrderAxis(wtx);
+				}
+			}.test();
+			wtx.moveTo(14L);
 			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx, IncludeSelf.YES),
-					new long[] { 17, 19, 20, 18, 21, 24, 25, 22, 26, 14 });
+					new long[] { 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L });
+			new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+					ImmutableList.of(17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L), null) {
+				{
+					ignoreSunJavaBug6529795();
+				}
+
+				@Override
+				protected Iterator<Long> newTargetIterator() {
+					wtx.moveTo(14L);
+					return new PostOrderAxis(wtx, IncludeSelf.YES);
+				}
+			}.test();
 			wtx.moveToDocumentRoot();
 			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] { 4L,
-					6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26, 14, 11L, 12L, 9L,
-					13L, 1L });
+					6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L,
+					11L, 12L, 9L, 13L, 1L });
+			new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+					ImmutableList.of(4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L,
+							25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L), null) {
+				{
+					ignoreSunJavaBug6529795();
+				}
+
+				@Override
+				protected Iterator<Long> newTargetIterator() {
+					wtx.moveToDocumentRoot();
+					return new PostOrderAxis(wtx);
+				}
+			}.test();
 			wtx.moveToDocumentRoot();
 			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx, IncludeSelf.YES),
-					new long[] { 4L, 6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26,
-							14, 11L, 12L, 9L, 13L, 1L, 0L });
+					new long[] { 4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L,
+							22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L, 0L });
+			new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+					ImmutableList.of(4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L,
+							25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L, 0L), null) {
+				{
+					ignoreSunJavaBug6529795();
+				}
+
+				@Override
+				protected Iterator<Long> newTargetIterator() {
+					wtx.moveToDocumentRoot();
+					return new PostOrderAxis(wtx, IncludeSelf.YES);
+				}
+			}.test();
 		}
 	}
 
@@ -129,14 +227,43 @@ public class PostOrderTest {
 			wtx.commit();
 			wtx.moveToDocumentRoot();
 			wtx.moveToFirstChild();
+			final long key = wtx.getNodeKey();
 			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx, IncludeSelf.YES),
-					new long[] { 4L, 6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26,
-							14, 11L, 12L, 9L, 13L, 1L });
+					new long[] { 4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L,
+							22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L });
+			new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+					ImmutableList.of(4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L,
+							25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L), null) {
+				{
+					ignoreSunJavaBug6529795();
+				}
+
+				@Override
+				protected Iterator<Long> newTargetIterator() {
+					wtx.moveTo(key);
+					return new PostOrderAxis(wtx, IncludeSelf.YES);
+				}
+			}.test();
+
 			wtx.moveToDocumentRoot();
 			wtx.moveToFirstChild();
+			final long secondKey = wtx.getNodeKey();
 			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] { 4L,
-					6L, 7L, 5L, 8L, 17, 19, 20, 18, 21, 24, 25, 22, 26, 14, 11L, 12L, 9L,
-					13L });
+					6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L,
+					11L, 12L, 9L, 13L });
+			new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
+					ImmutableList.of(4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L,
+							25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L), null) {
+				{
+					ignoreSunJavaBug6529795();
+				}
+
+				@Override
+				protected Iterator<Long> newTargetIterator() {
+					wtx.moveTo(secondKey);
+					return new PostOrderAxis(wtx);
+				}
+			}.test();
 		}
 	}
 }

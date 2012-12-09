@@ -58,6 +58,7 @@ final class StructuralDiff extends AbstractDiff {
 			final @Nonnull NodeReadTrx oldRtx) {
 		boolean found = false;
 		if (newRtx.getNodeKey() == oldRtx.getNodeKey()
+				&& newRtx.getParentKey() == oldRtx.getParentKey()
 				&& newRtx.getKind() == oldRtx.getKind()) {
 			switch (newRtx.getKind()) {
 			case ELEMENT:

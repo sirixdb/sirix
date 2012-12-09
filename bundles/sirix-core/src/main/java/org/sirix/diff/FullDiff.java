@@ -62,6 +62,7 @@ final class FullDiff extends AbstractDiff {
 
 		boolean found = false;
 		if (firstRtx.getNodeKey() == secondRtx.getNodeKey()
+				&& firstRtx.getParentKey() == secondRtx.getParentKey()
 				&& firstRtx.getKind() == secondRtx.getKind()) {
 			switch (firstRtx.getKind()) {
 			case ELEMENT:

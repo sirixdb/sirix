@@ -543,17 +543,18 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	public boolean equals(final Object obj) {
 		if (obj instanceof NodeReadTrxImpl) {
 			final NodeReadTrxImpl rtx = (NodeReadTrxImpl) obj;
-			return Objects.equal(mId, rtx.mId)
-					&& Objects.equal(mCurrentNode, rtx.mCurrentNode)
-					&& Objects.equal(mPageReadTrx, rtx.mPageReadTrx)
-					&& Objects.equal(mSession, rtx.mSession);
+			return Objects.equal(mCurrentNode.getNodeKey(),
+					rtx.mCurrentNode.getNodeKey())
+					&& Objects.equal(mPageReadTrx.getRevisionNumber(),
+							rtx.mPageReadTrx.getRevisionNumber());
 		}
 		return false;
 	}
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mId, mCurrentNode, mPageReadTrx, mSession);
+		return Objects.hashCode(mCurrentNode.getNodeKey(),
+				mPageReadTrx.getRevisionNumber());
 	}
 
 	@Override

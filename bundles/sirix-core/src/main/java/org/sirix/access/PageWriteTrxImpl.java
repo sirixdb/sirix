@@ -514,7 +514,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 							if (page instanceof IndirectPage) {
 								page.setDirty(true);
 							} else {
-								page = null;
+								assert page == null;
 							}
 						}
 					}

@@ -789,10 +789,15 @@ public final class AVLTree<K extends Comparable<? super K>, V> implements
 
 	@Override
 	public Kind getParentKind() {
-		if (mCurrentNode.getKind() == Kind.DOCUMENT) {
-			return Kind.DOCUMENT;
+		if (hasParent()) {
+			if (mCurrentNode.getParentKey() == Fixed.DOCUMENT_NODE_KEY
+					.getStandardProperty()) {
+				return Kind.DOCUMENT;
+			} else {
+				return Kind.AVL;
+			}
 		}
-		return Kind.AVL;
+		return Kind.UNKNOWN;
 	}
 
 	@Override

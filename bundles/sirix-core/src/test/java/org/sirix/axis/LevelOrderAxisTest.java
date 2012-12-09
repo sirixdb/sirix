@@ -106,16 +106,16 @@ public class LevelOrderAxisTest {
 				new long[] {});
 
 		rtx.moveTo(6L);
-		AbsAxisTest.testIAxisConventionsNext(new LevelOrderAxis.Builder(rtx)
+		AbsAxisTest.testAxisConventionsNext(new LevelOrderAxis.Builder(rtx)
 				.includeSelf().build(), new long[] { 6L, 7L });
 
 		rtx.moveTo(0L);
-		AbsAxisTest.testIAxisConventionsNext(new LevelOrderAxis.Builder(rtx)
+		AbsAxisTest.testAxisConventionsNext(new LevelOrderAxis.Builder(rtx)
 				.includeSelf().build(), new long[] { 0L, 1L, 4L, 5L, 8L, 9L, 13L, 6L,
 				7L, 11L, 12L });
 
 		rtx.moveTo(0L);
-		AbsAxisTest.testIAxisConventionsNext(new LevelOrderAxis.Builder(rtx)
+		AbsAxisTest.testAxisConventionsNext(new LevelOrderAxis.Builder(rtx)
 				.includeSelf().includeNonStructuralNodes().build(), new long[] { 0L,
 				1L, 2L, 3L, 4L, 5L, 8L, 9L, 13L, 6L, 7L, 10L, 11L, 12L });
 

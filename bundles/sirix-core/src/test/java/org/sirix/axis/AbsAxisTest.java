@@ -63,29 +63,29 @@ public class AbsAxisTest {
 
 	public static void testIAxisConventions(final Axis axis,
 			final long[] expectedKeys) {
-		// IAxis Convention 1.
+		// Axis Convention 1.
 		final long startKey = axis.getTrx().getNodeKey();
 
 		final long[] keys = new long[expectedKeys.length];
 		int offset = 0;
 		while (axis.hasNext()) {
 			axis.next();
-			// IAxis results.
+			// Axis results.
 			assertTrue(offset < expectedKeys.length);
 			keys[offset++] = axis.getTrx().getNodeKey();
 
-			// IAxis Convention 3.
+			// Axis Convention 3.
 			axis.getTrx().moveToDocumentRoot();
 		}
 
-		// IAxis Convention 5.
+		// Axis Convention 5.
 		assertEquals(startKey, axis.getTrx().getNodeKey());
 
-		// IAxis results.
+		// Axis results.
 		assertArrayEquals(expectedKeys, keys);
 	}
 
-	public static void testIAxisConventionsNext(final Axis axis,
+	public static void testAxisConventionsNext(final Axis axis,
 			final long[] expectedKeys) {
 		// IAxis Convention 1.
 		final long startKey = axis.getTrx().getNodeKey();
@@ -95,17 +95,17 @@ public class AbsAxisTest {
 
 		try {
 			while (axis.next() != Fixed.NULL_NODE_KEY.getStandardProperty()) {
-				// IAxis results.
+				// Axis results.
 				assertTrue(offset < expectedKeys.length);
 				keys[offset++] = axis.getTrx().getNodeKey();
 			}
 		} catch (final NoSuchElementException e) {
 		}
 
-		// IAxis Convention 5.
+		// Axis Convention 5.
 		assertEquals(startKey, axis.getTrx().getNodeKey());
 
-		// IAxis results.
+		// Axis results.
 		assertArrayEquals(expectedKeys, keys);
 	}
 
@@ -125,7 +125,7 @@ public class AbsAxisTest {
 	}
 
 	@Test
-	public void testIAxisUserExample() throws SirixException {
+	public void testAxisUserExample() throws SirixException {
 		final Axis axis = new DescendantAxis(holder.getRtx());
 		long count = 0L;
 		while (axis.hasNext()) {
