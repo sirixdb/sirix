@@ -51,7 +51,6 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.XMLEvent;
 
 import org.sirix.access.SessionImpl.Abort;
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
@@ -345,7 +344,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			}
 
 			final Node nodeToMove = node.get();
-
 			if (nodeToMove instanceof StructNode
 					&& getCurrentNode().getKind() == Kind.ELEMENT) {
 				// Safe to cast (because IStructNode is a subtype of INode).
@@ -360,7 +358,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 					// Adapt pointers and merge sibling text nodes.
 					adaptForMove(toMove, nodeAnchor, InsertPos.ASFIRSTCHILD);
-					mNodeRtx.setCurrentNode(toMove);
+					mNodeRtx.moveTo(toMove.getNodeKey());
 					adaptHashesWithAdd();
 
 					// Adapt path summary.
@@ -369,8 +367,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						adaptPathForChangedNode(moved, getName(), moved.getNameKey(),
 								moved.getURIKey(), OPType.MOVED);
 					}
-				}
 
+					if (mDeweyIDsStored) {
+						computeNewDeweyIDs();
+					}
+				}
 				return this;
 			} else {
 				throw new SirixUsageException(
@@ -378,6 +379,97 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			}
 		} finally {
 			unLock();
+		}
+	}
+
+	private void computeNewDeweyIDs() throws SirixException {
+		SirixDeweyID id = null;
+		if (hasLeftSibling() && hasRightSibling()) {
+			id = SirixDeweyID.newBetween(getLeftSiblingDeweyID().get(),
+					getRightSiblingDeweyID().get());
+		} else if (hasLeftSibling()) {
+			id = SirixDeweyID.newBetween(getLeftSiblingDeweyID().get(), null);
+		} else if (hasRightSibling()) {
+			id = SirixDeweyID.newBetween(null, getRightSiblingDeweyID().get());
+		} else {
+			id = mNodeRtx.getParentDeweyID().get().getNewChildID();
+		}
+
+		assert id != null;
+		final long nodeKey = mNodeRtx.getCurrentNode().getNodeKey();
+
+		final StructNode root = (StructNode) getPageTransaction()
+				.prepareEntryForModification(nodeKey, PageKind.NODEPAGE,
+						Optional.<UnorderedKeyValuePage> absent());
+		root.setDeweyID(Optional.of(id));
+		getPageTransaction().finishEntryModification(nodeKey, PageKind.NODEPAGE);
+
+		if (root.hasFirstChild()) {
+			final Node firstChild = (Node) getPageTransaction()
+					.prepareEntryForModification(root.getFirstChildKey(),
+							PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
+			firstChild.setDeweyID(Optional.of(id.getNewChildID()));
+			getPageTransaction().finishEntryModification(firstChild.getNodeKey(),
+					PageKind.NODEPAGE);
+
+			int previousLevel = getDeweyID().get().getLevel();
+			mNodeRtx.moveTo(firstChild.getNodeKey());
+			int attributeNr = 0;
+			int nspNr = 0;
+			for (@SuppressWarnings("unused")
+			final long key : LevelOrderAxis.builder(this).includeNonStructuralNodes()
+					.build()) {
+				Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> absent();
+				if (isAttribute()) {
+					final long attNodeKey = mNodeRtx.getNodeKey();
+					if (attributeNr == 0) {
+						deweyID = Optional.of(mNodeRtx.getParentDeweyID().get()
+								.getNewAttributeID());
+					} else {
+						mNodeRtx.moveTo(attributeNr - 1);
+						deweyID = Optional.of(SirixDeweyID.newBetween(mNodeRtx.getNode()
+								.getDeweyID().get(), null));
+					}
+					mNodeRtx.moveTo(attNodeKey);
+					attributeNr++;
+				} else if (isNamespace()) {
+					final long nspNodeKey = mNodeRtx.getNodeKey();
+					if (nspNr == 0) {
+						deweyID = Optional.of(mNodeRtx.getParentDeweyID().get()
+								.getNewNamespaceID());
+					} else {
+						mNodeRtx.moveTo(nspNr - 1);
+						deweyID = Optional.of(SirixDeweyID.newBetween(mNodeRtx.getNode()
+								.getDeweyID().get(), null));
+					}
+					mNodeRtx.moveTo(nspNodeKey);
+					nspNr++;
+				} else {
+					attributeNr = 0;
+					nspNr = 0;
+					if (previousLevel + 1 == getDeweyID().get().getLevel()) {
+						if (mNodeRtx.hasLeftSibling()) {
+							deweyID = Optional.of(SirixDeweyID.newBetween(
+									getLeftSiblingDeweyID().get(), null));
+						} else {
+							deweyID = Optional.of(getParentDeweyID().get().getNewChildID());
+						}
+					} else {
+						previousLevel++;
+						deweyID = Optional.of(getParentDeweyID().get().getNewChildID());
+					}
+				}
+
+				final Node node = (Node) getPageTransaction()
+						.prepareEntryForModification(
+								mNodeRtx.getCurrentNode().getNodeKey(), PageKind.NODEPAGE,
+								Optional.<UnorderedKeyValuePage> absent());
+				node.setDeweyID(deweyID);
+				getPageTransaction().finishEntryModification(node.getNodeKey(),
+						PageKind.NODEPAGE);
+			}
+
+			mNodeRtx.moveTo(nodeKey);
 		}
 	}
 
@@ -420,7 +512,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			}
 
 			final Node nodeToMove = node.get();
-
 			if (nodeToMove instanceof StructNode
 					&& getCurrentNode() instanceof StructNode) {
 				final StructNode toMove = (StructNode) nodeToMove;
@@ -436,7 +527,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 					// Adapt pointers and merge sibling text nodes.
 					adaptForMove(toMove, nodeAnchor, InsertPos.ASRIGHTSIBLING);
-					mNodeRtx.setCurrentNode(toMove);
+					mNodeRtx.moveTo(toMove.getNodeKey());
 					adaptHashesWithAdd();
 
 					// Adapt path summary.
@@ -446,6 +537,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 								: OPType.MOVED;
 						adaptPathForChangedNode(moved, getName(), moved.getNameKey(),
 								moved.getURIKey(), type);
+					}
+
+					if (mDeweyIDsStored) {
+						computeNewDeweyIDs();
 					}
 				}
 				return this;
@@ -1858,7 +1953,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 		// Only one path node is referenced (after a setQName(QName) the
 		// reference-counter would be 0).
-		if (type == OPType.SETNAME && mPathSummary.getReferences() == 1) {
+		// if (type == OPType.SETNAME && mPathSummary.getReferences() == 1) {
+		if (mPathSummary.getReferences() == 1) {
 			moveSummaryGetLevel(node);
 			// Search for new path entry.
 			final Axis axis = new FilterAxis(new ChildAxis(mPathSummary),
@@ -1872,6 +1968,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						node.getNodeKey(), nameKey, uriKey, Remove.YES, type);
 			} else {
 				if (mPathSummary.getKind() != Kind.DOCUMENT) {
+					// The path summary just needs to be updated for the new renamed node.
 					mPathSummary.moveTo(oldPathNodeKey);
 					final PathNode pathNode = (PathNode) getPageTransaction()
 							.prepareEntryForModification(mPathSummary.getNodeKey(),
@@ -2298,7 +2395,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				if (mModificationCount > 0) {
 					throw new SirixUsageException("Must commit/abort transaction first");
 				}
-				
+
 				final int revision = getRevisionNumber();
 
 				// Release all state immediately.
@@ -2361,19 +2458,20 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 * Remove a commit file and all transaction logs.
 	 * 
 	 * @param revision
-	 * 					the revision from which to remove all transaction logs
+	 *          the revision from which to remove all transaction logs
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void removeCommitFileAndLogs(final @Nonnegative int revision) throws SirixIOException {
+	private void removeCommitFileAndLogs(final @Nonnegative int revision)
+			throws SirixIOException {
 		// Delete commit file.
 		mNodeRtx.mSession.commitFile(revision).delete();
 
-//		// Remove logs.
-//		org.sirix.utils.Files.recursiveRemove(new File(new File(
-//				mNodeRtx.mSession.mResourceConfig.mPath,
-//				ResourceConfiguration.Paths.TRANSACTION_LOG.getFile().getName()),
-//				String.valueOf(revision)).toPath());
+		// // Remove logs.
+		// org.sirix.utils.Files.recursiveRemove(new File(new File(
+		// mNodeRtx.mSession.mResourceConfig.mPath,
+		// ResourceConfiguration.Paths.TRANSACTION_LOG.getFile().getName()),
+		// String.valueOf(revision)).toPath());
 	}
 
 	@Override
@@ -2443,11 +2541,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 			reInstantiate(trxID, revNumber);
 
-//			// Remove logs.
-//			org.sirix.utils.Files.recursiveRemove(new File(new File(
-//					mNodeRtx.mSession.mResourceConfig.mPath,
-//					ResourceConfiguration.Paths.TRANSACTION_LOG.getFile().getName()),
-//					String.valueOf(revNumber)).toPath());
+			// // Remove logs.
+			// org.sirix.utils.Files.recursiveRemove(new File(new File(
+			// mNodeRtx.mSession.mResourceConfig.mPath,
+			// ResourceConfiguration.Paths.TRANSACTION_LOG.getFile().getName()),
+			// String.valueOf(revNumber)).toPath());
 		} finally {
 			unLock();
 		}

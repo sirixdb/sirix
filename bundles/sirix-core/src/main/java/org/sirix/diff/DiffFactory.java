@@ -36,7 +36,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.HashKind;
-import org.sirix.api.Database;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 
@@ -103,8 +102,8 @@ public final class DiffFactory {
 		/** Full diff. */
 		FULL {
 			@Override
-			void invoke(final Builder pBuilder) throws SirixException {
-				new FullDiff(pBuilder).diffMovement();
+			void invoke(final @Nonnull Builder builder) throws SirixException {
+				new FullDiff(builder).diffMovement();
 			}
 		},
 
@@ -114,8 +113,8 @@ public final class DiffFactory {
 		 */
 		STRUCTURAL {
 			@Override
-			void invoke(final Builder pBuilder) throws SirixException {
-				new StructuralDiff(pBuilder).diffMovement();
+			void invoke(final @Nonnull Builder builder) throws SirixException {
+				new StructuralDiff(builder).diffMovement();
 			}
 		};
 
@@ -128,6 +127,28 @@ public final class DiffFactory {
 		 *           if anything while diffing goes wrong related to sirix
 		 */
 		abstract void invoke(final Builder pBuilder) throws SirixException;
+	}
+
+	/**
+	 * Create a new {@link Builder} instance.
+	 * 
+	 * @param session
+	 *          the {@link Session} to use
+	 * @param newRev
+	 *          new revision to compare
+	 * @param oldRev
+	 *          old revision to compare
+	 * @param diffKind
+	 *          kind of diff (optimized or not)
+	 * @param observers
+	 *          {@link Set} of observers
+	 * @return new {@link Builder} instance
+	 */
+	public static Builder builder(final @Nonnull Session session,
+			final @Nonnegative int newRev, final @Nonnegative int oldRev,
+			final @Nonnull DiffOptimized diffKind,
+			final @Nonnull Set<DiffObserver> observers) {
+		return new Builder(session, newRev, oldRev, diffKind, observers);
 	}
 
 	/** Builder to simplify static methods. */
@@ -172,8 +193,8 @@ public final class DiffFactory {
 		/**
 		 * Constructor.
 		 * 
-		 * @param pDb
-		 *          {@link Database} instance
+		 * @param session
+		 *          the {@link Session} to use
 		 * @param newRev
 		 *          new revision to compare
 		 * @param oldRev

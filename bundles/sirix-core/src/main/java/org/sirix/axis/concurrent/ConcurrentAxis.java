@@ -128,7 +128,6 @@ public class ConcurrentAxis extends AbstractAxis {
 		if (mResults != null) {
 			mResults.clear();
 		}
-
 		if (task != null) {
 			task = new ConcurrentAxisHelper(mProducer, mResults);
 		}

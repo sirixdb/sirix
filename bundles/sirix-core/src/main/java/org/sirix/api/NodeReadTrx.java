@@ -44,9 +44,12 @@ import org.sirix.node.ElementNode;
 import org.sirix.node.Kind;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.PINode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.service.xml.xpath.AtomicValue;
+
+import com.google.common.base.Optional;
 
 /**
  * <h1>NodeReadTrx</h1>
@@ -335,13 +338,40 @@ public interface NodeReadTrx extends NodeCursor {
 	 */
 	long getParentKey();
 	
-//	SirixDeweyID getLeftSiblingDeweyID();
-//	
-//	SirixDeweyID getRightSiblingDeweyID();
-//	
-//	SirixDeweyID getParentDeweyID();
-//	
-//	SirixDeweyID getFirstChildDeweyID();
+	/**
+	 * Get the left {@link SirixDeweyID} of the currently selected node.
+	 * 
+	 * @return left {@link SirixDeweyID} of the currently selected node
+	 */
+	Optional<SirixDeweyID> getLeftSiblingDeweyID();
+	
+	/**
+	 * Get the right {@link SirixDeweyID} of the currently selected node.
+	 * 
+	 * @return right {@link SirixDeweyID} of the currently selected node
+	 */
+	Optional<SirixDeweyID> getRightSiblingDeweyID();
+	
+	/**
+	 * Get the parent {@link SirixDeweyID} of the currently selected node.
+	 * 
+	 * @return parent {@link SirixDeweyID} of the currently selected node
+	 */
+	Optional<SirixDeweyID> getParentDeweyID();
+	
+	/**
+	 * Get the first child {@link SirixDeweyID} of the currently selected node.
+	 * 
+	 * @return first child {@link SirixDeweyID} of the currently selected node
+	 */
+	Optional<SirixDeweyID> getFirstChildDeweyID();
+	
+	/**
+	 * Get the {@link SirixDeweyID} of the currently selected node.
+	 * 
+	 * @return first {@link SirixDeweyID} of the currently selected node
+	 */
+	Optional<SirixDeweyID> getDeweyID();
 
 	/**
 	 * Get the number of attributes the currently selected node has.

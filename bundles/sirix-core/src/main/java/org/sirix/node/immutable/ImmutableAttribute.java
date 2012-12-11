@@ -117,4 +117,19 @@ public class ImmutableAttribute implements ImmutableValueNode, ImmutableNameNode
 	public Optional<SirixDeweyID> getDeweyID() {
 		return mNode.getDeweyID();
 	}
+	
+	@Override
+	public boolean equals(Object obj) {
+		return mNode.equals(obj);
+	}
+	
+	@Override
+	public int hashCode() {
+		return mNode.hashCode();
+	}
+	
+	@Override
+	public String toString() {
+		return mNode.toString();
+	}
 }

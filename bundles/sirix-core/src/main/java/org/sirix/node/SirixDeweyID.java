@@ -443,6 +443,11 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 		divisionValues[divisionValues.length - 1] = extraDivisionValue;
 	}
 
+	public SirixDeweyID(String deweyID) throws SirixException {
+		this.divisionValues = parseDivisionValues(deweyID);
+		this.level = calcLevel(divisionValues);
+	}
+
 	public int getLevel() {
 		return level;
 	}
@@ -1214,11 +1219,11 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 
 		return newID;
 	}
-	
+
 	public final SirixDeweyID getNewNamespaceID() {
 		int[] childDivisions = Arrays.copyOf(divisionValues,
 				divisionValues.length + 2);
-		childDivisions[divisionValues.length] = SirixDeweyID.namespaceRootDivisionValue ;
+		childDivisions[divisionValues.length] = SirixDeweyID.namespaceRootDivisionValue;
 		childDivisions[divisionValues.length + 1] = SirixDeweyID.distanceToSibling + 1;
 
 		SirixDeweyID newID = new SirixDeweyID(childDivisions, level + 1);

@@ -537,7 +537,7 @@ public final class ResourceConfiguration {
 				new DeflateCompressor());
 
 		/** Determines if DeweyIDs should be used or not. */
-		private boolean mUseDeweyIDs = false;
+		private boolean mUseDeweyIDs = true;
 
 		/**
 		 * Constructor, setting the mandatory fields.

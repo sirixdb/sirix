@@ -182,7 +182,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		mResourceConfig = session.mResourceConfig;
 
 		final File commitFile = session.commitFile(revision);
-		final boolean doesExist = commitFile != null && commitFile.exists();
+		final boolean doesExist = commitFile.exists();
 
 		mSession = checkNotNull(session);
 		mPageReader = checkNotNull(reader);

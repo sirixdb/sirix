@@ -54,6 +54,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.NamespaceNode;
 import org.sirix.node.NullNode;
 import org.sirix.node.PINode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.TextNode;
 import org.sirix.node.immutable.ImmutableAttribute;
 import org.sirix.node.immutable.ImmutableComment;
@@ -956,5 +957,75 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 		}
 		// Next following node.
 		return moveToNextFollowing();
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getDeweyID() {
+		assertNotClosed();
+		return mCurrentNode.getDeweyID();
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
+		assertNotClosed();
+		if (mSession.mResourceConfig.mDeweyIDsStored) {
+			final StructNode node = getStructuralNode();
+			final long nodeKey = node.getNodeKey();
+			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> absent();
+			if (node.hasLeftSibling()) {
+				// Left sibling node.
+				deweyID = moveTo(node.getLeftSiblingKey()).get().getDeweyID();
+			}
+			moveTo(nodeKey);
+			return deweyID;
+		}
+		return Optional.<SirixDeweyID> absent();
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getRightSiblingDeweyID() {
+		if (mSession.mResourceConfig.mDeweyIDsStored) {
+			final StructNode node = getStructuralNode();
+			final long nodeKey = node.getNodeKey();
+			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> absent();
+			if (node.hasRightSibling()) {
+				// Right sibling node.
+				deweyID = moveTo(node.getRightSiblingKey()).get().getDeweyID();
+			}
+			moveTo(nodeKey);
+			return deweyID;
+		}
+		return Optional.<SirixDeweyID> absent();
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getParentDeweyID() {
+		if (mSession.mResourceConfig.mDeweyIDsStored) {
+			final long nodeKey = mCurrentNode.getNodeKey();
+			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> absent();
+			if (mCurrentNode.hasParent()) {
+				// Parent node.
+				deweyID = moveTo(mCurrentNode.getParentKey()).get().getDeweyID();
+			}
+			moveTo(nodeKey);
+			return deweyID;
+		}
+		return Optional.<SirixDeweyID> absent();
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getFirstChildDeweyID() {
+		if (mSession.mResourceConfig.mDeweyIDsStored) {
+			final StructNode node = getStructuralNode();
+			final long nodeKey = node.getNodeKey();
+			Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> absent();
+			if (node.hasFirstChild()) {
+				// Right sibling node.
+				deweyID = moveTo(node.getFirstChildKey()).get().getDeweyID();
+			}
+			moveTo(nodeKey);
+			return deweyID;
+		}
+		return Optional.<SirixDeweyID> absent();
 	}
 }

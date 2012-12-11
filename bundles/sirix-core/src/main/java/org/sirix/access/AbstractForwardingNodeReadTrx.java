@@ -14,9 +14,11 @@ import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.ForwardingObject;
 
 /**
@@ -420,5 +422,30 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	@Override
 	public boolean isText() {
 		return delegate().isText();
+	}
+	
+	@Override
+	public Optional<SirixDeweyID> getDeweyID() {
+		return delegate().getDeweyID();
+	}
+	
+	@Override
+	public Optional<SirixDeweyID> getFirstChildDeweyID() {
+		return delegate().getFirstChildDeweyID();
+	}
+	
+	@Override
+	public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
+		return delegate().getLeftSiblingDeweyID();
+	}
+	
+	@Override
+	public Optional<SirixDeweyID> getParentDeweyID() {
+		return delegate().getParentDeweyID();
+	}
+	
+	@Override
+	public Optional<SirixDeweyID> getRightSiblingDeweyID() {
+		return delegate().getRightSiblingDeweyID();
 	}
 }

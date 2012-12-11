@@ -210,6 +210,7 @@ public enum Revisioning {
 				for (final Entry<K, V> entry : page.entrySet()) {
 					// Caching the complete page.
 					final K key = entry.getKey();
+					assert key != null;
 					if (entry != null && returnVal.get(0).getValue(key) == null) {
 						returnVal.get(0).setEntry(key, entry.getValue());
 

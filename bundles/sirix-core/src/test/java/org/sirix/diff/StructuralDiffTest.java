@@ -74,7 +74,7 @@ public final class StructuralDiffTest {
 	}
 
 	@Test
-	public void testOptimizedFirst() throws Exception {
+	public void testStructuralDiffOptimizedFirst() throws Exception {
 		DiffTestHelper.setUpFirst(mHolder);
 		DiffTestHelper
 				.checkStructuralDiff(mHolder, mObserver, DiffOptimized.HASHED);

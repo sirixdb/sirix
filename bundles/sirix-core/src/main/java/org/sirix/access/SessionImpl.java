@@ -232,7 +232,7 @@ public final class SessionImpl implements Session {
 	 * @param revision
 	 *          revision number
 	 */
-	public File commitFile(final int revision) {
+	File commitFile(final int revision) {
 		return new File(mResourceConfig.mPath, new File(
 				ResourceConfiguration.Paths.TRANSACTION_LOG.getFile(), new File(
 						new File(String.valueOf(revision)), ".commit").getPath()).getPath());
@@ -250,7 +250,7 @@ public final class SessionImpl implements Session {
 		// Checks.
 		assertAccess(mLastCommittedUberPage.get().getRevision());
 		if (maxNodeCount < 0 || maxTime < 0) {
-			throw new SirixUsageException("pMaxNodeCount may not be < 0!");
+			throw new SirixUsageException("maxNodeCount may not be < 0!");
 		}
 		checkNotNull(timeUnit);
 
@@ -269,7 +269,6 @@ public final class SessionImpl implements Session {
 		// trx).
 		final long currentTrxID = mNodeTrxIDCounter.incrementAndGet();
 		final int lastRev = mLastCommittedUberPage.get().getRevisionNumber();
-//		commitFile(lastRev);
 		final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWtx = createPageWriteTransaction(currentTrxID,
 				lastRev, lastRev, Abort.NO);
 

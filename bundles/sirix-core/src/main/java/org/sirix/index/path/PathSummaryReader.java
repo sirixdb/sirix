@@ -21,6 +21,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
+import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
@@ -703,5 +704,35 @@ public final class PathSummaryReader implements NodeReadTrx {
 		}
 		// Next following node.
 		return moveToNextFollowing();
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getDeweyID() {
+		assertNotClosed();
+		return mCurrentNode.getDeweyID();
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
+		assertNotClosed();
+		return Optional.<SirixDeweyID> absent();
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getRightSiblingDeweyID() {
+		assertNotClosed();
+		return Optional.<SirixDeweyID> absent();
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getParentDeweyID() {
+		assertNotClosed();
+		return Optional.<SirixDeweyID> absent();
+	}
+
+	@Override
+	public Optional<SirixDeweyID> getFirstChildDeweyID() {
+		assertNotClosed();
+		return Optional.<SirixDeweyID> absent();
 	}
 }
