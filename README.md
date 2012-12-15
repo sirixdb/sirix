@@ -12,6 +12,28 @@ Note that it is based on Treetank (http://treetank.org / http://github.com/disy/
 
 [![Build Status](https://secure.travis-ci.org/JohannesLichtenberger/sirix.png)](http://travis-ci.org/JohannesLichtenberger/sirix)
 
+##Features
+
+The main features are:
+* it provides a diff-algorithm to import differences between two
+XML-documents (I've also imported a small set of sorted wikipedia
+articles by their revision-timestamps and a predefined time interval
+which decides when to store a new revision)
+* an ID-based diff-algorithm which detects differences between the
+revisions/versions of a single resource (for instance used for
+interactive visualizations thereof)
+* several well known versioning strategies which might adapt themselves
+in the future according to different workloads
+=> thus any revision can be simply serialized, queried...
+* supports XQuery (through Brackit(.org))
+* supports the XQuery Update Facility (through Brackit(.org))
+* a GUI which isn't stable enough incorporates several views which are
+visualizing either a single revision or the differences between two or
+more revisions of a resource (an XML-document in Sirix)
+* naturally implements a form of MVCC and thus readers are never blocked
+* single write-transaction in parallel to N read-transactions on the
+same resource 
+
 ##GUI
 A screencast is available depicting the SunburstView and the TextView side by side: 
 http://www.youtube.com/watch?v=l9CXXBkl5vI
