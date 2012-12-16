@@ -40,7 +40,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.PathSummaryReader;
 import org.sirix.index.value.AVLTree;
-import org.sirix.index.value.References;
+import org.sirix.index.value.NodeReferences;
 import org.sirix.index.value.Value;
 import org.sirix.node.TextNode;
 import org.sirix.service.xml.shredder.Insert;
@@ -658,7 +658,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * 
 	 * @return {@link AVLTree} instance
 	 */
-	AVLTree<Value, References> getTextValueIndex();
+	AVLTree<Value, NodeReferences> getTextValueIndex();
 
 	/**
 	 * Get the attribute value index associated with the current write transaction -- might
@@ -666,5 +666,5 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * 
 	 * @return {@link AVLTree} instance
 	 */
-	AVLTree<Value, References> getAttributeValueIndex();
+	AVLTree<Value, NodeReferences> getAttributeValueIndex();
 }

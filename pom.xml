@@ -111,6 +111,10 @@
 			<name>vanilla java</name>
 			<url>https://github.com/peter-lawrey/Java-Chronicle/tree/master/repository</url>
 		</repository>
+		<repository>
+			<id>sonatype-nexus-snapshots</id>
+			<url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+		</repository>
 	</repositories>
 	<reporting>
 		<plugins>

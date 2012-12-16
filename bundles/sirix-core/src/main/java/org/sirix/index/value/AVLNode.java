@@ -1,9 +1,9 @@
 package org.sirix.index.value;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
@@ -12,6 +12,8 @@ import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.settings.Fixed;
+
+import com.google.common.base.Objects;
 
 /**
  * AVLNode which is mutable.
@@ -122,6 +124,22 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
 	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
 		return VisitResultType.CONTINUE;
 	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mNodeDelegate.getNodeKey());
+	};
+
+	@Override
+	public boolean equals(final @Nullable Object obj) {
+		if (obj instanceof AVLNode) {
+			@SuppressWarnings("unchecked")
+			final AVLNode<K, V> other = (AVLNode<K, V>) obj;
+			return this.mNodeDelegate.getNodeKey() == other.mNodeDelegate
+					.getNodeKey();
+		}
+		return false;
+	};
 
 	@Override
 	public String toString() {

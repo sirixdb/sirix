@@ -9,6 +9,8 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.index.value.interfaces.References;
+
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
 
@@ -18,7 +20,7 @@ import com.google.common.base.Objects.ToStringHelper;
  * @author Johannes Lichtenberger
  * 
  */
-public class References {
+public class NodeReferences implements References {
 	/** A {@link Set} of node-keys. */
 	private final Set<Long> mNodeKeys;
 
@@ -30,38 +32,28 @@ public class References {
 	 * @param nodeKey
 	 *          node key of this node
 	 */
-	public References(final @Nonnull Set<Long> nodeKeys) {
+	public NodeReferences(final @Nonnull Set<Long> nodeKeys) {
 		mNodeKeys = Collections.synchronizedSet(checkNotNull(nodeKeys));
 	}
 
-	/**
-	 * Retrieve if a node-ID is present with the given key.
-	 * 
-	 * @param nodeKey
-	 *          node key to lookup
-	 * @return {@code true} if it is indexed, {@code false} otherwise
-	 */
+	@Override
 	public boolean isPresent(final @Nonnegative long nodeKey) {
 		return mNodeKeys.contains(nodeKey);
 	}
 
-	/**
-	 * Get an unmodifiable set view.
-	 * 
-	 * @return set of all keys
-	 */
+	@Override
 	public Set<Long> getNodeKeys() {
 		return Collections.unmodifiableSet(mNodeKeys);
 	}
 
-	/**
-	 * Set a new nodeKey.
-	 * 
-	 * @param nodeKey
-	 *          node key to set
-	 */
+	@Override
 	public void setNodeKey(final @Nonnegative long nodeKey) {
 		mNodeKeys.add(nodeKey);
+	}
+	
+	@Override
+	public boolean removeNodeKey(@Nonnegative long nodeKey) {
+		return mNodeKeys.remove(nodeKey);
 	}
 
 	@Override
@@ -71,8 +63,8 @@ public class References {
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof References) {
-			final References refs = (References) obj;
+		if (obj instanceof NodeReferences) {
+			final NodeReferences refs = (NodeReferences) obj;
 			return mNodeKeys.equals(refs.mNodeKeys);
 		}
 		return false;
@@ -85,5 +77,10 @@ public class References {
 			helper.add("referenced node key", nodeKey);
 		}
 		return helper.toString();
+	}
+
+	@Override
+	public boolean hasNodeKeys() {
+		return !mNodeKeys.isEmpty();
 	}
 }

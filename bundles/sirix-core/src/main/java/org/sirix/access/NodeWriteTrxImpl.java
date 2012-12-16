@@ -76,7 +76,7 @@ import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummaryReader;
 import org.sirix.index.value.AVLTree;
 import org.sirix.index.value.AVLTree.MoveCursor;
-import org.sirix.index.value.References;
+import org.sirix.index.value.NodeReferences;
 import org.sirix.index.value.Value;
 import org.sirix.index.value.ValueKind;
 import org.sirix.node.AttributeNode;
@@ -189,10 +189,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	private PathSummaryReader mPathSummary;
 
 	/** {@link AVLTree} instance for text value index. */
-	private AVLTree<Value, References> mAVLTextTree;
+	private AVLTree<Value, NodeReferences> mAVLTextTree;
 
 	/** {@link AVLTree} instance for attribute value index. */
-	private AVLTree<Value, References> mAVLAttributeTree;
+	private AVLTree<Value, NodeReferences> mAVLAttributeTree;
 
 	/** Indexes structures used during updates. */
 	private final Set<Indexes> mIndexes;
@@ -263,12 +263,12 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			mPathSummary = PathSummaryReader.getInstance(pageWriteTrx, session);
 		}
 		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
-			mAVLTextTree = AVLTree.<Value, References> getInstance(pageWriteTrx,
+			mAVLTextTree = AVLTree.<Value, NodeReferences> getInstance(pageWriteTrx,
 					ValueKind.TEXT);
 		}
 		if (mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
-			mAVLAttributeTree = AVLTree.<Value, References> getInstance(pageWriteTrx,
-					ValueKind.ATTRIBUTE);
+			mAVLAttributeTree = AVLTree.<Value, NodeReferences> getInstance(
+					pageWriteTrx, ValueKind.ATTRIBUTE);
 		}
 
 		// Node factory.
@@ -1454,19 +1454,20 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				mNodeRtx.moveToParent();
 			}
 			final long pathNodeKey = mNodeRtx.isNameNode() ? mNodeRtx
-					.getPathNodeKey() : 0;
+					.getPathNodeKey() : -1;
 			if (kind == ValueKind.TEXT) {
 				mNodeRtx.moveTo(nodeKey);
 			}
 			final Value textVal = new Value(value, pathNodeKey, kind);
-			final Optional<References> textReferences = kind == ValueKind.ATTRIBUTE ? mAVLAttributeTree
+			final Optional<NodeReferences> textReferences = kind == ValueKind.ATTRIBUTE ? mAVLAttributeTree
 					.get(textVal, SearchMode.EQUAL) : mAVLTextTree.get(textVal,
 					SearchMode.EQUAL);
 			if (textReferences.isPresent()) {
-				final References references = textReferences.get();
+				final NodeReferences references = textReferences.get();
 				setRefNodeKey(kind, textVal, references);
 			} else {
-				final References references = new References(new HashSet<Long>());
+				final NodeReferences references = new NodeReferences(
+						new HashSet<Long>());
 				setRefNodeKey(kind, textVal, references);
 			}
 		}
@@ -1485,7 +1486,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 *           if an I/O error occurs
 	 */
 	private void setRefNodeKey(final ValueKind kind, final Value textVal,
-			@Nonnull References references) throws SirixIOException {
+			@Nonnull NodeReferences references) throws SirixIOException {
 		references.setNodeKey(mNodeRtx.getCurrentNode().getNodeKey());
 		switch (kind) {
 		case ATTRIBUTE:
@@ -1685,6 +1686,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					// Remove namespaces and attributes.
 					removeNonStructural();
 
+					// Remove text value.
+					removeTextValue();
+
 					// Then remove node.
 					getPageTransaction().removeEntry(getCurrentNode().getNodeKey(),
 							PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
@@ -1725,6 +1729,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				getPageTransaction().removeEntry(node.getNodeKey(), PageKind.NODEPAGE,
 						Optional.<UnorderedKeyValuePage> absent());
 				removeName();
+				removeAttributeValue();
 				moveToParent();
 			} else if (getCurrentNode().getKind() == Kind.NAMESPACE) {
 				final Node node = mNodeRtx.getCurrentNode();
@@ -1748,6 +1753,38 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		}
 	}
 
+	private void removeAttributeValue() throws SirixIOException {
+		if (getCurrentNode() instanceof ValueNode) {
+			if (getCurrentNode().getKind() == Kind.ATTRIBUTE
+					&& mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
+				final long nodeKey = getCurrentNode().getNodeKey();
+				final byte[] rawValue = mNodeRtx.getRawValue();
+				moveToParent();
+				final long pathNodeKey = getCurrentNode().getKind() == Kind.DOCUMENT ? -1
+						: ((ElementNode) getCurrentNode()).getPathNodeKey();
+				mAVLAttributeTree.remove(new Value(rawValue, pathNodeKey,
+						ValueKind.ATTRIBUTE), nodeKey);
+				moveTo(nodeKey);
+			}
+		}
+	}
+
+	private void removeTextValue() throws SirixIOException {
+		if (getCurrentNode() instanceof ValueNode) {
+			if (getCurrentNode().getKind() == Kind.TEXT
+					&& mIndexes.contains(Indexes.TEXT_VALUE)) {
+				final long nodeKey = getCurrentNode().getNodeKey();
+				final byte[] rawValue = mNodeRtx.getRawValue();
+				moveToParent();
+				final long pathNodeKey = getCurrentNode().getKind() == Kind.DOCUMENT ? -1
+						: ((ElementNode) getCurrentNode()).getPathNodeKey();
+				mAVLTextTree.remove(new Value(rawValue, pathNodeKey, ValueKind.TEXT),
+						nodeKey);
+				moveTo(nodeKey);
+			}
+		}
+	}
+
 	/**
 	 * Remove non structural nodes of an {@link ElementNode}, that is namespaces
 	 * and attributes.
@@ -1760,6 +1797,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			for (int i = 0, attCount = mNodeRtx.getAttributeCount(); i < attCount; i++) {
 				moveToAttribute(i);
 				removeName();
+				removeAttributeValue();
 				getPageTransaction().removeEntry(getCurrentNode().getNodeKey(),
 						PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
 				moveToParent();
@@ -2535,6 +2573,13 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			} catch (final IOException e) {
 				throw new SirixIOException(e);
 			}
+
+			// System.out.println("Att:");
+			// mAVLAttributeTree.dump(System.out);
+			// System.out.println();
+			// System.out.println("Text:");
+			// mAVLTextTree.dump(System.out);
+			// System.out.println();
 
 			final long trxID = getTransactionID();
 			final int revNumber = getRevisionNumber();
@@ -3617,7 +3662,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public AVLTree<Value, References> getTextValueIndex() {
+	public AVLTree<Value, NodeReferences> getTextValueIndex() {
 		acquireLock();
 		try {
 			return mAVLTextTree;
@@ -3627,7 +3672,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public AVLTree<Value, References> getAttributeValueIndex() {
+	public AVLTree<Value, NodeReferences> getAttributeValueIndex() {
 		acquireLock();
 		try {
 			return mAVLAttributeTree;

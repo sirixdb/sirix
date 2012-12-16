@@ -18,7 +18,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.index.SearchMode;
 import org.sirix.index.value.AVLTree;
-import org.sirix.index.value.References;
+import org.sirix.index.value.NodeReferences;
 import org.sirix.index.value.Value;
 import org.sirix.index.value.ValueKind;
 import org.sirix.settings.Constants;
@@ -59,23 +59,23 @@ public class AVLTreeTest {
 		wtx.insertAttribute(new QName("foo"), "bar", Movement.TOPARENT);
 		wtx.insertAttribute(new QName("foobar"), "baz", Movement.TOPARENT);
 		wtx.commit();
-		final AVLTree<Value, References> attIndex = wtx
+		final AVLTree<Value, NodeReferences> attIndex = wtx
 				.getAttributeValueIndex();
-		final Optional<References> fooRefs = attIndex.get(
+		final Optional<NodeReferences> fooRefs = attIndex.get(
 				new Value("foo".getBytes(Constants.DEFAULT_ENCODING), 0,
 						ValueKind.ATTRIBUTE), SearchMode.EQUAL);
 		assertTrue(!fooRefs.isPresent());
-		final Optional<References> barRefs1 = attIndex.get(
+		final Optional<NodeReferences> barRefs1 = attIndex.get(
 				new Value("bar".getBytes(Constants.DEFAULT_ENCODING), 2,
 						ValueKind.ATTRIBUTE), SearchMode.EQUAL);
 		check(barRefs1, ImmutableSet.of(2L));
-		final Optional<References> barRefs2 = attIndex.get(
+		final Optional<NodeReferences> barRefs2 = attIndex.get(
 				new Value("bar".getBytes(Constants.DEFAULT_ENCODING), 5,
 						ValueKind.ATTRIBUTE), SearchMode.EQUAL);
 		check(barRefs2, ImmutableSet.of(5L));
 	}
 
-	private void check(final @Nonnull Optional<References> barRefs,
+	private void check(final @Nonnull Optional<NodeReferences> barRefs,
 			final @Nonnull Set<Long> keys) {
 		assertTrue(barRefs.isPresent());
 		assertEquals(keys, barRefs.get().getNodeKeys());
@@ -89,7 +89,7 @@ public class AVLTreeTest {
 		wtx.insertElementAsRightSibling(new QName("blabla"));
 		wtx.insertTextAsFirstChild("blabla");
 		wtx.commit();
-		final AVLTree<Value, References> textIndex = wtx
+		final AVLTree<Value, NodeReferences> textIndex = wtx
 				.getTextValueIndex();
 	}
 
