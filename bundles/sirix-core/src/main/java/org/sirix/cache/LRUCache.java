@@ -80,12 +80,12 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
 			@Override
 			protected boolean removeEldestEntry(
-					@Nullable final Map.Entry<K, V> pEldest) {
+					@Nullable final Map.Entry<K, V> eldest) {
 				boolean returnVal = false;
 				if (size() > CACHE_CAPACITY) {
-					if (pEldest != null) {
-						final K key = pEldest.getKey();
-						final V value = pEldest.getValue();
+					if (eldest != null) {
+						final K key = eldest.getKey();
+						final V value = eldest.getValue();
 						if (key != null && value != null) {
 							mSecondCache.put(key, value);
 						}

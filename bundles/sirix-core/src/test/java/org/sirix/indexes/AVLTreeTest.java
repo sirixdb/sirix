@@ -74,13 +74,7 @@ public class AVLTreeTest {
 						ValueKind.ATTRIBUTE), SearchMode.EQUAL);
 		check(barRefs2, ImmutableSet.of(5L));
 	}
-
-	private void check(final @Nonnull Optional<NodeReferences> barRefs,
-			final @Nonnull Set<Long> keys) {
-		assertTrue(barRefs.isPresent());
-		assertEquals(keys, barRefs.get().getNodeKeys());
-	}
-
+	
 	@Test
 	public void testTextIndex() throws SirixException {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
@@ -91,6 +85,12 @@ public class AVLTreeTest {
 		wtx.commit();
 		final AVLTree<Value, NodeReferences> textIndex = wtx
 				.getTextValueIndex();
+	}
+
+	private void check(final @Nonnull Optional<NodeReferences> barRefs,
+			final @Nonnull Set<Long> keys) {
+		assertTrue(barRefs.isPresent());
+		assertEquals(keys, barRefs.get().getNodeKeys());
 	}
 
 }

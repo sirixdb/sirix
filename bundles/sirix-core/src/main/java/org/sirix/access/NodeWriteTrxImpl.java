@@ -58,22 +58,17 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.PostCommitHook;
 import org.sirix.api.PreCommitHook;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.LevelOrderAxis;
 import org.sirix.axis.PostOrderAxis;
-import org.sirix.axis.filter.FilterAxis;
-import org.sirix.axis.filter.NameFilter;
-import org.sirix.axis.filter.PathKindFilter;
-import org.sirix.axis.filter.PathLevelFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.SearchMode;
-import org.sirix.index.path.PathNode;
 import org.sirix.index.path.PathSummaryReader;
+import org.sirix.index.path.PathSummaryWriter;
+import org.sirix.index.path.PathSummaryWriter.OPType;
 import org.sirix.index.value.AVLTree;
 import org.sirix.index.value.AVLTree.MoveCursor;
 import org.sirix.index.value.NodeReferences;
@@ -92,6 +87,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.UberPage;
@@ -133,27 +129,6 @@ import com.google.common.hash.Hashing;
 final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		NodeWriteTrx {
 
-	/**
-	 * Operation type to determine behavior of path summary updates during
-	 * {@code setQName(QName)} and the move-operations.
-	 */
-	private enum OPType {
-		/**
-		 * Move from and to is on the same level (before and after the move, the
-		 * node has the same parent).
-		 */
-		MOVEDSAMELEVEL,
-
-		/**
-		 * Move from and to is not on the same level (before and after the move, the
-		 * node has a different parent).
-		 */
-		MOVED,
-
-		/** A new {@link QName} is set. */
-		SETNAME,
-	}
-
 	/** MD5 hash-function. */
 	private final HashFunction mHash = Hashing.md5();
 
@@ -185,8 +160,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	/** Collection holding post-commit hooks. */
 	private final List<PostCommitHook> mPostCommitHooks = new ArrayList<>();
 
-	/** {@link PathSummaryReader} instance. */
-	private PathSummaryReader mPathSummary;
+	/** {@link PathSummaryWriter} instance. */
+	private PathSummaryWriter mPathSummaryWriter;
 
 	/** {@link AVLTree} instance for text value index. */
 	private AVLTree<Value, NodeReferences> mAVLTextTree;
@@ -208,15 +183,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 	/** Determines if text values should be compressed or not. */
 	private final boolean mCompression;
-
-	/** Determines if a path subtree must be deleted or not. */
-	private enum Remove {
-		/** Yes, it must be deleted. */
-		YES,
-
-		/** No, it must not be deleted. */
-		NO
-	}
 
 	/**
 	 * Constructor.
@@ -258,9 +224,13 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		mModificationCount = 0L;
 		mIndexes = mNodeRtx.mSession.mResourceConfig.mIndexes;
 
+		// Node factory.
+		mNodeFactory = new NodeFactoryImpl(pageWriteTrx);
+
 		// Indexes.
 		if (mIndexes.contains(Indexes.PATH)) {
-			mPathSummary = PathSummaryReader.getInstance(pageWriteTrx, session);
+			mPathSummaryWriter = PathSummaryWriter.getInstance(pageWriteTrx, session,
+					mNodeFactory, mNodeRtx);
 		}
 		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
 			mAVLTextTree = AVLTree.<Value, NodeReferences> getInstance(pageWriteTrx,
@@ -270,9 +240,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			mAVLAttributeTree = AVLTree.<Value, NodeReferences> getInstance(
 					pageWriteTrx, ValueKind.ATTRIBUTE);
 		}
-
-		// Node factory.
-		mNodeFactory = new NodeFactoryImpl(pageWriteTrx);
 
 		if (maxTime > 0) {
 			mPool.scheduleAtFixedRate(new Runnable() {
@@ -364,8 +331,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					// Adapt path summary.
 					if (mIndexes.contains(Indexes.PATH) && toMove instanceof NameNode) {
 						final NameNode moved = (NameNode) toMove;
-						adaptPathForChangedNode(moved, getName(), moved.getNameKey(),
-								moved.getURIKey(), OPType.MOVED);
+						mPathSummaryWriter.adaptPathForChangedNode(moved, getName(),
+								moved.getNameKey(), moved.getURIKey(), OPType.MOVED);
 					}
 
 					if (mDeweyIDsStored) {
@@ -535,8 +502,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						final NameNode moved = (NameNode) toMove;
 						final OPType type = moved.getParentKey() == parentKey ? OPType.MOVEDSAMELEVEL
 								: OPType.MOVED;
-						adaptPathForChangedNode(moved, getName(), moved.getNameKey(),
-								moved.getURIKey(), type);
+						mPathSummaryWriter.adaptPathForChangedNode(moved, getName(),
+								moved.getNameKey(), moved.getURIKey(), type);
 					}
 
 					if (mDeweyIDsStored) {
@@ -707,88 +674,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		insertPos.processMove(fromNode, toNode, this);
 	}
 
-	private long getPathNodeKey(final @Nonnull QName name,
-			final @Nonnull Kind pathKind) throws SirixException {
-		final Kind kind = mNodeRtx.getCurrentNode().getKind();
-		int level = 0;
-		if (kind == Kind.DOCUMENT) {
-			mPathSummary.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-		} else {
-			movePathSummary();
-			level = mPathSummary.getLevel();
-		}
-
-		final long nodeKey = mPathSummary.getNodeKey();
-		final Axis axis = new FilterAxis(new ChildAxis(mPathSummary),
-				new NameFilter(mPathSummary,
-						pathKind == Kind.NAMESPACE ? name.getPrefix()
-								: Utils.buildName(name)), new PathKindFilter(mPathSummary,
-						pathKind));
-		long retVal = nodeKey;
-		if (axis.hasNext()) {
-			axis.next();
-			retVal = mPathSummary.getNodeKey();
-			final PathNode pathNode = (PathNode) getPageTransaction()
-					.prepareEntryForModification(retVal, PageKind.PATHSUMMARYPAGE,
-							Optional.<UnorderedKeyValuePage> absent());
-			pathNode.incrementReferenceCount();
-			getPageTransaction().finishEntryModification(pathNode.getNodeKey(),
-					PageKind.PATHSUMMARYPAGE);
-		} else {
-			assert nodeKey == mPathSummary.getNodeKey();
-			insertPathAsFirstChild(name, pathKind, level + 1);
-			retVal = mPathSummary.getNodeKey();
-		}
-		return retVal;
-	}
-
-	/**
-	 * Move path summary cursor to the path node which is references by the
-	 * current node.
-	 */
-	private void movePathSummary() {
-		if (mNodeRtx.getCurrentNode() instanceof NameNode) {
-			mPathSummary.moveTo(((NameNode) mNodeRtx.getCurrentNode())
-					.getPathNodeKey());
-		} else {
-			throw new IllegalStateException();
-		}
-	}
-
-	/**
-	 * Insert a path node as first child.
-	 * 
-	 * @param name
-	 *          {@link QName} of the path node (not stored) twice
-	 * @param pathKind
-	 *          kind of node to index
-	 * @param level
-	 *          level in the path summary
-	 * @return this {@link WriteTransaction} instance
-	 * @throws SirixException
-	 *           if an I/O error occurs
-	 */
-	private NodeWriteTrx insertPathAsFirstChild(final @Nonnull QName name,
-			final Kind pathKind, final int level) throws SirixException {
-		if (!XMLToken.isValidQName(checkNotNull(name))) {
-			throw new IllegalArgumentException("The QName is not valid!");
-		}
-
-		checkAccessAndCommit();
-
-		final long parentKey = mPathSummary.getNodeKey();
-		final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-		final long rightSibKey = mPathSummary.getFirstChildKey();
-		final PathNode node = mNodeFactory.createPathNode(parentKey, leftSibKey,
-				rightSibKey, 0, name, pathKind, level);
-
-		mPathSummary.moveTo(node.getNodeKey());
-		adaptForInsert(node, InsertPos.ASFIRSTCHILD, PageKind.PATHSUMMARYPAGE);
-		mPathSummary.moveTo(node.getNodeKey());
-
-		return this;
-	}
-
 	@Override
 	public NodeWriteTrx insertElementAsFirstChild(final @Nonnull QName name)
 			throws SirixException {
@@ -806,8 +691,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				final long rightSibKey = ((StructNode) mNodeRtx.getCurrentNode())
 						.getFirstChildKey();
 
-				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
-						name, Kind.ELEMENT) : 0;
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? mPathSummaryWriter
+						.getPathNodeKey(name, Kind.ELEMENT) : 0;
 				final Optional<SirixDeweyID> id = newFirstChildID();
 				final ElementNode node = mNodeFactory.createElementNode(parentKey,
 						leftSibKey, rightSibKey, 0, name, pathNodeKey, id);
@@ -841,8 +726,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				final long key = getCurrentNode().getNodeKey();
 				moveToParent();
-				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
-						name, Kind.ELEMENT) : 0;
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? mPathSummaryWriter
+						.getPathNodeKey(name, Kind.ELEMENT) : 0;
 				moveTo(key);
 
 				final long parentKey = getCurrentNode().getParentKey();
@@ -882,8 +767,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				final long key = getCurrentNode().getNodeKey();
 				moveToParent();
-				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
-						name, Kind.ELEMENT) : 0;
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? mPathSummaryWriter
+						.getPathNodeKey(name, Kind.ELEMENT) : 0;
 				moveTo(key);
 
 				final long parentKey = getCurrentNode().getParentKey();
@@ -936,7 +821,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				}
 				nodeKey = getCurrentNode().getNodeKey();
 				postOrderTraversalHashes();
-				final Node startNode = getCurrentNode();
+				final ImmutableNode startNode = getCurrentNode();
 				moveToParent();
 				while (getCurrentNode().hasParent()) {
 					moveToParent();
@@ -1029,8 +914,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				}
 
 				final QName targetName = new QName(target);
-				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
-						targetName, Kind.PROCESSING_INSTRUCTION) : 0;
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? mPathSummaryWriter
+						.getPathNodeKey(targetName, Kind.PROCESSING_INSTRUCTION) : 0;
 				final PINode node = mNodeFactory.createPINode(parentKey, leftSibKey,
 						rightSibKey, targetName, processingContent, mCompression,
 						pathNodeKey, id);
@@ -1550,8 +1435,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					moveToParent();
 				}
 
-				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
-						name, Kind.ATTRIBUTE) : 0;
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? mPathSummaryWriter
+						.getPathNodeKey(name, Kind.ATTRIBUTE) : 0;
 				final byte[] attValue = getBytes(value);
 
 				final Optional<SirixDeweyID> id = newAttributeID();
@@ -1612,8 +1497,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					moveToParent();
 				}
 
-				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? getPathNodeKey(
-						name, Kind.NAMESPACE) : 0;
+				final long pathNodeKey = mIndexes.contains(Indexes.PATH) ? mPathSummaryWriter
+						.getPathNodeKey(name, Kind.NAMESPACE) : 0;
 				final int uriKey = getPageTransaction().createNameKey(
 						name.getNamespaceURI(), Kind.NAMESPACE);
 				final int prefixKey = getPageTransaction().createNameKey(
@@ -1655,7 +1540,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 */
 	private void checkAncestors(final @Nonnull Node node) {
 		assert node != null;
-		final Node item = getCurrentNode();
+		final ImmutableNode item = getCurrentNode();
 		while (getCurrentNode().hasParent()) {
 			moveToParent();
 			if (getCurrentNode().getNodeKey() == node.getNodeKey()) {
@@ -1717,7 +1602,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					moveTo(node.getParentKey());
 				}
 			} else if (getCurrentNode().getKind() == Kind.ATTRIBUTE) {
-				final Node node = mNodeRtx.getCurrentNode();
+				final ImmutableNode node = mNodeRtx.getCurrentNode();
 
 				final ElementNode parent = (ElementNode) getPageTransaction()
 						.prepareEntryForModification(node.getParentKey(),
@@ -1732,7 +1617,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				removeAttributeValue();
 				moveToParent();
 			} else if (getCurrentNode().getKind() == Kind.NAMESPACE) {
-				final Node node = mNodeRtx.getCurrentNode();
+				final ImmutableNode node = mNodeRtx.getCurrentNode();
 
 				final ElementNode parent = (ElementNode) getPageTransaction()
 						.prepareEntryForModification(node.getParentKey(),
@@ -1830,80 +1715,10 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			page.removeName(node.getURIKey(), Kind.NAMESPACE);
 
 			assert nodeKind != Kind.DOCUMENT;
-			if (mIndexes.contains(Indexes.PATH)
-					&& mPathSummary.moveTo(node.getPathNodeKey()).hasMoved()) {
-				if (mPathSummary.getReferences() == 1) {
-					removePathSummaryNode(Remove.YES);
-				} else {
-					assert page.getCount(node.getNameKey(), nodeKind) != 0;
-					if (mPathSummary.getReferences() > 1) {
-						final PathNode pathNode = (PathNode) getPageTransaction()
-								.prepareEntryForModification(mPathSummary.getNodeKey(),
-										PageKind.PATHSUMMARYPAGE,
-										Optional.<UnorderedKeyValuePage> absent());
-						pathNode.decrementReferenceCount();
-						getPageTransaction().finishEntryModification(pathNode.getNodeKey(),
-								PageKind.PATHSUMMARYPAGE);
-					}
-				}
+			if (mIndexes.contains(Indexes.PATH)) {
+				mPathSummaryWriter.remove(node, nodeKind, page);
 			}
 		}
-	}
-
-	/**
-	 * Remove a path summary node with the specified PCR.
-	 * 
-	 * @throws SirixException
-	 *           if Sirix fails to remove the path node
-	 */
-	private void removePathSummaryNode(final @Nonnull Remove remove)
-			throws SirixException {
-		// Remove all descendant nodes.
-		if (remove == Remove.YES) {
-			for (final Axis axis = new DescendantAxis(mPathSummary); axis.hasNext();) {
-				axis.next();
-				getPageTransaction()
-						.removeEntry(mPathSummary.getNodeKey(), PageKind.PATHSUMMARYPAGE,
-								Optional.<UnorderedKeyValuePage> absent());
-			}
-		}
-
-		// Adapt left sibling node if there is one.
-		if (mPathSummary.hasLeftSibling()) {
-			final StructNode leftSibling = (StructNode) getPageTransaction()
-					.prepareEntryForModification(mPathSummary.getLeftSiblingKey(),
-							PageKind.PATHSUMMARYPAGE,
-							Optional.<UnorderedKeyValuePage> absent());
-			leftSibling.setRightSiblingKey(mPathSummary.getRightSiblingKey());
-			getPageTransaction().finishEntryModification(leftSibling.getNodeKey(),
-					PageKind.PATHSUMMARYPAGE);
-		}
-
-		// Adapt right sibling node if there is one.
-		if (mPathSummary.hasRightSibling()) {
-			final StructNode rightSibling = (StructNode) getPageTransaction()
-					.prepareEntryForModification(mPathSummary.getRightSiblingKey(),
-							PageKind.PATHSUMMARYPAGE,
-							Optional.<UnorderedKeyValuePage> absent());
-			rightSibling.setLeftSiblingKey(mPathSummary.getLeftSiblingKey());
-			getPageTransaction().finishEntryModification(rightSibling.getNodeKey(),
-					PageKind.PATHSUMMARYPAGE);
-		}
-
-		// Adapt parent. If node has no left sibling it is a first child.
-		StructNode parent = (StructNode) getPageTransaction()
-				.prepareEntryForModification(mPathSummary.getParentKey(),
-						PageKind.PATHSUMMARYPAGE, Optional.<UnorderedKeyValuePage> absent());
-		if (!mPathSummary.hasLeftSibling()) {
-			parent.setFirstChildKey(mPathSummary.getRightSiblingKey());
-		}
-		parent.decrementChildCount();
-		getPageTransaction().finishEntryModification(parent.getNodeKey(),
-				PageKind.PATHSUMMARYPAGE);
-
-		// Remove node.
-		getPageTransaction().removeEntry(mPathSummary.getNodeKey(),
-				PageKind.PATHSUMMARYPAGE, Optional.<UnorderedKeyValuePage> absent());
 	}
 
 	@Override
@@ -1926,7 +1741,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 					// Adapt path summary.
 					if (mIndexes.contains(Indexes.PATH)) {
-						adaptPathForChangedNode(node, name, nameKey, uriKey, OPType.SETNAME);
+						mPathSummaryWriter.adaptPathForChangedNode(node, name, nameKey,
+								uriKey, OPType.SETNAME);
 					}
 
 					// Remove old keys from mapping.
@@ -1944,7 +1760,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 							Optional.<UnorderedKeyValuePage> absent());
 					node.setNameKey(nameKey);
 					node.setURIKey(uriKey);
-					node.setPathNodeKey(mIndexes.contains(Indexes.PATH) ? mPathSummary
+					node.setPathNodeKey(mIndexes.contains(Indexes.PATH) ? mPathSummaryWriter
 							.getNodeKey() : 0);
 					getPageTransaction().finishEntryModification(node.getNodeKey(),
 							PageKind.NODEPAGE);
@@ -1961,386 +1777,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		} finally {
 			unLock();
 		}
-	}
-
-	/**
-	 * Adapt path summary either for moves or {@code setQName(QName)}.
-	 * 
-	 * @param node
-	 *          the node for which the path node needs to be adapted
-	 * @param name
-	 *          the new {@link QName} in case of a new one is set, the old
-	 *          {@link QName} otherwise
-	 * @param nameKey
-	 *          nameKey of the new node
-	 * @param uriKey
-	 *          uriKey of the new node
-	 * @throws SirixException
-	 *           if a Sirix operation fails
-	 * @throws NullPointerException
-	 *           if {@code pNode} or {@code pQName} is null
-	 */
-	private void adaptPathForChangedNode(final @Nonnull NameNode node,
-			final @Nonnull QName name, final int nameKey, final int uriKey,
-			final @Nonnull OPType type) throws SirixException {
-		// Possibly either reset a path node or decrement its reference counter
-		// and search for the new path node or insert it.
-		movePathSummary();
-
-		final long oldPathNodeKey = mPathSummary.getNodeKey();
-
-		// Only one path node is referenced (after a setQName(QName) the
-		// reference-counter would be 0).
-		// if (type == OPType.SETNAME && mPathSummary.getReferences() == 1) {
-		if (mPathSummary.getReferences() == 1) {
-			moveSummaryGetLevel(node);
-			// Search for new path entry.
-			final Axis axis = new FilterAxis(new ChildAxis(mPathSummary),
-					new NameFilter(mPathSummary, Utils.buildName(name)),
-					new PathKindFilter(mPathSummary, node.getKind()));
-			if (axis.hasNext()) {
-				axis.next();
-
-				// Found node.
-				processFoundPathNode(oldPathNodeKey, mPathSummary.getNodeKey(),
-						node.getNodeKey(), nameKey, uriKey, Remove.YES, type);
-			} else {
-				if (mPathSummary.getKind() != Kind.DOCUMENT) {
-					// The path summary just needs to be updated for the new renamed node.
-					mPathSummary.moveTo(oldPathNodeKey);
-					final PathNode pathNode = (PathNode) getPageTransaction()
-							.prepareEntryForModification(mPathSummary.getNodeKey(),
-									PageKind.PATHSUMMARYPAGE,
-									Optional.<UnorderedKeyValuePage> absent());
-					pathNode.setNameKey(nameKey);
-					pathNode.setURIKey(uriKey);
-					getPageTransaction().finishEntryModification(pathNode.getNodeKey(),
-							PageKind.PATHSUMMARYPAGE);
-				}
-			}
-		} else {
-			int level = moveSummaryGetLevel(node);
-			// Search for new path entry.
-			final Axis axis = new FilterAxis(new ChildAxis(mPathSummary),
-					new NameFilter(mPathSummary, Utils.buildName(name)),
-					new PathKindFilter(mPathSummary, node.getKind()));
-			if (type == OPType.MOVEDSAMELEVEL || axis.hasNext()) {
-				if (type != OPType.MOVEDSAMELEVEL) {
-					axis.next();
-				}
-
-				// Found node.
-				processFoundPathNode(oldPathNodeKey, mPathSummary.getNodeKey(),
-						node.getNodeKey(), nameKey, uriKey, Remove.NO, type);
-			} else {
-				long nodeKey = mPathSummary.getNodeKey();
-				// Decrement reference count or remove path summary node.
-				mNodeRtx.moveTo(node.getNodeKey());
-				final Set<Long> nodesToDelete = new HashSet<>();
-				// boolean first = true;
-				for (final Axis descendants = new DescendantAxis(mNodeRtx,
-						IncludeSelf.YES); descendants.hasNext();) {
-					descendants.next();
-					deleteOrDecrement(nodesToDelete);
-					if (mNodeRtx.getCurrentNode().getKind() == Kind.ELEMENT) {
-						final ElementNode element = (ElementNode) mNodeRtx.getCurrentNode();
-
-						// Namespaces.
-						for (int i = 0, nsps = element.getNamespaceCount(); i < nsps; i++) {
-							mNodeRtx.moveToNamespace(i);
-							deleteOrDecrement(nodesToDelete);
-							mNodeRtx.moveToParent();
-						}
-
-						// Attributes.
-						for (int i = 0, atts = element.getAttributeCount(); i < atts; i++) {
-							mNodeRtx.moveToAttribute(i);
-							deleteOrDecrement(nodesToDelete);
-							mNodeRtx.moveToParent();
-						}
-					}
-				}
-
-				mPathSummary.moveTo(nodeKey);
-
-				// Not found => create new path nodes for the whole subtree.
-				boolean firstRun = true;
-				for (final Axis descendants = new DescendantAxis(this, IncludeSelf.YES); descendants
-						.hasNext();) {
-					descendants.next();
-					if (this.getKind() == Kind.ELEMENT) {
-						// Path Summary : New mapping.
-						if (firstRun) {
-							insertPathAsFirstChild(name, Kind.ELEMENT, ++level);
-							nodeKey = mPathSummary.getNodeKey();
-						} else {
-							insertPathAsFirstChild(this.getName(), Kind.ELEMENT, ++level);
-						}
-						resetPathNodeKey(getCurrentNode().getNodeKey());
-
-						// Namespaces.
-						for (int i = 0, nsps = this.getNamespaceCount(); i < nsps; i++) {
-							moveToNamespace(i);
-							// Path Summary : New mapping.
-							insertPathAsFirstChild(this.getName(), Kind.NAMESPACE, level + 1);
-							resetPathNodeKey(getCurrentNode().getNodeKey());
-							moveToParent();
-							mPathSummary.moveToParent();
-						}
-
-						// Attributes.
-						for (int i = 0, atts = this.getAttributeCount(); i < atts; i++) {
-							moveToAttribute(i);
-							// Path Summary : New mapping.
-							insertPathAsFirstChild(this.getName(), Kind.ATTRIBUTE, level + 1);
-							resetPathNodeKey(getCurrentNode().getNodeKey());
-							moveToParent();
-							mPathSummary.moveToParent();
-						}
-
-						if (firstRun) {
-							firstRun = false;
-						} else {
-							mPathSummary.moveToParent();
-							level--;
-						}
-					}
-				}
-
-				for (final long key : nodesToDelete) {
-					mPathSummary.moveTo(key);
-					removePathSummaryNode(Remove.NO);
-				}
-
-				mPathSummary.moveTo(nodeKey);
-			}
-		}
-
-	}
-
-	/**
-	 * Schedule for deletion of decrement path reference counter.
-	 * 
-	 * @param nodesToDelete
-	 *          stores nodeKeys which should be deleted
-	 * @throws SirixIOException
-	 *           if an I/O error occurs while decrementing the reference counter
-	 */
-	private void deleteOrDecrement(final @Nonnull Set<Long> nodesToDelete)
-			throws SirixIOException {
-		if (mNodeRtx.getCurrentNode() instanceof NameNode) {
-			movePathSummary();
-			if (mPathSummary.getReferences() == 1) {
-				nodesToDelete.add(mPathSummary.getNodeKey());
-			} else {
-				final PathNode pathNode = (PathNode) getPageTransaction()
-						.prepareEntryForModification(mPathSummary.getNodeKey(),
-								PageKind.PATHSUMMARYPAGE,
-								Optional.<UnorderedKeyValuePage> absent());
-				pathNode.decrementReferenceCount();
-				getPageTransaction().finishEntryModification(pathNode.getNodeKey(),
-						PageKind.PATHSUMMARYPAGE);
-			}
-		}
-	}
-
-	/**
-	 * Process a found path node.
-	 * 
-	 * @param oldPathNodeKey
-	 *          key of old path node
-	 * 
-	 * @param oldNodeKey
-	 *          key of old node
-	 * 
-	 * @throws SirixException
-	 *           if Sirix fails to do so
-	 */
-	private void processFoundPathNode(final @Nonnegative long oldPathNodeKey,
-			final @Nonnegative long newPathNodeKey,
-			final @Nonnegative long oldNodeKey, final int nameKey, final int uriKey,
-			final @Nonnull Remove remove, final @Nonnull OPType type)
-			throws SirixException {
-		final PathSummaryReader cloned = PathSummaryReader.getInstance(
-				getPageTransaction(), mNodeRtx.getSession());
-		boolean moved = cloned.moveTo(oldPathNodeKey).hasMoved();
-		assert moved;
-
-		// Set new reference count.
-		if (type != OPType.MOVEDSAMELEVEL) {
-			final PathNode currNode = (PathNode) getPageTransaction()
-					.prepareEntryForModification(mPathSummary.getNodeKey(),
-							PageKind.PATHSUMMARYPAGE,
-							Optional.<UnorderedKeyValuePage> absent());
-			currNode.setReferenceCount(currNode.getReferences()
-					+ cloned.getReferences());
-			currNode.setNameKey(nameKey);
-			currNode.setURIKey(uriKey);
-			getPageTransaction().finishEntryModification(currNode.getNodeKey(),
-					PageKind.PATHSUMMARYPAGE);
-		}
-
-		// For all old path nodes.
-		mPathSummary.moveToFirstChild();
-		final int oldLevel = cloned.getLevel();
-		for (final Axis oldDescendants = new DescendantAxis(cloned); oldDescendants
-				.hasNext();) {
-			oldDescendants.next();
-
-			// Search for new path entry.
-			final Axis axis = new FilterAxis(new LevelOrderAxis.Builder(mPathSummary)
-					.filterLevel(cloned.getLevel() - oldLevel).includeSelf().build(),
-					new NameFilter(mPathSummary, Utils.buildName(cloned.getName())),
-					new PathKindFilter(mPathSummary, cloned.getPathKind()),
-					new PathLevelFilter(mPathSummary, cloned.getLevel()));
-			if (axis.hasNext()) {
-				axis.next();
-
-				// Set new reference count.
-				if (type != OPType.MOVEDSAMELEVEL) {
-					final PathNode currNode = (PathNode) getPageTransaction()
-							.prepareEntryForModification(mPathSummary.getNodeKey(),
-									PageKind.PATHSUMMARYPAGE,
-									Optional.<UnorderedKeyValuePage> absent());
-					currNode.setReferenceCount(currNode.getReferences()
-							+ cloned.getReferences());
-					getPageTransaction().finishEntryModification(currNode.getNodeKey(),
-							PageKind.PATHSUMMARYPAGE);
-				}
-			} else {
-				// Insert new node.
-				insertPathAsFirstChild(cloned.getName(), cloned.getPathKind(),
-						mPathSummary.getLevel() + 1);
-
-				// Set new reference count.
-				final PathNode currNode = (PathNode) getPageTransaction()
-						.prepareEntryForModification(mPathSummary.getNodeKey(),
-								PageKind.PATHSUMMARYPAGE,
-								Optional.<UnorderedKeyValuePage> absent());
-				currNode.setReferenceCount(cloned.getReferences());
-				getPageTransaction().finishEntryModification(currNode.getNodeKey(),
-						PageKind.PATHSUMMARYPAGE);
-			}
-			mPathSummary.moveTo(newPathNodeKey);
-		}
-
-		// Set new path nodes.
-		// ==========================================================
-		mPathSummary.moveTo(newPathNodeKey);
-		mNodeRtx.moveTo(oldNodeKey);
-
-		boolean first = true;
-		for (final Axis axis = new DescendantAxis(mNodeRtx, IncludeSelf.YES); axis
-				.hasNext();) {
-			axis.next();
-
-			if (first && type == OPType.SETNAME) {
-				first = false;
-			} else if (mNodeRtx.getCurrentNode() instanceof NameNode) {
-				cloned.moveTo(((NameNode) mNodeRtx.getCurrentNode()).getPathNodeKey());
-				resetPath(newPathNodeKey, cloned.getLevel());
-
-				if (mNodeRtx.getCurrentNode().getKind() == Kind.ELEMENT) {
-					final ElementNode element = (ElementNode) mNodeRtx.getCurrentNode();
-
-					for (int i = 0, nspCount = element.getNamespaceCount(); i < nspCount; i++) {
-						mNodeRtx.moveToNamespace(i);
-						cloned.moveTo(((NameNode) mNodeRtx.getCurrentNode())
-								.getPathNodeKey());
-						resetPath(newPathNodeKey, cloned.getLevel());
-						mNodeRtx.moveToParent();
-					}
-					for (int i = 0, attCount = element.getAttributeCount(); i < attCount; i++) {
-						mNodeRtx.moveToAttribute(i);
-						cloned.moveTo(((NameNode) mNodeRtx.getCurrentNode())
-								.getPathNodeKey());
-						resetPath(newPathNodeKey, cloned.getLevel());
-						mNodeRtx.moveToParent();
-					}
-				}
-			}
-		}
-
-		// Remove old nodes.
-		if (remove == Remove.YES) {
-			mPathSummary.moveTo(oldPathNodeKey);
-			removePathSummaryNode(remove);
-		}
-	}
-
-	/**
-	 * Reset the path node key of a node.
-	 * 
-	 * @param newPathNodeKey
-	 *          path node key of new path node
-	 * @param oldLevel
-	 *          old level of node
-	 * @throws SirixIOException
-	 *           if an I/O error occurs
-	 */
-	private void resetPath(final @Nonnegative long newPathNodeKey,
-			final @Nonnegative int oldLevel) throws SirixIOException {
-		// Search for new path entry.
-		mPathSummary.moveTo(newPathNodeKey);
-		final Axis filterAxis = new FilterAxis(new LevelOrderAxis.Builder(
-				mPathSummary).includeSelf().build(), new NameFilter(mPathSummary,
-				Utils.buildName(mNodeRtx.getName())), new PathKindFilter(mPathSummary,
-				mNodeRtx.getCurrentNode().getKind()), new PathLevelFilter(mPathSummary,
-				oldLevel));
-		if (filterAxis.hasNext()) {
-			filterAxis.next();
-
-			// Set new path node.
-			final NameNode node = (NameNode) getPageTransaction()
-					.prepareEntryForModification(mNodeRtx.getCurrentNode().getNodeKey(),
-							PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
-			node.setPathNodeKey(mPathSummary.getNodeKey());
-			getPageTransaction().finishEntryModification(node.getNodeKey(),
-					PageKind.NODEPAGE);
-		} else {
-			throw new IllegalStateException();
-		}
-	}
-
-	/**
-	 * Move path summary to the associated {@code parent} {@link PathNode} and get
-	 * the level of the node.
-	 * 
-	 * @param node
-	 *          the node to lookup for it's {@link PathNode}
-	 * @return level of the path node
-	 */
-	private int moveSummaryGetLevel(final @Nonnull Node node) {
-		assert node != null;
-		// Get parent path node and level.
-		moveToParent();
-		int level = 0;
-		if (mNodeRtx.getCurrentNode().getKind() == Kind.DOCUMENT) {
-			mPathSummary.moveToDocumentRoot();
-		} else {
-			movePathSummary();
-			level = mPathSummary.getLevel();
-		}
-		moveTo(node.getNodeKey());
-		return level;
-	}
-
-	/**
-	 * Reset a path node key.
-	 * 
-	 * @param nodeKey
-	 *          the nodeKey of the node to adapt
-	 * @throws SirixException
-	 *           if anything fails
-	 */
-	private void resetPathNodeKey(final @Nonnegative long nodeKey)
-			throws SirixException {
-		final NameNode currNode = (NameNode) getPageTransaction()
-				.prepareEntryForModification(nodeKey, PageKind.NODEPAGE,
-						Optional.<UnorderedKeyValuePage> absent());
-		currNode.setPathNodeKey(mPathSummary.getNodeKey());
-		getPageTransaction().finishEntryModification(currNode.getNodeKey(),
-				PageKind.NODEPAGE);
 	}
 
 	@Override
@@ -2441,7 +1877,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				mNodeRtx.close();
 				removeCommitFileAndLogs(revision);
 
-				mPathSummary = null;
+				mPathSummaryWriter = null;
 				mAVLTextTree = null;
 				mNodeFactory = null;
 
@@ -2646,12 +2082,15 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 * @param revNumber
 	 *          revision number
 	 */
+	@SuppressWarnings("unchecked")
 	private void reInstantiateIndexes() {
 		// Get a new path summary instance.
 		if (mIndexes.contains(Indexes.PATH)) {
-			mPathSummary = null;
-			mPathSummary = PathSummaryReader.getInstance(
-					mNodeRtx.getPageTransaction(), mNodeRtx.getSession());
+			mPathSummaryWriter = null;
+			mPathSummaryWriter = PathSummaryWriter.getInstance(
+					(PageWriteTrx<Long, Record, UnorderedKeyValuePage>) mNodeRtx
+							.getPageTransaction(), mNodeRtx.getSession(), mNodeFactory,
+					mNodeRtx);
 		}
 
 		// Get a new avl tree instance.
@@ -2701,7 +2140,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 * @param startNode
 	 *          start node
 	 */
-	private void addParentHash(final @Nonnull Node startNode)
+	private void addParentHash(final @Nonnull ImmutableNode startNode)
 			throws SirixIOException {
 		switch (mHashKind) {
 		case ROLLING:
@@ -2729,7 +2168,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		switch (mHashKind) {
 		case ROLLING:
 			// Setup.
-			final Node startNode = getCurrentNode();
+			final ImmutableNode startNode = getCurrentNode();
 			final long oldDescendantCount = mNodeRtx.getStructuralNode()
 					.getDescendantCount();
 			final long descendantCount = oldDescendantCount == 0 ? 1
@@ -3065,7 +2504,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 */
 	private void postorderAdd() throws SirixIOException {
 		// start with hash to add
-		final Node startNode = getCurrentNode();
+		final ImmutableNode startNode = getCurrentNode();
 		// long for adapting the hash of the parent
 		long hashCodeForParent = 0;
 		// adapting the parent if the current node is no structural one.
@@ -3136,7 +2575,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 *           if anything weird happened
 	 */
 	private void rollingUpdate(final long pOldHash) throws SirixIOException {
-		final Node newNode = getCurrentNode();
+		final ImmutableNode newNode = getCurrentNode();
 		final long hash = newNode.hashCode();
 		final long newNodeHash = hash;
 		long resultNew = hash;
@@ -3169,7 +2608,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 *           if anything weird happened
 	 */
 	private void rollingRemove() throws SirixIOException {
-		final Node startNode = getCurrentNode();
+		final ImmutableNode startNode = getCurrentNode();
 		long hashToRemove = startNode.getHash();
 		long hashToAdd = 0;
 		long newHash = 0;
@@ -3205,15 +2644,15 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	/**
 	 * Set new descendant count of ancestor after a remove-operation.
 	 * 
-	 * @param pStartNode
+	 * @param startNode
 	 *          the node which has been removed
 	 */
-	private void setRemoveDescendants(final @Nonnull Node pStartNode) {
-		assert pStartNode != null;
-		if (pStartNode instanceof StructNode) {
+	private void setRemoveDescendants(final @Nonnull ImmutableNode startNode) {
+		assert startNode != null;
+		if (startNode instanceof StructNode) {
 			final StructNode node = ((StructNode) getCurrentNode());
 			node.setDescendantCount(node.getDescendantCount()
-					- ((StructNode) pStartNode).getDescendantCount() - 1);
+					- ((StructNode) startNode).getDescendantCount() - 1);
 		}
 	}
 
@@ -3226,7 +2665,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 */
 	private void rollingAdd() throws SirixIOException {
 		// start with hash to add
-		final Node startNode = mNodeRtx.getCurrentNode();
+		final ImmutableNode startNode = mNodeRtx.getCurrentNode();
 		final long oldDescendantCount = mNodeRtx.getStructuralNode()
 				.getDescendantCount();
 		final long descendantCount = oldDescendantCount == 0 ? 1
@@ -3275,7 +2714,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 * @param descendantCount
 	 *          the descendantCount to add
 	 */
-	private void setAddDescendants(final @Nonnull Node startNode,
+	private void setAddDescendants(final @Nonnull ImmutableNode startNode,
 			final @Nonnull Node nodeToModifiy, final @Nonnegative long descendantCount) {
 		assert startNode != null;
 		assert descendantCount >= 0;
@@ -3430,7 +2869,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			checkAccessAndCommit();
 			final XMLEventReader reader = XMLShredder
 					.createStringReader(checkNotNull(xml));
-			Node insertedRootNode = null;
+			ImmutableNode insertedRootNode = null;
 			if (getCurrentNode() instanceof StructNode) {
 				final StructNode currentNode = mNodeRtx.getStructuralNode();
 
@@ -3537,7 +2976,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 * @throws SirixException
 	 *           if anything fails
 	 */
-	private Node replaceWithTextNode(final @Nonnull String value)
+	private ImmutableNode replaceWithTextNode(final @Nonnull String value)
 			throws SirixException {
 		assert value != null;
 		final StructNode currentNode = mNodeRtx.getStructuralNode();
@@ -3565,7 +3004,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 * @return
 	 * @throws SirixException
 	 */
-	private Node replace(final @Nonnull NodeReadTrx rtx) throws SirixException {
+	private ImmutableNode replace(final @Nonnull NodeReadTrx rtx) throws SirixException {
 		assert rtx != null;
 		final StructNode currentNode = mNodeRtx.getStructuralNode();
 		long key = currentNode.getNodeKey();
@@ -3587,7 +3026,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	 * 
 	 * @return {@link Node} implementation
 	 */
-	private Node getCurrentNode() {
+	private ImmutableNode getCurrentNode() {
 		return mNodeRtx.getCurrentNode();
 	}
 
@@ -3655,7 +3094,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	public PathSummaryReader getPathSummary() {
 		acquireLock();
 		try {
-			return mPathSummary;
+			return mPathSummaryWriter.getPathSummary();
 		} finally {
 			unLock();
 		}

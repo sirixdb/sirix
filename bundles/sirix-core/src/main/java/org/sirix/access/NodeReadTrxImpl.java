@@ -88,7 +88,7 @@ import com.google.common.base.Optional;
  * transaction works on a given revision key.
  * </p>
  */
-final class NodeReadTrxImpl implements NodeReadTrx {
+public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	/** ID of transaction. */
 	private final long mId;
@@ -100,7 +100,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	private PageReadTrx mPageReadTrx;
 
 	/** Strong reference to currently selected node. */
-	private Node mCurrentNode;
+	private ImmutableNode mCurrentNode;
 
 	/** Tracks whether the transaction is closed. */
 	private boolean mClosed;
@@ -141,7 +141,12 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 		mItemList = new ItemListImpl();
 	}
 
-	Node getCurrentNode() {
+	/**
+	 * Get the current node.
+	 * 
+	 * @return current node
+	 */
+	public ImmutableNode getCurrentNode() {
 		return mCurrentNode;
 	}
 
@@ -195,7 +200,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 		// }
 
 		// Remember old node and fetch new one.
-		final Node oldNode = mCurrentNode;
+		final ImmutableNode oldNode = mCurrentNode;
 		Optional<? extends Record> newNode;
 		try {
 			// Immediately return node from item list if node key negative.
@@ -476,7 +481,7 @@ final class NodeReadTrxImpl implements NodeReadTrx {
 	 * @param currentNode
 	 *          the current node to set
 	 */
-	final void setCurrentNode(@Nullable final Node currentNode) {
+	final void setCurrentNode(@Nullable final ImmutableNode currentNode) {
 		assertNotClosed();
 		mCurrentNode = currentNode;
 	}

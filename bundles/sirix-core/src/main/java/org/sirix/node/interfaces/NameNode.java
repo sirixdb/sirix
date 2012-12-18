@@ -26,6 +26,8 @@
  */
 package org.sirix.node.interfaces;
 
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
+
 
 /**
  * Mutable node with a name.
@@ -33,7 +35,7 @@ package org.sirix.node.interfaces;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public interface NameNode extends Node {
+public interface NameNode extends ImmutableNameNode {
 	/**
 	 * Gets key of qualified name.
 	 * 

@@ -36,6 +36,7 @@ import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.settings.Fixed;
 
 import com.google.common.base.Objects;
@@ -50,7 +51,7 @@ import com.google.common.base.Optional;
 public final class NullNode implements StructNode {
 
 	/** The underlying item. */
-	private final Node mNode;
+	private final ImmutableNode mNode;
 
 	/**
 	 * Constructor.
@@ -60,7 +61,7 @@ public final class NullNode implements StructNode {
 	 * @throws NullPointerException
 	 *           if {@code pNode} is {@code null}
 	 */
-	public NullNode(final Node node) {
+	public NullNode(final ImmutableNode node) {
 		mNode = checkNotNull(node);
 	}
 
@@ -177,7 +178,7 @@ public final class NullNode implements StructNode {
 	}
 
 	/** Get the underlying node. */
-	public Node getUnderlyingNode() {
+	public ImmutableNode getUnderlyingNode() {
 		return mNode;
 	}
 

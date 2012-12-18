@@ -48,7 +48,7 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-enum InsertPos {
+public enum InsertPos {
 	/** Insert as first child. */
 	ASFIRSTCHILD {
 		@Override
