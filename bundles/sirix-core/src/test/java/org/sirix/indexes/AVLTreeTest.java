@@ -17,7 +17,7 @@ import org.sirix.access.Movement;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.index.SearchMode;
-import org.sirix.index.value.AVLTree;
+import org.sirix.index.value.AVLTreeReader;
 import org.sirix.index.value.NodeReferences;
 import org.sirix.index.value.Value;
 import org.sirix.index.value.ValueKind;
@@ -59,7 +59,7 @@ public class AVLTreeTest {
 		wtx.insertAttribute(new QName("foo"), "bar", Movement.TOPARENT);
 		wtx.insertAttribute(new QName("foobar"), "baz", Movement.TOPARENT);
 		wtx.commit();
-		final AVLTree<Value, NodeReferences> attIndex = wtx
+		final AVLTreeReader<Value, NodeReferences> attIndex = wtx
 				.getAttributeValueIndex();
 		final Optional<NodeReferences> fooRefs = attIndex.get(
 				new Value("foo".getBytes(Constants.DEFAULT_ENCODING), 0,
@@ -83,7 +83,7 @@ public class AVLTreeTest {
 		wtx.insertElementAsRightSibling(new QName("blabla"));
 		wtx.insertTextAsFirstChild("blabla");
 		wtx.commit();
-		final AVLTree<Value, NodeReferences> textIndex = wtx
+		final AVLTreeReader<Value, NodeReferences> textIndex = wtx
 				.getTextValueIndex();
 	}
 

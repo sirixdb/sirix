@@ -39,7 +39,7 @@ import org.sirix.access.Movement;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.PathSummaryReader;
-import org.sirix.index.value.AVLTree;
+import org.sirix.index.value.AVLTreeReader;
 import org.sirix.index.value.NodeReferences;
 import org.sirix.index.value.Value;
 import org.sirix.node.TextNode;
@@ -656,15 +656,15 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * Get the text value index associated with the current write transaction -- might
 	 * be {@code null} if no value index is used.
 	 * 
-	 * @return {@link AVLTree} instance
+	 * @return {@link AVLTreeReader} instance
 	 */
-	AVLTree<Value, NodeReferences> getTextValueIndex();
+	AVLTreeReader<Value, NodeReferences> getTextValueIndex();
 
 	/**
 	 * Get the attribute value index associated with the current write transaction -- might
 	 * be {@code null} if no value index is used.
 	 * 
-	 * @return {@link AVLTree} instance
+	 * @return {@link AVLTreeReader} instance
 	 */
-	AVLTree<Value, NodeReferences> getAttributeValueIndex();
+	AVLTreeReader<Value, NodeReferences> getAttributeValueIndex();
 }
