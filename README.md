@@ -27,6 +27,7 @@ in the future according to different workloads
 => thus any revision can be simply serialized, queried...
 * supports XQuery (through Brackit(.org))
 * supports the XQuery Update Facility (through Brackit(.org))
+* supports temporal axis as for instance all-time::, past::, past-or-self::, future::, future-or-self::, first::, last::, next::, previous:: as well as extended functions, as for instance doc(xs:string, xs:int) to specify a revision to restore with the secon argument.
 * a GUI which isn't stable enough incorporates several views which are
 visualizing either a single revision or the differences between two or
 more revisions of a resource (an XML-document in Sirix)
