@@ -34,8 +34,8 @@ import java.io.IOException;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Databases;
 import org.sirix.access.Utils;
 import org.sirix.access.conf.DatabaseConfiguration;
@@ -124,11 +124,11 @@ public final class SAXSerializer extends AbstractSerializer implements
 
 	@Override
 	protected void emitEndElement(final @Nonnull NodeReadTrx rtx) {
-		final QName qName = rtx.getName();
+		final QNm qName = rtx.getName();
 		final String mURI = qName.getNamespaceURI();
 		try {
 			mContHandler.endPrefixMapping(qName.getPrefix());
-			mContHandler.endElement(mURI, qName.getLocalPart(),
+			mContHandler.endElement(mURI, qName.getLocalName(),
 					Utils.buildName(qName));
 		} catch (final SAXException e) {
 			LOGGER.error(e.getMessage(), e);
@@ -179,7 +179,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 	 */
 	private void generatePI(final @Nonnull NodeReadTrx rtx) {
 		try {
-			mContHandler.processingInstruction(rtx.getName().getLocalPart(),
+			mContHandler.processingInstruction(rtx.getName().getLocalName(),
 					rtx.getValue());
 		} catch (final SAXException e) {
 			LOGGER.error(e.getMessage(), e);
@@ -200,16 +200,15 @@ public final class SAXSerializer extends AbstractSerializer implements
 			// Process namespace nodes.
 			for (int i = 0, namesCount = rtx.getNamespaceCount(); i < namesCount; i++) {
 				rtx.moveToNamespace(i);
-				final QName qName = rtx.getName();
+				final QNm qName = rtx.getName();
 				mContHandler.startPrefixMapping(qName.getPrefix(),
 						qName.getNamespaceURI());
 				final String mURI = qName.getNamespaceURI();
-				if (qName.getLocalPart().length() == 0) {
-					// if (qName.getPrefix() == null || qName.getPrefix() == "") {
+				if (qName.getPrefix() == null || qName.getPrefix().length() == 0) {
 					atts.addAttribute(mURI, "xmlns", "xmlns", "CDATA", mURI);
 				} else {
 					atts.addAttribute(mURI, "xmlns", "xmlns:"
-							+ rtx.getName().getLocalPart(), "CDATA", mURI);
+							+ rtx.getName().getPrefix(), "CDATA", mURI);
 				}
 				rtx.moveTo(key);
 			}
@@ -217,21 +216,21 @@ public final class SAXSerializer extends AbstractSerializer implements
 			// Process attributes.
 			for (int i = 0, attCount = rtx.getAttributeCount(); i < attCount; i++) {
 				rtx.moveToAttribute(i);
-				final QName qName = rtx.getName();
+				final QNm qName = rtx.getName();
 				final String mURI = qName.getNamespaceURI();
-				atts.addAttribute(mURI, qName.getLocalPart(), Utils.buildName(qName),
+				atts.addAttribute(mURI, qName.getLocalName(), Utils.buildName(qName),
 						rtx.getType(), rtx.getValue());
 				rtx.moveTo(key);
 			}
 
 			// Create SAX events.
-			final QName qName = rtx.getName();
-			mContHandler.startElement(qName.getNamespaceURI(), qName.getLocalPart(),
+			final QNm qName = rtx.getName();
+			mContHandler.startElement(qName.getNamespaceURI(), qName.getLocalName(),
 					Utils.buildName(qName), atts);
 
 			// Empty elements.
 			if (!rtx.hasFirstChild()) {
-				mContHandler.endElement(qName.getNamespaceURI(), qName.getLocalPart(),
+				mContHandler.endElement(qName.getNamespaceURI(), qName.getLocalName(),
 						Utils.buildName(qName));
 			}
 		} catch (final SAXException e) {

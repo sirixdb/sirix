@@ -31,7 +31,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
@@ -58,14 +57,15 @@ import net.sf.saxon.value.StringValue;
 import net.sf.saxon.value.UntypedAtomicValue;
 import net.sf.saxon.value.Value;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.DescendantAxis;
-import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.FollowingAxis;
 import org.sirix.axis.FollowingSiblingAxis;
+import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.ParentAxis;
 import org.sirix.axis.PrecedingAxis;
 import org.sirix.axis.PrecedingSiblingAxis;
@@ -118,8 +118,8 @@ public final class NodeWrapper implements SiblingCountingNode {
 	/** Key of node. */
 	private final long mKey;
 
-	/** QName of current node. */
-	private final QName mQName;
+	/** QNm of current node. */
+	private final QNm mQName;
 
 	/** The revision to open. */
 	private final int mRevision;
@@ -345,7 +345,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 		switch (mNodeKind) {
 		case ELEMENT:
 		case ATTRIBUTE:
-			localPart = mQName.getLocalPart();
+			localPart = mQName.getLocalName();
 			break;
 		default:
 			// Do nothing.

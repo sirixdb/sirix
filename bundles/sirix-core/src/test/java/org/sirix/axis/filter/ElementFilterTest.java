@@ -63,33 +63,33 @@ public class ElementFilterTest {
 		final NodeReadTrx rtx = holder.getRtx();
 
 		rtx.moveTo(0L);
-		IFilterTest.testIFilterConventions(new ElementFilter(rtx), false);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 
 		rtx.moveTo(1L);
-		IFilterTest.testIFilterConventions(new ElementFilter(rtx), true);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), true);
 
 		rtx.moveTo(1L);
 		rtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new ElementFilter(rtx), false);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 
 		rtx.moveTo(4L);
-		IFilterTest.testIFilterConventions(new ElementFilter(rtx), false);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 
 		rtx.moveTo(5L);
-		IFilterTest.testIFilterConventions(new ElementFilter(rtx), true);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), true);
 
 		rtx.moveTo(6L);
-		IFilterTest.testIFilterConventions(new ElementFilter(rtx), false);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 
 		rtx.moveTo(9L);
-		IFilterTest.testIFilterConventions(new ElementFilter(rtx), true);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), true);
 
 		rtx.moveTo(9L);
 		rtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new ElementFilter(rtx), false);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 
 		rtx.moveTo(12L);
-		IFilterTest.testIFilterConventions(new ElementFilter(rtx), false);
+		FilterTest.testFilterConventions(new ElementFilter(rtx), false);
 	}
 
 	@Test

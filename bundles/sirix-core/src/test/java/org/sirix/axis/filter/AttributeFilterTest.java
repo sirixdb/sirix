@@ -56,18 +56,18 @@ public class AttributeFilterTest {
 	public void testIFilterConvetions() throws SirixException {
 		final NodeReadTrx wtx = holder.getRtx();
 		wtx.moveTo(9L);
-		IFilterTest.testIFilterConventions(new AttributeFilter(wtx), false);
+		FilterTest.testFilterConventions(new AttributeFilter(wtx), false);
 
 		wtx.moveTo(4L);
-		IFilterTest.testIFilterConventions(new AttributeFilter(wtx), false);
+		FilterTest.testFilterConventions(new AttributeFilter(wtx), false);
 
 		wtx.moveTo(1L);
 		wtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new AttributeFilter(wtx), true);
+		FilterTest.testFilterConventions(new AttributeFilter(wtx), true);
 
 		wtx.moveTo(9L);
 		wtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new AttributeFilter(wtx), true);
+		FilterTest.testFilterConventions(new AttributeFilter(wtx), true);
 	}
 
 }

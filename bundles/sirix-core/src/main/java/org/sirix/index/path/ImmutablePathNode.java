@@ -9,6 +9,7 @@ import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
+import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 
 import com.google.common.base.Optional;
@@ -26,13 +27,24 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	private final PathNode mNode;
 
 	/**
-	 * Constructor.
+	 * Private constructor.
 	 * 
 	 * @param node
 	 *          the mutable path node
 	 */
 	public ImmutablePathNode(final @Nonnull PathNode node) {
 		mNode = node;
+	}
+	
+	/**
+	 * Get an immutable path node instance.
+	 * 
+	 * @param node
+	 *          the mutable {@link PathNode} to wrap
+	 * @return immutable path node instance
+	 */
+	public static ImmutableNode of(final @Nonnull PathNode node) {
+		return new ImmutablePathNode(node);
 	}
 
 	@Override
@@ -86,8 +98,13 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	}
 
 	@Override
-	public int getNameKey() {
-		return mNode.getNameKey();
+	public int getLocalNameKey() {
+		return mNode.getLocalNameKey();
+	}
+	
+	@Override
+	public int getPrefixKey() {
+		return mNode.getPrefixKey();
 	}
 
 	@Override
@@ -139,5 +156,4 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	public long getRightSiblingKey() {
 		return mNode.getRightSiblingKey();
 	}
-
 }

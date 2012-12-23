@@ -7,7 +7,6 @@ import java.util.Deque;
 import java.util.List;
 
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
@@ -28,8 +27,8 @@ import org.sirix.service.xml.shredder.Insert;
  * @param <E>
  *          temporal node which extends {@link AbstractTemporalNode}
  */
-public final class SubtreeBuilder extends
-		AbstractShredder implements SubtreeHandler {
+public final class SubtreeBuilder extends AbstractShredder implements
+		SubtreeHandler {
 
 	/** {@link SubtreeProcessor} for listeners. */
 	private final SubtreeProcessor<AbstractTemporalNode<DBNode>> mSubtreeProcessor;
@@ -42,10 +41,10 @@ public final class SubtreeBuilder extends
 
 	/** Collection. */
 	private final DBCollection mCollection;
-	
+
 	/** First element. */
 	private boolean mFirst;
-	
+
 	/** Start node key. */
 	private long mStartNodeKey;
 
@@ -65,7 +64,8 @@ public final class SubtreeBuilder extends
 	 */
 	public SubtreeBuilder(
 			final @Nonnull DBCollection collection,
-			final @Nonnull NodeWriteTrx wtx, final @Nonnull Insert insertPos,
+			final @Nonnull NodeWriteTrx wtx,
+			final @Nonnull Insert insertPos,
 			final @Nonnull List<SubtreeListener<? super AbstractTemporalNode<DBNode>>> listeners)
 			throws SirixException {
 		super(wtx, insertPos);
@@ -76,7 +76,7 @@ public final class SubtreeBuilder extends
 		mParents = new ArrayDeque<>();
 		mFirst = true;
 	}
-	
+
 	/**
 	 * Get start node key.
 	 * 
@@ -178,8 +178,9 @@ public final class SubtreeBuilder extends
 	public void processingInstruction(final QNm target, final Atomic content)
 			throws DocumentException {
 		try {
-			processPI(content.asStr().stringValue(), target.localName);
-			mSubtreeProcessor.notifyProcessingInstruction(new DBNode(mWtx, mCollection));
+			processPI(content.asStr().stringValue(), target.getLocalName());
+			mSubtreeProcessor.notifyProcessingInstruction(new DBNode(mWtx,
+					mCollection));
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
 		}
@@ -188,7 +189,7 @@ public final class SubtreeBuilder extends
 	@Override
 	public void startElement(final QNm name) throws DocumentException {
 		try {
-			processStartTag(new QName(name.nsURI, name.localName, name.prefix));
+			processStartTag(name);
 			if (mFirst) {
 				mFirst = false;
 				mStartNodeKey = mWtx.getNodeKey();
@@ -203,7 +204,7 @@ public final class SubtreeBuilder extends
 
 	@Override
 	public void endElement(final QNm name) throws DocumentException {
-		processEndTag(new QName(name.nsURI, name.localName, name.prefix));
+		processEndTag(name);
 		final DBNode node = mParents.pop();
 		mSubtreeProcessor.notifyEndElement(node);
 	}
@@ -222,9 +223,7 @@ public final class SubtreeBuilder extends
 	public void attribute(final QNm name, final Atomic value)
 			throws DocumentException {
 		try {
-			mWtx.insertAttribute(
-					new QName(name.nsURI, name.localName, name.prefix),
-					value.stringValue());
+			mWtx.insertAttribute(name, value.stringValue());
 			mWtx.moveToParent();
 			mSubtreeProcessor.notifyAttribute(new DBNode(mWtx, mCollection));
 		} catch (final SirixException e) {

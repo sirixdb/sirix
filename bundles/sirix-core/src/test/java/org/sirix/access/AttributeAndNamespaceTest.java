@@ -35,7 +35,6 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.exception.SirixException;
-import org.sirix.node.ElementNode;
 
 public class AttributeAndNamespaceTest {
 
@@ -59,14 +58,14 @@ public class AttributeAndNamespaceTest {
 		holder.getRtx().moveTo(1L);
 		assertEquals(1, holder.getRtx().getAttributeCount());
 		holder.getRtx().moveToAttribute(0);
-		assertEquals("i", holder.getRtx().getName().getLocalPart());
+		assertEquals("i", holder.getRtx().getName().getLocalName());
 
 		holder.getRtx().moveTo(9L);
 		assertEquals(1, holder.getRtx().getAttributeCount());
 		holder.getRtx().moveToAttribute(0);
 		assertEquals("p:x",
 				new StringBuilder(holder.getRtx().getName().getPrefix()).append(":")
-						.append(holder.getRtx().getName().getLocalPart()).toString());
+						.append(holder.getRtx().getName().getLocalName()).toString());
 		assertEquals("ns", holder.getRtx().getName().getNamespaceURI());
 	}
 
@@ -75,7 +74,7 @@ public class AttributeAndNamespaceTest {
 		holder.getRtx().moveTo(1L);
 		assertEquals(1, holder.getRtx().getNamespaceCount());
 		holder.getRtx().moveToNamespace(0);
-		assertEquals("p", holder.getRtx().getName().getLocalPart());
+		assertEquals("p", holder.getRtx().getName().getPrefix());
 		assertEquals("ns", holder.getRtx().getName().getNamespaceURI());
 	}
 }

@@ -44,6 +44,7 @@ import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.XMLEvent;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
@@ -178,8 +179,10 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	private void emitEndTag(final NodeReadTrx pRTX) {
 		assert pRTX != null;
 		final long nodeKey = pRTX.getNodeKey();
-		mEvent = mFac.createEndElement(pRTX.getName(),
-				new NamespaceIterator(pRTX));
+		final QNm name = pRTX.getName();
+		mEvent = mFac
+				.createEndElement(new QName(name.getNamespaceURI(),
+						name.getLocalName(), name.getPrefix()), new NamespaceIterator(pRTX));
 		pRTX.moveTo(nodeKey);
 	}
 
@@ -197,14 +200,13 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			break;
 		case ELEMENT:
 			final long key = pRTX.getNodeKey();
-			final QName qName = pRTX.getName();
-			mEvent = mFac.createStartElement(qName, new AttributeIterator(pRTX),
+			final QNm qName = pRTX.getName();
+			mEvent = mFac.createStartElement(new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()), new AttributeIterator(pRTX),
 					new NamespaceIterator(pRTX));
 			pRTX.moveTo(key);
 			break;
 		case TEXT:
-			mEvent = mFac.createCharacters(XMLToken.escapeContent(pRTX
-					.getValue()));
+			mEvent = mFac.createCharacters(XMLToken.escapeContent(pRTX.getValue()));
 			break;
 		default:
 			throw new IllegalStateException("Kind not known!");
@@ -593,11 +595,10 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			mRTX.moveTo(mNodeKey);
 			mRTX.moveToAttribute(mIndex++);
 			assert mRTX.getKind() == Kind.ATTRIBUTE;
-			final QName qName = mRTX.getName();
-			final String value = XMLToken.escapeAttribute(mRTX
-					.getValue());
+			final QNm qName = mRTX.getName();
+			final String value = XMLToken.escapeAttribute(mRTX.getValue());
 			mRTX.moveTo(mNodeKey);
-			return mFac.createAttribute(qName, value);
+			return mFac.createAttribute(new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()), value);
 		}
 
 		@Override
@@ -663,10 +664,10 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			mRTX.moveTo(mNodeKey);
 			mRTX.moveToNamespace(mIndex++);
 			assert mRTX.getKind() == Kind.NAMESPACE;
-			final QName qName = mRTX.getName();
+			final QNm qName = mRTX.getName();
 			mRTX.moveTo(mNodeKey);
 			return mFac
-					.createNamespace(qName.getLocalPart(), qName.getNamespaceURI());
+					.createNamespace(qName.getLocalName(), qName.getNamespaceURI());
 		}
 
 		@Override

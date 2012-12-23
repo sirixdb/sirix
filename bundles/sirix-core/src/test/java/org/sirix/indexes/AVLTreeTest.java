@@ -6,8 +6,8 @@ import static org.junit.Assert.assertTrue;
 import java.util.Set;
 
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -52,12 +52,12 @@ public class AVLTreeTest {
 	@Test
 	public void testAttributeIndex() throws SirixException {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-		wtx.insertElementAsFirstChild(new QName("bla"));
-		wtx.insertAttribute(new QName("foo"), "bar", Movement.TOPARENT);
-		wtx.insertAttribute(new QName("foobar"), "baz", Movement.TOPARENT);
-		wtx.insertElementAsFirstChild(new QName("blabla"));
-		wtx.insertAttribute(new QName("foo"), "bar", Movement.TOPARENT);
-		wtx.insertAttribute(new QName("foobar"), "baz", Movement.TOPARENT);
+		wtx.insertElementAsFirstChild(new QNm("bla"));
+		wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
+		wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
+		wtx.insertElementAsFirstChild(new QNm("blabla"));
+		wtx.insertAttribute(new QNm("foo"), "bar", Movement.TOPARENT);
+		wtx.insertAttribute(new QNm("foobar"), "baz", Movement.TOPARENT);
 		wtx.commit();
 		final AVLTreeReader<Value, NodeReferences> attIndex = wtx
 				.getAttributeValueIndex();
@@ -78,9 +78,9 @@ public class AVLTreeTest {
 	@Test
 	public void testTextIndex() throws SirixException {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-		wtx.insertElementAsFirstChild(new QName("bla"));
+		wtx.insertElementAsFirstChild(new QNm("bla"));
 		wtx.insertTextAsFirstChild("bla");
-		wtx.insertElementAsRightSibling(new QName("blabla"));
+		wtx.insertElementAsRightSibling(new QNm("blabla"));
 		wtx.insertTextAsFirstChild("blabla");
 		wtx.commit();
 		final AVLTreeReader<Value, NodeReferences> textIndex = wtx

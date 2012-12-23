@@ -30,8 +30,7 @@ package org.sirix.access;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import javax.xml.namespace.QName;
-
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -115,7 +114,7 @@ public class HashTest {
 			throws SirixException {
 
 		// inserting a element as root
-		wtx.insertElementAsFirstChild(new QName(NAME1));
+		wtx.insertElementAsFirstChild(new QNm(NAME1));
 		final long rootKey = wtx.getNodeKey();
 		final long firstRootHash = wtx.getHash();
 
@@ -127,8 +126,8 @@ public class HashTest {
 
 		// inserting a second element on level 2 under the only element
 		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.insertElementAsRightSibling(new QName(NAME2));
-		wtx.insertAttribute(new QName(NAME2), NAME1);
+		wtx.insertElementAsRightSibling(new QNm(NAME2));
+		wtx.insertAttribute(new QNm(NAME2), NAME1);
 		wtx.moveTo(rootKey);
 		final long thirdRootHash = wtx.getHash();
 
@@ -147,11 +146,11 @@ public class HashTest {
 		// adding additional element for showing that hashes are computed
 		// incrementilly
 		wtx.insertTextAsFirstChild(NAME1);
-		wtx.insertElementAsRightSibling(new QName(NAME1));
-		wtx.insertAttribute(new QName(NAME1), NAME2);
+		wtx.insertElementAsRightSibling(new QNm(NAME1));
+		wtx.insertAttribute(new QNm(NAME1), NAME2);
 		wtx.moveToParent();
-		wtx.insertElementAsFirstChild(new QName(NAME1));
-		wtx.insertAttribute(new QName(NAME2), NAME1);
+		wtx.insertElementAsFirstChild(new QNm(NAME1));
+		wtx.insertAttribute(new QNm(NAME2), NAME1);
 
 		wtx.moveTo(rootKey);
 		wtx.moveToFirstChild();
@@ -165,18 +164,18 @@ public class HashTest {
 	@Ignore
 	private void testDeepTree(final NodeWriteTrx wtx) throws SirixException {
 
-		wtx.insertElementAsFirstChild(new QName(NAME1));
+		wtx.insertElementAsFirstChild(new QNm(NAME1));
 		final long oldHash = wtx.getHash();
 
-		wtx.insertElementAsFirstChild(new QName(NAME1));
-		wtx.insertElementAsFirstChild(new QName(NAME2));
-		wtx.insertElementAsFirstChild(new QName(NAME1));
-		wtx.insertElementAsFirstChild(new QName(NAME2));
-		wtx.insertElementAsFirstChild(new QName(NAME1));
+		wtx.insertElementAsFirstChild(new QNm(NAME1));
+		wtx.insertElementAsFirstChild(new QNm(NAME2));
+		wtx.insertElementAsFirstChild(new QNm(NAME1));
+		wtx.insertElementAsFirstChild(new QNm(NAME2));
+		wtx.insertElementAsFirstChild(new QNm(NAME1));
 		wtx.remove();
-		wtx.insertElementAsFirstChild(new QName(NAME2));
-		wtx.insertElementAsFirstChild(new QName(NAME2));
-		wtx.insertElementAsFirstChild(new QName(NAME1));
+		wtx.insertElementAsFirstChild(new QNm(NAME2));
+		wtx.insertElementAsFirstChild(new QNm(NAME2));
+		wtx.insertElementAsFirstChild(new QNm(NAME1));
 
 		wtx.moveTo(1);
 		wtx.moveTo(wtx.getFirstChildKey());
@@ -188,16 +187,16 @@ public class HashTest {
 	private void testSetter(final NodeWriteTrx wtx) throws SirixException {
 
 		// Testing node inheritance
-		wtx.insertElementAsFirstChild(new QName(NAME1));
-		wtx.insertElementAsFirstChild(new QName(NAME1));
-		wtx.insertElementAsFirstChild(new QName(NAME1));
+		wtx.insertElementAsFirstChild(new QNm(NAME1));
+		wtx.insertElementAsFirstChild(new QNm(NAME1));
+		wtx.insertElementAsFirstChild(new QNm(NAME1));
 		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		wtx.moveTo(wtx.getFirstChildKey());
 		final long hashRoot1 = wtx.getHash();
 		wtx.moveTo(wtx.getFirstChildKey());
 		wtx.moveTo(wtx.getFirstChildKey());
 		final long hashLeaf1 = wtx.getHash();
-		wtx.setName(new QName(NAME2));
+		wtx.setName(new QNm(NAME2));
 		final long hashLeaf2 = wtx.getHash();
 		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		wtx.moveTo(wtx.getFirstChildKey());
@@ -206,7 +205,7 @@ public class HashTest {
 		assertFalse(hashLeaf1 == hashLeaf2);
 		wtx.moveTo(wtx.getFirstChildKey());
 		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.setName(new QName(NAME1));
+		wtx.setName(new QNm(NAME1));
 		final long hashLeaf3 = wtx.getHash();
 		assertEquals(hashLeaf1, hashLeaf3);
 		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
@@ -217,7 +216,7 @@ public class HashTest {
 		// Testing root inheritance
 		wtx.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 		wtx.moveTo(wtx.getFirstChildKey());
-		wtx.setName(new QName(NAME2));
+		wtx.setName(new QNm(NAME2));
 		final long hashRoot4 = wtx.getHash();
 		assertFalse(hashRoot4 == hashRoot2);
 		assertFalse(hashRoot4 == hashRoot1);

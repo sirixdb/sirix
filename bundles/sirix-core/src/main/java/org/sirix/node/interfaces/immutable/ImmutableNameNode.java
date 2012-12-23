@@ -8,11 +8,18 @@ package org.sirix.node.interfaces.immutable;
  */
 public interface ImmutableNameNode extends ImmutableNode {
 	/**
-	 * Gets key of qualified name.
+	 * Gets local name key of qualified name.
 	 * 
-	 * @return key of qualified name
+	 * @return local name key of qualified name
 	 */
-	int getNameKey();
+	int getLocalNameKey();
+	
+	/**
+	 * Gets prefix key of qualified name.
+	 * 
+	 * @return prefix key of qualified name
+	 */
+	int getPrefixKey();
 
 	/**
 	 * Gets key of the URI.

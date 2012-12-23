@@ -159,7 +159,7 @@ public class FunctionsTest {
 	@Test
 	public final void testNode() throws SirixXPathException {
 		final String query = "p:a[./node()/node()]";
-		final String result = "{ns}a";
+		final String result = "p:a";
 		XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(),
 				query), new String[] { result });
 	}
@@ -172,7 +172,7 @@ public class FunctionsTest {
 	@Test
 	public final void testText() throws SirixXPathException {
 		final String query = "p:a[./text()]";
-		final String result = "{ns}a";
+		final String result = "p:a";
 		XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(),
 				query), new String[] { result });
 	}
@@ -238,7 +238,7 @@ public class FunctionsTest {
 	@Ignore
 	public final void testPosition() throws SirixXPathException {
 		final String query = "//b[position()=2]";
-		final String result = "{ns}b";
+		final String result = "b";
 		XPathStringChecker.testIAxisConventions(new XPathAxis(holder.getRtx(),
 				query), new String[] { result });
 	}

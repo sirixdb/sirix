@@ -34,7 +34,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.service.xml.xpath.AbstractAxis;
-import org.sirix.axis.filter.IFilterTest;
+import org.sirix.axis.filter.FilterTest;
 import org.sirix.axis.filter.TypeFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.xpath.XPathAxis;
@@ -63,19 +63,19 @@ public class TypeFilterTest {
 		final NodeReadTrx xtx = ((NodeReadTrx) axis.getTrx());
 
 		xtx.moveTo(9L);
-		IFilterTest.testIFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
-		IFilterTest.testIFilterConventions(new TypeFilter(xtx, "xs:long"), false);
+		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
+		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:long"), false);
 
 		xtx.moveTo(4L);
-		IFilterTest.testIFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
-		IFilterTest.testIFilterConventions(new TypeFilter(xtx, "xs:double"), false);
+		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
+		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:double"), false);
 
 		xtx.moveTo(1L);
 		xtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
+		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
 
-		IFilterTest
-				.testIFilterConventions(new TypeFilter(xtx, "xs:anyType"), false);
+		FilterTest
+				.testFilterConventions(new TypeFilter(xtx, "xs:anyType"), false);
 
 	}
 }

@@ -29,10 +29,9 @@ package org.sirix.access;
 
 import java.util.Random;
 
-import javax.xml.namespace.QName;
-
 import junit.framework.TestCase;
 
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -75,20 +74,20 @@ public final class OverallTest extends TestCase {
 
 	@Test
 	public void testJustEverything() throws SirixException {
-		holder.getWtx().insertElementAsFirstChild(new QName(getString()));
-		holder.getWtx().insertElementAsFirstChild(new QName(getString()));
+		holder.getWtx().insertElementAsFirstChild(new QNm(getString()));
+		holder.getWtx().insertElementAsFirstChild(new QNm(getString()));
 		for (int i = 0; i < ELEMENTS; i++) {
 			if (ran.nextBoolean()) {
 				switch (holder.getWtx().getKind()) {
 				case ELEMENT:
-					holder.getWtx().setName(new QName(getString()));
+					holder.getWtx().setName(new QNm(getString()));
 					break;
 				case ATTRIBUTE:
-					holder.getWtx().setName(new QName(getString()));
+					holder.getWtx().setName(new QNm(getString()));
 					holder.getWtx().setValue(getString());
 					break;
 				case NAMESPACE:
-					holder.getWtx().setName(new QName(getString()));
+					holder.getWtx().setName(new QNm(getString()));
 					break;
 				case PROCESSING_INSTRUCTION:
 				case TEXT:
@@ -105,18 +104,18 @@ public final class OverallTest extends TestCase {
 						assertTrue(holder.getWtx().moveToFirstChild().hasMoved());
 					}
 					if (ran.nextBoolean()) {
-						holder.getWtx().insertElementAsFirstChild(new QName(getString()));
+						holder.getWtx().insertElementAsFirstChild(new QNm(getString()));
 					} else {
-						holder.getWtx().insertElementAsRightSibling(new QName(getString()));
+						holder.getWtx().insertElementAsRightSibling(new QNm(getString()));
 					}
 					if (ran.nextBoolean()) {
 						holder.getWtx()
-								.insertAttribute(new QName(getString()), getString());
+								.insertAttribute(new QNm(getString()), getString());
 						holder.getWtx().moveToParent();
 					}
 					if (ran.nextBoolean()) {
 						holder.getWtx()
-								.insertNamespace(new QName(getString(), getString()));
+								.insertNamespace(new QNm(getString(), getString()));
 						holder.getWtx().moveToParent();
 					}
 				}
@@ -149,7 +148,7 @@ public final class OverallTest extends TestCase {
 		}
 		final long key = holder.getWtx().getNodeKey();
 		holder.getWtx().remove();
-		holder.getWtx().insertElementAsFirstChild(new QName(getString()));
+		holder.getWtx().insertElementAsFirstChild(new QNm(getString()));
 		holder.getWtx().moveTo(key);
 		holder.getWtx().commit();
 		holder.getWtx().close();

@@ -116,6 +116,7 @@ public class SAXSerializerTest extends XMLTestCase {
 		final SAXSerializer serializer = new SAXSerializer(holder.getSession(),
 				contHandler, holder.getSession().getLastRevisionNumber());
 		serializer.call();
+		System.out.println(strBuilder.toString());
 		assertXMLEqual(DocumentCreater.XML, strBuilder.toString());
 	}
 }

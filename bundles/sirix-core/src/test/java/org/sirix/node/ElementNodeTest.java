@@ -79,10 +79,10 @@ public class ElementNodeTest {
 		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, Optional.of(SirixDeweyID.newRootID()));
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l,
 				16l, 1l, 0);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 18, 19, 1);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 17, 18, 19, 1);
 
 		final ElementNode node1 = new ElementNode(strucDel, nameDel,
-				new ArrayList<Long>(), HashBiMap.<Integer, Long> create(),
+				new ArrayList<Long>(), HashBiMap.<Long, Long> create(),
 				new ArrayList<Long>());
 
 		// Create empty node.
@@ -110,8 +110,9 @@ public class ElementNodeTest {
 		assertEquals(1, node.getChildCount());
 		assertEquals(2, node.getAttributeCount());
 		assertEquals(2, node.getNamespaceCount());
-		assertEquals(18, node.getNameKey());
-		assertEquals(19, node.getURIKey());
+		assertEquals(17, node.getURIKey());
+		assertEquals(18, node.getPrefixKey());
+		assertEquals(19, node.getLocalNameKey());
 		assertEquals(NamePageHash.generateHashForString("xs:untyped"),
 				node.getTypeKey());
 		assertEquals(Kind.ELEMENT, node.getKind());

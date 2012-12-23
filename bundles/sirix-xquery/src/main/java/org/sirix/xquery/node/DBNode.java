@@ -6,7 +6,6 @@ import java.util.Collections;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
@@ -458,12 +457,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	@Override
 	public QNm getName() throws DocumentException {
 		moveRtx();
-		final QName name = mRtx.getName();
-		if (name == null) {
-			return null;
-		}
-		return new QNm(name.getNamespaceURI(), name.getPrefix(),
-				name.getLocalPart());
+		return mRtx.getName();
 	}
 
 	@Override
@@ -474,7 +468,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
 			if (wtx.isNameNode()) {
 				try {
-					wtx.setName(new QName(name.nsURI, name.localName, name.prefix));
+					wtx.setName(name);
 				} catch (final SirixException e) {
 					throw new DocumentException(e.getCause());
 				}
@@ -628,16 +622,13 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 					case DOCUMENT:
 						break;
 					case ELEMENT:
-						wtx.insertElementAsRightSibling(new QName(name.nsURI,
-								name.localName, name.prefix));
+						wtx.insertElementAsRightSibling(name);
 						break;
 					case ATTRIBUTE:
-						wtx.insertAttribute(new QName(name.nsURI, name.localName,
-								name.prefix), value.asStr().stringValue());
+						wtx.insertAttribute(name, value.asStr().stringValue());
 						break;
 					case NAMESPACE:
-						wtx.insertNamespace(new QName(name.nsURI, name.localName,
-								name.prefix));
+						wtx.insertNamespace(name);
 						break;
 					case TEXT:
 						wtx.insertTextAsRightSibling(value.asStr().stringValue());
@@ -647,7 +638,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 						break;
 					case PROCESSING_INSTRUCTION:
 						wtx.insertPIAsRightSibling(value.asStr().stringValue(),
-								name.localName);
+								name.getLocalName());
 						break;
 					}
 				} else {
@@ -655,16 +646,13 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 					case DOCUMENT:
 						break;
 					case ELEMENT:
-						wtx.insertElementAsFirstChild(new QName(name.nsURI, name.localName,
-								name.prefix));
+						wtx.insertElementAsFirstChild(name);
 						break;
 					case ATTRIBUTE:
-						wtx.insertAttribute(new QName(name.nsURI, name.localName,
-								name.prefix), value.asStr().stringValue());
+						wtx.insertAttribute(name, value.asStr().stringValue());
 						break;
 					case NAMESPACE:
-						wtx.insertNamespace(new QName(name.nsURI, name.localName,
-								name.prefix));
+						wtx.insertNamespace(name);
 						break;
 					case TEXT:
 						wtx.insertTextAsFirstChild(value.asStr().stringValue());
@@ -674,7 +662,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 						break;
 					case PROCESSING_INSTRUCTION:
 						wtx.insertPIAsFirstChild(value.asStr().stringValue(),
-								name.localName);
+								name.getLocalName());
 						break;
 					}
 				}
@@ -760,16 +748,13 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 				case DOCUMENT:
 					break;
 				case ELEMENT:
-					wtx.insertElementAsFirstChild(new QName(name.nsURI, name.localName,
-							name.prefix));
+					wtx.insertElementAsFirstChild(name);
 					break;
 				case ATTRIBUTE:
-					wtx.insertAttribute(
-							new QName(name.nsURI, name.localName, name.prefix), value.asStr()
-									.stringValue());
+					wtx.insertAttribute(name, value.asStr().stringValue());
 					break;
 				case NAMESPACE:
-					wtx.insertNamespace(new QName(name.nsURI, name.localName, name.prefix));
+					wtx.insertNamespace(name);
 					break;
 				case TEXT:
 					wtx.insertTextAsFirstChild(value.asStr().stringValue());
@@ -778,7 +763,8 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 					wtx.insertCommentAsFirstChild(value.asStr().stringValue());
 					break;
 				case PROCESSING_INSTRUCTION:
-					wtx.insertPIAsFirstChild(value.asStr().stringValue(), name.localName);
+					wtx.insertPIAsFirstChild(value.asStr().stringValue(),
+							name.getLocalName());
 					break;
 				}
 			} catch (final SirixException e) {
@@ -859,16 +845,13 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 				case DOCUMENT:
 					break;
 				case ELEMENT:
-					wtx.insertElementAsLeftSibling(new QName(name.nsURI, name.localName,
-							name.prefix));
+					wtx.insertElementAsLeftSibling(name);
 					break;
 				case ATTRIBUTE:
-					wtx.insertAttribute(
-							new QName(name.nsURI, name.localName, name.prefix), value.asStr()
-									.stringValue());
+					wtx.insertAttribute(name, value.asStr().stringValue());
 					break;
 				case NAMESPACE:
-					wtx.insertNamespace(new QName(name.nsURI, name.localName, name.prefix));
+					wtx.insertNamespace(name);
 					break;
 				case TEXT:
 					wtx.insertTextAsLeftSibling(value.asStr().stringValue());
@@ -877,7 +860,8 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 					wtx.insertCommentAsLeftSibling(value.asStr().stringValue());
 					break;
 				case PROCESSING_INSTRUCTION:
-					wtx.insertPIAsLeftSibling(value.asStr().stringValue(), name.localName);
+					wtx.insertPIAsLeftSibling(value.asStr().stringValue(),
+							name.getLocalName());
 					break;
 				}
 			} catch (final SirixException e) {
@@ -946,16 +930,13 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 				case DOCUMENT:
 					break;
 				case ELEMENT:
-					wtx.insertElementAsRightSibling(new QName(name.nsURI, name.localName,
-							name.prefix));
+					wtx.insertElementAsRightSibling(name);
 					break;
 				case ATTRIBUTE:
-					wtx.insertAttribute(
-							new QName(name.nsURI, name.localName, name.prefix), value.asStr()
-									.stringValue());
+					wtx.insertAttribute(name, value.asStr().stringValue());
 					break;
 				case NAMESPACE:
-					wtx.insertNamespace(new QName(name.nsURI, name.localName, name.prefix));
+					wtx.insertNamespace(name);
 					break;
 				case TEXT:
 					wtx.insertTextAsRightSibling(value.asStr().stringValue());
@@ -965,7 +946,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 					break;
 				case PROCESSING_INSTRUCTION:
 					wtx.insertPIAsRightSibling(value.asStr().stringValue(),
-							name.localName);
+							name.getLocalName());
 					break;
 				}
 			} catch (final SirixException e) {
@@ -1033,8 +1014,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 				try {
 					final String value = attribute.getValue().asStr().stringValue();
 					final QNm name = attribute.getName();
-					wtx.insertAttribute(
-							new QName(name.nsURI, name.localName, name.prefix), value);
+					wtx.insertAttribute(name, value);
 					return new DBNode(mRtx, mCollection);
 				} catch (final SirixException e) {
 					throw new DocumentException(e.getCause());
@@ -1052,9 +1032,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
 			if (wtx.isElement()) {
 				try {
-					wtx.insertAttribute(
-							new QName(name.nsURI, name.localName, name.prefix), value.asStr()
-									.stringValue());
+					wtx.insertAttribute(name, value.asStr().stringValue());
 					return new DBNode(mRtx, mCollection);
 				} catch (final SirixException e) {
 					throw new DocumentException(e.getCause());
@@ -1065,14 +1043,13 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean deleteAttribute(final QNm pName)
+	public boolean deleteAttribute(final QNm name)
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
 			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
 			if (wtx.isElement()) {
-				if (wtx.moveToAttributeByName(
-						new QName(pName.nsURI, pName.localName, pName.prefix)).hasMoved()) {
+				if (wtx.moveToAttributeByName(name).hasMoved()) {
 					try {
 						wtx.remove();
 						return true;
@@ -1080,7 +1057,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 						throw new DocumentException(e.getCause());
 					}
 				}
-				throw new DocumentException("No attribute with name " + pName
+				throw new DocumentException("No attribute with name " + name
 						+ " exists!");
 			}
 			throw new DocumentException("No element node selected!");
@@ -1098,9 +1075,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	@Override
 	public DBNode getAttribute(final @Nonnull QNm name) throws DocumentException {
 		moveRtx();
-		if (mRtx.isElement()
-				&& mRtx.moveToAttributeByName(
-						new QName(name.nsURI, name.localName, name.prefix)).hasMoved()) {
+		if (mRtx.isElement() && mRtx.moveToAttributeByName(name).hasMoved()) {
 			return new DBNode(mRtx, mCollection);
 		}
 		return null;
@@ -1285,7 +1260,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	protected int cmpInternal(
 			final @Nonnull AbstractTemporalNode<DBNode> otherNode) {
 		moveRtx();
-		
+
 		// Are they the same node?
 		if (this == otherNode) {
 			return 0;
@@ -1307,11 +1282,12 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		if (firstDocumentID != secondDocumentID) {
 			return firstDocumentID < secondDocumentID ? -1 : 1;
 		}
-		
+
 		// Temporal extension.
 		try {
 			final Integer revision = mRtx.getRevisionNumber();
-			final Integer otherRevision = ((DBNode) otherNode).mRtx.getRevisionNumber();
+			final Integer otherRevision = ((DBNode) otherNode).mRtx
+					.getRevisionNumber();
 			if (revision != otherRevision) {
 				return revision.compareTo(otherRevision);
 			}
@@ -1526,12 +1502,14 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public Stream<AbstractTemporalNode<DBNode>> getEarlier(final boolean includeSelf) {
+	public Stream<AbstractTemporalNode<DBNode>> getEarlier(
+			final boolean includeSelf) {
 		moveRtx();
 		try {
-			final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
-			return new TemporalSirixStream(new PastAxis(mRtx.getSession(),
-					mNodeKey, mRtx.getRevisionNumber(), include), mCollection);
+			final IncludeSelf include = includeSelf ? IncludeSelf.YES
+					: IncludeSelf.NO;
+			return new TemporalSirixStream(new PastAxis(mRtx.getSession(), mNodeKey,
+					mRtx.getRevisionNumber(), include), mCollection);
 		} catch (final SirixIOException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 			return new EmptyStream<AbstractTemporalNode<DBNode>>();
@@ -1539,10 +1517,12 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public Stream<AbstractTemporalNode<DBNode>> getFuture(final boolean includeSelf) {
+	public Stream<AbstractTemporalNode<DBNode>> getFuture(
+			final boolean includeSelf) {
 		moveRtx();
 		try {
-			final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
+			final IncludeSelf include = includeSelf ? IncludeSelf.YES
+					: IncludeSelf.NO;
 			return new TemporalSirixStream(new FutureAxis(mRtx.getSession(),
 					mNodeKey, mRtx.getRevisionNumber(), include), mCollection);
 		} catch (final SirixIOException e) {

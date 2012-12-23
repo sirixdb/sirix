@@ -74,10 +74,7 @@
 			<type>jar</type>
 			<scope>compile</scope>
 		</dependency>
-		<!-- <dependency>
-			<groupId>vanilla.java</groupId>
-			<artifactId>chronicle</artifactId>
-			<version>1.0</version>
-		</dependency> -->
+		<!-- <dependency> <groupId>vanilla.java</groupId> <artifactId>chronicle</artifactId> 
+			<version>1.0</version> </dependency> -->
 	</dependencies>
 </project>

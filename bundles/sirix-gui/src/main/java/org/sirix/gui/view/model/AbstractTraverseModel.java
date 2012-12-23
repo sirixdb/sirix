@@ -9,11 +9,11 @@ import javax.xml.stream.XMLEventFactory;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.gui.view.AbstractObservableComponent;
 import org.sirix.gui.view.model.interfaces.TraverseModel;
 import org.sirix.node.Kind;
-import org.sirix.node.ElementNode;
 
 /**
  * Skeletal implementation of {@link TraverseModel}.
@@ -25,22 +25,23 @@ public abstract class AbstractTraverseModel extends AbstractObservableComponent 
   /**
    * Fill an attribute list with entries.
    * 
-   * @param pRtx
+   * @param rtx
    *          Sirix {@link NodeReadTrx}
    * @return {@link List} of {@link Attribute}s
    */
-  protected List<Attribute> fillAttributes(@Nonnull final NodeReadTrx pRtx) {
-    assert pRtx != null;
+  protected List<Attribute> fillAttributes(@Nonnull final NodeReadTrx rtx) {
+    assert rtx != null;
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     // Casting to ElementNode is always safe because we don't iterate over attributes in the axis.
-    assert pRtx.getKind() == Kind.ELEMENT;
-    final int attNumber = pRtx.getAttributeCount();
+    assert rtx.getKind() == Kind.ELEMENT;
+    final int attNumber = rtx.getAttributeCount();
     final List<Attribute> attributes = new ArrayList<>(attNumber);
     for (int i = 0; i < attNumber; i++) {
-      pRtx.moveToAttribute(i);
+      rtx.moveToAttribute(i);
+      final QNm name = rtx.getName();
       attributes
-        .add(eventFactory.createAttribute(pRtx.getName(), pRtx.getValue()));
-      pRtx.moveToParent();
+        .add(eventFactory.createAttribute(new QName(name.getNamespaceURI(), name.getLocalName(), name.getPrefix()), rtx.getValue()));
+      rtx.moveToParent();
     }
     return attributes;
   }
@@ -61,7 +62,7 @@ public abstract class AbstractTraverseModel extends AbstractObservableComponent 
     final List<Namespace> namespaces = new ArrayList<>(nspNumber);
     for (int i = 0; i < nspNumber; i++) {
       pRtx.moveToNamespace(i);
-      final QName qName = pRtx.getName();
+      final QNm qName = pRtx.getName();
       namespaces.add(eventFactory.createNamespace(qName.getPrefix(), qName.getNamespaceURI()));
       pRtx.moveToParent();
     }

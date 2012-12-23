@@ -28,11 +28,9 @@
 package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
-
-import javax.xml.namespace.QName;
-
 import junit.framework.Assert;
 
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -69,10 +67,10 @@ public class MultipleCommitTest {
 
 		holder.getWtx().commit();
 
-		holder.getWtx().insertElementAsFirstChild(new QName("foo"));
+		holder.getWtx().insertElementAsFirstChild(new QNm("foo"));
 		assertEquals(1L, holder.getWtx().getRevisionNumber());
 		holder.getWtx().moveTo(1);
-		assertEquals(new QName("foo"), holder.getWtx().getName());
+		assertEquals(new QNm("foo"), holder.getWtx().getName());
 		holder.getWtx().abort();
 
 		assertEquals(1L, holder.getWtx().getRevisionNumber());

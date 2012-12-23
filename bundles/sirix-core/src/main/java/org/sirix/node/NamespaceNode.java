@@ -78,18 +78,28 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 	}
 
 	@Override
-	public int getNameKey() {
-		return mNameDel.getNameKey();
+	public int getPrefixKey() {
+		return mNameDel.getPrefixKey();
 	}
-
+	
 	@Override
-	public void setNameKey(final int nameKey) {
-		mNameDel.setNameKey(nameKey);
+	public int getLocalNameKey() {
+		return mNameDel.getLocalNameKey();
 	}
 
 	@Override
 	public int getURIKey() {
 		return mNameDel.getURIKey();
+	}
+
+	@Override
+	public void setPrefixKey(final int prefixKey) {
+		mNameDel.setPrefixKey(prefixKey);
+	}
+	
+	@Override
+	public void setLocalNameKey(final int localNameKey) {
+		mNameDel.setLocalNameKey(localNameKey);
 	}
 
 	@Override

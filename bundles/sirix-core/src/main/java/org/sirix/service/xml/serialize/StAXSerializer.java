@@ -45,6 +45,7 @@ import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.XMLEvent;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.DescendantAxis;
@@ -174,7 +175,10 @@ public final class StAXSerializer implements XMLEventReader {
 	 */
 	private void emitEndTag(final @Nonnull NodeReadTrx rtx) {
 		final long nodeKey = rtx.getNodeKey();
-		mEvent = mFac.createEndElement(rtx.getName(), new NamespaceIterator(rtx));
+		final QNm qName = rtx.getName();
+		mEvent = mFac.createEndElement(
+				new QName(qName.getNamespaceURI(), qName.getLocalName(), qName
+						.getPrefix()), new NamespaceIterator(rtx));
 		rtx.moveTo(nodeKey);
 	}
 
@@ -191,9 +195,11 @@ public final class StAXSerializer implements XMLEventReader {
 			break;
 		case ELEMENT:
 			final long key = rtx.getNodeKey();
-			final QName qName = rtx.getName();
-			mEvent = mFac.createStartElement(qName, new AttributeIterator(rtx),
-					new NamespaceIterator(rtx));
+			final QNm qName = rtx.getName();
+			mEvent = mFac.createStartElement(
+					new QName(qName.getNamespaceURI(), qName.getLocalName(), qName
+							.getPrefix()), new AttributeIterator(rtx), new NamespaceIterator(
+							rtx));
 			rtx.moveTo(key);
 			break;
 		case TEXT:
@@ -203,7 +209,7 @@ public final class StAXSerializer implements XMLEventReader {
 			mEvent = mFac.createComment(XMLToken.escapeContent(rtx.getValue()));
 			break;
 		case PROCESSING_INSTRUCTION:
-			mEvent = mFac.createProcessingInstruction(rtx.getName().getLocalPart(),
+			mEvent = mFac.createProcessingInstruction(rtx.getName().getLocalName(),
 					rtx.getValue());
 			break;
 		default:
@@ -527,10 +533,12 @@ public final class StAXSerializer implements XMLEventReader {
 			mRtx.moveTo(mNodeKey);
 			mRtx.moveToAttribute(mIndex++);
 			assert mRtx.getKind() == Kind.ATTRIBUTE;
-			final QName qName = mRtx.getName();
+			final QNm qName = mRtx.getName();
 			final String value = XMLToken.escapeAttribute(mRtx.getValue());
 			mRtx.moveTo(mNodeKey);
-			return mFac.createAttribute(qName, value);
+			return mFac.createAttribute(
+					new QName(qName.getNamespaceURI(), qName.getLocalName(), qName
+							.getPrefix()), value);
 		}
 
 		@Override
@@ -595,10 +603,10 @@ public final class StAXSerializer implements XMLEventReader {
 			mRtx.moveTo(mNodeKey);
 			mRtx.moveToNamespace(mIndex++);
 			assert mRtx.getKind() == Kind.NAMESPACE;
-			final QName qName = mRtx.getName();
+			final QNm qName = mRtx.getName();
 			mRtx.moveTo(mNodeKey);
 			return mFac
-					.createNamespace(qName.getLocalPart(), qName.getNamespaceURI());
+					.createNamespace(qName.getPrefix(), qName.getNamespaceURI());
 		}
 
 		@Override

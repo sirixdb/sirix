@@ -1,9 +1,9 @@
 package org.sirix.access;
 
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
@@ -77,43 +77,43 @@ public abstract class AbstractForwardingNodeWriteTrx extends
 	}
 
 	@Override
-	public NodeWriteTrx insertAttribute(@Nonnull QName name, @Nonnull String value)
+	public NodeWriteTrx insertAttribute(@Nonnull QNm name, @Nonnull String value)
 			throws SirixException {
 		return delegate().insertAttribute(name, value);
 	}
 
 	@Override
-	public NodeWriteTrx insertAttribute(@Nonnull QName name,
+	public NodeWriteTrx insertAttribute(@Nonnull QNm name,
 			@Nonnull String value, @Nonnull Movement move) throws SirixException {
 		return delegate().insertAttribute(name, value, move);
 	}
 
 	@Override
-	public NodeWriteTrx insertElementAsFirstChild(@Nonnull QName name)
+	public NodeWriteTrx insertElementAsFirstChild(@Nonnull QNm name)
 			throws SirixException {
 		return delegate().insertElementAsFirstChild(name);
 	}
 
 	@Override
-	public NodeWriteTrx insertElementAsLeftSibling(@Nonnull QName name)
+	public NodeWriteTrx insertElementAsLeftSibling(@Nonnull QNm name)
 			throws SirixException {
 		return delegate().insertElementAsLeftSibling(name);
 	}
 
 	@Override
-	public NodeWriteTrx insertElementAsRightSibling(@Nonnull QName name)
+	public NodeWriteTrx insertElementAsRightSibling(@Nonnull QNm name)
 			throws SirixException {
 		return delegate().insertElementAsRightSibling(name);
 	}
 
 	@Override
-	public NodeWriteTrx insertNamespace(@Nonnull QName name)
+	public NodeWriteTrx insertNamespace(@Nonnull QNm name)
 			throws SirixException {
 		return delegate().insertNamespace(name);
 	}
 
 	@Override
-	public NodeWriteTrx insertNamespace(@Nonnull QName name,
+	public NodeWriteTrx insertNamespace(@Nonnull QNm name,
 			@Nonnull Movement move) throws SirixException {
 		return delegate().insertNamespace(name, move);
 	}
@@ -143,7 +143,7 @@ public abstract class AbstractForwardingNodeWriteTrx extends
 	}
 
 	@Override
-	public NodeWriteTrx setName(@Nonnull QName name) throws SirixException {
+	public NodeWriteTrx setName(@Nonnull QNm name) throws SirixException {
 		return delegate().setName(name);
 	}
 

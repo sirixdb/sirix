@@ -27,11 +27,12 @@
 
 package org.sirix.settings;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -128,9 +129,9 @@ public class RevisioningTest {
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build())) {
 			try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
-				wtx.insertElementAsFirstChild(new QName("foo"));
+				wtx.insertElementAsFirstChild(new QNm("foo"));
 				for (int i = 0; i < Constants.NDP_NODE_COUNT - 2; i++) {
-					wtx.insertElementAsRightSibling(new QName("foo"));
+					wtx.insertElementAsRightSibling(new QNm("foo"));
 				}
 				wtx.commit();
 				assertTrue(wtx.getNodeKey() == Constants.NDP_NODE_COUNT - 1);
@@ -167,9 +168,9 @@ public class RevisioningTest {
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build())) {
 			NodeWriteTrx wtx = session.beginNodeWriteTrx();
-			wtx.insertElementAsFirstChild(new QName("foo"));
+			wtx.insertElementAsFirstChild(new QNm("foo"));
 			for (int i = 0; i < Constants.NDP_NODE_COUNT - 2; i++) {
-				wtx.insertElementAsRightSibling(new QName("foo"));
+				wtx.insertElementAsRightSibling(new QNm("foo"));
 			}
 			wtx.commit();
 			assertTrue(wtx.getNodeKey() == Constants.NDP_NODE_COUNT - 1);
@@ -202,19 +203,19 @@ public class RevisioningTest {
 			wtx.close();
 			try (final NodeReadTrx rtx = session.beginNodeReadTrx()) {
 				assertTrue(rtx.moveToFirstChild().hasMoved());
-				assertEquals(new QName("foobar"), rtx.getName());
+				assertEquals(new QNm("foobar"), rtx.getName());
 				assertTrue(rtx.moveToRightSibling().hasMoved());
-				assertEquals(new QName("foooo"), rtx.getName());
+				assertEquals(new QNm("foooo"), rtx.getName());
 				for (int i = 0; i < Constants.NDP_NODE_COUNT - 4; i++) {
 					assertTrue(rtx.moveToRightSibling().hasMoved());
 				}
-				assertEquals(new QName("baaaz"), rtx.getName());
+				assertEquals(new QNm("baaaz"), rtx.getName());
 			}
 		}
 	}
 
 	/**
-	 * Set the second {@link QName} in the first node page.
+	 * Set the second {@link QNm} in the first node page.
 	 * 
 	 * @param wtx
 	 *          {@link NodeWriteTrx} instance
@@ -225,11 +226,11 @@ public class RevisioningTest {
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
 		wtx.moveToRightSibling();
-		wtx.setName(new QName("foooo"));
+		wtx.setName(new QNm("foooo"));
 	}
 
 	/**
-	 * Set the first {@link QName} in the first node page.
+	 * Set the first {@link QNm} in the first node page.
 	 * 
 	 * @param wtx
 	 *          {@link NodeWriteTrx} instance
@@ -239,11 +240,11 @@ public class RevisioningTest {
 	private void setFooBar(final @Nonnull NodeWriteTrx wtx) throws SirixException {
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
-		wtx.setName(new QName("foobar"));
+		wtx.setName(new QNm("foobar"));
 	}
 
 	/**
-	 * Set the last {@link QName} in the first node page.
+	 * Set the last {@link QNm} in the first node page.
 	 * 
 	 * @param wtx
 	 *          {@link NodeWriteTrx} instance
@@ -256,7 +257,7 @@ public class RevisioningTest {
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 3; i++) {
 			wtx.moveToRightSibling();
 		}
-		wtx.setName(new QName("baaaz"));
+		wtx.setName(new QNm("baaaz"));
 	}
 
 	/**
@@ -270,7 +271,7 @@ public class RevisioningTest {
 	private void fillNodePage(final @Nonnull NodeWriteTrx wtx)
 			throws SirixException {
 		for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-			wtx.insertElementAsRightSibling(new QName("foo"));
+			wtx.insertElementAsRightSibling(new QNm("foo"));
 		}
 	}
 

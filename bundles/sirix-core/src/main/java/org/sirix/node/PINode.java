@@ -73,8 +73,13 @@ public final class PINode extends AbstractStructForwardingNode implements
 	}
 
 	@Override
-	public int getNameKey() {
-		return mNameDel.getNameKey();
+	public int getPrefixKey() {
+		return mNameDel.getPrefixKey();
+	}
+	
+	@Override
+	public int getLocalNameKey() {
+		return mNameDel.getLocalNameKey();
 	}
 
 	@Override
@@ -83,8 +88,13 @@ public final class PINode extends AbstractStructForwardingNode implements
 	}
 
 	@Override
-	public void setNameKey(final int nameKey) {
-		mNameDel.setNameKey(nameKey);
+	public void setPrefixKey(final int prefixKey) {
+		mNameDel.setPrefixKey(prefixKey);
+	}
+	
+	@Override
+	public void setLocalNameKey(final int localNameKey) {
+		mNameDel.setLocalNameKey(localNameKey);
 	}
 
 	@Override

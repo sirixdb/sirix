@@ -47,6 +47,7 @@ import net.sf.saxon.lib.NamespaceConstant;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.xpath.XPathFactoryImpl;
 
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -160,11 +161,11 @@ public final class TestNodeWrapperXPath {
 
 					mHolder.getRtx().moveTo(item.getKey());
 
-					final QName qName = mHolder.getRtx().getName();
+					final QNm qName = mHolder.getRtx().getName();
 
 					if (mHolder.getRtx().getKind() == Kind.ELEMENT) {
 						assertEquals(expRes[j],
-								qName.getPrefix() + ":" + qName.getLocalPart());
+								qName.getPrefix() + ":" + qName.getLocalName());
 					} else if (mHolder.getRtx().getKind() == Kind.TEXT) {
 						assertEquals(expRes[j], mHolder.getRtx().getValue());
 					}
@@ -435,10 +436,10 @@ public final class TestNodeWrapperXPath {
 
 		final NodeReadTrx rtx = mHolder.getSession().beginNodeReadTrx();
 		rtx.moveTo(result.get(0).getKey());
-		assertEquals("b", rtx.getName().getLocalPart());
+		assertEquals("b", rtx.getName().getLocalName());
 
 		rtx.moveTo(result.get(1).getKey());
-		assertEquals("b", rtx.getName().getLocalPart());
+		assertEquals("b", rtx.getName().getLocalName());
 	}
 
 	/**

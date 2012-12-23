@@ -72,7 +72,7 @@ public class NamespaceNodeTest {
 	@Test
 	public void testNamespaceNode() {
 		final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0, Optional.of(SirixDeweyID.newRootID()));
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 15, 14, 1);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
 		// Create empty node.
 		final NamespaceNode node1 = new NamespaceNode(nodeDel, nameDel);
 
@@ -89,8 +89,9 @@ public class NamespaceNodeTest {
 		assertEquals(99L, node.getNodeKey());
 		assertEquals(13L, node.getParentKey());
 
-		assertEquals(14, node.getURIKey());
-		assertEquals(15, node.getNameKey());
+		assertEquals(13, node.getURIKey());
+		assertEquals(14, node.getPrefixKey());
+		assertEquals(15, node.getLocalNameKey());
 		assertEquals(Kind.NAMESPACE, node.getKind());
 		assertEquals(true, node.hasParent());
 	}

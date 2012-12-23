@@ -151,18 +151,18 @@ public final class XMLSerializer extends AbstractSerializer {
 				// Emit start element.
 				indent();
 				mOut.write(CharsForSerializing.OPEN.getBytes());
-				mOut.write(rtx.rawNameForKey(rtx.getNameKey()));
+				writeQName(rtx);
 				final long key = rtx.getNodeKey();
 				// Emit namespace declarations.
 				for (int index = 0, nspCount = rtx.getNamespaceCount(); index < nspCount; index++) {
 					rtx.moveToNamespace(index);
-					if (rtx.nameForKey(rtx.getNameKey()).isEmpty()) {
+					if (rtx.getPrefixKey() == -1) {
 						mOut.write(CharsForSerializing.XMLNS.getBytes());
 						write(rtx.nameForKey(rtx.getURIKey()));
 						mOut.write(CharsForSerializing.QUOTE.getBytes());
 					} else {
 						mOut.write(CharsForSerializing.XMLNS_COLON.getBytes());
-						write(rtx.nameForKey(rtx.getNameKey()));
+						write(rtx.nameForKey(rtx.getPrefixKey()));
 						mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
 						write(rtx.nameForKey(rtx.getURIKey()));
 						mOut.write(CharsForSerializing.QUOTE.getBytes());
@@ -187,7 +187,7 @@ public final class XMLSerializer extends AbstractSerializer {
 				for (int index = 0, attCount = rtx.getAttributeCount(); index < attCount; index++) {
 					rtx.moveToAttribute(index);
 					mOut.write(CharsForSerializing.SPACE.getBytes());
-					mOut.write(rtx.rawNameForKey(rtx.getNameKey()));
+					writeQName(rtx);
 					mOut.write(CharsForSerializing.EQUAL_QUOTE.getBytes());
 					mOut.write(XMLToken.escapeAttribute(rtx.getValue()).getBytes(
 							Constants.DEFAULT_ENCODING));// pRtx.getItem().getRawValue());
@@ -224,7 +224,7 @@ public final class XMLSerializer extends AbstractSerializer {
 			case PROCESSING_INSTRUCTION:
 				indent();
 				mOut.write(CharsForSerializing.OPENPI.getBytes());
-				mOut.write(rtx.rawNameForKey(rtx.getNameKey()));
+				writeQName(rtx);
 				mOut.write(CharsForSerializing.SPACE.getBytes());
 				mOut.write(XMLToken.escapeContent(rtx.getValue()).getBytes(
 						Constants.DEFAULT_ENCODING));
@@ -252,7 +252,7 @@ public final class XMLSerializer extends AbstractSerializer {
 		try {
 			indent();
 			mOut.write(CharsForSerializing.OPEN_SLASH.getBytes());
-			mOut.write(rtx.rawNameForKey(rtx.getNameKey()));
+			writeQName(rtx);
 			mOut.write(CharsForSerializing.CLOSE.getBytes());
 			if (mIndent) {
 				mOut.write(CharsForSerializing.NEWLINE.getBytes());
@@ -260,6 +260,14 @@ public final class XMLSerializer extends AbstractSerializer {
 		} catch (final IOException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
+	}
+
+	private void writeQName(NodeReadTrx rtx) throws IOException {
+		if (rtx.getPrefixKey() != -1) {
+			mOut.write(rtx.rawNameForKey(rtx.getPrefixKey()));
+			mOut.write(CharsForSerializing.COLON.getBytes());
+		}
+		mOut.write(rtx.rawNameForKey(rtx.getLocalNameKey()));
 	}
 
 	@Override

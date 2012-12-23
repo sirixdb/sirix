@@ -27,8 +27,7 @@
 
 package org.sirix.axis;
 
-import javax.xml.namespace.QName;
-
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -80,29 +79,29 @@ public class AttributeAxisTest {
 	@Test
 	public void testMultipleAttributes() throws SirixException {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-		final long nodeKey = wtx.insertElementAsFirstChild(new QName("foo"))
+		final long nodeKey = wtx.insertElementAsFirstChild(new QNm("foo"))
 				.getNodeKey();
-		wtx.insertAttribute(new QName("foo0"), "0");
+		wtx.insertAttribute(new QNm("foo0"), "0");
 		wtx.moveTo(nodeKey);
-		wtx.insertAttribute(new QName("foo1"), "1");
+		wtx.insertAttribute(new QNm("foo1"), "1");
 		wtx.moveTo(nodeKey);
-		wtx.insertAttribute(new QName("foo2"), "2");
+		wtx.insertAttribute(new QNm("foo2"), "2");
 
 		Assert.assertEquals(true, wtx.moveTo(nodeKey).hasMoved());
 
 		Assert.assertEquals(true, wtx.moveToAttribute(0).hasMoved());
 		Assert.assertEquals("0", wtx.getValue());
-		Assert.assertEquals(new QName("foo0"), wtx.getName());
+		Assert.assertEquals(new QNm("foo0"), wtx.getName());
 
 		Assert.assertEquals(true, wtx.moveToParent().hasMoved());
 		Assert.assertEquals(true, wtx.moveToAttribute(1).hasMoved());
 		Assert.assertEquals("1", wtx.getValue());
-		Assert.assertEquals(new QName("foo1"), wtx.getName());
+		Assert.assertEquals(new QNm("foo1"), wtx.getName());
 
 		Assert.assertEquals(true, wtx.moveToParent().hasMoved());
 		Assert.assertEquals(true, wtx.moveToAttribute(2).hasMoved());
 		Assert.assertEquals("2", wtx.getValue());
-		Assert.assertEquals(new QName("foo2"), wtx.getName());
+		Assert.assertEquals(new QNm("foo2"), wtx.getName());
 
 		Assert.assertEquals(true, wtx.moveTo(nodeKey).hasMoved());
 		final AbstractAxis axis = new AttributeAxis(wtx);
@@ -110,19 +109,19 @@ public class AttributeAxisTest {
 		Assert.assertEquals(true, axis.hasNext());
 		axis.next();
 		Assert.assertEquals(nodeKey + 1, wtx.getNodeKey());
-		Assert.assertEquals(new QName("foo0"), wtx.getName());
+		Assert.assertEquals(new QNm("foo0"), wtx.getName());
 		Assert.assertEquals("0", wtx.getValue());
 
 		Assert.assertEquals(true, axis.hasNext());
 		axis.next();
 		Assert.assertEquals(nodeKey + 2, wtx.getNodeKey());
-		Assert.assertEquals(new QName("foo1"), wtx.getName());
+		Assert.assertEquals(new QNm("foo1"), wtx.getName());
 		Assert.assertEquals("1", wtx.getValue());
 
 		Assert.assertEquals(true, axis.hasNext());
 		axis.next();
 		Assert.assertEquals(nodeKey + 3, wtx.getNodeKey());
-		Assert.assertEquals(new QName("foo2"), wtx.getName());
+		Assert.assertEquals(new QNm("foo2"), wtx.getName());
 		Assert.assertEquals("2", wtx.getValue());
 
 		wtx.abort();

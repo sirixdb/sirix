@@ -100,8 +100,13 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	}
 
 	@Override
-	public int getNameKey() {
-		return mNameDel.getNameKey();
+	public int getPrefixKey() {
+		return mNameDel.getPrefixKey();
+	}
+	
+	@Override
+	public int getLocalNameKey() {
+		return mNameDel.getLocalNameKey();
 	}
 
 	@Override
@@ -110,13 +115,18 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	}
 
 	@Override
-	public void setNameKey(final int pNameKey) {
-		mNameDel.setNameKey(pNameKey);
+	public void setPrefixKey(final int prefixKey) {
+		mNameDel.setPrefixKey(prefixKey);
+	}
+	
+	@Override
+	public void setLocalNameKey(final int localNameKey) {
+		mNameDel.setLocalNameKey(localNameKey);
 	}
 
 	@Override
-	public void setURIKey(final int pUriKey) {
-		mNameDel.setURIKey(pUriKey);
+	public void setURIKey(final int uriKey) {
+		mNameDel.setURIKey(uriKey);
 	}
 
 	@Override

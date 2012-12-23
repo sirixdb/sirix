@@ -77,7 +77,7 @@ public class AttributeNodeTest {
 
 		final NodeDelegate del = new NodeDelegate(99, 13, 0, 0,
 				Optional.of(SirixDeweyID.newRootID()));
-		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 14, 15, 1);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
 		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 
 		final AttributeNode node1 = new AttributeNode(del, nameDel, valDel);
@@ -99,8 +99,10 @@ public class AttributeNodeTest {
 		assertEquals(99L, node.getNodeKey());
 		assertEquals(13L, node.getParentKey());
 
-		assertEquals(14, node.getNameKey());
-		assertEquals(15, node.getURIKey());
+		assertEquals(13, node.getURIKey());
+		assertEquals(14, node.getPrefixKey());
+		assertEquals(15, node.getLocalNameKey());
+	
 		assertEquals(NamePageHash.generateHashForString("xs:untyped"),
 				node.getTypeKey());
 		assertEquals(2, node.getRawValue().length);

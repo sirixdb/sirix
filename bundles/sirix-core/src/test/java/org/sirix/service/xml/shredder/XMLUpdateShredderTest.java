@@ -296,11 +296,11 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 
 				final OutputStream out = new ByteArrayOutputStream();
 				final XMLSerializer serializer = new XMLSerializerBuilder(session, out)
-						.build();
+						.doIndend(true).build();
 				serializer.call();
 				final StringBuilder sBuilder = TestHelper.readFile(
 						file.getAbsoluteFile(), false);
-
+				
 				final Diff diff = new Diff(sBuilder.toString(), out.toString());
 				final DetailedDiff detDiff = new DetailedDiff(diff);
 				@SuppressWarnings("unchecked")

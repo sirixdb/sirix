@@ -32,11 +32,13 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.events.Attribute;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.GUI;
 import org.sirix.gui.view.EHover;
 import org.sirix.gui.view.ViewUtilities;
 import org.sirix.gui.view.sunburst.SunburstItem.EStructType;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
 import processing.core.PGraphics;
@@ -286,11 +288,11 @@ public enum Draw {
 				final DiffType diff = pItem.getDiff();
 				if (diff == DiffType.REPLACEDOLD || diff == DiffType.DELETED
 						|| diff == DiffType.MOVEDFROM) {
-					final QName oldQName = pItem.getOldQName();
+					final QNm oldQName = pItem.getOldQName();
 					text = oldQName == null ? pItem.getOldText() : ViewUtilities
 							.qNameToString(oldQName);
 				} else {
-					final QName qName = pItem.getQName();
+					final QNm qName = pItem.getQName();
 					text = qName == null ? pItem.getText() : ViewUtilities
 							.qNameToString(qName);
 				}

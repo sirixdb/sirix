@@ -43,6 +43,7 @@ import javax.xml.namespace.QName;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Namespace;
 
+import org.brackit.xquery.atomic.QNm;
 import org.gicentre.utils.move.Ease;
 import org.sirix.access.Utils;
 import org.sirix.diff.DiffFactory.DiffType;
@@ -122,11 +123,11 @@ public final class SunburstItem implements VisualItem {
 	/** Y coordinate of second bezier control point. */
 	private float mC2Y;
 
-	/** {@link QName} of current node. */
-	private final QName mQName;
+	/** {@link QNm} of current node. */
+	private final QNm mQName;
 
-	/** {@link QName} of old node. */
-	private transient QName mOldQName;
+	/** {@link QNm} of old node. */
+	private transient QNm mOldQName;
 
 	/** Depth in the tree. */
 	private transient int mDepth;
@@ -229,11 +230,11 @@ public final class SunburstItem implements VisualItem {
 		/** {@link PApplet} representing the core processing library. */
 		private final PApplet mParent;
 
-		/** {@link QName} of current node. */
-		private transient QName mQName;
+		/** {@link QNm} of current node. */
+		private transient QNm mQName;
 
-		/** {@link QName} of old node. */
-		private transient QName mOldQName;
+		/** {@link QNm} of old node. */
+		private transient QNm mOldQName;
 
 		/** {@link NodeRelations} reference. */
 		private final NodeRelations mRelations;
@@ -321,7 +322,7 @@ public final class SunburstItem implements VisualItem {
 		 *          {@link QName} of the current node
 		 * @return this builder
 		 */
-		public Builder setQName(@Nonnull final QName pQName) {
+		public Builder setQName(@Nonnull final QNm pQName) {
 			mQName = checkNotNull(pQName);
 			return this;
 		}
@@ -376,13 +377,13 @@ public final class SunburstItem implements VisualItem {
 		}
 
 		/**
-		 * Set old {@link QName}.
+		 * Set old {@link QNm}.
 		 * 
 		 * @param pOldQName
-		 *          {@link QName} of the current node
+		 *          {@link QNm} of the current node
 		 * @return this builder
 		 */
-		public Builder setOldQName(@Nonnull final QName pOldQName) {
+		public Builder setOldQName(@Nonnull final QNm pOldQName) {
 			mOldQName = checkNotNull(pOldQName);
 			return this;
 		}
@@ -1662,7 +1663,7 @@ public final class SunburstItem implements VisualItem {
 	 * 
 	 * @return {@code QName} or {@code null}
 	 */
-	public QName getQName() {
+	public QNm getQName() {
 		return mQName;
 	}
 
@@ -1818,11 +1819,11 @@ public final class SunburstItem implements VisualItem {
 	}
 
 	/**
-	 * Get old {@link QName}.
+	 * Get old {@link QNm}.
 	 * 
-	 * @return old {@link QName} instance
+	 * @return old {@link QNm} instance
 	 */
-	public QName getOldQName() {
+	public QNm getOldQName() {
 		return mOldQName;
 	}
 

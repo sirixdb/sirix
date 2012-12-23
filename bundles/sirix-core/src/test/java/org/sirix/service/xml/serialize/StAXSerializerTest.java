@@ -292,7 +292,7 @@ public class StAXSerializerTest {
 			strBuilder.append(' ');
 		}
 
-		if ("".equals(qName.getPrefix())) {
+		if (qName.getPrefix() == null || "".equals(qName.getPrefix())) {
 			strBuilder.append(qName.getLocalPart());
 		} else {
 			strBuilder.append(qName.getPrefix()).append(':')

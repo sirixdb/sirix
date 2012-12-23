@@ -57,37 +57,37 @@ public class DocumentRootNodeFilterTest {
 		final NodeReadTrx rtx = holder.getRtx();
 
 		rtx.moveTo(0L);
-		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), true);
+		FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), true);
 
 		rtx.moveTo(1L);
-		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
 		rtx.moveTo(1L);
 		rtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
 		rtx.moveTo(3L);
-		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
 		rtx.moveTo(4L);
-		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
 		rtx.moveTo(5L);
-		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
 		rtx.moveTo(9L);
-		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
 		rtx.moveTo(9L);
 		rtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
 		rtx.moveTo(12L);
-		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), false);
+		FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), false);
 
 		rtx.moveTo(13L);
 		rtx.moveToDocumentRoot();
-		IFilterTest.testIFilterConventions(new DocumentRootNodeFilter(rtx), true);
+		FilterTest.testFilterConventions(new DocumentRootNodeFilter(rtx), true);
 	}
 
 }

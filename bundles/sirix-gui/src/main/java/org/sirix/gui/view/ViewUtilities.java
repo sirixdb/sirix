@@ -27,8 +27,6 @@
 
 package org.sirix.gui.view;
 
-import controlP5.ControlP5;
-
 import java.io.File;
 import java.lang.Thread.State;
 import java.util.Calendar;
@@ -39,6 +37,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ProgressGlassPane;
 import org.sirix.gui.ReadDB;
@@ -50,8 +49,10 @@ import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.model.SunburstCompareModel;
 import org.sirix.gui.view.sunburst.model.SunburstModel;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
+import controlP5.ControlP5;
 
 /**
  * Provides some helper methods for views, which couldn't otherwise be encapsulated together.
@@ -77,13 +78,13 @@ public final class ViewUtilities {
    *          {@link QName} reference
    * @return the string representation
    */
-  public static String qNameToString(@Nonnull final QName pQName) {
+  public static String qNameToString(@Nonnull final QNm pQName) {
     String retVal;
 
     if (pQName.getPrefix().isEmpty()) {
-      retVal = pQName.getLocalPart();
+      retVal = pQName.getLocalName();
     } else {
-      retVal = new StringBuilder(pQName.getPrefix()).append(":").append(pQName.getLocalPart()).toString();
+      retVal = new StringBuilder(pQName.getPrefix()).append(":").append(pQName.getLocalName()).toString();
     }
 
     return retVal;

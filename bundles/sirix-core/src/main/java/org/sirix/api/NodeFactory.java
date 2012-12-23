@@ -4,6 +4,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.path.PathNode;
 import org.sirix.node.AttributeNode;
@@ -45,7 +46,7 @@ public interface NodeFactory {
 	 */
 	PathNode createPathNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final long rightSibKey,
-			final long hash, final @Nonnull QName name, final @Nonnull Kind kind,
+			final long hash, final @Nonnull QNm name, final @Nonnull Kind kind,
 			final @Nonnegative int level) throws SirixIOException;
 
 	/**
@@ -71,7 +72,7 @@ public interface NodeFactory {
 	 */
 	PINode createPINode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final @Nonnull QName target, final @Nonnull byte[] content,
+			final @Nonnull QNm target, final @Nonnull byte[] content,
 			final boolean isCompressed, final @Nonnegative long pathNodeKey,
 			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException;
 
@@ -111,7 +112,7 @@ public interface NodeFactory {
 	 * @param hash
 	 *          hash value associated with the node
 	 * @param name
-	 *          {@link QName} of the node
+	 *          {@link QNm} of the node
 	 * @param pPCR
 	 *          path class record of node
 	 * @param pSiblingPos
@@ -122,7 +123,7 @@ public interface NodeFactory {
 	 */
 	ElementNode createElementNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final long hash, final @Nonnull QName name,
+			final long hash, final @Nonnull QNm name,
 			final @Nonnegative long pathNodeKey,
 			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException;
 
@@ -164,7 +165,7 @@ public interface NodeFactory {
 	 *           if an I/O error occurs
 	 */
 	AttributeNode createAttributeNode(final @Nonnegative long parentKey,
-			final @Nonnull QName name, final @Nonnull byte[] value,
+			final @Nonnull QNm name, final @Nonnull byte[] value,
 			final @Nonnegative long pathNodeKey,
 			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException;
 

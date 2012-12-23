@@ -34,7 +34,7 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.axis.filter.AttributeFilter;
 import org.sirix.axis.filter.ElementFilter;
-import org.sirix.axis.filter.IFilterTest;
+import org.sirix.axis.filter.FilterTest;
 import org.sirix.axis.filter.ItemFilter;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.NestedFilter;
@@ -63,25 +63,25 @@ public class NestedFilterTest {
 	public void testIFilterConvetions() throws SirixException {
 
 		holder.getRtx().moveTo(9L);
-		IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(),
+		FilterTest.testFilterConventions(new NestedFilter(holder.getRtx(),
 				new ItemFilter(holder.getRtx()), new ElementFilter(holder.getRtx()),
 				new NameFilter(holder.getRtx(), "b")), true);
-		IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(),
+		FilterTest.testFilterConventions(new NestedFilter(holder.getRtx(),
 				new ItemFilter(holder.getRtx()), new AttributeFilter(holder.getRtx()),
 				new NameFilter(holder.getRtx(), "b")), false);
 
 		holder.getRtx().moveTo(4L);
-		IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(),
+		FilterTest.testFilterConventions(new NestedFilter(holder.getRtx(),
 				new NodeFilter(holder.getRtx()), new ElementFilter(holder.getRtx())),
 				false);
-		IFilterTest
-				.testIFilterConventions(new NestedFilter(holder.getRtx(),
+		FilterTest
+				.testFilterConventions(new NestedFilter(holder.getRtx(),
 						new NodeFilter(holder.getRtx()), new TextFilter(holder.getRtx())),
 						true);
 
 		holder.getRtx().moveTo(1L);
 		holder.getRtx().moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new NestedFilter(holder.getRtx(),
+		FilterTest.testFilterConventions(new NestedFilter(holder.getRtx(),
 				new AttributeFilter(holder.getRtx()), new NameFilter(holder.getRtx(),
 						"i")), true);
 

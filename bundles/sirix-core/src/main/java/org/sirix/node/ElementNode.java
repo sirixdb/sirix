@@ -32,9 +32,8 @@ import java.util.List;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
-import org.sirix.access.Utils;
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -65,7 +64,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	private final NameNodeDelegate mNameDel;
 
 	/** Mapping names/keys. */
-	private final BiMap<Integer, Long> mAttributes;
+	private final BiMap<Long, Long> mAttributes;
 
 	/** Keys of attributes. */
 	private final List<Long> mAttributeKeys;
@@ -93,7 +92,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	public ElementNode(final @Nonnull StructNodeDelegate structDel,
 			final @Nonnull NameNodeDelegate nameDel,
 			final @Nonnull List<Long> attributeKeys,
-			final @Nonnull BiMap<Integer, Long> attributes,
+			final @Nonnull BiMap<Long, Long> attributes,
 			final @Nonnull List<Long> namespaceKeys) {
 		assert structDel != null;
 		mStructNodeDel = structDel;
@@ -137,20 +136,23 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	 *          the attribute-name to lookup
 	 * @return the attribute key associated with the name
 	 */
-	public Optional<Long> getAttributeKeyByName(final @Nonnull QName name) {
-		final int nameIndex = NamePageHash.generateHashForString(Utils
-				.buildName(name));
-		return Optional.fromNullable(mAttributes.get(nameIndex));
+	public Optional<Long> getAttributeKeyByName(final @Nonnull QNm name) {
+		final int prefixIndex = name.getPrefix() != null
+				&& !name.getPrefix().isEmpty() ? NamePageHash
+				.generateHashForString(name.getPrefix()) : -1;
+		final int localNameIndex = NamePageHash.generateHashForString(name
+				.getLocalName());
+		return Optional.fromNullable(mAttributes.get((long)(prefixIndex + localNameIndex)));
 	}
 
 	/**
-	 * Get name key by node key.
+	 * Get name key (prefixKey+localNameKey) by node key.
 	 * 
 	 * @param key
 	 *          node key
 	 * @return optional name key
 	 */
-	public Optional<Integer> getAttributeNameKey(final @Nonnegative long key) {
+	public Optional<Long> getAttributeNameKey(final @Nonnegative long key) {
 		return Optional.fromNullable(mAttributes.inverse().get(key));
 	}
 
@@ -163,7 +165,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	 *          index mapping to name string
 	 */
 	public void insertAttribute(final @Nonnegative long attrKey,
-			final int nameIndex) {
+			final long nameIndex) {
 		mAttributeKeys.add(attrKey);
 		mAttributes.put(nameIndex, attrKey);
 	}
@@ -223,8 +225,13 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	}
 
 	@Override
-	public int getNameKey() {
-		return mNameDel.getNameKey();
+	public int getPrefixKey() {
+		return mNameDel.getPrefixKey();
+	}
+
+	@Override
+	public int getLocalNameKey() {
+		return mNameDel.getLocalNameKey();
 	}
 
 	@Override
@@ -233,8 +240,13 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	}
 
 	@Override
-	public void setNameKey(final int nameKey) {
-		mNameDel.setNameKey(nameKey);
+	public void setPrefixKey(final int prefixKey) {
+		mNameDel.setPrefixKey(prefixKey);
+	}
+
+	@Override
+	public void setLocalNameKey(final int localNameKey) {
+		mNameDel.setLocalNameKey(localNameKey);
 	}
 
 	@Override

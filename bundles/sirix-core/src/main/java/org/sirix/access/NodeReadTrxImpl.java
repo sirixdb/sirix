@@ -36,8 +36,8 @@ import java.util.List;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.ItemList;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageReadTrx;
@@ -74,7 +74,6 @@ import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.ItemListImpl;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
-import org.sirix.utils.Util;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
@@ -320,14 +319,18 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public QName getName() {
+	public QNm getName() {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
-			final String name = mPageReadTrx.getName(
-					((NameNode) mCurrentNode).getNameKey(), mCurrentNode.getKind());
 			final String uri = mPageReadTrx.getName(
 					((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
-			return Util.buildQName(uri, name);
+			final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
+			final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(
+					prefixKey, mCurrentNode.getKind());
+			final int localNameKey = ((NameNode) mCurrentNode).getLocalNameKey();
+			final String localName = localNameKey == -1 ? "" : mPageReadTrx.getName(
+					localNameKey, mCurrentNode.getKind());
+			return new QNm(uri, prefix, localName);
 		} else {
 			return null;
 		}
@@ -522,7 +525,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToAttributeByName(
-			final @Nonnull QName name) {
+			final @Nonnull QNm name) {
 		assertNotClosed();
 		if (mCurrentNode.getKind() == Kind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
@@ -659,12 +662,22 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public int getNameKey() {
+	public int getPrefixKey() {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
-			return ((NameNode) mCurrentNode).getNameKey();
+			return ((NameNode) mCurrentNode).getPrefixKey();
 		} else {
-			return 0;
+			return -1;
+		}
+	}
+	
+	@Override
+	public int getLocalNameKey() {
+		assertNotClosed();
+		if (mCurrentNode instanceof NameNode) {
+			return ((NameNode) mCurrentNode).getLocalNameKey();
+		} else {
+			return -1;
 		}
 	}
 

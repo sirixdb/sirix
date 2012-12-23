@@ -86,10 +86,10 @@ public class NodePageTest {
 				Optional.of(SirixDeweyID.newRootID()));
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l,
 				3l, 1l, 0l);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 6, 7, 1);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
 
 		final ElementNode node1 = new ElementNode(strucDel, nameDel,
-				new ArrayList<Long>(), HashBiMap.<Integer, Long> create(),
+				new ArrayList<Long>(), HashBiMap.<Long, Long> create(),
 				new ArrayList<Long>());
 		node1.insertAttribute(88L, 100);
 		node1.insertAttribute(87L, 101);
@@ -117,8 +117,9 @@ public class NodePageTest {
 		assertEquals(87L, element.getAttributeKey(1));
 		assertEquals(99L, element.getNamespaceKey(0));
 		assertEquals(98L, element.getNamespaceKey(1));
-		assertEquals(6, ((NameNode) page2.getValue(0l)).getNameKey());
-		assertEquals(7, ((NameNode) page2.getValue(0l)).getURIKey());
+		assertEquals(5, ((NameNode) page2.getValue(0l)).getURIKey());
+		assertEquals(6, ((NameNode) page2.getValue(0l)).getPrefixKey());
+		assertEquals(7, ((NameNode) page2.getValue(0l)).getLocalNameKey());
 		assertEquals(NamePageHash.generateHashForString("xs:untyped"),
 				element.getTypeKey());
 	}

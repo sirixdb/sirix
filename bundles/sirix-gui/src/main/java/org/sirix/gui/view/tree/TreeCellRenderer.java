@@ -39,6 +39,7 @@ import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.xml.XMLConstants;
 import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
@@ -105,10 +106,10 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
     case ELEMENT:
       mRTX.moveTo(node.getNodeKey());
       final String prefix = mRTX.getName().getPrefix();
-      final QName qName = mRTX.getName();
+      final QNm qName = mRTX.getName();
 
       if (prefix == null || prefix.equals(XMLConstants.DEFAULT_NS_PREFIX)) {
-        final String localPart = qName.getLocalPart();
+        final String localPart = qName.getLocalName();
 
         if (mRTX.hasFirstChild()) {
           pValue = new StringBuilder("<").append(localPart).append(">").toString();
@@ -117,7 +118,7 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
         }
       } else {
         pValue =
-          new StringBuilder("<").append(prefix).append(":").append(qName.getLocalPart()).append(">")
+          new StringBuilder("<").append(prefix).append(":").append(qName.getLocalName()).append(">")
             .toString();
       }
 
@@ -136,15 +137,15 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
 
       // Display value.
       final String attPrefix = mRTX.getName().getPrefix();
-      final QName attQName = mRTX.getName();
+      final QNm attQName = mRTX.getName();
 
       if (attPrefix == null || attPrefix.equals("")) {
         pValue =
-          new StringBuilder("@").append(attQName.getLocalPart()).append("='").append(
+          new StringBuilder("@").append(attQName.getLocalName()).append("='").append(
             mRTX.getValue()).append("'").toString();
       } else {
         pValue =
-          new StringBuilder("@").append(attPrefix).append(":").append(attQName.getLocalPart()).append("='")
+          new StringBuilder("@").append(attPrefix).append(":").append(attQName.getLocalName()).append("='")
             .append(mRTX.getValue()).append("'").toString();
       }
 
@@ -161,13 +162,13 @@ public final class TreeCellRenderer extends DefaultTreeCellRenderer {
         mRTX.moveTo(nNodeKey);
       }
 
-      if (mRTX.nameForKey(mRTX.getNameKey()).length() == 0) {
+      if (mRTX.nameForKey(mRTX.getPrefixKey()).length() == 0) {
         pValue =
           new StringBuilder("xmlns='").append(mRTX.nameForKey(mRTX.getURIKey()))
             .append("'").toString();
       } else {
         pValue =
-          new StringBuilder("xmlns:").append(mRTX.nameForKey(mRTX.getNameKey()))
+          new StringBuilder("xmlns:").append(mRTX.nameForKey(mRTX.getPrefixKey()))
             .append("='").append(mRTX.nameForKey(mRTX.getURIKey())).append("'")
             .toString();
       }

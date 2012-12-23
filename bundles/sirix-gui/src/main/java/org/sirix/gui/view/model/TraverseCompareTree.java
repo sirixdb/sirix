@@ -52,14 +52,15 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory;
-import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.diff.DiffFactory.DiffOptimized;
-import org.sirix.diff.DiffTuple;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.diff.DiffObserver;
+import org.sirix.diff.DiffTuple;
 import org.sirix.diff.algorithm.fmse.Levenshtein;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
@@ -68,9 +69,9 @@ import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.model.interfaces.TraverseModel;
 import org.sirix.gui.view.smallmultiple.ECompare;
 import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
-import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.NodeRelations;
+import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.SunburstItem.EStructType;
@@ -753,7 +754,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 			}
 
 			if (text.isEmpty()) {
-				QName name = null;
+				QNm name = null;
 				if (diffCont.getDiff() == DiffType.DELETED
 						|| diffCont.getDiff() == DiffType.MOVEDFROM
 						|| diffCont.getDiff() == DiffType.REPLACEDOLD) {
@@ -762,14 +763,14 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 					builder.setNamespaces(fillNamespaces(mOldRtx));
 					builder.setOldKey(mOldRtx.getNodeKey());
 
-					LOGWRAPPER.debug("name: " + name.getLocalPart());
+					LOGWRAPPER.debug("name: " + name.getLocalName());
 					builder.setOldQName(name);
 				} else {
 					name = mNewRtx.getName();
 					builder.setAttributes(fillAttributes(mNewRtx));
 					builder.setNamespaces(fillNamespaces(mNewRtx));
 
-					LOGWRAPPER.debug("name: " + name.getLocalPart());
+					LOGWRAPPER.debug("name: " + name.getLocalName());
 					builder.setQName(name);
 				}
 			} else {

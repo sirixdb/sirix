@@ -9,6 +9,8 @@ import java.net.URL;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
+
 /**
  * This class provides convenience operations for XML-specific character
  * operations.
@@ -156,8 +158,8 @@ public final class XMLToken {
 	 * @throws NullPointerException
 	 *           if {@code name} is {@code null}
 	 */
-	public static boolean isValidQName(final QName name) {
-		final String localPart = checkNotNull(name).getLocalPart();
+	public static boolean isValidQName(final QNm name) {
+		final String localPart = checkNotNull(name).getLocalName();
 		if (!localPart.isEmpty() && !isNCName(localPart.getBytes())) {
 			return false;
 		}

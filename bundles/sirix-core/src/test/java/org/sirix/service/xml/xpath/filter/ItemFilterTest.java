@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.axis.filter.IFilterTest;
+import org.sirix.axis.filter.FilterTest;
 import org.sirix.axis.filter.ItemFilter;
 import org.sirix.exception.SirixException;
 
@@ -56,13 +56,13 @@ public class ItemFilterTest {
 	@Test
 	public void testIFilterConvetions() throws SirixException {
 		holder.getRtx().moveTo(9L);
-		IFilterTest.testIFilterConventions(new ItemFilter(holder.getRtx()), true);
+		FilterTest.testFilterConventions(new ItemFilter(holder.getRtx()), true);
 
 		holder.getRtx().moveTo(3L);
-		IFilterTest.testIFilterConventions(new ItemFilter(holder.getRtx()), true);
+		FilterTest.testFilterConventions(new ItemFilter(holder.getRtx()), true);
 
 		holder.getRtx().moveTo(2L);
 		holder.getRtx().moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new ItemFilter(holder.getRtx()), true);
+		FilterTest.testFilterConventions(new ItemFilter(holder.getRtx()), true);
 	}
 }

@@ -52,6 +52,7 @@ import javax.xml.stream.events.ProcessingInstruction;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -254,7 +255,9 @@ public final class XMLShredder extends AbstractShredder implements
 							&& rootElement.equals(event.asEndElement().getName())) {
 						endElemReached = true;
 					}
-					processEndTag(event.asEndElement().getName());
+					final QName name = event.asEndElement().getName();
+					processEndTag(new QNm(name.getNamespaceURI(), name.getPrefix(),
+							name.getLocalPart()));
 					break;
 				case XMLStreamConstants.CHARACTERS:
 					if (mReader.peek().getEventType() == XMLStreamConstants.CHARACTERS) {
@@ -303,21 +306,25 @@ public final class XMLShredder extends AbstractShredder implements
 	private void addNewElement(final @Nonnull StartElement event)
 			throws SirixException {
 		assert event != null;
-		final QName name = event.getName();
+		final QName qName = event.getName();
+		final QNm name = new QNm(qName.getNamespaceURI(), qName.getPrefix(),
+				qName.getLocalPart());
 		processStartTag(name);
 
 		// Parse namespaces.
 		for (final Iterator<?> it = event.getNamespaces(); it.hasNext();) {
 			final Namespace namespace = (Namespace) it.next();
-			mWtx.insertNamespace(new QName(namespace.getNamespaceURI(), "", namespace
-					.getPrefix()));
+			mWtx.insertNamespace(new QNm(namespace.getNamespaceURI(), namespace
+					.getPrefix(), ""));
 			mWtx.moveToParent();
 		}
 
 		// Parse attributes.
 		for (final Iterator<?> it = event.getAttributes(); it.hasNext();) {
 			final Attribute attribute = (Attribute) it.next();
-			mWtx.insertAttribute(attribute.getName(), attribute.getValue());
+			final QName attName = attribute.getName();
+			mWtx.insertAttribute(new QNm(attName.getNamespaceURI(), attName.getPrefix(),
+					attName.getLocalPart()), attribute.getValue());
 			mWtx.moveToParent();
 		}
 	}

@@ -62,13 +62,15 @@ final class StructuralDiff extends AbstractDiff {
 				&& newRtx.getKind() == oldRtx.getKind()) {
 			switch (newRtx.getKind()) {
 			case ELEMENT:
-				if (newRtx.getNameKey() == oldRtx.getNameKey()) {
+				if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
+						&& newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()) {
 					found = true;
 				}
 				break;
 			case PROCESSING_INSTRUCTION:
 				found = newRtx.getValue().equals(oldRtx.getValue())
-						&& newRtx.getName().equals(oldRtx.getName());
+						&& newRtx.getPrefixKey() == oldRtx.getPrefixKey()
+						&& newRtx.getLocalNameKey() == oldRtx.getLocalNameKey();
 				break;
 			case COMMENT:
 			case TEXT:

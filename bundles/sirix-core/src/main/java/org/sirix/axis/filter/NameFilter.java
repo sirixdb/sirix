@@ -35,33 +35,43 @@ import org.sirix.api.NodeReadTrx;
  * <h1>NameAxisTest</h1>
  * 
  * <p>
- * Match local part of ELEMENT or ATTRIBUTE by key.
+ * Match qname of ELEMENT or ATTRIBUTE by key.
  * </p>
  */
 public final class NameFilter extends AbstractFilter {
 
-	/** Key of name to test. */
-	private final int mLocalPartKey;
+	/** Key of local name to test. */
+	private final int mLocalNameKey;
+	
+	/** Key of prefix to test. */
+	private final int mPrefixKey;
 
 	/**
 	 * Default constructor.
 	 * 
 	 * @param rtx
 	 *          {@link NodeReadTrx} this filter is bound to
-	 * @param localPart
-	 *          local part to check
+	 * @param name
+	 *          name to check
 	 */
 	public NameFilter(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull String localPart) {
+			final @Nonnull String name) {
 		super(rtx);
-		mLocalPartKey = rtx.keyForName(localPart);
+		final int index = name.indexOf(":");
+		if (index != -1) {
+			mPrefixKey = rtx.keyForName(name.substring(0, index));
+		} else {
+			mPrefixKey = -1;
+		}
+
+		mLocalNameKey = rtx.keyForName(name.substring(index + 1));
 	}
 
 	@Override
 	public boolean filter() {
 		boolean returnVal = false;
 		if (getTrx().isNameNode()) {
-			returnVal = (getTrx().getNameKey() == mLocalPartKey);
+			returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
 		}
 		return returnVal;
 	}

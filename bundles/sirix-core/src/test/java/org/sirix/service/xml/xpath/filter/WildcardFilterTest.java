@@ -32,7 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.axis.filter.IFilterTest;
+import org.sirix.axis.filter.FilterTest;
 import org.sirix.axis.filter.WildcardFilter;
 import org.sirix.axis.filter.WildcardFilter.EType;
 import org.sirix.exception.SirixException;
@@ -57,11 +57,11 @@ public class WildcardFilterTest {
 	@Test
 	public void testIFilterConvetions() throws SirixException {
 		holder.getRtx().moveTo(9L);
-		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "b",
+		FilterTest.testFilterConventions(new WildcardFilter(holder.getRtx(), "b",
 				EType.LOCALNAME), true);
 		holder.getRtx().moveToAttribute(0);
 		// try {
-		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "p",
+		FilterTest.testFilterConventions(new WildcardFilter(holder.getRtx(), "p",
 				EType.PREFIX), true);
 		// fail("Expected an Exception, because attributes are not supported.");
 		// } catch (IllegalStateException e) {
@@ -78,13 +78,13 @@ public class WildcardFilterTest {
 		// true);
 
 		holder.getRtx().moveTo(1L);
-		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "p",
+		FilterTest.testFilterConventions(new WildcardFilter(holder.getRtx(), "p",
 				EType.PREFIX), true);
-		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "a",
+		FilterTest.testFilterConventions(new WildcardFilter(holder.getRtx(), "a",
 				EType.LOCALNAME), true);
-		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "c",
+		FilterTest.testFilterConventions(new WildcardFilter(holder.getRtx(), "c",
 				EType.LOCALNAME), false);
-		IFilterTest.testIFilterConventions(new WildcardFilter(holder.getRtx(), "b",
+		FilterTest.testFilterConventions(new WildcardFilter(holder.getRtx(), "b",
 				EType.PREFIX), false);
 
 	}

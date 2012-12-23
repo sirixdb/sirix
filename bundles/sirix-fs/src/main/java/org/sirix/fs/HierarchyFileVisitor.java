@@ -1,9 +1,6 @@
 package org.sirix.fs;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
-import com.google.common.base.Optional;
-import com.google.common.collect.Maps;
 
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -16,8 +13,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
@@ -26,6 +23,10 @@ import org.sirix.service.xml.shredder.AbstractShredder;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Objects;
+import com.google.common.base.Optional;
+import com.google.common.collect.Maps;
 
 /**
  * Implements the {@link FileVisitor} interface and shredders an XML representation of directories/files into
@@ -113,11 +114,11 @@ public class HierarchyFileVisitor extends AbstractShredder implements AutoClosea
    * @throws NullPointerException
    *           if {@code pBuilder} is {@code null}
    */
-  private HierarchyFileVisitor(final Builder pBuilder) throws SirixException {
-    super(pBuilder.mWtx, Insert.ASFIRSTCHILD);
-    mVisitor = pBuilder.mVisitor;
-    mWtx = pBuilder.mWtx;
-    mWtx.insertElementAsFirstChild(new QName("fsml"));
+  private HierarchyFileVisitor(final Builder builder) throws SirixException {
+    super(builder.mWtx, Insert.ASFIRSTCHILD);
+    mVisitor = builder.mVisitor;
+    mWtx = builder.mWtx;
+    mWtx.insertElementAsFirstChild(new QNm("fsml"));
     mIndex = Maps.newHashMap();
   }
 
@@ -133,10 +134,10 @@ public class HierarchyFileVisitor extends AbstractShredder implements AutoClosea
    * @throws SirixException
    *           if anything while setting up sirix failes
    */
-  public static synchronized HierarchyFileVisitor getInstance(final Builder pBuilder) throws SirixException {
-    HierarchyFileVisitor visitor = INSTANCES.putIfAbsent(pBuilder.mWtx, pBuilder.build());
+  public static synchronized HierarchyFileVisitor getInstance(final Builder builder) throws SirixException {
+    HierarchyFileVisitor visitor = INSTANCES.putIfAbsent(builder.mWtx, builder.build());
     if (visitor == null) {
-      visitor = INSTANCES.get(pBuilder.mWtx);
+      visitor = INSTANCES.get(builder.mWtx);
     }
     return visitor;
   }
@@ -157,17 +158,17 @@ public class HierarchyFileVisitor extends AbstractShredder implements AutoClosea
    *           if {@code pDir} or {@code pAttrs} is {@code null}
    */
   @Override
-  public FileVisitResult preVisitDirectory(final Path pDir, final BasicFileAttributes pAttrs)
+  public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs)
     throws IOException {
-    checkNotNull(pDir);
-    checkNotNull(pAttrs);
+    checkNotNull(dir);
+    checkNotNull(attrs);
     try {
-      mIndex.put(pDir, org.sirix.fs.Path.ISDIRECTORY);
-      processStartTag(new QName("dir"));
-      mWtx.insertAttribute(new QName("name"), pDir.getFileName().toString());
+      mIndex.put(dir, org.sirix.fs.Path.ISDIRECTORY);
+      processStartTag(new QNm("dir"));
+      mWtx.insertAttribute(new QNm("name"), dir.getFileName().toString());
       mWtx.moveToParent();
       final long nodeKey = mWtx.getNodeKey();
-      processDirectory(mVisitor, mWtx, pDir, pAttrs);
+      processDirectory(mVisitor, mWtx, dir, attrs);
       mWtx.moveTo(nodeKey);
     } catch (SirixException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -176,12 +177,12 @@ public class HierarchyFileVisitor extends AbstractShredder implements AutoClosea
   }
 
   @Override
-  public FileVisitResult postVisitDirectory(final Path pDir, final IOException pExc) throws IOException {
-    checkNotNull(pDir);
-    if (pExc != null) {
-      LOGWRAPPER.debug(pExc.getMessage(), pExc);
+  public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) throws IOException {
+    checkNotNull(dir);
+    if (exc != null) {
+      LOGWRAPPER.debug(exc.getMessage(), exc);
     }
-    processEndTag(new QName(""));
+    processEndTag(new QNm(""));
     return FileVisitResult.CONTINUE;
   }
 
@@ -204,8 +205,8 @@ public class HierarchyFileVisitor extends AbstractShredder implements AutoClosea
     try {
       if (Files.isRegularFile(pFile) | Files.isSymbolicLink(pFile)) {
         mIndex.put(pFile, org.sirix.fs.Path.ISFILE);
-        processEmptyElement(new QName("file"));
-        mWtx.insertAttribute(new QName("name"), pFile.getFileName().toString());
+        processEmptyElement(new QNm("file"));
+        mWtx.insertAttribute(new QNm("name"), pFile.getFileName().toString());
         mWtx.moveToParent();
         final long nodeKey = mWtx.getNodeKey();
         processFile(mVisitor, mWtx, pFile, pAttrs);

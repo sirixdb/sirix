@@ -47,7 +47,7 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
-import org.sirix.access.DatabaseImpl;
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -1145,30 +1145,35 @@ public final class XMLUpdateShredder implements Callable<Long> {
 			final StartElement paramStartElement) throws SirixException {
 		assert paramStartElement != null;
 		final QName name = paramStartElement.getName();
+		final QNm qName = new QNm(name.getNamespaceURI(), name.getPrefix(),
+				name.getLocalPart());
 		long key;
 
 		if (mInsert == Insert.ASRIGHTSIBLING) {
-			key = mWtx.insertElementAsRightSibling(name).getNodeKey();
+			key = mWtx.insertElementAsRightSibling(qName).getNodeKey();
 		} else {
 			if (paramAdd == EAdd.ASFIRSTCHILD) {
-				key = mWtx.insertElementAsFirstChild(name).getNodeKey();
+				key = mWtx.insertElementAsFirstChild(qName).getNodeKey();
 			} else {
-				key = mWtx.insertElementAsRightSibling(name).getNodeKey();
+				key = mWtx.insertElementAsRightSibling(qName).getNodeKey();
 			}
 		}
 
 		// Parse namespaces.
 		for (final Iterator<?> it = paramStartElement.getNamespaces(); it.hasNext();) {
 			final Namespace namespace = (Namespace) it.next();
-			mWtx.insertNamespace(new QName(namespace.getNamespaceURI(), "", namespace
-					.getPrefix()));
+			mWtx.insertNamespace(new QNm(namespace.getNamespaceURI(), namespace
+					.getPrefix(), ""));
 			mWtx.moveTo(key);
 		}
 
 		// Parse attributes.
 		for (final Iterator<?> it = paramStartElement.getAttributes(); it.hasNext();) {
 			final Attribute attribute = (Attribute) it.next();
-			mWtx.insertAttribute(attribute.getName(), attribute.getValue());
+			final QName attName = attribute.getName();
+			mWtx.insertAttribute(
+					new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName
+							.getLocalPart()), attribute.getValue());
 			mWtx.moveTo(key);
 		}
 	}
@@ -1286,8 +1291,11 @@ public final class XMLUpdateShredder implements Callable<Long> {
 						mDescendantLevel--;
 					}
 
+					final QNm name = mWtx.getName();
+					final QName currName = paramElem.getName();
 					if (mWtx.getKind() == Kind.ELEMENT
-							&& mWtx.getName().equals(paramElem.getName())
+							&& name.getNamespaceURI().equals(currName.getNamespaceURI())
+							&& name.getLocalName().equals(currName.getLocalPart())
 							&& mDescendantLevel == 0) {
 						found = true;
 						lastToCheck = true;
@@ -1324,8 +1332,11 @@ public final class XMLUpdateShredder implements Callable<Long> {
 		boolean retVal = false;
 
 		// Matching element names?
+		final QName name = mEvent.getName();
+		final QNm currName = mWtx.getName();
 		if (mWtx.getKind() == Kind.ELEMENT
-				&& mWtx.getName().equals(mEvent.getName())) {
+				&& currName.getNamespaceURI().equals(name.getNamespaceURI())
+				&& currName.getLocalName().equals(name.getLocalPart())) {
 			// Check if atts and namespaces are the same.
 			final long nodeKey = mWtx.getNodeKey();
 
@@ -1337,7 +1348,10 @@ public final class XMLUpdateShredder implements Callable<Long> {
 				final Attribute attribute = (Attribute) it.next();
 				for (int i = 0, attCount = mWtx.getAttributeCount(); i < attCount; i++) {
 					mWtx.moveToAttribute(i);
-					if (attribute.getName().equals(mWtx.getName())
+					final QName attName = attribute.getName();
+					final QNm currAttName = mWtx.getName();
+					if (attName.getNamespaceURI().equals(currAttName.getNamespaceURI())
+							&& attName.getLocalPart().equals(currAttName.getLocalName())
 							&& attribute.getValue().equals(mWtx.getValue())) {
 						foundAtts = true;
 						mWtx.moveTo(nodeKey);
@@ -1363,12 +1377,18 @@ public final class XMLUpdateShredder implements Callable<Long> {
 				final Namespace namespace = (Namespace) namespIt.next();
 				for (int i = 0, namespCount = mWtx.getNamespaceCount(); i < namespCount; i++) {
 					mWtx.moveToNamespace(i);
-					if (mWtx.getNamespaceURI().equals(mWtx.nameForKey(mWtx.getURIKey()))
-							&& namespace.getPrefix().equals(
-									mWtx.nameForKey(mWtx.getNameKey()))) {
-						foundNamesps = true;
-						mWtx.moveTo(nodeKey);
-						break;
+					if (namespace.getNamespaceURI().equals(
+							mWtx.nameForKey(mWtx.getURIKey()))) {
+						final String prefix = namespace.getPrefix();
+						if (prefix.isEmpty()) {
+							foundNamesps = true;
+							mWtx.moveTo(nodeKey);
+							break;
+						} else if (prefix.equals(mWtx.nameForKey(mWtx.getPrefixKey()))) {
+							foundNamesps = true;
+							mWtx.moveTo(nodeKey);
+							break;
+						}
 					}
 					mWtx.moveTo(nodeKey);
 				}

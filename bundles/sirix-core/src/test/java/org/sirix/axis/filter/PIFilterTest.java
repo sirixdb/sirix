@@ -56,18 +56,18 @@ public class PIFilterTest {
 	public void testIFilterConvetions() throws SirixException {
 		final NodeReadTrx rtx = holder.getRtx();
 		rtx.moveTo(8L);
-		IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
+		FilterTest.testFilterConventions(new PIFilter(rtx), false);
 
 		rtx.moveTo(3L);
-		IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
+		FilterTest.testFilterConventions(new PIFilter(rtx), false);
 
 		rtx.moveTo(1L);
 		rtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
+		FilterTest.testFilterConventions(new PIFilter(rtx), false);
 
 		rtx.moveTo(9L);
 		rtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new PIFilter(rtx), false);
+		FilterTest.testFilterConventions(new PIFilter(rtx), false);
 	}
 
 }

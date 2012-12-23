@@ -6,8 +6,8 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -24,7 +24,7 @@ import org.sirix.settings.Fixed;
  * @author Marc Kramis, Seabix GmbH
  * 
  */
-public abstract class AbstractShredder implements Shredder<String, QName> {
+public abstract class AbstractShredder implements Shredder<String, QNm> {
 
 	/** Sirix {@link NodeWriteTrx}. */
 	private final NodeWriteTrx mWtx;
@@ -102,9 +102,9 @@ public abstract class AbstractShredder implements Shredder<String, QName> {
 	}
 
 	@Override
-	public void processStartTag(final @Nonnull QName elementName)
+	public void processStartTag(final @Nonnull QNm elementName)
 			throws SirixException {
-		final QName name = checkNotNull(elementName);
+		final QNm name = checkNotNull(elementName);
 		long key = -1;
 		switch (mInsertLocation) {
 		case ASFIRSTCHILD:
@@ -142,15 +142,15 @@ public abstract class AbstractShredder implements Shredder<String, QName> {
 	}
 
 	@Override
-	public void processEndTag(final @Nonnull QName elementName) {
+	public void processEndTag(final @Nonnull QNm elementName) {
 		mParents.pop();
 		mWtx.moveTo(mParents.peek());
 	}
 
 	@Override
-	public void processEmptyElement(final @Nonnull QName alementName)
+	public void processEmptyElement(final @Nonnull QNm elementName)
 			throws SirixException {
-		processStartTag(alementName);
-		processEndTag(alementName);
+		processStartTag(elementName);
+		processEndTag(elementName);
 	}
 }

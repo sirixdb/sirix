@@ -56,15 +56,15 @@ public class ValueFilterTest {
 	public void testIFilterConvetions() throws SirixException {
 		final NodeReadTrx rtx = holder.getRtx();
 		rtx.moveTo(4L);
-		IFilterTest.testIFilterConventions(new ValueFilter(rtx, "oops1"), true);
-		IFilterTest.testIFilterConventions(new ValueFilter(rtx, "foo"), false);
+		FilterTest.testFilterConventions(new ValueFilter(rtx, "oops1"), true);
+		FilterTest.testFilterConventions(new ValueFilter(rtx, "foo"), false);
 
 		rtx.moveTo(1L);
 		rtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new ValueFilter(rtx, "j"), true);
+		FilterTest.testFilterConventions(new ValueFilter(rtx, "j"), true);
 
 		rtx.moveTo(3L);
-		IFilterTest.testIFilterConventions(new ValueFilter(rtx, "j"), true);
+		FilterTest.testFilterConventions(new ValueFilter(rtx, "j"), true);
 	}
 
 }

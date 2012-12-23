@@ -59,6 +59,7 @@ import javax.xml.stream.events.Namespace;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffFactory.DiffType;
@@ -68,9 +69,9 @@ import org.sirix.gui.GUIProp;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.DiffAxis;
 import org.sirix.gui.view.View;
-import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.ViewNotifier;
 import org.sirix.gui.view.ViewUtilities;
+import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.service.xml.serialize.StAXSerializer;
 import org.sirix.utils.LogWrapper;
@@ -378,7 +379,7 @@ public final class TextView extends JScrollPane implements View {
 					rtx.moveTo(nNodeKey);
 				}
 
-				if (rtx.nameForKey(rtx.getNameKey()).length() == 0) {
+				if (rtx.nameForKey(rtx.getPrefixKey()).length() == 0) {
 					doc.insertString(
 							doc.getLength(),
 							new StringBuilder().append("xmlns='")
@@ -386,7 +387,7 @@ public final class TextView extends JScrollPane implements View {
 									.toString(), styleNamespaces);
 				} else {
 					doc.insertString(doc.getLength(), new StringBuilder()
-							.append("xmlns:").append(rtx.nameForKey(rtx.getNameKey()))
+							.append("xmlns:").append(rtx.nameForKey(rtx.getPrefixKey()))
 							.append("='").append(rtx.nameForKey(rtx.getURIKey())).append("'")
 							.toString(), styleNamespaces);
 				}
@@ -407,18 +408,18 @@ public final class TextView extends JScrollPane implements View {
 
 				// Display value.
 				final String attPrefix = rtx.getName().getPrefix();
-				final QName attQName = rtx.getName();
+				final QNm attQName = rtx.getName();
 
 				if (attPrefix == null || attPrefix.isEmpty()) {
 					doc.insertString(doc.getLength(),
-							new StringBuilder().append(attQName.getLocalPart()).append("='")
+							new StringBuilder().append(attQName.getLocalName()).append("='")
 									.append(rtx.getValue()).append("'").toString(),
 							styleAttributes);
 				} else {
 					doc.insertString(
 							doc.getLength(),
 							new StringBuilder().append(attPrefix).append(":")
-									.append(attQName.getLocalPart()).append("='")
+									.append(attQName.getLocalName()).append("='")
 									.append(rtx.getValue()).append("'").toString(),
 							styleAttributes);
 				}
@@ -756,11 +757,17 @@ public final class TextView extends JScrollPane implements View {
 		assert pDoc != null;
 		assert pStyleElements != null;
 		final EndElement endTag = pEvent.asEndElement();
+		final QName name = endTag.getName();
 		LOGWRAPPER.debug("endTag: " + endTag);
 		indent(pDoc, pLevel, pIndentSpaces);
-		pDoc.insertString(pDoc.getLength(), new StringBuilder().append("</")
-				.append(ViewUtilities.qNameToString(endTag.getName())).append(">")
-				.append(NEWLINE).toString(), pStyleElements);
+		pDoc.insertString(
+				pDoc.getLength(),
+				new StringBuilder()
+						.append("</")
+						.append(
+								ViewUtilities.qNameToString(new QNm(name.getNamespaceURI(),
+										name.getPrefix(), name.getLocalPart()))).append(">")
+						.append(NEWLINE).toString(), pStyleElements);
 	}
 
 	/**
@@ -780,7 +787,9 @@ public final class TextView extends JScrollPane implements View {
 		assert pHasChild != null;
 
 		try {
-			final String qName = ViewUtilities.qNameToString(pStartTag.getName());
+			final QName name = pStartTag.getName();
+			final String qName = ViewUtilities.qNameToString(new QNm(name
+					.getNamespaceURI(), name.getPrefix(), name.getLocalPart()));
 			pDoc.insertString(pDoc.getLength(), new StringBuilder("<").append(qName)
 					.toString(), pDoc.getStyle("elements"));
 
@@ -814,13 +823,16 @@ public final class TextView extends JScrollPane implements View {
 			for (final Iterator<?> attributes = pStartTag.getAttributes(); attributes
 					.hasNext();) {
 				final Attribute att = (Attribute) attributes.next();
+				final QName attName = att.getName();
 
 				pDoc.insertString(
 						pDoc.getLength(),
 						new StringBuilder()
-								.append(ViewUtilities.qNameToString(att.getName()))
-								.append("=\"").append(att.getValue()).append("\"").toString(),
-						pDoc.getStyle("attributes"));
+								.append(
+										ViewUtilities.qNameToString(new QNm(attName.getNamespaceURI(),
+												attName.getPrefix(), attName.getLocalPart()))).append("=\"")
+								.append(att.getValue()).append("\"").toString(), pDoc
+								.getStyle("attributes"));
 
 				if (attributes.hasNext()) {
 					pDoc.insertString(pDoc.getLength(), " ", pDoc.getStyle("elements"));

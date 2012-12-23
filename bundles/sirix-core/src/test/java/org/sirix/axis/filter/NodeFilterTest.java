@@ -56,14 +56,14 @@ public class NodeFilterTest {
 	public void testIFilterConvetions() throws SirixException {
 		final NodeReadTrx rtx = holder.getRtx();
 		rtx.moveTo(9L);
-		IFilterTest.testIFilterConventions(new NodeFilter(rtx), true);
+		FilterTest.testFilterConventions(new NodeFilter(rtx), true);
 
 		rtx.moveTo(4L);
-		IFilterTest.testIFilterConventions(new NodeFilter(rtx), true);
+		FilterTest.testFilterConventions(new NodeFilter(rtx), true);
 
 		rtx.moveTo(1L);
 		rtx.moveToAttribute(0);
-		IFilterTest.testIFilterConventions(new NodeFilter(rtx), false);
+		FilterTest.testFilterConventions(new NodeFilter(rtx), false);
 	}
 
 }

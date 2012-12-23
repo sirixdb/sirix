@@ -223,7 +223,7 @@ public class Function {
 
 		if (axis.hasNext()) {
 
-			final String name = rtx.getName().getLocalPart();
+			final String name = rtx.getName().getLocalName();
 			if (!name.equals("-1")) {
 				final int itemKey = rtx.getItemList().addItem(
 						new AtomicValue(name, Type.STRING));

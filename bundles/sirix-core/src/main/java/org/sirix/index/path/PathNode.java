@@ -7,6 +7,8 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.util.path.Path;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbstractStructForwardingNode;
@@ -72,6 +74,35 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 		mReferences = references;
 		mLevel = level;
 	}
+	
+	/**
+	 * Get the path up to the root path node.
+	 * 
+	 * @param reader
+	 * 						 {@link PathSummaryReader} instance
+	 * @return path up to the root
+	 */
+	public Path<QNm> getPath(final @Nonnull PathSummaryReader reader) {
+		PathNode node = this;
+		reader.moveTo(node.getNodeKey());
+		final PathNode[] path = new PathNode[mLevel];
+		for (int i = mLevel - 1; i >= 0; i--) {
+			path[i] = node;
+			node = reader.moveToParent().get().getPathNode();
+		}
+
+		final Path<QNm> p = new Path<QNm>();
+		for (PathNode n : path) {
+			reader.moveTo(n.getNodeKey());
+			if (n.getKind() == Kind.ELEMENT) {
+				p.child(reader.getName());
+			} else {
+				p.attribute(reader.getName());
+			}
+		}
+
+		return p;
+	}
 
 	/**
 	 * Level of this path node.
@@ -132,10 +163,15 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	public Kind getKind() {
 		return Kind.PATH;
 	}
+	
+	@Override
+	public int getPrefixKey() {
+		return mNameNodeDel.getPrefixKey();
+	}
 
 	@Override
-	public int getNameKey() {
-		return mNameNodeDel.getNameKey();
+	public int getLocalNameKey() {
+		return mNameNodeDel.getLocalNameKey();
 	}
 
 	@Override
@@ -144,8 +180,13 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	}
 
 	@Override
-	public void setNameKey(final int nameKey) {
-		mNameNodeDel.setNameKey(nameKey);
+	public void setLocalNameKey(final int nameKey) {
+		mNameNodeDel.setLocalNameKey(nameKey);
+	}
+	
+	@Override
+	public void setPrefixKey(final int prefixKey) {
+		mNameNodeDel.setPrefixKey(prefixKey);
 	}
 
 	@Override

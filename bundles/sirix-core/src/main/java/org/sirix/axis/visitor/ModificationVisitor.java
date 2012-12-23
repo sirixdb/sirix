@@ -10,6 +10,7 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLStreamException;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.AbstractVisitor;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.visitor.VisitResult;
@@ -112,7 +113,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 			try {
 				switch (mRandom.nextInt(4)) {
 				case 0:
-					final QName insert = new QName("testInsert");
+					final QNm insert = new QNm("testInsert");
 					final long key = mWtx.getNodeKey();
 					mWtx.insertElementAsLeftSibling(insert);
 					boolean moved = mWtx.moveTo(key).hasMoved();
@@ -122,7 +123,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 					if (mWtx.getKind() == Kind.TEXT) {
 						mWtx.setValue("testUpdate");
 					} else if (mWtx.getKind() == Kind.ELEMENT) {
-						mWtx.setName(new QName("testUpdate"));
+						mWtx.setName(new QNm("testUpdate"));
 					}
 					return VisitResultType.CONTINUE;
 				case 2:

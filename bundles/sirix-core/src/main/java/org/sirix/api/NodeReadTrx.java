@@ -31,8 +31,8 @@ import java.util.List;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
 import org.sirix.exception.SirixException;
@@ -193,11 +193,11 @@ public interface NodeReadTrx extends NodeCursor {
 	 * Move cursor to attribute by its name key.
 	 * 
 	 * @param name
-	 *          {@link QName} of attribute
+	 *          {@link QNm} of attribute
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
 	 */
-	Move<? extends NodeReadTrx> moveToAttributeByName(@Nonnull QName name);
+	Move<? extends NodeReadTrx> moveToAttributeByName(@Nonnull QNm name);
 
 	/**
 	 * Move cursor to namespace declaration by its index.
@@ -232,9 +232,9 @@ public interface NodeReadTrx extends NodeCursor {
 	/**
 	 * Getting the name of a current node.
 	 * 
-	 * @return the {@link QName} of the node
+	 * @return the {@link QNm} of the node
 	 */
-	QName getName();
+	QNm getName();
 
 	/**
 	 * Getting the type of the current node.
@@ -394,14 +394,31 @@ public interface NodeReadTrx extends NodeCursor {
 	 * @return {@code true}, if it is, {@code false} otherwise
 	 */
 	boolean isNameNode();
+	
+	/**
+	 * Get the URI-key of a node.
+	 * 
+	 * @return URI-key of the currently selected node, or {@code -1} if it is not
+	 *         a node with a name (element, attribute, namespace, processing
+	 *         instruction)
+	 */
+	int getURIKey();
 
 	/**
-	 * Name key of currently selected node.
+	 * Prefix key of currently selected node.
 	 * 
-	 * @return name key of currently selected node, or 0 if it is not a node with
+	 * @return name key of currently selected node, or {@code -1} if it is not a node with
 	 *         a name
 	 */
-	int getNameKey();
+	int getPrefixKey();
+	
+	/**
+	 * LocalName key of currently selected node.
+	 * 
+	 * @return name key of currently selected node, or {@code -1} if it is not a node with
+	 *         a name
+	 */
+	int getLocalNameKey();
 
 	/**
 	 * Get the {@link Session} this instance is bound to.
@@ -499,15 +516,6 @@ public interface NodeReadTrx extends NodeCursor {
 	 * @return {@code true} if it has a value, {@code false} otherwise
 	 */
 	boolean isValueNode();
-
-	/**
-	 * Get the URI-key of a node.
-	 * 
-	 * @return URI-key of the currently selected node, or {@code -1} if it is not
-	 *         a node with a name (element, attribute, namespace, processing
-	 *         instruction)
-	 */
-	int getURIKey();
 
 	/**
 	 * Get the hash of the currently selected node.

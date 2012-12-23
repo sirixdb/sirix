@@ -29,6 +29,7 @@ package org.sirix.access;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
@@ -345,9 +346,8 @@ public enum InsertPos {
 			assert wtx.getKind() == Kind.ELEMENT;
 			switch (rtx.getKind()) {
 			case NAMESPACE:
-				final QName name = rtx.getName();
-				wtx.insertNamespace(new QName(name.getNamespaceURI(), "", name
-						.getLocalPart()));
+				final QNm name = rtx.getName();
+				wtx.insertNamespace(new QNm(name.getNamespaceURI(), name.getLocalName(), ""));
 				wtx.moveToParent();
 				break;
 			case ATTRIBUTE:

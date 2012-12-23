@@ -37,6 +37,7 @@ import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLStreamException;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.TestHelper;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
@@ -178,30 +179,30 @@ public final class DocumentCreater {
 		assertNotNull(wtx);
 		assertTrue(wtx.moveToDocumentRoot().hasMoved());
 
-		wtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
-		wtx.insertNamespace(new QName("ns", "xmlns", "p"));
+		wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
+		wtx.insertNamespace(new QNm("ns", "p", "xmlns"));
 		assertTrue(wtx.moveToParent().hasMoved());
-		wtx.insertAttribute(new QName("i"), "j");
+		wtx.insertAttribute(new QNm("i"), "j");
 		assertTrue(wtx.moveToParent().hasMoved());
 
 		wtx.insertCommentAsFirstChild("foo");
 		wtx.insertTextAsRightSibling("oops1");
 
-		wtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertElementAsRightSibling(new QNm("b"));
 
 		wtx.insertTextAsFirstChild("foo");
-		wtx.insertElementAsRightSibling(new QName("c"));
+		wtx.insertElementAsRightSibling(new QNm("c"));
 		assertTrue(wtx.moveToParent().hasMoved());
 		assertEquals(2l, wtx.getDescendantCount());
 
 		wtx.insertPIAsRightSibling("bar", "baz=\"foo\"");
 		wtx.insertTextAsRightSibling("oops2");
 
-		wtx.insertElementAsRightSibling(new QName("b"));
-		wtx.insertAttribute(new QName("ns", "x", "p"), "y");
+		wtx.insertElementAsRightSibling(new QNm("b"));
+		wtx.insertAttribute(new QNm("ns", "p", "x"), "y");
 		assertTrue(wtx.moveToParent().hasMoved());
 
-		wtx.insertElementAsFirstChild(new QName("c"));
+		wtx.insertElementAsFirstChild(new QNm("c"));
 		wtx.insertTextAsRightSibling("bar");
 		assertTrue(wtx.moveToParent().hasMoved());
 
@@ -224,27 +225,27 @@ public final class DocumentCreater {
 		assertNotNull(wtx);
 		assertTrue(wtx.moveToDocumentRoot().hasMoved());
 
-		wtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
-		wtx.insertNamespace(new QName("ns", "xmlns", "p"));
+		wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
+		wtx.insertNamespace(new QNm("ns", "p", ""));
 		assertTrue(wtx.moveToParent().hasMoved());
-		wtx.insertAttribute(new QName("i"), "j");
+		wtx.insertAttribute(new QNm("i"), "j");
 		assertTrue(wtx.moveToParent().hasMoved());
 
 		wtx.insertTextAsFirstChild("oops1");
 
-		wtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertElementAsRightSibling(new QNm("b"));
 
 		wtx.insertTextAsFirstChild("foo");
-		wtx.insertElementAsRightSibling(new QName("c"));
+		wtx.insertElementAsRightSibling(new QNm("c"));
 		assertTrue(wtx.moveToParent().hasMoved());
 
 		wtx.insertTextAsRightSibling("oops2");
 
-		wtx.insertElementAsRightSibling(new QName("b"));
-		wtx.insertAttribute(new QName("ns", "x", "p"), "y");
+		wtx.insertElementAsRightSibling(new QNm("b"));
+		wtx.insertAttribute(new QNm("ns", "p", "x"), "y");
 		assertTrue(wtx.moveToParent().hasMoved());
 
-		wtx.insertElementAsFirstChild(new QName("c"));
+		wtx.insertElementAsFirstChild(new QNm("c"));
 		wtx.insertTextAsRightSibling("bar");
 		assertTrue(wtx.moveToParent().hasMoved());
 
@@ -269,7 +270,7 @@ public final class DocumentCreater {
 		for (int i = 0; i <= 1; i++) {
 			wtx.moveToDocumentRoot();
 			wtx.moveToFirstChild();
-			wtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
+			wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
 			wtx.insertTextAsFirstChild("OOPS4!");
 			wtx.commit();
 		}
@@ -288,15 +289,15 @@ public final class DocumentCreater {
 			throws SirixException {
 		assertNotNull(wtx);
 		wtx.moveToDocumentRoot();
-		wtx.insertElementAsFirstChild(new QName("ns", "a", "p"));
+		wtx.insertElementAsFirstChild(new QNm("ns", "p", "a"));
 		wtx.insertTextAsFirstChild("oops1");
-		wtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertElementAsRightSibling(new QNm("b"));
 		wtx.insertTextAsFirstChild("foo");
-		wtx.insertElementAsRightSibling(new QName("c"));
+		wtx.insertElementAsRightSibling(new QNm("c"));
 		wtx.moveToParent();
 		wtx.insertTextAsRightSibling("oops2");
-		wtx.insertElementAsRightSibling(new QName("b"));
-		wtx.insertElementAsFirstChild(new QName("c"));
+		wtx.insertElementAsRightSibling(new QNm("b"));
+		wtx.insertElementAsFirstChild(new QNm("c"));
 		wtx.insertTextAsRightSibling("bar");
 		wtx.moveToParent();
 		wtx.insertTextAsRightSibling("oops3");
@@ -316,19 +317,19 @@ public final class DocumentCreater {
 			throws SirixException {
 		assertNotNull(wtx);
 		wtx.moveToDocumentRoot();
-		wtx.insertElementAsFirstChild(new QName("a"));
-		wtx.insertAttribute(new QName("i"), "j");
+		wtx.insertElementAsFirstChild(new QNm("a"));
+		wtx.insertAttribute(new QNm("i"), "j");
 		wtx.moveToParent();
 		wtx.insertTextAsFirstChild("oops1");
-		wtx.insertElementAsRightSibling(new QName("b"));
+		wtx.insertElementAsRightSibling(new QNm("b"));
 		wtx.insertTextAsFirstChild("foo");
-		wtx.insertElementAsRightSibling(new QName("c"));
+		wtx.insertElementAsRightSibling(new QNm("c"));
 		wtx.moveToParent();
 		wtx.insertTextAsRightSibling("oops2");
-		wtx.insertElementAsRightSibling(new QName("b"));
-		wtx.insertAttribute(new QName("x"), "y");
+		wtx.insertElementAsRightSibling(new QNm("b"));
+		wtx.insertAttribute(new QNm("x"), "y");
 		wtx.moveToParent();
-		wtx.insertElementAsFirstChild(new QName("c"));
+		wtx.insertElementAsFirstChild(new QNm("c"));
 		wtx.insertTextAsRightSibling("bar");
 		wtx.moveToParent();
 		wtx.insertTextAsRightSibling("oops3");
@@ -369,12 +370,12 @@ public final class DocumentCreater {
 		secondWtx.moveToFirstChild();
 		secondWtx.moveToRightSibling();
 		final long key = secondWtx.getNodeKey();
-		secondWtx.insertAttribute(new QName("role"), "bold");
+		secondWtx.insertAttribute(new QNm("role"), "bold");
 		secondWtx.moveTo(key);
 		secondWtx.moveToRightSibling();
 		secondWtx.setValue("changed in it.");
 		secondWtx.moveToParent();
-		secondWtx.insertElementAsRightSibling(new QName("para"));
+		secondWtx.insertElementAsRightSibling(new QNm("para"));
 		secondWtx.insertTextAsFirstChild("This is a new para 2b.");
 		secondWtx.moveToParent();
 		secondWtx.moveToRightSibling();
@@ -382,7 +383,7 @@ public final class DocumentCreater {
 		secondWtx.moveToFirstChild();
 		secondWtx.setValue("This is a different para 4.");
 		secondWtx.moveToParent();
-		secondWtx.insertElementAsRightSibling(new QName("para"));
+		secondWtx.insertElementAsRightSibling(new QNm("para"));
 		secondWtx.insertTextAsFirstChild("This is a new para 4b.");
 		secondWtx.moveToParent();
 		secondWtx.moveToRightSibling();

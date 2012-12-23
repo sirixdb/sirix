@@ -6,11 +6,13 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.util.path.Path;
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
 import org.sirix.api.ItemList;
@@ -27,6 +29,7 @@ import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;
 import org.sirix.node.SirixDeweyID;
+import org.sirix.node.immutable.ImmutableDocument;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
@@ -37,7 +40,6 @@ import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.NamePageHash;
-import org.sirix.utils.Util;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Objects;
@@ -151,10 +153,20 @@ public final class PathSummaryReader implements NodeReadTrx {
 	public ImmutableNode getNode() {
 		assertNotClosed();
 		if (mCurrentNode instanceof DocumentRootNode) {
-			// TODO: Provide an immutable doc.
-			return mCurrentNode;
+			return ImmutableDocument.of((DocumentRootNode) mCurrentNode);
 		}
-		return new ImmutablePathNode((PathNode) mCurrentNode);
+		return ImmutablePathNode.of((PathNode) mCurrentNode);
+	}
+
+	/**
+	 * Get path class records for the specified path
+	 * 
+	 * @param path
+	 *          the path for which to get a set of PCRs
+	 * @return set of PCRs belonging to the specified path
+	 */
+	public Set<Long> getPCRsForPath(final @Nonnull Path<QNm> path) {
+		return null;
 	}
 
 	@Override
@@ -172,7 +184,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 * 
 	 * @return {@link PathNode} reference or null for the document root.
 	 */
-	private PathNode getPathNode() {
+	public PathNode getPathNode() {
 		assertNotClosed();
 		if (mCurrentNode instanceof PathNode) {
 			return (PathNode) mCurrentNode;
@@ -308,7 +320,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	@Override
 	public Move<? extends PathSummaryReader> moveToAttributeByName(
-			@Nonnull QName name) {
+			@Nonnull QNm name) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -333,15 +345,18 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public QName getName() {
+	public QNm getName() {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
-			final String name = mPageReadTrx.getName(
-					((NameNode) mCurrentNode).getNameKey(),
-					((PathNode) mCurrentNode).getPathKind());
 			final String uri = mPageReadTrx.getName(
 					((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
-			return Util.buildQName(uri, name);
+			final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
+			final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(
+					prefixKey, ((PathNode) mCurrentNode).getPathKind());
+			final int localNameKey = ((NameNode) mCurrentNode).getLocalNameKey();
+			final String localName = localNameKey == -1 ? "" : mPageReadTrx.getName(
+					localNameKey, ((PathNode) mCurrentNode).getPathKind());
+			return new QNm(uri, prefix, localName);
 		} else {
 			return null;
 		}
@@ -435,8 +450,12 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 		if (mCurrentNode instanceof PathNode) {
 			final PathNode node = (PathNode) mCurrentNode;
-			helper.add("QName",
-					mPageReadTrx.getName(node.getNameKey(), node.getPathKind()));
+			helper.add("uri",
+					mPageReadTrx.getName(node.getURIKey(), node.getPathKind()));
+			helper.add("prefix",
+					mPageReadTrx.getName(node.getPrefixKey(), node.getPathKind()));
+			helper.add("localName",
+					mPageReadTrx.getName(node.getLocalNameKey(), node.getPathKind()));
 		}
 
 		helper.add("node", mCurrentNode);
@@ -575,16 +594,6 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public int getNameKey() {
-		assertNotClosed();
-		if (mCurrentNode instanceof NameNode) {
-			return ((NameNode) mCurrentNode).getNameKey();
-		}
-		// The document root has no name.
-		return -1;
-	}
-
-	@Override
 	public int getTypeKey() {
 		assertNotClosed();
 		return mCurrentNode.getTypeKey();
@@ -622,6 +631,24 @@ public final class PathSummaryReader implements NodeReadTrx {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
 			return ((NameNode) mCurrentNode).getURIKey();
+		}
+		return -1;
+	}
+
+	@Override
+	public int getPrefixKey() {
+		assertNotClosed();
+		if (mCurrentNode instanceof NameNode) {
+			return ((NameNode) mCurrentNode).getPrefixKey();
+		}
+		return -1;
+	}
+
+	@Override
+	public int getLocalNameKey() {
+		assertNotClosed();
+		if (mCurrentNode instanceof NameNode) {
+			return ((NameNode) mCurrentNode).getLocalNameKey();
 		}
 		return -1;
 	}

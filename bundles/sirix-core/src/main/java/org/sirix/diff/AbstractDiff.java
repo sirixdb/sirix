@@ -337,8 +337,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 			final @Nonnull Revision pRevision) {
 		boolean moved = false;
 		if (pRtx.hasFirstChild()) {
-			if (pRtx.getKind() != Kind.DOCUMENT
-					&& mDiffKind == DiffOptimized.HASHED && mDiff == DiffType.SAMEHASH) {
+			if (pRtx.getKind() != Kind.DOCUMENT && mDiffKind == DiffOptimized.HASHED
+					&& mDiff == DiffType.SAMEHASH) {
 				moved = pRtx.moveToRightSibling().hasMoved();
 
 				if (!moved) {
@@ -588,26 +588,27 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 	/**
 	 * Check {@link QName} of nodes.
 	 * 
-	 * @param pNewRtx
+	 * @param newRtx
 	 *          {@link NodeReadTrx} on new revision
-	 * @param pOldRtx
+	 * @param oldRtx
 	 *          {@link NodeReadTrx} on old revision
 	 * @return {@code true} if nodes are "equal" according to their {@link QName}
 	 *         s, {@code false
 
 	 */
-	boolean checkName(final @Nonnull NodeReadTrx pNewRtx,
-			final @Nonnull NodeReadTrx pOldRtx) {
+	boolean checkName(final @Nonnull NodeReadTrx newRtx,
+			final @Nonnull NodeReadTrx oldRtx) {
 		boolean found = false;
-		if (pNewRtx.getKind() == pOldRtx.getKind()) {
-			switch (pNewRtx.getKind()) {
+		if (newRtx.getKind() == oldRtx.getKind()) {
+			switch (newRtx.getKind()) {
 			case ELEMENT:
-				if (pNewRtx.getNameKey() == pOldRtx.getNameKey()) {
+				if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
+						&& newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()) {
 					found = true;
 				}
 				break;
 			case TEXT:
-				if (pNewRtx.getValue().equals(pOldRtx.getValue())) {
+				if (newRtx.getValue().equals(oldRtx.getValue())) {
 					found = true;
 				}
 				break;

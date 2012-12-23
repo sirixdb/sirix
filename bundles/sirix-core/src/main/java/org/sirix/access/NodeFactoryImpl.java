@@ -7,8 +7,8 @@ import java.util.zip.Deflater;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeFactory;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixIOException;
@@ -67,13 +67,17 @@ public class NodeFactoryImpl implements NodeFactory {
 	@Override
 	public PathNode createPathNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final long rightSibKey,
-			final long hash, @Nonnull final QName name, @Nonnull final Kind kind,
+			final long hash, @Nonnull final QNm name, @Nonnull final Kind kind,
 			final @Nonnegative int level) throws SirixIOException {
-		final int nameKey = kind == Kind.NAMESPACE ? NamePageHash
-				.generateHashForString(name.getPrefix()) : NamePageHash
-				.generateHashForString(Utils.buildName(name));
+
 		final int uriKey = NamePageHash.generateHashForString(name
 				.getNamespaceURI());
+		final int prefixKey = name.getPrefix() != null
+				&& !name.getPrefix().isEmpty() ? NamePageHash
+				.generateHashForString(name.getPrefix()) : -1;
+		final int localName = name.getLocalName() != null
+				&& !name.getLocalName().isEmpty() ? NamePageHash
+				.generateHashForString(name.getLocalName()) : -1;
 
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
@@ -82,8 +86,8 @@ public class NodeFactoryImpl implements NodeFactory {
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0,
 				0);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
-				uriKey, 0);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey,
+				prefixKey, localName, 0);
 
 		return (PathNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
 				new PathNode(nodeDel, structDel, nameDel, kind, 1, level),
@@ -93,13 +97,17 @@ public class NodeFactoryImpl implements NodeFactory {
 	@Override
 	public ElementNode createElementNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final long hash, @Nonnull final QName name,
+			final long hash, @Nonnull final QNm name,
 			final @Nonnegative long pathNodeKey,
 			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
-		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(name),
+		final int uriKey = name.getNamespaceURI() != null
+				&& !name.getNamespaceURI().isEmpty() ? mPageWriteTrx.createNameKey(name.getNamespaceURI(),
+				Kind.NAMESPACE) : -1;
+		final int prefixKey = name.getPrefix() != null
+				&& !name.getPrefix().isEmpty() ? mPageWriteTrx.createNameKey(
+				name.getPrefix(), Kind.ELEMENT) : -1;
+		final int localNameKey = mPageWriteTrx.createNameKey(name.getLocalName(),
 				Kind.ELEMENT);
-		final int uriKey = mPageWriteTrx.createNameKey(name.getNamespaceURI(),
-				Kind.NAMESPACE);
 
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
@@ -108,14 +116,14 @@ public class NodeFactoryImpl implements NodeFactory {
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0,
 				0);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
-				uriKey, pathNodeKey);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey,
+				prefixKey, localNameKey, pathNodeKey);
 
 		return (ElementNode) mPageWriteTrx.createEntry(
 				nodeDel.getNodeKey(),
 				new ElementNode(structDel, nameDel, new ArrayList<Long>(), HashBiMap
-						.<Integer, Long> create(), new ArrayList<Long>()),
-				PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
+						.<Long, Long> create(), new ArrayList<Long>()), PageKind.NODEPAGE,
+				Optional.<UnorderedKeyValuePage> absent());
 	}
 
 	@Override
@@ -142,19 +150,23 @@ public class NodeFactoryImpl implements NodeFactory {
 
 	@Override
 	public AttributeNode createAttributeNode(final @Nonnegative long parentKey,
-			@Nonnull final QName name, @Nonnull final byte[] value,
+			@Nonnull final QNm name, @Nonnull final byte[] value,
 			final @Nonnegative long pathNodeKey,
 			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
-		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(name),
-				Kind.ATTRIBUTE);
 		final int uriKey = mPageWriteTrx.createNameKey(name.getNamespaceURI(),
 				Kind.NAMESPACE);
+		final int prefixKey = name.getPrefix() != null
+				&& !name.getPrefix().isEmpty() ? mPageWriteTrx.createNameKey(
+				name.getPrefix(), Kind.ATTRIBUTE) : -1;
+		final int localNameKey = mPageWriteTrx.createNameKey(name.getLocalName(),
+				Kind.ATTRIBUTE);
+
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
 				revision, id);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
-				uriKey, pathNodeKey);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey,
+				prefixKey, localNameKey, pathNodeKey);
 		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, value, false);
 
 		return (AttributeNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
@@ -171,8 +183,8 @@ public class NodeFactoryImpl implements NodeFactory {
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
 				revision, id);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, prefixKey,
-				uriKey, pathNodeKey);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey,
+				prefixKey, -1, pathNodeKey);
 
 		return (NamespaceNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
 				new NamespaceNode(nodeDel, nameDel), PageKind.NODEPAGE,
@@ -182,11 +194,15 @@ public class NodeFactoryImpl implements NodeFactory {
 	@Override
 	public PINode createPINode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final @Nonnull QName target, final @Nonnull byte[] content,
+			final @Nonnull QNm target, final @Nonnull byte[] content,
 			final boolean isCompressed, final @Nonnegative long pathNodeKey,
 			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
-		final int nameKey = mPageWriteTrx.createNameKey(Utils.buildName(target),
+
+		final int prefixKey = target.getPrefix() != null
+				&& !target.getPrefix().isEmpty() ? mPageWriteTrx.createNameKey(
+				target.getPrefix(), Kind.PROCESSING_INSTRUCTION) : -1;
+		final int localNameKey = mPageWriteTrx.createNameKey(target.getLocalName(),
 				Kind.PROCESSING_INSTRUCTION);
 		final int uriKey = mPageWriteTrx.createNameKey(target.getNamespaceURI(),
 				Kind.NAMESPACE);
@@ -196,8 +212,8 @@ public class NodeFactoryImpl implements NodeFactory {
 		final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0,
 				0);
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, nameKey,
-				uriKey, pathNodeKey);
+		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey,
+				prefixKey, localNameKey, pathNodeKey);
 		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, content, false);
 
 		return (PINode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new PINode(

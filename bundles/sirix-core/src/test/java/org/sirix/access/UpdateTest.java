@@ -34,9 +34,9 @@ import static org.junit.Assert.assertTrue;
 import java.io.IOException;
 import java.util.Iterator;
 
-import javax.xml.namespace.QName;
 import javax.xml.stream.XMLStreamException;
 
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -84,7 +84,7 @@ public class UpdateTest {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
 		DocumentCreater.create(wtx);
 		wtx.moveTo(4);
-		wtx.insertElementAsRightSibling(new QName("blabla"));
+		wtx.insertElementAsRightSibling(new QNm("blabla"));
 		wtx.moveTo(5);
 		wtx.remove();
 		assertEquals(8, wtx.getNodeKey());
@@ -150,14 +150,14 @@ public class UpdateTest {
 	@Test
 	public void testNodeTransactionIsolation() throws SirixException {
 		NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-		wtx.insertElementAsFirstChild(new QName(""));
+		wtx.insertElementAsFirstChild(new QNm(""));
 		testNodeTransactionIsolation(wtx);
 		wtx.commit();
 		testNodeTransactionIsolation(wtx);
 		NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
 		testNodeTransactionIsolation(rtx);
 		wtx.moveToFirstChild();
-		wtx.insertElementAsFirstChild(new QName(""));
+		wtx.insertElementAsFirstChild(new QNm(""));
 		testNodeTransactionIsolation(rtx);
 		wtx.commit();
 		testNodeTransactionIsolation(rtx);
@@ -205,9 +205,9 @@ public class UpdateTest {
 				.beginNodeReadTrx(0);
 		assertEquals(0, rtx.getRevisionNumber());
 		assertTrue(rtx.moveTo(7).hasMoved());
-		assertEquals("c", rtx.getName().getLocalPart());
+		assertEquals("c", rtx.getName().getLocalName());
 		assertTrue(rtx.moveTo(11).hasMoved());
-		assertEquals("c", rtx.getName().getLocalPart());
+		assertEquals("c", rtx.getName().getLocalName());
 		rtx = (NodeReadTrxImpl) holder.getSession().beginNodeReadTrx();
 		assertEquals(1, rtx.getRevisionNumber());
 		assertEquals(
@@ -323,7 +323,7 @@ public class UpdateTest {
 	@Test
 	public void testInsertChild() throws SirixException {
 		NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-		wtx.insertElementAsFirstChild(new QName("foo"));
+		wtx.insertElementAsFirstChild(new QNm("foo"));
 		wtx.commit();
 		wtx.close();
 
@@ -336,7 +336,7 @@ public class UpdateTest {
 			wtx = holder.getSession().beginNodeWriteTrx();
 			wtx.moveToDocumentRoot();
 			wtx.moveToFirstChild();
-			wtx.insertElementAsFirstChild(new QName("bar"));
+			wtx.insertElementAsFirstChild(new QNm("bar"));
 			wtx.insertTextAsRightSibling(Integer.toString(i));
 			wtx.commit();
 			wtx.close();
@@ -369,11 +369,11 @@ public class UpdateTest {
 
 		wtx = holder.getSession().beginNodeWriteTrx();
 		assertTrue(wtx.moveToDocumentRoot().hasMoved());
-		assertEquals(1L, wtx.insertElementAsFirstChild(new QName("")).getNodeKey());
-		assertEquals(2L, wtx.insertElementAsFirstChild(new QName("")).getNodeKey());
-		assertEquals(3L, wtx.insertElementAsFirstChild(new QName("")).getNodeKey());
+		assertEquals(1L, wtx.insertElementAsFirstChild(new QNm("")).getNodeKey());
+		assertEquals(2L, wtx.insertElementAsFirstChild(new QNm("")).getNodeKey());
+		assertEquals(3L, wtx.insertElementAsFirstChild(new QNm("")).getNodeKey());
 		assertTrue(wtx.moveToParent().hasMoved());
-		assertEquals(4L, wtx.insertElementAsRightSibling(new QName(""))
+		assertEquals(4L, wtx.insertElementAsRightSibling(new QNm(""))
 				.getNodeKey());
 		wtx.commit();
 		wtx.close();
@@ -381,7 +381,7 @@ public class UpdateTest {
 		final NodeWriteTrx wtx2 = holder.getSession().beginNodeWriteTrx();
 		assertTrue(wtx2.moveToDocumentRoot().hasMoved());
 		assertTrue(wtx2.moveToFirstChild().hasMoved());
-		assertEquals(5L, wtx2.insertElementAsFirstChild(new QName("")).getNodeKey());
+		assertEquals(5L, wtx2.insertElementAsFirstChild(new QNm("")).getNodeKey());
 		wtx2.commit();
 		wtx2.close();
 	}
@@ -391,10 +391,10 @@ public class UpdateTest {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
 
 		// Document root.
-		wtx.insertElementAsFirstChild(new QName(""));
-		wtx.insertElementAsFirstChild(new QName(""));
-		for (int i = 0; i < 256 * 256 + 1; i++) {
-			wtx.insertElementAsRightSibling(new QName(""));
+		wtx.insertElementAsFirstChild(new QNm(""));
+		wtx.insertElementAsFirstChild(new QNm(""));
+		for (int i = 0; i < 512 << 1 + 1; i++) {
+			wtx.insertElementAsRightSibling(new QNm(""));
 		}
 
 		testPageBoundary(wtx);
@@ -585,7 +585,7 @@ public class UpdateTest {
 		assertTrue(rtx.moveToRightSibling().hasMoved());
 		assertEquals(4, rtx.getLeftSiblingKey());
 		assertEquals(8, rtx.getRightSiblingKey());
-		assertEquals("c", rtx.getName().getLocalPart());
+		assertEquals("c", rtx.getName().getLocalName());
 		assertTrue(rtx.moveToRightSibling().hasMoved());
 		assertEquals(14, rtx.getLeftSiblingKey());
 		assertTrue(rtx.moveTo(1).hasMoved());
@@ -619,7 +619,7 @@ public class UpdateTest {
 	private final static void testReplaceElement(final NodeReadTrx rtx)
 			throws SirixException {
 		assertTrue(rtx.moveTo(14).hasMoved());
-		assertEquals("d", rtx.getName().getLocalPart());
+		assertEquals("d", rtx.getName().getLocalName());
 		assertTrue(rtx.moveTo(4).hasMoved());
 		assertEquals(14, rtx.getRightSiblingKey());
 		assertTrue(rtx.moveToRightSibling().hasMoved());
@@ -1131,17 +1131,17 @@ public class UpdateTest {
 		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(),
 				rtx.getLeftSiblingKey());
 		assertEquals(11, rtx.getRightSiblingKey());
-		assertEquals("b", rtx.getName().getLocalPart());
+		assertEquals("b", rtx.getName().getLocalName());
 		assertTrue(rtx.moveTo(4).hasMoved());
 		assertEquals(5, rtx.getRightSiblingKey());
 		assertTrue(rtx.moveTo(5).hasMoved());
-		assertEquals("b", rtx.getName().getLocalPart());
+		assertEquals("b", rtx.getName().getLocalName());
 		assertTrue(rtx.moveTo(14).hasMoved());
 		assertEquals(15, rtx.getFirstChildKey());
 		assertTrue(rtx.moveTo(15).hasMoved());
 		assertEquals("foo", rtx.getValue());
 		assertTrue(rtx.moveTo(16).hasMoved());
-		assertEquals("c", rtx.getName().getLocalPart());
+		assertEquals("c", rtx.getName().getLocalName());
 		assertFalse(rtx.moveTo(17).hasMoved());
 		assertEquals(16, rtx.getNodeKey());
 		assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -1188,7 +1188,7 @@ public class UpdateTest {
 		assertEquals("foo", rtx.getValue());
 		assertEquals(16, rtx.getRightSiblingKey());
 		assertTrue(rtx.moveToRightSibling().hasMoved());
-		assertEquals("c", rtx.getName().getLocalPart());
+		assertEquals("c", rtx.getName().getLocalName());
 		assertTrue(rtx.moveTo(4).hasMoved());
 		assertEquals(5, rtx.getRightSiblingKey());
 		assertTrue(rtx.moveTo(5).hasMoved());

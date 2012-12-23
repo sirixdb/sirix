@@ -35,6 +35,7 @@ import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Movement;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -377,14 +378,14 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * cursor is moved to the inserted node.
 	 * 
 	 * @param name
-	 *          {@link QName} of node to insert
+	 *          {@link QNm} of node to insert
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
 	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsFirstChild(@Nonnull QName name)
+	NodeWriteTrx insertElementAsFirstChild(@Nonnull QNm name)
 			throws SirixException;
 
 	/**
@@ -392,14 +393,14 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * cursor is moved to the inserted node.
 	 * 
 	 * @param pName
-	 *          {@link QName} of node to insert
+	 *          {@link QNm} of node to insert
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as first child
 	 * @throws NullPointerException
 	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsLeftSibling(@Nonnull QName name)
+	NodeWriteTrx insertElementAsLeftSibling(@Nonnull QNm name)
 			throws SirixException;
 
 	/**
@@ -407,14 +408,14 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * transaction is moved to the inserted node.
 	 * 
 	 * @param name
-	 *          {@link QName} of the new node
+	 *          {@link QNm} of the new node
 	 * @throws SirixException
 	 *           if element node couldn't be inserted as right sibling
 	 * @throws NullPointerException
 	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsRightSibling(@Nonnull QName name)
+	NodeWriteTrx insertElementAsRightSibling(@Nonnull QNm name)
 			throws SirixException;
 
 	/**
@@ -469,7 +470,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * inserted node.
 	 * 
 	 * @param name
-	 *          {@link QName} reference
+	 *          {@link QNm} reference
 	 * @param value
 	 *          value of inserted node
 	 * @throws SirixException
@@ -478,7 +479,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} or {@code value} is null
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertAttribute(@Nonnull QName name, @Nonnull String value)
+	NodeWriteTrx insertAttribute(@Nonnull QNm name, @Nonnull String value)
 			throws SirixException;
 
 	/**
@@ -486,7 +487,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * on the value of {@code pMove}.
 	 * 
 	 * @param name
-	 *          {@link QName} reference
+	 *          {@link QNm} reference
 	 * @param value
 	 *          value of inserted node
 	 * @throws SirixException
@@ -495,7 +496,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} or {@code value} is null
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertAttribute(@Nonnull QName name, @Nonnull String value,
+	NodeWriteTrx insertAttribute(@Nonnull QNm name, @Nonnull String value,
 			@Nonnull Movement move) throws SirixException;
 
 	/**
@@ -503,28 +504,28 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * moved to the inserted node.
 	 * 
 	 * @param name
-	 *          {@link QName} reference
+	 *          {@link QNm} reference
 	 * @throws SirixException
 	 *           if attribute couldn't be inserted
 	 * @throws NullPointerException
 	 *           if {@code name} is null
 	 * @return the current transaction
 	 */
-	NodeWriteTrx insertNamespace(@Nonnull QName name) throws SirixException;
+	NodeWriteTrx insertNamespace(@Nonnull QNm name) throws SirixException;
 
 	/**
 	 * Insert namespace declaration in currently selected node. The cursor is
 	 * moved depending on the value of {@code pMove}.
 	 * 
 	 * @param pName
-	 *          {@link QName} reference
+	 *          {@link QNm} reference
 	 * @return the current transaction
 	 * @throws SirixException
 	 *           if attribute couldn't be inserted
 	 * @throws NullPointerException
 	 *           if {@code name} or {@code move} is null
 	 */
-	NodeWriteTrx insertNamespace(@Nonnull QName name, @Nonnull Movement move)
+	NodeWriteTrx insertNamespace(@Nonnull QNm name, @Nonnull Movement move)
 			throws SirixException;
 
 /**
@@ -575,7 +576,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code pName} is {@code null}
 	 */
-	NodeWriteTrx setName(@Nonnull QName name) throws SirixException;
+	NodeWriteTrx setName(@Nonnull QNm name) throws SirixException;
 
 	/**
 	 * Set value of node.

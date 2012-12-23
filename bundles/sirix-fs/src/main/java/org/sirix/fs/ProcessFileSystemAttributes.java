@@ -1,17 +1,16 @@
 package org.sirix.fs;
 
-import com.google.common.base.Optional;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 
-import javax.xml.namespace.QName;
-
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Optional;
 
 /**
  * Process file system attributes.
@@ -26,22 +25,22 @@ public class ProcessFileSystemAttributes implements Visitor<NodeWriteTrx> {
     .getLogger(ProcessFileSystemAttributes.class));
 
   @Override
-  public void processDirectory(final NodeWriteTrx pTransaction, final Path pDir,
-    final Optional<BasicFileAttributes> pAttrs) {
+  public void processDirectory(final NodeWriteTrx transaction, final Path dir,
+    final Optional<BasicFileAttributes> attrs) {
   }
 
   @Override
-  public void processFile(final NodeWriteTrx pTransaction, Path pFile,
-    final Optional<BasicFileAttributes> pAttrs) {
-    if (Files.exists(pFile)) {
-      final String file = pFile.getFileName().toString();
+  public void processFile(final NodeWriteTrx trx, Path path,
+    final Optional<BasicFileAttributes> attrs) {
+    if (Files.exists(path)) {
+      final String file = path.getFileName().toString();
       final int index = file.lastIndexOf('.');
       if (index > 0) {
         final String suffix = file.substring(index + 1);
         if (!suffix.isEmpty()) {
           try {
-            pTransaction.insertAttribute(new QName("suffix"), file.substring(index + 1));
-            pTransaction.moveToParent();
+            trx.insertAttribute(new QNm("suffix"), file.substring(index + 1));
+            trx.moveToParent();
           } catch (SirixException e) {
             LOGWRAPPER.error(e.getMessage(), e);
           }

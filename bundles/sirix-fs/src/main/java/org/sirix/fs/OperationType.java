@@ -9,8 +9,8 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
 
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
@@ -25,81 +25,89 @@ import com.google.common.base.Optional;
  */
 @Nonnull
 enum OperationType implements Operation<NodeWriteTrx> {
-  INSERT {
-    @Override
-    public void execute(final NodeWriteTrx pWtx, final Optional<Visitor<NodeWriteTrx>> pVisitor,
-      final Map<Path, org.sirix.fs.Path> pIndex, final Path pChild) throws SirixException {
-      checkNotNull(pWtx);
-      checkNotNull(pChild);
-      checkNotNull(pVisitor);
-      checkNotNull(pIndex);
-      checkArgument(pWtx.getKind() == Kind.ELEMENT,
-        "Transaction must be located at an element node!");
-      if (Files.isDirectory(pChild)) {
-        pIndex.put(pChild, org.sirix.fs.Path.ISDIRECTORY);
-        pWtx.insertElementAsFirstChild(new QName("dir"));
-      } else if (Files.isRegularFile(pChild) | Files.isSymbolicLink(pChild)) {
-        pIndex.put(pChild, org.sirix.fs.Path.ISFILE);
-        pWtx.insertElementAsFirstChild(new QName("file"));
-      }
-      pWtx.insertAttribute(new QName("name"), pChild.getFileName().toString());
-      pWtx.moveToParent();
-      final long nodeKey = pWtx.getNodeKey();
-      processVisitor(pVisitor, pWtx, pChild);
-      pWtx.moveTo(nodeKey);
-    }
-  },
+	INSERT {
+		@Override
+		public void execute(final NodeWriteTrx wtx,
+				final Optional<Visitor<NodeWriteTrx>> visitor,
+				final Map<Path, org.sirix.fs.Path> index, final Path child)
+				throws SirixException {
+			checkNotNull(wtx);
+			checkNotNull(child);
+			checkNotNull(visitor);
+			checkNotNull(index);
+			checkArgument(wtx.getKind() == Kind.ELEMENT,
+					"Transaction must be located at an element node!");
+			if (Files.isDirectory(child)) {
+				index.put(child, org.sirix.fs.Path.ISDIRECTORY);
+				wtx.insertElementAsFirstChild(new QNm("dir"));
+			} else if (Files.isRegularFile(child) | Files.isSymbolicLink(child)) {
+				index.put(child, org.sirix.fs.Path.ISFILE);
+				wtx.insertElementAsFirstChild(new QNm("file"));
+			}
+			wtx.insertAttribute(new QNm("name"), child.getFileName().toString());
+			wtx.moveToParent();
+			final long nodeKey = wtx.getNodeKey();
+			processVisitor(visitor, wtx, child);
+			wtx.moveTo(nodeKey);
+		}
+	},
 
-  UPDATE {
-    @Override
-    public void execute(final NodeWriteTrx pWtx, final Optional<Visitor<NodeWriteTrx>> pVisitor,
-      final Map<Path, org.sirix.fs.Path> pIndex, final Path pChild) throws SirixException {
-      checkNotNull(pWtx);
-      checkNotNull(pChild);
-      checkNotNull(pVisitor);
-      checkNotNull(pIndex);
-      checkArgument(pWtx.getKind() == Kind.ELEMENT,
-        "Transaction must be located at an element node!");
-      final long nodeKey = pWtx.getNodeKey();
-      processVisitor(pVisitor, pWtx, pChild);
-      pWtx.moveTo(nodeKey);
-    }
-  },
+	UPDATE {
+		@Override
+		public void execute(final NodeWriteTrx wtx,
+				final Optional<Visitor<NodeWriteTrx>> visitor,
+				final Map<Path, org.sirix.fs.Path> index, final Path child)
+				throws SirixException {
+			checkNotNull(wtx);
+			checkNotNull(child);
+			checkNotNull(visitor);
+			checkNotNull(index);
+			checkArgument(wtx.getKind() == Kind.ELEMENT,
+					"Transaction must be located at an element node!");
+			final long nodeKey = wtx.getNodeKey();
+			processVisitor(visitor, wtx, child);
+			wtx.moveTo(nodeKey);
+		}
+	},
 
-  DELETE {
-    @Override
-    public void execute(final NodeWriteTrx pWtx, final Optional<Visitor<NodeWriteTrx>> pVisitor,
-      final Map<Path, org.sirix.fs.Path> pIndex, final Path pChild) throws SirixException {
-      checkNotNull(pWtx);
-      checkNotNull(pChild);
-      checkNotNull(pVisitor);
-      checkNotNull(pIndex);
-      checkArgument(pWtx.getKind() == Kind.ELEMENT,
-        "Transaction must be located at an element node!");
-      pWtx.remove();
-    }
-  };
+	DELETE {
+		@Override
+		public void execute(final NodeWriteTrx wtx,
+				final Optional<Visitor<NodeWriteTrx>> visitor,
+				final Map<Path, org.sirix.fs.Path> index, final Path child)
+				throws SirixException {
+			checkNotNull(wtx);
+			checkNotNull(child);
+			checkNotNull(visitor);
+			checkNotNull(index);
+			checkArgument(wtx.getKind() == Kind.ELEMENT,
+					"Transaction must be located at an element node!");
+			wtx.remove();
+		}
+	};
 
-  /**
-   * Process changed {@link Path} with an optional visitor if present.
-   * 
-   * @param pVisitor
-   *          optional visitor
-   * @param pWtx
-   *          sirix {@link NodeWriteTrx}
-   * @param pPath
-   *          {@link Path} reference
-   */
-  private static void processVisitor(Optional<Visitor<NodeWriteTrx>> pVisitor, final NodeWriteTrx pWtx,
-    final Path pPath) {
-    assert pVisitor != null;
-    assert pPath != null;
-    if (pVisitor.isPresent()) {
-      if (Files.isDirectory(pPath)) {
-        pVisitor.get().processDirectory(pWtx, pPath, Optional.<BasicFileAttributes> absent());
-      } else if (Files.isRegularFile(pPath) | Files.isSymbolicLink(pPath)) {
-        pVisitor.get().processFile(pWtx, pPath, Optional.<BasicFileAttributes> absent());
-      }
-    }
-  }
+	/**
+	 * Process changed {@link Path} with an optional visitor if present.
+	 * 
+	 * @param visitor
+	 *          optional visitor
+	 * @param wtx
+	 *          sirix {@link NodeWriteTrx}
+	 * @param path
+	 *          {@link Path} reference
+	 */
+	private static void processVisitor(Optional<Visitor<NodeWriteTrx>> visitor,
+			final NodeWriteTrx wtx, final Path path) {
+		assert visitor != null;
+		assert path != null;
+		if (visitor.isPresent()) {
+			if (Files.isDirectory(path)) {
+				visitor.get().processDirectory(wtx, path,
+						Optional.<BasicFileAttributes> absent());
+			} else if (Files.isRegularFile(path) | Files.isSymbolicLink(path)) {
+				visitor.get().processFile(wtx, path,
+						Optional.<BasicFileAttributes> absent());
+			}
+		}
+	}
 }

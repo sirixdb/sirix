@@ -38,6 +38,7 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Utils;
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
@@ -707,8 +708,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 			case NAMESPACE:
 				// Note that the insertion is right (localPart as prefix).
 				try {
-					wtx.insertNamespace(new QName(rtx.getName().getNamespaceURI(), "",
-							rtx.getName().getLocalPart()));
+					wtx.insertNamespace(new QNm(rtx.getName().getNamespaceURI(), rtx.getName().getLocalName(), ""));
 				} catch (final SirixUsageException e) {
 					mTotalMatching.remove(wtx.getNodeKey());
 				}
@@ -1193,7 +1193,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 			retVal.append(rtx.getValue());
 			break;
 		case PROCESSING_INSTRUCTION:
-			retVal.append(rtx.getName().getLocalPart()).append(" ")
+			retVal.append(rtx.getName().getLocalName()).append(" ")
 					.append(rtx.getValue());
 			break;
 		default:
@@ -1322,10 +1322,10 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 					retVal = ((double) common / (double) maxFamilySize) >= FMESTHRESHOLD;
 				}
 			} else {
-				final QName oldName = mWtx.getName();
-				final QName newName = mRtx.getName();
+				final QNm oldName = mWtx.getName();
+				final QNm newName = mRtx.getName();
 				if (oldName.getNamespaceURI().equals(newName.getNamespaceURI())
-						&& calculateRatio(oldName.getLocalPart(), newName.getLocalPart()) > 0.7) {
+						&& calculateRatio(oldName.getLocalName(), newName.getLocalName()) > 0.7) {
 					retVal = checkAncestors(mWtx.getNodeKey(), mRtx.getNodeKey());
 				}
 			}

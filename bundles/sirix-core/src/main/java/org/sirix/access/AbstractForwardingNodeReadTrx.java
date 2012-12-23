@@ -4,8 +4,8 @@ import java.util.List;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.ItemList;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -58,7 +58,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public QName getName() {
+	public QNm getName() {
 		return delegate().getName();
 	}
 
@@ -115,7 +115,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToAttributeByName(
-			final @Nonnull QName name) {
+			final @Nonnull QNm name) {
 		return delegate().moveToAttributeByName(name);
 	}
 
@@ -258,10 +258,15 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public long getLeftSiblingKey() {
 		return delegate().getLeftSiblingKey();
 	}
+	
+	@Override
+	public int getPrefixKey() {
+		return delegate().getPrefixKey();
+	}
 
 	@Override
-	public int getNameKey() {
-		return delegate().getNameKey();
+	public int getLocalNameKey() {
+		return delegate().getLocalNameKey();
 	}
 
 	@Override

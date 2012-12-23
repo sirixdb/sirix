@@ -41,42 +41,50 @@ public class SirixException extends Exception {
 	/**
 	 * Constructor to encapsulate parsing.
 	 * 
-	 * @param pThrowable
+	 * @param throwable
 	 *          to encapsulate
 	 */
-	public SirixException(final Throwable pThrowable) {
-		super(pThrowable);
+	public SirixException(final Throwable throwable) {
+		super(throwable);
+	}
+	
+	public SirixException(String message, Object... args) {
+		super(String.format(message, args));
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param pMessage
+	 * @param message
 	 *          message
 	 */
-	private SirixException(final StringBuilder pMessage) {
-		super(pMessage.toString());
+	private SirixException(final StringBuilder message) {
+		super(message.toString());
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param pMessage
+	 * @param message
 	 *          message as string, they are concatenated with spaces in between
 	 */
-	public SirixException(final String... pMessage) {
-		this(concat(pMessage));
+	public SirixException(final String... message) {
+		this(concat(message));
 	}
 
 	/**
 	 * Constructor
 	 * 
-	 * @param pMessage
+	 * @param message
 	 *          message as string
-	 * @param pThrowable
+	 * @param throwable
 	 */
-	public SirixException(final String pMessage, final Throwable pThrowable) {
-		super(pMessage, pThrowable);
+	public SirixException(final String message, final Throwable throwable) {
+		super(message, throwable);
+	}
+
+	public SirixException(Throwable cause, String message, Object[] args) {
+		super(String.format(message, args), cause);
 	}
 
 	/**

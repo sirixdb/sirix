@@ -94,8 +94,13 @@ public class ImmutableAttribute implements ImmutableValueNode, ImmutableNameNode
 	}
 
 	@Override
-	public int getNameKey() {
-		return mNode.getNameKey();
+	public int getLocalNameKey() {
+		return mNode.getLocalNameKey();
+	}
+	
+	@Override
+	public int getPrefixKey() {
+		return mNode.getPrefixKey();
 	}
 
 	@Override

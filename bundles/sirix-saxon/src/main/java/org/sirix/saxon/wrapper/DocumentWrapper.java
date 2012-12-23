@@ -163,7 +163,7 @@ public final class DocumentWrapper implements DocumentInfo {
 						for (int index = 0; index < attCount; index++) {
 							rtx.moveToAttribute(index);
 
-							if ("xml:id".equalsIgnoreCase(rtx.getName().getLocalPart())
+							if ("xml:id".equalsIgnoreCase(rtx.getName().getLocalName())
 									&& ID.equals(rtx.getValue())) {
 								if (getParent) {
 									rtx.moveToParent();

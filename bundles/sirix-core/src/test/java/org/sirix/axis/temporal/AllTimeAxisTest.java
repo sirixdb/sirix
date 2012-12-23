@@ -8,8 +8,6 @@ import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.axis.AbsAxisTest;
-import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.DocumentCreater;

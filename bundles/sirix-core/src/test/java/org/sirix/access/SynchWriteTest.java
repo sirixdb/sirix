@@ -35,9 +35,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 
-import javax.xml.namespace.QName;
-
 import junit.framework.Assert;
+
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -59,13 +59,13 @@ public class SynchWriteTest {
 		TestHelper.deleteEverything();
 		holder = Holder.generateWtx();
 		holder.getWtx().moveToDocumentRoot();
-		holder.getWtx().insertElementAsFirstChild(new QName(""));
-		holder.getWtx().insertElementAsRightSibling(new QName(""));
+		holder.getWtx().insertElementAsFirstChild(new QNm(""));
+		holder.getWtx().insertElementAsRightSibling(new QNm(""));
 		holder.getWtx().moveToLeftSibling();
-		holder.getWtx().insertElementAsFirstChild(new QName(""));
+		holder.getWtx().insertElementAsFirstChild(new QNm(""));
 		holder.getWtx().moveToParent();
 		holder.getWtx().moveToRightSibling();
-		holder.getWtx().insertElementAsFirstChild(new QName(""));
+		holder.getWtx().insertElementAsFirstChild(new QNm(""));
 		holder.getWtx().commit();
 		holder.getWtx().close();
 	}
@@ -123,10 +123,10 @@ class Wtx1 implements Callable<Void> {
 		wtx.moveToFirstChild();
 		wtx.moveToFirstChild();
 		mSemaphore.acquire();
-		wtx.insertElementAsFirstChild(new QName("a"));
+		wtx.insertElementAsFirstChild(new QNm("a"));
 		mSemaphore.release();
 		mSemaphore.acquire();
-		wtx.insertElementAsRightSibling(new QName("a"));
+		wtx.insertElementAsRightSibling(new QNm("a"));
 		mSemaphore.release();
 		mSemaphore.acquire();
 		wtx.moveToLeftSibling();
@@ -155,11 +155,11 @@ class Wtx2 implements Callable<Void> {
 		wtx.moveToRightSibling();
 		wtx.moveToFirstChild();
 		mSemaphore.acquire();
-		wtx.insertElementAsFirstChild(new QName("a"));
+		wtx.insertElementAsFirstChild(new QNm("a"));
 		mSemaphore.release();
 		mSemaphore.acquire();
 		wtx.moveToParent();
-		wtx.insertElementAsFirstChild(new QName("a"));
+		wtx.insertElementAsFirstChild(new QNm("a"));
 		mSemaphore.release();
 		wtx.commit();
 		wtx.close();

@@ -29,8 +29,7 @@ package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
 
-import javax.xml.namespace.QName;
-
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -69,7 +68,7 @@ public final class RevertTest {
 		wtx = holder.getSession().beginNodeWriteTrx();
 		assertEquals(1L, wtx.getRevisionNumber());
 		wtx.moveToFirstChild();
-		wtx.insertElementAsFirstChild(new QName("bla"));
+		wtx.insertElementAsFirstChild(new QNm("bla"));
 		wtx.commit();
 		assertEquals(2L, wtx.getRevisionNumber());
 		wtx.close();
@@ -92,7 +91,7 @@ public final class RevertTest {
 		wtx.moveToFirstChild();
 		final long maxNodeKey = wtx.getMaxNodeKey();
 		assertEquals(rev3MaxNodeKey, maxNodeKey);
-		wtx.insertElementAsFirstChild(new QName(""));
+		wtx.insertElementAsFirstChild(new QNm(""));
 		assertEquals(maxNodeKey + 1, wtx.getNodeKey());
 		assertEquals(maxNodeKey + 1, wtx.getMaxNodeKey());
 		wtx.commit();

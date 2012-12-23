@@ -37,14 +37,14 @@ import org.sirix.api.Filter;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
 
-public class IFilterTest {
+public class FilterTest {
 
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
 	}
 
-	public static void testIFilterConventions(final Filter filter,
+	public static void testFilterConventions(final Filter filter,
 			final boolean expected) {
 		final NodeReadTrx rtx = ((AbstractFilter) filter).getTrx();
 
@@ -58,7 +58,7 @@ public class IFilterTest {
 	}
 
 	@Test
-	public void testIFilterExample() {
+	public void testFilterExample() {
 		// Do nothing. This class is only used with other test cases.
 	}
 

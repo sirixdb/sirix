@@ -88,7 +88,7 @@ public class WildcardFilter extends AbstractFilter {
 				final int prefixKey = mKnownPartKey;
 				for (int i = 0, nsCount = getTrx().getNamespaceCount(); i < nsCount; i++) {
 					getTrx().moveToNamespace(i);
-					if (getTrx().getNameKey() == prefixKey) {
+					if (getTrx().getPrefixKey() == prefixKey) {
 						getTrx().moveToParent();
 						return true;
 					}
@@ -100,10 +100,9 @@ public class WildcardFilter extends AbstractFilter {
 			if (mType == EType.LOCALNAME) { // local name is given
 				return localNameMatch();
 			} else {
-				final String localname = getTrx().nameForKey(getTrx().getNameKey())
-						.replaceFirst(":.*", "");
-				final int localnameKey = getTrx().keyForName(localname);
-				return localnameKey == mKnownPartKey;
+				final String prefix = getTrx().nameForKey(getTrx().getPrefixKey());
+				final int prefixKey = getTrx().keyForName(prefix);
+				return prefixKey == mKnownPartKey;
 			}
 		default:
 			return false;
@@ -116,9 +115,7 @@ public class WildcardFilter extends AbstractFilter {
 	 * @return {@code true}, if they match, {@code false} otherwise
 	 */
 	private boolean localNameMatch() {
-		final String localname = getTrx().nameForKey(getTrx().getNameKey())
-				.replaceFirst(".*:", "");
-		final int localnameKey = getTrx().keyForName(localname);
+		final int localnameKey = getTrx().keyForName(getTrx().getName().getLocalName());
 		return localnameKey == mKnownPartKey;
 	}
 }
