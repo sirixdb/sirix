@@ -10,7 +10,7 @@ Sirix will be nothing without interested developers (contributors). Any kind of 
 
 Note that it is based on Treetank (http://treetank.org / http://github.com/disy/treetank).
 
-[![Build Status](https://secure.travis-ci.org/JohannesLichtenberger/sirix.png)](http://travis-ci.org/JohannesLichtenberger/sirix)
+[![Build Status](https://travis-ci.org/JohannesLichtenberger/sirix.png?branch=master)](https://travis-ci.org/JohannesLichtenberger/sirix)
 
 ##Features
 
