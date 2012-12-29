@@ -11,31 +11,30 @@ import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.optimizer.Stage;
 import org.brackit.xquery.compiler.optimizer.TopDownOptimizer;
 import org.brackit.xquery.module.StaticContext;
-import org.sirix.api.NodeReadTrx;
-import org.sirix.xquery.compiler.optimizer.walker.MultiChildStep;
+import org.sirix.xquery.node.DBStore;
 
 public class SirixOptimizer extends TopDownOptimizer {
 
 	public SirixOptimizer(final @Nonnull Map<QNm, Str> options,
-			final @Nonnull NodeReadTrx rtx) {
+			final @Nonnull DBStore store) {
 		super(options);
 		// perform index matching as last step
-		getStages().add(new Stage() {
-			@Override
-			public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
-				ast = new MultiChildStep(sctx).walk(ast);
-				return ast;
-			}
-
-		});
-		getStages().add(new IndexMatching(rtx));
+//		getStages().add(new Stage() {
+//			@Override
+//			public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
+//				ast = new MultiChildStep(sctx).walk(ast);
+//				return ast;
+//			}
+//
+//		});
+		getStages().add(new IndexMatching(store));
 	}
 
 	private static class IndexMatching implements Stage {
-		private final NodeReadTrx mRtx;
+		private final DBStore mStore;
 
-		public IndexMatching(final @Nonnull NodeReadTrx rtx) {
-			mRtx = rtx;
+		public IndexMatching(final @Nonnull DBStore store) {
+			mStore = store;
 		}
 
 		@Override

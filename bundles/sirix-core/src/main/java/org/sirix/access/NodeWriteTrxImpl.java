@@ -66,15 +66,15 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.SearchMode;
+import org.sirix.index.avltree.AVLTreeReader;
+import org.sirix.index.avltree.AVLTreeWriter;
+import org.sirix.index.avltree.NodeReferences;
+import org.sirix.index.avltree.Value;
+import org.sirix.index.avltree.ValueKind;
+import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
 import org.sirix.index.path.PathSummaryReader;
 import org.sirix.index.path.PathSummaryWriter;
 import org.sirix.index.path.PathSummaryWriter.OPType;
-import org.sirix.index.value.AVLTreeReader;
-import org.sirix.index.value.AVLTreeReader.MoveCursor;
-import org.sirix.index.value.AVLTreeWriter;
-import org.sirix.index.value.NodeReferences;
-import org.sirix.index.value.Value;
-import org.sirix.index.value.ValueKind;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.CommentNode;
 import org.sirix.node.ElementNode;
@@ -1431,7 +1431,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					final QNm qName = getName();
 					if (name.equals(qName)) {
 						if (getValue().equals(value)) {
-							throw new SirixUsageException("Duplicate attribute:!");
+							throw new SirixUsageException("Duplicate attribute!");
 						} else {
 							setValue(value);
 						}

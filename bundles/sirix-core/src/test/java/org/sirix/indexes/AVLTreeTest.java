@@ -17,10 +17,10 @@ import org.sirix.access.Movement;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.index.SearchMode;
-import org.sirix.index.value.AVLTreeReader;
-import org.sirix.index.value.NodeReferences;
-import org.sirix.index.value.Value;
-import org.sirix.index.value.ValueKind;
+import org.sirix.index.avltree.AVLTreeReader;
+import org.sirix.index.avltree.NodeReferences;
+import org.sirix.index.avltree.Value;
+import org.sirix.index.avltree.ValueKind;
 import org.sirix.settings.Constants;
 
 import com.google.common.base.Optional;

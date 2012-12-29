@@ -549,13 +549,12 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public boolean equals(final Object obj) {
+	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof NodeReadTrxImpl) {
 			final NodeReadTrxImpl rtx = (NodeReadTrxImpl) obj;
-			return Objects.equal(mCurrentNode.getNodeKey(),
-					rtx.mCurrentNode.getNodeKey())
-					&& Objects.equal(mPageReadTrx.getRevisionNumber(),
-							rtx.mPageReadTrx.getRevisionNumber());
+			return mCurrentNode.getNodeKey() == rtx.mCurrentNode.getNodeKey()
+					&& mPageReadTrx.getRevisionNumber() == rtx.mPageReadTrx
+							.getRevisionNumber();
 		}
 		return false;
 	}
@@ -670,7 +669,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 			return -1;
 		}
 	}
-	
+
 	@Override
 	public int getLocalNameKey() {
 		assertNotClosed();
@@ -738,6 +737,9 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
 			return ((NameNode) mCurrentNode).getPathNodeKey();
+		}
+		if (mCurrentNode.getKind() == Kind.DOCUMENT) {
+			return 0;
 		}
 		return -1;
 	}

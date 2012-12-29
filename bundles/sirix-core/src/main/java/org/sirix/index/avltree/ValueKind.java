@@ -1,4 +1,4 @@
-package org.sirix.index.value;
+package org.sirix.index.avltree;
 
 /**
  * Determines the kind of value.

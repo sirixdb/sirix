@@ -1,4 +1,4 @@
-package org.sirix.index.value.interfaces;
+package org.sirix.index.avltree.interfaces;
 
 import org.sirix.node.interfaces.Node;
 

@@ -10,10 +10,10 @@ import org.brackit.xquery.compiler.CompileChain;
 import org.brackit.xquery.compiler.optimizer.Optimizer;
 import org.brackit.xquery.compiler.translator.Translator;
 import org.brackit.xquery.util.Cfg;
-import org.sirix.api.NodeReadTrx;
 import org.sirix.xquery.compiler.optimizer.SirixOptimizer;
 import org.sirix.xquery.compiler.translator.SirixTranslator;
 import org.sirix.xquery.function.sdb.SDBFun;
+import org.sirix.xquery.node.DBStore;
 
 public class SirixCompileChain extends CompileChain {
 	public static final boolean OPTIMIZE = Cfg.asBool(
@@ -24,10 +24,10 @@ public class SirixCompileChain extends CompileChain {
 		SDBFun.register();
 	}
 
-	private final NodeReadTrx mRtx;
+	private final DBStore mStore;
 
-	public SirixCompileChain(final @Nonnull NodeReadTrx rtx) {
-		mRtx = rtx;
+	public SirixCompileChain(final @Nonnull DBStore store) {
+		mStore = store;
 	}
 
 	@Override
@@ -40,6 +40,6 @@ public class SirixCompileChain extends CompileChain {
 		if (!OPTIMIZE) {
 			return super.getOptimizer(options);
 		}
-		return new SirixOptimizer(options, mRtx);
+		return new SirixOptimizer(options, mStore);
 	}
 }

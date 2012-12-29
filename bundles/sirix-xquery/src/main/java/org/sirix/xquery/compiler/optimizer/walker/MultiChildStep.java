@@ -28,13 +28,11 @@ package org.sirix.xquery.compiler.optimizer.walker;
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import org.brackit.xquery.XQuery;
 import org.brackit.xquery.compiler.AST;
 import org.brackit.xquery.compiler.XQ;
 import org.brackit.xquery.compiler.optimizer.walker.Walker;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.Cfg;
-import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.compiler.XQExt;
 
 /**

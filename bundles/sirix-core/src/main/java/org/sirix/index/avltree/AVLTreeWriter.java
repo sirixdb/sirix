@@ -1,4 +1,4 @@
-package org.sirix.index.value;
+package org.sirix.index.avltree;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -9,8 +9,8 @@ import org.sirix.api.NodeCursor;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.SearchMode;
-import org.sirix.index.value.AVLTreeReader.MoveCursor;
-import org.sirix.index.value.interfaces.References;
+import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
+import org.sirix.index.avltree.interfaces.References;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;

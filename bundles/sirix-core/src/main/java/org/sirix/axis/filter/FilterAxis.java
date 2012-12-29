@@ -93,6 +93,9 @@ public final class FilterAxis extends AbstractAxis {
 			boolean filterResult = true;
 			for (final Filter filter : mAxisFilter) {
 				filterResult = filterResult && filter.filter();
+				if (!filterResult) {
+					break;
+				}
 			}
 			if (filterResult) {
 				return nodeKey;

@@ -86,9 +86,6 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	/** Sirix {@link PageWriteTrx}. */
 	private final PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
 
-	/** Sirix {@link Session}. */
-	private final Session mSession;
-
 	/** Sirix {@link PathSummaryReader}. */
 	private final PathSummaryReader mPathSummaryReader;
 
@@ -115,7 +112,6 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			final @Nonnull Session session, final @Nonnull NodeFactory nodeFactory,
 			final @Nonnull NodeReadTrxImpl rtx) {
 		mPageWriteTrx = pageWriteTrx;
-		mSession = session;
 		mPathSummaryReader = PathSummaryReader.getInstance(
 				checkNotNull(pageWriteTrx), checkNotNull(session));
 		mNodeRtx = rtx;
@@ -246,6 +242,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 		mPathSummaryReader.moveTo(node.getNodeKey());
 		adaptForInsert(node, InsertPos.ASFIRSTCHILD, PageKind.PATHSUMMARYPAGE);
 		mPathSummaryReader.moveTo(node.getNodeKey());
+		mPathSummaryReader.putQNameMapping(node, name);
 
 		return this;
 	}
@@ -638,11 +635,13 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			for (final Axis axis = new DescendantAxis(mPathSummaryReader); axis
 					.hasNext();) {
 				axis.next();
+				mPathSummaryReader.removeMapping(mPathSummaryReader.getNodeKey());
+				mPathSummaryReader.removeQNameMapping(mPathSummaryReader.getPathNode(),
+						mPathSummaryReader.getName());
 				mPageWriteTrx
 						.removeEntry(mPathSummaryReader.getNodeKey(),
 								PageKind.PATHSUMMARYPAGE,
 								Optional.<UnorderedKeyValuePage> absent());
-				mPathSummaryReader.removeMapping(mPathSummaryReader.getNodeKey());
 			}
 		}
 
@@ -680,6 +679,9 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 				PageKind.PATHSUMMARYPAGE);
 
 		// Remove node.
+		mPathSummaryReader.removeMapping(mPathSummaryReader.getNodeKey());
+		mPathSummaryReader.removeQNameMapping(mPathSummaryReader.getPathNode(),
+				mPathSummaryReader.getName());
 		mPageWriteTrx.removeEntry(mPathSummaryReader.getNodeKey(),
 				PageKind.PATHSUMMARYPAGE, Optional.<UnorderedKeyValuePage> absent());
 	}

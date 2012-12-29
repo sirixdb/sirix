@@ -114,7 +114,6 @@ public final class ConcurrentUnionAxis extends AbstractAxis {
 				if (mCurrentResult1 < mCurrentResult2) {
 					nodeKey = mCurrentResult1;
 					mCurrentResult1 = Util.getNext(mOp1);
-
 				} else if (mCurrentResult1 > mCurrentResult2) {
 					nodeKey = mCurrentResult2;
 					mCurrentResult2 = Util.getNext(mOp2);
@@ -143,10 +142,8 @@ public final class ConcurrentUnionAxis extends AbstractAxis {
 			}
 			// should never come here!
 			throw new IllegalStateException(nodeKey + " is not valid!");
-
 		} else if (!mOp2.isFinished()) {
-			// only operand1 has results left, so return all of them
-
+			// only operand2 has results left, so return all of them
 			nodeKey = mCurrentResult2;
 			if (Util.isValid(nodeKey)) {
 				mCurrentResult2 = Util.getNext(mOp2);

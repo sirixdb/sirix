@@ -2,8 +2,10 @@ package org.sirix.index.path;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -23,6 +25,8 @@ import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
+import org.sirix.axis.filter.FilterAxis;
+import org.sirix.axis.filter.NameFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.DocumentRootNode;
@@ -71,7 +75,10 @@ public final class PathSummaryReader implements NodeReadTrx {
 	private boolean mClosed;
 
 	/** Mapping of a path node key to the path node/document root node. */
-	private final Map<Long, StructNode> mMapping;
+	private final Map<Long, StructNode> mPathNodeMapping;
+
+	/** Mapping of a {@link QNm} to a set of path nodes. */
+	private final Map<QNm, HashSet<PathNode>> mQNmMapping;
 
 	/**
 	 * Private constructor.
@@ -100,9 +107,20 @@ public final class PathSummaryReader implements NodeReadTrx {
 			LOGWRAPPER.error(e.getMessage(), e.getCause());
 		}
 
-		mMapping = new HashMap<>();
+		mPathNodeMapping = new HashMap<>();
+		mQNmMapping = new HashMap<>();
+		boolean first = true;
 		for (final long nodeKey : new DescendantAxis(this, IncludeSelf.YES)) {
-			mMapping.put(nodeKey, this.getStructuralNode());
+			mPathNodeMapping.put(nodeKey, this.getStructuralNode());
+
+			if (first) {
+				first = false;
+			} else {
+				final HashSet<PathNode> pathNodes = mQNmMapping.get(this.getName()) == null ? new HashSet<PathNode>()
+						: mQNmMapping.get(this.getName());
+				pathNodes.add(this.getPathNode());
+				mQNmMapping.put(this.getName(), pathNodes);
+			}
 		}
 	}
 
@@ -124,16 +142,90 @@ public final class PathSummaryReader implements NodeReadTrx {
 	// package private, only used in writer to keep the mapping always up-to-date
 	void putMapping(final @Nonnegative long pathNodeKey,
 			final @Nonnull StructNode node) {
-		mMapping.put(pathNodeKey, node);
+		mPathNodeMapping.put(pathNodeKey, node);
 	}
 
 	// package private, only used in writer to keep the mapping always up-to-date
 	StructNode removeMapping(final @Nonnegative long pathNodeKey) {
-		return mMapping.remove(pathNodeKey);
+		return mPathNodeMapping.remove(pathNodeKey);
+	}
+
+	// package private, only used in writer to keep the mapping always up-to-date
+	void putQNameMapping(final @Nonnull PathNode node, final @Nonnull QNm name) {
+		final HashSet<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<PathNode>()
+				: mQNmMapping.get(name);
+		pathNodes.add(node);
+		mQNmMapping.put(name, pathNodes);
+	}
+
+	// package private, only used in writer to keep the mapping always up-to-date
+	void removeQNameMapping(final @Nonnegative PathNode node,
+			final @Nonnull QNm name) {
+		final HashSet<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<PathNode>()
+				: mQNmMapping.get(name);
+		if (pathNodes.size() == 1) {
+			mQNmMapping.remove(name);
+		} else {
+			pathNodes.remove(node);
+		}
+	}
+
+	/**
+	 * Match all descendants of the node denoted by its {@code pathNodeKey} with
+	 * the given {@code name}.
+	 * 
+	 * @param name
+	 *          the QName
+	 * @param pathNodeKey
+	 *          the path node key to start the search from
+	 * @param inclSelf
+	 * @return a set with bits set for each matching path node (its
+	 *         {@code pathNodeKey})
+	 */
+	public BitSet matchDescendants(final @Nonnull QNm name,
+			final @Nonnegative long pathNodeKey, final @Nonnull IncludeSelf inclSelf) {
+		assertNotClosed();
+		final HashSet<PathNode> set = mQNmMapping.get(name);
+		if (set == null) {
+			return new BitSet(0);
+		}
+		moveTo(pathNodeKey);
+		final BitSet matches = new BitSet();
+		for (final long nodeKey : new FilterAxis(
+				new DescendantAxis(this, inclSelf), new NameFilter(this,
+						name.toString()))) {
+			matches.set((int) nodeKey);
+		}
+		return matches;
+	}
+
+	/**
+	 * Match a {@link QNm} with a minimum level.
+	 * 
+	 * @param name
+	 *          the QName
+	 * @param minLevel
+	 *          minimum level
+	 * @return a set with bits set for each matching path node
+	 */
+	public BitSet match(final @Nonnull QNm name, final @Nonnegative int minLevel) {
+		assertNotClosed();
+		final HashSet<PathNode> set = mQNmMapping.get(name);
+		if (set == null) {
+			return new BitSet(0);
+		}
+		final BitSet matches = new BitSet();
+		for (final PathNode psn : set) {
+			if (psn.getLevel() >= minLevel) {
+				matches.set((int) psn.getNodeKey());
+			}
+		}
+		return matches;
 	}
 
 	@Override
 	public boolean isValueNode() {
+		assertNotClosed();
 		return false;
 	}
 
@@ -146,7 +238,8 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 */
 	public StructNode getPathNodeForPathNodeKey(
 			final @Nonnegative long pathNodeKey) {
-		return mMapping.get(pathNodeKey);
+		assertNotClosed();
+		return mPathNodeMapping.get(pathNodeKey);
 	}
 
 	@Override
@@ -348,7 +441,8 @@ public final class PathSummaryReader implements NodeReadTrx {
 	public QNm getName() {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
-			final String uri = mPageReadTrx.getName(
+			final int uriKey = ((NameNode) mCurrentNode).getURIKey();
+			final String uri = uriKey == -1 ? "" : mPageReadTrx.getName(
 					((NameNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
 			final int prefixKey = ((NameNode) mCurrentNode).getPrefixKey();
 			final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(

@@ -47,8 +47,8 @@ public class ElementFilter extends AbstractFilter {
 	 * @param rtx
 	 *          {@link NodeReadTrx} this filter is bound to
 	 */
-	public ElementFilter(@Nonnull final NodeReadTrx pRtx) {
-		super(pRtx);
+	public ElementFilter(@Nonnull final NodeReadTrx rtx) {
+		super(rtx);
 	}
 
 	@Override

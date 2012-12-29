@@ -1,4 +1,4 @@
-package org.sirix.index.value;
+package org.sirix.index.avltree;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -7,7 +7,7 @@ import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.index.value.interfaces.MutableAVLNode;
+import org.sirix.index.avltree.interfaces.MutableAVLNode;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;

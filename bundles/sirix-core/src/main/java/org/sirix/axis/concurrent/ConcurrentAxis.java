@@ -105,9 +105,9 @@ public class ConcurrentAxis extends AbstractAxis {
 	public ConcurrentAxis(final @Nonnull NodeReadTrx rtx,
 			final @Nonnull Axis childAxis) {
 		super(rtx);
-		if (!rtx.equals(childAxis.getTrx())) {
+		if (rtx.equals(childAxis.getTrx()) && rtx.getTransactionID() == childAxis.getTrx().getTransactionID()) {
 			throw new IllegalArgumentException(
-					"The filter must be bound to the same transaction as the axis!");
+					"The filter must be bound to another transaction but on the same revision/node!");
 		}
 		mResults = new ArrayBlockingQueue<>(M_CAPACITY);
 		mFirst = true;

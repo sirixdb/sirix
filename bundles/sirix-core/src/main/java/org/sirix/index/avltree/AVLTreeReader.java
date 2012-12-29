@@ -1,4 +1,4 @@
-package org.sirix.index.value;
+package org.sirix.index.avltree;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -16,7 +16,7 @@ import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.SearchMode;
-import org.sirix.index.value.interfaces.References;
+import org.sirix.index.avltree.interfaces.References;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.Kind;
 import org.sirix.node.NullNode;

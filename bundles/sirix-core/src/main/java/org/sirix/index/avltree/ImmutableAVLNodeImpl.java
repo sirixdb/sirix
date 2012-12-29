@@ -1,10 +1,10 @@
-package org.sirix.index.value;
+package org.sirix.index.avltree;
 
 import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
-import org.sirix.index.value.interfaces.ImmutableAVLNode;
+import org.sirix.index.avltree.interfaces.ImmutableAVLNode;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;

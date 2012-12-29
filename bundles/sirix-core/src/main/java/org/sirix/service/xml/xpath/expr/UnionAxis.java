@@ -27,9 +27,9 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import javax.annotation.Nonnull;
-
 import static com.google.common.base.Preconditions.checkNotNull;
+
+import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
@@ -58,29 +58,29 @@ public class UnionAxis extends AbstractAxis {
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
-	 * @param pOperand1
+	 * @param operand1
 	 *          first operand
-	 * @param pOperand2
+	 * @param operand2
 	 *          second operand
 	 */
-	public UnionAxis(@Nonnull final NodeReadTrx pRtx,
-			@Nonnull final Axis pOperand1, @Nonnull final Axis pOperand2) {
-		super(pRtx);
-		mOp1 = checkNotNull(pOperand1);
-		mOp2 = checkNotNull(pOperand2);
+	public UnionAxis(@Nonnull final NodeReadTrx rtx,
+			@Nonnull final Axis operand1, @Nonnull final Axis operand2) {
+		super(rtx);
+		mOp1 = checkNotNull(operand1);
+		mOp2 = checkNotNull(operand2);
 	}
 
 	@Override
-	public void reset(final long mNodeKey) {
-		super.reset(mNodeKey);
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
 
 		if (mOp1 != null) {
-			mOp1.reset(mNodeKey);
+			mOp1.reset(nodeKey);
 		}
 		if (mOp2 != null) {
-			mOp2.reset(mNodeKey);
+			mOp2.reset(nodeKey);
 		}
 	}
 

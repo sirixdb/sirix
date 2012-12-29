@@ -449,7 +449,7 @@ public class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDeweyID {
 	}
 
 	public int getLevel() {
-		return level;
+		return level - 1;
 	}
 
 	public int getNumberOfDivisions() {

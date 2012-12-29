@@ -37,11 +37,11 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
+import org.sirix.index.avltree.AVLNode;
+import org.sirix.index.avltree.NodeReferences;
+import org.sirix.index.avltree.Value;
+import org.sirix.index.avltree.ValueKind;
 import org.sirix.index.path.PathNode;
-import org.sirix.index.value.AVLNode;
-import org.sirix.index.value.NodeReferences;
-import org.sirix.index.value.Value;
-import org.sirix.index.value.ValueKind;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;

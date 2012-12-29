@@ -1,4 +1,4 @@
-package org.sirix.index.value;
+package org.sirix.index.avltree;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -9,7 +9,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.index.value.interfaces.References;
+import org.sirix.index.avltree.interfaces.References;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;

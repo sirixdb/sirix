@@ -85,7 +85,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	private final boolean mIsWtx;
 
 	/** {@link Scope} of node. */
-	private final SirixScope mScope;
+	private SirixScope mScope;
 
 	/** Optional dewey ID. */
 	private final Optional<SirixDeweyID> mDeweyID;
@@ -107,7 +107,6 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		mNodeKey = mRtx.getNodeKey();
 		mKind = mRtx.getKind();
 		mDeweyID = mRtx.getNode().getDeweyID();
-		mScope = new SirixScope(this);
 	}
 
 	/**
@@ -183,7 +182,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 			if (mKind != org.sirix.node.Kind.ATTRIBUTE
 					&& mKind != org.sirix.node.Kind.NAMESPACE) {
 				if (mDeweyID.isPresent()) {
-					mDeweyID.get().isDescendantOf(node.mDeweyID.get());
+					return mDeweyID.get().isDescendantOf(node.mDeweyID.get());
 				} else {
 					for (final Axis axis = new AncestorAxis(mRtx); axis.hasNext();) {
 						axis.next();
@@ -428,6 +427,9 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 
 	@Override
 	public Scope getScope() {
+		if (mScope == null && mKind == org.sirix.node.Kind.ELEMENT) {
+			mScope = new SirixScope(this);
+		}
 		return mScope;
 	}
 
@@ -1586,4 +1588,11 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		return false;
 	}
 
+	public long getPCR() throws SirixException {
+		return mRtx.getPathNodeKey();
+	}
+
+	public Optional<SirixDeweyID> getDeweyID() {
+		return mRtx.getDeweyID();
+	}
 }

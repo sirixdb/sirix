@@ -29,6 +29,7 @@ package org.sirix.axis.filter;
 
 import javax.annotation.Nonnull;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 
 /**
@@ -42,9 +43,11 @@ public final class NameFilter extends AbstractFilter {
 
 	/** Key of local name to test. */
 	private final int mLocalNameKey;
-	
+
 	/** Key of prefix to test. */
 	private final int mPrefixKey;
+
+	private QNm mName;
 
 	/**
 	 * Default constructor.
@@ -54,8 +57,23 @@ public final class NameFilter extends AbstractFilter {
 	 * @param name
 	 *          name to check
 	 */
-	public NameFilter(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull String name) {
+	public NameFilter(final @Nonnull NodeReadTrx rtx, final @Nonnull QNm name) {
+		super(rtx);
+		mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty()) ? -1
+				: rtx.keyForName(name.getPrefix());
+		mLocalNameKey = rtx.keyForName(name.getLocalName());
+		mName = name;
+	}
+
+	/**
+	 * Default constructor.
+	 * 
+	 * @param rtx
+	 *          {@link NodeReadTrx} this filter is bound to
+	 * @param name
+	 *          name to check
+	 */
+	public NameFilter(final @Nonnull NodeReadTrx rtx, final @Nonnull String name) {
 		super(rtx);
 		final int index = name.indexOf(":");
 		if (index != -1) {
@@ -71,7 +89,8 @@ public final class NameFilter extends AbstractFilter {
 	public boolean filter() {
 		boolean returnVal = false;
 		if (getTrx().isNameNode()) {
-			returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx().getPrefixKey() == mPrefixKey);
+			returnVal = (getTrx().getLocalNameKey() == mLocalNameKey && getTrx()
+					.getPrefixKey() == mPrefixKey);
 		}
 		return returnVal;
 	}
