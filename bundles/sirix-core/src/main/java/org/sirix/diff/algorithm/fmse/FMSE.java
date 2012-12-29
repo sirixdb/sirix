@@ -324,13 +324,11 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 		assert wtx != null;
 		assert rtx != null;
 		wtx.moveTo(mOldStartKey);
-		for (final Axis axis = new VisitorDescendantAxis.Builder(wtx)
+		for (@SuppressWarnings("unused") final long nodeKey : VisitorDescendantAxis.builder(wtx)
 				.includeSelf()
 				.visitor(
 						Optional.<DeleteFMSEVisitor> of(new DeleteFMSEVisitor(wtx,
-								mTotalMatching, mOldStartKey))).build(); axis.hasNext();) {
-			axis.next();
-		}
+								mTotalMatching, mOldStartKey))).build());
 	}
 
 	/**

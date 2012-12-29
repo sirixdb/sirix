@@ -150,10 +150,10 @@ public final class FMSETest extends XMLTestCase {
 
 	// Throws a BufferUnderflowException while serializer tries to get a session
 	// instance?
-	// @Test
-	// public void testAllSixth() throws Exception {
-	// test(XMLALLSIXTH);
-	// }
+	@Test
+	public void testAllSixth() throws Exception {
+		test(XMLALLSIXTH);
+	}
 
 	@Test
 	public void testAllSeventh() throws Exception {
@@ -291,12 +291,12 @@ public final class FMSETest extends XMLTestCase {
 				session.close();
 				session = database.getSession(new SessionConfiguration.Builder(
 						TestHelper.RESOURCE).build());
-				
-//				final NodeReadTrx trx = session.beginNodeReadTrx();
-//				System.out.println(trx.getRevisionNumber());
-//				for (final long key : new DescendantAxis(trx)) {
-//					System.out.println(trx);
-//				}
+
+				// final NodeReadTrx trx = session.beginNodeReadTrx();
+				// System.out.println(trx.getRevisionNumber());
+				// for (final long key : new DescendantAxis(trx)) {
+				// System.out.println(trx);
+				// }
 
 				final OutputStream out = new ByteArrayOutputStream();
 				final XMLSerializer serializer = new XMLSerializerBuilder(session, out)

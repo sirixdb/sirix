@@ -161,11 +161,19 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 			mWtx.moveTo(pNode.getNodeKey());
 			final long nodeKey = mWtx.getNodeKey();
 			boolean removeTextNode = false;
+			boolean resetValue = false;
 			if (mWtx.hasLeftSibling() && mWtx.moveToLeftSibling().hasMoved()
 					&& mWtx.getKind() == Kind.TEXT
 					&& mWtx.moveToRightSibling().hasMoved() && mWtx.hasRightSibling()
 					&& mWtx.moveToRightSibling().hasMoved()
 					&& mWtx.getKind() == Kind.TEXT) {
+				final Long partner = mMatching.partner(mWtx.getNodeKey());
+				if (partner == null) {
+					// Case: Right text node should be deleted (thus, the value must not
+					// be appended to the left text node during deletion) => Reset value
+					// afterwards.
+					resetValue = true;
+				}
 				removeTextNode = true;
 			}
 			mWtx.moveTo(nodeKey);
@@ -198,8 +206,15 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 				final long rightRightSiblKey = mWtx.moveToRightSibling().get()
 						.getRightSiblingKey();
 				mWtx.moveTo(nodeKey);
+				final String value = removeTextNode ? mWtx.moveToLeftSibling().get()
+						.getValue() : "";
+				mWtx.moveTo(nodeKey);
 				mWtx.remove();
 				if (removeTextNode) {
+					// Make sure to reset value.
+					if (resetValue && !value.equals(mWtx.getValue())) {
+						mWtx.setValue(value);
+					}
 					assert mWtx.getKind() == Kind.TEXT;
 					assert mWtx.getRightSiblingKey() == rightRightSiblKey;
 					return VisitResultType.CONTINUE;
