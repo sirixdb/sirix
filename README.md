@@ -8,7 +8,7 @@ Some examples of the Java-API and the Brackit binding to use XQuery and the XQue
 
 Sirix will be nothing without interested developers (contributors). Any kind of contribution is highly welcome. Once a few (regular) contributors are found, we will create an organization for Sirix on github.
 
-Note that it is based on Treetank (http://treetank.org / http://github.com/disy/treetank).
+Note that it is a "fork" of Treetank (http://treetank.org / http://github.com/disy/treetank) which goes back to its roots and specializes on handling tree-structured data.
 
 [![Build Status](https://travis-ci.org/JohannesLichtenberger/sirix.png?branch=master)](https://travis-ci.org/JohannesLichtenberger/sirix)
 
