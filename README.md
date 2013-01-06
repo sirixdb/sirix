@@ -1,6 +1,6 @@
 #Sirix - a versioned storage system for hierarchical data (rooted labeled trees -- XML (and JSON in the future))
 
-The architecture supports the well known ACID-properties (durability currently isn't guaranted if the transaction crashes) and Snapshot Isolation through MVCC which in turn supports N-reading transactions in parallel to currently 1-write transaction. Supporting N-write transactions is planned as well as the current work on indexes to support a binding to Brackit which in turn supports XQuery/XQuery Update Facility. The CoW-approach used for providing Snapshot Isolation through MVCC is especially well suited for flash-disks. We support several well known versioning strategies.
+The architecture supports the well known ACID-properties (durability currently isn't guaranted if the transaction crashes) and Snapshot Isolation through MVCC which in turn supports N-reading transactions in parallel to currently 1-write transaction without any locking. Supporting N-write transactions is in the works as well as the current work on indexes to support a Brackit binding which in turn supports XQuery and the XQuery Update Facility. The CoW-approach used for providing Snapshot Isolation through MVCC is especially well suited for flash-disks (sequential writes and random reads). We support several well known versioning strategies (incremental, differential, full).
 
 The GUI provides interactive visualizations of the differences between either 2 or more versions of a resource in Sirix. Please have a look into my master-thesis for screenshots.
 
@@ -28,10 +28,10 @@ in the future according to different workloads
 * supports XQuery (through Brackit(.org))
 * supports the XQuery Update Facility (through Brackit(.org))
 * supports temporal axis as for instance all-time::, past::, past-or-self::, future::, future-or-self::, first::, last::, next::, previous:: as well as extended functions, as for instance doc(xs:string, xs:int) to specify a revision to restore with the secon argument.
-* a GUI which isn't stable enough incorporates several views which are
+* a GUI incorporates several views which are
 visualizing either a single revision or the differences between two or
-more revisions of a resource (an XML-document in Sirix)
-* naturally implements a form of MVCC and thus readers are never blocked
+more revisions of a resource (an XML-document imported into the native format in Sirix)
+* (naturally) implements a form of MVCC and thus readers are never blocked
 * single write-transaction in parallel to N read-transactions on the
 same resource 
 
