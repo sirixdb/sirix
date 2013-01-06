@@ -4,7 +4,7 @@ The architecture supports the well known ACID-properties (durability currently i
 
 The GUI provides interactive visualizations of the differences between either 2 or more versions of a resource in Sirix. Please have a look into my master-thesis for screenshots.
 
-Some examples of the Java-API and the Brackit binding to use XQuery/XQuery Facility Update (with temporal extensions) are explained in the wiki. Stay tuned for a maven bundle with examples and more elaborate examples.
+Some examples of the Java-API and the Brackit binding to use XQuery and the XQuery Update Facility (with temporal extensions) are explained in the wiki. Stay tuned for a maven bundle with examples and more elaborate examples.
 
 Sirix will be nothing without interested developers (contributors). Any kind of contribution is highly welcome. Once a few (regular) contributors are found, we will create an organization for Sirix on github.
 
