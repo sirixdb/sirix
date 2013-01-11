@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.util.Random;
 
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 import javax.xml.stream.XMLStreamException;
 
 import org.brackit.xquery.atomic.QNm;

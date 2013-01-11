@@ -53,7 +53,7 @@ public class PIFilterTest {
 	}
 
 	@Test
-	public void testIFilterConvetions() throws SirixException {
+	public void testFilterConvetions() throws SirixException {
 		final NodeReadTrx rtx = holder.getRtx();
 		rtx.moveTo(8L);
 		FilterTest.testFilterConventions(new PIFilter(rtx), false);

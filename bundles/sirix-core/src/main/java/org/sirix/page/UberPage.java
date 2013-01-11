@@ -127,7 +127,8 @@ public final class UberPage extends AbstractForwardingPage {
 	 */
 	public UberPage(final @Nonnull UberPage committedUberPage,
 			final @Nonnegative int revisionToUse) {
-		mDelegate = new PageDelegate(committedUberPage, revisionToUse);
+		mDelegate = new PageDelegate(committedUberPage,
+				committedUberPage.isBootstrap() ? 0 : revisionToUse);
 		if (committedUberPage.isBootstrap()) {
 			mRevisionCount = committedUberPage.mRevisionCount;
 			mBootstrap = committedUberPage.mBootstrap;
@@ -198,8 +199,7 @@ public final class UberPage extends AbstractForwardingPage {
 				.add("forwarding page", super.toString())
 				.add("revisionCount", mRevisionCount)
 				.add("indirectPage", getReferences()[INDIRECT_REFERENCE_OFFSET])
-				.add("isBootstrap", mBootstrap)
-				.toString();
+				.add("isBootstrap", mBootstrap).toString();
 	}
 
 	@Override
@@ -212,7 +212,7 @@ public final class UberPage extends AbstractForwardingPage {
 		mDelegate.setDirty(pDirty);
 		return this;
 	}
-	
+
 	/**
 	 * Get the page count exponent for the given page.
 	 * 

@@ -26,7 +26,6 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
@@ -276,10 +275,5 @@ public class DBStore implements Store, AutoCloseable {
 		} catch (final SirixException e) {
 			throw new DocumentException(e.getCause());
 		}
-	}
-
-	public NodeReadTrx getTrx() {
-		// TODO Auto-generated method stub
-		return null;
 	}
 }

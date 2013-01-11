@@ -127,8 +127,8 @@ public final class FileReader implements Reader {
 			final UberPage page = (UberPage) read(uberPageReference.getKey(), null);
 			uberPageReference.setPage(page);
 			return uberPageReference;
-		} catch (final IOException exc) {
-			throw new SirixIOException(exc);
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
 		}
 	}
 

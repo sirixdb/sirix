@@ -69,6 +69,9 @@ public final class SessionConfiguration {
 
 	/** Default User. */
 	public static final String DEFAULT_USER = "ALL";
+
+	/** Determines if logs should be dumped to persistent storage at first during a commit or not. */
+	public static final boolean DUMP_LOGS = false;
 	// END STATIC STANDARD FIELDS
 
 	// MEMBERS FOR FLEXIBLE FIELDS
@@ -88,6 +91,9 @@ public final class SessionConfiguration {
 	/** ResourceConfiguration for this ResourceConfig. */
 	private final String mResource;
 
+	/** Determines if logs should be dumped to persistent storage at first during a commit or not. */
+	private final boolean mDumpLogs;
+
 	/**
 	 * Convenience constructor using the standard settings.
 	 * 
@@ -101,6 +107,7 @@ public final class SessionConfiguration {
 		mCommitThreshold = builder.mCommitThreshold;
 		mUser = builder.mUser;
 		mResource = builder.mResource;
+		mDumpLogs = builder.mDumpLogs;
 	}
 
 	@Override
@@ -139,6 +146,16 @@ public final class SessionConfiguration {
 		return mResource;
 	}
 	
+
+	/**
+	 * Dump the logs to persistent store or not.
+	 * 
+	 * @return {@code true} if it should be dumped, {@code false} otherwise
+	 */
+	public boolean dumpLogs() {
+		return mDumpLogs;
+	}
+	
 	/**
 	 * Get a new builder instance.
 	 * 
@@ -148,7 +165,7 @@ public final class SessionConfiguration {
 	 *           if {@code resource} or {@code config} is {@code null}
 	 * @return {@link Builder} instance
 	 */
-	public static Builder builder(final @Nonnull String resource) {
+	public static Builder create(final @Nonnull String resource) {
 		return new Builder(resource);
 	}
 
@@ -168,6 +185,9 @@ public final class SessionConfiguration {
 
 		/** User for this session. */
 		private String mUser = SessionConfiguration.DEFAULT_USER;
+		
+		/** Determines if logs should be dumped to persistent storage at first during a commit or not. */
+		private boolean mDumpLogs = SessionConfiguration.DUMP_LOGS;
 
 		/** Resource for the this session. */
 		private final String mResource;
@@ -178,7 +198,7 @@ public final class SessionConfiguration {
 		 * @param resource
 		 *          the resource
 		 */
-		public Builder(@Nonnull final String resource) {
+		public Builder(final @Nonnull String resource) {
 			mResource = checkNotNull(resource);
 		}
 
@@ -203,7 +223,7 @@ public final class SessionConfiguration {
 		 *          how many concurrent reading transactions are allowed
 		 * @return reference to the builder object
 		 */
-		public Builder setRtxAllowed(@Nonnegative final int rtxAllowed) {
+		public Builder setRtxAllowed(final @Nonnegative int rtxAllowed) {
 			checkArgument(rtxAllowed < 1, "Value must be > 0!");
 			mRtxAllowed = rtxAllowed;
 			return this;
@@ -216,7 +236,7 @@ public final class SessionConfiguration {
 		 *          new value for field
 		 * @return reference to the builder object
 		 */
-		public Builder setCommitThreshold(@Nonnegative final int commitThreshold) {
+		public Builder setCommitThreshold(final @Nonnegative int commitThreshold) {
 			checkArgument(commitThreshold < 100, "Value must be > 100!");
 			mCommitThreshold = commitThreshold;
 			return this;
@@ -229,21 +249,32 @@ public final class SessionConfiguration {
 		 *          the user accessing the resource
 		 * @return reference to the builder object
 		 */
-		public Builder setUser(@Nonnull final String user) {
+		public Builder setUser(final @Nonnull String user) {
 			mUser = checkNotNull(user);
 			return this;
 		}
-
+		
 		/**
-		 * Set key for cipher.
+		 * Dump transaction-logs to persistent storage at first during a commit.
 		 * 
-		 * @param key
-		 *          key for cipher
 		 * @return reference to the builder object
 		 */
-		public Builder setKey(final @Nonnull Key key) {
+		public Builder dumpLogs() {
+			mDumpLogs = true;
 			return this;
 		}
+
+//		/**
+//		 * Set key for cipher.
+//		 * 
+//		 * @param key
+//		 *          key for cipher
+//		 * @return reference to the builder object
+//		 */
+//		public Builder setKey(final @Nonnull Key key) {
+//			mKey = checkNotNull(key);
+//			return this;
+//		}
 
 		/**
 		 * Building a new {@link SessionConfiguration} with immutable fields.

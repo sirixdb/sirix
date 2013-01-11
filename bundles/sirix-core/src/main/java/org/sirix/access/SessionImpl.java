@@ -649,7 +649,7 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public Session commitAll() throws SirixException {
+	public synchronized Session commitAll() throws SirixException {
 		if (!mClosed) {
 			for (NodeReadTrx rtx : mNodeTrxMap.values()) {
 				if (rtx instanceof NodeWriteTrx) {

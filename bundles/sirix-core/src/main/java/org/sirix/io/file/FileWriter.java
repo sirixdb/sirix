@@ -89,7 +89,7 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 	 *           if errors during writing occur
 	 */
 	@Override
-	public long write(@Nonnull final PageReference pageReference)
+	public long write(final @Nonnull PageReference pageReference)
 			throws SirixIOException {
 		// Serialise page.
 		final Page page = pageReference.getPage();
@@ -140,14 +140,14 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 	}
 
 	@Override
-	public void writeFirstReference(@Nonnull final PageReference pPageReference)
+	public void writeFirstReference(final @Nonnull PageReference pageReference)
 			throws SirixIOException {
 		try {
-			write(pPageReference);
+			write(pageReference);
 			mFile.seek(0);
-			mFile.writeLong(pPageReference.getKey());
-		} catch (final IOException exc) {
-			throw new SirixIOException(exc);
+			mFile.writeLong(pageReference.getKey());
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
 		}
 	}
 

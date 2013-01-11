@@ -47,8 +47,6 @@ public final class NameFilter extends AbstractFilter {
 	/** Key of prefix to test. */
 	private final int mPrefixKey;
 
-	private QNm mName;
-
 	/**
 	 * Default constructor.
 	 * 
@@ -62,7 +60,6 @@ public final class NameFilter extends AbstractFilter {
 		mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty()) ? -1
 				: rtx.keyForName(name.getPrefix());
 		mLocalNameKey = rtx.keyForName(name.getLocalName());
-		mName = name;
 	}
 
 	/**

@@ -40,6 +40,7 @@ public class SirixOptimizer extends TopDownOptimizer {
 		@Override
 		public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
 			// TODO add rules for index resolution here
+			ast.display();
 			return ast;
 		}
 	}

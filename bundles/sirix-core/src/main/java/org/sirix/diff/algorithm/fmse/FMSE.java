@@ -324,7 +324,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 		assert wtx != null;
 		assert rtx != null;
 		wtx.moveTo(mOldStartKey);
-		for (@SuppressWarnings("unused") final long nodeKey : VisitorDescendantAxis.builder(wtx)
+		for (@SuppressWarnings("unused") final long nodeKey : VisitorDescendantAxis.create(wtx)
 				.includeSelf()
 				.visitor(
 						Optional.<DeleteFMSEVisitor> of(new DeleteFMSEVisitor(wtx,

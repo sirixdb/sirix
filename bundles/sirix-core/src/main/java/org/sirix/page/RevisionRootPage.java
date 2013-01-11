@@ -33,11 +33,15 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageWriteTrx;
+import org.sirix.exception.SirixException;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -160,7 +164,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	public PageReference getTextValuePageReference() {
 		return getReference(TEXT_VALUE_REFERENCE_OFFSET);
 	}
-	
+
 	/**
 	 * Get attribute value page reference.
 	 * 
@@ -253,9 +257,10 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	public void incrementMaxTextValueNodeKey() {
 		mMaxTextValueNodeKey += 1;
 	}
-	
+
 	/**
-	 * Increment number of attribute value nodes by one while allocating another key.
+	 * Increment number of attribute value nodes by one while allocating another
+	 * key.
 	 */
 	public void incrementMaxAttributeValueNodeKey() {
 		mMaxAttributeValueNodeKey += 1;
@@ -299,6 +304,19 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 */
 	public void setMaxAttributeValueNodeKey(final @Nonnegative long maxNodeKey) {
 		mMaxAttributeValueNodeKey = maxNodeKey;
+	}
+
+	/**
+	 * Only commit whole subtree if it's the currently added revision.
+	 * 
+	 * {@inheritDoc}
+	 */
+	@Override
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+			@Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
+		if (mDelegate.getRevision() == pageWriteTrx.getUberPage().getRevision()) {
+			super.commit(pageWriteTrx);
+		}
 	}
 
 	@Override
@@ -370,7 +388,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 			incrementMaxTextValueNodeKey();
 		}
 	}
-	
+
 	/**
 	 * Initialize attribute value tree.
 	 * 

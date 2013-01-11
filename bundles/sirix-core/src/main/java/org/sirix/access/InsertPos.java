@@ -27,7 +27,6 @@
 package org.sirix.access;
 
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;

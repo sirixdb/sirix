@@ -200,6 +200,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			mNewRoot.setMaxAttributeValueNodeKey(lastCommitedRoot
 					.getMaxAttributeValueNodeKey());
 		}
+		// mPageLog.put(mNewRoot.get, mNewRoot);
 	}
 
 	@Override
@@ -454,7 +455,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				case PATHSUMMARYPAGE:
 					cont = getUnorderedRecordPageContainer(pageKind, recordPageKey);
 				default:
-
 				}
 			}
 			if (cont != null) {
@@ -467,74 +467,77 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				// the one from the reference.
 				page = reference.getPage();
 
-				if (reference.getKeyValuePageKey() != -1 && page == null) {
-					switch (pageKind) {
-					case TEXTVALUEPAGE:
-					case ATTRIBUTEVALUEPAGE:
-					case NODEPAGE:
-					case PATHSUMMARYPAGE:
-						if ((mPageRtx.getRevisionNumber()
-								% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0)
-								&& mPageRtx.mSession.mResourceConfig.mRevisionKind != Revisioning.FULL) {
-							// Revision to commit is a full dump => get the full page and dump
-							// it.
-							page = mPageRtx
-									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
-											recordPageKey, pageKind).getComplete();
-						}
-					default:
-					}
-
-					if (page != null && !page.isDirty()) {
-						// Only write dirty pages which have been modified since the
-						// latest full dump (checked in the versioning algorithms through
-						// setting the dirty flag).
-						page = null;
-					}
-				}
 				if (page == null) {
-					// Then try to get one from the page transaction log (indirect pages
-					// forming a tree below revision root pages).
-					final long key = reference.getKey();
-					if (recordPageKey == -1 && key != Constants.NULL_ID
-							&& reference.getPageKind() != PageKind.UBERPAGE) {
-						page = mPageLog.get(key);
-
-						if ((mPageRtx.getRevisionNumber()
+					if (reference.getKeyValuePageKey() != -1) {
+						if ((getUberPage().getRevision()
 								% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0)
 								&& mPageRtx.mSession.mResourceConfig.mRevisionKind != Revisioning.FULL) {
-							/*
-							 * Write the whole indirect page tree if it's a full dump,
-							 * otherwise record pages which have to be emitted might not be
-							 * adressable (the pages from earlier versions would still be
-							 * reachable).
-							 */
-							page = mPageRtx.getFromPageCache(key);
+							switch (pageKind) {
+							case TEXTVALUEPAGE:
+							case ATTRIBUTEVALUEPAGE:
+							case NODEPAGE:
+							case PATHSUMMARYPAGE:
 
-							if (page instanceof IndirectPage) {
+								// Revision to commit is a full dump => get the full page and
+								// dump it (if it is dirty -- checked later).
+								page = mPageRtx
+										.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
+												recordPageKey, pageKind).getComplete();
+							default:
+							}
+
+							if (page != null && !page.isDirty()) {
+								// Only write dirty pages which have been modified since the
+								// latest full dump (checked in the versioning algorithms
+								// through
+								// setting the dirty flag).
+								page = null;
+							}
+						}
+					} else {
+						// Then try to get one from the page transaction log (indirect pages
+						// forming a tree below revision root pages).
+						final long key = reference.getKey();
+						if (recordPageKey == -1 && key != Constants.NULL_ID
+								&& reference.getPageKind() != PageKind.UBERPAGE) {
+							page = mPageLog.get(key);
+
+							if (page == null && (getUberPage().getRevision()
+									% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0)
+									&& mPageRtx.mSession.mResourceConfig.mRevisionKind != Revisioning.FULL) {
+								/*
+								 * Write the whole indirect page tree if it's a full dump,
+								 * otherwise record pages which have to be emitted might not be
+								 * adressable (the pages from earlier versions would still be
+								 * reachable).
+								 */
+								page = mPageRtx.getFromPageCache(key);
+								
+								// In case of other revision root subtrees.
+								if (!(page instanceof IndirectPage)) {
+									return;
+								}
 								page.setDirty(true);
-							} else {
-								assert page == null;
 							}
 						}
 					}
-					if (page == null) {
-						return;
-					}
-					assert page.isDirty();
 				}
+			}
 
-				// Revision to commit is not a full dump => return immediately.
-				if (!page.isDirty()
-						&& ((page.getRevision()
-								% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) || mPageRtx.mSession.mResourceConfig.mRevisionKind == Revisioning.FULL)) {
-					return;
-				}
+			if (page == null) {
+				return;
+			}
+
+			// Revision to commit is not a full dump => return immediately.
+			if (!page.isDirty()
+					&& ((page.getRevision()
+							% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) || mPageRtx.mSession.mResourceConfig.mRevisionKind == Revisioning.FULL)) {
+				return;
 			}
 
 			reference.setPage(page);
 
-			// Recursively commit indirectely referenced pages and then
+			// Recursively commit indirectly referenced pages and then
 			// write self.
 			page.commit(this);
 			mPageWriter.write(reference);
@@ -549,10 +552,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 			// Afterwards synchronize all logs since the changes must be
 			// written to the transaction log as well.
-			if (mMultipleWriteTrx == MultipleWriteTrx.YES && cont != null) {
-				// mPageRtx.mSession.syncLogs(cont, mTransactionID,
-				// reference.getPageKind());
-			}
+			// if (mMultipleWriteTrx == MultipleWriteTrx.YES && cont != null) {
+			// mPageRtx.mSession.syncLogs(cont, mTransactionID,
+			// reference.getPageKind());
 		}
 	}
 
@@ -566,17 +568,20 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		// Forcefully flush write-ahead transaction logs to persistent storage.
 		// Make
 		// this optional!
-		// mNodeLog.toSecondCache();
-		// mPathLog.toSecondCache();
-		// mValueLog.toSecondCache();
-		// mPageLog.toSecondCache();
+		if (mPageRtx.mSession.mSessionConfig.dumpLogs()) {
+			mNodeLog.toSecondCache();
+			mPathLog.toSecondCache();
+			mTextValueLog.toSecondCache();
+			mAttributeValueLog.toSecondCache();
+			mPageLog.toSecondCache();
+		}
 
 		final PageReference uberPageReference = new PageReference();
 		final UberPage uberPage = getUberPage();
 		uberPageReference.setPage(uberPage);
 		uberPageReference.setPageKind(PageKind.UBERPAGE);
 
-		// Recursively write indirectely referenced pages.
+		// Recursively write indirectly referenced pages.
 		uberPage.commit(this);
 
 		uberPageReference.setPage(uberPage);
@@ -657,7 +662,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				// dereferenceIndirectPage(PageReference) fails.
 				final IndirectPage indirectPage = mPageRtx
 						.dereferenceIndirectPage(reference);
-				page = new IndirectPage(indirectPage, mNewRoot.getRevision() + 1);
+				page = new IndirectPage(indirectPage, getUberPage().getRevision());
 			}
 			reference.setPage(page);
 		}
@@ -755,6 +760,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			// prepared indirect tree.
 			revisionRootPageReference.setPage(revisionRootPage);
 			revisionRootPageReference.setPageKind(PageKind.REVISIONROOTPAGE);
+			mPageLog.put(revisionRootPageReference.getKey(), revisionRootPage);
 
 			// Return prepared revision root nodePageReference.
 			return revisionRootPage;

@@ -102,7 +102,7 @@ public class Main {
 		try (final Database database = Databases.openDatabase(new File(
 				new StringBuilder(3).append(LOCATION).append(File.separator)
 						.append("mydoc.xml").toString()))) {
-			final Session session = database.getSession(SessionConfiguration.builder(
+			final Session session = database.getSession(SessionConfiguration.create(
 					"shredded").build());
 			final NodeReadTrx rtx = session.beginNodeReadTrx();
 			final NodeReadTrx firstPredicateRtx = session.beginNodeReadTrx();

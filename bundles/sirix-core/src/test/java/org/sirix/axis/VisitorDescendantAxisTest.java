@@ -42,7 +42,7 @@ public class VisitorDescendantAxisTest {
 
 		rtx.moveToDocumentRoot();
 		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.builder(rtx).build(), new long[] { 1L, 4L, 5L,
+				VisitorDescendantAxis.create(rtx).build(), new long[] { 1L, 4L, 5L,
 						6L, 7L, 8L, 9L, 11L, 12L, 13L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
@@ -54,13 +54,13 @@ public class VisitorDescendantAxisTest {
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
 				rtx.moveToDocumentRoot();
-				return VisitorDescendantAxis.builder(rtx).build();
+				return VisitorDescendantAxis.create(rtx).build();
 			}
 		}.test();
 
 		rtx.moveTo(1L);
 		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.builder(rtx).build(), new long[] { 4L, 5L, 6L,
+				VisitorDescendantAxis.create(rtx).build(), new long[] { 4L, 5L, 6L,
 						7L, 8L, 9L, 11L, 12L, 13L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
@@ -72,13 +72,13 @@ public class VisitorDescendantAxisTest {
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
 				rtx.moveTo(1L);
-				return VisitorDescendantAxis.builder(rtx).build();
+				return VisitorDescendantAxis.create(rtx).build();
 			}
 		}.test();
 
 		rtx.moveTo(9L);
 		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.builder(rtx).build(), new long[] { 11L, 12L });
+				VisitorDescendantAxis.create(rtx).build(), new long[] { 11L, 12L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(11L, 12L), null) {
 			{
@@ -89,13 +89,13 @@ public class VisitorDescendantAxisTest {
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
 				rtx.moveTo(9L);
-				return VisitorDescendantAxis.builder(rtx).build();
+				return VisitorDescendantAxis.create(rtx).build();
 			}
 		}.test();
 
 		rtx.moveTo(13L);
 		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.builder(rtx).build(), new long[] {});
+				VisitorDescendantAxis.create(rtx).build(), new long[] {});
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				Collections.<Long> emptyList(), null) {
 			{
@@ -106,7 +106,7 @@ public class VisitorDescendantAxisTest {
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
 				rtx.moveTo(13L);
-				return VisitorDescendantAxis.builder(rtx).build();
+				return VisitorDescendantAxis.create(rtx).build();
 			}
 		}.test();
 	}
@@ -115,7 +115,7 @@ public class VisitorDescendantAxisTest {
 	public void testIterateIncludingSelfVisitor() throws SirixException {
 		final NodeReadTrx rtx = holder.getRtx();
 		rtx.moveToDocumentRoot();
-		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.builder(rtx)
+		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.create(rtx)
 				.includeSelf().build(),
 				new long[] { Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L,
 						6L, 7L, 8L, 9L, 11L, 12L, 13L });
@@ -130,7 +130,7 @@ public class VisitorDescendantAxisTest {
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
 				rtx.moveToDocumentRoot();
-				return VisitorDescendantAxis.builder(rtx).includeSelf().build();
+				return VisitorDescendantAxis.create(rtx).includeSelf().build();
 			}
 		}.test();
 
@@ -148,7 +148,7 @@ public class VisitorDescendantAxisTest {
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
 				rtx.moveTo(1L);
-				return VisitorDescendantAxis.builder(rtx).includeSelf().build();
+				return VisitorDescendantAxis.create(rtx).includeSelf().build();
 			}
 		}.test();
 
@@ -165,7 +165,7 @@ public class VisitorDescendantAxisTest {
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
 				rtx.moveTo(9L);
-				return VisitorDescendantAxis.builder(rtx).includeSelf().build();
+				return VisitorDescendantAxis.create(rtx).includeSelf().build();
 			}
 		}.test();
 
@@ -182,7 +182,7 @@ public class VisitorDescendantAxisTest {
 			protected Iterator<Long> newTargetIterator() {
 				final NodeReadTrx rtx = holder.getRtx();
 				rtx.moveTo(13L);
-				return VisitorDescendantAxis.builder(rtx).includeSelf().build();
+				return VisitorDescendantAxis.create(rtx).includeSelf().build();
 			}
 		}.test();
 	}

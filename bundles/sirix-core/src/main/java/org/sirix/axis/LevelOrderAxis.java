@@ -83,13 +83,12 @@ public final class LevelOrderAxis extends AbstractAxis {
 	 *          the {@link NodeReadTrx} to iterate with
 	 * @return {@link Builder} instance
 	 */
-	public static Builder builder(final @Nonnull NodeReadTrx rtx) {
+	public static Builder create(final @Nonnull NodeReadTrx rtx) {
 		return new Builder(rtx);
 	}
 
 	/** Builder. */
 	public static class Builder {
-
 		/**
 		 * Determines if {@code attribute-} and {@code namespace-} nodes should be
 		 * included or not.

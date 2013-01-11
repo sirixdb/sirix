@@ -53,7 +53,7 @@ public class CommentFilterTest {
 	}
 
 	@Test
-	public void testIFilterConvetions() throws SirixException {
+	public void testFilterConvetions() throws SirixException {
 		final NodeReadTrx wtx = holder.getRtx();
 
 		wtx.moveTo(9L);

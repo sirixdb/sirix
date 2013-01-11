@@ -27,15 +27,14 @@
 
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import com.google.common.io.ByteArrayDataInput;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
+
+import com.google.common.io.ByteArrayDataInput;
 
 /**
  * <h1>IndirectPage</h1>
@@ -56,7 +55,6 @@ public final class IndirectPage extends AbstractForwardingPage {
 	 *          revision number
 	 */
 	public IndirectPage(final @Nonnegative int revision) {
-		checkArgument(revision >= 0, "pRevision must be >= 0!");
 		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, revision);
 	}
 
@@ -80,7 +78,6 @@ public final class IndirectPage extends AbstractForwardingPage {
 	 */
 	public IndirectPage(final @Nonnull IndirectPage page,
 			final @Nonnegative int revisionToUse) {
-		checkArgument(revisionToUse >= 0, "pRevisionToUse must be >= 0!");
 		mDelegate = new PageDelegate(page, revisionToUse);
 	}
 
