@@ -406,6 +406,13 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		}
 		return retVal;
 	}
+	
+	@Override
+	public boolean isDocumentRoot() {
+		moveRtx();
+		return mRtx.getParentKey() == Fixed.NULL_NODE_KEY
+				.getStandardProperty() ? true : false;
+	}
 
 	@Override
 	public boolean isRoot() {
