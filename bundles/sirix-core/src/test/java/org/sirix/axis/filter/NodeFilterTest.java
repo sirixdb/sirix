@@ -53,7 +53,7 @@ public class NodeFilterTest {
 	}
 
 	@Test
-	public void testIFilterConvetions() throws SirixException {
+	public void testFilterConvetions() throws SirixException {
 		final NodeReadTrx rtx = holder.getRtx();
 		rtx.moveTo(9L);
 		FilterTest.testFilterConventions(new NodeFilter(rtx), true);

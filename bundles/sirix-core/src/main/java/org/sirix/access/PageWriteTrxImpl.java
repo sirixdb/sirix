@@ -183,8 +183,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mPageWriter = writer;
 		mTransactionID = id;
 
-		final RevisionRootPage lastCommitedRoot = preparePreviousRevisionRootPage(
-				representRev, lastCommitedRev);
+		final RevisionRootPage lastCommitedRoot = mPageRtx.loadRevRoot(lastCommitedRev);//preparePreviousRevisionRootPage(
+				//representRev, lastCommitedRev);
 		mNewRoot = preparePreviousRevisionRootPage(representRev, lastStoredRev);
 		mNewRoot.setMaxNodeKey(lastCommitedRoot.getMaxNodeKey());
 
@@ -529,7 +529,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 			// Revision to commit is not a full dump => return immediately.
 			if (!page.isDirty()
-					&& ((page.getRevision()
+					&& ((getUberPage().getRevision()
 							% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) || mPageRtx.mSession.mResourceConfig.mRevisionKind == Revisioning.FULL)) {
 				return;
 			}

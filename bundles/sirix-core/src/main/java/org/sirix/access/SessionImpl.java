@@ -307,9 +307,9 @@ public final class SessionImpl implements Session {
 		checkArgument(representRevision >= 0, "representRevision must be >= 0!");
 		checkArgument(storeRevision >= 0, "storeRevision must be >= 0!");
 		final Writer writer = mFac.getWriter();
-		final int lastCommitedRev = mLastCommittedUberPage.get()
-				.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage.get()
-				.getLastCommitedRevisionNumber() : 0;
+		final int lastCommitedRev = mLastCommittedUberPage.get().getRevisionNumber(); //mLastCommittedUberPage.get()
+//				.getLastCommitedRevisionNumber() > 0 ? mLastCommittedUberPage.get()
+//				.getLastCommitedRevisionNumber() : 0;
 		final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
 		return new PageWriteTrxImpl(this, abort == Abort.YES
 				&& lastCommitedUberPage.isBootstrap() ? new UberPage() : new UberPage(

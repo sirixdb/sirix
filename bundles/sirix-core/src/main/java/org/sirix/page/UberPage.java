@@ -158,14 +158,14 @@ public final class UberPage extends AbstractForwardingPage {
 		return mRevisionCount;
 	}
 
-	/**
-	 * Get key of last committed revision.
-	 * 
-	 * @return key of last committed revision
-	 */
-	public int getLastCommitedRevisionNumber() {
-		return mRevisionCount - 2;
-	}
+//	/**
+//	 * Get key of last committed revision.
+//	 * 
+//	 * @return key of last committed revision
+//	 */
+//	public int getLastCommitedRevisionNumber() {
+//		return mRevisionCount - 2;
+//	}
 
 	/**
 	 * Get revision key of current in-memory state.

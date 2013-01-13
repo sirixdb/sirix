@@ -60,8 +60,7 @@ public class NestedFilterTest {
 	}
 
 	@Test
-	public void testIFilterConvetions() throws SirixException {
-
+	public void testFilterConvetions() throws SirixException {
 		holder.getRtx().moveTo(9L);
 		FilterTest.testFilterConventions(new NestedFilter(holder.getRtx(),
 				new ItemFilter(holder.getRtx()), new ElementFilter(holder.getRtx()),
@@ -84,6 +83,5 @@ public class NestedFilterTest {
 		FilterTest.testFilterConventions(new NestedFilter(holder.getRtx(),
 				new AttributeFilter(holder.getRtx()), new NameFilter(holder.getRtx(),
 						"i")), true);
-
 	}
 }

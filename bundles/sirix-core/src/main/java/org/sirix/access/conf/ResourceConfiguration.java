@@ -164,8 +164,8 @@ public final class ResourceConfiguration {
 	/** Standard storage. */
 	public static final StorageType STORAGE = StorageType.FILE;
 
-	/** Standard Versioning Approach. */
-	public static final Revisioning VERSIONING = Revisioning.DIFFERENTIAL;
+	/** Standard versioning approach. */
+	public static final Revisioning VERSIONING = Revisioning.INCREMENTAL;
 
 	/** Type of hashing. */
 	public static final HashKind HASHKIND = HashKind.ROLLING;

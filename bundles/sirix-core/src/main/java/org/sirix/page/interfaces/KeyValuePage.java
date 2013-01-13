@@ -92,4 +92,11 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @return page kind
 	 */
 	PageKind getPageKind();
+	
+	/**
+	 * Set the revision the page belongs to if the page is updated.
+	 * 
+	 * @return the page instance
+	 */
+	KeyValuePage<K, V> setRevision(@Nonnegative int revision);
 }

@@ -647,6 +647,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 					final S page = (S) (ref.getPage() == null ? mPageReader.read(
 							ref.getKey(), this) : ref.getPage());
 					ref.setPageKind(pageKind);
+					page.setRevision(i);
 					pages.add(page);
 					if (ref.getKey() != Constants.NULL_ID) {
 						keys.add(ref.getKey());
@@ -661,7 +662,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 				break;
 			}
 		}
-
 		return pages;
 	}
 

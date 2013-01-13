@@ -67,7 +67,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	private final Map<Long, Record> mRecords;
 
 	/** {@link PageDelegate} reference. */
-	private final int mRevision;
+	private int mRevision;
 
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
@@ -251,5 +251,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	@Override
 	public PageKind getPageKind() {
 		return mPageKind;
+	}
+
+	@Override
+	public KeyValuePage<Long, Record> setRevision(final @Nonnegative int revision) {
+		// Only used internally, thus assertions are preferred!
+		assert revision >= 0 : "revision parameter must be >= 0!";
+		mRevision  = revision;
+		return this;
 	}
 }

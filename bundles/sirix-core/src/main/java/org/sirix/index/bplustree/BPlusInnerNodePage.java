@@ -45,7 +45,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	private final Map<K, V> mRecords;
 
 	/** {@link PageDelegate} reference. */
-	private final int mRevision;
+	private int mRevision;
 
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
@@ -218,5 +218,13 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	@Override
 	public PageKind getPageKind() {
 		return mPageKind;
+	}
+	
+	@Override
+	public KeyValuePage<K, V> setRevision(final @Nonnegative int revision) {
+		// Only used internally, thus assertions are preferred!
+		assert revision >= 0 : "revision parameter must be >= 0!";
+		mRevision  = revision;
+		return this;
 	}
 }

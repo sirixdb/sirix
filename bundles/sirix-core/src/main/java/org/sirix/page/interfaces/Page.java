@@ -75,7 +75,8 @@ public interface Page {
 	 * @throws SirixException
 	 *           if something went wrong
 	 */
-	<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(@Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException;
+	<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
+			@Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException;
 
 	/**
 	 * Get the {@link PageReference} at the specified offset

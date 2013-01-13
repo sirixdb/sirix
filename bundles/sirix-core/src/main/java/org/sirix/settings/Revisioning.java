@@ -122,6 +122,9 @@ public enum Revisioning {
 				for (final Entry<K, V> entry : fullDump.entrySet()) {
 					if (returnVal.getValue(entry.getKey()) == null) {
 						returnVal.setEntry(entry.getKey(), entry.getValue());
+						if (returnVal.entrySet().size() == Constants.NDP_NODE_COUNT) {
+							break;
+						}
 					}
 				}
 			}
@@ -135,28 +138,40 @@ public enum Revisioning {
 			assert pages.size() <= 2;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
+			final int revision = pageReadTrx.getUberPage().getRevision();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), revision, pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), revision, pageReadTrx));
 
 			final T latest = firstPage;
 			T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
+			final boolean isFullDump = revision % revToRestore == 0;
 
-			for (final Map.Entry<K, V> entry : fullDump.entrySet()) {
-				returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
-
-				if ((latest.getRevision() + 1) % revToRestore == 0) {
-					// Fulldump.
-					returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
-				}
-			}
-
-			// iterate through all nodes
+			// Iterate through all nodes of the latest revision.
 			for (final Map.Entry<K, V> entry : latest.entrySet()) {
 				returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
 				returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
+			}
+
+			// If not all entries are filled.
+			if (latest.entrySet().size() != Constants.NDP_NODE_COUNT) {
+				// Iterate through the full dump.
+				for (final Map.Entry<K, V> entry : fullDump.entrySet()) {
+					if (returnVal.get(0).getValue(entry.getKey()) == null) {
+						returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
+					}
+
+					if (isFullDump && returnVal.get(1).getValue(entry.getKey()) == null) {
+						returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
+					}
+					
+					if (returnVal.get(0).entrySet().size() == Constants.NDP_NODE_COUNT) {
+						// Page is filled, thus skip all other entries of the full dump.
+						break;
+					}
+				}
 			}
 
 			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
@@ -194,12 +209,20 @@ public enum Revisioning {
 				returnVal.setDirty(true);
 			}
 
-			for (final KeyValuePage<K, V> page : pages) {
+			boolean filledPage = false;
+			for (final T page : pages) {
 				assert page.getPageKey() == recordPageKey;
+				if (filledPage) {
+					break;
+				}
 				for (final Entry<K, V> entry : page.entrySet()) {
 					final K nodeKey = entry.getKey();
 					if (returnVal.getValue(nodeKey) == null) {
 						returnVal.setEntry(nodeKey, entry.getValue());
+						if (returnVal.entrySet().size() == Constants.NDP_NODE_COUNT) {
+							filledPage = true;
+							break;
+						}
 					}
 				}
 			}
@@ -213,14 +236,20 @@ public enum Revisioning {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
+			final int revision = pageReadTrx.getUberPage().getRevision();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), revision, pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), revision, pageReadTrx));
+			final boolean isFullDump = revision % revToRestore == 0;
 
+			boolean filledPage = false;
 			for (final T page : pages) {
 				assert page.getPageKey() == recordPageKey;
+				if (filledPage) {
+					break;
+				}
 
 				for (final Entry<K, V> entry : page.entrySet()) {
 					// Caching the complete page.
@@ -229,9 +258,13 @@ public enum Revisioning {
 					if (entry != null && returnVal.get(0).getValue(key) == null) {
 						returnVal.get(0).setEntry(key, entry.getValue());
 
-						if (returnVal.get(1).getValue(entry.getKey()) == null
-								&& returnVal.get(0).getRevision() % revToRestore == 0) {
+						if (returnVal.get(1).getValue(entry.getKey()) == null && isFullDump) {
 							returnVal.get(1).setEntry(key, entry.getValue());
+						}
+						
+						if (returnVal.get(0).entrySet().size() == Constants.NDP_NODE_COUNT) {
+							filledPage = true;
+							break;
 						}
 					}
 				}

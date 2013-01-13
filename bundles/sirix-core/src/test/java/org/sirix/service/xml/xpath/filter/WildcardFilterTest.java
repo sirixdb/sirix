@@ -55,28 +55,13 @@ public class WildcardFilterTest {
 	}
 
 	@Test
-	public void testIFilterConvetions() throws SirixException {
+	public void testFilterConvetions() throws SirixException {
 		holder.getRtx().moveTo(9L);
 		FilterTest.testFilterConventions(new WildcardFilter(holder.getRtx(), "b",
 				EType.LOCALNAME), true);
 		holder.getRtx().moveToAttribute(0);
-		// try {
 		FilterTest.testFilterConventions(new WildcardFilter(holder.getRtx(), "p",
 				EType.PREFIX), true);
-		// fail("Expected an Exception, because attributes are not supported.");
-		// } catch (IllegalStateException e) {
-		// assertThat(e.getMessage(),
-		// is("Wildcards are not supported in attribute names yet."));
-		//
-		// }
-		// IFilterTest.testIFilterConventions(new
-		// WildcardFilter(holder.getRtx(), "b",
-		// true), true);
-
-		// holder.getRtx().moveTo(3L);
-		// IFilterTest.testIFilterConventions(new ItemFilter(holder.getRtx()),
-		// true);
-
 		holder.getRtx().moveTo(1L);
 		FilterTest.testFilterConventions(new WildcardFilter(holder.getRtx(), "p",
 				EType.PREFIX), true);
@@ -86,6 +71,5 @@ public class WildcardFilterTest {
 				EType.LOCALNAME), false);
 		FilterTest.testFilterConventions(new WildcardFilter(holder.getRtx(), "b",
 				EType.PREFIX), false);
-
 	}
 }

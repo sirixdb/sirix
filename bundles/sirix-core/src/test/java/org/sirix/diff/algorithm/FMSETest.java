@@ -23,10 +23,8 @@ import org.sirix.TestHelper;
 import org.sirix.TestHelper.PATHS;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
-import org.sirix.axis.DescendantAxis;
 import org.sirix.diff.service.FMSEImport;
 import org.sirix.exception.SirixException;
 import org.sirix.service.xml.serialize.XMLSerializer;
@@ -291,12 +289,6 @@ public final class FMSETest extends XMLTestCase {
 				session.close();
 				session = database.getSession(new SessionConfiguration.Builder(
 						TestHelper.RESOURCE).build());
-
-				// final NodeReadTrx trx = session.beginNodeReadTrx();
-				// System.out.println(trx.getRevisionNumber());
-				// for (final long key : new DescendantAxis(trx)) {
-				// System.out.println(trx);
-				// }
 
 				final OutputStream out = new ByteArrayOutputStream();
 				final XMLSerializer serializer = new XMLSerializerBuilder(session, out)
