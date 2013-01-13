@@ -448,7 +448,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 		}
 
 		final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(
-				Fixed.ROOT_PAGE_KEY.getStandardProperty(),
+				Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
 				Constants.UBP_ROOT_REVISION_NUMBER, pageReadTrx);
 		ndp.setDirty(true);
 		reference.setPage(ndp);

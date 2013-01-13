@@ -609,7 +609,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final Revisioning revisioning = mResourceConfig.mRevisionKind;
 		final S completePage = revisioning.combineRecordPages(revs,
 				mileStoneRevision, this);
-		return new RecordPageContainer<S>(completePage);
+		return new RecordPageContainer<S>(completePage, getUberPage().getRevision());
 	}
 
 	/**
@@ -634,7 +634,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final int revsToRestore = config.mRevisionsToRestore;
 		final List<S> pages = new ArrayList<>(revsToRestore);
 		final Set<Long> keys = new HashSet<>(revsToRestore);
-		for (int i = mRootPage.getRevision(); i >= 0; i--) {
+		for (int i : config.mRevisionKind.getRevisionRoots(mRootPage.getRevision(),
+				revsToRestore)) {
 			final PageReference tmpRef = getPageReference(loadRevRoot(i), pageKind);
 			final PageReference ref = getPageReferenceForPage(tmpRef, recordPageKey,
 					pageKind);
@@ -654,21 +655,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 						// Page is full, thus we can skip reconstructing pages with elder
 						// versions.
 						break;
-					}
-				}
-				if (pages.size() == revsToRestore
-						|| config.mRevisionKind == Revisioning.FULL
-						|| (config.mRevisionKind == Revisioning.DIFFERENTIAL && pages
-								.size() == 2)) {
-					break;
-				}
-				if (config.mRevisionKind == Revisioning.DIFFERENTIAL) {
-					if (i - revsToRestore >= 0) {
-						i = i - revsToRestore + 1;
-					} else if (i == 0) {
-						break;
-					} else {
-						i = 1;
 					}
 				}
 			} else {

@@ -14,6 +14,7 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.AbstractForwardingPage;
+import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -58,7 +59,9 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	/** Optional right page reference (inner node page). */
 	private Optional<PageReference> mRightPage;
 
-	private PageDelegate mDelegate;
+	private final PageDelegate mDelegate;
+
+	private final PageKind mPageKind;
 
 	/** Determines the node kind. */
 	public enum Kind {
@@ -81,11 +84,12 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	 * @param kind
 	 *          determines if it's a leaf or inner node page
 	 */
-	public BPlusInnerNodePage(final @Nonnegative long recordPageKey,
+	public BPlusInnerNodePage(final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
 			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
+		assert pageKind != null;
 		assert revision >= 0 : "revision must not be negative!";
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mRevision = revision;
@@ -94,6 +98,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
 		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, revision);
+		mPageKind = pageKind;
 	}
 
 	/**
@@ -124,6 +129,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
+		mPageKind = PageKind.getKind(in.readByte());
 	}
 
 	public void setLeftPage(final @Nonnull Optional<PageReference> leftPage) {
@@ -147,6 +153,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 		for (final K record : mRecords.keySet()) {
 			persistenter.serialize(out, record, mPageReadTrx);
 		}
+		out.writeByte(mPageKind.getID());
 	}
 
 	private void serializePointer(final @Nonnull Optional<PageReference> page,
@@ -193,9 +200,9 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<K, V>> C newInstance(
-			final @Nonnegative long recordPageKey, final @Nonnegative int revision,
+			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind, final @Nonnegative int revision,
 			final @Nonnull PageReadTrx pageReadTrx) {
-		return (C) new BPlusInnerNodePage<K, V>(recordPageKey, revision, pageReadTrx);
+		return (C) new BPlusInnerNodePage<K, V>(recordPageKey, pageKind, revision, pageReadTrx);
 	}
 
 	@Override
@@ -206,5 +213,10 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	@Override
 	protected Page delegate() {
 		return mDelegate;
+	}
+
+	@Override
+	public PageKind getPageKind() {
+		return mPageKind;
 	}
 }

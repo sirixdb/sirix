@@ -15,6 +15,7 @@ import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
+import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -58,6 +59,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	/** Optional right page reference (inner node page). */
 	private Optional<PageReference> mRightPage;
 
+	private PageKind mPageKind;
+
 	/** Determines the node kind. */
 	public enum Kind {
 		/** Leaf node. */
@@ -72,6 +75,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	 * 
 	 * @param recordPageKey
 	 *          base key assigned to this node page
+	 * @param pageKind
+	 * 					the kind of page (in which subtree it is)
 	 * @param revision
 	 *          revision the page belongs to
 	 * @param pageReadTrx
@@ -79,11 +84,12 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	 * @param kind
 	 *          determines if it's a leaf or inner node page
 	 */
-	public BPlusLeafNodePage(final @Nonnegative long recordPageKey,
+	public BPlusLeafNodePage(final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
 			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
+		assert pageKind != null;
 		assert revision >= 0 : "revision must not be negative!";
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mRevision = revision;
@@ -93,6 +99,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		mPageReadTrx = pageReadTrx;
 		mLeftPage = Optional.absent();
 		mRightPage = Optional.absent();
+		mPageKind = pageKind;
 	}
 
 	/**
@@ -122,6 +129,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
+		mPageKind = PageKind.getKind(in.readByte());
 	}
 
 	public void setLeftPage(final @Nonnull Optional<PageReference> leftPage) {
@@ -215,13 +223,18 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<K, V>> C newInstance(
-			final @Nonnegative long recordPageKey, final @Nonnegative int revision,
+			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind, final @Nonnegative int revision,
 			final @Nonnull PageReadTrx pageReadTrx) {
-		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, revision, pageReadTrx);
+		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind, revision, pageReadTrx);
 	}
 
 	@Override
 	public PageReadTrx getPageReadTrx() {
 		return mPageReadTrx;
+	}
+
+	@Override
+	public PageKind getPageKind() {
+		return mPageKind;
 	}
 }

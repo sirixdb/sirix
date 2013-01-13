@@ -75,16 +75,25 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	/** Sirix {@link PageReadTrx}. */
 	private final PageReadTrx mPageReadTrx;
 
+	/** The kind of page (in which subtree it resides). */
+	private final PageKind mPageKind;
+
 	/**
 	 * Create record page.
 	 * 
 	 * @param recordPageKey
 	 *          base key assigned to this node page
+	 * @param pageKind
+	 *          the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE,
+	 *          TEXTVALUEPAGE, ATTRIBUTEVALUEPAGE)
 	 * @param revision
 	 *          revision the page belongs to
+	 * @param pageReadTrx
+	 *          the page reading transaction
 	 */
 	public UnorderedKeyValuePage(final @Nonnegative long recordPageKey,
-			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
+			final @Nonnull PageKind pageKind, final @Nonnegative int revision,
+			final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -95,6 +104,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		mRecords = new LinkedHashMap<>();
 		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
+		mPageKind = pageKind;
 	}
 
 	/**
@@ -119,6 +129,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
+		mPageKind = PageKind.getKind(in.readByte());
 	}
 
 	@Override
@@ -153,6 +164,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		for (final Record node : mRecords.values()) {
 			persistenter.serialize(out, node, mPageReadTrx);
 		}
+		out.writeByte(mPageKind.getID());
 	}
 
 	@Override
@@ -180,7 +192,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof UnorderedKeyValuePage) {
 			final UnorderedKeyValuePage other = (UnorderedKeyValuePage) obj;
-			return Objects.equal(mRecordPageKey, other.mRecordPageKey)
+			return mRecordPageKey == other.mRecordPageKey
 					&& Objects.equal(mRecords, other.mRecords);
 		}
 		return false;
@@ -230,8 +242,14 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<Long, Record>> C newInstance(
-			final long recordPageKey, final @Nonnegative int revision,
-			final @Nonnull PageReadTrx pageReadTrx) {
-		return (C) new UnorderedKeyValuePage(recordPageKey, revision, pageReadTrx);
+			final long recordPageKey, final @Nonnull PageKind pageKind,
+			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
+		return (C) new UnorderedKeyValuePage(recordPageKey, pageKind, revision,
+				pageReadTrx);
+	}
+
+	@Override
+	public PageKind getPageKind() {
+		return mPageKind;
 	}
 }

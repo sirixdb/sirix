@@ -27,10 +27,10 @@
 
 package org.sirix.cache;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -98,14 +98,15 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 * Constructor with complete page and lazy instantiated modifying page.
 	 * 
 	 * @param complete
-	 *          to be used as a base for this container
-	 * @param resourceConfig
-	 *          {@link ResourceConfiguration} instance
+	 *          page to clone
+	 * @param revision
+	 * 					the new revision
 	 */
 	@SuppressWarnings("unchecked")
-	public RecordPageContainer(final @Nonnull T complete) {
+	public RecordPageContainer(final @Nonnull T complete, final @Nonnegative int revision) {
 		this(complete, (T) complete.newInstance(complete.getPageKey(),
-				complete.getRevision(), complete.getPageReadTrx()));
+				complete.getPageKind(), revision,
+				complete.getPageReadTrx()));
 	}
 
 	/**

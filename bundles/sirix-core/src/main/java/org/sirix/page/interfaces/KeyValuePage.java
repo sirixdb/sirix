@@ -9,6 +9,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.node.interfaces.Record;
+import org.sirix.page.PageKind;
 
 /**
  * Key/Value page.
@@ -16,7 +17,8 @@ import org.sirix.node.interfaces.Record;
  * @author Johannes Lichtenberger
  * 
  */
-public interface KeyValuePage<K extends Comparable<? super K>, V extends Record> extends Page {
+public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
+		extends Page {
 	/**
 	 * Entry set of all nodes in the page. Changes to the set are reflected in the
 	 * internal data structure
@@ -49,8 +51,8 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	V getValue(K key);
 
 	/**
-	 * Store or overwrite a single entry. The implementation must make sure if
-	 * the key must be permitted, the value or none.
+	 * Store or overwrite a single entry. The implementation must make sure if the
+	 * key must be permitted, the value or none.
 	 * 
 	 * @param key
 	 *          key to store
@@ -64,6 +66,9 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * 
 	 * @param recordPageKey
 	 *          the record page key
+	 * @param pageKind
+	 *          the kind of page (in which subtree it is (NODEPAGE,
+	 *          PATHSUMMARYPAGE, TEXTVALUEPAGE, ATTRIBUTEVALUEPAGE))
 	 * @param revision
 	 *          the revision
 	 * @param pageReadTrx
@@ -71,7 +76,8 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @return a new {@link KeyValuePage} instance
 	 */
 	<C extends KeyValuePage<K, V>> C newInstance(@Nonnegative long recordPageKey,
-			@Nonnegative int revision, @Nonnull PageReadTrx pageReadTrx);
+			@Nonnull PageKind pageKind, @Nonnegative int revision,
+			@Nonnull PageReadTrx pageReadTrx);
 
 	/**
 	 * Get the {@link PageReadTrx}.
@@ -79,4 +85,11 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @return page reading transaction
 	 */
 	PageReadTrx getPageReadTrx();
+
+	/**
+	 * Get the page kind.
+	 * 
+	 * @return page kind
+	 */
+	PageKind getPageKind();
 }

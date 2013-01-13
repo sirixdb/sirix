@@ -71,18 +71,22 @@ public enum Revisioning {
 			final long recordPageKey = firstPage.getPageKey();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
 
 			for (final Map.Entry<K, V> entry : pages.get(0).entrySet()) {
 				returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
 				returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
 			}
 
-			final RecordPageContainer<T> cont = new RecordPageContainer<>(
-					returnVal.get(0), returnVal.get(1));
-			return cont;
+			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
+		}
+
+		@Override
+		public int[] getRevisionRoots(@Nonnegative int previousRevision,
+				@Nonnegative int revsToRestore) {
+			return new int[] { previousRevision };
 		}
 	},
 
@@ -99,7 +103,7 @@ public enum Revisioning {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final T returnVal = firstPage.newInstance(recordPageKey,
-					firstPage.getRevision(), pageReadTrx);
+					firstPage.getPageKind(), firstPage.getRevision(), pageReadTrx);
 			if (pages.size() == 2) {
 				returnVal.setDirty(true);
 			}
@@ -133,9 +137,9 @@ public enum Revisioning {
 			final long recordPageKey = firstPage.getPageKey();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
 
 			final T latest = firstPage;
 			T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
@@ -155,9 +159,19 @@ public enum Revisioning {
 				returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
 			}
 
-			final RecordPageContainer<T> cont = new RecordPageContainer<>(
-					returnVal.get(0), returnVal.get(1));
-			return cont;
+			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
+		}
+
+		@Override
+		public int[] getRevisionRoots(@Nonnegative int previousRevision,
+				@Nonnegative int revsToRestore) {
+			final int revisionsToRestore = previousRevision % revsToRestore;
+			final int lastFullDump = previousRevision - revisionsToRestore;
+			if (lastFullDump == previousRevision) {
+				return new int[] { lastFullDump };
+			} else {
+				return new int[] { previousRevision, lastFullDump };
+			}
 		}
 	},
 
@@ -174,7 +188,8 @@ public enum Revisioning {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final T returnVal = firstPage.newInstance(firstPage.getPageKey(),
-					firstPage.getRevision(), firstPage.getPageReadTrx());
+					firstPage.getPageKind(), firstPage.getRevision(),
+					firstPage.getPageReadTrx());
 			if (pages.size() > 1) {
 				returnVal.setDirty(true);
 			}
@@ -200,9 +215,9 @@ public enum Revisioning {
 			final long recordPageKey = firstPage.getPageKey();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
 
 			for (final T page : pages) {
 				assert page.getPageKey() == recordPageKey;
@@ -222,9 +237,20 @@ public enum Revisioning {
 				}
 			}
 
-			final RecordPageContainer<T> cont = new RecordPageContainer<>(
-					returnVal.get(0), returnVal.get(1));
-			return cont;
+			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
+		}
+
+		@Override
+		public int[] getRevisionRoots(final @Nonnegative int previousRevision,
+				final @Nonnegative int revsToRestore) {
+			final int revisionsToRestore = previousRevision % revsToRestore;
+			final int lastFullDump = previousRevision - revisionsToRestore;
+			final int[] retVal = new int[lastFullDump == previousRevision ? 1
+					: revisionsToRestore + 1];
+			for (int i = previousRevision, j = 0; i >= lastFullDump; j++, i--) {
+				retVal[j] = i;
+			}
+			return retVal;
 		}
 	};
 
@@ -257,4 +283,18 @@ public enum Revisioning {
 	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 			final @Nonnull List<T> pages, final @Nonnegative int mileStoneRevision,
 			final @Nonnull PageReadTrx pageReadTrx);
+
+	/**
+	 * Get all revision root page numbers which are needed to restore a
+	 * {@link KeyValuePage}.
+	 * 
+	 * @param previousRevision
+	 *          the previous revision
+	 * @param revsToRestore
+	 *          number of revisions to restore
+	 * @return revision root page numbers needed to restore a {@link KeyValuePage}
+	 */
+	public abstract int[] getRevisionRoots(
+			final @Nonnegative int previousRevision,
+			final @Nonnegative int revsToRestore);
 }

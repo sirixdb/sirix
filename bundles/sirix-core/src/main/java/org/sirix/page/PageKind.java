@@ -65,7 +65,7 @@ public enum PageKind {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert nodePage instanceof UnorderedKeyValuePage;
 			final UnorderedKeyValuePage page = (UnorderedKeyValuePage) nodePage;
-			return new UnorderedKeyValuePage(page.getPageKey(), page.getRevision(),
+			return new UnorderedKeyValuePage(page.getPageKey(), page.getPageKind(), page.getRevision(),
 					pageReadTrx);
 		}
 	},
@@ -225,7 +225,7 @@ public enum PageKind {
 			return new TextValuePage(pPage.getRevision());
 		}
 	},
-	
+
 	/**
 	 * {@link AttributeValuePage}.
 	 */
@@ -282,6 +282,15 @@ public enum PageKind {
 	PageKind(final byte pId, final Class<? extends Page> clazz) {
 		mId = pId;
 		mClass = clazz;
+	}
+	
+	/**
+	 * Get the unique page ID.
+	 * 
+	 * @return unique page ID
+	 */
+	public byte getID() {
+		return mId;
 	}
 
 	/**
