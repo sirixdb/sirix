@@ -10,7 +10,7 @@ Sirix will be nothing without interested developers (contributors). Any kind of 
 
 Note that it is a "fork" of Treetank (http://treetank.org / http://github.com/disy/treetank) which goes back to its roots and specializes on handling tree-structured data.
 
-[![Build Status](https://travis-ci.org/JohannesLichtenberger/sirix.png?branch=master)](https://travis-ci.org/JohannesLichtenberger/sirix)
+[![Build Status](https://travis-ci.org/JohannesLichtenberger/sirix.png)](https://travis-ci.org/JohannesLichtenberger/sirix)
 
 ##Features
 
