@@ -27,6 +27,7 @@
 
 package org.sirix.saxon.wrapper;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Collections;
@@ -111,6 +112,7 @@ public final class DocumentWrapper implements DocumentInfo {
 	public DocumentWrapper(final @Nonnull Session session,
 			@Nonnegative final int revision, final @Nonnull Configuration config)
 			throws SirixException {
+		checkArgument(revision >= 0, "revision must be >= 0!");
 		mSession = checkNotNull(session);
 		mRevision = revision;
 		mBaseURI = session.getResourceConfig().getResource().getAbsolutePath();
@@ -130,7 +132,7 @@ public final class DocumentWrapper implements DocumentInfo {
 	 */
 	public DocumentWrapper(final @Nonnull Session session,
 			final @Nonnull Configuration config) throws SirixException {
-		this(session, session.beginNodeReadTrx().getRevisionNumber(), config);
+		this(session, session.getLastRevisionNumber(), config);
 	}
 
 	@Override

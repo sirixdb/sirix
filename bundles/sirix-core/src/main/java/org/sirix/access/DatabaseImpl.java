@@ -117,8 +117,7 @@ public final class DatabaseImpl implements Database {
 			returnVal = path.mkdir();
 			if (returnVal) {
 				// Creation of the folder structure.
-				for (final ResourceConfiguration.Paths paths : ResourceConfiguration.Paths
-						.values()) {
+				for (final ResourceConfiguration.Paths paths : ResourceConfiguration.Paths.values()) {
 					final File toCreate = new File(path, paths.getFile().getName());
 					if (paths.isFolder()) {
 						returnVal = toCreate.mkdir();
@@ -142,11 +141,11 @@ public final class DatabaseImpl implements Database {
 			mDBConfig.setMaximumResourceID(mResourceID.get());
 			mResources.forcePut(mResourceID.get(), resConfig.getResource().getName());
 
-			// If something was not correct, delete the partly created
-			// substructure.
 			if (!returnVal) {
+				// If something was not correct, delete the partly created substructure.
 				Files.recursiveRemove(resConfig.mPath.toPath());
-			}
+			} 
+			
 			return returnVal;
 		}
 	}

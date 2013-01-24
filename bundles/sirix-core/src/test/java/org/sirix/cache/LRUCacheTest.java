@@ -32,6 +32,7 @@ import static org.junit.Assert.assertNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.sirix.TestHelper;
 import org.sirix.exception.SirixException;
 import org.sirix.page.UnorderedKeyValuePage;
 
@@ -45,6 +46,7 @@ public class LRUCacheTest {
 
 	@Before
 	public void setUp() throws SirixException {
+		TestHelper.createTestDocument();
 		cache = new LRUCache<>();
 		CacheTestHelper.setUp(cache);
 	}

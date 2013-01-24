@@ -61,7 +61,7 @@ import com.sleepycat.je.OperationStatus;
  * 
  */
 public final class BerkeleyPersistencePageCache extends
-		AbstractPersistenceCache<Long, Page> {
+		AbstractPersistenceCache<LogKey, Page> {
 
 	/**
 	 * Flush after defined value.
@@ -86,7 +86,7 @@ public final class BerkeleyPersistencePageCache extends
 	/**
 	 * Binding for the key, which is the nodepage.
 	 */
-	private final TupleBinding<Long> mKeyBinding;
+	private final LogKeyBinding mKeyBinding;
 
 	/**
 	 * Binding for the value which is a page.
@@ -132,7 +132,7 @@ public final class BerkeleyPersistencePageCache extends
 			}
 			mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
-			mKeyBinding = TupleBinding.getPrimitiveBinding(Long.class);
+			mKeyBinding = new LogKeyBinding();
 			mValueBinding = new PageBinding(pageReadTrx);
 			mEntries = 0;
 		} catch (final DatabaseException e) {
@@ -158,7 +158,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void putPersistent(@Nonnull final Long key, @Nonnull final Page page)
+	public void putPersistent(@Nonnull final LogKey key, @Nonnull final Page page)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -177,7 +177,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public Page getPersistent(@Nonnull final Long key) throws SirixIOException {
+	public Page getPersistent(@Nonnull final LogKey key) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
@@ -192,14 +192,14 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public ImmutableMap<Long, Page> getAll(
-			final @Nonnull Iterable<? extends Long> keys) {
+	public ImmutableMap<LogKey, Page> getAll(
+			final @Nonnull Iterable<? extends LogKey> keys) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<? extends Long, ? extends Page> map) {
-		for (final Entry<? extends Long, ? extends Page> entry : map.entrySet()) {
+	public void putAll(final @Nonnull Map<? extends LogKey, ? extends Page> map) {
+		for (final Entry<? extends LogKey, ? extends Page> entry : map.entrySet()) {
 			put(entry.getKey(), entry.getValue());
 		}
 	}
@@ -210,7 +210,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void remove(final @Nonnull Long key) {
+	public void remove(final @Nonnull LogKey key) {
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
 		final OperationStatus status = mDatabase.delete(null, keyEntry);

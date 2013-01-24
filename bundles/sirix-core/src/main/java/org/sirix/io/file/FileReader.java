@@ -136,8 +136,8 @@ public final class FileReader implements Reader {
 	public void close() throws SirixIOException {
 		try {
 			mFile.close();
-		} catch (final IOException exc) {
-			throw new SirixIOException(exc);
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
 		}
 	}
 }

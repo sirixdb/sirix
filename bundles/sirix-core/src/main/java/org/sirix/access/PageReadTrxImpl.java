@@ -34,6 +34,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -46,6 +47,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.Session;
+import org.sirix.cache.LogKey;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.TransactionLogCache;
 import org.sirix.cache.TransactionLogPageCache;
@@ -109,7 +111,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	private final LoadingCache<Long, RecordPageContainer<UnorderedKeyValuePage>> mAttributeValueCache;
 
 	/** Internal reference to page cache. */
-	private final LoadingCache<Long, Page> mPageCache;
+	private final LoadingCache<PageReference, Page> mPageCache;
 
 	/** {@link SessionImpl} reference. */
 	protected final SessionImpl mSession;
@@ -158,6 +160,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 */
 	final ResourceConfiguration mResourceConfig;
 
+	private final Optional<PageWriteTrxImpl> mPageWriteTrx;
+
 	/**
 	 * Standard constructor.
 	 * 
@@ -169,15 +173,20 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *          key of revision to read from uber page
 	 * @param reader
 	 *          reader to read stored pages for this transaction
-	 * @param persistentCache
-	 *          optional persistent cache
+	 * @param pageWriteLog
+	 *          optional page cache
+	 * @param unorderedKeyValuePageWriteLog
+	 *          optional key/value page cache
 	 * @throws SirixIOException
 	 *           if reading of the persistent storage fails
 	 */
 	PageReadTrxImpl(final @Nonnull SessionImpl session,
 			final @Nonnull UberPage uberPage, final @Nonnegative int revision,
-			final @Nonnull Reader reader) throws SirixIOException {
+			final @Nonnull Reader reader,
+			final @Nonnull Optional<PageWriteTrxImpl> pageWriteTrx)
+			throws SirixIOException {
 		checkArgument(revision >= 0, "Revision must be >= 0!");
+		mPageWriteTrx = checkNotNull(pageWriteTrx);
 		mIndexes = session.mResourceConfig.mIndexes;
 		mResourceConfig = session.mResourceConfig;
 
@@ -309,49 +318,21 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final CacheBuilder<Object, Object> pageCacheBuilder = CacheBuilder
 				.newBuilder();
 		final PageReadTrxImpl impl = this;
-		mPageCache = pageCacheBuilder.build(new CacheLoader<Long, Page>() {
-			public Page load(final Long key) throws SirixException {
-				final Page page = mPageLog.isPresent() ? mPageLog.get().get(key) : null;
+		mPageCache = pageCacheBuilder.build(new CacheLoader<PageReference, Page>() {
+			public Page load(final PageReference reference) throws SirixException {
+				final Page page = mPageLog.isPresent() ? mPageLog.get().get(
+						reference.getLogKey()) : null;
 				if (page == null) {
-					return mPageReader.read(key, impl).setDirty(true);
+					return mPageReader.read(reference.getKey(), impl).setDirty(true);
 				} else {
 					return page;
 				}
 			}
 		});
 
-		// if (mPageLog.isPresent()) {
-		// pageCacheBuilder.removalListener(new RemovalListener<Long, Page>() {
-		// @Override
-		// public void onRemoval(final RemovalNotification<Long, Page> pRemoval) {
-		// final Page page = pRemoval.getValue();
-		// if (page.isDirty()) {
-		// mPageLog.get().put(pRemoval.getKey(), page);
-		// }
-		// }
-		// });
-		// }
-
 		// Load revision root.
 		mRootPage = loadRevRoot(revision);
 		assert mRootPage != null : "root page must not be null!";
-		// First create revision tree if needed.
-		mRootPage.createNodeTree(this);
-		if (mIndexes.contains(Indexes.PATH)) {
-			// Create path summary tree if needed.
-			getPathSummaryPage(mRootPage);
-			mRootPage.createPathSummaryTree(this);
-		}
-		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
-			// Create text value tree if needed.
-			getTextValuePage(mRootPage);
-			mRootPage.createTextValueTree(this);
-		}
-		if (mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
-			// Create attribute value tree if needed.
-			getAttributeValuePage(mRootPage);
-			mRootPage.createAttributeValueTree(this);
-		}
 		mNamePage = getNamePage(mRootPage);
 		mClosed = false;
 	}
@@ -511,39 +492,33 @@ final class PageReadTrxImpl implements PageReadTrx {
 		// instance.
 		final PageReference ref = getPageReferenceForPage(
 				mUberPage.getIndirectPageReference(), revisionKey, PageKind.UBERPAGE);
-		RevisionRootPage page = (RevisionRootPage) ref.getPage();
-
-		// If there is no page, get it from the storage and cache it.
-		if (page == null) {
-			try {
-				page = (RevisionRootPage) mPageCache.get(ref.getKey());
-			} catch (final ExecutionException e) {
-				throw new SirixIOException(e.getCause());
+		try {
+			RevisionRootPage rootPage = null;
+			if (mPageWriteTrx.isPresent()) {
+				rootPage = (RevisionRootPage) mPageWriteTrx.get().mPageLog.get(ref
+						.getLogKey());
 			}
+			if (rootPage == null) {
+				rootPage = (RevisionRootPage) mPageCache.get(ref);
+			}
+			return rootPage;
+		} catch (final ExecutionException e) {
+			throw new SirixIOException(e.getCause());
 		}
-
-		// Get revision root page which is the leaf of the indirect tree.
-		return page;
 	}
 
 	@Override
 	public final NamePage getNamePage(final @Nonnull RevisionRootPage revisionRoot)
 			throws SirixIOException {
 		assertNotClosed();
-		final PageReference ref = revisionRoot.getNamePageReference();
-		setPage(ref);
-		ref.setPageKind(PageKind.NAMEPAGE);
-		return (NamePage) ref.getPage();
+		return (NamePage) getPage(revisionRoot.getNamePageReference());
 	}
 
 	@Override
 	public final PathSummaryPage getPathSummaryPage(
 			final @Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
 		assertNotClosed();
-		final PageReference ref = revisionRoot.getPathSummaryPageReference();
-		setPage(ref);
-		ref.setPageKind(PageKind.PATHSUMMARYPAGE);
-		return (PathSummaryPage) ref.getPage();
+		return (PathSummaryPage) getPage(revisionRoot.getPathSummaryPageReference());
 	}
 
 	@Override
@@ -551,20 +526,15 @@ final class PageReadTrxImpl implements PageReadTrx {
 			final @Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
 		assertNotClosed();
 		checkNotNull(revisionRoot);
-		final PageReference ref = revisionRoot.getTextValuePageReference();
-		setPage(ref);
-		ref.setPageKind(PageKind.TEXTVALUEPAGE);
-		return (TextValuePage) ref.getPage();
+		return (TextValuePage) getPage(revisionRoot.getTextValuePageReference());
 	}
 
 	@Override
 	public final AttributeValuePage getAttributeValuePage(
 			final @Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
 		assertNotClosed();
-		final PageReference ref = revisionRoot.getAttributeValuePageReference();
-		setPage(ref);
-		ref.setPageKind(PageKind.ATTRIBUTEVALUEPAGE);
-		return (AttributeValuePage) ref.getPage();
+		return (AttributeValuePage) getPage(revisionRoot
+				.getAttributeValuePageReference());
 	}
 
 	/**
@@ -575,14 +545,17 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void setPage(final @Nonnull PageReference ref)
+	private Page getPage(final @Nonnull PageReference ref)
 			throws SirixIOException {
-		if (ref.getPage() == null) {
-			try {
-				ref.setPage(mPageCache.get(ref.getKey()));
-			} catch (final ExecutionException e) {
-				throw new SirixIOException(e);
+		try {
+			Page page = ref.getPage();
+			if (page == null) {
+				page = mPageCache.get(ref);
+				ref.setPage(page);
 			}
+			return page;
+		} catch (final ExecutionException e) {
+			throw new SirixIOException(e);
 		}
 	}
 
@@ -639,14 +612,15 @@ final class PageReadTrxImpl implements PageReadTrx {
 			final PageReference tmpRef = getPageReference(loadRevRoot(i), pageKind);
 			final PageReference ref = getPageReferenceForPage(tmpRef, recordPageKey,
 					pageKind);
+			final Page dereferencedPage = mPageWriteTrx.isPresent() ? mPageWriteTrx
+					.get().mPageLog.get(ref.getLogKey()) : null;
 			if (ref != null
-					&& (ref.getPage() != null || ref.getKey() != Constants.NULL_ID)) {
+					&& (dereferencedPage != null || ref.getKey() != Constants.NULL_ID)) {
 				// Probably save page.
 				if (ref.getKey() == Constants.NULL_ID || (!keys.contains(ref.getKey()))) {
 					@SuppressWarnings("unchecked")
-					final S page = (S) (ref.getPage() == null ? mPageReader.read(
+					final S page = (S) (dereferencedPage == null ? mPageReader.read(
 							ref.getKey(), this) : ref.getPage());
-					ref.setPageKind(pageKind);
 					page.setRevision(i);
 					pages.add(page);
 					if (ref.getKey() != Constants.NULL_ID) {
@@ -712,16 +686,18 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 */
 	final IndirectPage dereferenceIndirectPage(
 			final @Nonnull PageReference reference) throws SirixIOException {
-		Page page = reference.getPage();
-		if (page == null && reference.getKey() != Constants.NULL_ID) {
-			try {
-				page = mPageCache.get(reference.getKey());
-				// reference.setPage(page);
-			} catch (final ExecutionException e) {
-				throw new SirixIOException(e.getCause());
+		try {
+			if (reference.getKey() != Constants.NULL_ID) {
+				return (IndirectPage) mPageCache.get(reference);
 			}
+			if (mPageWriteTrx.isPresent()) {
+				return (IndirectPage) mPageWriteTrx.get().mPageLog.get(reference
+						.getLogKey());
+			}
+			return null;
+		} catch (final ExecutionException e) {
+			throw new SirixIOException(e.getCause());
 		}
-		return (IndirectPage) page;
 	}
 
 	/**
@@ -741,10 +717,14 @@ final class PageReadTrxImpl implements PageReadTrx {
 	public final PageReference getPageReferenceForPage(
 			final @Nonnull PageReference startReference, final @Nonnegative long key,
 			final @Nonnull PageKind pageKind) throws SirixIOException {
+		assertNotClosed();
 
 		// Initial state pointing to the indirect page of level 0.
 		PageReference reference = checkNotNull(startReference);
+		checkArgument(key >= 0, "key must be >= 0!");
+		checkNotNull(pageKind);
 		int offset = 0;
+		int parentOffset = 0;
 		long levelKey = key;
 		final int[] inpLevelPageCountExp = mUberPage.getPageCountExp(pageKind);
 
@@ -752,6 +732,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 		for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
 			offset = (int) (levelKey >> inpLevelPageCountExp[level]);
 			levelKey -= offset << inpLevelPageCountExp[level];
+			if (mPageWriteTrx.isPresent()) {
+				reference.setLogKey(new LogKey(pageKind, level, parentOffset
+						* Constants.INP_REFERENCE_COUNT + offset));
+			}
 			final Page derefPage = dereferenceIndirectPage(reference);
 			if (derefPage == null) {
 				reference = null;
@@ -763,11 +747,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 					throw new SirixIOException("Node key isn't supported, it's too big!");
 				}
 			}
+			parentOffset = offset;
 		}
 
 		// Return reference to leaf of indirect tree.
-		if (reference != null) {
-			reference.setPageKind(pageKind);
+		if (reference != null && mPageWriteTrx.isPresent()) {
+			reference.setLogKey(new LogKey(pageKind, inpLevelPageCountExp.length,
+					parentOffset * Constants.INP_REFERENCE_COUNT + offset));
 		}
 		return reference;
 	}
@@ -820,11 +806,11 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public Page getFromPageCache(final @Nonnegative long key)
+	public Page getFromPageCache(final @Nonnegative PageReference reference)
 			throws SirixIOException {
 		assertNotClosed();
 		try {
-			return mPageCache.get(key);
+			return mPageCache.get(reference);
 		} catch (final ExecutionException e) {
 			throw new SirixIOException(e.getCause());
 		}
@@ -833,6 +819,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	@Override
 	public void putPageCache(final @Nonnull TransactionLogPageCache pageLog) {
 		assertNotClosed();
-		pageLog.putAll(mPageCache.asMap());
+		for (final Entry<PageReference, Page> entry : mPageCache.asMap().entrySet()) {
+			pageLog.put(entry.getKey().getLogKey(), entry.getValue());
+		}
 	}
 }

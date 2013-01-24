@@ -3,6 +3,7 @@ package org.sirix.api;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
+import org.sirix.cache.LogKey;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
@@ -148,13 +149,13 @@ public interface PageReadTrx extends AutoCloseable {
 	/**
 	 * Get page from cache.
 	 * 
-	 * @param key
-	 *          key of persistent storage
+	 * @param reference
+	 *          pointing to key of persistent storage
 	 * @return page instance
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	Page getFromPageCache(@Nonnegative long key) throws SirixIOException;
+	Page getFromPageCache(@Nonnegative PageReference reference) throws SirixIOException;
 
 	/**
 	 * Clear the caches.

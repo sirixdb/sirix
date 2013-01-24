@@ -46,33 +46,33 @@ public final class SirixIOException extends SirixException {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pMessage
+	 * @param message
 	 *          to be used
 	 */
-	public SirixIOException(final String pMessage) {
-		super(pMessage);
+	public SirixIOException(final String message) {
+		super(message);
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param pThrowable
+	 * @param throwable
 	 *          {@link Throwable} exception
-	 * @param pMessage
+	 * @param message
 	 *          for the overlaying {@link IOException}
 	 */
-	public SirixIOException(final String pMessage, final Throwable pThrowable) {
-		super(pMessage, pThrowable);
+	public SirixIOException(final String message, final Throwable throwable) {
+		super(message, throwable);
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param pThrowable
+	 * @param throwable
 	 *          {@link Throwable} exception
 	 */
-	public SirixIOException(final Throwable pThrowable) {
-		super(pThrowable);
+	public SirixIOException(final Throwable throwable) {
+		super(throwable);
 	}
 
 }

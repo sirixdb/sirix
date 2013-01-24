@@ -64,6 +64,7 @@ public class ElementNodeTest {
 	public void setUp() throws SirixException {
 		TestHelper.closeEverything();
 		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
 		mHolder = Holder.generateDeweyIDSession();
 		mPageReadTrx = mHolder.getSession().beginPageReadTrx();
 	}

@@ -90,7 +90,7 @@ public class Main {
 				.append(File.separator).append("test.xml").toString());
 
 		// Initialize query context and store.
-		final DBStore store = new DBStore();
+		final DBStore store = DBStore.newBuilder().build();
 		QueryContext ctx = new QueryContext(store);
 
 		// Use XQuery to load sample document into store.
@@ -102,7 +102,7 @@ public class Main {
 		try (final Database database = Databases.openDatabase(new File(
 				new StringBuilder(3).append(LOCATION).append(File.separator)
 						.append("mydoc.xml").toString()))) {
-			final Session session = database.getSession(SessionConfiguration.create(
+			final Session session = database.getSession(SessionConfiguration.newBuilder(
 					"shredded").build());
 			final NodeReadTrx rtx = session.beginNodeReadTrx();
 			final NodeReadTrx firstPredicateRtx = session.beginNodeReadTrx();
@@ -167,7 +167,7 @@ public class Main {
 		doc.deleteOnExit();
 
 		// Initialize query context and store.
-		try (final DBStore store = new DBStore(Updating.YES)) {
+		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
 			final QueryContext ctx = new QueryContext(store);
 
 			// Use XQuery to load sample document into store.
@@ -206,7 +206,7 @@ public class Main {
 		}
 
 		// Initialize query context and store.
-		try (final DBStore store = new DBStore()) {
+		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx = new QueryContext(store);
 
 			// Use XQuery to load all sample documents into store.
@@ -250,7 +250,7 @@ public class Main {
 		doc.deleteOnExit();
 
 		// Initialize query context and store.
-		try (final DBStore store = new DBStore(Updating.YES)) {
+		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
 			final QueryContext ctx = new QueryContext(store);
 
 			// Use XQuery to load sample document into store.
@@ -271,7 +271,7 @@ public class Main {
 			store.commitAll();
 			System.out.println();
 		}
-		try (final DBStore store = new DBStore()) {
+		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");

@@ -33,7 +33,12 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageWriteTrx;
+import org.sirix.cache.LogKey;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -66,7 +71,7 @@ public final class UberPage extends AbstractForwardingPage {
 	private final PageDelegate mDelegate;
 
 	/** {@link RevisionRootPage} instance. */
-	private final RevisionRootPage mRootPage;
+	private RevisionRootPage mRootPage;
 
 	/**
 	 * Create uber page.
@@ -78,26 +83,6 @@ public final class UberPage extends AbstractForwardingPage {
 		mDelegate = new PageDelegate(1, Constants.UBP_ROOT_REVISION_NUMBER);
 		mRevisionCount = Constants.UBP_ROOT_REVISION_COUNT;
 		mBootstrap = true;
-
-		// --- Create revision tree
-		// ------------------------------------------------
-
-		// Initialize revision tree to guarantee that there is a revision root
-		// page.
-		Page page = null;
-		PageReference reference = getReference(INDIRECT_REFERENCE_OFFSET);
-
-		// Remaining levels.
-		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
-			page = new IndirectPage(Constants.UBP_ROOT_REVISION_NUMBER);
-			reference.setPage(page);
-			reference.setPageKind(PageKind.UBERPAGE);
-			reference = page.getReference(0);
-		}
-
-		mRootPage = new RevisionRootPage();
-		reference.setPage(mRootPage);
-		reference.setPageKind(PageKind.REVISIONROOTPAGE);
 	}
 
 	/**
@@ -158,14 +143,14 @@ public final class UberPage extends AbstractForwardingPage {
 		return mRevisionCount;
 	}
 
-//	/**
-//	 * Get key of last committed revision.
-//	 * 
-//	 * @return key of last committed revision
-//	 */
-//	public int getLastCommitedRevisionNumber() {
-//		return mRevisionCount - 2;
-//	}
+	// /**
+	// * Get key of last committed revision.
+	// *
+	// * @return key of last committed revision
+	// */
+	// public int getLastCommitedRevisionNumber() {
+	// return mRevisionCount - 2;
+	// }
 
 	/**
 	 * Get revision key of current in-memory state.
@@ -211,6 +196,30 @@ public final class UberPage extends AbstractForwardingPage {
 	public Page setDirty(final boolean pDirty) {
 		mDelegate.setDirty(pDirty);
 		return this;
+	}
+
+	/**
+	 * Create revision tree.
+	 * 
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
+	 * @param revisionRoot
+	 *          {@link RevisionRootPage} instance
+	 */
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createRevisionTree(
+			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
+		// Initialize revision tree to guarantee that there is a revision root page.
+		Page page = null;
+
+		// Remaining levels.
+		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
+			page = new IndirectPage(Constants.UBP_ROOT_REVISION_NUMBER);
+			pageWriteTrx.putPageIntoCache(new LogKey(PageKind.UBERPAGE, i, 0), page);
+		}
+
+		mRootPage = new RevisionRootPage();
+		pageWriteTrx.putPageIntoCache(new LogKey(PageKind.UBERPAGE,
+				Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length, 0), mRootPage);
 	}
 
 	/**

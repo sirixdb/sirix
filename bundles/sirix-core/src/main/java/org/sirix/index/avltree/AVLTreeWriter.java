@@ -1,5 +1,8 @@
 package org.sirix.index.avltree;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -183,7 +186,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 */
 	public void remove(final @Nonnull K key, final @Nonnegative long nodeKey)
 			throws SirixIOException {
-		final Optional<V> searchedValue = mAVLTreeReader.get(key, SearchMode.EQUAL);
+		checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
+		final Optional<V> searchedValue = mAVLTreeReader.get(checkNotNull(key), SearchMode.EQUAL);
 		if (searchedValue.isPresent()) {
 			final V value = searchedValue.get();
 			value.removeNodeKey(nodeKey);
@@ -709,7 +713,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 *         which indicates that the value hasn't been found)
 	 */
 	public Optional<V> get(final @Nonnull K key, final @Nonnull SearchMode mode) {
-		return mAVLTreeReader.get(key, mode);
+		return mAVLTreeReader.get(checkNotNull(key), checkNotNull(mode));
 	}
 
 	/**

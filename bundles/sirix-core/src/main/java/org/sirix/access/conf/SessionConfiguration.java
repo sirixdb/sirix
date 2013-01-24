@@ -30,8 +30,6 @@ package org.sirix.access.conf;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.security.Key;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -57,7 +55,6 @@ import com.google.common.base.Objects;
 public final class SessionConfiguration {
 
 	// STATIC STANDARD FIELDS
-
 	/** Number of concurrent exclusive write transactions. */
 	public static final int MAX_WRITE_TRANSACTIONS = 1;
 
@@ -120,9 +117,9 @@ public final class SessionConfiguration {
 	public final boolean equals(final @Nullable Object obj) {
 		if (obj instanceof SessionConfiguration) {
 			final SessionConfiguration other = (SessionConfiguration) obj;
-			return Objects.equal(mWtxAllowed, other.mWtxAllowed)
-					&& Objects.equal(mRtxAllowed, other.mRtxAllowed)
-					&& Objects.equal(mCommitThreshold, other.mCommitThreshold)
+			return mWtxAllowed == other.mWtxAllowed
+					&& mRtxAllowed == other.mRtxAllowed
+					&& mCommitThreshold == other.mCommitThreshold
 					&& Objects.equal(mUser, other.mUser)
 					&& Objects.equal(mResource, other.mResource);
 		}
@@ -165,7 +162,7 @@ public final class SessionConfiguration {
 	 *           if {@code resource} or {@code config} is {@code null}
 	 * @return {@link Builder} instance
 	 */
-	public static Builder create(final @Nonnull String resource) {
+	public static Builder newBuilder(final @Nonnull String resource) {
 		return new Builder(resource);
 	}
 

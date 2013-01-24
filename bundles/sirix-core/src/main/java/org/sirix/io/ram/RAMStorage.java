@@ -1,0 +1,117 @@
+package org.sirix.io.ram;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+import org.sirix.access.conf.ResourceConfiguration;
+import org.sirix.api.PageReadTrx;
+import org.sirix.exception.SirixIOException;
+import org.sirix.io.Reader;
+import org.sirix.io.Storage;
+import org.sirix.io.Writer;
+import org.sirix.io.bytepipe.ByteHandlePipeline;
+import org.sirix.page.PageReference;
+import org.sirix.page.interfaces.Page;
+
+/**
+ * In memory storage.
+ * 
+ * @author Johannes Lichtenberger
+ *
+ */
+public final class RAMStorage implements Storage {
+
+	private final Map<String, Map<Long, Page>> mStorage;
+
+	private final Map<Long, Page> mResourceStorage;
+
+	private final ByteHandlePipeline mHandler;
+
+	private final RAMAccess mAccess;
+	
+	private final boolean mExists;
+
+	private static long mPageKey;
+
+	public RAMStorage(final @Nonnull ResourceConfiguration resourceConfig) {
+		mStorage = new ConcurrentHashMap<String, Map<Long, Page>>();
+		mHandler = resourceConfig.mByteHandler;
+		final String resource = resourceConfig.getResource().getName();
+		final Map<Long, Page> resourceStorage = mStorage.get(resource);
+		if (resourceStorage == null) {
+			mResourceStorage = new ConcurrentHashMap<Long, Page>();
+			mStorage.put(resource, mResourceStorage);
+			mExists = false;
+		} else {
+			mResourceStorage = resourceStorage;
+			mExists = true;
+		}
+		mAccess = new RAMAccess();
+	}
+
+	@Override
+	public Writer getWriter() throws SirixIOException {
+		return mAccess;
+	}
+
+	@Override
+	public Reader getReader() throws SirixIOException {
+		return mAccess;
+	}
+
+	@Override
+	public void close() throws SirixIOException {
+	}
+
+	@Override
+	public ByteHandlePipeline getByteHandler() {
+		return mHandler;
+	}
+
+	@Override
+	public boolean exists() throws SirixIOException {
+		return mExists;
+	}
+
+	public class RAMAccess implements Writer {
+
+		@Override
+		public Page read(long key, @Nullable PageReadTrx pageReadTrx) {
+			return mResourceStorage.get(key);
+		}
+
+		@Override
+		public PageReference readFirstReference() {
+			final Page page = mResourceStorage.get(new Long(-1));
+			final PageReference uberPageReference = new PageReference();
+			uberPageReference.setKey(-1);
+			uberPageReference.setPage(page);
+			return uberPageReference;
+		}
+
+		@Override
+		public void write(final @Nonnull PageReference pageReference)
+				throws SirixIOException {
+			final Page page = pageReference.getPage();
+			pageReference.setKey(mPageKey);
+			mResourceStorage.put(mPageKey++, page);
+		}
+
+		@Override
+		public void writeFirstReference(final @Nonnull PageReference pageReference)
+				throws SirixIOException {
+			final Page page = pageReference.getPage();
+			pageReference.setKey(-1);
+			mResourceStorage.put(-1l, page);
+		}
+
+		@Override
+		public void close() throws SirixIOException {
+		}
+
+	}
+
+}

@@ -52,6 +52,7 @@ public class SubOpAxisTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
 		holder = Holder.generateRtx();
 	}
 
@@ -78,12 +79,10 @@ public class SubOpAxisTest {
 		assertEquals(holder.getRtx().keyForName("xs:double"), holder.getRtx()
 				.getTypeKey());
 		assertEquals(false, axis.hasNext());
-
 	}
 
 	@Test
 	public final void testGetReturnType() throws SirixException {
-
 		AbstractAxis op1 = new SequenceAxis(holder.getRtx());
 		AbstractAxis op2 = new SequenceAxis(holder.getRtx());
 		AbstractObAxis axis = new SubOpAxis(holder.getRtx(), op1, op2);

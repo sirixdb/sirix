@@ -31,14 +31,14 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sirix.Holder;
 import org.sirix.TestHelper;
-import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.node.interfaces.Node;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.XPathError;
 import org.sirix.service.xml.xpath.expr.LiteralExpr;
@@ -52,6 +52,7 @@ public class MulOpAxisTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
+		TestHelper.createTestDocument();
 		holder = Holder.generateRtx();
 	}
 

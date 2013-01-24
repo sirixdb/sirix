@@ -143,8 +143,8 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Page getFromPageCache(@Nonnegative long key) throws SirixIOException {
-		return delegate().getFromPageCache(key);
+	public Page getFromPageCache(@Nonnull PageReference reference) throws SirixIOException {
+		return delegate().getFromPageCache(reference);
 	}
 
 	@Override

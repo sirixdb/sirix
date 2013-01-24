@@ -165,7 +165,7 @@ public final class ResourceConfiguration {
 	public static final StorageType STORAGE = StorageType.FILE;
 
 	/** Standard versioning approach. */
-	public static final Revisioning VERSIONING = Revisioning.INCREMENTAL;
+	public static final Revisioning VERSIONING = Revisioning.DIFFERENTIAL;
 
 	/** Type of hashing. */
 	public static final HashKind HASHKIND = HashKind.ROLLING;
@@ -231,7 +231,7 @@ public final class ResourceConfiguration {
 	 *           if {@code resource} or {@code config} is {@code null}
 	 * @return {@link Builder} instance
 	 */
-	public static Builder builder(final @Nonnull String resource,
+	public static Builder newBuilder(final @Nonnull String resource,
 			final @Nonnull DatabaseConfiguration config) {
 		return new Builder(resource, config);
 	}
@@ -484,7 +484,7 @@ public final class ResourceConfiguration {
 					file.getName(), dbConfig);
 			builder.setByteHandlerPipeline(pipeline).setHashKind(hashing)
 					.setIndexes(indexes).setRevisionKind(revisioning)
-					.setRevisionsToRestore(revisionToRestore).setType(storage)
+					.setRevisionsToRestore(revisionToRestore).setStorageType(storage)
 					.useTextCompression(compression).setPersistenter(persistenter);
 			if (deweyIDsStored) {
 				builder.useDeweyIDs(true);
@@ -562,7 +562,7 @@ public final class ResourceConfiguration {
 		 *          storage type to use
 		 * @return reference to the builder object
 		 */
-		public Builder setType(final @Nonnull StorageType type) {
+		public Builder setStorageType(final @Nonnull StorageType type) {
 			mType = checkNotNull(type);
 			return this;
 		}

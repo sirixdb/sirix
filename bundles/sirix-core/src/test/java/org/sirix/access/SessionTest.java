@@ -55,6 +55,9 @@ public class SessionTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
+		holder = Holder.generateWtx();
+		holder.getWtx().commit();
+		holder.getWtx().close();
 		holder = Holder.generateRtx();
 	}
 
@@ -125,19 +128,19 @@ public class SessionTest {
 		assertEquals(0L, rtx.getRevisionNumber());
 
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-		assertEquals(0L, wtx.getRevisionNumber());
+		assertEquals(1L, wtx.getRevisionNumber());
 
 		// Commit and check.
 		wtx.commit();
 		wtx.close();
 
-		rtx = holder.getSession().beginNodeReadTrx();
+		rtx = holder.getSession().beginNodeReadTrx(Constants.UBP_ROOT_REVISION_NUMBER);
 
 		assertEquals(Constants.UBP_ROOT_REVISION_NUMBER, rtx.getRevisionNumber());
 		rtx.close();
 
 		final NodeReadTrx rtx2 = holder.getSession().beginNodeReadTrx();
-		assertEquals(0L, rtx2.getRevisionNumber());
+		assertEquals(1L, rtx2.getRevisionNumber());
 		rtx2.close();
 	}
 
@@ -146,17 +149,17 @@ public class SessionTest {
 
 		final NodeWriteTrx wtx1 = holder.getSession().beginNodeWriteTrx();
 		DocumentCreater.create(wtx1);
-		assertEquals(0L, wtx1.getRevisionNumber());
+		assertEquals(1L, wtx1.getRevisionNumber());
 		wtx1.commit();
 		wtx1.close();
 
 		final NodeReadTrx rtx1 = holder.getSession().beginNodeReadTrx();
-		assertEquals(0L, rtx1.getRevisionNumber());
+		assertEquals(1L, rtx1.getRevisionNumber());
 		rtx1.moveTo(12L);
 		assertEquals("bar", rtx1.getValue());
 
 		final NodeWriteTrx wtx2 = holder.getSession().beginNodeWriteTrx();
-		assertEquals(1L, wtx2.getRevisionNumber());
+		assertEquals(2L, wtx2.getRevisionNumber());
 		wtx2.moveTo(12L);
 		wtx2.setValue("bar2");
 
@@ -167,7 +170,7 @@ public class SessionTest {
 		wtx2.close();
 
 		final NodeReadTrx rtx2 = holder.getSession().beginNodeReadTrx();
-		assertEquals(0L, rtx2.getRevisionNumber());
+		assertEquals(1L, rtx2.getRevisionNumber());
 		rtx2.moveTo(12L);
 		assertEquals("bar", rtx2.getValue());
 		rtx2.close();
@@ -182,7 +185,7 @@ public class SessionTest {
 
 		final NodeWriteTrx wtx1 = session1.beginNodeWriteTrx();
 		DocumentCreater.create(wtx1);
-		assertEquals(0L, wtx1.getRevisionNumber());
+		assertEquals(1L, wtx1.getRevisionNumber());
 		wtx1.commit();
 		wtx1.close();
 		session1.close();
@@ -191,12 +194,12 @@ public class SessionTest {
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
 		final NodeReadTrx rtx1 = session2.beginNodeReadTrx();
-		assertEquals(0L, rtx1.getRevisionNumber());
+		assertEquals(1L, rtx1.getRevisionNumber());
 		rtx1.moveTo(12L);
 		assertEquals("bar", rtx1.getValue());
 
 		final NodeWriteTrx wtx2 = session2.beginNodeWriteTrx();
-		assertEquals(1L, wtx2.getRevisionNumber());
+		assertEquals(2L, wtx2.getRevisionNumber());
 		wtx2.moveTo(12L);
 		wtx2.setValue("bar2");
 
@@ -213,7 +216,7 @@ public class SessionTest {
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
 		final NodeReadTrx rtx2 = session3.beginNodeReadTrx();
-		assertEquals(1L, rtx2.getRevisionNumber());
+		assertEquals(2L, rtx2.getRevisionNumber());
 		rtx2.moveTo(12L);
 		assertEquals("bar2", rtx2.getValue());
 

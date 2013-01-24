@@ -114,7 +114,7 @@ public final class BerkeleyWriter implements Writer {
 	}
 
 	@Override
-	public long write(@Nonnull final PageReference pageReference)
+	public void write(@Nonnull final PageReference pageReference)
 			throws SirixIOException {
 		final Page page = pageReference.getPage();
 
@@ -135,7 +135,7 @@ public final class BerkeleyWriter implements Writer {
 		}
 
 		pageReference.setKey(mNodepagekey);
-		return mNodepagekey;
+//		return mNodepagekey;
 	}
 
 	/**

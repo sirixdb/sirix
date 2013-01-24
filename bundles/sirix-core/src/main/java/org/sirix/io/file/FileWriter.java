@@ -89,7 +89,7 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 	 *           if errors during writing occur
 	 */
 	@Override
-	public long write(final @Nonnull PageReference pageReference)
+	public void write(final @Nonnull PageReference pageReference)
 			throws SirixIOException {
 		// Serialise page.
 		final Page page = pageReference.getPage();
@@ -111,7 +111,7 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 			buffer.get(writtenPage, 0, writtenPage.length);
 
 			// Getting actual offset and appending to the end of the current
-			// file
+			// file.
 			final long fileSize = mFile.length();
 			final long offset = fileSize == 0 ? FileReader.FIRST_BEACON : fileSize;
 			mFile.seek(offset);
@@ -119,7 +119,7 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 
 			// Remember page coordinates.
 			pageReference.setKey(offset);
-			return offset;
+//			return offset;
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}

@@ -42,6 +42,7 @@ import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
+import org.sirix.exception.SirixUsageException;
 import org.sirix.node.Kind;
 
 public class ReadTransactionTest {
@@ -61,7 +62,7 @@ public class ReadTransactionTest {
 		TestHelper.closeEverything();
 	}
 
-	@Test
+	@Test(expected=SirixUsageException.class)
 	public void testEmptyRtx() throws SirixException {
 		assertFalse(PATHS.PATH2.getFile().exists());
 		Databases.createDatabase(PATHS.PATH2.getConfig());
@@ -91,11 +92,11 @@ public class ReadTransactionTest {
 	@Test
 	public void testConventions() throws SirixException {
 
-		// IReadTransaction Convention 1.
+		// ReadTransaction Convention 1.
 		assertEquals(true, holder.getRtx().moveToDocumentRoot().hasMoved());
 		long key = holder.getRtx().getNodeKey();
 
-		// IReadTransaction Convention 2.
+		// ReadTransaction Convention 2.
 		assertEquals(holder.getRtx().hasParent(), holder.getRtx().moveToParent()
 				.hasMoved());
 		assertEquals(key, holder.getRtx().getNodeKey());

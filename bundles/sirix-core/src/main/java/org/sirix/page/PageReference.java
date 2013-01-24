@@ -27,13 +27,14 @@
 
 package org.sirix.page;
 
-import com.google.common.base.Objects;
-
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.cache.LogKey;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
+
+import com.google.common.base.Objects;
 
 /**
  * <h1>PageReference</h1>
@@ -47,8 +48,7 @@ import org.sirix.settings.Constants;
  */
 public final class PageReference {
 
-	/** Page kind. */
-	private PageKind mPageKind;
+	private LogKey mLogKey;
 
 	/** In-memory deserialized page instance. */
 	private Page mPage;
@@ -72,7 +72,7 @@ public final class PageReference {
 	 *          {@link PageReference} to copy
 	 */
 	public PageReference(final @Nonnull PageReference reference) {
-		mPageKind = reference.mPageKind;
+		mLogKey = reference.mLogKey;
 		mPage = reference.mPage;
 		mKeyValuePageKey = reference.mKeyValuePageKey;
 		mKey = reference.mKey;
@@ -142,23 +142,21 @@ public final class PageReference {
 	}
 
 	/**
-	 * Set the kind of page to which is referenced.
+	 * Set a {@link LogKey}.
 	 * 
-	 * @param pageKind
-	 *          the page kind
+	 * @param logKey
+	 *          the {@link LogKey}
 	 */
-	public void setPageKind(final @Nonnull PageKind pageKind) {
-		assert pageKind != null;
-		mPageKind = pageKind;
+	public void setLogKey(final @Nonnull LogKey logKey) {
+		mLogKey = logKey;
 	}
 
 	/**
-	 * Get the kind of page to which a reference is provided.
+	 * Get a {@link LogKey}
 	 * 
-	 * @return the page kind
+	 * @return the {@link LogKey}
 	 */
-	public PageKind getPageKind() {
-		return mPageKind;
+	public LogKey getLogKey() {
+		return mLogKey;
 	}
-
 }

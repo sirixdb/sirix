@@ -77,7 +77,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 	 *          the {@link NodeReadTrx} to iterate with
 	 * @return {@link Builder} instance
 	 */
-	public static Builder create(final @Nonnull NodeReadTrx rtx) {
+	public static Builder newBuilder(final @Nonnull NodeReadTrx rtx) {
 		return new Builder(rtx);
 	}
 

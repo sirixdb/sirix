@@ -71,6 +71,7 @@ public final class BerkeleyReader implements Reader {
 	/** {@link PageBinding} reference. */
 	private PageBinding mPageBinding;
 	
+	/** {@link ByteHandlePipeline} reference. */
 	private final ByteHandlePipeline mByteHandler;
 
 	/**
@@ -147,11 +148,9 @@ public final class BerkeleyReader implements Reader {
 						.entryToObject(valueEntry));
 			}
 			final UberPage page = (UberPage) read(uberPageReference.getKey(), null);
-
 			if (uberPageReference != null) {
 				uberPageReference.setPage(page);
 			}
-
 			return uberPageReference;
 		} catch (final DatabaseException e) {
 			throw new SirixIOException(e);

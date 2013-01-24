@@ -48,12 +48,12 @@ public class FilterTest {
 			final boolean expected) {
 		final NodeReadTrx rtx = ((AbstractFilter) filter).getTrx();
 
-		// IFilter Convention 1.
+		// Filter Convention 1.
 		final long startKey = rtx.getNodeKey();
 
 		assertEquals(expected, filter.filter());
 
-		// IAxis Convention 2.
+		// Axis Convention 2.
 		assertEquals(startKey, rtx.getNodeKey());
 	}
 

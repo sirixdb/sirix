@@ -128,7 +128,7 @@ public class DBCollection extends
 		try {
 
 			final Session session = mDatabase.getSession(SessionConfiguration
-					.create(resources[0]).build());
+					.newBuilder(resources[0]).build());
 			final int version = revision == -1 ? session.getLastRevisionNumber()
 					: revision;
 			final NodeReadTrx rtx = mUpdating == Updating.YES ? session
@@ -155,7 +155,7 @@ public class DBCollection extends
 		for (final String resource : resources) {
 			try {
 				final Session session = mDatabase.getSession(SessionConfiguration
-						.create(resource).build());
+						.newBuilder(resource).build());
 				final NodeReadTrx rtx = mUpdating == Updating.YES ? session
 						.beginNodeWriteTrx() : session.beginNodeReadTrx();
 				documents.add(new DBNode(rtx, this));
@@ -172,10 +172,10 @@ public class DBCollection extends
 			throws OperationNotSupportedException, DocumentException {
 		try {
 			final String resource = "collection" + mResources++;
-			mDatabase.createResource(ResourceConfiguration.builder(resource,
+			mDatabase.createResource(ResourceConfiguration.newBuilder(resource,
 					mDatabase.getDatabaseConfig()).useDeweyIDs(true).build());
 			final Session session = mDatabase.getSession(SessionConfiguration
-					.create(resource).build());
+					.newBuilder(resource).build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 
 			final SubtreeHandler handler = new SubtreeBuilder(

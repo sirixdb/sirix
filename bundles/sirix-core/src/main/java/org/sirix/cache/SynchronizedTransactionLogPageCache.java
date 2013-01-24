@@ -52,10 +52,10 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SynchronizedTransactionLogPageCache implements Cache<Long, Page> {
+public final class SynchronizedTransactionLogPageCache implements Cache<LogKey, Page> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<Long, Page> mFirstCache;
+	private final LRUCache<LogKey, Page> mFirstCache;
 
 	/** Persistend second cache. */
 	private final BerkeleyPersistencePageCache mSecondCache;
@@ -103,12 +103,12 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Long, Pa
 	}
 
 	@Override
-	public ImmutableMap<Long, Page> getAll(
-			final @Nonnull Iterable<? extends Long> keys) {
-		final ImmutableMap.Builder<Long, Page> builder = new ImmutableMap.Builder<>();
+	public ImmutableMap<LogKey, Page> getAll(
+			final @Nonnull Iterable<? extends LogKey> keys) {
+		final ImmutableMap.Builder<LogKey, Page> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
-			for (final Long key : keys) {
+			for (final LogKey key : keys) {
 				if (mFirstCache.get(key) != null) {
 					builder.put(key, mFirstCache.get(key));
 				}
@@ -130,7 +130,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Long, Pa
 	}
 
 	@Override
-	public Page get(final @Nonnull Long key) {
+	public Page get(final @Nonnull LogKey key) {
 		Page container = null;
 		try {
 			mReadLock.lock();
@@ -142,7 +142,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Long, Pa
 	}
 
 	@Override
-	public void put(final @Nonnull Long key, final @Nonnull Page value) {
+	public void put(final @Nonnull LogKey key, final @Nonnull Page value) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(key, value);
@@ -152,7 +152,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Long, Pa
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<? extends Long, ? extends Page> map) {
+	public void putAll(final @Nonnull Map<? extends LogKey, ? extends Page> map) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.putAll(map);
@@ -172,7 +172,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Long, Pa
 	}
 
 	@Override
-	public void remove(final @Nonnull Long key) {
+	public void remove(final @Nonnull LogKey key) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.remove(key);

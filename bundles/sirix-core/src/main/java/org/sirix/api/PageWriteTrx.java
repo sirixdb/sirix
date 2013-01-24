@@ -5,6 +5,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.MultipleWriteTrx;
 import org.sirix.access.Restore;
+import org.sirix.cache.LogKey;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -15,6 +16,7 @@ import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
+import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.Optional;
 
@@ -28,6 +30,27 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 		extends PageReadTrx {
 
 	/**
+	 * Put a page into the cache.
+	 * 
+	 * @param key
+	 *          the unique logKey in a subtree
+	 * @param page
+	 *          the page to put into the cache
+	 */
+	void putPageIntoCache(@Nonnull LogKey key, @Nonnull Page page);
+
+	/**
+	 * Put a pageContainer into the key/value page cache.
+	 * 
+	 * @param key
+	 *          the unique pageKey in a subtree
+	 * @param pageContainer
+	 *          the pageContainer to put into the cache
+	 */
+	void putPageIntoKeyValueCache(@Nonnull PageKind pageKind,
+			@Nonnegative long key, @Nonnull RecordPageContainer<UnorderedKeyValuePage> pageContainer);
+
+	/**
 	 * Create fresh key/value (value must be a record) and prepare key/value-tuple
 	 * for modifications (CoW). The record might be a node, in this case the key
 	 * is the node.
@@ -37,14 +60,18 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 *          record nodeKey is used)
 	 * @param value
 	 *          value to add (usually a node)
+	 * @param pageKind
+	 *          kind of subtree the page belongs to
+	 * @param keyValuePage
+	 *          optional keyValue page
 	 * @return unmodified record for convenience
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 * @throws NullPointerException
 	 *           if {@code record} or {@code page} is {@code null}
 	 */
-	V createEntry(@Nonnull K key, @Nonnull V value, @Nonnull PageKind page, @Nonnull Optional<S> keyValuePage)
-			throws SirixIOException;
+	V createEntry(@Nonnull K key, @Nonnull V value, @Nonnull PageKind pageKind,
+			@Nonnull Optional<S> keyValuePage) throws SirixIOException;
 
 	/**
 	 * Prepare an entry for modification. This is getting the entry from the
@@ -62,8 +89,8 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code page} is {@code null}
 	 */
-	V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind page, @Nonnull Optional<S> keyValuePage)
-			throws SirixIOException;
+	V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind page,
+			@Nonnull Optional<S> keyValuePage) throws SirixIOException;
 
 	/**
 	 * Finishing the entry modification. That is storing the entry including the
@@ -92,10 +119,10 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws IllegalArgumentException
 	 *           if {@code recordKey < 0}
 	 * @throws NullPointerException
-	 *           if {@code page} is {@code null}
+	 *           if {@code pageKind} or {@code keyValuePage} is {@code null}
 	 */
-	void removeEntry(@Nonnull K key, @Nonnull PageKind pageKind, @Nonnull Optional<S> keyValuePage)
-			throws SirixIOException;
+	void removeEntry(@Nonnull K key, @Nonnull PageKind pageKind,
+			@Nonnull Optional<S> keyValuePage) throws SirixIOException;
 
 	/**
 	 * Creating a namekey for a given name.
@@ -164,7 +191,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	void restore(@Nonnull Restore restore);
 
 	/**
-	 * Get {@link PageReadTrx}.
+	 * Get inlying {@link PageReadTrx}.
 	 * 
 	 * @return the {@link PageReadTrx} reference
 	 */

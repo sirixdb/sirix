@@ -34,6 +34,8 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
+import org.sirix.cache.LogKey;
+import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.node.DocumentRootNode;
 import org.sirix.node.SirixDeweyID;
@@ -357,17 +359,18 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	}
 
 	/**
-	 * Initialize value tree.
+	 * Initialize node tree.
 	 * 
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} instance
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} instance
 	 */
-	public void createNodeTree(final @Nonnull PageReadTrx pageReadTrx) {
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNodeTree(
+			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getIndirectPageReference();
 		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
-			createTree(reference, PageKind.NODEPAGE, pageReadTrx);
+			createTree(reference, PageKind.NODEPAGE, pageWriteTrx);
 			incrementMaxNodeKey();
 		}
 	}
@@ -380,11 +383,12 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} instance
 	 */
-	public void createTextValueTree(final @Nonnull PageReadTrx pageReadTrx) {
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createTextValueTree(
+			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getTextValuePageReference().getPage()
 				.getReference(INDIRECT_REFERENCE_OFFSET);
 		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
-			createTree(reference, PageKind.TEXTVALUEPAGE, pageReadTrx);
+			createTree(reference, PageKind.TEXTVALUEPAGE, pageWriteTrx);
 			incrementMaxTextValueNodeKey();
 		}
 	}
@@ -392,16 +396,17 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	/**
 	 * Initialize attribute value tree.
 	 * 
-	 * @param pageReadTrx
+	 * @param pageWriteTrx
 	 *          {@link PageReadTrx} instance
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} instance
 	 */
-	public void createAttributeValueTree(final @Nonnull PageReadTrx pageReadTrx) {
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createAttributeValueTree(
+			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getAttributeValuePageReference().getPage()
 				.getReference(INDIRECT_REFERENCE_OFFSET);
 		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
-			createTree(reference, PageKind.ATTRIBUTEVALUEPAGE, pageReadTrx);
+			createTree(reference, PageKind.ATTRIBUTEVALUEPAGE, pageWriteTrx);
 			incrementMaxAttributeValueNodeKey();
 		}
 	}
@@ -409,16 +414,17 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	/**
 	 * Initialize path summary tree.
 	 * 
-	 * @param pageReadTrx
+	 * @param pageWriteTrx
 	 *          {@link PageReadTrx} instance
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} instance
 	 */
-	public void createPathSummaryTree(final @Nonnull PageReadTrx pageReadTrx) {
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createPathSummaryTree(
+			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getPathSummaryPageReference().getPage()
 				.getReference(INDIRECT_REFERENCE_OFFSET);
 		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
-			createTree(reference, PageKind.PATHSUMMARYPAGE, pageReadTrx);
+			createTree(reference, PageKind.PATHSUMMARYPAGE, pageWriteTrx);
 			incrementMaxPathNodeKey();
 		}
 	}
@@ -431,31 +437,32 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 * @param pageKind
 	 *          the page kind
 	 */
-	private void createTree(@Nonnull PageReference reference,
-			final @Nonnull PageKind pageKind, final @Nonnull PageReadTrx pageReadTrx) {
+	private <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createTree(
+			@Nonnull PageReference reference, final @Nonnull PageKind pageKind,
+			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
 		Page page = null;
 
 		// Level page count exponent from the configuration.
-		final int[] levelPageCountExp = pageReadTrx.getUberPage().getPageCountExp(
+		final int[] levelPageCountExp = pageWriteTrx.getUberPage().getPageCountExp(
 				pageKind);
 
 		// Remaining levels.
 		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
 			page = new IndirectPage(Constants.UBP_ROOT_REVISION_NUMBER);
-			reference.setPage(page);
-			reference.setPageKind(PageKind.INDIRECTPAGE);
+			final LogKey logKey = new LogKey(pageKind, i, 0);
+			reference.setLogKey(logKey);
+			pageWriteTrx.putPageIntoCache(logKey, page);
 			reference = page.getReference(0);
 		}
 
 		final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(
 				Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
-				Constants.UBP_ROOT_REVISION_NUMBER, pageReadTrx);
+				Constants.UBP_ROOT_REVISION_NUMBER, pageWriteTrx);
 		ndp.setDirty(true);
-		reference.setPage(ndp);
 		reference.setKeyValuePageKey(0);
-		reference.setPageKind(pageKind);
+		reference.setLogKey(new LogKey(pageKind, levelPageCountExp.length, 0));
 
-		final Optional<SirixDeweyID> id = pageReadTrx.getSession()
+		final Optional<SirixDeweyID> id = pageWriteTrx.getSession()
 				.getResourceConfig().mDeweyIDsStored ? Optional.of(SirixDeweyID
 				.newRootID()) : Optional.<SirixDeweyID> absent();
 		final NodeDelegate nodeDel = new NodeDelegate(
@@ -467,5 +474,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 		ndp.setEntry(0L, new DocumentRootNode(nodeDel, strucDel));
+		pageWriteTrx.putPageIntoKeyValueCache(pageKind, 0,
+				new RecordPageContainer<UnorderedKeyValuePage>(ndp, ndp));
 	}
 }

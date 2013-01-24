@@ -14,7 +14,7 @@ import org.junit.After;
 public class NodeAxisTest extends AxisTest {
 	@Override
 	protected Store createStore() throws Exception {
-		return new DBStore();
+		return DBStore.newBuilder().build();
 	}
 	
 	@After

@@ -115,6 +115,9 @@ public class TestNodeWrapper {
 		final Configuration config = proc.getUnderlyingConfiguration();
 
 		final Session session = generateSession();
+		final NodeWriteTrx trx = session.beginNodeWriteTrx();
+		trx.commit();
+		trx.close();
 
 		// Not the same document.
 		NodeInfo node = new DocumentWrapper(session, config);

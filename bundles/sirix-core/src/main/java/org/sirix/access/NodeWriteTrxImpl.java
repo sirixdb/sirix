@@ -387,7 +387,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			int attributeNr = 0;
 			int nspNr = 0;
 			for (@SuppressWarnings("unused")
-			final long key : LevelOrderAxis.create(this).includeNonStructuralNodes()
+			final long key : LevelOrderAxis.newBuilder(this).includeNonStructuralNodes()
 					.build()) {
 				Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> absent();
 				if (isAttribute()) {

@@ -16,6 +16,7 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.cache.Cache;
+import org.sirix.cache.LogKey;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.TransactionLogCache;
 import org.sirix.exception.SirixException;
@@ -28,7 +29,7 @@ import org.sirix.page.RevisionRootPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
-import org.sirix.settings.Constants;
+import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.Optional;
 
@@ -311,5 +312,16 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 	@Override
 	public PageReadTrx getPageReadTrx() {
 		return mPageReadTrx;
+	}
+
+	@Override
+	public void putPageIntoCache(LogKey key, Page page) {
+		// TODO Auto-generated method stub
+	}
+
+	@Override
+	public void putPageIntoKeyValueCache(PageKind pageKind, long key, RecordPageContainer<UnorderedKeyValuePage> pageContainer) {
+		// TODO Auto-generated method stub
+		
 	}
 }

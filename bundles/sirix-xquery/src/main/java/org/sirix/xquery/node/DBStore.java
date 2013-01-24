@@ -1,5 +1,7 @@
 package org.sirix.xquery.node;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -30,6 +32,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.StorageType;
 import org.sirix.service.xml.shredder.Insert;
 
 /**
@@ -66,47 +69,97 @@ public class DBStore implements Store, AutoCloseable {
 	/** {@link Set} of databases. */
 	private final Set<Database> mDatabases;
 
-	/**
-	 * Default constructor. Collections created with this DBStore instance are not
-	 * updatable via XQuery Update Facility.
-	 */
-	public DBStore() {
-		this(Updating.NO);
+	/** {@link StorageType} instance. */
+	private final StorageType mStorageType;
+
+	/** The location to store created collections/databases. */
+	private final File mLocation;
+
+	/** Get a new builder instance. */
+	public static Builder newBuilder() {
+		return new Builder();
 	}
 
 	/**
-	 * Constructor.
-	 * 
-	 * @param updating
-	 *          determines if the store should generate updatable collections or
-	 *          not
+	 * Builder setting up the store.
 	 */
-	public DBStore(final Updating updating) {
+	public static class Builder {
+		/** Determines if the databases created by the store should be updatable. */
+		private boolean mIsUpdatable;
+
+		/** Storage type. */
+		private StorageType mStorageType = StorageType.FILE;
+
+		/** The location to store created collections/databases. */
+		private File mLocation = LOCATION;
+
+		/**
+		 * Determines if collections should be updatable.
+		 * 
+		 * @return this builder instance
+		 */
+		public Builder isUpdatable() {
+			mIsUpdatable = true;
+			return this;
+		}
+
+		/**
+		 * Set the storage type (default: file backend).
+		 * 
+		 * @param storageType
+		 *          storage type
+		 * @return this builder instance
+		 */
+		public Builder storageType(final @Nonnull StorageType storageType) {
+			mStorageType = checkNotNull(storageType);
+			return this;
+		}
+
+		/**
+		 * Set the location where to store the created databases/collections.
+		 * 
+		 * @param location
+		 *          the location
+		 * @return this builder instance
+		 */
+		public Builder location(final @Nonnull File location) {
+			mLocation = checkNotNull(location);
+			return this;
+		}
+
+		/**
+		 * Create a new {@link DBStore} instance
+		 * 
+		 * @return new {@link DBStore} instance
+		 */
+		public DBStore build() {
+			return new DBStore(this);
+		}
+	}
+
+	/**
+	 * Private constructor.
+	 * 
+	 * @param builder
+	 *          builder instance
+	 */
+	private DBStore(final @Nonnull Builder builder) {
 		mDatabases = new HashSet<>();
-		mUpdating = updating;
+		mUpdating = builder.mIsUpdatable ? Updating.YES : Updating.NO;
+		mStorageType = builder.mStorageType;
+		mLocation = builder.mLocation;
 	}
 
 	/** Get the location of the generated collections/databases. */
 	public File getLocation() {
-		return LOCATION;
-	}
-
-	/**
-	 * Determines if collections have to be updatable.
-	 * 
-	 * @param updating
-	 *          {@code true} if they should be updatable, {@code false} otherwise
-	 */
-	public DBStore isUpdating(final Updating updating) {
-		mUpdating = updating;
-		return this;
+		return mLocation;
 	}
 
 	@Override
 	public Collection<?> lookup(final @Nonnull String name)
 			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
-				LOCATION, name));
+				mLocation, name));
 		if (Databases.existsDatabase(dbConf)) {
 			try {
 				final Database database = Databases.openDatabase(dbConf.getFile());
@@ -123,7 +176,7 @@ public class DBStore implements Store, AutoCloseable {
 	public Collection<?> create(final @Nonnull String name)
 			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
-				LOCATION, name));
+				mLocation, name));
 		try {
 			if (Databases.createDatabase(dbConf)) {
 				throw new DocumentException("Document with name %s exists!", name);
@@ -141,14 +194,15 @@ public class DBStore implements Store, AutoCloseable {
 	public Collection<?> create(final @Nonnull String name,
 			final @Nonnull SubtreeParser parser) throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
-				LOCATION, name));
+				mLocation, name));
 		try {
 			Databases.truncateDatabase(dbConf);
 			Databases.createDatabase(dbConf);
 			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
-			database.createResource(new ResourceConfiguration.Builder("shredded",
-					dbConf).useDeweyIDs(true).build());
+			database.createResource(ResourceConfiguration
+					.newBuilder("shredded", dbConf).useDeweyIDs(true)
+					.setStorageType(mStorageType).build());
 			final Session session = database
 					.getSession(new SessionConfiguration.Builder("shredded").build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
@@ -175,7 +229,7 @@ public class DBStore implements Store, AutoCloseable {
 			final @Nullable Stream<SubtreeParser> pParsers) throws DocumentException {
 		if (pParsers != null) {
 			final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
-					LOCATION, name));
+					mLocation, name));
 			try {
 				Databases.truncateDatabase(dbConf);
 				Databases.createDatabase(dbConf);
@@ -193,8 +247,9 @@ public class DBStore implements Store, AutoCloseable {
 						pool.submit(new Callable<Void>() {
 							@Override
 							public Void call() throws DocumentException, SirixException {
-								database.createResource(new ResourceConfiguration.Builder(
-										resource, dbConf).useDeweyIDs(true).build());
+								database.createResource(ResourceConfiguration
+										.newBuilder(resource, dbConf).setStorageType(mStorageType)
+										.useDeweyIDs(true).build());
 								final Session session = database
 										.getSession(new SessionConfiguration.Builder(resource)
 												.build());
@@ -230,7 +285,7 @@ public class DBStore implements Store, AutoCloseable {
 	@Override
 	public void drop(final @Nonnull String name) throws DocumentException {
 		final DatabaseConfiguration dbConfig = new DatabaseConfiguration(new File(
-				LOCATION, name));
+				mLocation, name));
 		if (Databases.existsDatabase(dbConfig)) {
 			try {
 				Databases.truncateDatabase(dbConfig);

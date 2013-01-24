@@ -34,6 +34,7 @@ import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
 import org.sirix.io.file.FileStorage;
+import org.sirix.io.ram.RAMStorage;
 
 /**
  * Utility methods for the storage. Those methods included common deletion
@@ -44,6 +45,15 @@ import org.sirix.io.file.FileStorage;
  * 
  */
 public enum StorageType {
+	/** In memory backend. */
+	IN_MEMORY {
+		@Override
+		public Storage getInstance(final @Nonnull ResourceConfiguration resourceConf)
+				throws SirixIOException {
+			return new RAMStorage(resourceConf);
+		}
+	},
+	
 	/** {@link RandomAccessFile} backend. */
 	FILE {
 		@Override

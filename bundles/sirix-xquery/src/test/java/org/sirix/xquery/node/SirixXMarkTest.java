@@ -25,7 +25,7 @@ public final class SirixXMarkTest extends XMarkTest {
 
 	@Override
 	protected Store createStore() throws Exception {
-		mStore = new DBStore();
+		mStore = DBStore.newBuilder().build();
 		return mStore;
 	}
 

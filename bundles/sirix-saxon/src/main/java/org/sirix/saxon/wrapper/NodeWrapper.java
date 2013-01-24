@@ -136,7 +136,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 	NodeWrapper(final @Nonnull DocumentWrapper docWrapper,
 			final long nodeKeyToStart) throws SirixException {
 		mDocWrapper = checkNotNull(docWrapper);
-		checkArgument(nodeKeyToStart >= 0, "pNodeKeyToStart must be >= 0!");
+		checkArgument(nodeKeyToStart >= 0, "nodeKeyToStart must be >= 0!");
 		final NodeReadTrx rtx = mDocWrapper.mSession
 				.beginNodeReadTrx(docWrapper.mRevision);
 		rtx.moveTo(nodeKeyToStart);

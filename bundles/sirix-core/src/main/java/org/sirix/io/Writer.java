@@ -49,7 +49,7 @@ public interface Writer extends Reader {
 	 * @throws SirixIOException
 	 *           execption to be thrown if something bad happens
 	 */
-	long write(@Nonnull final PageReference pageReference)
+	void write(@Nonnull final PageReference pageReference)
 			throws SirixIOException;
 
 	/**
