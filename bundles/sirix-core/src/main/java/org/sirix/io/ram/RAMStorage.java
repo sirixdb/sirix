@@ -20,22 +20,34 @@ import org.sirix.page.interfaces.Page;
  * In memory storage.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
 public final class RAMStorage implements Storage {
 
+	/** Storage, mapping a resource to the pageKey/page mapping. */
 	private final Map<String, Map<Long, Page>> mStorage;
 
+	/** Mapping pageKey to the page. */
 	private final Map<Long, Page> mResourceStorage;
 
+	/** {@link ByteHandlePipeline} reference. */
 	private final ByteHandlePipeline mHandler;
 
+	/** {@link RAMAccess} reference. */
 	private final RAMAccess mAccess;
-	
+
+	/** Determines if the storage already exists or not. */
 	private final boolean mExists;
 
+	/** The unique page key. */
 	private static long mPageKey;
 
+	/**
+	 * Constructor
+	 * 
+	 * @param resourceConfig
+	 *          {@link ResourceConfiguration} reference
+	 */
 	public RAMStorage(final @Nonnull ResourceConfiguration resourceConfig) {
 		mStorage = new ConcurrentHashMap<String, Map<Long, Page>>();
 		mHandler = resourceConfig.mByteHandler;
@@ -76,8 +88,8 @@ public final class RAMStorage implements Storage {
 		return mExists;
 	}
 
+	/** Provides RAM access. */
 	public class RAMAccess implements Writer {
-
 		@Override
 		public Page read(long key, @Nullable PageReadTrx pageReadTrx) {
 			return mResourceStorage.get(key);
@@ -111,7 +123,5 @@ public final class RAMStorage implements Storage {
 		@Override
 		public void close() throws SirixIOException {
 		}
-
 	}
-
 }
