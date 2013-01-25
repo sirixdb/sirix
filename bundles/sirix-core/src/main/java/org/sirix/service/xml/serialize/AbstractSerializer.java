@@ -137,10 +137,13 @@ public abstract class AbstractSerializer implements Callable<Void> {
 		final int nrOfRevisions = mRevisions.length;
 		final int length = (nrOfRevisions == 1 && mRevisions[0] < 0) ? (int) mSession
 				.getLastRevisionNumber() : nrOfRevisions;
+		if (length > 1) {
+			emitStartManualRootElement();
+		}
 		for (int i = 1; i <= length; i++) {
 			try (final NodeReadTrx rtx = mSession
 					.beginNodeReadTrx((nrOfRevisions == 1 && mRevisions[0] < 0) ? i
-							: mRevisions[i-1])) {
+							: mRevisions[i - 1])) {
 				if (length > 1) {
 					emitStartManualElement(i);
 				}
@@ -201,6 +204,9 @@ public abstract class AbstractSerializer implements Callable<Void> {
 				}
 			}
 		}
+		if (length > 1) {
+			emitEndManualRootElement();
+		}
 		emitEndDocument();
 
 		return null;
@@ -224,6 +230,12 @@ public abstract class AbstractSerializer implements Callable<Void> {
 	 *          Sirix {@link NodeReadTrx}
 	 */
 	protected abstract void emitEndElement(final @Nonnull NodeReadTrx rtx);
+
+	/** Emit a start tag, which encapsulates several revisions. */
+	protected abstract void emitStartManualRootElement();
+
+	/** Emit an end tag, which encapsulates several revisions. */
+	protected abstract void emitEndManualRootElement();
 
 	/**
 	 * Emit a start tag, which specifies a revision.

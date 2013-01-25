@@ -141,9 +141,9 @@ public final class DocumentCreater {
 
 	/** String representation of versioned test document. */
 	public static final String VERSIONEDXML = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-			+ "<sirix revision=\"1\"><p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix>"
+			+ "<sirix><sirix revision=\"1\"><p:a xmlns:p=\"ns\" i=\"j\">oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix>"
 			+ "<sirix revision=\"2\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix>"
-			+ "<sirix revision=\"3\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix>";
+			+ "<sirix revision=\"3\"><p:a xmlns:p=\"ns\" i=\"j\"><p:a>OOPS4!</p:a><p:a>OOPS4!</p:a>oops1<b>foo<c/></b>oops2<b p:x=\"y\"><c/>bar</b>oops3</p:a></sirix></sirix>";
 
 	/** String representation of test document without attributes. */
 	public static final String XMLWITHOUTATTRIBUTES = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"

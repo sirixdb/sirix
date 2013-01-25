@@ -119,7 +119,7 @@ public class Main {
 									secondPredicateRtx), new ValueFilter(secondPredicateRtx,
 									"strand")))))) {
 				final OutputStream out = new ByteArrayOutputStream();
-				XMLSerializer.builder(session, out).startNodeKey(nodeKey)
+				XMLSerializer.newBuilder(session, out).startNodeKey(nodeKey)
 						.doIndend(true).setDeclaration(false).build().call();
 				System.out.println(out.toString());
 			}
@@ -138,7 +138,7 @@ public class Main {
 			while ((item = iterator.next()) != null) {
 				final DBNode node = (DBNode) item;
 				final OutputStream out = new ByteArrayOutputStream();
-				XMLSerializer.builder(session, out).startNodeKey(node.getNodeKey())
+				XMLSerializer.newBuilder(session, out).startNodeKey(node.getNodeKey())
 						.doIndend(true).setDeclaration(false).build().call();
 				System.out.println(out.toString());
 			}

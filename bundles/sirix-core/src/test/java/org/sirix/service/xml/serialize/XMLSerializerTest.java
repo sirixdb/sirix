@@ -89,7 +89,7 @@ public class XMLSerializerTest {
 
 		// Generate from this session.
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		final XMLSerializer serializer = XMLSerializer.builder(session, out).isRESTful(true).setID(true).setDeclaration(true).build();
+		final XMLSerializer serializer = XMLSerializer.newBuilder(session, out).isRESTful(true).setID(true).setDeclaration(true).build();
 		serializer.call();
 		assertEquals(DocumentCreater.REST, out.toString());
 

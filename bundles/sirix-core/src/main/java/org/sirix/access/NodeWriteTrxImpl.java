@@ -372,15 +372,12 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				.prepareEntryForModification(nodeKey, PageKind.NODEPAGE,
 						Optional.<UnorderedKeyValuePage> absent());
 		root.setDeweyID(Optional.of(id));
-		getPageTransaction().finishEntryModification(nodeKey, PageKind.NODEPAGE);
 
 		if (root.hasFirstChild()) {
 			final Node firstChild = (Node) getPageTransaction()
 					.prepareEntryForModification(root.getFirstChildKey(),
 							PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
 			firstChild.setDeweyID(Optional.of(id.getNewChildID()));
-			getPageTransaction().finishEntryModification(firstChild.getNodeKey(),
-					PageKind.NODEPAGE);
 
 			int previousLevel = getDeweyID().get().getLevel();
 			mNodeRtx.moveTo(firstChild.getNodeKey());
@@ -435,8 +432,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 								mNodeRtx.getCurrentNode().getNodeKey(), PageKind.NODEPAGE,
 								Optional.<UnorderedKeyValuePage> absent());
 				node.setDeweyID(deweyID);
-				getPageTransaction().finishEntryModification(node.getNodeKey(),
-						PageKind.NODEPAGE);
 			}
 
 			mNodeRtx.moveTo(nodeKey);
@@ -585,8 +580,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		if (parent.getFirstChildKey() == fromNode.getNodeKey()) {
 			parent.setFirstChildKey(fromNode.getRightSiblingKey());
 		}
-		getPageTransaction().finishEntryModification(parent.getNodeKey(),
-				PageKind.NODEPAGE);
 
 		// Adapt left sibling key of former right sibling.
 		if (fromNode.hasRightSibling()) {
@@ -594,8 +587,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					.prepareEntryForModification(fromNode.getRightSiblingKey(),
 							PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
 			rightSibling.setLeftSiblingKey(fromNode.getLeftSiblingKey());
-			getPageTransaction().finishEntryModification(rightSibling.getNodeKey(),
-					PageKind.NODEPAGE);
 		}
 
 		// Adapt right sibling key of former left sibling.
@@ -604,8 +595,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					.prepareEntryForModification(fromNode.getLeftSiblingKey(),
 							PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
 			leftSibling.setRightSiblingKey(fromNode.getRightSiblingKey());
-			getPageTransaction().finishEntryModification(leftSibling.getNodeKey(),
-					PageKind.NODEPAGE);
 		}
 
 		// Merge text nodes.
@@ -625,8 +614,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 											PageKind.NODEPAGE,
 											Optional.<UnorderedKeyValuePage> absent());
 							leftSibling.setRightSiblingKey(fromNode.getRightSiblingKey());
-							getPageTransaction().finishEntryModification(
-									leftSibling.getNodeKey(), PageKind.NODEPAGE);
 						}
 						final long leftSiblingKey = mNodeRtx.getStructuralNode()
 								.hasLeftSibling() == true ? mNodeRtx.getStructuralNode()
@@ -637,8 +624,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 										PageKind.NODEPAGE,
 										Optional.<UnorderedKeyValuePage> absent());
 						rightSibling.setLeftSiblingKey(leftSiblingKey);
-						getPageTransaction().finishEntryModification(
-								rightSibling.getNodeKey(), PageKind.NODEPAGE);
 						moveTo(fromNode.getLeftSiblingKey());
 						remove();
 						moveTo(fromNode.getRightSiblingKey());
@@ -650,8 +635,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 											PageKind.NODEPAGE,
 											Optional.<UnorderedKeyValuePage> absent());
 							rightSibling.setLeftSiblingKey(fromNode.getLeftSiblingKey());
-							getPageTransaction().finishEntryModification(
-									rightSibling.getNodeKey(), PageKind.NODEPAGE);
 						}
 						final long rightSiblingKey = mNodeRtx.getStructuralNode()
 								.hasRightSibling() == true ? mNodeRtx.getStructuralNode()
@@ -662,8 +645,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 										PageKind.NODEPAGE,
 										Optional.<UnorderedKeyValuePage> absent());
 						leftSibling.setRightSiblingKey(rightSiblingKey);
-						getPageTransaction().finishEntryModification(
-								leftSibling.getNodeKey(), PageKind.NODEPAGE);
 						moveTo(fromNode.getRightSiblingKey());
 						remove();
 						moveTo(fromNode.getLeftSiblingKey());
@@ -1453,8 +1434,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 								PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
 				((ElementNode) parentNode).insertAttribute(node.getNodeKey(),
 						node.getPrefixKey() + node.getLocalNameKey());
-				getPageTransaction().finishEntryModification(parentNode.getNodeKey(),
-						PageKind.NODEPAGE);
 
 				mNodeRtx.setCurrentNode(node);
 				adaptHashesWithAdd();
@@ -1518,8 +1497,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						.prepareEntryForModification(node.getParentKey(),
 								PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
 				((ElementNode) parentNode).insertNamespace(node.getNodeKey());
-				getPageTransaction().finishEntryModification(parentNode.getNodeKey(),
-						PageKind.NODEPAGE);
 
 				mNodeRtx.setCurrentNode(node);
 				adaptHashesWithAdd();
@@ -1613,8 +1590,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						.prepareEntryForModification(node.getParentKey(),
 								PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
 				parent.removeAttribute(node.getNodeKey());
-				getPageTransaction().finishEntryModification(parent.getNodeKey(),
-						PageKind.NODEPAGE);
 				adaptHashesWithRemove();
 				getPageTransaction().removeEntry(node.getNodeKey(), PageKind.NODEPAGE,
 						Optional.<UnorderedKeyValuePage> absent());
@@ -1628,8 +1603,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						.prepareEntryForModification(node.getParentKey(),
 								PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
 				parent.removeNamespace(node.getNodeKey());
-				getPageTransaction().finishEntryModification(parent.getNodeKey(),
-						PageKind.NODEPAGE);
 				adaptHashesWithRemove();
 				getPageTransaction().removeEntry(node.getNodeKey(), PageKind.NODEPAGE,
 						Optional.<UnorderedKeyValuePage> absent());
@@ -1773,8 +1746,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					node.setPrefixKey(prefixKey);
 					node.setPathNodeKey(mIndexes.contains(Indexes.PATH) ? mPathSummaryWriter
 							.getNodeKey() : 0);
-					getPageTransaction().finishEntryModification(node.getNodeKey(),
-							PageKind.NODEPAGE);
 
 					mNodeRtx.setCurrentNode(node);
 					adaptHashedWithUpdate(oldHash);
@@ -1814,8 +1785,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 								mNodeRtx.getCurrentNode().getNodeKey(), PageKind.NODEPAGE,
 								Optional.<UnorderedKeyValuePage> absent());
 				node.setValue(byteVal);
-				getPageTransaction().finishEntryModification(node.getNodeKey(),
-						PageKind.NODEPAGE);
 
 				mNodeRtx.setCurrentNode(node);
 				adaptHashedWithUpdate(oldHash);
@@ -2167,8 +2136,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						.getDescendantCount()
 						+ ((StructNode) startNode).getDescendantCount() + 1);
 			}
-			getPageTransaction().finishEntryModification(node.getNodeKey(),
-					PageKind.NODEPAGE);
 			break;
 		case POSTORDER:
 			break;
@@ -2193,8 +2160,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					mNodeRtx.getCurrentNode().getNodeKey(), PageKind.NODEPAGE,
 					Optional.<UnorderedKeyValuePage> absent());
 			node.setHash(hashToAdd);
-			getPageTransaction().finishEntryModification(node.getNodeKey(),
-					PageKind.NODEPAGE);
 
 			// Set parent node.
 			if (startNode.hasParent()) {
@@ -2204,8 +2169,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 						Optional.<UnorderedKeyValuePage> absent());
 				node.setHash(node.getHash() + hashToAdd * PRIME);
 				setAddDescendants(startNode, node, descendantCount);
-				getPageTransaction().finishEntryModification(node.getNodeKey(),
-						PageKind.NODEPAGE);
 			}
 
 			mNodeRtx.setCurrentNode(startNode);
@@ -2261,24 +2224,18 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			if (insertPos == InsertPos.ASFIRSTCHILD) {
 				parent.setFirstChildKey(newNode.getNodeKey());
 			}
-			getPageTransaction().finishEntryModification(parent.getNodeKey(),
-					pageKind);
 
 			if (strucNode.hasRightSibling()) {
 				final StructNode rightSiblingNode = (StructNode) getPageTransaction()
 						.prepareEntryForModification(strucNode.getRightSiblingKey(),
 								pageKind, Optional.<UnorderedKeyValuePage> absent());
 				rightSiblingNode.setLeftSiblingKey(newNode.getNodeKey());
-				getPageTransaction().finishEntryModification(
-						rightSiblingNode.getNodeKey(), pageKind);
 			}
 			if (strucNode.hasLeftSibling()) {
 				final StructNode leftSiblingNode = (StructNode) getPageTransaction()
 						.prepareEntryForModification(strucNode.getLeftSiblingKey(),
 								pageKind, Optional.<UnorderedKeyValuePage> absent());
 				leftSiblingNode.setRightSiblingKey(newNode.getNodeKey());
-				getPageTransaction().finishEntryModification(
-						leftSiblingNode.getNodeKey(), pageKind);
 			}
 		}
 	}
@@ -2331,8 +2288,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			} else {
 				leftSibling.setRightSiblingKey(oldNode.getRightSiblingKey());
 			}
-			getPageTransaction().finishEntryModification(leftSibling.getNodeKey(),
-					page);
 		}
 
 		// Adapt right sibling node if there is one.
@@ -2352,8 +2307,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 								Optional.<UnorderedKeyValuePage> absent());
 				rightSibling.setLeftSiblingKey(oldNode.getLeftSiblingKey());
 			}
-			getPageTransaction().finishEntryModification(rightSibling.getNodeKey(),
-					page);
 		}
 
 		// Adapt parent, if node has now left sibling it is a first child.
@@ -2368,7 +2321,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			parent.decrementDescendantCount();
 			parent.decrementChildCount();
 		}
-		getPageTransaction().finishEntryModification(parent.getNodeKey(), page);
 		if (concatenated) {
 			// Adjust descendant count.
 			moveTo(parent.getNodeKey());
@@ -2379,8 +2331,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 								mNodeRtx.getCurrentNode().getNodeKey(), page,
 								Optional.<UnorderedKeyValuePage> absent());
 				ancestor.decrementDescendantCount();
-				getPageTransaction().finishEntryModification(ancestor.getNodeKey(),
-						page);
 				parent = ancestor;
 			}
 		}
@@ -2527,8 +2477,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 							PageKind.NODEPAGE, Optional.<UnorderedKeyValuePage> absent());
 			node.setHash(mHash.hashLong(mNodeRtx.getCurrentNode().hashCode())
 					.asLong());
-			getPageTransaction().finishEntryModification(node.getNodeKey(),
-					PageKind.NODEPAGE);
 			moveTo(mNodeRtx.getCurrentNode().getParentKey());
 		}
 		// Cursor to root
@@ -2570,8 +2518,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 			// setting hash and resetting hash
 			cursorToRoot.setHash(hashCodeForParent);
-			getPageTransaction().finishEntryModification(cursorToRoot.getNodeKey(),
-					PageKind.NODEPAGE);
 			hashCodeForParent = 0;
 		} while (moveTo(cursorToRoot.getParentKey()).hasMoved());
 
@@ -2606,8 +2552,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				resultNew = resultNew + newNodeHash * PRIME;
 			}
 			node.setHash(resultNew);
-			getPageTransaction().finishEntryModification(node.getNodeKey(),
-					PageKind.NODEPAGE);
 		} while (moveTo(mNodeRtx.getCurrentNode().getParentKey()).hasMoved());
 
 		mNodeRtx.setCurrentNode(newNode);
@@ -2647,8 +2591,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			}
 			node.setHash(newHash);
 			hashToAdd = newHash;
-			getPageTransaction().finishEntryModification(node.getNodeKey(),
-					PageKind.NODEPAGE);
 		} while (moveTo(mNodeRtx.getCurrentNode().getParentKey()).hasMoved());
 
 		mNodeRtx.setCurrentNode(startNode);
@@ -2711,8 +2653,6 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 				setAddDescendants(startNode, node, descendantCount);
 			}
 			node.setHash(newHash);
-			getPageTransaction().finishEntryModification(node.getNodeKey(),
-					PageKind.NODEPAGE);
 		} while (moveTo(mNodeRtx.getCurrentNode().getParentKey()).hasMoved());
 		mNodeRtx.setCurrentNode(startNode);
 	}

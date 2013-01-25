@@ -38,6 +38,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
+import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
 import com.google.common.io.ByteArrayDataInput;
@@ -143,7 +144,11 @@ public class PageDelegate implements Page {
 	public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
 			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
 		for (final PageReference reference : mReferences) {
-			pageWriteTrx.commit(reference);
+			if (reference.getLogKey() == null && reference.getPage() == null
+					&& reference.getKey() == Constants.NULL_ID) {
+			} else {
+				pageWriteTrx.commit(reference);
+			}
 		}
 	}
 

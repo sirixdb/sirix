@@ -92,20 +92,20 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind page,
 			@Nonnull Optional<S> keyValuePage) throws SirixIOException;
 
-	/**
-	 * Finishing the entry modification. That is storing the entry including the
-	 * page in the cache.
-	 * 
-	 * @param key
-	 *          key from entry which is modified
-	 * @param pageKind
-	 *          denoting the kind of page (that is the subtree root kind)
-	 * @throws IllegalArgumentException
-	 *           if {@code nodeKey < 0}
-	 * @throws NullPointerException
-	 *           if {@code page} is {@code null}
-	 */
-	void finishEntryModification(@Nonnull K key, @Nonnull PageKind pageKind);
+//	/**
+//	 * Finishing the entry modification. That is storing the entry including the
+//	 * page in the cache.
+//	 * 
+//	 * @param key
+//	 *          key from entry which is modified
+//	 * @param pageKind
+//	 *          denoting the kind of page (that is the subtree root kind)
+//	 * @throws IllegalArgumentException
+//	 *           if {@code nodeKey < 0}
+//	 * @throws NullPointerException
+//	 *           if {@code page} is {@code null}
+//	 */
+//	void finishEntryModification(@Nonnull K key, @Nonnull PageKind pageKind);
 
 	/**
 	 * Remove an entry from the storage.

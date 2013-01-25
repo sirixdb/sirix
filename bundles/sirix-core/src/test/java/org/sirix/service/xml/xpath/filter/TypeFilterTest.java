@@ -57,7 +57,7 @@ public class TypeFilterTest {
 	}
 
 	@Test
-	public void testIFilterConvetions() throws Exception {
+	public void testFilterConvetions() throws Exception {
 
 		final AbstractAxis axis = new XPathAxis(holder.getRtx(), "a");
 		final NodeReadTrx xtx = ((NodeReadTrx) axis.getTrx());

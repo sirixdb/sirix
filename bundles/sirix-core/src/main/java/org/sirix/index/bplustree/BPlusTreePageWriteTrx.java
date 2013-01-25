@@ -143,7 +143,6 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 		prepareRecordPage(pageKey, pageKind, keyValuePage.get());
 		final KeyValuePage<K, V> modified = mRecordPageCon.getModified();
 		modified.setEntry(key, value);
-		finishEntryModification(key, pageKind);
 		return value;
 	}
 
@@ -268,11 +267,6 @@ public final class BPlusTreePageWriteTrx<K extends Comparable<? super K>, V exte
 		return null;
 	}
 
-	@Override
-	public void finishEntryModification(K key, PageKind pageKind) {
-		// TODO Auto-generated method stub
-
-	}
 
 	@Override
 	public void removeEntry(K key, PageKind pageKind,

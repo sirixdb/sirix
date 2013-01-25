@@ -48,6 +48,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
+import org.xml.sax.Attributes;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.DTDHandler;
 import org.xml.sax.EntityResolver;
@@ -134,23 +135,40 @@ public final class SAXSerializer extends AbstractSerializer implements
 			LOGGER.error(e.getMessage(), e);
 		}
 	}
+	
+	@Override
+	protected void emitStartManualRootElement() {
+		try {
+			mContHandler.startElement("", "sirix", "sirix", new AttributesImpl());
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
+		}
+	}
+	
+	@Override
+	protected void emitEndManualRootElement() {
+		try {
+			mContHandler.endElement("", "sirix", "sirix");
+		} catch (final SAXException e) {
+			LOGGER.error(e.getMessage(), e);
+		}
+	}
 
 	@Override
 	protected void emitStartManualElement(final @Nonnegative long revision) {
 		final AttributesImpl atts = new AttributesImpl();
-		atts.addAttribute("", "revision", "tt", "", Long.toString(revision));
+		atts.addAttribute("", "revision", "sirix", "", Long.toString(revision));
 		try {
-			mContHandler.startElement("", "tt", "tt", atts);
+			mContHandler.startElement("", "sirix", "sirix", atts);
 		} catch (final SAXException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
-
 	}
 
 	@Override
 	protected void emitEndManualElement(final @Nonnegative long revision) {
 		try {
-			mContHandler.endElement("", "tt", "tt");
+			mContHandler.endElement("", "sirix", "sirix");
 		} catch (final SAXException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
