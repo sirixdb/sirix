@@ -58,36 +58,36 @@ public final class RevertTest {
 	@Test
 	public void test() throws SirixException {
 		NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
-		assertEquals(0L, wtx.getRevisionNumber());
-		DocumentCreater.create(wtx);
-		assertEquals(0L, wtx.getRevisionNumber());
-		wtx.commit();
 		assertEquals(1L, wtx.getRevisionNumber());
+		DocumentCreater.create(wtx);
+		assertEquals(1L, wtx.getRevisionNumber());
+		wtx.commit();
+		assertEquals(2L, wtx.getRevisionNumber());
 		wtx.close();
 
 		wtx = holder.getSession().beginNodeWriteTrx();
-		assertEquals(1L, wtx.getRevisionNumber());
+		assertEquals(2L, wtx.getRevisionNumber());
 		wtx.moveToFirstChild();
 		wtx.insertElementAsFirstChild(new QNm("bla"));
 		wtx.commit();
-		assertEquals(2L, wtx.getRevisionNumber());
+		assertEquals(3L, wtx.getRevisionNumber());
 		wtx.close();
 
 		wtx = holder.getSession().beginNodeWriteTrx();
-		assertEquals(2L, wtx.getRevisionNumber());
-		wtx.revertTo(0);
+		assertEquals(3L, wtx.getRevisionNumber());
+		wtx.revertTo(1);
 		wtx.commit();
-		assertEquals(3L, wtx.getRevisionNumber());
+		assertEquals(4L, wtx.getRevisionNumber());
 		wtx.close();
 
 		wtx = holder.getSession().beginNodeWriteTrx();
-		assertEquals(3L, wtx.getRevisionNumber());
+		assertEquals(4L, wtx.getRevisionNumber());
 		final long rev3MaxNodeKey = wtx.getMaxNodeKey();
 		wtx.close();
 
 		wtx = holder.getSession().beginNodeWriteTrx();
-		assertEquals(3L, wtx.getRevisionNumber());
-		wtx.revertTo(0);
+		assertEquals(4L, wtx.getRevisionNumber());
+		wtx.revertTo(1);
 		wtx.moveToFirstChild();
 		final long maxNodeKey = wtx.getMaxNodeKey();
 		assertEquals(rev3MaxNodeKey, maxNodeKey);

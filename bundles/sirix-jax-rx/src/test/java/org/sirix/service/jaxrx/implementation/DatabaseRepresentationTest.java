@@ -377,11 +377,11 @@ public class DatabaseRepresentationTest {
 	 */
 	@Test
 	public void getLastRevision() throws SirixException {
-		assertEquals(ASSEQUALS, 0, sirix.getLastRevision(RESOURCENAME));
+		assertEquals(ASSEQUALS, 1, sirix.getLastRevision(RESOURCENAME));
 		final NodeIdRepresentation rid = new NodeIdRepresentation(
 				TestHelper.PATHS.PATH1.getFile());
 		rid.deleteResource(RESOURCENAME, 8);
-		assertEquals(ASSEQUALS, 1, sirix.getLastRevision(RESOURCENAME));
+		assertEquals(ASSEQUALS, 2, sirix.getLastRevision(RESOURCENAME));
 	}
 
 	/**
@@ -401,7 +401,7 @@ public class DatabaseRepresentationTest {
 				TestHelper.PATHS.PATH1.getFile());
 		rid.deleteResource(RESOURCENAME, 8);
 		final OutputStream output = new ByteArrayOutputStream();
-		sirix.getModificHistory(RESOURCENAME, "0-1", false, output, true);
+		sirix.getModificHistory(RESOURCENAME, "1-2", false, output, true);
 		final InputStream inpSt = new ByteArrayInputStream(
 				((ByteArrayOutputStream) output).toByteArray());
 		final Document doc = xmlDocument(inpSt);
@@ -430,8 +430,8 @@ public class DatabaseRepresentationTest {
 		rid.deleteResource(RESOURCENAME, 8);
 		rid.deleteResource(RESOURCENAME, 11);
 		rid.deleteResource(RESOURCENAME, 14);
-		assertEquals(ASSEQUALS, 3, sirix.getLastRevision(RESOURCENAME));
-		sirix.revertToRevision(RESOURCENAME, 0);
+		assertEquals(ASSEQUALS, 4, sirix.getLastRevision(RESOURCENAME));
+		sirix.revertToRevision(RESOURCENAME, 1);
 		final StreamingOutput sOutput = rid.getResource(RESOURCENAME, 14,
 				new HashMap<QueryParameter, String>());
 		final ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -442,7 +442,7 @@ public class DatabaseRepresentationTest {
 		final String africaString = attribute.getTextContent();
 		assertNotNull("check if africa (14) exists in the latest version",
 				africaString);
-		assertEquals(ASSEQUALS, 4, sirix.getLastRevision(RESOURCENAME));
+		assertEquals(ASSEQUALS, 5, sirix.getLastRevision(RESOURCENAME));
 		output.close();
 	}
 

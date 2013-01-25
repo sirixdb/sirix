@@ -127,7 +127,7 @@ public class RestXPathProcessorTest {
 		String xPath = "//book";
 		boolean withNodeIds = true;
 		OutputStream output = new ByteArrayOutputStream();
-		rxProcessor.getXpathResource(RESOURCENAME, xPath, withNodeIds, 0, output,
+		rxProcessor.getXpathResource(RESOURCENAME, xPath, withNodeIds, 1, output,
 				true);
 		InputStream xmlInput = new ByteArrayInputStream(
 				((ByteArrayOutputStream) output).toByteArray());
@@ -179,7 +179,7 @@ public class RestXPathProcessorTest {
 		OutputStream output = new ByteArrayOutputStream();
 		final File tnkFile = new File(TestHelper.PATHS.PATH1.getFile(),
 				RESOURCENAME);
-		rxProcessor.getXpathResource(tnkFile, 10L, xPath, withNodeIds, 0, output,
+		rxProcessor.getXpathResource(tnkFile, 10L, xPath, withNodeIds, 1, output,
 				true);
 		InputStream xmlInput = new ByteArrayInputStream(
 				((ByteArrayOutputStream) output).toByteArray());

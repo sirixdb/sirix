@@ -451,8 +451,8 @@ public class DatabaseRepresentation {
 		if (revision1 < revision2 && revision2 <= getLastRevision(resourceName)) {
 
 			// variables for highest rest-id in respectively revision
-			long maxRestidRev1 = 0;
-			long maxRestidRev2 = 0;
+			long maxRestidRev1 = 1;
+			long maxRestidRev2 = 1;
 
 			// Connection to sirix, creating a session
 			Database database = null;

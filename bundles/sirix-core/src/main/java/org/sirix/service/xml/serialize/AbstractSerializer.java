@@ -134,12 +134,13 @@ public abstract class AbstractSerializer implements Callable<Void> {
 	public Void call() throws SirixException {
 		emitStartDocument();
 
-		final int length = (mRevisions.length == 1 && mRevisions[0] < 0) ? (int) mSession
-				.getLastRevisionNumber() : mRevisions.length;
-		for (int i = 0; i < length; i++) {
+		final int nrOfRevisions = mRevisions.length;
+		final int length = (nrOfRevisions == 1 && mRevisions[0] < 0) ? (int) mSession
+				.getLastRevisionNumber() : nrOfRevisions;
+		for (int i = 1; i <= length; i++) {
 			try (final NodeReadTrx rtx = mSession
-					.beginNodeReadTrx((mRevisions.length == 1 && mRevisions[0] < 0) ? i
-							: mRevisions[i])) {
+					.beginNodeReadTrx((nrOfRevisions == 1 && mRevisions[0] < 0) ? i
+							: mRevisions[i-1])) {
 				if (length > 1) {
 					emitStartManualElement(i);
 				}

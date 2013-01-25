@@ -129,7 +129,7 @@ public class XMLShredderTest extends XMLTestCase {
 				XMLShredder.createFileReader(new File(XML)), Insert.ASFIRSTCHILD)
 				.includeComments(true).commitAfterwards().build();
 		shredder.call();
-		assertEquals(1, wtx.getRevisionNumber());
+		assertEquals(2, wtx.getRevisionNumber());
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
 		wtx.remove();
@@ -137,7 +137,7 @@ public class XMLShredderTest extends XMLTestCase {
 				XMLShredder.createFileReader(new File(XML)), Insert.ASFIRSTCHILD)
 				.includeComments(true).commitAfterwards().build();
 		shredder2.call();
-		assertEquals(2, wtx.getRevisionNumber());
+		assertEquals(3, wtx.getRevisionNumber());
 		wtx.close();
 
 		// Setup expected session.

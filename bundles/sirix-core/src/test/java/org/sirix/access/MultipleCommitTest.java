@@ -63,17 +63,16 @@ public class MultipleCommitTest {
 
 	@Test
 	public void test() throws SirixException {
-		Assert.assertEquals(0L, holder.getWtx().getRevisionNumber());
-
+		assertEquals(1L, holder.getWtx().getRevisionNumber());
 		holder.getWtx().commit();
 
 		holder.getWtx().insertElementAsFirstChild(new QNm("foo"));
-		assertEquals(1L, holder.getWtx().getRevisionNumber());
+		assertEquals(2L, holder.getWtx().getRevisionNumber());
 		holder.getWtx().moveTo(1);
 		assertEquals(new QNm("foo"), holder.getWtx().getName());
 		holder.getWtx().abort();
 
-		assertEquals(1L, holder.getWtx().getRevisionNumber());
+		assertEquals(2L, holder.getWtx().getRevisionNumber());
 	}
 
 	@Test
@@ -89,13 +88,13 @@ public class MultipleCommitTest {
 	public void testRemove() throws SirixException {
 		DocumentCreater.create(holder.getWtx());
 		holder.getWtx().commit();
-		assertEquals(1L, holder.getWtx().getRevisionNumber());
+		assertEquals(2L, holder.getWtx().getRevisionNumber());
 
 		holder.getWtx().moveToDocumentRoot();
 		holder.getWtx().moveToFirstChild();
 		holder.getWtx().remove();
 		holder.getWtx().commit();
-		assertEquals(2L, holder.getWtx().getRevisionNumber());
+		assertEquals(3L, holder.getWtx().getRevisionNumber());
 	}
 
 	@Test

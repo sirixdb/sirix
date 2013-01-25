@@ -203,9 +203,6 @@ public final class SessionImpl implements Session {
 	public synchronized NodeReadTrx beginNodeReadTrx(
 			@Nonnegative final int revisionKey) throws SirixException {
 		assertAccess(revisionKey);
-		if (mLastCommittedUberPage.get().isBootstrap()) {
-			throw new SirixUsageException("No revision commited!");
-		}
 		// Make sure not to exceed available number of read transactions.
 		try {
 			if (!mReadSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
@@ -366,7 +363,7 @@ public final class SessionImpl implements Session {
 	 * @throws IllegalArgumentException
 	 *           if revision isn't valid
 	 */
-	protected void assertAccess(final @Nonnegative long revision) {
+	void assertAccess(final @Nonnegative long revision) {
 		if (mClosed) {
 			throw new IllegalStateException("Session is already closed!");
 		}
@@ -393,15 +390,15 @@ public final class SessionImpl implements Session {
 	/**
 	 * Set a new node page write trx.
 	 * 
-	 * @param pTransactionID
+	 * @param transactionID
 	 *          page write transaction ID
-	 * @param pPageWriteTrx
+	 * @param pageWriteTrx
 	 *          page write trx
 	 */
-	public void setNodePageWriteTransaction(
-			final @Nonnegative long pTransactionID,
-			@Nonnull final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pPageWriteTrx) {
-		mNodePageTrxMap.put(pTransactionID, pPageWriteTrx);
+	void setNodePageWriteTransaction(
+			final @Nonnegative long transactionID,
+			@Nonnull final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx) {
+		mNodePageTrxMap.put(transactionID, pageWriteTrx);
 	}
 
 	/**
@@ -629,9 +626,6 @@ public final class SessionImpl implements Session {
 	@Override
 	public PageWriteTrx<Long, Record, UnorderedKeyValuePage> beginPageWriteTrx()
 			throws SirixException {
-		if (mLastCommittedUberPage.get().isBootstrap()) {
-			throw new SirixUsageException("No revision commited!");
-		}
 		return beginPageWriteTrx(mLastCommittedUberPage.get().getRevisionNumber());
 	}
 

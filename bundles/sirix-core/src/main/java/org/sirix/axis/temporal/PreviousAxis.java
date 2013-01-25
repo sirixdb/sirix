@@ -62,7 +62,7 @@ public class PreviousAxis extends AbstractTemporalAxis {
 
 	@Override
 	protected NodeReadTrx computeNext() {
-		if (mRevision >= 0 && mFirst) {
+		if (mRevision > 0 && mFirst) {
 			mFirst = false;
 			try {
 				mRtx = mSession.beginNodeReadTrx(mRevision);

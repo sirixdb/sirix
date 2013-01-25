@@ -129,7 +129,6 @@ public class XMLSerializerTest {
 
 		// generate serialize all from this session
 		DocumentCreater.createVersioned(wtx);
-		wtx.commit();
 		wtx.close();
 
 		XMLSerializer serializerall = new XMLSerializerBuilder(session, out, -1)
@@ -138,7 +137,7 @@ public class XMLSerializerTest {
 		assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
 		out.reset();
 
-		serializerall = new XMLSerializerBuilder(session, out, 0, 1, 2).build();
+		serializerall = new XMLSerializerBuilder(session, out, 1, 2, 3).build();
 		serializerall.call();
 		assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
 		session.close();
@@ -151,7 +150,6 @@ public class XMLSerializerTest {
 	 */
 	@Test
 	public void testKeyStart() throws Exception {
-
 		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		final Session session = database
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
@@ -172,10 +170,9 @@ public class XMLSerializerTest {
 		assertEquals(result, out.toString());
 		out.reset();
 
-		serializerall = new XMLSerializerBuilder(session, out, 0, 1, 2).build();
+		serializerall = new XMLSerializerBuilder(session, out, 1, 2, 3).build();
 		serializerall.call();
 		assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
 		session.close();
-
 	}
 }

@@ -202,14 +202,14 @@ public class UpdateTest {
 		wtx.commit();
 		wtx.close();
 		NodeReadTrxImpl rtx = (NodeReadTrxImpl) holder.getSession()
-				.beginNodeReadTrx(0);
-		assertEquals(0, rtx.getRevisionNumber());
+				.beginNodeReadTrx(1);
+		assertEquals(1, rtx.getRevisionNumber());
 		assertTrue(rtx.moveTo(7).hasMoved());
 		assertEquals("c", rtx.getName().getLocalName());
 		assertTrue(rtx.moveTo(11).hasMoved());
 		assertEquals("c", rtx.getName().getLocalName());
 		rtx = (NodeReadTrxImpl) holder.getSession().beginNodeReadTrx();
-		assertEquals(1, rtx.getRevisionNumber());
+		assertEquals(2, rtx.getRevisionNumber());
 		assertEquals(
 				null,
 				rtx.getPageTransaction().getName(
@@ -328,7 +328,7 @@ public class UpdateTest {
 		wtx.close();
 
 		NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
-		assertEquals(0L, rtx.getRevisionNumber());
+		assertEquals(1L, rtx.getRevisionNumber());
 		rtx.close();
 
 		// Insert 100 children.
@@ -347,7 +347,7 @@ public class UpdateTest {
 			rtx.moveToFirstChild();
 			rtx.moveToRightSibling();
 			assertEquals(Integer.toString(i), rtx.getValue());
-			assertEquals(i, rtx.getRevisionNumber());
+			assertEquals(i+1, rtx.getRevisionNumber());
 			rtx.close();
 		}
 
@@ -357,7 +357,7 @@ public class UpdateTest {
 		rtx.moveToFirstChild();
 		rtx.moveToRightSibling();
 		assertEquals("50", rtx.getValue());
-		assertEquals(50L, rtx.getRevisionNumber());
+		assertEquals(51L, rtx.getRevisionNumber());
 		rtx.close();
 	}
 

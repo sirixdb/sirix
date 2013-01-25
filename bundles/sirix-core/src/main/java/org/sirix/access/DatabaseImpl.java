@@ -44,6 +44,7 @@ import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
+import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -117,7 +118,8 @@ public final class DatabaseImpl implements Database {
 			returnVal = path.mkdir();
 			if (returnVal) {
 				// Creation of the folder structure.
-				for (final ResourceConfiguration.Paths paths : ResourceConfiguration.Paths.values()) {
+				for (final ResourceConfiguration.Paths paths : ResourceConfiguration.Paths
+						.values()) {
 					final File toCreate = new File(path, paths.getFile().getName());
 					if (paths.isFolder()) {
 						returnVal = toCreate.mkdir();
@@ -141,11 +143,26 @@ public final class DatabaseImpl implements Database {
 			mDBConfig.setMaximumResourceID(mResourceID.get());
 			mResources.forcePut(mResourceID.get(), resConfig.getResource().getName());
 
+			if (returnVal) {
+				// If everything was correct so far, initialize storage.
+				try {
+					try (final Session session = this
+							.getSession(new SessionConfiguration.Builder(resConfig
+									.getResource().getName()).build());
+							final NodeWriteTrx wtx = session.beginNodeWriteTrx();) {
+						wtx.commit();
+					}
+				} catch (final SirixException e) {
+					LOGWRAPPER.error(e.getMessage(), e);
+					returnVal = false;
+				}
+			}
+			
 			if (!returnVal) {
 				// If something was not correct, delete the partly created substructure.
 				Files.recursiveRemove(resConfig.mPath.toPath());
-			} 
-			
+			}
+
 			return returnVal;
 		}
 	}

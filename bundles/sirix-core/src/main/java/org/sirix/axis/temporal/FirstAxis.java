@@ -57,7 +57,7 @@ public class FirstAxis extends AbstractTemporalAxis {
 		if (mFirst) {
 			mFirst = false;
 			try {
-				mRtx = mSession.beginNodeReadTrx(0);
+				mRtx = mSession.beginNodeReadTrx(1);
 			} catch (final SirixException e) {
 				LOGGER.error(e.getMessage(), e);
 			}

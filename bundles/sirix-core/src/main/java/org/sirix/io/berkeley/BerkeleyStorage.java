@@ -113,7 +113,7 @@ public final class BerkeleyStorage implements Storage {
 		final EnvironmentConfig config = generateEnvConf();
 
 		if (repoFile.listFiles().length == 0
-				|| (repoFile.listFiles().length == 1 && "tt.tnk".equals(repoFile
+				|| (repoFile.listFiles().length == 1 && "sirix.data".equals(repoFile
 						.listFiles()[0].getName()))) {
 			conf.setAllowCreate(true);
 			config.setAllowCreate(true);
@@ -122,10 +122,9 @@ public final class BerkeleyStorage implements Storage {
 		try {
 			mEnv = new Environment(repoFile, config);
 			mDatabase = mEnv.openDatabase(null, NAME, conf);
-		} catch (final DatabaseException exc) {
-			throw new SirixIOException(exc);
+		} catch (final DatabaseException e) {
+			throw new SirixIOException(e);
 		}
-
 	}
 
 	@Override

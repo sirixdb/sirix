@@ -83,7 +83,7 @@ public class PastAxis extends AbstractTemporalAxis {
 
 	@Override
 	protected NodeReadTrx computeNext() {
-		if (mRevision >= 0) {
+		if (mRevision > 0) {
 			try {
 				mRtx = mSession.beginNodeReadTrx(mRevision--);
 			} catch (final SirixException e) {

@@ -51,7 +51,7 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
 	public AllTimeAxis(final @Nonnull Session session,
 			final @Nonnegative long nodeKey) {
 		mSession = checkNotNull(session);
-		mRevision = 0;
+		mRevision = 1;
 		checkArgument(nodeKey > -1, "nodeKey must be >= 0!");
 		mNodeKey = nodeKey;
 	}

@@ -240,7 +240,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
 		final File folder = new File(FOLDER);
-		int i = 1;
+		int i = 2;
 		final File[] filesList = folder.listFiles();
 		final List<File> list = new ArrayList<File>();
 		for (final File file : filesList) {

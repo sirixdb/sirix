@@ -262,7 +262,8 @@ public final class XMLSerializer extends AbstractSerializer {
 		}
 	}
 
-	private void writeQName(NodeReadTrx rtx) throws IOException {
+	// Write a QName.
+	private void writeQName(final @Nonnull NodeReadTrx rtx) throws IOException {
 		if (rtx.getPrefixKey() != -1) {
 			mOut.write(rtx.rawNameForKey(rtx.getPrefixKey()));
 			mOut.write(CharsForSerializing.COLON.getBytes());
@@ -295,11 +296,11 @@ public final class XMLSerializer extends AbstractSerializer {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
 	}
-
+	
 	@Override
 	protected void emitStartManualElement(final @Nonnegative long version) {
 		try {
-			write("<tt revision=\"");
+			write("<sirix revision=\"");
 			write(Long.toString(version));
 			write("\">");
 		} catch (final IOException e) {
@@ -310,7 +311,7 @@ public final class XMLSerializer extends AbstractSerializer {
 	@Override
 	protected void emitEndManualElement(final @Nonnegative long version) {
 		try {
-			write("</tt>");
+			write("</sirix>");
 		} catch (final IOException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}

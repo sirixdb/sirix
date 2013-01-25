@@ -55,9 +55,6 @@ public class SessionTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
-		holder = Holder.generateWtx();
-		holder.getWtx().commit();
-		holder.getWtx().close();
 		holder = Holder.generateRtx();
 	}
 

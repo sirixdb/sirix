@@ -37,8 +37,8 @@ public class AllTimeAxisTest {
 	
 	@Test
 	public void testAxis() throws SirixException {
-		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(0);
-		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx(1);
+		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(1);
+		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx(2);
 		final NodeReadTrx thirdRtx = holder.getRtx();
 		
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,

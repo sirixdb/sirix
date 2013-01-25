@@ -62,7 +62,7 @@ public class ReadTransactionTest {
 		TestHelper.closeEverything();
 	}
 
-	@Test(expected=SirixUsageException.class)
+	@Test
 	public void testEmptyRtx() throws SirixException {
 		assertFalse(PATHS.PATH2.getFile().exists());
 		Databases.createDatabase(PATHS.PATH2.getConfig());

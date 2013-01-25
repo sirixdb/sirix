@@ -54,7 +54,7 @@ public class ItemFilterTest {
 	}
 
 	@Test
-	public void testIFilterConvetions() throws SirixException {
+	public void testFilterConvetions() throws SirixException {
 		holder.getRtx().moveTo(9L);
 		FilterTest.testFilterConventions(new ItemFilter(holder.getRtx()), true);
 

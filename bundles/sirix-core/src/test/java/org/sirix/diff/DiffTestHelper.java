@@ -120,7 +120,7 @@ public final class DiffTestHelper {
 		final NodeWriteTrx wtx = holder.getWtx();
 		DocumentCreater.create(wtx);
 		wtx.commit();
-		final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx(0);
+		final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx(1);
 		rtx.moveTo(1);
 		wtx.moveTo(5);
 		wtx.replaceNode(rtx);
@@ -133,7 +133,7 @@ public final class DiffTestHelper {
 		final NodeWriteTrx wtx = holder.getWtx();
 		DocumentCreater.create(wtx);
 		wtx.commit();
-		final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx(0);
+		final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx(1);
 		rtx.moveTo(11);
 		wtx.moveTo(5);
 		wtx.replaceNode(rtx);
@@ -317,14 +317,14 @@ public final class DiffTestHelper {
 	static void checkFullDiff(final Holder holder, final DiffObserver observer,
 			final DiffOptimized optimized) throws SirixException,
 			InterruptedException {
-		DiffFactory.invokeFullDiff(new DiffFactory.Builder(holder.getSession(), 1,
-				0, optimized, ImmutableSet.of(observer)));
+		DiffFactory.invokeFullDiff(new DiffFactory.Builder(holder.getSession(), 2,
+				1, optimized, ImmutableSet.of(observer)));
 	}
 
 	static void checkStructuralDiff(final Holder holder,
 			final DiffObserver observer, final DiffOptimized optimized)
 			throws SirixException, InterruptedException {
 		DiffFactory.invokeStructuralDiff(new DiffFactory.Builder(holder
-				.getSession(), 1, 0, optimized, ImmutableSet.of(observer)));
+				.getSession(), 2, 1, optimized, ImmutableSet.of(observer)));
 	}
 }
