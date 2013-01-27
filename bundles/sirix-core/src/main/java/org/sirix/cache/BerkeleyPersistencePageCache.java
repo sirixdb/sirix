@@ -43,6 +43,7 @@ import org.sirix.page.interfaces.Page;
 
 import com.google.common.collect.ImmutableMap;
 import com.sleepycat.bind.tuple.TupleBinding;
+import com.sleepycat.je.Cursor;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
 import com.sleepycat.je.DatabaseEntry;
@@ -148,17 +149,25 @@ public final class BerkeleyPersistencePageCache extends
 
 	@Override
 	public void clearPersistent() throws SirixIOException {
+		final Cursor cursor = mDatabase.openCursor(null, null);
+		final DatabaseEntry valueEntry = new DatabaseEntry();
+		final DatabaseEntry keyEntry = new DatabaseEntry();
+		valueEntry.setPartial(0, 0, true);
+		OperationStatus status = cursor.getNext(keyEntry, valueEntry,
+				LockMode.DEFAULT);
 		try {
-			mDatabase.close();
-			mEnv.removeDatabase(null, NAME);
-			mEnv.close();
+			while (status == OperationStatus.SUCCESS) {
+				mDatabase.delete(null, keyEntry);
+				status = cursor.getNext(keyEntry, valueEntry, LockMode.DEFAULT);
+			}
+			cursor.close();
 		} catch (final DatabaseException e) {
 			throw new SirixIOException(e);
 		}
 	}
 
 	@Override
-	public void putPersistent(@Nonnull final LogKey key, @Nonnull final Page page)
+	public void putPersistent(final @Nonnull LogKey key, final @Nonnull Page page)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -177,7 +186,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public Page getPersistent(@Nonnull final LogKey key) throws SirixIOException {
+	public Page getPersistent(final @Nonnull LogKey key) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);

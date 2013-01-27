@@ -29,9 +29,7 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -67,11 +65,11 @@ import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.AVLTreeReader;
+import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
 import org.sirix.index.avltree.AVLTreeWriter;
 import org.sirix.index.avltree.NodeReferences;
 import org.sirix.index.avltree.Value;
 import org.sirix.index.avltree.ValueKind;
-import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
 import org.sirix.index.path.PathSummaryReader;
 import org.sirix.index.path.PathSummaryWriter;
 import org.sirix.index.path.PathSummaryWriter.OPType;
@@ -1921,41 +1919,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			throws SirixIOException {
 		// Delete commit file.
 		mNodeRtx.mSession.commitFile(revision).delete();
-
-		// // Remove logs.
-		// org.sirix.utils.Files.recursiveRemove(new File(new File(
-		// mNodeRtx.mSession.mResourceConfig.mPath,
-		// ResourceConfiguration.Paths.TRANSACTION_LOG.getFile().getName()),
-		// String.valueOf(revision)).toPath());
 	}
 
 	@Override
 	public void commit() throws SirixException {
 		mNodeRtx.assertNotClosed();
-
-		// // Assert that the DocumentNode has no more than one child node (the root
-		// // node).
-		// final long nodeKey = mNodeRtx.getCurrentNode().getNodeKey();
-		// moveToDocumentRoot();
-		// final DocumentRootNode document = (DocumentRootNode)
-		// mNodeRtx.getCurrentNode();
-		// if (document.getChildCount() > 1) {
-		// moveTo(nodeKey);
-		// throw new IllegalStateException(
-		// "DocumentRootNode may not have more than one child node!");
-		// }
-		// moveTo(nodeKey);
-
-		final File commitFile = mNodeRtx.mSession.commitFile(getRevisionNumber());
-		// Issues with windows that it's not created in the first
-		// time?
-		while (!commitFile.exists()) {
-			try {
-				commitFile.createNewFile();
-			} catch (final IOException e) {
-				throw new SirixIOException(e);
-			}
-		}
 
 		// Execute pre-commit hooks.
 		for (final PreCommitHook hook : mPreCommitHooks) {
@@ -1965,68 +1933,24 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		// Reset modification counter.
 		mModificationCount = 0L;
 
-		final NodeWriteTrx trx = this;
-		// mPool.submit(new Callable<Void>() {
-		// @Override
-		// public Void call() throws SirixException {
-		// Commit uber page.
-
-		// final Thread checkpointer = new Thread(new Runnable() {
-		// @Override
-		// public void run() {
-		// try {
-		final UberPage uberPage = getPageTransaction().commit(MultipleWriteTrx.NO);
-
-		// Optionally lock while assigning new instances.
+		// Optionally lock while commiting and assigning new instances.
 		acquireLock();
 		try {
+			final UberPage uberPage = getPageTransaction().commit(MultipleWriteTrx.NO);
+			
 			// Remember succesfully committed uber page in session.
 			mNodeRtx.mSession.setLastCommittedUberPage(uberPage);
 
-			// Delete commit file which denotes that a commit must write the log in
-			// the data file.
-			try {
-				Files.delete(commitFile.toPath());
-			} catch (final IOException e) {
-				throw new SirixIOException(e);
-			}
-
-			// System.out.println("Att:");
-			// mAVLAttributeTree.dump(System.out);
-			// System.out.println();
-			// System.out.println("Text:");
-			// mAVLTextTree.dump(System.out);
-			// System.out.println();
-
-			final long trxID = getTransactionID();
-			final int revNumber = getRevisionNumber();
-
-			reInstantiate(trxID, revNumber);
-
-			// // Remove logs.
-			// org.sirix.utils.Files.recursiveRemove(new File(new File(
-			// mNodeRtx.mSession.mResourceConfig.mPath,
-			// ResourceConfiguration.Paths.TRANSACTION_LOG.getFile().getName()),
-			// String.valueOf(revNumber)).toPath());
+			// Reinstantiate everything.
+			reInstantiate(getTransactionID(), getRevisionNumber());
 		} finally {
 			unLock();
 		}
 
 		// Execute post-commit hooks.
 		for (final PostCommitHook hook : mPostCommitHooks) {
-			hook.postCommit(trx);
+			hook.postCommit(this);
 		}
-
-		// } catch (final SirixException e) {
-		// e.printStackTrace();
-		// }
-		// }
-		// });
-		// checkpointer.setDaemon(true);
-		// checkpointer.start();
-		// return null;
-		// }
-		// });
 	}
 
 	/**

@@ -64,9 +64,10 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 	/**
 	 * Constructor.
 	 * 
-	 * 
 	 * @param storage
 	 *          the concrete storage
+	 * @param handler
+	 * 					the byte handler
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
@@ -119,7 +120,6 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 
 			// Remember page coordinates.
 			pageReference.setKey(offset);
-//			return offset;
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
@@ -155,5 +155,4 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 	protected Reader delegate() {
 		return mReader;
 	}
-
 }

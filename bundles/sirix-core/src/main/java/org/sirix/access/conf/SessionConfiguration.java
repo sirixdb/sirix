@@ -68,7 +68,7 @@ public final class SessionConfiguration {
 	public static final String DEFAULT_USER = "ALL";
 
 	/** Determines if logs should be dumped to persistent storage at first during a commit or not. */
-	public static final boolean DUMP_LOGS = false;
+	public static final boolean DUMP_LOGS = true;
 	// END STATIC STANDARD FIELDS
 
 	// MEMBERS FOR FLEXIBLE FIELDS

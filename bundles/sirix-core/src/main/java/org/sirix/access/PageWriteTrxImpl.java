@@ -30,6 +30,9 @@ package org.sirix.access;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -152,7 +155,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			final @Nonnegative long id, final @Nonnegative int representRev,
 			final @Nonnegative int lastStoredRev,
 			final @Nonnegative int lastCommitedRev) throws SirixException {
-		final int revision = uberPage.isBootstrap() ? 0 : representRev + 1;
+		final int revision = uberPage.isBootstrap() ? 0 : lastStoredRev + 1;
 		mIndexes = session.mResourceConfig.mIndexes;
 		mPageLog = new SynchronizedTransactionLogPageCache(
 				session.mResourceConfig.mPath, revision, "page", this);
@@ -304,16 +307,15 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			throws SirixIOException {
 		mPageRtx.assertNotClosed();
 		final long nodePageKey = mPageRtx.pageKey(recordKey);
-		final RecordPageContainer<UnorderedKeyValuePage> cont = prepareRecordPage(nodePageKey, pageKind);
+		final RecordPageContainer<UnorderedKeyValuePage> cont = prepareRecordPage(
+				nodePageKey, pageKind);
 		final Optional<Record> node = getRecord(recordKey, pageKind);
 		if (node.isPresent()) {
 			final Record nodeToDel = node.get();
 			final Node delNode = new DeletedNode(new NodeDelegate(
 					nodeToDel.getNodeKey(), -1, -1, -1, Optional.<SirixDeweyID> absent()));
-			cont.getModified().setEntry(delNode.getNodeKey(),
-					delNode);
-			cont.getComplete().setEntry(delNode.getNodeKey(),
-					delNode);
+			cont.getModified().setEntry(delNode.getNodeKey(), delNode);
+			cont.getComplete().setEntry(delNode.getNodeKey(), delNode);
 		} else {
 			throw new IllegalStateException("Node not found!");
 		}
@@ -542,6 +544,17 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mPageRtx.mSession.mCommitLock.lock();
 		mMultipleWriteTrx = checkNotNull(multipleWriteTrx);
 
+		final File commitFile = mPageRtx.mSession.commitFile(getRevisionNumber());
+		// Issues with windows that it's not created in the first
+		// time?
+		while (!commitFile.exists()) {
+			try {
+				commitFile.createNewFile();
+			} catch (final IOException e) {
+				throw new SirixIOException(e);
+			}
+		}
+
 		// Forcefully flush write-ahead transaction logs to persistent storage.
 		if (mPageRtx.mSession.mSessionConfig.dumpLogs()) {
 			mNodeLog.toSecondCache();
@@ -563,6 +576,14 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		uberPageReference.setPage(null);
 
 		mPageRtx.mSession.waitForFinishedSync(mTransactionID);
+
+		// Delete commit file which denotes that a commit must write the log in
+		// the data file.
+		final boolean deleted = commitFile.delete();
+		if (!deleted) {
+			throw new SirixIOException("Commit file couldn't be deleted!");
+		}
+
 		mPageRtx.mSession.mCommitLock.unlock();
 		return uberPage;
 	}

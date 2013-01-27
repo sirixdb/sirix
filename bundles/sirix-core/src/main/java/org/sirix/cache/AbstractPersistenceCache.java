@@ -97,7 +97,7 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 					environment.close();
 					removed = true;
 				}
-			}
+			} 
 		}
 		return removed;
 	}
@@ -125,14 +125,14 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 		try {
 			clearPersistent();
 
-			for (final File file : mPlace.listFiles()) {
-				if (!file.delete()) {
-					throw new SirixIOException("Couldn't delete!");
-				}
-			}
-			if (!mPlace.delete()) {
-				throw new SirixIOException("Couldn't delete!");
-			}
+//			for (final File file : mPlace.listFiles()) {
+//				if (!file.delete()) {
+//					throw new SirixIOException("Couldn't delete!");
+//				}
+//			}
+//			if (!mPlace.delete()) {
+//				throw new SirixIOException("Couldn't delete!");
+//			}
 		} catch (final SirixIOException e) {
 			throw new IllegalStateException(e.getCause());
 		}

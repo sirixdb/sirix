@@ -42,6 +42,7 @@ import org.sirix.page.interfaces.KeyValuePage;
 
 import com.google.common.collect.ImmutableMap;
 import com.sleepycat.bind.tuple.TupleBinding;
+import com.sleepycat.je.Cursor;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
 import com.sleepycat.je.DatabaseEntry;
@@ -59,8 +60,8 @@ import com.sleepycat.je.OperationStatus;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class BerkeleyPersistenceCache<T extends KeyValuePage<?, ?>> extends
-		AbstractPersistenceCache<Long, RecordPageContainer<T>> {
+public final class BerkeleyPersistenceCache<T extends KeyValuePage<?, ?>>
+		extends AbstractPersistenceCache<Long, RecordPageContainer<T>> {
 
 	/**
 	 * Flush after defined value.
@@ -166,10 +167,18 @@ public final class BerkeleyPersistenceCache<T extends KeyValuePage<?, ?>> extend
 
 	@Override
 	public void clearPersistent() throws SirixIOException {
+		final Cursor cursor = mDatabase.openCursor(null, null);
+		final DatabaseEntry valueEntry = new DatabaseEntry();
+		final DatabaseEntry keyEntry = new DatabaseEntry();
+		valueEntry.setPartial(0, 0, true);
+		OperationStatus status = cursor.getNext(keyEntry, valueEntry,
+				LockMode.DEFAULT);
 		try {
-			mDatabase.close();
-			mEnv.removeDatabase(null, NAME);
-			mEnv.close();
+			while (status == OperationStatus.SUCCESS) {
+				mDatabase.delete(null, keyEntry);
+				status = cursor.getNext(keyEntry, valueEntry, LockMode.DEFAULT);
+			}
+			cursor.close();
 		} catch (final DatabaseException e) {
 			throw new SirixIOException(e);
 		}
