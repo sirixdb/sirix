@@ -96,19 +96,20 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	/** {@link PageDelegate} instance. */
 	private final PageDelegate mDelegate;
 
+	/** Revision number. */
+	private final int mRevision;
+
 	/**
 	 * Create revision root page.
 	 */
 	public RevisionRootPage() {
-		mDelegate = new PageDelegate(5, Constants.UBP_ROOT_REVISION_NUMBER);
-		getReference(NAME_REFERENCE_OFFSET).setPage(
-				new NamePage(Constants.UBP_ROOT_REVISION_NUMBER));
-		getReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(
-				new PathSummaryPage(Constants.UBP_ROOT_REVISION_NUMBER));
-		getReference(TEXT_VALUE_REFERENCE_OFFSET).setPage(
-				new TextValuePage(Constants.UBP_ROOT_REVISION_NUMBER));
+		mDelegate = new PageDelegate(5);
+		getReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
+		getReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(new PathSummaryPage());
+		getReference(TEXT_VALUE_REFERENCE_OFFSET).setPage(new TextValuePage());
 		getReference(ATTRIBUTE_VALUE_REFERENCE_OFFSET).setPage(
-				new AttributeValuePage(Constants.UBP_ROOT_REVISION_NUMBER));
+				new AttributeValuePage());
+		mRevision = Constants.UBP_ROOT_REVISION_NUMBER;
 		mMaxNodeKey = -1L;
 		mMaxPathNodeKey = -1L;
 		mMaxTextValueNodeKey = -1L;
@@ -123,6 +124,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 */
 	protected RevisionRootPage(final @Nonnull ByteArrayDataInput in) {
 		mDelegate = new PageDelegate(5, in);
+		mRevision = in.readInt();
 		mMaxNodeKey = in.readLong();
 		mMaxPathNodeKey = in.readLong();
 		mMaxTextValueNodeKey = in.readLong();
@@ -135,13 +137,13 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 * 
 	 * @param committedRevisionRootPage
 	 *          page to clone
-	 * @param revisionToUse
+	 * @param representRev
 	 *          revision number to use
 	 */
 	public RevisionRootPage(
-			@Nonnull final RevisionRootPage committedRevisionRootPage,
-			final int revisionToUse) {
-		mDelegate = new PageDelegate(committedRevisionRootPage, revisionToUse);
+			final @Nonnull RevisionRootPage committedRevisionRootPage, final @Nonnegative int representRev) {
+		mDelegate = new PageDelegate(committedRevisionRootPage);
+		mRevision = representRev;
 		mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;
 		mMaxPathNodeKey = committedRevisionRootPage.mMaxPathNodeKey;
 		mMaxTextValueNodeKey = committedRevisionRootPage.mMaxTextValueNodeKey;
@@ -316,20 +318,21 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	@Override
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
 			@Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
-		if (mDelegate.getRevision() == pageWriteTrx.getUberPage().getRevision()) {
+		if (mRevision == pageWriteTrx.getUberPage().getRevision()) {
 			super.commit(pageWriteTrx);
 		}
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
+	public void serialize(final @Nonnull ByteArrayDataOutput out) {
 		mRevisionTimestamp = System.currentTimeMillis();
-		mDelegate.serialize(checkNotNull(pOut));
-		pOut.writeLong(mMaxNodeKey);
-		pOut.writeLong(mMaxPathNodeKey);
-		pOut.writeLong(mMaxTextValueNodeKey);
-		pOut.writeLong(mMaxAttributeValueNodeKey);
-		pOut.writeLong(mRevisionTimestamp);
+		mDelegate.serialize(checkNotNull(out));
+		out.writeInt(mRevision);
+		out.writeLong(mMaxNodeKey);
+		out.writeLong(mMaxPathNodeKey);
+		out.writeLong(mMaxTextValueNodeKey);
+		out.writeLong(mMaxAttributeValueNodeKey);
+		out.writeLong(mRevisionTimestamp);
 	}
 
 	@Override
@@ -448,7 +451,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 		// Remaining levels.
 		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
-			page = new IndirectPage(Constants.UBP_ROOT_REVISION_NUMBER);
+			page = new IndirectPage();
 			final LogKey logKey = new LogKey(pageKind, i, 0);
 			reference.setLogKey(logKey);
 			pageWriteTrx.putPageIntoCache(logKey, page);
@@ -456,8 +459,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 		}
 
 		final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(
-				Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
-				Constants.UBP_ROOT_REVISION_NUMBER, pageWriteTrx);
+				Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind, pageWriteTrx);
 		ndp.setDirty(true);
 		reference.setKeyValuePageKey(0);
 		reference.setLogKey(new LogKey(pageKind, levelPageCountExp.length, 0));
@@ -476,5 +478,14 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 		ndp.setEntry(0L, new DocumentRootNode(nodeDel, strucDel));
 		pageWriteTrx.putPageIntoKeyValueCache(pageKind, 0,
 				new RecordPageContainer<UnorderedKeyValuePage>(ndp, ndp));
+	}
+
+	/**
+	 * Get the revision number.
+	 * 
+	 * @return revision number
+	 */
+	public int getRevision() {
+		return mRevision;
 	}
 }

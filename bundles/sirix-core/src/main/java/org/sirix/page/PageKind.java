@@ -65,7 +65,7 @@ public enum PageKind {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert nodePage instanceof UnorderedKeyValuePage;
 			final UnorderedKeyValuePage page = (UnorderedKeyValuePage) nodePage;
-			return new UnorderedKeyValuePage(page.getPageKey(), page.getPageKind(), page.getRevision(),
+			return new UnorderedKeyValuePage(page.getPageKey(), page.getPageKind(),
 					pageReadTrx);
 		}
 	},
@@ -92,7 +92,7 @@ public enum PageKind {
 		public @Nonnull
 		Page getInstance(final @Nonnull Page page,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new NamePage(page.getRevision());
+			return new NamePage();
 		}
 	},
 
@@ -144,7 +144,7 @@ public enum PageKind {
 		public @Nonnull
 		Page getInstance(final @Nonnull Page page,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new IndirectPage(page.getRevision());
+			return new IndirectPage();
 		}
 	},
 
@@ -196,7 +196,7 @@ public enum PageKind {
 		public @Nonnull
 		Page getInstance(final @Nonnull Page page,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new PathSummaryPage(page.getRevision());
+			return new PathSummaryPage();
 		}
 	},
 
@@ -220,9 +220,9 @@ public enum PageKind {
 
 		@Override
 		public @Nonnull
-		Page getInstance(final @Nonnull Page pPage,
+		Page getInstance(final @Nonnull Page page,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new TextValuePage(pPage.getRevision());
+			return new TextValuePage();
 		}
 	},
 
@@ -246,9 +246,9 @@ public enum PageKind {
 
 		@Override
 		public @Nonnull
-		Page getInstance(final @Nonnull Page pPage,
+		Page getInstance(final @Nonnull Page page,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new AttributeValuePage(pPage.getRevision());
+			return new AttributeValuePage();
 		}
 	};
 

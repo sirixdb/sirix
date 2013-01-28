@@ -589,8 +589,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			final Revisioning revisioning = mResourceConfig.mRevisionKind;
 			final S completePage = revisioning.combineRecordPages(revs,
 					mileStoneRevision, this);
-			return new RecordPageContainer<S>(completePage, getUberPage()
-					.getRevision());
+			return new RecordPageContainer<S>(completePage);
 		} catch (final ExecutionException e) {
 			throw new SirixIOException(e.getCause());
 		}
@@ -630,7 +629,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 				if (ref.getKey() == Constants.NULL_ID || (!keys.contains(ref.getKey()))) {
 					@SuppressWarnings("unchecked")
 					final S page = (S) mPageReader.read(ref.getKey(), this);
-					page.setRevision(i);
 					pages.add(page);
 					if (ref.getKey() != Constants.NULL_ID) {
 						keys.add(ref.getKey());

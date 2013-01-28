@@ -103,10 +103,9 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 * 					the new revision
 	 */
 	@SuppressWarnings("unchecked")
-	public RecordPageContainer(final @Nonnull T complete, final @Nonnegative int revision) {
+	public RecordPageContainer(final @Nonnull T complete) {
 		this(complete, (T) complete.newInstance(complete.getPageKey(),
-				complete.getPageKind(), revision,
-				complete.getPageReadTrx()));
+				complete.getPageKind(), complete.getPageReadTrx()));
 	}
 
 	/**

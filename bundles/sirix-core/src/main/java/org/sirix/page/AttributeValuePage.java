@@ -53,15 +53,9 @@ public class AttributeValuePage extends AbstractForwardingPage {
 
 	/**
 	 * Metadata for the revision.
-	 * 
-	 * @param revision
-	 *          revision number
-	 * @throws IllegalArgumentException
-	 *           if {@code pRevision} < 0
 	 */
-	public AttributeValuePage(final @Nonnegative int revision) {
-		checkArgument(revision >= 0, "pRevision must be >= 0!");
-		mDelegate = new PageDelegate(1, revision);
+	public AttributeValuePage() {
+		mDelegate = new PageDelegate(1);
 	}
 
 	/**

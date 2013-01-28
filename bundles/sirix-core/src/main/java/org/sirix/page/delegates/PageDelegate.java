@@ -56,9 +56,6 @@ public class PageDelegate implements Page {
 	/** Page references. */
 	private PageReference[] mReferences;
 
-	/** Revision of this page. */
-	private final int mRevision;
-
 	/** Determines if page is new or changed. */
 	private boolean mIsDirty;
 
@@ -70,12 +67,9 @@ public class PageDelegate implements Page {
 	 * @param revision
 	 *          revision number
 	 */
-	public PageDelegate(final @Nonnegative int referenceCount,
-			final @Nonnegative int revision) {
+	public PageDelegate(final @Nonnegative int referenceCount) {
 		checkArgument(referenceCount >= 0);
-		checkArgument(revision >= 0);
 		mReferences = new PageReference[referenceCount];
-		mRevision = revision;
 		mIsDirty = true;
 		for (int i = 0; i < referenceCount; i++) {
 			mReferences[i] = new PageReference();
@@ -94,7 +88,6 @@ public class PageDelegate implements Page {
 			final @Nonnull ByteArrayDataInput in) {
 		checkArgument(referenceCount >= 0);
 		mReferences = new PageReference[referenceCount];
-		mRevision = in.readInt();
 		mIsDirty = false;
 		for (int offset = 0; offset < mReferences.length; offset++) {
 			mReferences[offset] = new PageReference();
@@ -110,12 +103,9 @@ public class PageDelegate implements Page {
 	 * @param revision
 	 *          revision number
 	 */
-	public PageDelegate(final @Nonnull Page commitedPage,
-			final @Nonnegative int revision) {
-		checkArgument(revision >= 0);
+	public PageDelegate(final @Nonnull Page commitedPage) {
 		mReferences = commitedPage.getReferences();
 		mIsDirty = true;
-		mRevision = revision;
 	}
 
 	/**
@@ -160,7 +150,6 @@ public class PageDelegate implements Page {
 	 */
 	@Override
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
-		out.writeInt(mRevision);
 		for (final PageReference reference : mReferences) {
 			out.writeLong(reference.getKey());
 		}
@@ -177,16 +166,6 @@ public class PageDelegate implements Page {
 		// System.arraycopy(mReferences, 0, copiedRefs, 0, mReferences.length);
 		// return copiedRefs;
 		return mReferences;
-	}
-
-	/**
-	 * Get the revision.
-	 * 
-	 * @return the revision
-	 */
-	@Override
-	public final int getRevision() {
-		return mRevision;
 	}
 
 	@Override

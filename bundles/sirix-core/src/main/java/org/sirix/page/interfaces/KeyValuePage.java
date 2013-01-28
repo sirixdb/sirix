@@ -69,15 +69,12 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @param pageKind
 	 *          the kind of page (in which subtree it is (NODEPAGE,
 	 *          PATHSUMMARYPAGE, TEXTVALUEPAGE, ATTRIBUTEVALUEPAGE))
-	 * @param revision
-	 *          the revision
 	 * @param pageReadTrx
 	 *          transaction to read pages
 	 * @return a new {@link KeyValuePage} instance
 	 */
 	<C extends KeyValuePage<K, V>> C newInstance(@Nonnegative long recordPageKey,
-			@Nonnull PageKind pageKind, @Nonnegative int revision,
-			@Nonnull PageReadTrx pageReadTrx);
+			@Nonnull PageKind pageKind, @Nonnull PageReadTrx pageReadTrx);
 
 	/**
 	 * Get the {@link PageReadTrx}.
@@ -92,11 +89,4 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @return page kind
 	 */
 	PageKind getPageKind();
-	
-	/**
-	 * Set the revision the page belongs to if the page is updated.
-	 * 
-	 * @return the page instance
-	 */
-	KeyValuePage<K, V> setRevision(@Nonnegative int revision);
 }

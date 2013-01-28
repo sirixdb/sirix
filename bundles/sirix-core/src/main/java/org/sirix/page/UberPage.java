@@ -29,7 +29,6 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
@@ -73,6 +72,8 @@ public final class UberPage extends AbstractForwardingPage {
 	/** {@link RevisionRootPage} instance. */
 	private RevisionRootPage mRootPage;
 
+	private final int mRevision;
+
 	/**
 	 * Create uber page.
 	 * 
@@ -80,7 +81,8 @@ public final class UberPage extends AbstractForwardingPage {
 	 *          {@link ResourceConfiguration} reference
 	 */
 	public UberPage() {
-		mDelegate = new PageDelegate(1, Constants.UBP_ROOT_REVISION_NUMBER);
+		mDelegate = new PageDelegate(1);
+		mRevision = Constants.UBP_ROOT_REVISION_NUMBER;
 		mRevisionCount = Constants.UBP_ROOT_REVISION_COUNT;
 		mBootstrap = true;
 	}
@@ -93,9 +95,10 @@ public final class UberPage extends AbstractForwardingPage {
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} reference
 	 */
-	protected UberPage(final @Nonnull ByteArrayDataInput pIn) {
-		mDelegate = new PageDelegate(1, pIn);
-		mRevisionCount = pIn.readInt();
+	protected UberPage(final @Nonnull ByteArrayDataInput in) {
+		mDelegate = new PageDelegate(1, in);
+		mRevisionCount = in.readInt();
+		mRevision = mRevisionCount == 0 ? 0 : mRevisionCount - 1;
 		mBootstrap = false;
 		mRootPage = null;
 	}
@@ -105,20 +108,18 @@ public final class UberPage extends AbstractForwardingPage {
 	 * 
 	 * @param committedUberPage
 	 *          page to clone
-	 * @param revisionToUse
-	 *          revision number to use
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} reference
 	 */
-	public UberPage(final @Nonnull UberPage committedUberPage,
-			final @Nonnegative int revisionToUse) {
-		mDelegate = new PageDelegate(committedUberPage,
-				committedUberPage.isBootstrap() ? 0 : revisionToUse);
+	public UberPage(final @Nonnull UberPage committedUberPage) {
+		mDelegate = new PageDelegate(committedUberPage);
 		if (committedUberPage.isBootstrap()) {
+			mRevision = committedUberPage.mRevision;
 			mRevisionCount = committedUberPage.mRevisionCount;
 			mBootstrap = committedUberPage.mBootstrap;
 			mRootPage = committedUberPage.mRootPage;
 		} else {
+			mRevision = committedUberPage.mRevision + 1;
 			mRevisionCount = committedUberPage.mRevisionCount + 1;
 			mBootstrap = false;
 			mRootPage = null;
@@ -172,10 +173,10 @@ public final class UberPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput pOut) {
+	public void serialize(final @Nonnull ByteArrayDataOutput out) {
 		mBootstrap = false;
-		mDelegate.serialize(checkNotNull(pOut));
-		pOut.writeInt(mRevisionCount);
+		mDelegate.serialize(checkNotNull(out));
+		out.writeInt(mRevisionCount);
 	}
 
 	@Override
@@ -213,7 +214,7 @@ public final class UberPage extends AbstractForwardingPage {
 
 		// Remaining levels.
 		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
-			page = new IndirectPage(Constants.UBP_ROOT_REVISION_NUMBER);
+			page = new IndirectPage();
 			pageWriteTrx.putPageIntoCache(new LogKey(PageKind.UBERPAGE, i, 0), page);
 		}
 
@@ -247,5 +248,14 @@ public final class UberPage extends AbstractForwardingPage {
 			throw new IllegalStateException("page kind not known!");
 		}
 		return inpLevelPageCountExp;
+	}
+
+	/**
+	 * Get the revision number.
+	 * 
+	 * @return revision number
+	 */
+	public int getRevision() {
+		return mRevision;
 	}
 }

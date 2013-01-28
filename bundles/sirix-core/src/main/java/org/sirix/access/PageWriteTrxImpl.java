@@ -658,11 +658,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		IndirectPage page = (IndirectPage) mPageLog.get(logKey);
 		if (page == null) {
 			if (reference.getKey() == Constants.NULL_ID) {
-				page = new IndirectPage(getUberPage().getRevision());
+				page = new IndirectPage();
 			} else {
 				final IndirectPage indirectPage = mPageRtx
 						.dereferenceIndirectPage(reference);
-				page = new IndirectPage(indirectPage, getUberPage().getRevision());
+				page = new IndirectPage(indirectPage);
 			}
 			mPageLog.put(logKey, page);
 		}
@@ -694,8 +694,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 					pageKind);
 			if (reference.getKey() == Constants.NULL_ID) {
 				cont = new RecordPageContainer<>(new UnorderedKeyValuePage(
-						recordPageKey, pageKind, getUberPage().getRevision(), mPageRtx),
-						getUberPage().getRevision());
+						recordPageKey, pageKind, mPageRtx));
 			} else {
 				cont = dereferenceRecordPageForModification(recordPageKey, pageKind);
 			}

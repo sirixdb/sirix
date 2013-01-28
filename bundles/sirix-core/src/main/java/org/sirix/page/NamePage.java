@@ -27,12 +27,6 @@
 
 package org.sirix.page;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-
-import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
@@ -42,6 +36,10 @@ import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
+
+import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * <h1>NamePage</h1>
@@ -64,21 +62,13 @@ public final class NamePage implements Page {
 	/** Processing instruction names. */
 	private final Names mPIs;
 
-	/** Revision number. */
-	private final int mRevision;
-
 	/** Determine if name page has been modified. */
 	private boolean mIsDirty;
 
 	/**
 	 * Create name page.
-	 * 
-	 * @param revision
-	 *          revision number
 	 */
-	public NamePage(final @Nonnegative int revision) {
-		checkArgument(revision >= 0, "pRevision must be >= 0!");
-		mRevision = revision;
+	public NamePage() {
 		mAttributes = Names.getInstance();
 		mElements = Names.getInstance();
 		mNamespaces = Names.getInstance();
@@ -93,7 +83,6 @@ public final class NamePage implements Page {
 	 *          input bytes to read from
 	 */
 	protected NamePage(final @Nonnull ByteArrayDataInput in) {
-		mRevision = in.readInt();
 		mElements = Names.clone(in);
 		mNamespaces = Names.clone(in);
 		mAttributes = Names.clone(in);
@@ -216,7 +205,6 @@ public final class NamePage implements Page {
 
 	@Override
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
-		out.writeInt(mRevision);
 		mElements.serialize(out);
 		mNamespaces.serialize(out);
 		mAttributes.serialize(out);
@@ -225,9 +213,9 @@ public final class NamePage implements Page {
 
 	@Override
 	public String toString() {
-		return Objects.toStringHelper(this).add("revision", mRevision)
-				.add("elements", mElements).add("attributes", mAttributes)
-				.add("URIs", mNamespaces).add("PIs", mPIs).toString();
+		return Objects.toStringHelper(this).add("elements", mElements)
+				.add("attributes", mAttributes).add("URIs", mNamespaces)
+				.add("PIs", mPIs).toString();
 	}
 
 	/**
@@ -253,11 +241,6 @@ public final class NamePage implements Page {
 		default:
 			throw new IllegalStateException("No other node types supported!");
 		}
-	}
-
-	@Override
-	public int getRevision() {
-		return mRevision;
 	}
 
 	@Override

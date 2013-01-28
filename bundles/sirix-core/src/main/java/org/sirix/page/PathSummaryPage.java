@@ -26,15 +26,13 @@ package org.sirix.page;
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-import static com.google.common.base.Preconditions.checkArgument;
-import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataInput;
-
-import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
+
+import com.google.common.base.Objects;
+import com.google.common.io.ByteArrayDataInput;
 
 /**
  * Page to hold references to a path summary.
@@ -52,15 +50,9 @@ public class PathSummaryPage extends AbstractForwardingPage {
 
 	/**
 	 * Path summary page.
-	 * 
-	 * @param revision
-	 *          revision number
-	 * @throws IllegalArgumentException
-	 *           if {@code pRevision} < 0
 	 */
-	public PathSummaryPage(final @Nonnegative int revision) {
-		checkArgument(revision >= 0, "pRevision must be >= 0!");
-		mDelegate = new PageDelegate(1, revision);
+	public PathSummaryPage() {
+		mDelegate = new PageDelegate(1);
 	}
 
 	/**

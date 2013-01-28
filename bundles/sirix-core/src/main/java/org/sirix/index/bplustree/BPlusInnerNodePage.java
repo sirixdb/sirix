@@ -44,9 +44,6 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	/** Key/Value records. */
 	private final Map<K, V> mRecords;
 
-	/** {@link PageDelegate} reference. */
-	private int mRevision;
-
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
 
@@ -77,27 +74,23 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	 * 
 	 * @param recordPageKey
 	 *          base key assigned to this node page
-	 * @param revision
-	 *          revision the page belongs to
 	 * @param pageReadTrx
 	 *          Sirix page reading transaction
 	 * @param kind
 	 *          determines if it's a leaf or inner node page
 	 */
-	public BPlusInnerNodePage(final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
-			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
+	public BPlusInnerNodePage(final @Nonnegative long recordPageKey,
+			final @Nonnull PageKind pageKind, final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
 		assert pageKind != null;
-		assert revision >= 0 : "revision must not be negative!";
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
-		mRevision = revision;
 		mRecordPageKey = recordPageKey;
 		mRecords = new TreeMap<>();
 		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
-		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, revision);
+		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT);
 		mPageKind = pageKind;
 	}
 
@@ -112,7 +105,6 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	protected BPlusInnerNodePage(final @Nonnull ByteArrayDataInput in,
 			final @Nonnull PageReadTrx pageReadTrx) {
 		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
-		mRevision = in.readInt();
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mRecords = new TreeMap<>();
@@ -143,7 +135,6 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	@Override
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
 		super.serialize(out);
-		out.writeInt(mRevision);
 		out.writeLong(mRecordPageKey);
 		out.writeInt(mRecords.size());
 		serializePointer(mLeftPage, out);
@@ -158,12 +149,12 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 
 	private void serializePointer(final @Nonnull Optional<PageReference> page,
 			final @Nonnull ByteArrayDataOutput out) {
-			if (page.isPresent()) {
-				out.writeBoolean(page.get().getKey() == org.sirix.settings.Constants.NULL_ID ? false
-						: true);
-			} else {
-				out.writeBoolean(false);
-			}
+		if (page.isPresent()) {
+			out.writeBoolean(page.get().getKey() == org.sirix.settings.Constants.NULL_ID ? false
+					: true);
+		} else {
+			out.writeBoolean(false);
+		}
 	}
 
 	@Override
@@ -200,9 +191,10 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<K, V>> C newInstance(
-			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind, final @Nonnegative int revision,
+			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
 			final @Nonnull PageReadTrx pageReadTrx) {
-		return (C) new BPlusInnerNodePage<K, V>(recordPageKey, pageKind, revision, pageReadTrx);
+		return (C) new BPlusInnerNodePage<K, V>(recordPageKey, pageKind,
+				pageReadTrx);
 	}
 
 	@Override
@@ -218,13 +210,5 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	@Override
 	public PageKind getPageKind() {
 		return mPageKind;
-	}
-	
-	@Override
-	public KeyValuePage<K, V> setRevision(final @Nonnegative int revision) {
-		// Only used internally, thus assertions are preferred!
-		assert revision >= 0 : "revision parameter must be >= 0!";
-		mRevision  = revision;
-		return this;
 	}
 }

@@ -64,16 +64,16 @@ public enum Revisioning {
 
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
-				final @Nonnull List<T> pages, final @Nonnegative int mileStoneRevision,
+				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert pages.size() == 1;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), firstPage.getRevision() + 1, pageReadTrx));
+					firstPage.getPageKind(), pageReadTrx));
 
 			for (final Map.Entry<K, V> entry : pages.get(0).entrySet()) {
 				returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
@@ -103,7 +103,7 @@ public enum Revisioning {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final T returnVal = firstPage.newInstance(recordPageKey,
-					firstPage.getPageKind(), firstPage.getRevision(), pageReadTrx);
+					firstPage.getPageKind(), pageReadTrx);
 			if (pages.size() == 2) {
 				returnVal.setDirty(true);
 			}
@@ -141,9 +141,9 @@ public enum Revisioning {
 			final int revision = pageReadTrx.getUberPage().getRevision();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), revision, pageReadTrx));
+					firstPage.getPageKind(), pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), revision, pageReadTrx));
+					firstPage.getPageKind(), pageReadTrx));
 
 			final T latest = firstPage;
 			T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
@@ -166,7 +166,7 @@ public enum Revisioning {
 					if (isFullDump && returnVal.get(1).getValue(entry.getKey()) == null) {
 						returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
 					}
-					
+
 					if (returnVal.get(0).entrySet().size() == Constants.NDP_NODE_COUNT) {
 						// Page is filled, thus skip all other entries of the full dump.
 						break;
@@ -203,8 +203,7 @@ public enum Revisioning {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final T returnVal = firstPage.newInstance(firstPage.getPageKey(),
-					firstPage.getPageKind(), firstPage.getRevision(),
-					firstPage.getPageReadTrx());
+					firstPage.getPageKind(), firstPage.getPageReadTrx());
 			if (pages.size() > 1) {
 				returnVal.setDirty(true);
 			}
@@ -239,9 +238,9 @@ public enum Revisioning {
 			final int revision = pageReadTrx.getUberPage().getRevision();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), revision, pageReadTrx));
+					firstPage.getPageKind(), pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), revision, pageReadTrx));
+					firstPage.getPageKind(), pageReadTrx));
 			final boolean isFullDump = revision % revToRestore == 0;
 
 			boolean filledPage = false;
@@ -261,7 +260,7 @@ public enum Revisioning {
 						if (returnVal.get(1).getValue(entry.getKey()) == null && isFullDump) {
 							returnVal.get(1).setEntry(key, entry.getValue());
 						}
-						
+
 						if (returnVal.get(0).entrySet().size() == Constants.NDP_NODE_COUNT) {
 							filledPage = true;
 							break;
@@ -308,13 +307,13 @@ public enum Revisioning {
 	 * 
 	 * @param pages
 	 *          the base of the complete {@link KeyValuePage}
-	 * @param mileStoneRevision
+	 * @param revToRestore
 	 *          the revision needed to build up the complete milestone
 	 * @return a {@link RecordPageContainer} holding a complete
 	 *         {@link KeyValuePage} for reading and one for writing
 	 */
 	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
-			final @Nonnull List<T> pages, final @Nonnegative int mileStoneRevision,
+			final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
 			final @Nonnull PageReadTrx pageReadTrx);
 
 	/**

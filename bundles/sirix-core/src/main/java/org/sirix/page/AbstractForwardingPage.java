@@ -68,11 +68,6 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
 	}
 
 	@Override
-	public int getRevision() {
-		return delegate().getRevision();
-	}
-
-	@Override
 	public PageReference getReference(final @Nonnegative int offset) {
 		return delegate().getReference(offset);
 	}

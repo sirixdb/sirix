@@ -62,16 +62,15 @@ public class CacheTestHelper {
 		PAGE_READ_TRX = Holder.generateSession().getSession().beginPageReadTrx();
 		PAGES = new UnorderedKeyValuePage[LRUCache.CACHE_CAPACITY + 1][ResourceConfiguration.VERSIONSTORESTORE + 1];
 		for (int i = 0; i < PAGES.length; i++) {
-			final UnorderedKeyValuePage page = new UnorderedKeyValuePage(i, PageKind.NODEPAGE, 0,
-					PAGE_READ_TRX);
+			final UnorderedKeyValuePage page = new UnorderedKeyValuePage(i, PageKind.NODEPAGE, PAGE_READ_TRX);
 			final UnorderedKeyValuePage[] revs = new UnorderedKeyValuePage[ResourceConfiguration.VERSIONSTORESTORE];
 
 			for (int j = 0; j < ResourceConfiguration.VERSIONSTORESTORE; j++) {
-				PAGES[i][j + 1] = new UnorderedKeyValuePage(i, PageKind.NODEPAGE, 0, PAGE_READ_TRX);
+				PAGES[i][j + 1] = new UnorderedKeyValuePage(i, PageKind.NODEPAGE, PAGE_READ_TRX);
 				revs[j] = PAGES[i][j + 1];
 			}
 			PAGES[i][0] = page;
-			cache.put((long) i, new RecordPageContainer<>(page, 0));
+			cache.put((long) i, new RecordPageContainer<>(page));
 		}
 	}
 

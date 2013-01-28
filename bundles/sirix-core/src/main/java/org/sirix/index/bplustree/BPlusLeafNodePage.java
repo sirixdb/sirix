@@ -35,7 +35,7 @@ import com.google.common.io.ByteArrayDataOutput;
  * @param <V>
  *          the value
  */
-public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V extends Record> 
+public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V extends Record>
 		implements KeyValuePage<K, V> {
 
 	/** Key of record page. This is the base key of all contained nodes. */
@@ -43,9 +43,6 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 
 	/** Key/Value records. */
 	private final Map<K, V> mRecords;
-
-	/** {@link PageDelegate} reference. */
-	private int mRevision;
 
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
@@ -76,23 +73,19 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	 * @param recordPageKey
 	 *          base key assigned to this node page
 	 * @param pageKind
-	 * 					the kind of page (in which subtree it is)
-	 * @param revision
-	 *          revision the page belongs to
+	 *          the kind of page (in which subtree it is)
 	 * @param pageReadTrx
 	 *          Sirix page reading transaction
 	 * @param kind
 	 *          determines if it's a leaf or inner node page
 	 */
-	public BPlusLeafNodePage(final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
-			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
+	public BPlusLeafNodePage(final @Nonnegative long recordPageKey,
+			final @Nonnull PageKind pageKind, final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
 		assert pageKind != null;
-		assert revision >= 0 : "revision must not be negative!";
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
-		mRevision = revision;
 		mRecordPageKey = recordPageKey;
 		mRecords = new TreeMap<>();
 		mIsDirty = true;
@@ -112,7 +105,6 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	 */
 	protected BPlusLeafNodePage(final @Nonnull ByteArrayDataInput in,
 			final @Nonnull PageReadTrx pageReadTrx) {
-		mRevision = in.readInt();
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mRecords = new TreeMap<>();
@@ -142,7 +134,6 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 
 	@Override
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
-		out.writeInt(mRevision);
 		out.writeLong(mRecordPageKey);
 		serializePointer(mLeftPage, out);
 		serializePointer(mRightPage, out);
@@ -162,11 +153,6 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		} else {
 			out.writeBoolean(false);
 		}
-	}
-
-	@Override
-	public int getRevision() {
-		return mRevision;
 	}
 
 	@Override
@@ -223,9 +209,9 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<K, V>> C newInstance(
-			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind, final @Nonnegative int revision,
+			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
 			final @Nonnull PageReadTrx pageReadTrx) {
-		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind, revision, pageReadTrx);
+		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind, pageReadTrx);
 	}
 
 	@Override
@@ -236,13 +222,5 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	@Override
 	public PageKind getPageKind() {
 		return mPageKind;
-	}
-	
-	@Override
-	public KeyValuePage<K, V> setRevision(final @Nonnegative int revision) {
-		// Only used internally, thus assertions are preferred!
-		assert revision >= 0 : "revision parameter must be >= 0!";
-		mRevision  = revision;
-		return this;
 	}
 }

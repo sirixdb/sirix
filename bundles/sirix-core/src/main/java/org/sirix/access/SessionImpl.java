@@ -314,7 +314,7 @@ public final class SessionImpl implements Session {
 		final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
 		return new PageWriteTrxImpl(this, abort == Abort.YES
 				&& lastCommitedUberPage.isBootstrap() ? new UberPage() : new UberPage(
-				lastCommitedUberPage, storeRevision + 1), writer, id,
+				lastCommitedUberPage), writer, id,
 				representRevision, storeRevision, lastCommitedRev);
 	}
 

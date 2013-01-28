@@ -54,13 +54,6 @@ public interface Page {
 	void serialize(final @Nonnull ByteArrayDataOutput out);
 
 	/**
-	 * Revision of page.
-	 * 
-	 * @return revision number
-	 */
-	int getRevision();
-
-	/**
 	 * Get all page references.
 	 * 
 	 * @return all page references

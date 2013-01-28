@@ -26,9 +26,6 @@ package org.sirix.page;
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-import static com.google.common.base.Preconditions.checkArgument;
-
-import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.page.delegates.PageDelegate;
@@ -53,15 +50,9 @@ public class TextValuePage extends AbstractForwardingPage {
 
 	/**
 	 * Metadata for the revision.
-	 * 
-	 * @param revision
-	 *          revision number
-	 * @throws IllegalArgumentException
-	 *           if {@code pRevision} < 0
 	 */
-	public TextValuePage(final @Nonnegative int revision) {
-		checkArgument(revision >= 0, "pRevision must be >= 0!");
-		mDelegate = new PageDelegate(1, revision);
+	public TextValuePage() {
+		mDelegate = new PageDelegate(1);
 	}
 
 	/**

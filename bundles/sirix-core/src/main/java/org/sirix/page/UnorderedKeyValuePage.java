@@ -41,7 +41,6 @@ import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
-import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
@@ -66,9 +65,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	/** Records. */
 	private final Map<Long, Record> mRecords;
 
-	/** {@link PageDelegate} reference. */
-	private int mRevision;
-
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
 
@@ -86,20 +82,15 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 * @param pageKind
 	 *          the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE,
 	 *          TEXTVALUEPAGE, ATTRIBUTEVALUEPAGE)
-	 * @param revision
-	 *          revision the page belongs to
 	 * @param pageReadTrx
 	 *          the page reading transaction
 	 */
 	public UnorderedKeyValuePage(final @Nonnegative long recordPageKey,
-			final @Nonnull PageKind pageKind, final @Nonnegative int revision,
-			final @Nonnull PageReadTrx pageReadTrx) {
+			final @Nonnull PageKind pageKind, final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
-		assert revision >= 0 : "revision must not be negative!";
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
-		mRevision = revision;
 		mRecordPageKey = recordPageKey;
 		mRecords = new LinkedHashMap<>();
 		mIsDirty = true;
@@ -117,7 +108,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 */
 	protected UnorderedKeyValuePage(final @Nonnull ByteArrayDataInput in,
 			final @Nonnull PageReadTrx pageReadTrx) {
-		mRevision = in.readInt();
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mRecords = new LinkedHashMap<>(size);
@@ -156,7 +146,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	@Override
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
-		out.writeInt(mRevision);
 		out.writeLong(mRecordPageKey);
 		out.writeInt(mRecords.size());
 		final RecordPersistenter persistenter = mPageReadTrx.getSession()
@@ -170,8 +159,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	@Override
 	public String toString() {
 		final ToStringHelper helper = Objects.toStringHelper(this)
-				.add("revision", mRevision).add("pagekey", mRecordPageKey)
-				.add("nodes", mRecords.toString());
+				.add("pagekey", mRecordPageKey).add("nodes", mRecords.toString());
 		for (final Record node : mRecords.values()) {
 			helper.add("node", node);
 		}
@@ -196,11 +184,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 					&& Objects.equal(mRecords, other.mRecords);
 		}
 		return false;
-	}
-
-	@Override
-	public int getRevision() {
-		return mRevision;
 	}
 
 	@Override
@@ -243,21 +226,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	@Override
 	public <C extends KeyValuePage<Long, Record>> C newInstance(
 			final long recordPageKey, final @Nonnull PageKind pageKind,
-			final @Nonnegative int revision, final @Nonnull PageReadTrx pageReadTrx) {
-		return (C) new UnorderedKeyValuePage(recordPageKey, pageKind, revision,
-				pageReadTrx);
+			final @Nonnull PageReadTrx pageReadTrx) {
+		return (C) new UnorderedKeyValuePage(recordPageKey, pageKind, pageReadTrx);
 	}
 
 	@Override
 	public PageKind getPageKind() {
 		return mPageKind;
-	}
-
-	@Override
-	public KeyValuePage<Long, Record> setRevision(final @Nonnegative int revision) {
-		// Only used internally, thus assertions are preferred!
-		assert revision >= 0 : "revision parameter must be >= 0!";
-		mRevision  = revision;
-		return this;
 	}
 }

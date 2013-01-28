@@ -51,11 +51,9 @@ public final class IndirectPage extends AbstractForwardingPage {
 	/**
 	 * Create indirect page.
 	 * 
-	 * @param revision
-	 *          revision number
 	 */
-	public IndirectPage(final @Nonnegative int revision) {
-		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, revision);
+	public IndirectPage() {
+		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT);
 	}
 
 	/**
@@ -73,12 +71,9 @@ public final class IndirectPage extends AbstractForwardingPage {
 	 * 
 	 * @param page
 	 *          {@link IndirectPage} to clone
-	 * @param revisionToUse
-	 *          revision number to use
 	 */
-	public IndirectPage(final @Nonnull IndirectPage page,
-			final @Nonnegative int revisionToUse) {
-		mDelegate = new PageDelegate(page, revisionToUse);
+	public IndirectPage(final @Nonnull IndirectPage page) {
+		mDelegate = new PageDelegate(page);
 	}
 
 	@Override

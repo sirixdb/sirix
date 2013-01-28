@@ -95,28 +95,27 @@ public class PageTest {
 	@DataProvider(name = "instantiatePages")
 	public Object[][] instantiatePages() throws SirixIOException {
 		// IndirectPage setup.
-		final IndirectPage indirectPage = new IndirectPage(0);
+		final IndirectPage indirectPage = new IndirectPage();
 		// RevisionRootPage setup.
 		// final RevisionRootPage revRootPage = new RevisionRootPage();
 
 		// NodePage setup.
 		final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(
-				TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.NODEPAGE,
-				TestHelper.random.nextInt(Integer.MAX_VALUE), mPageReadTrx);
+				TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.NODEPAGE, mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 			final Record record = TestHelper.generateOne();
 			nodePage.setEntry(record.getNodeKey(), record);
 		}
 		// NamePage setup.
-		final NamePage namePage = new NamePage(0);
+		final NamePage namePage = new NamePage();
 		namePage.setName(TestHelper.random.nextInt(),
 				new String(TestHelper.generateRandomBytes(256)), Kind.ELEMENT);
 
 		// ValuePage setup.
-		final TextValuePage valuePage = new TextValuePage(0);
+		final TextValuePage valuePage = new TextValuePage();
 
 		// PathSummaryPage setup.
-		final PathSummaryPage pathSummaryPage = new PathSummaryPage(0);
+		final PathSummaryPage pathSummaryPage = new PathSummaryPage();
 
 		Object[][] returnVal = { { Page.class,
 				new Page[] { indirectPage, namePage, valuePage, pathSummaryPage } } };
