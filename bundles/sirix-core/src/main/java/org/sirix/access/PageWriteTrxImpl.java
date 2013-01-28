@@ -557,11 +557,17 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 		// Forcefully flush write-ahead transaction logs to persistent storage.
 		if (mPageRtx.mSession.mSessionConfig.dumpLogs()) {
-			mNodeLog.toSecondCache();
-			mPathLog.toSecondCache();
-			mTextValueLog.toSecondCache();
-			mAttributeValueLog.toSecondCache();
 			mPageLog.toSecondCache();
+			mNodeLog.toSecondCache();
+			if (mPathLog != null) {
+				mPathLog.toSecondCache();
+			}
+			if (mTextValueLog != null) {
+				mTextValueLog.toSecondCache();
+			}
+			if (mAttributeValueLog != null) {
+				mAttributeValueLog.toSecondCache();
+			}
 		}
 
 		final PageReference uberPageReference = new PageReference();
