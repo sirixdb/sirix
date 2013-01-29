@@ -211,4 +211,28 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	public PageKind getPageKind() {
 		return mPageKind;
 	}
+
+	@Override
+	public void setSlot(K key, byte[] value) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public byte[] getSlotValue(K key) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public Set<Entry<K, byte[]>> slotEntrySet() {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public int size() {
+		// TODO Auto-generated method stub
+		return 0;
+	}
 }

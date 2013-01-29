@@ -88,7 +88,6 @@ public class NodePageTest {
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 4l,
 				3l, 1l, 0l);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
-
 		final ElementNode node1 = new ElementNode(strucDel, nameDel,
 				new ArrayList<Long>(), HashBiMap.<Long, Long> create(),
 				new ArrayList<Long>());

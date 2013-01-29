@@ -53,7 +53,7 @@ public class ValueFilterTest {
 	}
 
 	@Test
-	public void testIFilterConvetions() throws SirixException {
+	public void testFilterConvetions() throws SirixException {
 		final NodeReadTrx rtx = holder.getRtx();
 		rtx.moveTo(4L);
 		FilterTest.testFilterConventions(new ValueFilter(rtx, "oops1"), true);

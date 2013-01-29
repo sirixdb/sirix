@@ -633,7 +633,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 					if (ref.getKey() != Constants.NULL_ID) {
 						keys.add(ref.getKey());
 					}
-					if (page.entrySet().size() == Constants.NDP_NODE_COUNT) {
+					if (page.size() == Constants.NDP_NODE_COUNT) {
 						// Page is full, thus we can skip reconstructing pages with elder
 						// versions.
 						break;

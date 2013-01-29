@@ -27,6 +27,7 @@
 package org.sirix.page;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -48,6 +49,7 @@ import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
+import com.google.common.io.ByteStreams;
 
 /**
  * <h1>UnorderedKeyValuePage</h1>
@@ -65,6 +67,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	/** Records. */
 	private final Map<Long, Record> mRecords;
 
+	/** Key <=> Offset/Byte-array mapping. */
+	private final Map<Long, byte[]> mSlots;
+
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
 
@@ -73,6 +78,12 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	/** The kind of page (in which subtree it resides). */
 	private final PageKind mPageKind;
+
+	/** Persistenter. */
+	private final RecordPersistenter mPersistenter;
+	
+	/** Stored records/slots. */
+	private int mSize;
 
 	/**
 	 * Create record page.
@@ -96,6 +107,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
 		mPageKind = pageKind;
+		mSlots = new HashMap<>();
+		mPersistenter = pageReadTrx.getSession().getResourceConfig().mPersistenter;
 	}
 
 	/**
@@ -111,15 +124,19 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mRecords = new LinkedHashMap<>(size);
-		final RecordPersistenter persistenter = pageReadTrx.getSession()
-				.getResourceConfig().mPersistenter;
-		for (int offset = 0; offset < size; offset++) {
-			final Record node = persistenter.deserialize(in, pageReadTrx);
-			mRecords.put(node.getNodeKey(), node);
+		mPersistenter = pageReadTrx.getSession().getResourceConfig().mPersistenter;
+		mSlots = new HashMap<>(size);
+		for (int index = 0; index < size; index++) {
+			final long key = in.readLong();
+			final int length = in.readInt();
+			final byte[] payload = new byte[length];
+			in.readFully(payload);
+			mSlots.put(key, payload);
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
 		mPageKind = PageKind.getKind(in.readByte());
+		mSize = size;
 	}
 
 	@Override
@@ -130,7 +147,17 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	@Override
 	public Record getValue(final @Nonnull Long key) {
 		assert key != null : "key must not be null!";
-		return mRecords.get(key);
+		Record record = mRecords.get(key);
+		if (record == null) {
+			final byte[] in = mSlots.get(key);
+			if (in != null) {
+				record = mPersistenter.deserialize(ByteStreams.newDataInput(in),
+						mPageReadTrx);
+				mRecords.put(key, record);
+				mSlots.remove(key);
+			}
+		}
+		return record;
 	}
 
 	/**
@@ -141,17 +168,38 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	@Override
 	public void setEntry(final @Nullable Long key, final @Nonnull Record value) {
 		assert value != null : "record must not be null!";
+		if (!mRecords.containsKey(key)) {
+			if (mSlots.containsKey(key)) {
+				mSlots.remove(key);
+				mSize--;
+			}
+			mSize++;
+		}
 		mRecords.put(value.getNodeKey(), value);
 	}
 
 	@Override
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
 		out.writeLong(mRecordPageKey);
-		out.writeInt(mRecords.size());
+		out.writeInt(mSize);
 		final RecordPersistenter persistenter = mPageReadTrx.getSession()
 				.getResourceConfig().mPersistenter;
+		for (final Map.Entry<Long, byte[]> entry : mSlots.entrySet()) {
+			out.writeLong(entry.getKey());
+			final byte[] data = entry.getValue();
+			final int length = data.length;
+			out.writeInt(length);
+			out.write(data);
+		}
 		for (final Record node : mRecords.values()) {
-			persistenter.serialize(out, node, mPageReadTrx);
+			if (mSlots.get(node.getNodeKey()) == null) {
+				out.writeLong(node.getNodeKey());
+				final ByteArrayDataOutput output = ByteStreams.newDataOutput();
+				persistenter.serialize(output, node, mPageReadTrx);
+				final byte[] data = output.toByteArray();
+				out.writeInt(data.length);
+				out.write(data);
+			}
 		}
 		out.writeByte(mPageKind.getID());
 	}
@@ -168,12 +216,27 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	@Override
 	public Set<Entry<Long, Record>> entrySet() {
+//		deserializeAll();
 		return mRecords.entrySet();
+	}
+
+	// Deserialize all records.
+	private void deserializeAll() {
+		for (final Map.Entry<Long, byte[]> entry : mSlots.entrySet()) {
+			final Long key = entry.getKey();
+			if (mRecords.get(key) == null) {
+				mRecords.put(
+						key,
+						mPersistenter.deserialize(
+								ByteStreams.newDataInput(entry.getValue()), mPageReadTrx));
+				mSlots.remove(key);
+			}
+		}
 	}
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mRecordPageKey, mRecords);
+		return Objects.hashCode(mRecordPageKey, mRecords, mSlots);
 	}
 
 	@Override
@@ -181,7 +244,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		if (obj instanceof UnorderedKeyValuePage) {
 			final UnorderedKeyValuePage other = (UnorderedKeyValuePage) obj;
 			return mRecordPageKey == other.mRecordPageKey
-					&& Objects.equal(mRecords, other.mRecords);
+					&& Objects.equal(mRecords, other.mRecords)
+					&& Objects.equal(mSlots, other.mSlots);
 		}
 		return false;
 	}
@@ -198,6 +262,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	@Override
 	public Collection<Record> values() {
+//		deserializeAll();
 		return mRecords.values();
 	}
 
@@ -212,8 +277,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public Page setDirty(final boolean pDirty) {
-		mIsDirty = pDirty;
+	public Page setDirty(final boolean dirty) {
+		mIsDirty = dirty;
 		return this;
 	}
 
@@ -233,5 +298,32 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	@Override
 	public PageKind getPageKind() {
 		return mPageKind;
+	}
+
+	@Override
+	public void setSlot(final @Nonnull Long key, final @Nonnull byte[] in) {
+		if (!mSlots.containsKey(key)) {
+			if (mRecords.containsKey(key)) {
+				mRecords.remove(key);
+				mSize--;
+			}
+			mSize++;
+		}
+		mSlots.put(key, in);
+	}
+
+	@Override
+	public byte[] getSlotValue(final @Nonnull Long key) {
+		return mSlots.get(key);
+	}
+
+	@Override
+	public Set<Entry<Long, byte[]>> slotEntrySet() {
+		return mSlots.entrySet();
+	}
+
+	@Override
+	public int size() {
+		return mSize;
 	}
 }

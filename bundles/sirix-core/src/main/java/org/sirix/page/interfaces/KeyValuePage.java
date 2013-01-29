@@ -48,7 +48,28 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 *          the key
 	 * @return value with given key, or {@code null} if not present
 	 */
-	V getValue(K key);
+	V getValue(@Nonnull K key);
+
+	/**
+	 * Set the payload of the key/value page.
+	 * 
+	 * @param key
+	 *          the key
+	 * @param value
+	 *          the value in bytes
+	 */
+	void setSlot(@Nonnull K key, @Nonnull byte[] value);
+
+	/**
+	 * Get the slot value, or {@code null} if not present.
+	 * 
+	 * @param key
+	 *          the key
+	 * @return byte array with the data
+	 */
+	byte[] getSlotValue(@Nonnull K key);
+
+	Set<Entry<K, byte[]>> slotEntrySet();
 
 	/**
 	 * Store or overwrite a single entry. The implementation must make sure if the
@@ -59,7 +80,7 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @param value
 	 *          value to store
 	 */
-	void setEntry(K key, V value);
+	void setEntry(@Nonnull K key, @Nonnull V value);
 
 	/**
 	 * Create a new instance.
@@ -89,4 +110,11 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @return page kind
 	 */
 	PageKind getPageKind();
+
+	/**
+	 * Get the number of entries/slots filled.
+	 * 
+	 * @return number of entries/slots filled
+	 */
+	int size();
 }
