@@ -160,13 +160,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		return record;
 	}
 
-	/**
-	 * {@inheritDoc}
-	 * 
-	 * The key is not used as it is implicitly in the value (the record ID).
-	 */
 	@Override
-	public void setEntry(final @Nullable Long key, final @Nonnull Record value) {
+	public void setEntry(final @Nonnull Long key, final @Nonnull Record value) {
 		assert value != null : "record must not be null!";
 		if (!mRecords.containsKey(key)) {
 			if (mSlots.containsKey(key)) {
@@ -175,7 +170,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			}
 			mSize++;
 		}
-		mRecords.put(value.getNodeKey(), value);
+		mRecords.put(key, value);
 	}
 
 	@Override
