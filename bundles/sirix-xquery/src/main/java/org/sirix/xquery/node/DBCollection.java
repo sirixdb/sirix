@@ -173,7 +173,7 @@ public class DBCollection extends
 		try {
 			final String resource = "collection" + mResources++;
 			mDatabase.createResource(ResourceConfiguration.newBuilder(resource,
-					mDatabase.getDatabaseConfig()).useDeweyIDs(true).build());
+					mDatabase.getDatabaseConfig()).useDeweyIDs().build());
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.newBuilder(resource).build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();

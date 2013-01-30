@@ -288,7 +288,7 @@ public final class TestHelper {
 	public static void createTestDocument() throws SirixException {
 		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		database.createResource(new ResourceConfiguration.Builder(RESOURCE,
-				PATHS.PATH1.config).setIndexes(EnumSet.of(Indexes.NONE)).build());
+				PATHS.PATH1.config).setIndexes(EnumSet.noneOf(Indexes.class)).build());
 		final Session session = database
 				.getSession(new SessionConfiguration.Builder(RESOURCE).build());
 		final NodeWriteTrx wtx = session.beginNodeWriteTrx();

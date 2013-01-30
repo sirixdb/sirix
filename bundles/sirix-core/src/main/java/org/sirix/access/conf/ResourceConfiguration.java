@@ -155,9 +155,6 @@ public final class ResourceConfiguration {
 
 		/** Attribute value index. */
 		ATTRIBUTE_VALUE,
-
-		/** No index. */
-		NONE
 	}
 
 	// FIXED STANDARD FIELDS
@@ -174,8 +171,7 @@ public final class ResourceConfiguration {
 	public static final int VERSIONSTORESTORE = 3;
 
 	/** Indexes to use. */
-	public static final EnumSet<Indexes> INDEXES = EnumSet.of(Indexes.PATH,
-			Indexes.ATTRIBUTE_VALUE, Indexes.TEXT_VALUE);
+	public static final EnumSet<Indexes> INDEXES = EnumSet.allOf(Indexes.class);
 
 	/** Persistenter for records. */
 	public static final RecordPersistenter PERSISTENTER = new NodePersistenter();
@@ -455,8 +451,10 @@ public final class ResourceConfiguration {
 			while (jsonReader.hasNext()) {
 				listIndexes.add(Indexes.valueOf(jsonReader.nextString()));
 			}
-			final EnumSet<Indexes> indexes = EnumSet.copyOf(listIndexes);
 			jsonReader.endArray();
+			final EnumSet<Indexes> indexes = listIndexes.isEmpty() ? EnumSet
+					.noneOf(Indexes.class) : EnumSet.copyOf(listIndexes);
+
 			// Unique ID.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[8]);
@@ -485,9 +483,12 @@ public final class ResourceConfiguration {
 			builder.setByteHandlerPipeline(pipeline).setHashKind(hashing)
 					.setIndexes(indexes).setRevisionKind(revisioning)
 					.setRevisionsToRestore(revisionToRestore).setStorageType(storage)
-					.useTextCompression(compression).setPersistenter(persistenter);
+					.setPersistenter(persistenter);
+			if (compression) {
+				builder.useTextCompression();
+			}
 			if (deweyIDsStored) {
-				builder.useDeweyIDs(true);
+				builder.useDeweyIDs();
 			}
 
 			// Deserialized instance.
@@ -640,8 +641,8 @@ public final class ResourceConfiguration {
 		 * 
 		 * @return reference to the builder object
 		 */
-		public Builder useDeweyIDs(final boolean useDeweyIDs) {
-			mUseDeweyIDs = useDeweyIDs;
+		public Builder useDeweyIDs() {
+			mUseDeweyIDs = true;
 			return this;
 		}
 
@@ -652,8 +653,8 @@ public final class ResourceConfiguration {
 		 *          use text compression or not (default: yes)
 		 * @return reference to the builder object
 		 */
-		public Builder useTextCompression(final boolean compression) {
-			mCompression = compression;
+		public Builder useTextCompression() {
+			mCompression = true;
 			return this;
 		}
 

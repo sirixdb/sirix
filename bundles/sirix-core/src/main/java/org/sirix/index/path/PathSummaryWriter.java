@@ -346,6 +346,9 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			}
 		} else {
 			int level = moveSummaryGetLevel(node);
+			// TODO: Johannes: Optimize? (either use this or use the name-mapping,
+			// depending on the number of child nodes or nodes with a certain name).
+			
 			// Search for new path entry.
 			final Axis axis = new FilterAxis(new ChildAxis(mPathSummaryReader),
 					new NameFilter(mPathSummaryReader, Utils.buildName(name)),

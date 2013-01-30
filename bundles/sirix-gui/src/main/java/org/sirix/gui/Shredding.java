@@ -196,7 +196,7 @@ enum Shredding {
 		Databases.createDatabase(config);
 		final Database db = Databases.openDatabase(target);
 		db.createResource(new ResourceConfiguration.Builder("shredded", config)
-				.useTextCompression(false).build());
+				.build());
 		return db;
 	}
 }

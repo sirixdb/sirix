@@ -201,7 +201,7 @@ public class DBStore implements Store, AutoCloseable {
 			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
 			database.createResource(ResourceConfiguration
-					.newBuilder("shredded", dbConf).useDeweyIDs(true)
+					.newBuilder("shredded", dbConf).useDeweyIDs()
 					.setStorageType(mStorageType).build());
 			final Session session = database
 					.getSession(new SessionConfiguration.Builder("shredded").build());
@@ -249,7 +249,7 @@ public class DBStore implements Store, AutoCloseable {
 							public Void call() throws DocumentException, SirixException {
 								database.createResource(ResourceConfiguration
 										.newBuilder(resource, dbConf).setStorageType(mStorageType)
-										.useDeweyIDs(true).build());
+										.useDeweyIDs().build());
 								final Session session = database
 										.getSession(new SessionConfiguration.Builder(resource)
 												.build());

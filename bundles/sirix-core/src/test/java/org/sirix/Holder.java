@@ -76,7 +76,7 @@ public class Holder {
 		}
 		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
 		database.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
+				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).useDeweyIDs().build());
 		final Session session = database
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
@@ -95,9 +95,6 @@ public class Holder {
 	 */
 	public static Holder generateSession() throws SirixException {
 		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
-		// TODO: remove?!
-		database.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).build());
 		final Session session = database
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());

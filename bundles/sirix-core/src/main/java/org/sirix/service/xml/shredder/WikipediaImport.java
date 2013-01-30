@@ -160,7 +160,7 @@ public final class WikipediaImport implements Import<StartElement> {
 		Databases.createDatabase(config);
 		mDatabase = Databases.openDatabase(sirixDatabase);
 		mDatabase.createResource(new ResourceConfiguration.Builder("shredded",
-				config).useTextCompression(false).build());
+				config).build());
 		mSession = mDatabase
 				.getSession(new SessionConfiguration.Builder("shredded").build());
 		mWtx = mSession.beginNodeWriteTrx();
@@ -301,8 +301,7 @@ public final class WikipediaImport implements Import<StartElement> {
 		Databases.truncateDatabase(dbConf);
 		Databases.createDatabase(dbConf);
 		final Database db = Databases.openDatabase(TMP_PATH.toFile());
-		db.createResource(new ResourceConfiguration.Builder("wiki", dbConf)
-				.useTextCompression(false).build());
+		db.createResource(new ResourceConfiguration.Builder("wiki", dbConf).build());
 		final Session session = db.getSession(new SessionConfiguration.Builder(
 				"wiki").build());
 		if (mPageEvents.peek().isStartElement()
