@@ -42,7 +42,7 @@ import org.sirix.page.interfaces.Page;
  * @author Johannes Lichtenberger
  * 
  */
-public interface Reader {
+public interface Reader extends AutoCloseable {
 
 	/**
 	 * Getting the first reference of the {@code Uberpage}.
@@ -74,6 +74,7 @@ public interface Reader {
 	 * @throws SirixIOException
 	 *           if something bad happens while access
 	 */
+	@Override
 	void close() throws SirixIOException;
 
 }

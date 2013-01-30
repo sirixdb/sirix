@@ -19,9 +19,9 @@ public final class LogKey {
 	private int mOffset;
 	private PageKind mPageKind;
 
-	public LogKey(final @Nonnull PageKind pageKind, final @Nonnegative int level,
+	public LogKey(final @Nonnull PageKind pageKind, final int level,
 			final @Nonnegative int offset) {
-		assert level >= 0;
+		assert level >= -1;
 		assert offset >= 0;
 		assert pageKind != null;
 		mPageKind = pageKind;

@@ -40,7 +40,7 @@ public final class RAMStorage implements Storage {
 	private final boolean mExists;
 
 	/** The unique page key. */
-	private static long mPageKey;
+	private long mPageKey;
 
 	/**
 	 * Constructor

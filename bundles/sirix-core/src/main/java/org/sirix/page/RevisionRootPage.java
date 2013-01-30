@@ -141,7 +141,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 *          revision number to use
 	 */
 	public RevisionRootPage(
-			final @Nonnull RevisionRootPage committedRevisionRootPage, final @Nonnegative int representRev) {
+			final @Nonnull RevisionRootPage committedRevisionRootPage,
+			final @Nonnegative int representRev) {
 		mDelegate = new PageDelegate(committedRevisionRootPage);
 		mRevision = representRev;
 		mMaxNodeKey = committedRevisionRootPage.mMaxNodeKey;
@@ -372,7 +373,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNodeTree(
 			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getIndirectPageReference();
-		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
+		if (reference.getPage() == null && reference.getLogKey() == null
+				&& reference.getKey() == Constants.NULL_ID) {
 			createTree(reference, PageKind.NODEPAGE, pageWriteTrx);
 			incrementMaxNodeKey();
 		}
@@ -390,7 +392,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getTextValuePageReference().getPage()
 				.getReference(INDIRECT_REFERENCE_OFFSET);
-		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
+		if (reference.getPage() == null && reference.getLogKey() == null
+				&& reference.getKey() == Constants.NULL_ID) {
 			createTree(reference, PageKind.TEXTVALUEPAGE, pageWriteTrx);
 			incrementMaxTextValueNodeKey();
 		}
@@ -408,7 +411,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getAttributeValuePageReference().getPage()
 				.getReference(INDIRECT_REFERENCE_OFFSET);
-		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
+		if (reference.getPage() == null && reference.getLogKey() == null
+				&& reference.getKey() == Constants.NULL_ID) {
 			createTree(reference, PageKind.ATTRIBUTEVALUEPAGE, pageWriteTrx);
 			incrementMaxAttributeValueNodeKey();
 		}
@@ -426,7 +430,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getPathSummaryPageReference().getPage()
 				.getReference(INDIRECT_REFERENCE_OFFSET);
-		if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID) {
+		if (reference.getPage() == null && reference.getLogKey() == null
+				&& reference.getKey() == Constants.NULL_ID) {
 			createTree(reference, PageKind.PATHSUMMARYPAGE, pageWriteTrx);
 			incrementMaxPathNodeKey();
 		}

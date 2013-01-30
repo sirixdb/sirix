@@ -215,19 +215,24 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		revisionRoot.createNodeTree(this);
 		if (mIndexes.contains(Indexes.PATH)) {
 			// Create path summary tree if needed.
-			mPageRtx.getPathSummaryPage(revisionRoot);
+			mPageLog.put(new LogKey(PageKind.PATHSUMMARYPAGE, -1, 0),
+					mPageRtx.getPathSummaryPage(revisionRoot));
 			revisionRoot.createPathSummaryTree(this);
 		}
 		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
 			// Create text value tree if needed.
-			mPageRtx.getTextValuePage(revisionRoot);
+			mPageLog.put(new LogKey(PageKind.TEXTVALUEPAGE, -1, 0),
+					mPageRtx.getTextValuePage(revisionRoot));
 			revisionRoot.createTextValueTree(this);
 		}
 		if (mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
 			// Create attribute value tree if needed.
-			mPageRtx.getAttributeValuePage(revisionRoot);
+			mPageLog.put(new LogKey(PageKind.ATTRIBUTEVALUEPAGE, -1, 0),
+					mPageRtx.getAttributeValuePage(revisionRoot));
 			revisionRoot.createAttributeValueTree(this);
 		}
+		mPageLog.put(new LogKey(PageKind.NAMEPAGE, -1, 0),
+				mPageRtx.getNamePage(revisionRoot));
 	}
 
 	@Override

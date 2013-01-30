@@ -34,7 +34,7 @@ import org.sirix.page.PageReference;
 
 /**
  * Interface to provide the abstract layer related to write access of the
- * tt-backend.
+ * Sirix-backend.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
@@ -49,27 +49,18 @@ public interface Writer extends Reader {
 	 * @throws SirixIOException
 	 *           execption to be thrown if something bad happens
 	 */
-	void write(@Nonnull final PageReference pageReference)
+	void write(final @Nonnull PageReference pageReference)
 			throws SirixIOException;
 
 	/**
-	 * Write Beacon for the first reference.
+	 * Write beacon for the first reference.
 	 * 
 	 * @param pageReference
 	 *          that points to the beacon
 	 * @throws SirixIOException
-	 *           exception if something bad happens
+	 *           if an I/O error occured
 	 */
-	void writeFirstReference(@Nonnull final PageReference pageReference)
+	void writeFirstReference(final @Nonnull PageReference pageReference)
 			throws SirixIOException;
-
-	/**
-	 * Closing the write access.
-	 * 
-	 * @throws SirixIOException
-	 *           if closing fails
-	 */
-	@Override
-	void close() throws SirixIOException;
 
 }
