@@ -24,9 +24,11 @@ interactive visualizations thereof)
 * several well known versioning strategies which might adapt themselves
 in the future according to different workloads
 => thus any revision can be simply serialized, queried...
+* supports indexes (whereas I'm currently working on more sophisticated typed, user defined or "learned" CoW B+-indexes -- also needs to be integrated into the Brackit-binding)
 * supports XQuery (through Brackit(.org))
 * supports the XQuery Update Facility (through Brackit(.org))
 * supports temporal axis as for instance all-time::, past::, past-or-self::, future::, future-or-self::, first::, last::, next::, previous:: as well as extended functions, as for instance doc(xs:string, xs:int) to specify a revision to restore with the second argument.
+* Path rewrite optimizations are added to support the Brackit-binding
 * a GUI incorporates several views which are
 visualizing either a single revision or the differences between two or
 more revisions of a resource (an XML-document imported into the native format in Sirix)
