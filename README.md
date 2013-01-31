@@ -18,9 +18,8 @@ The main features are:
 * it provides a diff-algorithm to import differences between two
 XML-documents (I've also imported a small set of sorted wikipedia
 articles by their revision-timestamps and a predefined time interval
-which decides when to store a new revision)
-* an ID-based diff-algorithm which detects differences between the
-revisions/versions of a single resource (for instance used for
+which is used to decide when to store a new revision)
+* an ID-based diff-algorithm which detects differences between two revisions/versions of a single resource (for instance used for
 interactive visualizations thereof)
 * several well known versioning strategies which might adapt themselves
 in the future according to different workloads
