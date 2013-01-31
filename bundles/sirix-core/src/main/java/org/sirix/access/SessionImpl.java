@@ -371,7 +371,7 @@ public final class SessionImpl implements Session {
 			throw new IllegalArgumentException("Revision must be at least 0!");
 		} else if (revision > mLastCommittedUberPage.get().getRevision()) {
 			throw new IllegalArgumentException(new StringBuilder(
-					"Revision must not be bigger than")
+					"Revision must not be bigger than ")
 					.append(Long.toString(mLastCommittedUberPage.get().getRevision()))
 					.append("!").toString());
 		}
