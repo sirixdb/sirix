@@ -596,7 +596,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	public boolean hasNode(final @Nonnegative long key) {
 		assertNotClosed();
 		final long nodeKey = mCurrentNode.getNodeKey();
-		final boolean retVal = moveTo(key) == null ? false : true;
+		final boolean retVal = moveTo(key).equals(Move.notMoved()) ? false : true;
 		moveTo(nodeKey);
 		return retVal;
 	}

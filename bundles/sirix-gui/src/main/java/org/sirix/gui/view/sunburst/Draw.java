@@ -29,7 +29,6 @@ package org.sirix.gui.view.sunburst;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.xml.namespace.QName;
 import javax.xml.stream.events.Attribute;
 
 import org.brackit.xquery.atomic.QNm;
@@ -105,7 +104,8 @@ public enum Draw {
 
 		@Override
 		public void drawHover(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
-			if (!pGUI.mInit && pItem.getGreyState() == EGreyState.NO) {
+//			if (!pGUI.mInit && pItem.getGreyState() == EGreyState.NO) {
+			if (pItem.getGreyState() == EGreyState.NO) {
 				if (pGUI.mParent.recorder != null) {
 					pItem.hover(pGUI.mParent.recorder);
 					drawStaticLabel(pGUI, pGUI.mParent.recorder, pItem, EHovered.YES,

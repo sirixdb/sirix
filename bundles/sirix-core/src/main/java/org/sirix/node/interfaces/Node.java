@@ -56,7 +56,7 @@ public interface Node extends ImmutableNode {
 	void setDeweyID(@Nonnull Optional<SirixDeweyID> id);
 
 	/**
-	 * Setting the type key.
+	 * Set the type key.
 	 * 
 	 * @param typeKey
 	 *          the type to set
@@ -64,20 +64,19 @@ public interface Node extends ImmutableNode {
 	void setTypeKey(int typeKey);
 
 	/**
-	 * Setting the actual hash of the structure. The hash of one node should have
+	 * Set the actual hash of the structure. The hash of one node should have
 	 * the entire integrity of the related subtree.
 	 * 
-	 * @param pHash
-	 *          hash to be set for this node
-	 * 
+	 * @param hash
+	 *          hash for this node
 	 */
 	void setHash(long hash);
 
 	/**
-	 * Setting the parent key.
+	 * Set the parent key.
 	 * 
-	 * @param pNodeKey
-	 *          the parent to be set
+	 * @param nodeKey
+	 *          the parent nodeKey
 	 */
 	void setParentKey(long nodeKey);
 }

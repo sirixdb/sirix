@@ -29,9 +29,6 @@ package org.sirix.gui.view.sunburst.model;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Optional;
-import com.google.common.util.concurrent.Callables;
-import controlP5.ControlGroup;
 
 import java.awt.event.MouseEvent;
 import java.beans.PropertyChangeEvent;
@@ -67,9 +64,9 @@ import org.sirix.gui.view.model.AbstractTraverseModel;
 import org.sirix.gui.view.model.interfaces.ChangeModel;
 import org.sirix.gui.view.model.interfaces.Container;
 import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
-import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.NodeRelations;
+import org.sirix.gui.view.sunburst.Pruning;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstGUI;
 import org.sirix.gui.view.sunburst.SunburstItem;
@@ -77,14 +74,18 @@ import org.sirix.gui.view.sunburst.SunburstItem.EStructType;
 import org.sirix.gui.view.sunburst.SunburstPopupMenu;
 import org.sirix.gui.view.sunburst.axis.SunburstDescendantAxis;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.StructNode;
-import org.sirix.service.xml.shredder.ShredderCommit;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
+
+import com.google.common.base.Optional;
+import com.google.common.util.concurrent.Callables;
+
+import controlP5.ControlGroup;
 
 /**
  * <h1>SunburstModel</h1>

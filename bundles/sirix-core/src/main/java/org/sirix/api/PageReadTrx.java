@@ -3,10 +3,10 @@ package org.sirix.api;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.cache.LogKey;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.Reader;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.AttributeValuePage;
@@ -251,4 +251,11 @@ public interface PageReadTrx extends AutoCloseable {
 	PageReference getPageReferenceForPage(@Nonnull PageReference startReference,
 			@Nonnegative long pageKey, @Nonnull PageKind pageKind)
 			throws SirixIOException;
+	
+	/**
+	 * Get the {@link Reader} to read a page from persistent storage if needed.
+	 * 
+	 * @return the {@link Reader}
+	 */
+	Reader getReader();
 }

@@ -17,7 +17,6 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
-import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
@@ -112,12 +111,12 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 				.getResourceConfig().mPersistenter;
 		for (int offset = 0; offset < size; offset++) {
 			// Must be the key which has been serialized.
-			@SuppressWarnings("unchecked")
-			final K key = (K) persistenter.deserialize(in, pageReadTrx);
+//			@SuppressWarnings("unchecked")
+//			final K key = (K) persistenter.deserialize(in, pageReadTrx);
 			// Must be the value which has been serialized.
-			@SuppressWarnings("unchecked")
-			final V value = (V) persistenter.deserialize(in, pageReadTrx);
-			mRecords.put(key, value);
+//			@SuppressWarnings("unchecked")
+//			final V value = (V) persistenter.deserialize(in, pageReadTrx);
+//			mRecords.put(key, value);
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
@@ -140,8 +139,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		final RecordPersistenter persistenter = mPageReadTrx.getSession()
 				.getResourceConfig().mPersistenter;
 		for (final Map.Entry<K, V> node : mRecords.entrySet()) {
-			persistenter.serialize(out, node.getKey(), mPageReadTrx);
-			persistenter.serialize(out, node.getValue(), mPageReadTrx);
+//			persistenter.serialize(out, node.getKey(), mPageReadTrx);
+//			persistenter.serialize(out, node.getValue(), mPageReadTrx);
 		}
 	}
 
@@ -246,5 +245,23 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	public int size() {
 		// TODO Auto-generated method stub
 		return 0;
+	}
+
+	@Override
+	public Set<Entry<K, PageReference>> referenceEntrySet() {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public void setPageReference(K key, PageReference reference) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public PageReference getPageReference(K key) {
+		// TODO Auto-generated method stub
+		return null;
 	}
 }

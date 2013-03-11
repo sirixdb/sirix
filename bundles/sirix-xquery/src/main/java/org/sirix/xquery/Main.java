@@ -60,12 +60,12 @@ public class Main {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-//			loadDocumentAndQuery();
-//			System.out.println();
-//			loadDocumentAndUpdate();
-//			System.out.println();
-//			loadCollectionAndQuery();
-//			System.out.println();
+			// loadDocumentAndQuery();
+			// System.out.println();
+			// loadDocumentAndUpdate();
+			// System.out.println();
+			// loadCollectionAndQuery();
+			// System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -102,8 +102,8 @@ public class Main {
 		try (final Database database = Databases.openDatabase(new File(
 				new StringBuilder(3).append(LOCATION).append(File.separator)
 						.append("mydoc.xml").toString()))) {
-			final Session session = database.getSession(SessionConfiguration.newBuilder(
-					"shredded").build());
+			final Session session = database.getSession(SessionConfiguration
+					.newBuilder("shredded").build());
 			final NodeReadTrx rtx = session.beginNodeReadTrx();
 			final NodeReadTrx firstPredicateRtx = session.beginNodeReadTrx();
 			final NodeReadTrx secondPredicateRtx = session.beginNodeReadTrx();
@@ -263,7 +263,13 @@ public class Main {
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq2 = "copy $c := <x a='a'/> modify (delete node $c/@a, insert node attribute a { 'b' } into $c, replace node $c/@a with attribute a { 'b' }) return $c";// "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
+			final String xq2 = "copy $foo := <foo/>"
++ " modify "
++ "  for $x in ('b', 'a') "
++ "  order by $x "
++ "  return insert node text { $x } into $foo return $foo";
+// "copy $c := <x a='a'/> modify (delete node $c/@a, insert node attribute a { 'b' } into $c, replace node $c/@a with attribute a { 'b' }) return $c";//
+//			final String xq2 = "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
 			System.out.println(xq2);
 			// final Sequence seq = new XQuery(xq2).evaluate(ctx2);
 			final XQuery q = new XQuery(xq2);
@@ -275,14 +281,14 @@ public class Main {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq3 = "doc('mydoc.xml', 0)/log/all-time::*/*";
+			final String xq3 = "doc('mydoc.xml', 1)/log/all-time::*/*";
 			System.out.println(xq3);
 			XQuery q = new XQuery(xq3);
 			q.setPrettyPrint(true);
 			q.serialize(ctx3, System.out);
 
 			final QueryContext ctx4 = new QueryContext(store);
-			final String xq4 = "bit:serialize(doc('mydoc.xml', 0))";
+			final String xq4 = "bit:serialize(doc('mydoc.xml', 1))";
 			q = new XQuery(xq4);
 			try (final PrintStream out = new PrintStream(new FileOutputStream(
 					new File(new StringBuilder(LOCATION.getAbsolutePath())
@@ -292,7 +298,7 @@ public class Main {
 			}
 			System.out.println();
 			final QueryContext ctx5 = new QueryContext(store);
-			final String xq5 = "bit:serialize(doc('mydoc.xml', 1))";
+			final String xq5 = "bit:serialize(doc('mydoc.xml', 2))";
 			q = new XQuery(xq5);
 			try (final PrintStream out = new PrintStream(new FileOutputStream(
 					new File(new StringBuilder(LOCATION.getAbsolutePath())

@@ -18,7 +18,7 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import com.google.common.base.Optional;
 
 /**
- * Immutable processing instruction wrapper.
+ * Immutable processing instruction node wrapper.
  * 
  * @author Johannes Lichtenberger
  * 

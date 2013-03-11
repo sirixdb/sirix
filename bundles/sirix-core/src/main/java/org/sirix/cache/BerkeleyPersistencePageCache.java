@@ -42,7 +42,6 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.Page;
 
 import com.google.common.collect.ImmutableMap;
-import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Cursor;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;

@@ -1,28 +1,30 @@
 package org.sirix.cache;
 
+import javax.annotation.Nonnull;
+
 import org.sirix.page.PageKind;
 
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
 
-public class LogKeyBinding extends TupleBinding<LogKey> {
+/**
+ * Log key binding.
+ * 
+ * @author Sebastian Graf, University of Konstanz
+ * @author Johannes Lichtenberger
+ *
+ */
+public final class LogKeyBinding extends TupleBinding<LogKey> {
 	@Override
-	public LogKey entryToObject(TupleInput in) {
-		final ByteArrayDataInput data = ByteStreams.newDataInput(in
-				.getBufferBytes());
-		return new LogKey(PageKind.getKind(data.readByte()), data.readInt(), data.readInt());
+	public LogKey entryToObject(final @Nonnull TupleInput in) {
+		return new LogKey(PageKind.getKind(in.readByte()), in.readInt(), in.readInt());
 	}
 
 	@Override
-	public void objectToEntry(LogKey key, TupleOutput out) {
-		final ByteArrayDataOutput output = ByteStreams.newDataOutput();
-		output.writeByte(key.getPageKind().getID());
-		output.writeInt(key.getLevel());
-		output.writeInt(key.getOffset());
-		out.write(output.toByteArray());
+	public void objectToEntry(final @Nonnull LogKey key, final @Nonnull TupleOutput out) {
+		out.writeByte(key.getPageKind().getID());
+		out.writeInt(key.getLevel());
+		out.writeInt(key.getOffset());
 	}
 }

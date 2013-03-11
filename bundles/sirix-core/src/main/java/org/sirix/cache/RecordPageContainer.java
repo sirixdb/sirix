@@ -27,7 +27,6 @@
 
 package org.sirix.cache;
 
-import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 

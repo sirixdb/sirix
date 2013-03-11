@@ -206,7 +206,7 @@ public final class WikipediaImport implements Import<StartElement> {
 		// Some checks.
 		checkNotNull(dateRange);
 		checkNotNull(data);
-		checkArgument(data.size() == 5, "paramData must have 5 elements!");
+		checkArgument(data.size() == 5, "data must have 5 elements!");
 
 		final StartElement timestamp = data.get(0);
 		final StartElement page = data.get(1);
@@ -276,7 +276,7 @@ public final class WikipediaImport implements Import<StartElement> {
 							}
 
 							shredder.call();
-							mPageEvents.clear();
+							mPageEvents = new ArrayDeque<>();
 						}
 					}
 					break;
@@ -594,14 +594,14 @@ public final class WikipediaImport implements Import<StartElement> {
 	 * Main method.
 	 * 
 	 * @param args
-	 *          Arguments.
+	 *          Arguments (path to xml-file /.
 	 * @throws SirixException
 	 *           if anything within sirix fails
 	 */
 	public static void main(final String[] args) throws SirixException {
 		if (args.length != 2) {
 			throw new IllegalArgumentException(
-					"Usage: WikipediaImport path/to/xmlFile path/to/TTStorage");
+					"Usage: WikipediaImport path/to/xmlFile path/to/SirixStorage");
 		}
 
 		LOGWRAPPER.info("Importing wikipedia...");
@@ -612,7 +612,7 @@ public final class WikipediaImport implements Import<StartElement> {
 		Databases.truncateDatabase(new DatabaseConfiguration(tnk));
 
 		// Create necessary element nodes.
-		final String NSP_URI = "http://www.mediawiki.org/xml/export-0.4/";
+		final String NSP_URI = "http://www.mediawiki.org/xml/export-0.5/";
 		final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
 		final StartElement timestamp = eventFactory.createStartElement(new QName(
 				NSP_URI, "timestamp", XMLConstants.DEFAULT_NS_PREFIX), null, null);

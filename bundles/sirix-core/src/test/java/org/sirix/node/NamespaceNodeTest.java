@@ -51,10 +51,10 @@ public class NamespaceNodeTest {
 
 	/** {@link Holder} instance. */
 	private Holder mHolder;
-	
+
 	/** Sirix {@link PageReadTrx} instance. */
 	private PageReadTrx mPageReadTrx;
-	
+
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.closeEverything();
@@ -68,19 +68,22 @@ public class NamespaceNodeTest {
 		mPageReadTrx.close();
 		mHolder.close();
 	}
-	
+
 	@Test
 	public void testNamespaceNode() {
-		final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0, Optional.of(SirixDeweyID.newRootID()));
-		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15, 1);
+		final NodeDelegate nodeDel = new NodeDelegate(99l, 13l, 0, 0,
+				Optional.of(SirixDeweyID.newRootID()));
+		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15,
+				1);
 		// Create empty node.
-		final NamespaceNode node1 = new NamespaceNode(nodeDel, nameDel);
+		final NamespaceNode node = new NamespaceNode(nodeDel, nameDel);
 
 		// Serialize and deserialize node.
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1, mPageReadTrx);
+		node.getKind().serialize(out, node, null, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(in, mPageReadTrx);
+		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(in,
+				node.getNodeKey(), mPageReadTrx);
 		check(node2);
 	}
 

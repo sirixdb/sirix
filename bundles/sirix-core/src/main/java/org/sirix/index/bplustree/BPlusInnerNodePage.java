@@ -112,12 +112,12 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 				.getResourceConfig().mPersistenter;
 		for (int offset = 0; offset < size; offset++) {
 			// Must be the key which has been serialized.
-			@SuppressWarnings("unchecked")
-			final K key = (K) persistenter.deserialize(in, pageReadTrx);
+//			@SuppressWarnings("unchecked")
+//			final K key = (K) persistenter.deserialize(in, pageReadTrx);
 			// Inner nodes do not have values.
-			@SuppressWarnings("unchecked")
+//			@SuppressWarnings("unchecked")
 			final V value = (V) new VoidValue();
-			mRecords.put(key, value);
+//			mRecords.put(key, value);
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
@@ -141,9 +141,9 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 		serializePointer(mRightPage, out);
 		final RecordPersistenter persistenter = mPageReadTrx.getSession()
 				.getResourceConfig().mPersistenter;
-		for (final K record : mRecords.keySet()) {
-			persistenter.serialize(out, record, mPageReadTrx);
-		}
+//		for (final K record : mRecords.keySet()) {
+//			persistenter.serialize(out, record, mPageReadTrx);
+//		}
 		out.writeByte(mPageKind.getID());
 	}
 
@@ -234,5 +234,23 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	public int size() {
 		// TODO Auto-generated method stub
 		return 0;
+	}
+
+	@Override
+	public Set<Entry<K, PageReference>> referenceEntrySet() {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public void setPageReference(K key, PageReference reference) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public PageReference getPageReference(K key) {
+		// TODO Auto-generated method stub
+		return null;
 	}
 }

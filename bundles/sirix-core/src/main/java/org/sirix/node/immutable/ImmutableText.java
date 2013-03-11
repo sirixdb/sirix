@@ -17,7 +17,7 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import com.google.common.base.Optional;
 
 /**
- * Immutable text wrapper.
+ * Immutable text node wrapper.
  * 
  * @author Johannes Lichtenberger
  * 

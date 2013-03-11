@@ -11,7 +11,7 @@ import java.io.IOException;
  * @author Johannes Lichtenberger
  *
  */
-public class RootElemAddition {
+public final class RootElemAddition {
 	
 	/** Wikipedia XML document. */
 	private static final File WIKIPEDIA_DOC = new File(new StringBuilder(

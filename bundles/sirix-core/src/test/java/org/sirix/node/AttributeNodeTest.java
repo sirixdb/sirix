@@ -80,16 +80,16 @@ public class AttributeNodeTest {
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
 		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 
-		final AttributeNode node1 = new AttributeNode(del, nameDel, valDel);
+		final AttributeNode node = new AttributeNode(del, nameDel, valDel);
 
 		// Create empty node.
-		check(node1);
+		check(node);
 
 		// Serialize and deserialize node.
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1, mPageReadTrx);
+		node.getKind().serialize(out, node, null, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(in,
+		final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(in, node.getNodeKey(), 
 				mPageReadTrx);
 		check(node2);
 	}

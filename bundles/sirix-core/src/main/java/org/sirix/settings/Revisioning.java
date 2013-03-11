@@ -38,6 +38,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.PageReadTrx;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.node.interfaces.Record;
+import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
 
 /**
@@ -120,9 +121,9 @@ public enum Revisioning {
 			for (final Map.Entry<K, byte[]> entry : latest.slotEntrySet()) {
 				returnVal.setSlot(entry.getKey(), entry.getValue());
 			}
-//			for (final Map.Entry<K, V> entry : latest.entrySet()) {
-//				returnVal.setEntry(entry.getKey(), entry.getValue());
-//			}
+			for (final Map.Entry<K, PageReference> entry : latest.referenceEntrySet()) {
+				returnVal.setPageReference(entry.getKey(), entry.getValue());
+			}
 
 			// Skip full dump if not needed (fulldump equals latest page).
 			if (pages.size() == 2) {
@@ -134,14 +135,14 @@ public enum Revisioning {
 						}
 					}
 				}
-//				for (final Entry<K, V> entry : fullDump.entrySet()) {
-//					if (returnVal.getValue(entry.getKey()) == null) {
-//						returnVal.setEntry(entry.getKey(), entry.getValue());
-//						if (returnVal.size() == Constants.NDP_NODE_COUNT) {
-//							break;
-//						}
-//					}
-//				}
+				for (final Entry<K, PageReference> entry : fullDump.referenceEntrySet()) {
+					if (returnVal.getPageReference(entry.getKey()) == null) {
+						returnVal.setPageReference(entry.getKey(), entry.getValue());
+						if (returnVal.size() == Constants.NDP_NODE_COUNT) {
+							break;
+						}
+					}
+				}
 			}
 			return returnVal;
 		}
@@ -169,11 +170,11 @@ public enum Revisioning {
 				returnVal.get(0).setSlot(entry.getKey(), entry.getValue());
 				returnVal.get(1).setSlot(entry.getKey(), entry.getValue());
 			}
-//			// Iterate through all nodes of the latest revision.
-//			for (final Map.Entry<K, V> entry : latest.entrySet()) {
-//				returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
-//				returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
-//			}
+			// Iterate through all nodes of the latest revision.
+			for (final Map.Entry<K, PageReference> entry : latest.referenceEntrySet()) {
+				returnVal.get(0).setPageReference(entry.getKey(), entry.getValue());
+				returnVal.get(1).setPageReference(entry.getKey(), entry.getValue());
+			}
 
 			// If not all entries are filled.
 			if (latest.size() != Constants.NDP_NODE_COUNT) {
@@ -194,24 +195,26 @@ public enum Revisioning {
 					}
 				}
 			}
-//			// If not all entries are filled.
-//			if (latest.size() != Constants.NDP_NODE_COUNT) {
-//				// Iterate through the full dump.
-//				for (final Map.Entry<K, V> entry : fullDump.entrySet()) {
-//					if (returnVal.get(0).getValue(entry.getKey()) == null) {
-//						returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
-//					}
-//
-//					if (isFullDump && returnVal.get(1).getValue(entry.getKey()) == null) {
-//						returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
-//					}
-//
-//					if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
-//						// Page is filled, thus skip all other entries of the full dump.
-//						break;
-//					}
-//				}
-//			}
+			// If not all entries are filled.
+			if (latest.size() != Constants.NDP_NODE_COUNT) {
+				// Iterate through the full dump.
+				for (final Map.Entry<K, PageReference> entry : fullDump
+						.referenceEntrySet()) {
+					if (returnVal.get(0).getPageReference(entry.getKey()) == null) {
+						returnVal.get(0).setPageReference(entry.getKey(), entry.getValue());
+					}
+
+					if (isFullDump
+							&& returnVal.get(1).getPageReference(entry.getKey()) == null) {
+						returnVal.get(1).setPageReference(entry.getKey(), entry.getValue());
+					}
+
+					if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
+						// Page is filled, thus skip all other entries of the full dump.
+						break;
+					}
+				}
+			}
 
 			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
 		}
@@ -254,27 +257,27 @@ public enum Revisioning {
 					break;
 				}
 				for (final Entry<K, byte[]> entry : page.slotEntrySet()) {
-					final K nodeKey = entry.getKey();
-					if (returnVal.getSlotValue(nodeKey) == null) {
-						returnVal.setSlot(nodeKey, entry.getValue());
+					final K recordKey = entry.getKey();
+					if (returnVal.getSlotValue(recordKey) == null) {
+						returnVal.setSlot(recordKey, entry.getValue());
 						if (returnVal.size() == Constants.NDP_NODE_COUNT) {
 							filledPage = true;
 							break;
 						}
 					}
 				}
-//				if (!filledPage) {
-//					for (final Entry<K, V> entry : page.entrySet()) {
-//						final K nodeKey = entry.getKey();
-//						if (returnVal.getValue(nodeKey) == null) {
-//							returnVal.setEntry(nodeKey, entry.getValue());
-//							if (returnVal.entrySet().size() == Constants.NDP_NODE_COUNT) {
-//								filledPage = true;
-//								break;
-//							}
-//						}
-//					}
-//				}
+				if (!filledPage) {
+					for (final Entry<K, PageReference> entry : page.referenceEntrySet()) {
+						final K recordKey = entry.getKey();
+						if (returnVal.getPageReference(recordKey) == null) {
+							returnVal.setPageReference(recordKey, entry.getValue());
+							if (returnVal.size() == Constants.NDP_NODE_COUNT) {
+								filledPage = true;
+								break;
+							}
+						}
+					}
+				}
 			}
 
 			return returnVal;
@@ -319,26 +322,26 @@ public enum Revisioning {
 						}
 					}
 				}
-//				if (!filledPage) {
-//					for (final Entry<K, V> entry : page.entrySet()) {
-//						// Caching the complete page.
-//						final K key = entry.getKey();
-//						assert key != null;
-//						if (entry != null && returnVal.get(0).getValue(key) == null) {
-//							returnVal.get(0).setEntry(key, entry.getValue());
-//
-//							if (returnVal.get(1).getValue(entry.getKey()) == null
-//									&& isFullDump) {
-//								returnVal.get(1).setEntry(key, entry.getValue());
-//							}
-//
-//							if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
-//								filledPage = true;
-//								break;
-//							}
-//						}
-//					}
-//				}
+				if (!filledPage) {
+					for (final Entry<K, PageReference> entry : page.referenceEntrySet()) {
+						// Caching the complete page.
+						final K key = entry.getKey();
+						assert key != null;
+						if (entry != null && returnVal.get(0).getPageReference(key) == null) {
+							returnVal.get(0).setPageReference(key, entry.getValue());
+
+							if (returnVal.get(1).getPageReference(entry.getKey()) == null
+									&& isFullDump) {
+								returnVal.get(1).setPageReference(key, entry.getValue());
+							}
+
+							if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
+								filledPage = true;
+								break;
+							}
+						}
+					}
+				}
 			}
 
 			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));

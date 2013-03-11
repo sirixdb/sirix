@@ -10,6 +10,7 @@ import javax.annotation.Nonnull;
 import org.sirix.api.PageReadTrx;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
+import org.sirix.page.PageReference;
 
 /**
  * Key/Value page.
@@ -81,6 +82,22 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 *          value to store
 	 */
 	void setEntry(@Nonnull K key, @Nonnull V value);
+	
+	Set<Entry<K, PageReference>> referenceEntrySet();
+
+	/**
+	 * Store or overwrite a single reference associated with a key for overlong entries.
+	 * That is entries which are larger than a predefined threshold are written to OverflowPages
+	 * and thus are just referenced and not deserialized during the deserialization of a page.
+	 * 
+	 * @param key
+	 *          key to store
+	 * @param reference
+	 *          reference to store
+	 */
+	void setPageReference(@Nonnull K key, @Nonnull PageReference reference);
+	
+	PageReference getPageReference(@Nonnull K key);
 
 	/**
 	 * Create a new instance.
@@ -112,9 +129,9 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	PageKind getPageKind();
 
 	/**
-	 * Get the number of entries/slots filled.
+	 * Get the number of entries/slots/page references filled.
 	 * 
-	 * @return number of entries/slots filled
+	 * @return number of entries/slots/page references filled
 	 */
 	int size();
 }

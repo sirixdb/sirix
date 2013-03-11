@@ -8,6 +8,7 @@ import org.sirix.api.Session;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.Reader;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.AttributeValuePage;
@@ -150,6 +151,11 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	@Override
 	public void putPageCache(@Nonnull TransactionLogPageCache pageLog) {
 		delegate().putPageCache(pageLog);
+	}
+	
+	@Override
+	public Reader getReader() {
+		return delegate().getReader();
 	}
 
 	@Override

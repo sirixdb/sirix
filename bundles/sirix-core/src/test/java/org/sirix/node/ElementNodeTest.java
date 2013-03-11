@@ -56,10 +56,10 @@ public class ElementNodeTest {
 
 	/** {@link Holder} instance. */
 	private Holder mHolder;
-	
+
 	/** Sirix {@link PageReadTrx} instance. */
 	private PageReadTrx mPageReadTrx;
-	
+
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.closeEverything();
@@ -73,30 +73,32 @@ public class ElementNodeTest {
 		mPageReadTrx.close();
 		mHolder.close();
 	}
-	
+
 	@Test
 	public void testElementNode() {
-		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0, Optional.of(SirixDeweyID.newRootID()));
+		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0,
+				Optional.of(SirixDeweyID.newRootID()));
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l,
 				16l, 1l, 0);
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 17, 18, 19, 1);
 
-		final ElementNode node1 = new ElementNode(strucDel, nameDel,
+		final ElementNode node = new ElementNode(strucDel, nameDel,
 				new ArrayList<Long>(), HashBiMap.<Long, Long> create(),
 				new ArrayList<Long>());
 
 		// Create empty node.
-		node1.insertAttribute(97, 100);
-		node1.insertAttribute(98, 101);
-		node1.insertNamespace(99);
-		node1.insertNamespace(100);
-		check(node1);
+		node.insertAttribute(97, 100);
+		node.insertAttribute(98, 101);
+		node.insertNamespace(99);
+		node.insertNamespace(100);
+		check(node);
 
 		// Serialize and deserialize node.
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1, mPageReadTrx);
+		node.getKind().serialize(out, node, null, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(in, mPageReadTrx);
+		final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(in,
+				node.getNodeKey(), mPageReadTrx);
 		check(node2);
 	}
 

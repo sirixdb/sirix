@@ -17,7 +17,7 @@ import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import com.google.common.base.Optional;
 
 /**
- * Immutable attribute node instance.
+ * Immutable attribute node wrapper.
  * 
  * @author Johannes Lichtenberger
  * 

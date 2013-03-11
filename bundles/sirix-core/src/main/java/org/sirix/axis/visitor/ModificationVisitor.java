@@ -54,21 +54,21 @@ public final class ModificationVisitor extends AbstractVisitor {
 	/**
 	 * Constructor.
 	 * 
-	 * @param pWtx
+	 * @param wtx
 	 *          sirix {@link NodeWriteTrx}
-	 * @param pStartKey
+	 * @param startKey
 	 *          start key
 	 */
-	public ModificationVisitor(final NodeWriteTrx pWtx, final long pStartKey) {
-		mWtx = checkNotNull(pWtx);
-		checkArgument(pStartKey >= 0, "start key must be >= 0!");
-		mStartKey = pStartKey;
+	public ModificationVisitor(final NodeWriteTrx wtx, final long startKey) {
+		mWtx = checkNotNull(wtx);
+		checkArgument(startKey >= 0, "start key must be >= 0!");
+		mStartKey = startKey;
 		mNodeIndex = 1;
 	}
 
 	@Override
-	public VisitResult visit(final @Nonnull ImmutableElement pNode) {
-		return processNode(pNode);
+	public VisitResult visit(final @Nonnull ImmutableElement node) {
+		return processNode(node);
 	}
 
 	/**
@@ -79,18 +79,18 @@ public final class ModificationVisitor extends AbstractVisitor {
 	 *          the node to check
 	 * @return the appropriate {@link VisitResultType} value
 	 */
-	private VisitResult processNode(final ImmutableNode pNode) {
-		assert pNode != null;
-		final VisitResult result = modify(pNode);
-		if (pNode.getNodeKey() == mStartKey) {
+	private VisitResult processNode(final ImmutableNode node) {
+		assert node != null;
+		final VisitResult result = modify(node);
+		if (node.getNodeKey() == mStartKey) {
 			return VisitResultType.TERMINATE;
 		}
 		return result;
 	}
 
 	@Override
-	public VisitResult visit(final @Nonnull ImmutableText pNode) {
-		return processNode(pNode);
+	public VisitResult visit(final @Nonnull ImmutableText node) {
+		return processNode(node);
 	}
 
 	/**
@@ -100,12 +100,12 @@ public final class ModificationVisitor extends AbstractVisitor {
 	 * remove-operation such that the {@link DescendantAxis} can move to the next
 	 * node after a delete occurred.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          the node to check and possibly delete
 	 * @return {@code true} if node has been deleted, {@code false} otherwise
 	 */
-	private VisitResult modify(final ImmutableNode pNode) {
-		assert pNode != null;
+	private VisitResult modify(final ImmutableNode node) {
+		assert node != null;
 		if (mNodeIndex % MODIFY_EVERY == 0) {
 			mNodeIndex = 1;
 
@@ -141,7 +141,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 		}
 		return VisitResultType.CONTINUE;
 	}
-
+	
 	/** Delete a subtree and determine movement. */
 	private VisitResult delete() throws SirixException {
 		try {

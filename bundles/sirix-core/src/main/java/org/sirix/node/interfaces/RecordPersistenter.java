@@ -1,5 +1,6 @@
 package org.sirix.node.interfaces;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
@@ -15,10 +16,12 @@ import com.google.common.io.ByteArrayDataOutput;
  */
 public interface RecordPersistenter {
 	/**
-	 * Deserializing a record using a {@link ByteArrayDataInput} instance.
+	 * Deserialize a record using a {@link ByteArrayDataInput} instance.
 	 * 
 	 * @param source
 	 *          input source
+	 * @param recordID
+	 * 					the unique recordID
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} instance
 	 * @return a {@link Node} instance
@@ -26,21 +29,24 @@ public interface RecordPersistenter {
 	 *           if one of the parameters is {@code null}
 	 */
 	@Nonnull
-	Record deserialize(@Nonnull ByteArrayDataInput source,
+	Record deserialize(@Nonnull ByteArrayDataInput source, @Nonnegative long recordID, 
 			@Nonnull PageReadTrx pageReadTrx);
 
 	/**
-	 * Serializing a record from a {@link ByteArrayDataOutput} instance.
+	 * Serialize a record from a {@link ByteArrayDataOutput} instance.
 	 * 
 	 * @param sink
 	 *          where the data should be serialized to
-	 * @param toSerialize
-	 *          the node to serialize
+	 * @param record
+	 *          the record to serialize
+	 * @param previousRecord
+	 *          the previous record to serialize, is {@code null} for the first
+	 *          record of a RecordPage
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} instance
 	 * @throws NullPointerException
 	 *           if one of the parameters is {@code null}
 	 */
-	void serialize(@Nonnull ByteArrayDataOutput sink,
-			@Nonnull Record toSerialize, @Nonnull PageReadTrx pageReadTrx);
+	void serialize(@Nonnull ByteArrayDataOutput sink, @Nonnull Record record,
+			@Nonnull Record previousRecord, @Nonnull PageReadTrx pageReadTrx);
 }

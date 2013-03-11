@@ -152,13 +152,13 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	 * remove-operation such that the {@link DescendantAxis} can move to the next
 	 * node after a delete occurred.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          the node to check and possibly delete
 	 * @return {@code EVisitResult} how to move the transaction subsequently
 	 */
-	private VisitResult delete(final @Nonnull ImmutableNode pNode) {
+	private VisitResult delete(final @Nonnull ImmutableNode node) {
 		try {
-			mWtx.moveTo(pNode.getNodeKey());
+			mWtx.moveTo(node.getNodeKey());
 			final long nodeKey = mWtx.getNodeKey();
 			boolean removeTextNode = false;
 			boolean resetValue = false;

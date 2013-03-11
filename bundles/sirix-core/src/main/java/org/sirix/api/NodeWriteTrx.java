@@ -31,7 +31,6 @@ import java.io.IOException;
 
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 

@@ -81,14 +81,15 @@ public class TextNodeTest {
 		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del,
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 16l, 15l, 0l, 0l);
-		final TextNode node1 = new TextNode(valDel, strucDel);
-		check(node1);
+		final TextNode node = new TextNode(valDel, strucDel);
+		check(node);
 
 		// Serialize and deserialize node.
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1, mPageReadTrx);
+		node.getKind().serialize(out, node, null, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(in, mPageReadTrx);
+		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(in,
+				node.getNodeKey(), mPageReadTrx);
 		check(node2);
 	}
 

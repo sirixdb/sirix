@@ -59,7 +59,7 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * <h1>sirix GUI</h1>
+ * <h1>Sirix GUI</h1>
  * 
  * <p>
  * Main GUI frame.

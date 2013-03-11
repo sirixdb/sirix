@@ -1065,20 +1065,20 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	/**
 	 * Remove nodes in common.
 	 * 
-	 * @param pList
+	 * @param list
 	 *          {@link List} of {@link Node}s
-	 * @param pSeen
+	 * @param seen
 	 *          {@link Map} of {@link Node}s
 	 */
-	private void removeCommonNodes(final List<Long> pList,
-			final Map<Long, Boolean> pSeen) {
-		assert pList != null;
-		assert pSeen != null;
+	private void removeCommonNodes(final List<Long> list,
+			final Map<Long, Boolean> seen) {
+		assert list != null;
+		assert seen != null;
 
-		final Iterator<Long> iterator = pList.iterator();
+		final Iterator<Long> iterator = list.iterator();
 		while (iterator.hasNext()) {
 			final Long item = iterator.next();
-			if (pSeen.containsKey(item)) {
+			if (seen.containsKey(item)) {
 				iterator.remove();
 			}
 		}

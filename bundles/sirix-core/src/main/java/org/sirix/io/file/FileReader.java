@@ -33,6 +33,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -97,7 +98,7 @@ public final class FileReader implements Reader {
 	}
 
 	@Override
-	public Page read(final long key, final @Nullable PageReadTrx pageReadTrx)
+	public Page read(final @Nonnegative long key, final @Nullable PageReadTrx pageReadTrx)
 			throws SirixIOException {
 		try {
 			// Read page from file.

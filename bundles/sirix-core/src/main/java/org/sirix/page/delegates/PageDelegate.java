@@ -134,9 +134,8 @@ public class PageDelegate implements Page {
 	public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
 			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
 		for (final PageReference reference : mReferences) {
-			if (reference.getLogKey() == null && reference.getPage() == null
-					&& reference.getKey() == Constants.NULL_ID) {
-			} else {
+			if (!(reference.getLogKey() == null && reference.getPage() == null && reference
+					.getKey() == Constants.NULL_ID)) {
 				pageWriteTrx.commit(reference);
 			}
 		}

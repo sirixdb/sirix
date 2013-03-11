@@ -250,7 +250,34 @@ public enum PageKind {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			return new AttributeValuePage();
 		}
+	},
+	
+	/**
+	 * {@link AttributeValuePage}.
+	 */
+	OVERFLOWPAGE((byte) 9, OverflowPage.class) {
+		@Override
+		@Nonnull
+		Page deserializePage(final @Nonnull ByteArrayDataInput source,
+				final @Nonnull PageReadTrx pageReadTrx) {
+			return new OverflowPage(source);
+		}
+
+		@Override
+		void serializePage(final @Nonnull ByteArrayDataOutput sink,
+				final @Nonnull Page page) {
+			sink.writeByte(OVERFLOWPAGE.mId);
+			page.serialize(sink);
+		}
+
+		@Override
+		public @Nonnull
+		Page getInstance(final @Nonnull Page page,
+				final @Nonnull PageReadTrx pageReadTrx) {
+			return new OverflowPage();
+		}
 	};
+
 
 	/** Mapping of keys -> page */
 	private static final Map<Byte, PageKind> INSTANCEFORID = new HashMap<>();

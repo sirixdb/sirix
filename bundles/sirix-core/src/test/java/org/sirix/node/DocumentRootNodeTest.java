@@ -83,15 +83,15 @@ public class DocumentRootNodeTest {
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
-		final DocumentRootNode node1 = new DocumentRootNode(nodeDel, strucDel);
-		check(node1);
+		final DocumentRootNode node = new DocumentRootNode(nodeDel, strucDel);
+		check(node);
 
 		// Serialize and deserialize node.
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node1.getKind().serialize(out, node1, mPageReadTrx);
+		node.getKind().serialize(out, node, null, mPageReadTrx);
 		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
 		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT
-				.deserialize(in, mPageReadTrx);
+				.deserialize(in, node.getNodeKey(), mPageReadTrx);
 		check(node2);
 
 	}
