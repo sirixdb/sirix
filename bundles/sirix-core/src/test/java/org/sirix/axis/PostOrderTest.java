@@ -145,9 +145,8 @@ public class PostOrderTest {
 			XMLStreamException {
 		try (final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
 			wtx.moveTo(9);
-			wtx.insertSubtree(
-					XMLShredder.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
-					Insert.ASFIRSTCHILD);
+			wtx.insertSubtreeAsFirstChild(XMLShredder
+					.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL));
 			wtx.commit();
 			final long key = wtx.getNodeKey();
 			AbsAxisTest.testIAxisConventions(new PostOrderAxis(wtx), new long[] {
@@ -221,9 +220,8 @@ public class PostOrderTest {
 			XMLStreamException {
 		try (final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx()) {
 			wtx.moveTo(11);
-			wtx.insertSubtree(
-					XMLShredder.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
-					Insert.ASFIRSTCHILD);
+			wtx.insertSubtreeAsFirstChild(XMLShredder
+					.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL));
 			wtx.commit();
 			wtx.moveToDocumentRoot();
 			wtx.moveToFirstChild();

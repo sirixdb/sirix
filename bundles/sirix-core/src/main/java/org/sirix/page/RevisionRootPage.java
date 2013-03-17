@@ -463,12 +463,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 			reference = page.getReference(0);
 		}
 
+		// Create new record page.
 		final UnorderedKeyValuePage ndp = new UnorderedKeyValuePage(
-				Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind, pageWriteTrx);
+				Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageKind,
+				Optional.<PageReference> absent(), pageWriteTrx);
 		ndp.setDirty(true);
 		reference.setKeyValuePageKey(0);
 		reference.setLogKey(new LogKey(pageKind, levelPageCountExp.length, 0));
 
+		// Create a {@link DocumentRootNode}.
 		final Optional<SirixDeweyID> id = pageWriteTrx.getSession()
 				.getResourceConfig().mDeweyIDsStored ? Optional.of(SirixDeweyID
 				.newRootID()) : Optional.<SirixDeweyID> absent();

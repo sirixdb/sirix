@@ -99,12 +99,13 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 * @param complete
 	 *          page to clone
 	 * @param revision
-	 * 					the new revision
+	 *          the new revision
 	 */
 	@SuppressWarnings("unchecked")
 	public RecordPageContainer(final @Nonnull T complete) {
 		this(complete, (T) complete.newInstance(complete.getPageKey(),
-				complete.getPageKind(), complete.getPageReadTrx()));
+				complete.getPageKind(), complete.getPreviousReference(),
+				complete.getPageReadTrx()));
 	}
 
 	/**

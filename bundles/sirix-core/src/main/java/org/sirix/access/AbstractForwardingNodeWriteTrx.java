@@ -83,8 +83,8 @@ public abstract class AbstractForwardingNodeWriteTrx extends
 	}
 
 	@Override
-	public NodeWriteTrx insertAttribute(@Nonnull QNm name,
-			@Nonnull String value, @Nonnull Movement move) throws SirixException {
+	public NodeWriteTrx insertAttribute(@Nonnull QNm name, @Nonnull String value,
+			@Nonnull Movement move) throws SirixException {
 		return delegate().insertAttribute(name, value, move);
 	}
 
@@ -107,21 +107,32 @@ public abstract class AbstractForwardingNodeWriteTrx extends
 	}
 
 	@Override
-	public NodeWriteTrx insertNamespace(@Nonnull QNm name)
-			throws SirixException {
+	public NodeWriteTrx insertNamespace(@Nonnull QNm name) throws SirixException {
 		return delegate().insertNamespace(name);
 	}
 
 	@Override
-	public NodeWriteTrx insertNamespace(@Nonnull QNm name,
-			@Nonnull Movement move) throws SirixException {
+	public NodeWriteTrx insertNamespace(@Nonnull QNm name, @Nonnull Movement move)
+			throws SirixException {
 		return delegate().insertNamespace(name, move);
 	}
 
 	@Override
-	public NodeWriteTrx insertSubtree(@Nonnull XMLEventReader reader,
-			@Nonnull Insert insert) throws SirixException {
-		return delegate().insertSubtree(reader, insert);
+	public NodeWriteTrx insertSubtreeAsFirstChild(@Nonnull XMLEventReader reader)
+			throws SirixException {
+		return delegate().insertSubtreeAsFirstChild(reader);
+	}
+
+	@Override
+	public NodeWriteTrx insertSubtreeAsRightSibling(@Nonnull XMLEventReader reader)
+			throws SirixException {
+		return delegate().insertSubtreeAsRightSibling(reader);
+	}
+
+	@Override
+	public NodeWriteTrx insertSubtreeAsLeftSibling(@Nonnull XMLEventReader reader)
+			throws SirixException {
+		return delegate().insertSubtreeAsLeftSibling(reader);
 	}
 
 	@Override

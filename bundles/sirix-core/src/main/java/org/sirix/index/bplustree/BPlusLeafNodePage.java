@@ -79,7 +79,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	 *          determines if it's a leaf or inner node page
 	 */
 	public BPlusLeafNodePage(final @Nonnegative long recordPageKey,
-			final @Nonnull PageKind pageKind, final @Nonnull PageReadTrx pageReadTrx) {
+			final @Nonnull PageKind pageKind, final @Nonnull Optional<PageReference> previousPageRef, final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -111,12 +111,12 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 				.getResourceConfig().mPersistenter;
 		for (int offset = 0; offset < size; offset++) {
 			// Must be the key which has been serialized.
-//			@SuppressWarnings("unchecked")
-//			final K key = (K) persistenter.deserialize(in, pageReadTrx);
+			// @SuppressWarnings("unchecked")
+			// final K key = (K) persistenter.deserialize(in, pageReadTrx);
 			// Must be the value which has been serialized.
-//			@SuppressWarnings("unchecked")
-//			final V value = (V) persistenter.deserialize(in, pageReadTrx);
-//			mRecords.put(key, value);
+			// @SuppressWarnings("unchecked")
+			// final V value = (V) persistenter.deserialize(in, pageReadTrx);
+			// mRecords.put(key, value);
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
@@ -139,8 +139,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		final RecordPersistenter persistenter = mPageReadTrx.getSession()
 				.getResourceConfig().mPersistenter;
 		for (final Map.Entry<K, V> node : mRecords.entrySet()) {
-//			persistenter.serialize(out, node.getKey(), mPageReadTrx);
-//			persistenter.serialize(out, node.getValue(), mPageReadTrx);
+			// persistenter.serialize(out, node.getKey(), mPageReadTrx);
+			// persistenter.serialize(out, node.getValue(), mPageReadTrx);
 		}
 	}
 
@@ -209,8 +209,9 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	@Override
 	public <C extends KeyValuePage<K, V>> C newInstance(
 			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
+			final @Nonnull Optional<PageReference> previousPageRef,
 			final @Nonnull PageReadTrx pageReadTrx) {
-		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind, pageReadTrx);
+		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind, previousPageRef, pageReadTrx);
 	}
 
 	@Override
@@ -226,7 +227,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	@Override
 	public void setSlot(K key, byte[] value) {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
@@ -256,11 +257,17 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	@Override
 	public void setPageReference(K key, PageReference reference) {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
 	public PageReference getPageReference(K key) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public Optional<PageReference> getPreviousReference() {
 		// TODO Auto-generated method stub
 		return null;
 	}

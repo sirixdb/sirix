@@ -113,7 +113,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			final @Nonnull NodeReadTrxImpl rtx) {
 		mPageWriteTrx = pageWriteTrx;
 		mPathSummaryReader = PathSummaryReader.getInstance(
-				checkNotNull(pageWriteTrx), checkNotNull(session));
+				pageWriteTrx, session);
 		mNodeRtx = rtx;
 		mNodeFactory = nodeFactory;
 	}
@@ -137,8 +137,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			final @Nonnull Session session, final @Nonnull NodeFactory nodeFactory,
 			final @Nonnull NodeReadTrxImpl rtx) {
 		// Uses the implementation of NodeReadTrx rather than the interface,
-		// otherwise nodes
-		// are wrapped in immutable nodes because only getNode() is available
+		// otherwise nodes are wrapped in immutable nodes because only getNode() is available
 		return new PathSummaryWriter(checkNotNull(pageWriteTrx),
 				checkNotNull(session), checkNotNull(nodeFactory), checkNotNull(rtx));
 	}

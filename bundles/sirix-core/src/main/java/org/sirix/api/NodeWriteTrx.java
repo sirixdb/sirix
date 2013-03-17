@@ -527,13 +527,11 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	NodeWriteTrx insertNamespace(@Nonnull QNm name, @Nonnull Movement move)
 			throws SirixException;
 
-/**
-   * Insert a subtree.
+	/**
+   * Insert a subtree as a first child.
    * 
    * @param reader
-   *            {@link XMLEventReader} instance maybe derived from {@link XMLShredder#createStringReader(String)}, {@link XMLShredder#createFileReader(java.io.File)} or {@link XMLShredder#createQueueReader(java.util.Queue).
-   * @param insert
-   *            insert position
+   *            {@link XMLEventReader} instance maybe derived from {@link XMLShredder#createStringReader(String)}, {@link XMLShredder#createFileReader(java.io.File)} or {@link XMLShredder#createQueueReader(java.util.Queue)
    * @return the current transaction located at the root of the subtree which has been inserted
    * @throws SirixException
    *          if an I/O error occurs or another sirix internal error occurs
@@ -542,8 +540,40 @@ public interface NodeWriteTrx extends NodeReadTrx {
    * @throws NullPointerException
    *          if {@code reader} or {@code insert} is {@code null}
    */
-	NodeWriteTrx insertSubtree(@Nonnull XMLEventReader reader,
-			@Nonnull Insert insert) throws SirixException;
+	NodeWriteTrx insertSubtreeAsFirstChild(@Nonnull XMLEventReader reader)
+			throws SirixException;
+	
+	/**
+   * Insert a subtree as a right sibling.
+   * 
+   * @param reader
+   *            {@link XMLEventReader} instance maybe derived from {@link XMLShredder#createStringReader(String)}, {@link XMLShredder#createFileReader(java.io.File)} or {@link XMLShredder#createQueueReader(java.util.Queue)
+   * @return the current transaction located at the root of the subtree which has been inserted
+   * @throws SirixException
+   *          if an I/O error occurs or another sirix internal error occurs
+   * @throws IllegalStateException
+   *          if subtree is inserted as right sibling of a root-node or document-node
+   * @throws NullPointerException
+   *          if {@code reader} or {@code insert} is {@code null}
+   */
+	NodeWriteTrx insertSubtreeAsRightSibling(@Nonnull XMLEventReader reader)
+			throws SirixException;
+	
+	/**
+   * Insert a subtree as a left sibling.
+   * 
+   * @param reader
+   *            {@link XMLEventReader} instance maybe derived from {@link XMLShredder#createStringReader(String)}, {@link XMLShredder#createFileReader(java.io.File)} or {@link XMLShredder#createQueueReader(java.util.Queue)
+   * @return the current transaction located at the root of the subtree which has been inserted
+   * @throws SirixException
+   *          if an I/O error occurs or another sirix internal error occurs
+   * @throws IllegalStateException
+   *          if subtree is inserted as right sibling of a root-node or document-node
+   * @throws NullPointerException
+   *          if {@code reader} or {@code insert} is {@code null}
+   */
+	NodeWriteTrx insertSubtreeAsLeftSibling(@Nonnull XMLEventReader reader)
+			throws SirixException;
 
 	/**
 	 * Remove currently selected node. This does automatically remove descendants.
@@ -645,24 +675,24 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	void addPostCommitHook(@Nonnull PostCommitHook hook);
 
 	/**
-	 * Get the {@link PathSummaryReader} associated with the current write transaction
-	 * -- might be {@code null} if no path summary index is used.
+	 * Get the {@link PathSummaryReader} associated with the current write
+	 * transaction -- might be {@code null} if no path summary index is used.
 	 * 
 	 * @return {@link PathSummaryReader} instance
 	 */
 	PathSummaryReader getPathSummary();
 
 	/**
-	 * Get the text value index associated with the current write transaction -- might
-	 * be {@code null} if no value index is used.
+	 * Get the text value index associated with the current write transaction --
+	 * might be {@code null} if no value index is used.
 	 * 
 	 * @return {@link AVLTreeReader} instance
 	 */
 	AVLTreeReader<Value, NodeReferences> getTextValueIndex();
 
 	/**
-	 * Get the attribute value index associated with the current write transaction -- might
-	 * be {@code null} if no value index is used.
+	 * Get the attribute value index associated with the current write transaction
+	 * -- might be {@code null} if no value index is used.
 	 * 
 	 * @return {@link AVLTreeReader} instance
 	 */

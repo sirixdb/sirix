@@ -321,7 +321,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 				.newBuilder();
 		final PageReadTrxImpl impl = this;
 		mPageCache = pageCacheBuilder.build(new CacheLoader<PageReference, Page>() {
-			public Page load(final @Nonnull PageReference reference) throws SirixException {
+			public Page load(final @Nonnull PageReference reference)
+					throws SirixException {
 				assert reference.getLogKey() != null
 						|| reference.getKey() != Constants.NULL_ID;
 				final Page page = mPageLog.isPresent() ? mPageLog.get().get(
@@ -588,15 +589,16 @@ final class PageReadTrxImpl implements PageReadTrx {
 		assertNotClosed();
 		checkArgument(recordPageKey >= 0, "recordPageKey must not be negative!");
 		try {
-			final List<S> revs = (List<S>) this.<K, V, S> getSnapshotPages(
-					checkNotNull(recordPageKey), checkNotNull(pageKind));
-			if (revs.size() == 0) {
+			final List<S> pages = (List<S>) this.<K, V, S> getSnapshotPages(
+					checkNotNull(recordPageKey), checkNotNull(pageKind),
+					Optional.<PageReference> absent());
+			if (pages.size() == 0) {
 				return RecordPageContainer.<S> emptyInstance();
 			}
 
 			final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
 			final Revisioning revisioning = mResourceConfig.mRevisionKind;
-			final S completePage = revisioning.combineRecordPages(revs,
+			final S completePage = revisioning.combineRecordPages(pages,
 					mileStoneRevision, this);
 			return new RecordPageContainer<S>(completePage);
 		} catch (final ExecutionException e) {
@@ -612,6 +614,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *          key of node page
 	 * @param pageKind
 	 *          kind of page, that is the type of tree to dereference
+	 * @param pageReference
+	 *          optional page reference pointing to the first page
 	 * @return dereferenced pages
 	 * 
 	 * @throws SirixIOException
@@ -619,7 +623,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws ExecutionException
 	 */
 	final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> List<S> getSnapshotPages(
-			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind)
+			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
+			final @Nonnull Optional<PageReference> pageReference)
 			throws SirixIOException, ExecutionException {
 		assert recordPageKey >= 0;
 		assert pageKind != null;
@@ -627,19 +632,34 @@ final class PageReadTrxImpl implements PageReadTrx {
 		final int revsToRestore = config.mRevisionsToRestore;
 		final List<S> pages = new ArrayList<>(revsToRestore);
 		final Set<Long> keys = new HashSet<>(revsToRestore);
-		for (int i : config.mRevisionKind.getRevisionRoots(mRootPage.getRevision(),
-				revsToRestore)) {
-			final PageReference tmpRef = getPageReference(mRevisionRootCache.get(i),
-					pageKind);
-			final PageReference ref = getPageReferenceForPage(tmpRef, recordPageKey,
-					pageKind);
-			if (ref != null && ref.getKey() != Constants.NULL_ID) {
+		final int[] revisionsToRead = config.mRevisionKind.getRevisionRoots(
+				mRootPage.getRevision(), revsToRestore);
+		boolean first = true;
+		for (int i : revisionsToRead) {
+			PageReference refToRecordPage = null;
+			if (first) {
+				first = false;
+				if (pageReference.isPresent()) {
+					refToRecordPage = pageReference.get();
+				} else {
+					final PageReference tmpRef = getPageReference(
+							mRevisionRootCache.get(i), pageKind);
+					refToRecordPage = getPageReferenceForPage(tmpRef, recordPageKey,
+							pageKind);
+				}
+			} else {
+				final Optional<PageReference> reference = pages.get(pages.size() - 1)
+						.getPreviousReference();
+				refToRecordPage = reference.isPresent() ? reference.get() : null;
+			}
+			if (refToRecordPage != null
+					&& refToRecordPage.getKey() != Constants.NULL_ID) {
 				// Probably save page.
-				if (!keys.contains(ref.getKey())) {
+				if (!keys.contains(refToRecordPage.getKey())) {
 					@SuppressWarnings("unchecked")
-					final S page = (S) mPageReader.read(ref.getKey(), this);
+					final S page = (S) mPageReader.read(refToRecordPage.getKey(), this);
 					pages.add(page);
-					keys.add(ref.getKey());
+					keys.add(refToRecordPage.getKey());
 					if (page.size() == Constants.NDP_NODE_COUNT) {
 						// Page is full, thus we can skip reconstructing pages with elder
 						// versions.
@@ -747,7 +767,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 		for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
 			offset = (int) (levelKey >> inpLevelPageCountExp[level]);
 			levelKey -= offset << inpLevelPageCountExp[level];
-			if (reference.getLogKey() == null && (mPageWriteTrx.isPresent() || mPageLog.isPresent())) {
+			if (reference.getLogKey() == null
+					&& (mPageWriteTrx.isPresent() || mPageLog.isPresent())) {
 				reference.setLogKey(new LogKey(pageKind, level, parentOffset
 						* Constants.INP_REFERENCE_COUNT + offset));
 			}
@@ -839,7 +860,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			pageLog.put(entry.getKey().getLogKey(), entry.getValue());
 		}
 	}
-	
+
 	@Override
 	public Reader getReader() {
 		return mPageReader;

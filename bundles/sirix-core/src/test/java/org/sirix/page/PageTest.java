@@ -22,6 +22,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
@@ -101,7 +102,7 @@ public class PageTest {
 
 		// NodePage setup.
 		final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(
-				TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.NODEPAGE, mPageReadTrx);
+				TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.NODEPAGE, Optional.<PageReference> absent(), mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 			final Record record = TestHelper.generateOne();
 			nodePage.setEntry(record.getNodeKey(), record);

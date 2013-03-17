@@ -347,7 +347,7 @@ public class UpdateTest {
 			rtx.moveToFirstChild();
 			rtx.moveToRightSibling();
 			assertEquals(Integer.toString(i), rtx.getValue());
-			assertEquals(i+1, rtx.getRevisionNumber());
+			assertEquals(i + 1, rtx.getRevisionNumber());
 			rtx.close();
 		}
 
@@ -373,8 +373,7 @@ public class UpdateTest {
 		assertEquals(2L, wtx.insertElementAsFirstChild(new QNm("")).getNodeKey());
 		assertEquals(3L, wtx.insertElementAsFirstChild(new QNm("")).getNodeKey());
 		assertTrue(wtx.moveToParent().hasMoved());
-		assertEquals(4L, wtx.insertElementAsRightSibling(new QNm(""))
-				.getNodeKey());
+		assertEquals(4L, wtx.insertElementAsRightSibling(new QNm("")).getNodeKey());
 		wtx.commit();
 		wtx.close();
 
@@ -937,8 +936,8 @@ public class UpdateTest {
 				.add(new SirixDeweyID("1.3.9")).add(new SirixDeweyID("1.3.9.1.3"))
 				.add(new SirixDeweyID("1.3.9.3")).add(new SirixDeweyID("1.3.9.5"))
 				.add(new SirixDeweyID("1.3.11")).build();
-//		test(ids.iterator(), new NonStructuralWrapperAxis(new DescendantAxis(rtx,
-//				IncludeSelf.YES)));
+		// test(ids.iterator(), new NonStructuralWrapperAxis(new DescendantAxis(rtx,
+		// IncludeSelf.YES)));
 		rtx.moveToDocumentRoot();
 		for (final long nodeKey : new NonStructuralWrapperAxis(new DescendantAxis(
 				rtx, IncludeSelf.YES))) {
@@ -1201,9 +1200,8 @@ public class UpdateTest {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
 		DocumentCreater.create(wtx);
 		wtx.moveTo(5);
-		wtx.insertSubtree(
-				XMLShredder.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
-				Insert.ASFIRSTCHILD);
+		wtx.insertSubtreeAsFirstChild(XMLShredder
+				.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL));
 		testSubtreeInsertAsFirstChildFirst(wtx);
 		wtx.commit();
 		wtx.moveTo(14);
@@ -1240,9 +1238,8 @@ public class UpdateTest {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
 		DocumentCreater.create(wtx);
 		wtx.moveTo(11);
-		wtx.insertSubtree(
-				XMLShredder.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
-				Insert.ASFIRSTCHILD);
+		wtx.insertSubtreeAsFirstChild(XMLShredder
+				.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL));
 		testSubtreeInsertAsFirstChildSecond(wtx);
 		wtx.commit();
 		wtx.moveTo(14);
@@ -1281,9 +1278,8 @@ public class UpdateTest {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
 		DocumentCreater.create(wtx);
 		wtx.moveTo(5);
-		wtx.insertSubtree(
-				XMLShredder.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL),
-				Insert.ASRIGHTSIBLING);
+		wtx.insertSubtreeAsRightSibling(XMLShredder
+				.createStringReader(DocumentCreater.XML_WITHOUT_XMLDECL));
 		testSubtreeInsertAsRightSibling(wtx);
 		wtx.commit();
 		wtx.moveTo(14);

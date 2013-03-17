@@ -80,7 +80,7 @@ public class NodePageTest {
 
 	@Test
 	public void testSerializeDeserialize() {
-		final UnorderedKeyValuePage page1 = new UnorderedKeyValuePage(0L, PageKind.NODEPAGE, mPageReadTrx);
+		final UnorderedKeyValuePage page1 = new UnorderedKeyValuePage(0L, PageKind.NODEPAGE, Optional.<PageReference> absent(), mPageReadTrx);
 		assertEquals(0L, page1.getPageKey());
 
 		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0,

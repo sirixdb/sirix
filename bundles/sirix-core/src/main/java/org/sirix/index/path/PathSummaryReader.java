@@ -78,7 +78,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	private final Map<Long, StructNode> mPathNodeMapping;
 
 	/** Mapping of a {@link QNm} to a set of path nodes. */
-	private final Map<QNm, HashSet<PathNode>> mQNmMapping;
+	private final Map<QNm, Set<PathNode>> mQNmMapping;
 
 	/**
 	 * Private constructor.
@@ -116,7 +116,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 			if (first) {
 				first = false;
 			} else {
-				final HashSet<PathNode> pathNodes = mQNmMapping.get(this.getName()) == null ? new HashSet<PathNode>()
+				final Set<PathNode> pathNodes = mQNmMapping.get(this.getName()) == null ? new HashSet<PathNode>()
 						: mQNmMapping.get(this.getName());
 				pathNodes.add(this.getPathNode());
 				mQNmMapping.put(this.getName(), pathNodes);
@@ -152,7 +152,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	// package private, only used in writer to keep the mapping always up-to-date
 	void putQNameMapping(final @Nonnull PathNode node, final @Nonnull QNm name) {
-		final HashSet<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<PathNode>()
+		final Set<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<PathNode>()
 				: mQNmMapping.get(name);
 		pathNodes.add(node);
 		mQNmMapping.put(name, pathNodes);
@@ -161,7 +161,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	// package private, only used in writer to keep the mapping always up-to-date
 	void removeQNameMapping(final @Nonnegative PathNode node,
 			final @Nonnull QNm name) {
-		final HashSet<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<PathNode>()
+		final Set<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<PathNode>()
 				: mQNmMapping.get(name);
 		if (pathNodes.size() == 1) {
 			mQNmMapping.remove(name);
@@ -185,7 +185,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	public BitSet matchDescendants(final @Nonnull QNm name,
 			final @Nonnegative long pathNodeKey, final @Nonnull IncludeSelf inclSelf) {
 		assertNotClosed();
-		final HashSet<PathNode> set = mQNmMapping.get(name);
+		final Set<PathNode> set = mQNmMapping.get(name);
 		if (set == null) {
 			return new BitSet(0);
 		}
@@ -210,7 +210,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 */
 	public BitSet match(final @Nonnull QNm name, final @Nonnegative int minLevel) {
 		assertNotClosed();
-		final HashSet<PathNode> set = mQNmMapping.get(name);
+		final Set<PathNode> set = mQNmMapping.get(name);
 		if (set == null) {
 			return new BitSet(0);
 		}

@@ -12,6 +12,8 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 
+import com.google.common.base.Optional;
+
 /**
  * Key/Value page.
  * 
@@ -82,13 +84,14 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 *          value to store
 	 */
 	void setEntry(@Nonnull K key, @Nonnull V value);
-	
+
 	Set<Entry<K, PageReference>> referenceEntrySet();
 
 	/**
-	 * Store or overwrite a single reference associated with a key for overlong entries.
-	 * That is entries which are larger than a predefined threshold are written to OverflowPages
-	 * and thus are just referenced and not deserialized during the deserialization of a page.
+	 * Store or overwrite a single reference associated with a key for overlong
+	 * entries. That is entries which are larger than a predefined threshold are
+	 * written to OverflowPages and thus are just referenced and not deserialized
+	 * during the deserialization of a page.
 	 * 
 	 * @param key
 	 *          key to store
@@ -96,7 +99,7 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 *          reference to store
 	 */
 	void setPageReference(@Nonnull K key, @Nonnull PageReference reference);
-	
+
 	PageReference getPageReference(@Nonnull K key);
 
 	/**
@@ -112,7 +115,9 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @return a new {@link KeyValuePage} instance
 	 */
 	<C extends KeyValuePage<K, V>> C newInstance(@Nonnegative long recordPageKey,
-			@Nonnull PageKind pageKind, @Nonnull PageReadTrx pageReadTrx);
+			@Nonnull PageKind pageKind,
+			@Nonnull Optional<PageReference> previousPageRef,
+			@Nonnull PageReadTrx pageReadTrx);
 
 	/**
 	 * Get the {@link PageReadTrx}.
@@ -134,4 +139,13 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @return number of entries/slots/page references filled
 	 */
 	int size();
+
+	/**
+	 * Get the optional {@link PageReference} pointing to the previous version of
+	 * the page
+	 * 
+	 * @return optional {@link PageReference} pointing to the previous version of
+	 *         the page
+	 */
+	Optional<PageReference> getPreviousReference();
 }

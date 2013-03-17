@@ -698,9 +698,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 					pageKind);
 			if (reference.getKey() == Constants.NULL_ID) {
 				cont = new RecordPageContainer<>(new UnorderedKeyValuePage(
-						recordPageKey, pageKind, mPageRtx));
+						recordPageKey, pageKind, Optional.<PageReference> absent(), mPageRtx));
 			} else {
-				cont = dereferenceRecordPageForModification(recordPageKey, pageKind);
+				cont = dereferenceRecordPageForModification(recordPageKey, pageKind, reference);
 			}
 
 			assert cont != null;
@@ -830,16 +830,16 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 *           if an I/O error occurs
 	 */
 	private RecordPageContainer<UnorderedKeyValuePage> dereferenceRecordPageForModification(
-			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind)
+			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind, final @Nonnull PageReference reference)
 			throws SirixIOException {
 		try {
 			final List<UnorderedKeyValuePage> revs = mPageRtx
 					.<Long, Record, UnorderedKeyValuePage> getSnapshotPages(
-							recordPageKey, pageKind);
+							recordPageKey, pageKind, Optional.of(reference));
 			final Revisioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
 			final int mileStoneRevision = mPageRtx.mSession.mResourceConfig.mRevisionsToRestore;
 			return revisioning.combineRecordPagesForModification(revs,
-					mileStoneRevision, mPageRtx);
+					mileStoneRevision, mPageRtx, reference);
 		} catch (final ExecutionException e) {
 			throw new SirixIOException(e.getCause());
 		}

@@ -80,7 +80,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	 *          determines if it's a leaf or inner node page
 	 */
 	public BPlusInnerNodePage(final @Nonnegative long recordPageKey,
-			final @Nonnull PageKind pageKind, final @Nonnull PageReadTrx pageReadTrx) {
+			final @Nonnull PageKind pageKind, final @Nonnull Optional<PageReference> previousPageRef, final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -112,12 +112,12 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 				.getResourceConfig().mPersistenter;
 		for (int offset = 0; offset < size; offset++) {
 			// Must be the key which has been serialized.
-//			@SuppressWarnings("unchecked")
-//			final K key = (K) persistenter.deserialize(in, pageReadTrx);
+			// @SuppressWarnings("unchecked")
+			// final K key = (K) persistenter.deserialize(in, pageReadTrx);
 			// Inner nodes do not have values.
-//			@SuppressWarnings("unchecked")
+			// @SuppressWarnings("unchecked")
 			final V value = (V) new VoidValue();
-//			mRecords.put(key, value);
+			// mRecords.put(key, value);
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
@@ -141,9 +141,9 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 		serializePointer(mRightPage, out);
 		final RecordPersistenter persistenter = mPageReadTrx.getSession()
 				.getResourceConfig().mPersistenter;
-//		for (final K record : mRecords.keySet()) {
-//			persistenter.serialize(out, record, mPageReadTrx);
-//		}
+		// for (final K record : mRecords.keySet()) {
+		// persistenter.serialize(out, record, mPageReadTrx);
+		// }
 		out.writeByte(mPageKind.getID());
 	}
 
@@ -192,9 +192,10 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	@Override
 	public <C extends KeyValuePage<K, V>> C newInstance(
 			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
+			final @Nonnull Optional<PageReference> previousPageRef,
 			final @Nonnull PageReadTrx pageReadTrx) {
 		return (C) new BPlusInnerNodePage<K, V>(recordPageKey, pageKind,
-				pageReadTrx);
+				previousPageRef, pageReadTrx);
 	}
 
 	@Override
@@ -215,7 +216,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	@Override
 	public void setSlot(K key, byte[] value) {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
@@ -245,11 +246,17 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	@Override
 	public void setPageReference(K key, PageReference reference) {
 		// TODO Auto-generated method stub
-		
+
 	}
 
 	@Override
 	public PageReference getPageReference(K key) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public Optional<PageReference> getPreviousReference() {
 		// TODO Auto-generated method stub
 		return null;
 	}

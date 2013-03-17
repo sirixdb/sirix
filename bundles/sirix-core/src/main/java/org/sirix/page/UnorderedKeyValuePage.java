@@ -54,6 +54,7 @@ import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
+import com.google.common.base.Optional;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
 import com.google.common.io.ByteArrayDataInput;
@@ -102,6 +103,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	/** Persistenter. */
 	private final RecordPersistenter mPersistenter;
 
+	private Optional<PageReference> mPreviousPageReference;
+
 	/**
 	 * Constructor which initializes a new {@link UnorderedKeyValuePage}.
 	 * 
@@ -114,7 +117,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 *          the page reading transaction
 	 */
 	public UnorderedKeyValuePage(final @Nonnegative long recordPageKey,
-			final @Nonnull PageKind pageKind, final @Nonnull PageReadTrx pageReadTrx) {
+			final @Nonnull PageKind pageKind,
+			final @Nonnull Optional<PageReference> previousPageRef,
+			final @Nonnull PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -127,10 +132,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		mPageKind = pageKind;
 		mSlots = new HashMap<>();
 		mPersistenter = pageReadTrx.getSession().getResourceConfig().mPersistenter;
+		mPreviousPageReference = previousPageRef;
 	}
 
 	/**
-	 * Read node page.
+	 * Constructor which reads the {@link UnorderedKeyValuePage} from the storage.
 	 * 
 	 * @param in
 	 *          input bytes to read page from
@@ -161,6 +167,14 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
+		final boolean hasPreviousReference = in.readBoolean();
+		if (hasPreviousReference) {
+			final PageReference previousPageReference = new PageReference();
+			previousPageReference.setKey(in.readLong());
+			mPreviousPageReference = Optional.of(previousPageReference);
+		} else {
+			mPreviousPageReference = Optional.absent();
+		}
 		mPageKind = PageKind.getKind(in.readByte());
 	}
 
@@ -180,8 +194,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 				try {
 					final PageReference reference = mReferences.get(key);
 					if (reference != null && reference.getKey() != Constants.NULL_ID) {
-						data = ((OverflowPage) mPageReadTrx.getReader().read(reference.getKey(), mPageReadTrx))
-								.getData();
+						data = ((OverflowPage) mPageReadTrx.getReader().read(
+								reference.getKey(), mPageReadTrx)).getData();
 					} else {
 						return null;
 					}
@@ -235,6 +249,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			out.writeLong(entry.getKey());
 			// Write key in persistent storage.
 			out.writeLong(entry.getValue().getKey());
+		}
+		final boolean hasPreviousReference = mPreviousPageReference.isPresent();
+		out.writeBoolean(hasPreviousReference);
+		if (hasPreviousReference) {
+			out.writeLong(mPreviousPageReference.get().getKey());
 		}
 		out.writeByte(mPageKind.getID());
 	}
@@ -373,8 +392,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	@Override
 	public <C extends KeyValuePage<Long, Record>> C newInstance(
 			final long recordPageKey, final @Nonnull PageKind pageKind,
+			final @Nonnull Optional<PageReference> previousPageRef,
 			final @Nonnull PageReadTrx pageReadTrx) {
-		return (C) new UnorderedKeyValuePage(recordPageKey, pageKind, pageReadTrx);
+		return (C) new UnorderedKeyValuePage(recordPageKey, pageKind,
+				previousPageRef, pageReadTrx);
 	}
 
 	@Override
@@ -427,6 +448,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	public PageReference getPageReference(final @Nonnull Long key) {
 		assert key != null;
 		return mReferences.get(key);
+	}
+
+	@Override
+	public Optional<PageReference> getPreviousReference() {
+		return mPreviousPageReference;
 	}
 
 }

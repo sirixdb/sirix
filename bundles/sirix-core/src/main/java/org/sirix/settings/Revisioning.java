@@ -41,6 +41,8 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.KeyValuePage;
 
+import com.google.common.base.Optional;
+
 /**
  * Enum for providing different revision algorithms. Each kind must implement
  * one method to reconstruct key/value pages for modification and for reading.
@@ -66,15 +68,16 @@ public enum Revisioning {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx) {
+				final @Nonnull PageReadTrx pageReadTrx,
+				final @Nonnull PageReference reference) {
 			assert pages.size() == 1;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), pageReadTrx));
+					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), pageReadTrx));
+					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 
 			for (final Map.Entry<K, byte[]> entry : pages.get(0).slotEntrySet()) {
 				returnVal.get(0).setSlot(entry.getKey(), entry.getValue());
@@ -108,7 +111,8 @@ public enum Revisioning {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final T returnVal = firstPage.newInstance(recordPageKey,
-					firstPage.getPageKind(), pageReadTrx);
+					firstPage.getPageKind(), firstPage.getPreviousReference(),
+					pageReadTrx);
 			if (pages.size() == 2) {
 				returnVal.setDirty(true);
 			}
@@ -150,16 +154,17 @@ public enum Revisioning {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx) {
+				final @Nonnull PageReadTrx pageReadTrx,
+				final @Nonnull PageReference reference) {
 			assert pages.size() <= 2;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final int revision = pageReadTrx.getUberPage().getRevision();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), pageReadTrx));
+					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), pageReadTrx));
+					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 
 			final T latest = firstPage;
 			T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
@@ -245,7 +250,8 @@ public enum Revisioning {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final T returnVal = firstPage.newInstance(firstPage.getPageKey(),
-					firstPage.getPageKind(), firstPage.getPageReadTrx());
+					firstPage.getPageKind(), firstPage.getPreviousReference(),
+					firstPage.getPageReadTrx());
 			if (pages.size() > 1) {
 				returnVal.setDirty(true);
 			}
@@ -286,15 +292,16 @@ public enum Revisioning {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final @Nonnull List<T> pages, final int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx) {
+				final @Nonnull PageReadTrx pageReadTrx,
+				final @Nonnull PageReference reference) {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final int revision = pageReadTrx.getUberPage().getRevision();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), pageReadTrx));
+					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
-					firstPage.getPageKind(), pageReadTrx));
+					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 			final boolean isFullDump = revision % revToRestore == 0;
 
 			boolean filledPage = false;
@@ -389,7 +396,8 @@ public enum Revisioning {
 	 */
 	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 			final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
-			final @Nonnull PageReadTrx pageReadTrx);
+			final @Nonnull PageReadTrx pageReadTrx,
+			final @Nonnull PageReference reference);
 
 	/**
 	 * Get all revision root page numbers which are needed to restore a

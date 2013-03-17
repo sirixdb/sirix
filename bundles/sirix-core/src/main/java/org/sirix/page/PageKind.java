@@ -42,7 +42,7 @@ import com.google.common.io.ByteArrayDataOutput;
  */
 public enum PageKind {
 	/**
-	 * {@link NodePage}.
+	 * {@link UnorderedKeyValuePage}.
 	 */
 	NODEPAGE((byte) 1, UnorderedKeyValuePage.class) {
 		@Override
@@ -65,7 +65,7 @@ public enum PageKind {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			assert nodePage instanceof UnorderedKeyValuePage;
 			final UnorderedKeyValuePage page = (UnorderedKeyValuePage) nodePage;
-			return new UnorderedKeyValuePage(page.getPageKey(), page.getPageKind(),
+			return new UnorderedKeyValuePage(page.getPageKey(), page.getPageKind(), page.getPreviousReference(), 
 					pageReadTrx);
 		}
 	},

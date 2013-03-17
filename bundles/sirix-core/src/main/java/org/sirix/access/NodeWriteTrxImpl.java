@@ -382,8 +382,8 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 			int attributeNr = 0;
 			int nspNr = 0;
 			for (@SuppressWarnings("unused")
-			final long key : LevelOrderAxis.newBuilder(this).includeNonStructuralNodes()
-					.build()) {
+			final long key : LevelOrderAxis.newBuilder(this)
+					.includeNonStructuralNodes().build()) {
 				Optional<SirixDeweyID> deweyID = Optional.<SirixDeweyID> absent();
 				if (isAttribute()) {
 					final long attNodeKey = mNodeRtx.getNodeKey();
@@ -779,8 +779,27 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public NodeWriteTrx insertSubtree(final @Nonnull XMLEventReader reader,
+	public NodeWriteTrx insertSubtreeAsFirstChild(
+			final @Nonnull XMLEventReader reader) throws SirixException {
+		return insertSubtree(reader, Insert.ASFIRSTCHILD);
+	}
+	
+	@Override
+	public NodeWriteTrx insertSubtreeAsRightSibling(
+			final @Nonnull XMLEventReader reader) throws SirixException {
+		return insertSubtree(reader, Insert.ASRIGHTSIBLING);
+	}
+	
+	@Override
+	public NodeWriteTrx insertSubtreeAsLeftSibling(
+			final @Nonnull XMLEventReader reader) throws SirixException {
+		return insertSubtree(reader, Insert.ASLEFTSIBLING);
+	}
+
+	private NodeWriteTrx insertSubtree(final @Nonnull XMLEventReader reader,
 			final @Nonnull Insert insert) throws SirixException {
+		checkNotNull(reader);
+		assert insert != null;
 		acquireLock();
 		try {
 			if (getCurrentNode() instanceof StructNode) {
@@ -1711,12 +1730,15 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 					final long oldHash = node.hashCode();
 
 					// Create new keys for mapping.
-					final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty() ? getPageTransaction().createNameKey(
-							name.getPrefix(), node.getKind()) : -1;
-					final int localNameKey = name.getLocalName() != null && !name.getLocalName().isEmpty() ? getPageTransaction().createNameKey(
-							name.getLocalName(), node.getKind()) : -1;
-					final int uriKey = name.getNamespaceURI() != null && !name.getNamespaceURI().isEmpty() ? getPageTransaction().createNameKey(
-							name.getNamespaceURI(), Kind.NAMESPACE) : -1;
+					final int prefixKey = name.getPrefix() != null
+							&& !name.getPrefix().isEmpty() ? getPageTransaction()
+							.createNameKey(name.getPrefix(), node.getKind()) : -1;
+					final int localNameKey = name.getLocalName() != null
+							&& !name.getLocalName().isEmpty() ? getPageTransaction()
+							.createNameKey(name.getLocalName(), node.getKind()) : -1;
+					final int uriKey = name.getNamespaceURI() != null
+							&& !name.getNamespaceURI().isEmpty() ? getPageTransaction()
+							.createNameKey(name.getNamespaceURI(), Kind.NAMESPACE) : -1;
 
 					// Adapt path summary.
 					if (mIndexes.contains(Indexes.PATH)) {
@@ -1936,8 +1958,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		// Optionally lock while commiting and assigning new instances.
 		acquireLock();
 		try {
-			final UberPage uberPage = getPageTransaction().commit(MultipleWriteTrx.NO);
-			
+			final UberPage uberPage = getPageTransaction()
+					.commit(MultipleWriteTrx.NO);
+
 			// Remember succesfully committed uber page in session.
 			mNodeRtx.mSession.setLastCommittedUberPage(uberPage);
 

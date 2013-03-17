@@ -72,6 +72,7 @@ public final class UberPage extends AbstractForwardingPage {
 	/** {@link RevisionRootPage} instance. */
 	private RevisionRootPage mRootPage;
 
+	/** The current most recent revision */
 	private final int mRevision;
 
 	/**
