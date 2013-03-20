@@ -48,7 +48,7 @@ import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 
 /** Test revisioning. */
-public class RevisioningTest {
+public class VersioningTest {
 
 	/** {@link Database} instance. */
 	private Database mDatabase;
@@ -70,7 +70,7 @@ public class RevisioningTest {
 	public void testIncremental() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Revisioning.INCREMENTAL).setRevisionsToRestore(3)
+				.setRevisionKind(Versioning.INCREMENTAL).setRevisionsToRestore(3)
 				.build());
 		test();
 	}
@@ -79,7 +79,7 @@ public class RevisioningTest {
 	public void testIncremental1() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Revisioning.INCREMENTAL).setRevisionsToRestore(3)
+				.setRevisionKind(Versioning.INCREMENTAL).setRevisionsToRestore(3)
 				.build());
 		test1();
 	}
@@ -88,7 +88,7 @@ public class RevisioningTest {
 	public void testDifferential() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Revisioning.DIFFERENTIAL).setRevisionsToRestore(3)
+				.setRevisionKind(Versioning.DIFFERENTIAL).setRevisionsToRestore(3)
 				.build());
 		test();
 	}
@@ -97,7 +97,7 @@ public class RevisioningTest {
 	public void testDifferential1() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Revisioning.DIFFERENTIAL).setRevisionsToRestore(3)
+				.setRevisionKind(Versioning.DIFFERENTIAL).setRevisionsToRestore(3)
 				.build());
 		test1();
 	}
@@ -106,7 +106,7 @@ public class RevisioningTest {
 	public void testFull() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Revisioning.FULL).setRevisionsToRestore(3).build());
+				.setRevisionKind(Versioning.FULL).setRevisionsToRestore(3).build());
 		test();
 	}
 
@@ -114,9 +114,25 @@ public class RevisioningTest {
 	public void testFull1() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Revisioning.FULL).setRevisionsToRestore(3).build());
+				.setRevisionKind(Versioning.FULL).setRevisionsToRestore(3).build());
 		test1();
 	}
+	
+//	@Test
+//	public void testSlidingSnapshot() throws SirixException {
+//		mDatabase.createResource(new ResourceConfiguration.Builder(
+//				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+//				.setRevisionKind(Versioning.SLIDING_SNAPSHOT).setRevisionsToRestore(3).build());
+//		test();
+//	}
+//
+//	@Test
+//	public void testSlidingSnapshot1() throws SirixException {
+//		mDatabase.createResource(new ResourceConfiguration.Builder(
+//				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+//				.setRevisionKind(Versioning.SLIDING_SNAPSHOT).setRevisionsToRestore(3).build());
+//		test1();
+//	}
 
 	/**
 	 * Test revisioning.

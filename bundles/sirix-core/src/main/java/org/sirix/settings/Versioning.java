@@ -28,6 +28,7 @@
 package org.sirix.settings;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -51,7 +52,7 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public enum Revisioning {
+public enum Versioning {
 
 	/**
 	 * FullDump, just dumping the complete older revision.
@@ -99,8 +100,8 @@ public enum Revisioning {
 	},
 
 	/**
-	 * Differential. Only the diffs are stored related to the last milestone
-	 * revision.
+	 * Differential versioning. Pages are reconstructed reading the latest full
+	 * dump as well as the previous version.
 	 */
 	DIFFERENTIAL {
 		@Override
@@ -238,8 +239,8 @@ public enum Revisioning {
 	},
 
 	/**
-	 * Incremental revisioning. Each revision can be reconstructed with the help
-	 * of the last full-dump plus the incremental steps between.
+	 * Incremental versioning. Each version is reconstructed through taking the
+	 * last full-dump and all incremental steps since that into account.
 	 */
 	INCREMENTAL {
 		@Override
@@ -366,6 +367,146 @@ public enum Revisioning {
 			}
 			return retVal;
 		}
+	},
+
+	/**
+	 * Sliding snapshot versioning using a window.
+	 */
+	SLIDING_SNAPSHOT {
+		@Override
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
+				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
+				final @Nonnull PageReadTrx pageReadTrx) {
+			assert pages.size() <= revToRestore;
+			final T firstPage = pages.get(0);
+			final long recordPageKey = firstPage.getPageKey();
+			final T returnVal = firstPage.newInstance(firstPage.getPageKey(),
+					firstPage.getPageKind(), firstPage.getPreviousReference(),
+					firstPage.getPageReadTrx());
+			if (pages.size() > 1) {
+				returnVal.setDirty(true);
+			}
+
+			boolean filledPage = false;
+			final int until = pages.size() == revToRestore + 1 ? revToRestore : pages
+					.size();
+			for (int i = 0; i < until; i++) {
+				final T page = pages.get(i);
+				assert page.getPageKey() == recordPageKey;
+				if (filledPage) {
+					break;
+				}
+				for (final Entry<K, byte[]> entry : page.slotEntrySet()) {
+					final K recordKey = entry.getKey();
+					if (returnVal.getSlotValue(recordKey) == null) {
+						returnVal.setSlot(recordKey, entry.getValue());
+						if (returnVal.size() == Constants.NDP_NODE_COUNT) {
+							filledPage = true;
+							break;
+						}
+					}
+				}
+				if (!filledPage) {
+					for (final Entry<K, PageReference> entry : page.referenceEntrySet()) {
+						final K recordKey = entry.getKey();
+						if (returnVal.getPageReference(recordKey) == null) {
+							returnVal.setPageReference(recordKey, entry.getValue());
+							if (returnVal.size() == Constants.NDP_NODE_COUNT) {
+								filledPage = true;
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			return returnVal;
+		}
+
+		@Override
+		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
+				final @Nonnull List<T> pages, final int revToRestore,
+				final @Nonnull PageReadTrx pageReadTrx,
+				final @Nonnull PageReference reference) {
+			final T firstPage = pages.get(0);
+			final long recordPageKey = firstPage.getPageKey();
+			final List<T> returnVal = new ArrayList<>(2);
+			returnVal.add(firstPage.<T> newInstance(recordPageKey,
+					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
+			returnVal.add(firstPage.<T> newInstance(recordPageKey,
+					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
+
+			boolean filledPage = false;
+			for (int i = 0; i < pages.size(); i++) {
+				final T page = pages.get(i);
+				assert page.getPageKey() == recordPageKey;
+				if (filledPage) {
+					break;
+				}
+
+				for (final Entry<K, byte[]> entry : page.slotEntrySet()) {
+					// Caching the complete page.
+					final K key = entry.getKey();
+					assert key != null;
+					if (returnVal.get(0).getSlotValue(key) == null) {
+						returnVal.get(0).setSlot(key, entry.getValue());
+					}
+
+					if (i == pages.size() - 1
+							&& returnVal.get(1).getSlotValue(key) == null) {
+						returnVal.get(1).setSlot(key, entry.getValue());
+					}
+
+					if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
+						filledPage = true;
+						break;
+					}
+				}
+				if (!filledPage) {
+					for (final Entry<K, PageReference> entry : page.referenceEntrySet()) {
+						// Caching the complete page.
+						final K key = entry.getKey();
+						assert key != null;
+						if (returnVal.get(0).getPageReference(key) == null) {
+							returnVal.get(0).setPageReference(key, entry.getValue());
+						}
+
+						if (i == pages.size() - 1
+								&& returnVal.get(1).getPageReference(key) == null) {
+							returnVal.get(1).setPageReference(key, entry.getValue());
+						}
+
+						if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
+							filledPage = true;
+							break;
+						}
+					}
+				}
+			}
+
+			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
+		}
+
+		@Override
+		public int[] getRevisionRoots(final @Nonnegative int previousRevision,
+				final @Nonnegative int revsToRestore) {
+			final List<Integer> retVal = new ArrayList<>(revsToRestore);
+			for (int i = previousRevision; (i >= previousRevision - revsToRestore)
+					&& i >= 0; i--) {
+				retVal.add(i);
+			}
+			return convertIntegers(retVal);
+		}
+
+		// Convert integer list to primitive int-array.
+		private int[] convertIntegers(final @Nonnull List<Integer> integers) {
+			final int[] retVal = new int[integers.size()];
+			final Iterator<Integer> iterator = integers.iterator();
+			for (int i = 0; i < retVal.length; i++) {
+				retVal[i] = iterator.next().intValue();
+			}
+			return retVal;
+		}
 	};
 
 	/**
@@ -375,12 +516,12 @@ public enum Revisioning {
 	 * 
 	 * @param pages
 	 *          the base of the complete {@link KeyValuePage}
-	 * @param revToRestore
-	 *          the revision needed to build up the complete milestone
+	 * @param revsToRestore
+	 *          the number of revisions needed to build the complete record page
 	 * @return the complete {@link KeyValuePage}
 	 */
 	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
-			final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
+			final @Nonnull List<T> pages, final @Nonnegative int revsToRestore,
 			final @Nonnull PageReadTrx pageReadTrx);
 
 	/**
@@ -389,13 +530,13 @@ public enum Revisioning {
 	 * 
 	 * @param pages
 	 *          the base of the complete {@link KeyValuePage}
-	 * @param revToRestore
-	 *          the revision needed to build up the complete milestone
+	 * @param revsToRestore
+	 *          the revisions needed to build the complete record page
 	 * @return a {@link RecordPageContainer} holding a complete
 	 *         {@link KeyValuePage} for reading and one for writing
 	 */
 	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
-			final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
+			final @Nonnull List<T> pages, final @Nonnegative int revsToRestore,
 			final @Nonnull PageReadTrx pageReadTrx,
 			final @Nonnull PageReference reference);
 

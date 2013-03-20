@@ -51,7 +51,7 @@ import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.bytepipe.DeflateCompressor;
 import org.sirix.node.NodePersistenter;
 import org.sirix.node.interfaces.RecordPersistenter;
-import org.sirix.settings.Revisioning;
+import org.sirix.settings.Versioning;
 
 import com.google.common.base.Objects;
 import com.google.gson.stream.JsonReader;
@@ -162,7 +162,7 @@ public final class ResourceConfiguration {
 	public static final StorageType STORAGE = StorageType.FILE;
 
 	/** Standard versioning approach. */
-	public static final Revisioning VERSIONING = Revisioning.DIFFERENTIAL;
+	public static final Versioning VERSIONING = Versioning.DIFFERENTIAL;
 
 	/** Type of hashing. */
 	public static final HashKind HASHKIND = HashKind.ROLLING;
@@ -182,7 +182,7 @@ public final class ResourceConfiguration {
 	public final StorageType mStorage;
 
 	/** Kind of revisioning (Full, Incremental, Differential). */
-	public final Revisioning mRevisionKind;
+	public final Versioning mRevisionKind;
 
 	/** Kind of integrity hash (rolling, postorder). */
 	public final HashKind mHashKind;
@@ -412,7 +412,7 @@ public final class ResourceConfiguration {
 			jsonReader.beginObject();
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[1]);
-			final Revisioning revisioning = Revisioning.valueOf(jsonReader
+			final Versioning revisioning = Versioning.valueOf(jsonReader
 					.nextString());
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[2]);
@@ -510,7 +510,7 @@ public final class ResourceConfiguration {
 		private StorageType mType = STORAGE;
 
 		/** Kind of revisioning (Incremental, Differential). */
-		private Revisioning mRevisionKind = VERSIONING;
+		private Versioning mRevisionKind = VERSIONING;
 
 		/** Kind of integrity hash (rolling, postorder). */
 		private HashKind mHashKind = HASHKIND;
@@ -593,7 +593,7 @@ public final class ResourceConfiguration {
 		 *          revisioning algorithm to use
 		 * @return reference to the builder object
 		 */
-		public Builder setRevisionKind(final @Nonnull Revisioning revKind) {
+		public Builder setRevisionKind(final @Nonnull Versioning revKind) {
 			mRevisionKind = checkNotNull(revKind);
 			return this;
 		}

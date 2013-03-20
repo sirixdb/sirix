@@ -75,7 +75,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 
 	/** Current level. */
 	private int mLevel;
-	
+
 	/**
 	 * Get a new builder instance.
 	 * 
@@ -161,15 +161,8 @@ public final class LevelOrderAxis extends AbstractAxis {
 	/**
 	 * Constructor initializing internal state.
 	 * 
-	 * @param pRtx
-	 *          exclusive (immutable) trx to iterate with
-	 * @param pIncludeNodes
-	 *          determines if only structural or also non-structural nodes should
-	 *          be included
-	 * @param pIncludeSelf
-	 *          determines if self included
-	 * @param pFilterLevel
-	 *          filter level
+	 * @param builder
+	 *          the builder reference
 	 */
 	private LevelOrderAxis(final @Nonnull Builder builder) {
 		super(builder.mRtx, builder.mIncludeSelf);

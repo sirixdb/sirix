@@ -51,10 +51,15 @@ import com.google.common.base.Optional;
  * <h1>VisitorDescendantAxis</h1>
  * 
  * <p>
- * Iterate over all descendants of kind ELEMENT or TEXT starting at a given
- * node. Self is not optionally included. Furthermore an {@link Visitor} can be
- * used. Note that it is faster to use the standard {@link DescendantAxis} if no
- * visitor is specified.
+ * Iterate over all descendants of any structural kind starting at a given node
+ * by it's unique node key. The currently located node is optionally included.
+ * Furthermore a {@link Visitor} is usable to guide the traversal and do
+ * whatever you like with the node kind, which is selected by the given
+ * {@link NodeReadTrx} transaction. 
+ * </p>
+ * <p>
+ * Note that it is faster to use the standard
+ * {@link DescendantAxis} if no visitor is specified.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz

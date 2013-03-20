@@ -69,7 +69,7 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
-import org.sirix.settings.Revisioning;
+import org.sirix.settings.Versioning;
 import org.sirix.utils.NamePageHash;
 
 import com.google.common.base.Optional;
@@ -467,7 +467,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				if (key != Constants.NULL_ID
 						&& (getUberPage().getRevision()
 								% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0)
-						&& mPageRtx.mSession.mResourceConfig.mRevisionKind != Revisioning.FULL) {
+						&& mPageRtx.mSession.mResourceConfig.mRevisionKind != Versioning.FULL) {
 					/*
 					 * Write the whole indirect page tree if it's a full dump, otherwise
 					 * record pages which have to be emitted might not be adressable (the
@@ -515,7 +515,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		// Revision to commit is not a full dump => return immediately.
 		if (!page.isDirty()
 				&& ((getUberPage().getRevision()
-						% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) || mPageRtx.mSession.mResourceConfig.mRevisionKind == Revisioning.FULL)) {
+						% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) || mPageRtx.mSession.mResourceConfig.mRevisionKind == Versioning.FULL)) {
 			return;
 		}
 
@@ -836,7 +836,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			final List<UnorderedKeyValuePage> revs = mPageRtx
 					.<Long, Record, UnorderedKeyValuePage> getSnapshotPages(
 							recordPageKey, pageKind, Optional.of(reference));
-			final Revisioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
+			final Versioning revisioning = mPageRtx.mSession.mResourceConfig.mRevisionKind;
 			final int mileStoneRevision = mPageRtx.mSession.mResourceConfig.mRevisionsToRestore;
 			return revisioning.combineRecordPagesForModification(revs,
 					mileStoneRevision, mPageRtx, reference);

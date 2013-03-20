@@ -70,7 +70,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-import org.sirix.settings.Revisioning;
+import org.sirix.settings.Versioning;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
@@ -597,7 +597,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			}
 
 			final int mileStoneRevision = mResourceConfig.mRevisionsToRestore;
-			final Revisioning revisioning = mResourceConfig.mRevisionKind;
+			final Versioning revisioning = mResourceConfig.mRevisionKind;
 			final S completePage = revisioning.combineRecordPages(pages,
 					mileStoneRevision, this);
 			return new RecordPageContainer<S>(completePage);

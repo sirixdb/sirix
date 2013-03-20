@@ -44,7 +44,7 @@ import org.sirix.settings.Fixed;
 import com.google.common.base.Objects;
 
 /**
- * <h1>AbsAxis</h1>
+ * <h1>AbstractAxis</h1>
  * 
  * <p>
  * Provide standard Java iterator capability compatible with the new enhanced

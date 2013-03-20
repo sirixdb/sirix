@@ -3,6 +3,7 @@ package org.sirix.index.path;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.BitSet;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -15,8 +16,10 @@ import javax.annotation.Nonnull;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
+import org.brackit.xquery.util.path.PathException;
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
+import org.sirix.api.Axis;
 import org.sirix.api.ItemList;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageReadTrx;
@@ -80,6 +83,8 @@ public final class PathSummaryReader implements NodeReadTrx {
 	/** Mapping of a {@link QNm} to a set of path nodes. */
 	private final Map<QNm, Set<PathNode>> mQNmMapping;
 
+	private final Map<Path<QNm>, Set<Long>> mPathCache;
+
 	/**
 	 * Private constructor.
 	 * 
@@ -90,6 +95,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 */
 	private PathSummaryReader(final @Nonnull PageReadTrx pageReadTrx,
 			final @Nonnull Session session) {
+		mPathCache = new HashMap<>();
 		mPageReadTrx = pageReadTrx;
 		mClosed = false;
 		mSession = session;
@@ -223,6 +229,26 @@ public final class PathSummaryReader implements NodeReadTrx {
 		return matches;
 	}
 
+	/**
+	 * Get a set of PCRs matching the specified collection of paths
+	 * 
+	 * @param expressions
+	 *          the paths to lookup
+	 * @return a set of PCRs matching the specified collection of paths
+	 * @throws SirixException
+	 *           if parsing a path fails
+	 */
+	public Set<Long> getPCRsForPaths(final Collection<Path<QNm>> expressions)
+			throws SirixException {
+		assertNotClosed();
+		final Set<Long> pcrs = new HashSet<>();
+		for (final Path<QNm> path : expressions) {
+			final Set<Long> pcrsForPath = getPCRsForPath(path);
+			pcrs.addAll(pcrsForPath);
+		}
+		return pcrs;
+	}
+
 	@Override
 	public boolean isValueNode() {
 		assertNotClosed();
@@ -252,23 +278,66 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	/**
-	 * Get path class records for the specified path
+	 * Get path class records (PCRs) for the specified path.
 	 * 
 	 * @param path
 	 *          the path for which to get a set of PCRs
 	 * @return set of PCRs belonging to the specified path
+	 * @throws SirixException
+	 *           if anything went wrong
 	 */
-	public Set<Long> getPCRsForPath(final @Nonnull Path<QNm> path) {
-		return null;
+	public Set<Long> getPCRsForPath(final @Nonnull Path<QNm> path)
+			throws SirixException {
+		try {
+			Set<Long> pcrSet = mPathCache.get(path);
+
+			if (pcrSet != null) {
+				return pcrSet;
+			}
+
+			pcrSet = new HashSet<Long>();
+
+			final boolean isAttributePattern = path.isAttribute();
+			final int pathLength = path.getLength();
+
+			final long nodeKey = mCurrentNode.getNodeKey();
+			moveToDocumentRoot();
+			for (final Axis axis = new DescendantAxis(this); axis.hasNext();) {
+				final PathNode node = this.getPathNode();
+
+				if (node == null) {
+					continue;
+				}
+
+				if (node.getLevel() < pathLength) {
+					continue;
+				}
+
+				if (isAttributePattern ^ (node.getKind() == Kind.ATTRIBUTE)) {
+					continue;
+				}
+
+				if (path.matches(node.getPath(this))) {
+					pcrSet.add(node.getNodeKey());
+				}
+			}
+			moveTo(nodeKey);
+			mPathCache.put(path, pcrSet);
+			return pcrSet;
+		} catch (final PathException e) {
+			throw new SirixException(e);
+		}
 	}
 
 	@Override
 	public boolean hasAttributes() {
+		assertNotClosed();
 		return getStructuralNode().hasFirstChild();
 	}
 
 	@Override
 	public boolean hasChildren() {
+		assertNotClosed();
 		return getStructuralNode().getChildCount() > 0;
 	}
 
@@ -392,16 +461,19 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	@Override
 	public int getRevisionNumber() throws SirixIOException {
+		assertNotClosed();
 		return mPageReadTrx.getRevisionNumber();
 	}
 
 	@Override
 	public long getRevisionTimestamp() throws SirixIOException {
+		assertNotClosed();
 		return mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp();
 	}
 
 	@Override
 	public long getMaxNodeKey() throws SirixIOException {
+		assertNotClosed();
 		return mPageReadTrx.getActualRevisionRootPage().getMaxPathNodeKey();
 	}
 
@@ -463,13 +535,13 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public int keyForName(@Nonnull String pName) {
+	public int keyForName(final @Nonnull String pName) {
 		assertNotClosed();
 		return NamePageHash.generateHashForString(pName);
 	}
 
 	@Override
-	public String nameForKey(int key) {
+	public String nameForKey(final int key) {
 		assertNotClosed();
 		if (mCurrentNode instanceof PathNode) {
 			final PathNode node = (PathNode) mCurrentNode;
@@ -480,7 +552,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public byte[] rawNameForKey(int key) {
+	public byte[] rawNameForKey(final int key) {
 		assertNotClosed();
 		if (mCurrentNode instanceof PathNode) {
 			final PathNode node = (PathNode) mCurrentNode;
