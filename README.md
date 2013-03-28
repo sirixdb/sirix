@@ -1,7 +1,7 @@
 #Sirix - a versioned storage system for hierarchical data
 
 ## Introduction
-Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured storage system is much better suited to your needs as it does not require a predefined schema before even knowing the data to store.
+Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML) storage system much better suits your needs as it does'nt require a predefined schema before even knowing the structure of the data which has to be persisted.
 Do you have to store a snapshot of this irregular data? Furthermore questions such as 
 
 - How do we store snapshots of time varying data effectively and efficiently?
@@ -110,6 +110,7 @@ more revisions of a resource (an XML-document imported into the native format in
 * (naturally) implements a form of MVCC and thus readers are never blocked
 * single write-transaction in parallel to N read-transactions on the
 same resource 
+* in-memory- or on-disk-storage
 
 ##GUI
 A screencast is available depicting the SunburstView and the TextView side by side: 
