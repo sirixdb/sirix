@@ -1,7 +1,7 @@
 #Sirix - a versioned storage system for hierarchical data
 
 ## Introduction
-Do you have to handle irregular data without known the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured storage system is much better which does not require to predefine a schema before even knowing the data.
+Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured storage system is much better which does not require to predefine a schema before even knowing the data.
 Do you have to store a snapshot of this irregular data? Questions such as 
 
 - How do we store a snapshot of time varying data effectively and efficiently?
