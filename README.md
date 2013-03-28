@@ -1,18 +1,18 @@
 #Sirix - a versioned storage system for hierarchical data
 
 ## Introduction
-Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured storage system is much better which does not require to predefine a schema before even knowing the data.
-Do you have to store a snapshot of this irregular data? Questions such as 
+Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured storage system is much better suited to your needs as it does not require a predefined schema before even knowing the data to store.
+Do you have to store a snapshot of this irregular data? Furthermore questions such as 
 
-- How do we store a snapshot of time varying data effectively and efficiently?
-- How do we know which data has been added since a specified revision?
+- How do we store snapshots of time varying data effectively and efficiently?
+- How do we know which data has been modified ever since a specified snapshot/revision?
 - How do we store the differences between two XML documents? Is the storage system able to determine the differences itself?
 - Which item has been sold the most during the last month/year?
 - Which item has the most sold copies?
 - Which items have been added?
 - Which items have been deleted?
 
-Sirix might be a good fit if you have to answer any of these questions.
+Sirix might be a good fit if you have to answer any of these questions as it stores data efficiently and effectively. Furthermore it handles the import of differences between two XML-documents (soon JSON as well) as well as allows to navigate and query the hierarchical data not only in space but also in time.
 
 ## Documentation
 We are currently working on the documentation. You come across first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. We are currently working on an example-project (the sirix-examples bundle).
