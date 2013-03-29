@@ -14,6 +14,9 @@ Do you have to store a snapshot of this irregular data? Furthermore questions su
 
 Sirix might be a good fit if you have to answer any of these questions as it stores data efficiently and effectively. Furthermore it handles the import of differences between two XML-documents (soon JSON as well) as well as allows to navigate and query the hierarchical data not only in space but also in time.
 
+In addition Sirix provides a very powerful axis-API and exposes each XPath-axis as well as all temporal axis (to navigate in time), a LevelOrderAxis, a PostorderAxis and a special DescendantVisitorAxis which is able to use a visitor, skip whole subtrees from traversal (might also depend on the depth), terminate the processing, skip the traversal of sibling nodes. Furthermore all filters for instance to filter specific nodes, QNames, text-values and so on are exposed. In contrast to other XML database systems we also support the movement of whole subtrees, without having to delete and reinsert the subtree (which would also change unique node-IDs).
+Furthermore it is easy to store other record-types as the built-in (XDM) types.
+
 ## Documentation
 We are currently working on the documentation. You come across first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. We are currently working on an example-project (the sirix-examples bundle).
 
