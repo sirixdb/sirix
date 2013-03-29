@@ -15,17 +15,30 @@ import org.sirix.xquery.compiler.translator.SirixTranslator;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBStore;
 
-public class SirixCompileChain extends CompileChain {
+/**
+ * Compile chain.
+ * 
+ * @author Johannes Lichtenberger
+ * 
+ */
+public final class SirixCompileChain extends CompileChain {
 	public static final boolean OPTIMIZE = Cfg.asBool(
 			"org.sirix.xquery.optimize.multichild", false);
-	
+
 	static {
-		// define function namespaces and functions in these namespaces		
+		// define function namespaces and functions in these namespaces
 		SDBFun.register();
 	}
 
+	/** The Sirix {@link DBStore}. */
 	private final DBStore mStore;
 
+	/**
+	 * Constructor.
+	 * 
+	 * @param store
+	 *          the Sirix {@link DBStore}
+	 */
 	public SirixCompileChain(final @Nonnull DBStore store) {
 		mStore = store;
 	}

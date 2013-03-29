@@ -47,8 +47,8 @@ import com.google.common.collect.ImmutableSet.Builder;
  * @author Johannes Lichtenberger
  * 
  */
-public class SirixTranslator extends TopDownTranslator {
-
+public final class SirixTranslator extends TopDownTranslator {
+	
 	/** Optimize accessors or not. */
 	public static final boolean OPTIMIZE = Cfg.asBool(
 			"org.sirix.xquery.optimize.accessor", true);

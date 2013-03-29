@@ -22,7 +22,10 @@ import com.google.common.base.Objects;
  */
 public class TemporalSirixStream implements Stream<AbstractTemporalNode<DBNode>> {
 
+	/** Temporal axis. */
 	private final AbstractTemporalAxis mAxis;
+	
+	/** The {@link DBCollection} reference. */
 	private DBCollection mCollection;
 
 	/**

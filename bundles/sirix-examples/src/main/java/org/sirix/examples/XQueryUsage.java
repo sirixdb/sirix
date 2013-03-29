@@ -13,6 +13,7 @@ import org.brackit.xquery.XQuery;
 import org.sirix.access.Databases;
 import org.sirix.api.Database;
 import org.sirix.exception.SirixException;
+import org.sirix.xquery.SirixCompileChain;
 import org.sirix.xquery.node.DBStore;
 
 /**
@@ -88,7 +89,7 @@ public final class XQueryUsage {
 			System.out.println("Query loaded document:");
 			final String xq2 = "doc('mydoc.xml')/nachrichten/nachricht[betreff/text()='sommer' or betreff/text()='strand' or text/text()='sommer' or text/text()='strand']";
 			System.out.println(xq2);
-			XQuery query = new XQuery(xq2);
+			XQuery query = new XQuery(new SirixCompileChain(store), xq2);
 			query.prettyPrint().serialize(ctx2, System.out);
 		}
 
@@ -216,11 +217,11 @@ public final class XQueryUsage {
 			System.out.println("Query loaded document:");
 			final String xq3 = "doc('mydoc.xml', 1)/log/all-time::*/*";
 			System.out.println(xq3);
-			XQuery q = new XQuery(xq3);
+			XQuery q = new XQuery(new SirixCompileChain(store), xq3);
 			q.prettyPrint();
 			q.serialize(ctx3, System.out);
 
-			// Serialize first version to XML.
+			// Serialize first version to XML ($user.home$/sirix-data/output-revision-1.xml).
 			final QueryContext ctx4 = new QueryContext(store);
 			final String xq4 = "bit:serialize(doc('mydoc.xml', 1))";
 			q = new XQuery(xq4);
@@ -231,7 +232,7 @@ public final class XQueryUsage {
 				q.prettyPrint().serialize(ctx4, out);
 			}
 			System.out.println();
-			// Serialize second version to XML.
+			// Serialize second version to XML ($user.home$/sirix-data/output-revision-1.xml).
 			final QueryContext ctx5 = new QueryContext(store);
 			final String xq5 = "bit:serialize(doc('mydoc.xml', 2))";
 			q = new XQuery(xq5);

@@ -32,7 +32,7 @@
 	<artifactId>sirix-xquery</artifactId>
 	<packaging>jar</packaging>
 	<name>sirix-xquery</name>
-	<version>0.1.0</version>
+	<version>0.1.2-SNAPSHOT</version>
 	<description>Sirix/Brackit binding.</description>
 	<repositories>
 		<repository>

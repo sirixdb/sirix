@@ -406,19 +406,19 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		}
 		return retVal;
 	}
-	
+
 	@Override
 	public boolean isDocumentRoot() {
 		moveRtx();
-		return mRtx.getParentKey() == Fixed.NULL_NODE_KEY
-				.getStandardProperty() ? true : false;
+		return mRtx.getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty() ? true
+				: false;
 	}
 
 	@Override
 	public boolean isRoot() {
 		moveRtx();
-		return mRtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY
-				.getStandardProperty() ? true : false;
+		return mRtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty() ? true
+				: false;
 	}
 
 	@Override
@@ -1465,7 +1465,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	public Stream<? extends Node<?>> performStep(
 			final org.brackit.xquery.xdm.Axis axis, final NodeType test)
 			throws DocumentException {
-		// TODO
+		
 		return null;
 	}
 
@@ -1548,56 +1548,143 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 
 	@Override
 	public boolean isNextOf(TemporalNode<?> other) {
-		// TODO Auto-generated method stub
+		moveRtx();
+		if (other instanceof DBNode) {
+			final DBNode otherNode = (DBNode) other;
+			try {
+				return otherNode.getTrx().getRevisionNumber() - 1 == this.getTrx()
+						.getRevisionNumber();
+			} catch (final SirixIOException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 		return false;
 	}
 
 	@Override
 	public boolean isPreviousOf(TemporalNode<?> other) {
-		// TODO Auto-generated method stub
+		moveRtx();
+		if (other instanceof DBNode) {
+			final DBNode otherNode = (DBNode) other;
+			try {
+				return otherNode.getTrx().getRevisionNumber() + 1 == this.getTrx()
+						.getRevisionNumber();
+			} catch (final SirixIOException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 		return false;
 	}
 
 	@Override
 	public boolean isFutureOf(TemporalNode<?> other) {
-		// TODO Auto-generated method stub
+		moveRtx();
+		if (other instanceof DBNode) {
+			final DBNode otherNode = (DBNode) other;
+			try {
+				return otherNode.getTrx().getRevisionNumber() > this.getTrx()
+						.getRevisionNumber();
+			} catch (final SirixIOException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 		return false;
 	}
 
 	@Override
 	public boolean isFutureOrSelfOf(TemporalNode<?> other) {
-		// TODO Auto-generated method stub
+		moveRtx();
+		if (other instanceof DBNode) {
+			final DBNode otherNode = (DBNode) other;
+			try {
+				return otherNode.getTrx().getRevisionNumber() - 1 >= this.getTrx()
+						.getRevisionNumber();
+			} catch (final SirixIOException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 		return false;
 	}
 
 	@Override
 	public boolean isEarlierOf(TemporalNode<?> other) {
-		// TODO Auto-generated method stub
+		moveRtx();
+		if (other instanceof DBNode) {
+			final DBNode otherNode = (DBNode) other;
+			try {
+				return otherNode.getTrx().getRevisionNumber() < this.getTrx()
+						.getRevisionNumber();
+			} catch (final SirixIOException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 		return false;
 	}
 
 	@Override
 	public boolean isEarlierOrSelfOf(TemporalNode<?> other) {
-		// TODO Auto-generated method stub
+		moveRtx();
+		if (other instanceof DBNode) {
+			final DBNode otherNode = (DBNode) other;
+			try {
+				return otherNode.getTrx().getRevisionNumber() <= this.getTrx()
+						.getRevisionNumber();
+			} catch (final SirixIOException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 		return false;
 	}
 
 	@Override
 	public boolean isLastOf(TemporalNode<?> other) {
-		// TODO Auto-generated method stub
+		moveRtx();
+		if (other instanceof DBNode) {
+			final DBNode otherNode = (DBNode) other;
+			try {
+				final NodeReadTrx otherTrx = otherNode.getTrx();
+				return otherTrx.getSession().getLastRevisionNumber() == otherTrx
+						.getRevisionNumber();
+			} catch (final SirixIOException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 		return false;
 	}
 
 	@Override
 	public boolean isFirstOf(TemporalNode<?> other) {
-		// TODO Auto-generated method stub
+		moveRtx();
+		if (other instanceof DBNode) {
+			final DBNode otherNode = (DBNode) other;
+			try {
+				final NodeReadTrx otherTrx = otherNode.getTrx();
+				// Revision 0 is just the bootstrap revision and not accessed over here.
+				return otherTrx.getRevisionNumber() == 1;
+			} catch (final SirixIOException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
+		}
 		return false;
 	}
 
+	/**
+	 * Get the path class record (PCR).
+	 * 
+	 * @return the path class record
+	 * 
+	 * @throws SirixException
+	 */
 	public long getPCR() throws SirixException {
 		return mRtx.getPathNodeKey();
 	}
 
+	/**
+	 * Get the DeweyID associated with this node (if any).
+	 * 
+	 * @return an optional DeweyID (might be absent, depending on the
+	 *         {@link DBStore} configuration)
+	 */
 	public Optional<SirixDeweyID> getDeweyID() {
 		return mRtx.getDeweyID();
 	}
