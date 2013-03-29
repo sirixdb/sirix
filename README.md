@@ -46,6 +46,14 @@ Core project:
 &lt;/dependency&gt;
 </code></pre>
 
+Examples:
+<pre><code>&lt;dependency&gt;
+  &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
+  &lt;artifactId&gt;sirix-examples&lt;/artifactId&gt;
+  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+
 JAX-RX interface (RESTful API):
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
