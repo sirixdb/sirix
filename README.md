@@ -32,7 +32,8 @@ In addition Sirix provides a very powerful axis-API and exposes each XPath-axis 
 Furthermore it is easy to store other record-types as the built-in (XDM) types.
 
 ## Documentation
-We are currently working on the documentation. You come across first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. We are currently working on an example-project (the sirix-examples bundle).
+We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
+Please also have a look at and play with our sirix-example bundle which is available via maven.
 
 ##Mailinglist
 Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-users to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
