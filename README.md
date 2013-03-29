@@ -12,10 +12,26 @@ Do you have to store a snapshot of this irregular data? Furthermore questions su
 - Which items have been added?
 - Which items have been deleted?
 
-Sirix might be a good fit if you have to answer any of these questions as it stores data efficiently and effectively. Furthermore Sirix handles the import of differences between a Sirix-resource and a new version thereof in the form of an XML-document (soon JSON as well). Thus, an algorithm takes care of determining the differences and transforms the stored resource into a new snapshot/revision/version, which is the same as the as the new XML document once the newest revision is serialized (despite whitespace). Thus we also support the import of a series of snapshots of temporal data, whereas the detection of the differences is completely up to Sirix (and does not require to add specific unique node-IDs for matches). Furthermore you are encouraged to navigate and query a Sirix resource not only in space but also in time.
+Sirix might be a good fit if you have to answer any of these questions as it stores data efficiently and effectively. 
+Furthermore Sirix handles the import of differences between a Sirix-resource and a new version thereof in the form of 
+an XML-document (soon JSON as well). Thus, an algorithm takes care of determining the differences and transforms 
+the stored resource into a new snapshot/revision/version, which is the same as the as the new XML document once 
+the newest revision is serialized (despite whitespace). Despite this, we also support the import of a series of snapshots of
+temporal data, whereas the detection of the differences is completely up to Sirix. Specifying unique node-IDs to match pairs
+of nodes is not required. 
+
+Once several (for instance at the very minimum two) versions of resources have been stored in Sirix it's possible to determine
+the differences of subtrees or the whole resource/tree-structure.
+
+Furthermore you are encouraged to navigate and query a Sirix resource not only in space but also in time.
+
+Opening a specific version is possible with XQuery, the Java-API or a RESTful Web-Service. Serializing either a single version or a bunch of versions is also supported. Despite, future work includes the specification
+of a delta-format.
 
 In addition Sirix provides a very powerful axis-API and exposes each XPath-axis as well as all temporal axis (to navigate in time), a LevelOrderAxis, a PostorderAxis and a special DescendantVisitorAxis which is able to use a visitor, skip whole subtrees from traversal (might also depend on the depth), terminate the processing, skip the traversal of sibling nodes. Furthermore all filters for instance to filter specific nodes, QNames, text-values and so on are exposed. In contrast to other XML database systems we also support the movement of whole subtrees, without having to delete and reinsert the subtree (which would also change unique node-IDs).
 Furthermore it is easy to store other record-types as the built-in (XDM) types.
+
+Futures
 
 ## Documentation
 We are currently working on the documentation. You come across first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. We are currently working on an example-project (the sirix-examples bundle).
@@ -84,37 +100,25 @@ Saxon interface (use Saxon to query data):
 
 Other modules are currently not available (namely the GUI, the distributed package) due to dependencies to processing.org which isn't available from a maven repository and other dependencies.
 
-## Technical details
-
-The architecture supports the well known ACID-properties (durability currently isn't guaranted if the transaction crashes) and Snapshot Isolation through MVCC which in turn supports N-reading transactions in parallel to currently 1-write transaction without any locking. Supporting N-write transactions is in the works as well as the current work on indexes to support a Brackit binding which in turn supports XQuery and the XQuery Update Facility. The CoW-approach used for providing Snapshot Isolation through MVCC is especially well suited for flash-disks (sequential writes and random reads). We support several well known versioning strategies (incremental, differential, full).
-
-The GUI provides interactive visualizations of the differences between either 2 or more versions of a resource in Sirix. Please have a look into my master-thesis for screenshots.
-
-Some examples of the Java-API and the Brackit binding to use XQuery and the XQuery Update Facility (with temporal extensions) are explained in the wiki. Stay tuned for a maven bundle with examples and more elaborate examples.
-
-Sirix will be nothing without interested developers (contributors). Any kind of contribution is highly welcome. Once a few (regular) contributors are found, we will create an organization for Sirix on github.
-
-Note that it is a "fork" of Treetank (http://treetank.org / http://github.com/disy/treetank) which goes back to its roots and specializes on handling tree-structured data.
+##Technical details and Features
 
 [![Build Status](https://travis-ci.org/JohannesLichtenberger/sirix.png)](https://travis-ci.org/JohannesLichtenberger/sirix)
 
-##Features
+The architecture supports the well known ACID-properties (durability currently isn't guaranted if the transaction crashes) and Snapshot Isolation through MVCC which in turn supports N-reading transactions in parallel to currently 1-write transaction without any locking. Supporting N-write transactions is in the works as well as the current work on indexes to support a Brackit binding which in turn supports XQuery and the XQuery Update Facility. The CoW-approach used for providing Snapshot Isolation through MVCC is especially well suited for flash-disks (sequential writes and random reads). We support several well known versioning strategies (incremental, differential, full).
 
-The main features are:
-* it provides a diff-algorithm to import differences between two
-XML-documents (I've also imported a small set of sorted wikipedia
-articles by their revision-timestamps and a predefined time interval
+The main features in a nutshell are:
+* import of differences between a resource stored in Sirix and a new version thereof in the form of an XML-document, another Sirix resource or in the future a JSON-document
+(for instance we imported two versions of an AST, a small set of sorted Wikipedia articles by revision-timestamps and a predefined time interval
 which is used to decide when to store a new revision)
-* an ID-based diff-algorithm which detects differences between two revisions/versions of a single resource (for instance used for
+* an ID-based diff-algorithm which detects differences between two revisions/versions of a single resource in Sirix (for instance used by
 interactive visualizations thereof)
-* several well known versioning strategies which might adapt themselves
-in the future according to different workloads
-=> thus any revision can be simply serialized, queried...
-* supports indexes (whereas I'm currently working on more sophisticated typed, user defined or "learned" CoW B+-indexes -- also needs to be integrated into the Brackit-binding)
+* several well known versioning strategies which might adapt themselves in the future according to different workloads 
+=> thus any revision can simply be serialized, queried...
+* supports indexes (whereas we are currently working on more sophisticated typed, user defined or "learned" CoW B+-indexes -- also needs to be integrated into the Brackit-binding)
 * supports XQuery (through Brackit(.org))
 * supports the XQuery Update Facility (through Brackit(.org))
 * supports temporal axis as for instance all-time::, past::, past-or-self::, future::, future-or-self::, first::, last::, next::, previous:: as well as extended functions, as for instance doc(xs:string, xs:int) to specify a revision to restore with the second argument.
-* Path rewrite optimizations are added to support the Brackit-binding
+* Path rewrite optimizations for the descendant::- and descendant-or-self:: axis to support the Brackit-binding
 * a GUI incorporates several views which are
 visualizing either a single revision or the differences between two or
 more revisions of a resource (an XML-document imported into the native format in Sirix)
@@ -132,24 +136,9 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 ![Wikipedia / SunburstView comparison mode / TextView comparison mode](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/wikipedia-scrolled.png "Wikipedia / SunburstView comparison mode / TextView comparison mode")
 ![Small Multiple Displays (incremental variant)](https://github.com/JohannesLichtenberger/sirix/raw/master/bundles/sirix-gui/src/main/resources/images/wikipedia-incremental.png "Small Multiple Displays (incremental variant)")
 
-
-##API Examples
-(Currently) a small set of API-examples is provided in the wiki: [Simple Usage](https://github.com/JohannesLichtenberger/sirix/wiki/Simple-usage)
-
-##Content
-
-* README:					this readme file
-* LICENSE:	 			license file
-* bundles					all available bundles
-* pom.xml:				Simple pom (yes we do use Maven)
-
 ##Further information
 
-As Sirix is a relatively young fork of Treetank documentation besides the one in the wiki thus is currently only available from this location.
-
-The documentation so far is accessible under http://treetank.org (pointing to http://disy.github.com/treetank/).
-
-The framework was presented at various conferences and acted as base for multiple publications and reports:
+Sirix is a relatively young fork of Treetank. The framework (Treetank) was presented at various conferences and acted as base for multiple publications and reports:
 
 * A legal and technical perspective on secure cloud Storage; DFN Forum'12: [PDF](http://nbn-resolving.de/urn:nbn:de:bsz:352-192389)
 * A Secure Cloud Gateway based upon XML and Web Services; ECOWS'11, PhD Symposium: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-154112)
@@ -163,7 +152,6 @@ The framework was presented at various conferences and acted as base for multipl
 ##License
 
 This work is released in the public domain under the BSD 3-clause license
-
 
 ##Involved People
 
