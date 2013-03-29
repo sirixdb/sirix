@@ -1,4 +1,4 @@
-#Sirix - a versioned storage system for hierarchical data
+#Sirix - a versioned XML storage system
 
 ## Introduction
 Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML) storage system much better suits your needs as it does'nt require a predefined schema before even knowing the structure of the data which has to be persisted.
@@ -12,7 +12,7 @@ Do you have to store a snapshot of this irregular data? Furthermore questions su
 - Which items have been added?
 - Which items have been deleted?
 
-Sirix might be a good fit if you have to answer any of these questions as it stores data efficiently and effectively. Furthermore it handles the import of differences between two XML-documents (soon JSON as well) as well as allows to navigate and query the hierarchical data not only in space but also in time.
+Sirix might be a good fit if you have to answer any of these questions as it stores data efficiently and effectively. Furthermore Sirix handles the import of differences between a Sirix-resource and a new version in the form of an XML-documents (soon JSON as well). Thus, an algorithm takes care of determining the differences and transforms the stored resource into a new snapshot/revision/version, which is the same as the as the new XML document once the newest revision is serialized. Furthermore you are encouraged to navigate and query a Sirix resource not only in space but also in time.
 
 In addition Sirix provides a very powerful axis-API and exposes each XPath-axis as well as all temporal axis (to navigate in time), a LevelOrderAxis, a PostorderAxis and a special DescendantVisitorAxis which is able to use a visitor, skip whole subtrees from traversal (might also depend on the depth), terminate the processing, skip the traversal of sibling nodes. Furthermore all filters for instance to filter specific nodes, QNames, text-values and so on are exposed. In contrast to other XML database systems we also support the movement of whole subtrees, without having to delete and reinsert the subtree (which would also change unique node-IDs).
 Furthermore it is easy to store other record-types as the built-in (XDM) types.
