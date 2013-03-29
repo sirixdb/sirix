@@ -321,7 +321,7 @@ public class DatabaseRepresentation {
 			database = Databases.openDatabase(dbConf.getFile());
 			// Shredding the database to the file as XML
 			final ResourceConfiguration resConf = new ResourceConfiguration.Builder(
-					resource, dbConf).setRevisionsToRestore(1).build();
+					resource, dbConf).revisionsToRestore(1).build();
 			if (database.createResource(resConf)) {
 				session = database
 						.getSession(new SessionConfiguration.Builder(resource).build());
@@ -612,9 +612,9 @@ public class DatabaseRepresentation {
 			final XMLSerializerBuilder builder;
 			if (revision == null) builder = new XMLSerializerBuilder(session, output);
 			else builder = new XMLSerializerBuilder(session, output, revision);
-			builder.isRESTful(nodeid);
-			builder.setID(nodeid);
-			builder.setDeclaration(false);
+			if (nodeid) {
+				builder.emitRESTful().emitIDs();
+			}
 			final XMLSerializer serializer = builder.build();
 			serializer.call();
 		} catch (final Exception exce) {

@@ -70,7 +70,7 @@ public final class XMLSerializerProperties {
 	public static final Object[] S_ID = { "serialize-id", NO };
 
 	/** Serialization parameter: yes/no. */
-	public static final Object[] S_INDENT = { "indent", YES };
+	public static final Object[] S_INDENT = { "indent", NO };
 
 	/** Specific serialization parameter: number of spaces to indent. */
 	public static final Object[] S_INDENT_SPACES = { "indent-spaces", 2 };
@@ -79,7 +79,7 @@ public final class XMLSerializerProperties {
 	public static final Object[] S_REST = { "serialize-rest", NO };
 
 	/** Serialize XML declaration: yes/no. */
-	public static final Object[] S_XMLDECL = { "xmldecl", YES };
+	public static final Object[] S_XMLDECL = { "xmldecl", NO };
 
 	/** Property file. */
 	private String mFilePath;

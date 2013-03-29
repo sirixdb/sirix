@@ -45,8 +45,7 @@ import org.sirix.page.interfaces.KeyValuePage;
 import com.google.common.base.Optional;
 
 /**
- * Enum for providing different revision algorithms. Each kind must implement
- * one method to reconstruct key/value pages for modification and for reading.
+ * Different versioning algorithms.
  * 
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
@@ -388,9 +387,9 @@ public enum Versioning {
 			}
 
 			boolean filledPage = false;
-			final int until = pages.size() == revToRestore + 1 ? revToRestore : pages
-					.size();
-			for (int i = 0; i < until; i++) {
+//			final int until = pages.size() == revToRestore + 1 ? revToRestore : pages
+//					.size();
+			for (int i = 0; i < pages.size(); i++) {
 				final T page = pages.get(i);
 				assert page.getPageKey() == recordPageKey;
 				if (filledPage) {
@@ -437,12 +436,9 @@ public enum Versioning {
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 
 			boolean filledPage = false;
-			for (int i = 0; i < pages.size(); i++) {
+			for (int i = 0; i < pages.size() && !filledPage; i++) {
 				final T page = pages.get(i);
 				assert page.getPageKey() == recordPageKey;
-				if (filledPage) {
-					break;
-				}
 
 				for (final Entry<K, byte[]> entry : page.slotEntrySet()) {
 					// Caching the complete page.
@@ -491,7 +487,7 @@ public enum Versioning {
 		public int[] getRevisionRoots(final @Nonnegative int previousRevision,
 				final @Nonnegative int revsToRestore) {
 			final List<Integer> retVal = new ArrayList<>(revsToRestore);
-			for (int i = previousRevision; (i >= previousRevision - revsToRestore)
+			for (int i = previousRevision, until = previousRevision - revsToRestore; i >= until
 					&& i >= 0; i--) {
 				retVal.add(i);
 			}

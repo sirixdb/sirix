@@ -75,11 +75,11 @@ public class XMLSerializerPropertiesTest {
 			} else if (key.equals(S_REST[0])) {
 				assertEquals(false, map.get(S_REST[0]));
 			} else if (key.equals(S_INDENT[0])) {
-				assertEquals(true, map.get(S_INDENT[0]));
+				assertEquals(false, map.get(S_INDENT[0]));
 			} else if (key.equals(S_INDENT_SPACES[0])) {
 				assertSame(2, map.get(S_INDENT_SPACES[0]));
 			} else if (key.equals(S_XMLDECL[0])) {
-				assertEquals(true, map.get(S_XMLDECL[0]));
+				assertEquals(false, map.get(S_XMLDECL[0]));
 			}
 		}
 	}

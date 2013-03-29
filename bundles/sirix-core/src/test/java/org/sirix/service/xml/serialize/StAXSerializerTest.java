@@ -80,10 +80,8 @@ public class StAXSerializerTest {
 	public void testStAXSerializer() {
 		try {
 			final ByteArrayOutputStream out = new ByteArrayOutputStream();
-			final XMLSerializerBuilder builder = new XMLSerializerBuilder(
-					holder.getSession(), out);
-			builder.setDeclaration(true);
-			final XMLSerializer xmlSerializer = builder.build();
+			final XMLSerializer xmlSerializer = new XMLSerializerBuilder(
+					holder.getSession(), out).emitXMLDeclaration().build();
 			xmlSerializer.call();
 
 			final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();

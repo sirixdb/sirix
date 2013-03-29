@@ -146,8 +146,6 @@ public final class FMSETest extends XMLTestCase {
 		test(XMLALLFIFTH);
 	}
 
-	// Throws a BufferUnderflowException while serializer tries to get a session
-	// instance?
 	@Test
 	public void testAllSixth() throws Exception {
 		test(XMLALLSIXTH);

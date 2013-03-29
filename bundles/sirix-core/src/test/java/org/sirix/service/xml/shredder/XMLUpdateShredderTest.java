@@ -296,7 +296,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 
 				final OutputStream out = new ByteArrayOutputStream();
 				final XMLSerializer serializer = new XMLSerializerBuilder(session, out)
-						.doIndend(true).build();
+						.prettyPrint().build();
 				serializer.call();
 				final StringBuilder sBuilder = TestHelper.readFile(
 						file.getAbsoluteFile(), false);

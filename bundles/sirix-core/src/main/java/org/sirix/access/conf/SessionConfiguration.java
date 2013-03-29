@@ -68,7 +68,7 @@ public final class SessionConfiguration {
 	public static final String DEFAULT_USER = "ALL";
 
 	/** Determines if logs should be dumped to persistent storage at first during a commit or not. */
-	public static final boolean DUMP_LOGS = true;
+	public static final boolean DUMP_LOGS = false;
 	// END STATIC STANDARD FIELDS
 
 	// MEMBERS FOR FLEXIBLE FIELDS
@@ -207,7 +207,7 @@ public final class SessionConfiguration {
 		 *          new value for field
 		 * @return reference to the builder object
 		 */
-		public Builder setWtxAllowed(@Nonnegative final int wtxAllowed) {
+		public Builder writeTrxAllowed(@Nonnegative final int wtxAllowed) {
 			checkArgument(wtxAllowed < 1, "Value must be > 0!");
 			mWtxAllowed = wtxAllowed;
 			return this;
@@ -220,20 +220,20 @@ public final class SessionConfiguration {
 		 *          how many concurrent reading transactions are allowed
 		 * @return reference to the builder object
 		 */
-		public Builder setRtxAllowed(final @Nonnegative int rtxAllowed) {
+		public Builder readTrxAllowed(final @Nonnegative int rtxAllowed) {
 			checkArgument(rtxAllowed < 1, "Value must be > 0!");
 			mRtxAllowed = rtxAllowed;
 			return this;
 		}
 
 		/**
-		 * Setter for field mCommitThreshold.
+		 * Commit threshold.
 		 * 
 		 * @param commitThreshold
 		 *          new value for field
 		 * @return reference to the builder object
 		 */
-		public Builder setCommitThreshold(final @Nonnegative int commitThreshold) {
+		public Builder commitThreshold(final @Nonnegative int commitThreshold) {
 			checkArgument(commitThreshold < 100, "Value must be > 100!");
 			mCommitThreshold = commitThreshold;
 			return this;
@@ -246,7 +246,7 @@ public final class SessionConfiguration {
 		 *          the user accessing the resource
 		 * @return reference to the builder object
 		 */
-		public Builder setUser(final @Nonnull String user) {
+		public Builder user(final @Nonnull String user) {
 			mUser = checkNotNull(user);
 			return this;
 		}

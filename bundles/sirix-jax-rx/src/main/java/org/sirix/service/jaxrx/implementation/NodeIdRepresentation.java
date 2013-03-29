@@ -447,9 +447,9 @@ public class NodeIdRepresentation {
 					final XMLSerializerProperties props = new XMLSerializerProperties();
 					final XMLSerializerBuilder builder = new XMLSerializerBuilder(
 							session, nodeId, output, props);
-					builder.isRESTful(doNodeId);
-					builder.setID(doNodeId);
-					builder.setDeclaration(false);
+					if (doNodeId) {
+						builder.emitRESTful().emitIDs();
+					}
 					final XMLSerializer serializer = builder.build();
 					serializer.call();
 					output.write(ENDRESULT);
@@ -457,9 +457,9 @@ public class NodeIdRepresentation {
 					final XMLSerializerProperties props = new XMLSerializerProperties();
 					final XMLSerializerBuilder builder = new XMLSerializerBuilder(
 							session, nodeId, output, props);
-					builder.isRESTful(doNodeId);
-					builder.setID(doNodeId);
-					builder.setDeclaration(false);
+					if (doNodeId) {
+						builder.emitRESTful().emitIDs();
+					}
 					final XMLSerializer serializer = builder.build();
 					serializer.call();
 
@@ -562,10 +562,9 @@ public class NodeIdRepresentation {
 						final XMLSerializerProperties props = new XMLSerializerProperties();
 						final XMLSerializerBuilder builder = new XMLSerializerBuilder(
 								session, rtx.getNodeKey(), output, props);
-						builder.isRESTful(doNodeId);
-						builder.setID(doNodeId);
-						builder.setDeclaration(false);
-						builder.doIndend(false);
+						if (doNodeId) {
+							builder.emitRESTful().emitIDs();
+						}
 						final XMLSerializer serializer = builder.build();
 						serializer.call();
 
@@ -574,10 +573,9 @@ public class NodeIdRepresentation {
 						final XMLSerializerProperties props = new XMLSerializerProperties();
 						final XMLSerializerBuilder builder = new XMLSerializerBuilder(
 								session, rtx.getNodeKey(), output, props);
-						builder.isRESTful(doNodeId);
-						builder.setID(doNodeId);
-						builder.setDeclaration(false);
-						builder.doIndend(false);
+						if (doNodeId) {
+							builder.emitRESTful().emitIDs();
+						}
 						final XMLSerializer serializer = builder.build();
 						serializer.call();
 					}

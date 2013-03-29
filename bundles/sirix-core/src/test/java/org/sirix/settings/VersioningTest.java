@@ -70,7 +70,7 @@ public class VersioningTest {
 	public void testIncremental() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Versioning.INCREMENTAL).setRevisionsToRestore(3)
+				.versioningApproach(Versioning.INCREMENTAL).revisionsToRestore(3)
 				.build());
 		test();
 	}
@@ -79,7 +79,7 @@ public class VersioningTest {
 	public void testIncremental1() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Versioning.INCREMENTAL).setRevisionsToRestore(3)
+				.versioningApproach(Versioning.INCREMENTAL).revisionsToRestore(3)
 				.build());
 		test1();
 	}
@@ -88,7 +88,7 @@ public class VersioningTest {
 	public void testDifferential() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Versioning.DIFFERENTIAL).setRevisionsToRestore(3)
+				.versioningApproach(Versioning.DIFFERENTIAL).revisionsToRestore(3)
 				.build());
 		test();
 	}
@@ -97,7 +97,7 @@ public class VersioningTest {
 	public void testDifferential1() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Versioning.DIFFERENTIAL).setRevisionsToRestore(3)
+				.versioningApproach(Versioning.DIFFERENTIAL).revisionsToRestore(3)
 				.build());
 		test1();
 	}
@@ -106,7 +106,7 @@ public class VersioningTest {
 	public void testFull() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Versioning.FULL).setRevisionsToRestore(3).build());
+				.versioningApproach(Versioning.FULL).revisionsToRestore(3).build());
 		test();
 	}
 
@@ -114,15 +114,16 @@ public class VersioningTest {
 	public void testFull1() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.setRevisionKind(Versioning.FULL).setRevisionsToRestore(3).build());
+				.versioningApproach(Versioning.FULL).revisionsToRestore(3).build());
 		test1();
 	}
-	
+
 //	@Test
 //	public void testSlidingSnapshot() throws SirixException {
 //		mDatabase.createResource(new ResourceConfiguration.Builder(
 //				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-//				.setRevisionKind(Versioning.SLIDING_SNAPSHOT).setRevisionsToRestore(3).build());
+//				.versioningApproach(Versioning.SLIDING_SNAPSHOT).revisionsToRestore(3)
+//				.build());
 //		test();
 //	}
 //
@@ -130,7 +131,8 @@ public class VersioningTest {
 //	public void testSlidingSnapshot1() throws SirixException {
 //		mDatabase.createResource(new ResourceConfiguration.Builder(
 //				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-//				.setRevisionKind(Versioning.SLIDING_SNAPSHOT).setRevisionsToRestore(3).build());
+//				.versioningApproach(Versioning.SLIDING_SNAPSHOT).revisionsToRestore(3)
+//				.build());
 //		test1();
 //	}
 
@@ -193,9 +195,9 @@ public class VersioningTest {
 			wtx.close();
 			wtx = session.beginNodeWriteTrx();
 			setBaaaz(wtx);
-//			wtx.commit();
-//			wtx.close();
-//			wtx = session.beginNodeWriteTrx();
+			// wtx.commit();
+			// wtx.close();
+			// wtx = session.beginNodeWriteTrx();
 			setFooBar(wtx);
 			setFoooo(wtx);
 			wtx.moveTo(Constants.NDP_NODE_COUNT - 1);

@@ -61,7 +61,7 @@ public final class IOTestHelper {
 			throws SirixException {
 		final ResourceConfiguration.Builder resourceConfig = new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, PATHS.PATH1.getConfig());
-		resourceConfig.setStorageType(type);
+		resourceConfig.storageType(type);
 		return resourceConfig.build();
 	}
 

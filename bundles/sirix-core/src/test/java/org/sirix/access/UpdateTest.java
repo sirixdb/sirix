@@ -52,7 +52,6 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixUsageException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
-import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.DocumentCreater;
@@ -70,7 +69,7 @@ public class UpdateTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
-		holder = Holder.generateSession();
+		holder = Holder.generateDeweyIDSession();
 	}
 
 	@After

@@ -480,10 +480,10 @@ public final class ResourceConfiguration {
 			// Builder.
 			final ResourceConfiguration.Builder builder = new ResourceConfiguration.Builder(
 					file.getName(), dbConfig);
-			builder.setByteHandlerPipeline(pipeline).setHashKind(hashing)
-					.setIndexes(indexes).setRevisionKind(revisioning)
-					.setRevisionsToRestore(revisionToRestore).setStorageType(storage)
-					.setPersistenter(persistenter);
+			builder.byteHandlerPipeline(pipeline).hashKind(hashing)
+					.indexes(indexes).versioningApproach(revisioning)
+					.revisionsToRestore(revisionToRestore).storageType(storage)
+					.persistenter(persistenter);
 			if (compression) {
 				builder.useTextCompression();
 			}
@@ -521,6 +521,9 @@ public final class ResourceConfiguration {
 		/** Record/Node persistenter. */
 		private RecordPersistenter mPersistenter = PERSISTENTER;
 
+		/** Indexes to use. */
+		private EnumSet<Indexes> mIndexes = INDEXES;
+		
 		/** Resource for this session. */
 		private final String mResource;
 
@@ -528,17 +531,14 @@ public final class ResourceConfiguration {
 		private final DatabaseConfiguration mDBConfig;
 
 		/** Determines if text-compression should be used or not (default is true). */
-		private boolean mCompression = true;
-
-		/** Indexes to use. */
-		private EnumSet<Indexes> mIndexes = INDEXES;
+		private boolean mCompression;
 
 		/** Byte handler pipeline. */
 		private ByteHandlePipeline mByteHandler = new ByteHandlePipeline(
 				new DeflateCompressor());
 
 		/** Determines if DeweyIDs should be used or not. */
-		private boolean mUseDeweyIDs = true;
+		private boolean mUseDeweyIDs;
 
 		/**
 		 * Constructor, setting the mandatory fields.
@@ -563,12 +563,12 @@ public final class ResourceConfiguration {
 		 *          storage type to use
 		 * @return reference to the builder object
 		 */
-		public Builder setStorageType(final @Nonnull StorageType type) {
+		public Builder storageType(final @Nonnull StorageType type) {
 			mType = checkNotNull(type);
 			return this;
 		}
 
-		public Builder setPersistenter(
+		public Builder persistenter(
 				final @Nonnull RecordPersistenter persistenter) {
 			mPersistenter = checkNotNull(persistenter);
 			return this;
@@ -581,32 +581,32 @@ public final class ResourceConfiguration {
 		 *          indexes to use
 		 * @return reference to the builder object
 		 */
-		public Builder setIndexes(final @Nonnull EnumSet<Indexes> indexes) {
+		public Builder indexes(final @Nonnull EnumSet<Indexes> indexes) {
 			mIndexes = checkNotNull(indexes);
 			return this;
 		}
 
 		/**
-		 * Set the revisioning algorithm to use.
+		 * Set the versioning algorithm to use.
 		 * 
-		 * @param revKind
-		 *          revisioning algorithm to use
+		 * @param versioning
+		 *          versioning algorithm to use
 		 * @return reference to the builder object
 		 */
-		public Builder setRevisionKind(final @Nonnull Versioning revKind) {
-			mRevisionKind = checkNotNull(revKind);
+		public Builder versioningApproach(final @Nonnull Versioning versioning) {
+			mRevisionKind = checkNotNull(versioning);
 			return this;
 		}
 
 		/**
 		 * Set the hash kind to use for the nodes.
 		 * 
-		 * @param hash
+		 * @param hashKind
 		 *          hash kind to use
 		 * @return reference to the builder object
 		 */
-		public Builder setHashKind(final @Nonnull HashKind hash) {
-			mHashKind = checkNotNull(hash);
+		public Builder hashKind(final @Nonnull HashKind hashKind) {
+			mHashKind = checkNotNull(hashKind);
 			return this;
 		}
 
@@ -617,7 +617,7 @@ public final class ResourceConfiguration {
 		 *          byte handler pipeline
 		 * @return reference to the builder object
 		 */
-		public Builder setByteHandlerPipeline(
+		public Builder byteHandlerPipeline(
 				final @Nonnull ByteHandlePipeline byteHandler) {
 			mByteHandler = checkNotNull(byteHandler);
 			return this;
@@ -626,13 +626,13 @@ public final class ResourceConfiguration {
 		/**
 		 * Set the number of revisions to restore after the last full dump.
 		 * 
-		 * @param revToRestore
-		 *          number of revisions to restore
+		 * @param revisionsToRestore
+		 *          number of versions to restore
 		 * @return reference to the builder object
 		 */
-		public Builder setRevisionsToRestore(final @Nonnegative int revToRestore) {
-			checkArgument(revToRestore > 0, "pRevisionsToRestore must be > 0!");
-			mRevisionsToRestore = revToRestore;
+		public Builder revisionsToRestore(final @Nonnegative int revisionsToRestore) {
+			checkArgument(revisionsToRestore > 0, "revisionsToRestore must be > 0!");
+			mRevisionsToRestore = revisionsToRestore;
 			return this;
 		}
 

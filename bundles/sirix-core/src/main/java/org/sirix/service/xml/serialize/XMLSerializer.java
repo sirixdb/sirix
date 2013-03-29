@@ -108,28 +108,28 @@ public final class XMLSerializer extends AbstractSerializer {
 	 * Initialize XMLStreamReader implementation with transaction. The cursor
 	 * points to the node the XMLStreamReader starts to read.
 	 * 
-	 * @param pSession
+	 * @param session
 	 *          session for read XML
-	 * @param pNodeKey
+	 * @param nodeKey
 	 *          start node key
-	 * @param pBuilder
+	 * @param builder
 	 *          builder of XML Serializer
-	 * @param pRevision
+	 * @param revision
 	 *          revision to serialize
-	 * @param pRevisions
+	 * @param revsions
 	 *          further revisions to serialize
 	 */
-	private XMLSerializer(final @Nonnull Session pSession,
-			final @Nonnegative long pNodeKey,
-			final @Nonnull XMLSerializerBuilder pBuilder,
-			final @Nonnegative int pRevision, final @Nonnull int... pRevisions) {
-		super(pSession, pNodeKey, pRevision, pRevisions);
-		mOut = new BufferedOutputStream(pBuilder.mStream, 4096);
-		mIndent = pBuilder.mIndent;
-		mSerializeXMLDeclaration = pBuilder.mDeclaration;
-		mSerializeRest = pBuilder.mREST;
-		mSerializeId = pBuilder.mID;
-		mIndentSpaces = pBuilder.mIndentSpaces;
+	private XMLSerializer(final @Nonnull Session session,
+			final @Nonnegative long nodeKey,
+			final @Nonnull XMLSerializerBuilder builder,
+			final @Nonnegative int revision, final @Nonnull int... revsions) {
+		super(session, nodeKey, revision, revsions);
+		mOut = new BufferedOutputStream(builder.mStream, 4096);
+		mIndent = builder.mIndent;
+		mSerializeXMLDeclaration = builder.mDeclaration;
+		mSerializeRest = builder.mREST;
+		mSerializeId = builder.mID;
+		mIndentSpaces = builder.mIndentSpaces;
 	}
 
 	/**
@@ -415,7 +415,7 @@ public final class XMLSerializer extends AbstractSerializer {
 						"shredded").build());
 
 				final XMLSerializer serializer = XMLSerializer.newBuilder(session,
-						outputStream).build();
+						outputStream).emitXMLDeclaration().build();
 				serializer.call();
 			}
 		}
@@ -477,7 +477,7 @@ public final class XMLSerializer extends AbstractSerializer {
 		/**
 		 * Intermediate boolean for XML-Decl serialization, not necessary.
 		 */
-		private boolean mDeclaration = true;
+		private boolean mDeclaration;
 
 		/**
 		 * Intermediate boolean for ids, not necessary.
@@ -570,10 +570,10 @@ public final class XMLSerializer extends AbstractSerializer {
 		}
 
 		/**
-		 * Setting the start node key.
+		 * Specify the start node key.
 		 * 
 		 * @param nodeKey
-		 *          node key to start serialization from
+		 *          node key to start serialization from (the root of the subtree to serialize)
 		 * @return XMLSerializerBuilder reference
 		 */
 		public XMLSerializerBuilder startNodeKey(final long nodeKey) {
@@ -582,55 +582,47 @@ public final class XMLSerializer extends AbstractSerializer {
 		}
 
 		/**
-		 * Setting the indendation.
+		 * Pretty prints the output.
 		 * 
-		 * @param indent
-		 *          determines if it should be indented
 		 * @return XMLSerializerBuilder reference
 		 */
-		public XMLSerializerBuilder doIndend(final boolean indent) {
-			mIndent = indent;
+		public XMLSerializerBuilder prettyPrint() {
+			mIndent = true;
 			return this;
 		}
 
 		/**
-		 * Setting the RESTful output.
+		 * Emit RESTful output.
 		 * 
-		 * @param isRESTful
-		 *          set RESTful
 		 * @return XMLSerializerBuilder reference
 		 */
-		public XMLSerializerBuilder isRESTful(final boolean isRESTful) {
-			mREST = isRESTful;
+		public XMLSerializerBuilder emitRESTful() {
+			mREST = true;
 			return this;
 		}
 
 		/**
-		 * Setting the declaration.
+		 * Emit an XML declaration.
 		 * 
-		 * @param declaration
-		 *          determines if the XML declaration should be emitted
 		 * @return {@link XMLSerializerBuilder} reference
 		 */
-		public XMLSerializerBuilder setDeclaration(final boolean declaration) {
-			mDeclaration = declaration;
+		public XMLSerializerBuilder emitXMLDeclaration() {
+			mDeclaration = true;
 			return this;
 		}
 
 		/**
-		 * Setting the IDs on nodes.
+		 * Emit the unique nodeKeys / IDs of nodes.
 		 * 
-		 * @param id
-		 *          determines if IDs should be set for each node
 		 * @return XMLSerializerBuilder reference
 		 */
-		public XMLSerializerBuilder setID(final boolean id) {
-			mID = id;
+		public XMLSerializerBuilder emitIDs() {
+			mID = true;
 			return this;
 		}
 
 		/**
-		 * Setting the versions to serialize.
+		 * The versions to serialize.
 		 * 
 		 * @param versions
 		 *          versions to serialize

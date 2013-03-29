@@ -70,7 +70,7 @@ public class XMLSerializerTest {
 		// Generate from this session.
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		final XMLSerializer serializer = new XMLSerializerBuilder(session, out)
-				.build();
+				.emitXMLDeclaration().build();
 		serializer.call();
 		assertEquals(DocumentCreater.XML, out.toString());
 		session.close();
@@ -89,7 +89,8 @@ public class XMLSerializerTest {
 
 		// Generate from this session.
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		final XMLSerializer serializer = XMLSerializer.newBuilder(session, out).isRESTful(true).setID(true).setDeclaration(true).build();
+		final XMLSerializer serializer = XMLSerializer.newBuilder(session, out)
+				.emitRESTful().emitIDs().emitXMLDeclaration().build();
 		serializer.call();
 		assertEquals(DocumentCreater.REST, out.toString());
 
@@ -109,10 +110,8 @@ public class XMLSerializerTest {
 
 		// Generate from this session.
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		final XMLSerializerBuilder builder = new XMLSerializerBuilder(session, out);
-		builder.setID(true);
-		builder.setDeclaration(true);
-		final XMLSerializer serializer = builder.build();
+		final XMLSerializer serializer = new XMLSerializerBuilder(session, out)
+				.emitIDs().emitXMLDeclaration().build();
 		serializer.call();
 		assertEquals(DocumentCreater.ID, out.toString());
 		session.close();
@@ -132,12 +131,13 @@ public class XMLSerializerTest {
 		wtx.close();
 
 		XMLSerializer serializerall = new XMLSerializerBuilder(session, out, -1)
-				.build();
+				.emitXMLDeclaration().build();
 		serializerall.call();
 		assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
 		out.reset();
 
-		serializerall = new XMLSerializerBuilder(session, out, 1, 2, 3).build();
+		serializerall = new XMLSerializerBuilder(session, out, 1, 2, 3)
+				.emitXMLDeclaration().build();
 		serializerall.call();
 		assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
 		session.close();
@@ -163,14 +163,14 @@ public class XMLSerializerTest {
 		wtx.close();
 
 		XMLSerializer serializerall = new XMLSerializerBuilder(session, 5l, out,
-				new XMLSerializerProperties()).build();
+				new XMLSerializerProperties()).emitXMLDeclaration().build();
 		serializerall.call();
-		final String result = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b>\n  foo\n  <c/>\n</b>\n";
+		final String result = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><b>foo<c/></b>";
 
 		assertEquals(result, out.toString());
 		out.reset();
 
-		serializerall = new XMLSerializerBuilder(session, out, 1, 2, 3).build();
+		serializerall = new XMLSerializerBuilder(session, out, 1, 2, 3).emitXMLDeclaration().build();
 		serializerall.call();
 		assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
 		session.close();
