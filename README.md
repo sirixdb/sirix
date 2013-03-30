@@ -138,7 +138,7 @@ same resource
 A bunch of work includes the current index-structures:
 
 - We are currently refactoring our work on index-structures. Instead of providing text-value/attribute-value and an element index, we will shortly provide an infrastructure which allows the specification of path-restricted indexes, restricted on specific atomic values/QNames and so on. Furthermore the index-structures will be typed indexes. Once these additions have been added, we will work hard on the integration in Brackit and build a sophisticated set of rewriting-rules.
-- Besides, we will probably change the index-structures based on a threshold value to either build an AVLTree (for instance which is much better suited for updates) or a special version of a CoW-B+-tree, which will not require such large update-costs (path-copying will be much cheaper).
+- Besides, we will probably change the index-structures based on a threshold value to switch between an AVLTree (for instance which is much better suited for updates in comparison to B+-trees and derivates) or a special version of a CoW-B+-tree, which trades a possibly small reading bottleneck for faster updates (path-copying will be much cheaper).
 
 Furthermore we would like to research how to implement sharding.
 
