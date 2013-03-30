@@ -131,6 +131,21 @@ more revisions of a resource (an XML-document imported into the native format in
 * single write-transaction in parallel to N read-transactions on the
 same resource 
 * in-memory- or on-disk-storage
+* the page-size isn't padded until a predefined size is reached. Instead only necessary bytes are written.
+
+
+## Future
+A bunch of work includes the current index-structures:
+
+- We are currently refactoring our work on index-structures. Instead of providing text-value/attribute-value and an element index, we will shortly provide an infrastructure which allows the specification of path-restricted indexes, restricted on specific atomic values/QNames and so on. Furthermore the index-structures will be typed indexes. Once these additions have been added, we will work hard on the integration in Brackit and build a sophisticated set of rewriting-rules.
+- Besides, we will probably change the index-structures based on a threshold value to either build an AVLTree (for instance which is much better suited for updates) or a special version of a CoW-B+-tree, which will not require such large update-costs (path-copying will be much cheaper).
+
+Furthermore we would like to research how to implement sharding.
+
+If anyone is interested to cooperate or contribute, further topics are:
+
+- providing multiple write-transactions as well as a simple recovery-mechanism as well as checkpointing
+- providing encryption bound to specific subtrees/revisions/user groups
 
 ##GUI
 A screencast is available depicting the SunburstView and the TextView side by side: 
