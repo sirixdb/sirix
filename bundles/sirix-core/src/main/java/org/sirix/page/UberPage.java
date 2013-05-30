@@ -34,7 +34,7 @@ import javax.annotation.Nonnull;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.cache.LogKey;
+import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -75,6 +75,9 @@ public final class UberPage extends AbstractForwardingPage {
 	/** The current most recent revision */
 	private final int mRevision;
 
+	/** The number of indexes. */
+	private int mIndexes;
+
 	/**
 	 * Create uber page.
 	 * 
@@ -105,26 +108,47 @@ public final class UberPage extends AbstractForwardingPage {
 	}
 
 	/**
-	 * Clone uber page.
+	 * Clone constructor.
 	 * 
-	 * @param committedUberPage
+	 * @param commitedUberPage
 	 *          page to clone
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} reference
 	 */
-	public UberPage(final @Nonnull UberPage committedUberPage) {
-		mDelegate = new PageDelegate(committedUberPage);
-		if (committedUberPage.isBootstrap()) {
-			mRevision = committedUberPage.mRevision;
-			mRevisionCount = committedUberPage.mRevisionCount;
-			mBootstrap = committedUberPage.mBootstrap;
-			mRootPage = committedUberPage.mRootPage;
+	public UberPage(final @Nonnull UberPage commitedUberPage) {
+		mDelegate = new PageDelegate(commitedUberPage);
+		if (commitedUberPage.isBootstrap()) {
+			mRevision = commitedUberPage.mRevision;
+			mRevisionCount = commitedUberPage.mRevisionCount;
+			mBootstrap = commitedUberPage.mBootstrap;
+			mRootPage = commitedUberPage.mRootPage;
+			mIndexes = commitedUberPage.mIndexes;
 		} else {
-			mRevision = committedUberPage.mRevision + 1;
-			mRevisionCount = committedUberPage.mRevisionCount + 1;
+			mRevision = commitedUberPage.mRevision + 1;
+			mRevisionCount = commitedUberPage.mRevisionCount + 1;
 			mBootstrap = false;
 			mRootPage = null;
+			mIndexes = commitedUberPage.mIndexes;
 		}
+	}
+
+	/**
+	 * Increment the number of stored indexes by one.
+	 * 
+	 * @return this {@code UberPage} reference
+	 */
+	public UberPage incrementIndexCount() {
+		mIndexes++;
+		return this;
+	}
+
+	/**
+	 * Get the number of stored indexes.
+	 * 
+	 * @return number of stored indexes
+	 */
+	public int getIndexCount() {
+		return mIndexes;
 	}
 
 	/**
@@ -144,15 +168,6 @@ public final class UberPage extends AbstractForwardingPage {
 	public int getRevisionCount() {
 		return mRevisionCount;
 	}
-
-	// /**
-	// * Get key of last committed revision.
-	// *
-	// * @return key of last committed revision
-	// */
-	// public int getLastCommitedRevisionNumber() {
-	// return mRevisionCount - 2;
-	// }
 
 	/**
 	 * Get revision key of current in-memory state.
@@ -216,11 +231,12 @@ public final class UberPage extends AbstractForwardingPage {
 		// Remaining levels.
 		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
 			page = new IndirectPage();
-			pageWriteTrx.putPageIntoCache(new LogKey(PageKind.UBERPAGE, i, 0), page);
+			pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.UBERPAGE, -1,
+					i, 0), page);
 		}
 
 		mRootPage = new RevisionRootPage();
-		pageWriteTrx.putPageIntoCache(new LogKey(PageKind.UBERPAGE,
+		pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.UBERPAGE, -1,
 				Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length, 0), mRootPage);
 	}
 
@@ -237,8 +253,9 @@ public final class UberPage extends AbstractForwardingPage {
 		case PATHSUMMARYPAGE:
 			inpLevelPageCountExp = Constants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
 			break;
-		case ATTRIBUTEVALUEPAGE:
-		case TEXTVALUEPAGE:
+		case PATHPAGE:
+		case CASPAGE:
+		case NAMEPAGE:
 		case NODEPAGE:
 			inpLevelPageCountExp = Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
 			break;

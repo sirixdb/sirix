@@ -36,7 +36,6 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 
 import javax.annotation.Nonnegative;
@@ -84,7 +83,10 @@ public final class ResourceConfiguration {
 		TRANSACTION_LOG(new File("log"), true),
 
 		/** File to store the resource settings. */
-		CONFIG_BINARY(new File("ressetting.obj"), false);
+		CONFIG_BINARY(new File("ressetting.obj"), false),
+
+		/** File to store index definitions. */
+		INDEXES(new File("indexes.xml"), false);
 
 		/** Location of the file. */
 		private final File mFile;
@@ -145,18 +147,6 @@ public final class ResourceConfiguration {
 		}
 	}
 
-	/** Indexes to use. */
-	public enum Indexes {
-		/** Path summary index. */
-		PATH,
-
-		/** Text value index. */
-		TEXT_VALUE,
-
-		/** Attribute value index. */
-		ATTRIBUTE_VALUE,
-	}
-
 	// FIXED STANDARD FIELDS
 	/** Standard storage. */
 	public static final StorageType STORAGE = StorageType.FILE;
@@ -169,9 +159,6 @@ public final class ResourceConfiguration {
 
 	/** Versions to restore. */
 	public static final int VERSIONSTORESTORE = 3;
-
-	/** Indexes to use. */
-	public static final EnumSet<Indexes> INDEXES = EnumSet.allOf(Indexes.class);
 
 	/** Persistenter for records. */
 	public static final RecordPersistenter PERSISTENTER = new NodePersistenter();
@@ -202,8 +189,8 @@ public final class ResourceConfiguration {
 	/** Determines if text-compression should be used or not (default is true). */
 	public final boolean mCompression;
 
-	/** Indexes to use. */
-	public final EnumSet<Indexes> mIndexes;
+	/** Determines if a path summary should be build and kept up to date or not. */
+	public final boolean mPathSummary;
 
 	/** Persistents records / commonly nodes. */
 	public final RecordPersistenter mPersistenter;
@@ -247,7 +234,7 @@ public final class ResourceConfiguration {
 		mRevisionsToRestore = builder.mRevisionsToRestore;
 		mDBConfig = builder.mDBConfig;
 		mCompression = builder.mCompression;
-		mIndexes = builder.mIndexes;
+		mPathSummary = builder.mPathSummary;
 		mDeweyIDsStored = builder.mUseDeweyIDs;
 		mPath = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()),
@@ -327,7 +314,7 @@ public final class ResourceConfiguration {
 	 */
 	private static final String[] JSONNAMES = { "revisioning",
 			"revisioningClass", "numbersOfRevisiontoRestore", "byteHandlerClasses",
-			"storageKind", "hashKind", "compression", "dbConfig", "resourceID",
+			"storageKind", "hashKind", "compression", "pathSummary", "resourceID",
 			"deweyIDsStored", "persistenter" };
 
 	/**
@@ -364,13 +351,8 @@ public final class ResourceConfiguration {
 			jsonWriter.name(JSONNAMES[5]).value(config.mHashKind.name());
 			// Text compression.
 			jsonWriter.name(JSONNAMES[6]).value(config.mCompression);
-			// Indexes.
-			jsonWriter.name(JSONNAMES[7]);
-			jsonWriter.beginArray();
-			for (final Indexes index : config.mIndexes) {
-				jsonWriter.value(index.name());
-			}
-			jsonWriter.endArray();
+			// Path summary.
+			jsonWriter.name(JSONNAMES[7]).value(config.mPathSummary);
 			// ID.
 			jsonWriter.name(JSONNAMES[8]).value(config.mID);
 			// Dewey IDs stored or not.
@@ -388,9 +370,8 @@ public final class ResourceConfiguration {
 	}
 
 	/**
-	 * Deserializing a Resourceconfiguration from a JSON-file from the persistent
-	 * storage. The order is important and the reader is passed through the
-	 * objects as visitor.
+	 * Deserializing a Resource configuration from a JSON-file from the persistent
+	 * storage.
 	 * 
 	 * @param file
 	 *          where the resource lies in.
@@ -412,8 +393,8 @@ public final class ResourceConfiguration {
 			jsonReader.beginObject();
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[1]);
-			final Versioning revisioning = Versioning.valueOf(jsonReader
-					.nextString());
+			final Versioning revisioning = Versioning
+					.valueOf(jsonReader.nextString());
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[2]);
 			final int revisionToRestore = jsonReader.nextInt();
@@ -443,18 +424,10 @@ public final class ResourceConfiguration {
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[6]);
 			final boolean compression = jsonReader.nextBoolean();
-			// Indexes.
+			// Path summary.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[7]);
-			final List<Indexes> listIndexes = new ArrayList<>();
-			jsonReader.beginArray();
-			while (jsonReader.hasNext()) {
-				listIndexes.add(Indexes.valueOf(jsonReader.nextString()));
-			}
-			jsonReader.endArray();
-			final EnumSet<Indexes> indexes = listIndexes.isEmpty() ? EnumSet
-					.noneOf(Indexes.class) : EnumSet.copyOf(listIndexes);
-
+			final boolean pathSummary = jsonReader.nextBoolean();
 			// Unique ID.
 			name = jsonReader.nextName();
 			assert name.equals(JSONNAMES[8]);
@@ -481,11 +454,14 @@ public final class ResourceConfiguration {
 			final ResourceConfiguration.Builder builder = new ResourceConfiguration.Builder(
 					file.getName(), dbConfig);
 			builder.byteHandlerPipeline(pipeline).hashKind(hashing)
-					.indexes(indexes).versioningApproach(revisioning)
+					.versioningApproach(revisioning)
 					.revisionsToRestore(revisionToRestore).storageType(storage)
 					.persistenter(persistenter);
 			if (compression) {
 				builder.useTextCompression();
+			}
+			if (pathSummary) {
+				builder.buildPathSummary();
 			}
 			if (deweyIDsStored) {
 				builder.useDeweyIDs();
@@ -521,9 +497,6 @@ public final class ResourceConfiguration {
 		/** Record/Node persistenter. */
 		private RecordPersistenter mPersistenter = PERSISTENTER;
 
-		/** Indexes to use. */
-		private EnumSet<Indexes> mIndexes = INDEXES;
-		
 		/** Resource for this session. */
 		private final String mResource;
 
@@ -534,11 +507,13 @@ public final class ResourceConfiguration {
 		private boolean mCompression;
 
 		/** Byte handler pipeline. */
-		private ByteHandlePipeline mByteHandler = new ByteHandlePipeline(
-				new DeflateCompressor());
+		private ByteHandlePipeline mByteHandler;
 
 		/** Determines if DeweyIDs should be used or not. */
 		private boolean mUseDeweyIDs;
+
+		/** Determines if a path summary should be build or not. */
+		private boolean mPathSummary;
 
 		/**
 		 * Constructor, setting the mandatory fields.
@@ -554,6 +529,8 @@ public final class ResourceConfiguration {
 				final @Nonnull DatabaseConfiguration config) {
 			mResource = checkNotNull(resource);
 			mDBConfig = checkNotNull(config);
+			mPathSummary = true;
+			mByteHandler = new ByteHandlePipeline(new DeflateCompressor());
 		}
 
 		/**
@@ -568,21 +545,8 @@ public final class ResourceConfiguration {
 			return this;
 		}
 
-		public Builder persistenter(
-				final @Nonnull RecordPersistenter persistenter) {
+		public Builder persistenter(final @Nonnull RecordPersistenter persistenter) {
 			mPersistenter = checkNotNull(persistenter);
-			return this;
-		}
-
-		/**
-		 * Set the indexes to use.
-		 * 
-		 * @param indexes
-		 *          indexes to use
-		 * @return reference to the builder object
-		 */
-		public Builder indexes(final @Nonnull EnumSet<Indexes> indexes) {
-			mIndexes = checkNotNull(indexes);
 			return this;
 		}
 
@@ -655,6 +619,16 @@ public final class ResourceConfiguration {
 		 */
 		public Builder useTextCompression() {
 			mCompression = true;
+			return this;
+		}
+
+		/**
+		 * Determines if a path summary should be build.
+		 * 
+		 * @return reference to the builder object
+		 */
+		public Builder buildPathSummary() {
+			mPathSummary = true;
 			return this;
 		}
 

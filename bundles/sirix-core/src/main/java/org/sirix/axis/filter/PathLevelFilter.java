@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.sirix.index.path.PathSummaryReader;
+import org.sirix.index.path.summary.PathSummaryReader;
 
 /**
  * Path filter for {@link PathSummaryReader}, filtering the path levels.

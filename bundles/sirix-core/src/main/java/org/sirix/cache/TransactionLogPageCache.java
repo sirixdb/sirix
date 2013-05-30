@@ -49,10 +49,10 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TransactionLogPageCache implements Cache<LogKey, Page> {
+public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, Page> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<LogKey, Page> mFirstCache;
+	private final LRUCache<IndirectPageLogKey, Page> mFirstCache;
 
 	/** Persistend second cache. */
 	private final BerkeleyPersistencePageCache mSecondCache;
@@ -91,10 +91,10 @@ public final class TransactionLogPageCache implements Cache<LogKey, Page> {
 	}
 
 	@Override
-	public ImmutableMap<LogKey, Page> getAll(
-			final @Nonnull Iterable<? extends LogKey> keys) {
-		final ImmutableMap.Builder<LogKey, Page> builder = new ImmutableMap.Builder<>();
-			for (final LogKey key : keys) {
+	public ImmutableMap<IndirectPageLogKey, Page> getAll(
+			final @Nonnull Iterable<? extends IndirectPageLogKey> keys) {
+		final ImmutableMap.Builder<IndirectPageLogKey, Page> builder = new ImmutableMap.Builder<>();
+			for (final IndirectPageLogKey key : keys) {
 				if (mFirstCache.get(key) != null) {
 					builder.put(key, mFirstCache.get(key));
 				}
@@ -108,17 +108,17 @@ public final class TransactionLogPageCache implements Cache<LogKey, Page> {
 	}
 
 	@Override
-	public Page get(final @Nonnull LogKey key) {
+	public Page get(final @Nonnull IndirectPageLogKey key) {
 	  return mFirstCache.get(key);
 	}
 
 	@Override
-	public void put(final @Nonnull LogKey key, final @Nonnull Page value) {
+	public void put(final @Nonnull IndirectPageLogKey key, final @Nonnull Page value) {
 			mFirstCache.put(key, value);
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<? extends LogKey, ? extends Page> map) {
+	public void putAll(final @Nonnull Map<? extends IndirectPageLogKey, ? extends Page> map) {
 			mFirstCache.putAll(map);
 	}
 
@@ -128,7 +128,7 @@ public final class TransactionLogPageCache implements Cache<LogKey, Page> {
 	}
 
 	@Override
-	public void remove(final @Nonnull LogKey key) {
+	public void remove(final @Nonnull IndirectPageLogKey key) {
 			mFirstCache.remove(key);
 			if (mSecondCache.get(key) != null) {
 				mSecondCache.remove(key);

@@ -27,15 +27,20 @@
 
 package org.sirix.page;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import javax.annotation.Nonnull;
 
+import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
-import org.sirix.exception.SirixException;
 import org.sirix.index.name.Names;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
+import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
+import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
 import com.google.common.io.ByteArrayDataInput;
@@ -48,7 +53,7 @@ import com.google.common.io.ByteArrayDataOutput;
  * Name page holds all names and their keys for a revision.
  * </p>
  */
-public final class NamePage implements Page {
+public final class NamePage extends AbstractForwardingPage {
 
 	/** Attribute names. */
 	private final Names mAttributes;
@@ -61,19 +66,23 @@ public final class NamePage implements Page {
 
 	/** Processing instruction names. */
 	private final Names mPIs;
-
-	/** Determine if name page has been modified. */
-	private boolean mIsDirty;
+	
+	/** {@link PageDelegate} instance. */
+	private final PageDelegate mDelegate;
+	
+	/** Maximum node keys. */
+	private final Map<Integer, Long> mMaxNodeKeys;
 
 	/**
 	 * Create name page.
 	 */
 	public NamePage() {
+		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR);
+		mMaxNodeKeys = new HashMap<>();
 		mAttributes = Names.getInstance();
 		mElements = Names.getInstance();
 		mNamespaces = Names.getInstance();
 		mPIs = Names.getInstance();
-		mIsDirty = true;
 	}
 
 	/**
@@ -83,6 +92,12 @@ public final class NamePage implements Page {
 	 *          input bytes to read from
 	 */
 	protected NamePage(final @Nonnull ByteArrayDataInput in) {
+		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
+		final int size = in.readInt();
+		mMaxNodeKeys = new HashMap<>(size);
+		for (int i = 0; i < size; i ++) {
+			mMaxNodeKeys.put(i, in.readLong());
+		}
 		mElements = Names.clone(in);
 		mNamespaces = Names.clone(in);
 		mAttributes = Names.clone(in);
@@ -205,6 +220,12 @@ public final class NamePage implements Page {
 
 	@Override
 	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+			super.serialize(out);
+			final int size = mMaxNodeKeys.size();
+			out.writeInt(size);
+			for (int i = 0; i < size; i ++) {
+				out.writeLong(mMaxNodeKeys.get(i));
+			}
 		mElements.serialize(out);
 		mNamespaces.serialize(out);
 		mAttributes.serialize(out);
@@ -242,30 +263,54 @@ public final class NamePage implements Page {
 			throw new IllegalStateException("No other node types supported!");
 		}
 	}
+	
+	/**
+	 * Initialize name index tree.
+	 * 
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
+	 * @param index
+	 *          the index number
+	 */
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNameIndexTree(
+			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx, final int index) {
+		final PageReference reference = getReference(index);
+		if (reference.getPage() == null && reference.getLogKey() == null
+				&& reference.getKey() == Constants.NULL_ID) {
+			PageUtils.createTree(reference, PageKind.NAMEPAGE, index, pageWriteTrx);
+			if (mMaxNodeKeys.get(index) == null) {
+				mMaxNodeKeys.put(index, 0l);
+			} else {
+				mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
+			}
+		}
+	}
 
-	@Override
-	public PageReference[] getReferences() {
-		throw new UnsupportedOperationException();
+	/**
+	 * Get the maximum node key of the specified index by its index number.
+	 * 
+	 * @param indexNo
+	 *          the index number
+	 * @return the maximum node key stored
+	 */
+	public long getMaxNodeKey(final int indexNo) {
+		return mMaxNodeKeys.get(indexNo);
+	}
+	
+	public long incrementAndGetMaxNodeKey(final int indexNo) {
+		final long newMaxNodeKey = mMaxNodeKeys.get(indexNo).longValue() + 1;
+		mMaxNodeKeys.put(indexNo, newMaxNodeKey);
+		return newMaxNodeKey;
 	}
 
 	@Override
-	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
-	}
-
-	@Override
-	public PageReference getReference(int offset) {
-		throw new UnsupportedOperationException();
-	}
-
-	@Override
-	public boolean isDirty() {
-		return mIsDirty;
+	protected Page delegate() {
+		return mDelegate;
 	}
 
 	@Override
 	public Page setDirty(final boolean pDirty) {
-		mIsDirty = pDirty;
+		mDelegate.setDirty(pDirty);
 		return this;
 	}
 }

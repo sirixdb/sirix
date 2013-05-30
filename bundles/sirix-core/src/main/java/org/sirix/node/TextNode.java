@@ -41,6 +41,7 @@ import org.sirix.node.immutable.ImmutableText;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
 import com.google.common.base.Objects;
@@ -175,5 +176,10 @@ public final class TextNode extends AbstractStructForwardingNode implements
 	@Override
 	protected StructNodeDelegate structDelegate() {
 		return mStructNodeDel;
+	}
+	
+	@Override
+	public String getValue() {
+		return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);
 	}
 }

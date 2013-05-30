@@ -6,7 +6,7 @@ import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.exception.SirixIOException;
-import org.sirix.index.path.PathNode;
+import org.sirix.index.path.summary.PathNode;
 import org.sirix.node.AttributeNode;
 import org.sirix.node.CommentNode;
 import org.sirix.node.ElementNode;

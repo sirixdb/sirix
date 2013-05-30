@@ -4,12 +4,12 @@ import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Namespaces;
 
 public class SDBFun {
-	public static final String SIRIXDB_PREFIX = "sirix";
+	public static final String SDB_PREFIX = "sirix";
 
-	public static final String SIRIXDB_NSURI = "https://github.com/JohannesLichtenberger/sirix";
+	public static final String SDB_NSURI = "https://github.com/JohannesLichtenberger/sirix";
 
-	public static final QNm ERR_INVALID_ARGUMENT = new QNm(SIRIXDB_NSURI,
-			SIRIXDB_PREFIX, "SIRIXDBF0001");
+	public static final QNm ERR_INVALID_ARGUMENT = new QNm(SDB_NSURI,
+			SDB_PREFIX, "SIRIXDBF0001");
 
 	public static final QNm ERR_INDEX_NOT_FOUND = null;
 
@@ -21,6 +21,6 @@ public class SDBFun {
 	}
 
 	static {
-		Namespaces.predefine(SDBFun.SIRIXDB_PREFIX, SDBFun.SIRIXDB_NSURI);
+		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
 	}
 }

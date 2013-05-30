@@ -47,6 +47,8 @@ import org.sirix.node.PINode;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.TextNode;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
+import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 import com.google.common.base.Optional;
@@ -337,35 +339,35 @@ public interface NodeReadTrx extends NodeCursor {
 	 * @return parent key of the currently selected node
 	 */
 	long getParentKey();
-	
+
 	/**
 	 * Get the left {@link SirixDeweyID} of the currently selected node.
 	 * 
 	 * @return left {@link SirixDeweyID} of the currently selected node
 	 */
 	Optional<SirixDeweyID> getLeftSiblingDeweyID();
-	
+
 	/**
 	 * Get the right {@link SirixDeweyID} of the currently selected node.
 	 * 
 	 * @return right {@link SirixDeweyID} of the currently selected node
 	 */
 	Optional<SirixDeweyID> getRightSiblingDeweyID();
-	
+
 	/**
 	 * Get the parent {@link SirixDeweyID} of the currently selected node.
 	 * 
 	 * @return parent {@link SirixDeweyID} of the currently selected node
 	 */
 	Optional<SirixDeweyID> getParentDeweyID();
-	
+
 	/**
 	 * Get the first child {@link SirixDeweyID} of the currently selected node.
 	 * 
 	 * @return first child {@link SirixDeweyID} of the currently selected node
 	 */
 	Optional<SirixDeweyID> getFirstChildDeweyID();
-	
+
 	/**
 	 * Get the {@link SirixDeweyID} of the currently selected node.
 	 * 
@@ -394,7 +396,7 @@ public interface NodeReadTrx extends NodeCursor {
 	 * @return {@code true}, if it is, {@code false} otherwise
 	 */
 	boolean isNameNode();
-	
+
 	/**
 	 * Get the URI-key of a node.
 	 * 
@@ -407,16 +409,16 @@ public interface NodeReadTrx extends NodeCursor {
 	/**
 	 * Prefix key of currently selected node.
 	 * 
-	 * @return name key of currently selected node, or {@code -1} if it is not a node with
-	 *         a name
+	 * @return name key of currently selected node, or {@code -1} if it is not a
+	 *         node with a name
 	 */
 	int getPrefixKey();
-	
+
 	/**
 	 * LocalName key of currently selected node.
 	 * 
-	 * @return name key of currently selected node, or {@code -1} if it is not a node with
-	 *         a name
+	 * @return name key of currently selected node, or {@code -1} if it is not a
+	 *         node with a name
 	 */
 	int getLocalNameKey();
 
@@ -475,7 +477,7 @@ public interface NodeReadTrx extends NodeCursor {
 	 * @return {@code true} if it has attributes, {@code false} otherwise
 	 */
 	boolean hasAttributes();
-	
+
 	/**
 	 * Determines if current node has namespaces (only elements might have
 	 * namespaces).
@@ -588,10 +590,10 @@ public interface NodeReadTrx extends NodeCursor {
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToRightSibling();
-	
+
 	@Override
 	public Move<? extends NodeReadTrx> moveToPrevious();
-	
+
 	@Override
 	public Move<? extends NodeReadTrx> moveToNext();
 
@@ -645,4 +647,20 @@ public interface NodeReadTrx extends NodeCursor {
 	 *         otherwise
 	 */
 	public boolean isPI();
+
+	/**
+	 * Get the current node as a {@link ImmutableNameNode}. First check with
+	 * {@link#isNameNode()}.
+	 * 
+	 * @return the current node, casted to a {@link ImmutableNameNode}
+	 */
+	public ImmutableNameNode getNameNode();
+
+	/**
+	 * Get the current node as a {@link ImmutableValueNode}. First check with
+	 * {@link#isValueNode()}.
+	 * 
+	 * @return the current node, casted to a {@link ImmutableValueNode}
+	 */
+	public ImmutableValueNode getValueNode();
 }

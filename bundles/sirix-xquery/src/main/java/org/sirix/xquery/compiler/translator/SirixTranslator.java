@@ -32,7 +32,7 @@ import org.sirix.axis.filter.ElementFilter;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.exception.SirixException;
-import org.sirix.index.path.PathSummaryReader;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.stream.SirixStream;

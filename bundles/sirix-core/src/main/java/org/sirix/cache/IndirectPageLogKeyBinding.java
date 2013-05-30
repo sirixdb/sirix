@@ -13,17 +13,21 @@ import com.sleepycat.bind.tuple.TupleOutput;
  * 
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- *
+ * 
  */
-public final class LogKeyBinding extends TupleBinding<LogKey> {
+public final class IndirectPageLogKeyBinding extends
+		TupleBinding<IndirectPageLogKey> {
 	@Override
-	public LogKey entryToObject(final @Nonnull TupleInput in) {
-		return new LogKey(PageKind.getKind(in.readByte()), in.readInt(), in.readInt());
+	public IndirectPageLogKey entryToObject(final @Nonnull TupleInput in) {
+		return new IndirectPageLogKey(PageKind.getKind(in.readByte()),
+				in.readInt(), in.readInt(), in.readInt());
 	}
 
 	@Override
-	public void objectToEntry(final @Nonnull LogKey key, final @Nonnull TupleOutput out) {
+	public void objectToEntry(final @Nonnull IndirectPageLogKey key,
+			final @Nonnull TupleOutput out) {
 		out.writeByte(key.getPageKind().getID());
+		out.writeInt(key.getIndex());
 		out.writeInt(key.getLevel());
 		out.writeInt(key.getOffset());
 	}

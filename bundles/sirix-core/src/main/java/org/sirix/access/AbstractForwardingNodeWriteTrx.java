@@ -7,7 +7,6 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.Insert;
 
 /**
  * Forwards all methods to the delegate.

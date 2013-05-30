@@ -203,12 +203,12 @@ public enum PageKind {
 	/**
 	 * {@link TextValuePage}.
 	 */
-	TEXTVALUEPAGE((byte) 7, TextValuePage.class) {
+	TEXTVALUEPAGE((byte) 7, PathPage.class) {
 		@Override
 		@Nonnull
 		Page deserializePage(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new TextValuePage(source);
+			return new PathPage(source);
 		}
 
 		@Override
@@ -222,25 +222,25 @@ public enum PageKind {
 		public @Nonnull
 		Page getInstance(final @Nonnull Page page,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new TextValuePage();
+			return new PathPage();
 		}
 	},
 
 	/**
-	 * {@link AttributeValuePage}.
+	 * {@link CASPage}.
 	 */
-	ATTRIBUTEVALUEPAGE((byte) 8, AttributeValuePage.class) {
+	CASPAGE((byte) 8, CASPage.class) {
 		@Override
 		@Nonnull
 		Page deserializePage(final @Nonnull ByteArrayDataInput source,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new AttributeValuePage(source);
+			return new CASPage(source);
 		}
 
 		@Override
 		void serializePage(final @Nonnull ByteArrayDataOutput sink,
 				final @Nonnull Page page) {
-			sink.writeByte(ATTRIBUTEVALUEPAGE.mId);
+			sink.writeByte(CASPAGE.mId);
 			page.serialize(sink);
 		}
 
@@ -248,7 +248,7 @@ public enum PageKind {
 		public @Nonnull
 		Page getInstance(final @Nonnull Page page,
 				final @Nonnull PageReadTrx pageReadTrx) {
-			return new AttributeValuePage();
+			return new CASPage();
 		}
 	},
 	
@@ -276,6 +276,29 @@ public enum PageKind {
 				final @Nonnull PageReadTrx pageReadTrx) {
 			return new OverflowPage();
 		}
+	}, 
+	
+	/**
+	 * {@link PathPage}.
+	 */
+	PATHPAGE((byte) 10, PathPage.class) {
+		@Override
+		void serializePage(@Nonnull ByteArrayDataOutput sink, @Nonnull Page page) {
+			sink.writeByte(PATHPAGE.mId);
+			page.serialize(sink);
+		}
+
+		@Override
+		Page deserializePage(@Nonnull ByteArrayDataInput source,
+				@Nonnull PageReadTrx pageReadTrx) {
+			return new PathPage(source);
+		}
+
+		@Override
+		public @Nonnull
+		Page getInstance(@Nonnull Page page, @Nonnull PageReadTrx pageReadTrx) {
+			return new PathPage();
+		}
 	};
 
 
@@ -286,9 +309,9 @@ public enum PageKind {
 	private static final Map<Class<? extends Page>, PageKind> INSTANCEFORCLASS = new HashMap<>();
 
 	static {
-		for (final PageKind node : values()) {
-			INSTANCEFORID.put(node.mId, node);
-			INSTANCEFORCLASS.put(node.mClass, node);
+		for (final PageKind page : values()) {
+			INSTANCEFORID.put(page.mId, page);
+			INSTANCEFORCLASS.put(page.mClass, page);
 		}
 	}
 

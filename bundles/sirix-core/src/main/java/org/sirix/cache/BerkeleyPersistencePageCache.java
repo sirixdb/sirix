@@ -61,7 +61,7 @@ import com.sleepycat.je.OperationStatus;
  * 
  */
 public final class BerkeleyPersistencePageCache extends
-		AbstractPersistenceCache<LogKey, Page> {
+		AbstractPersistenceCache<IndirectPageLogKey, Page> {
 
 	/**
 	 * Flush after defined value.
@@ -86,7 +86,7 @@ public final class BerkeleyPersistencePageCache extends
 	/**
 	 * Binding for the key, which is the nodepage.
 	 */
-	private final LogKeyBinding mKeyBinding;
+	private final IndirectPageLogKeyBinding mKeyBinding;
 
 	/**
 	 * Binding for the value which is a page.
@@ -130,9 +130,10 @@ public final class BerkeleyPersistencePageCache extends
 			if (removeExistingDatabase(NAME, mEnv)) {
 				mEnv = new Environment(mPlace, config);
 			}
+			
 			mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
-			mKeyBinding = new LogKeyBinding();
+			mKeyBinding = new IndirectPageLogKeyBinding();
 			mValueBinding = new PageBinding(pageReadTrx);
 			mEntries = 0;
 		} catch (final DatabaseException e) {
@@ -166,7 +167,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void putPersistent(final @Nonnull LogKey key, final @Nonnull Page page)
+	public void putPersistent(final @Nonnull IndirectPageLogKey key, final @Nonnull Page page)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -185,7 +186,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public Page getPersistent(final @Nonnull LogKey key) throws SirixIOException {
+	public Page getPersistent(final @Nonnull IndirectPageLogKey key) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
@@ -200,14 +201,14 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public ImmutableMap<LogKey, Page> getAll(
-			final @Nonnull Iterable<? extends LogKey> keys) {
+	public ImmutableMap<IndirectPageLogKey, Page> getAll(
+			final @Nonnull Iterable<? extends IndirectPageLogKey> keys) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<? extends LogKey, ? extends Page> map) {
-		for (final Entry<? extends LogKey, ? extends Page> entry : map.entrySet()) {
+	public void putAll(final @Nonnull Map<? extends IndirectPageLogKey, ? extends Page> map) {
+		for (final Entry<? extends IndirectPageLogKey, ? extends Page> entry : map.entrySet()) {
 			put(entry.getKey(), entry.getValue());
 		}
 	}
@@ -218,7 +219,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void remove(final @Nonnull LogKey key) {
+	public void remove(final @Nonnull IndirectPageLogKey key) {
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
 		final OperationStatus status = mDatabase.delete(null, keyEntry);

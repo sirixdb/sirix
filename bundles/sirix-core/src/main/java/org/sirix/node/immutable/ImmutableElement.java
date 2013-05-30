@@ -5,6 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.ElementNode;
@@ -189,5 +190,10 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode 
 	 */
 	public int getAttributeCount() {
 		return mNode.getAttributeCount();
+	}
+	
+	@Override
+	public QNm getName() {
+		return mNode.getName();
 	}
 }

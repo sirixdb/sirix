@@ -80,7 +80,7 @@ public interface Database extends AutoCloseable {
 	boolean existsResource(@Nonnull String name);
 
 	/**
-	 * Listing all resources within this database.
+	 * List all resources within this database.
 	 * 
 	 * @return all resources
 	 */

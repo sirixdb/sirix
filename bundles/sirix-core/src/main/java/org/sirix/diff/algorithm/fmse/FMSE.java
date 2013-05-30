@@ -1205,7 +1205,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 * by comparing the (characteristic) string for two nodes. If the strings are
 	 * sufficient similar, the nodes are considered to be equal.
 	 */
-	private class LeafEqual implements Comparator<Long> {
+	private final class LeafEqual implements Comparator<Long> {
 
 		@Override
 		public boolean isEqual(final Long firstNode, final Long secondNode) {
@@ -1274,7 +1274,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 * nodes by calculating the number of common children (i.e. children contained
 	 * in the matching) in relation to the total number of children.
 	 */
-	private class InnerNodeEqual implements Comparator<Long> {
+	private final class InnerNodeEqual implements Comparator<Long> {
 
 		/** {@link Matching} reference. */
 		private final Matching mMatching;

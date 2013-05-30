@@ -15,7 +15,9 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.service.xml.xpath.AtomicValue;
 
 import com.google.common.base.Optional;
@@ -187,6 +189,16 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	@Override
 	public int getNameCount(@Nonnull String name, @Nonnull Kind kind) {
 		return delegate().getNameCount(name, kind);
+	}
+	
+	@Override
+	public ImmutableNameNode getNameNode() {
+		return delegate().getNameNode();
+	}
+	
+	@Override
+	public ImmutableValueNode getValueNode() {
+		return delegate().getValueNode();
 	}
 
 	@Override

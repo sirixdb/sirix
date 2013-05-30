@@ -33,7 +33,6 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.EnumSet;
 import java.util.Hashtable;
 import java.util.Map;
 import java.util.Random;
@@ -46,7 +45,6 @@ import org.sirix.access.Databases;
 import org.sirix.access.SessionImpl;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
 import org.sirix.api.NodeWriteTrx;
@@ -288,7 +286,7 @@ public final class TestHelper {
 	public static void createTestDocument() throws SirixException {
 		final Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		database.createResource(new ResourceConfiguration.Builder(RESOURCE,
-				PATHS.PATH1.config).indexes(EnumSet.noneOf(Indexes.class)).build());
+				PATHS.PATH1.config).build());
 		final Session session = database
 				.getSession(new SessionConfiguration.Builder(RESOURCE).build());
 		final NodeWriteTrx wtx = session.beginNodeWriteTrx();

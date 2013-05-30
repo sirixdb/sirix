@@ -39,6 +39,7 @@ import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
 import org.sirix.service.xml.xpath.types.Type;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 import org.sirix.utils.TypedValue;
@@ -300,5 +301,10 @@ public class AtomicValue implements Node, ValueNode {
 	@Override
 	public void setDeweyID(@Nonnull Optional<SirixDeweyID> id) {
 		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public String getValue() {
+		return new String(mValue, Constants.DEFAULT_ENCODING);
 	}
 }

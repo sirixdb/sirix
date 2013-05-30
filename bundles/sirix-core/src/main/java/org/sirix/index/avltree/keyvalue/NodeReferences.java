@@ -1,8 +1,7 @@
-package org.sirix.index.avltree;
-
-import static com.google.common.base.Preconditions.checkNotNull;
+package org.sirix.index.avltree.keyvalue;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
@@ -25,15 +24,20 @@ public class NodeReferences implements References {
 	private final Set<Long> mNodeKeys;
 
 	/**
+	 * Default constructor.
+	 */
+	public NodeReferences() {
+		mNodeKeys = new HashSet<>();
+	}
+
+	/**
 	 * Constructor.
 	 * 
 	 * @param nodeKeys
-	 *          {@link Set} of unique node-keys
-	 * @param nodeKey
-	 *          node key of this node
+	 *          node keys
 	 */
 	public NodeReferences(final @Nonnull Set<Long> nodeKeys) {
-		mNodeKeys = Collections.synchronizedSet(checkNotNull(nodeKeys));
+		mNodeKeys = nodeKeys;
 	}
 
 	@Override
@@ -47,10 +51,11 @@ public class NodeReferences implements References {
 	}
 
 	@Override
-	public void setNodeKey(final @Nonnegative long nodeKey) {
+	public NodeReferences addNodeKey(final @Nonnegative long nodeKey) {
 		mNodeKeys.add(nodeKey);
+		return this;
 	}
-	
+
 	@Override
 	public boolean removeNodeKey(@Nonnegative long nodeKey) {
 		return mNodeKeys.remove(nodeKey);
@@ -69,7 +74,7 @@ public class NodeReferences implements References {
 		}
 		return false;
 	}
-	
+
 	@Override
 	public String toString() {
 		final ToStringHelper helper = Objects.toStringHelper(this);
@@ -82,5 +87,10 @@ public class NodeReferences implements References {
 	@Override
 	public boolean hasNodeKeys() {
 		return !mNodeKeys.isEmpty();
+	}
+
+	@Override
+	public boolean contains(@Nonnegative long nodeKey) {
+		return mNodeKeys.contains(nodeKey);
 	}
 }

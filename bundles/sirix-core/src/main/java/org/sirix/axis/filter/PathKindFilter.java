@@ -5,7 +5,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
-import org.sirix.index.path.PathSummaryReader;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
 
 /**

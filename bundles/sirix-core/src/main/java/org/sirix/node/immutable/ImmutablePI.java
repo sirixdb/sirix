@@ -5,6 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
@@ -14,6 +15,7 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
+import org.sirix.settings.Constants;
 
 import com.google.common.base.Optional;
 
@@ -176,5 +178,15 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
 	@Override
 	public String toString() {
 		return mNode.toString();
+	}
+	
+	@Override
+	public QNm getName() {
+		return mNode.getName();
+	}
+	
+	@Override
+	public String getValue() {
+		return mNode.getValue();
 	}
 }

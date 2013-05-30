@@ -28,6 +28,7 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.mock;
 
 import java.util.ArrayList;
 
@@ -84,7 +85,7 @@ public class ElementNodeTest {
 
 		final ElementNode node = new ElementNode(strucDel, nameDel,
 				new ArrayList<Long>(), HashBiMap.<Long, Long> create(),
-				new ArrayList<Long>());
+				new ArrayList<Long>(), mock(PageReadTrx.class));
 
 		// Create empty node.
 		node.insertAttribute(97, 100);

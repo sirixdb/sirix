@@ -1,5 +1,7 @@
 package org.sirix.index.bplustree;
 
+import org.sirix.io.Storage;
+
 /**
  * Constants for the B+ Tree disk structure. They can be modified which
  * might be helpful for testing purposes.

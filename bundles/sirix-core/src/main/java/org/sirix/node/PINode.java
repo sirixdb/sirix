@@ -1,11 +1,11 @@
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.brackit.xquery.atomic.QNm;
+import org.sirix.api.PageReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -15,6 +15,7 @@ import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.immutable.ImmutablePI;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
 
@@ -37,6 +38,9 @@ public final class PINode extends AbstractStructForwardingNode implements
 	/** Delegate for structural node information. */
 	private final StructNodeDelegate mStructDel;
 
+	/** {@link PageReadTrx} reference. */
+	private final PageReadTrx mPageReadTrx;
+
 	/**
 	 * Creating an attribute.
 	 * 
@@ -48,12 +52,18 @@ public final class PINode extends AbstractStructForwardingNode implements
 	 *          {@link ValNodeDelegate} to be set
 	 * 
 	 */
-	public PINode(@Nonnull final StructNodeDelegate structDel,
-			@Nonnull final NameNodeDelegate nameDel,
-			@Nonnull final ValNodeDelegate valDel) {
-		mStructDel = checkNotNull(structDel);
-		mNameDel = checkNotNull(nameDel);
+	public PINode(final @Nonnull StructNodeDelegate structDel,
+			final @Nonnull NameNodeDelegate nameDel,
+			final @Nonnull ValNodeDelegate valDel,
+			final @Nonnull PageReadTrx pageReadTrx) {
+		assert structDel != null : "structDel must not be null!";
+		mStructDel = structDel;
+		assert nameDel != null : "nameDel must not be null!";
+		mNameDel = nameDel;
+		assert valDel != null : "valDel must not be null!";
 		mValDel = valDel;
+		assert pageReadTrx != null : "pageReadTrx must not be null!";
+		mPageReadTrx = pageReadTrx;
 	}
 
 	@Override
@@ -163,5 +173,23 @@ public final class PINode extends AbstractStructForwardingNode implements
 	@Override
 	protected StructNodeDelegate structDelegate() {
 		return mStructDel;
+	}
+	
+	@Override
+	public QNm getName() {
+		final String uri = mPageReadTrx.getName(
+				mNameDel.getURIKey(), Kind.NAMESPACE);
+		final int prefixKey = mNameDel.getPrefixKey();
+		final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(
+				prefixKey, Kind.PROCESSING_INSTRUCTION);
+		final int localNameKey = mNameDel.getLocalNameKey();
+		final String localName = localNameKey == -1 ? "" : mPageReadTrx.getName(
+				localNameKey, Kind.PROCESSING_INSTRUCTION);
+		return new QNm(uri, prefix, localName);
+	}
+	
+	@Override
+	public String getValue() {
+		return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);
 	}
 }

@@ -13,4 +13,11 @@ public interface ImmutableValueNode {
 	 * @return the value of the node
 	 */
 	byte[] getRawValue();
+	
+	/**
+	 * Return the string value of the node.
+	 * 
+	 * @return the string value of the node
+	 */
+	String getValue();
 }

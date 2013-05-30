@@ -64,7 +64,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.exception.SirixThreadedException;
 import org.sirix.exception.SirixUsageException;
-import org.sirix.index.path.PathSummaryReader;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.io.Reader;
 import org.sirix.io.Storage;
 import org.sirix.io.StorageType;
@@ -129,6 +129,9 @@ public final class SessionImpl implements Session {
 
 	/** Atomic counter for concurrent generation of page transaction id. */
 	private final AtomicLong mPageTrxIDCounter;
+	
+	/** {@link IndexController} used for this session. */
+	private final IndexController mIndexController;
 
 	/** Determines if session was closed. */
 	private volatile boolean mClosed;
@@ -154,7 +157,7 @@ public final class SessionImpl implements Session {
 	 * @param sessionConf
 	 *          {@link SessionConfiguration} for handling this specific session
 	 * @throws SirixException
-	 *           if sirix encounters an error
+	 *           if Sirix encounters an exception
 	 */
 	SessionImpl(@Nonnull final DatabaseImpl database,
 			@Nonnull final ResourceConfiguration resourceConf,
@@ -166,6 +169,7 @@ public final class SessionImpl implements Session {
 		mPageTrxMap = new ConcurrentHashMap<>();
 		mNodePageTrxMap = new ConcurrentHashMap<>();
 		mSyncTransactionsReturns = new ConcurrentHashMap<>();
+		mIndexController = sessionConf.getIndexController();
 
 		mNodeTrxIDCounter = new AtomicLong();
 		mPageTrxIDCounter = new AtomicLong();
@@ -661,5 +665,10 @@ public final class SessionImpl implements Session {
 			}
 		}
 		return this;
+	}
+
+	@Override
+	public synchronized IndexController getIndexController() {
+		return mIndexController;
 	}
 }

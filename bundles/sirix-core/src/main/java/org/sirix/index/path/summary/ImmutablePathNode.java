@@ -1,8 +1,9 @@
-package org.sirix.index.path;
+package org.sirix.index.path.summary;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.Kind;
@@ -155,5 +156,10 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	@Override
 	public long getRightSiblingKey() {
 		return mNode.getRightSiblingKey();
+	}
+	
+	@Override
+	public QNm getName() {
+		return mNode.getName();
 	}
 }

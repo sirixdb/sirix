@@ -5,7 +5,7 @@ import javax.annotation.Nonnull;
 
 import org.sirix.access.MultipleWriteTrx;
 import org.sirix.access.Restore;
-import org.sirix.cache.LogKey;
+import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -37,18 +37,23 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @param page
 	 *          the page to put into the cache
 	 */
-	void putPageIntoCache(@Nonnull LogKey key, @Nonnull Page page);
+	void putPageIntoCache(@Nonnull IndirectPageLogKey key, @Nonnull Page page);
 
 	/**
 	 * Put a pageContainer into the key/value page cache.
 	 * 
+	 * @param pageKind
+	 *          the kind of page
 	 * @param key
 	 *          the unique pageKey in a subtree
+	 * @param index
+	 *          the index number or {@code -1} for regular key/value pages
 	 * @param pageContainer
 	 *          the pageContainer to put into the cache
 	 */
 	void putPageIntoKeyValueCache(@Nonnull PageKind pageKind,
-			@Nonnegative long key, @Nonnull RecordPageContainer<UnorderedKeyValuePage> pageContainer);
+			@Nonnegative long key, int index,
+			@Nonnull RecordPageContainer<UnorderedKeyValuePage> pageContainer);
 
 	/**
 	 * Create fresh key/value (value must be a record) and prepare key/value-tuple
@@ -62,6 +67,8 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 *          value to add (usually a node)
 	 * @param pageKind
 	 *          kind of subtree the page belongs to
+	 * @param index
+	 *          the index number
 	 * @param keyValuePage
 	 *          optional keyValue page
 	 * @return unmodified record for convenience
@@ -71,7 +78,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 *           if {@code record} or {@code page} is {@code null}
 	 */
 	V createEntry(@Nonnull K key, @Nonnull V value, @Nonnull PageKind pageKind,
-			@Nonnull Optional<S> keyValuePage) throws SirixIOException;
+			int index, @Nonnull Optional<S> keyValuePage) throws SirixIOException;
 
 	/**
 	 * Prepare an entry for modification. This is getting the entry from the
@@ -81,6 +88,13 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * 
 	 * @param key
 	 *          key of the entry to be modified
+	 * @param pageKind
+	 *          the kind of subtree (for instance regular data pages or the kind
+	 *          of index pages)
+	 * @param index
+	 *          the index number
+	 * @param keyValuePage
+	 *          optional key/value page
 	 * @return instance of the class implementing the {@link Record} instance
 	 * @throws SirixIOException
 	 *           if an I/O-error occurs
@@ -89,23 +103,8 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code page} is {@code null}
 	 */
-	V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind page,
-			@Nonnull Optional<S> keyValuePage) throws SirixIOException;
-
-//	/**
-//	 * Finishing the entry modification. That is storing the entry including the
-//	 * page in the cache.
-//	 * 
-//	 * @param key
-//	 *          key from entry which is modified
-//	 * @param pageKind
-//	 *          denoting the kind of page (that is the subtree root kind)
-//	 * @throws IllegalArgumentException
-//	 *           if {@code nodeKey < 0}
-//	 * @throws NullPointerException
-//	 *           if {@code page} is {@code null}
-//	 */
-//	void finishEntryModification(@Nonnull K key, @Nonnull PageKind pageKind);
+	V prepareEntryForModification(@Nonnegative K key, @Nonnull PageKind pageKind,
+			int index, @Nonnull Optional<S> keyValuePage) throws SirixIOException;
 
 	/**
 	 * Remove an entry from the storage.
@@ -114,6 +113,8 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 *          entry key from entry to be removed
 	 * @param pageKind
 	 *          denoting the kind of page (that is the subtree root kind)
+	 * @param index
+	 *          the index number
 	 * @throws SirixIOException
 	 *           if the removal fails
 	 * @throws IllegalArgumentException
@@ -121,7 +122,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code pageKind} or {@code keyValuePage} is {@code null}
 	 */
-	void removeEntry(@Nonnull K key, @Nonnull PageKind pageKind,
+	void removeEntry(@Nonnull K key, @Nonnull PageKind pageKind, int index,
 			@Nonnull Optional<S> keyValuePage) throws SirixIOException;
 
 	/**

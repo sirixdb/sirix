@@ -33,6 +33,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.AbstractForwardingNode;
@@ -68,7 +69,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 
 	/** Path node key. */
 	private long mPathNodeKey;
-
+	
 	/**
 	 * Constructor.
 	 * 
@@ -201,5 +202,11 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 	@Override
 	public void setPrefixKey(int prefixKey) {
 		mPrefixKey = prefixKey;
+	}
+
+	// Override in concrete node-classes, as the type is not known over here.
+	@Override
+	public QNm getName() {
+		return null;
 	}
 }

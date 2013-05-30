@@ -38,12 +38,10 @@ import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Movement;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
-import org.sirix.index.avltree.AVLTreeReader;
-import org.sirix.index.avltree.NodeReferences;
-import org.sirix.index.avltree.Value;
-import org.sirix.index.path.PathSummaryReader;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.TextNode;
-import org.sirix.service.xml.shredder.Insert;
+import org.sirix.node.interfaces.Record;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.shredder.XMLShredder;
 
 /**
@@ -527,7 +525,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	NodeWriteTrx insertNamespace(@Nonnull QNm name, @Nonnull Movement move)
 			throws SirixException;
 
-	/**
+/**
    * Insert a subtree as a first child.
    * 
    * @param reader
@@ -542,8 +540,8 @@ public interface NodeWriteTrx extends NodeReadTrx {
    */
 	NodeWriteTrx insertSubtreeAsFirstChild(@Nonnull XMLEventReader reader)
 			throws SirixException;
-	
-	/**
+
+/**
    * Insert a subtree as a right sibling.
    * 
    * @param reader
@@ -558,8 +556,8 @@ public interface NodeWriteTrx extends NodeReadTrx {
    */
 	NodeWriteTrx insertSubtreeAsRightSibling(@Nonnull XMLEventReader reader)
 			throws SirixException;
-	
-	/**
+
+/**
    * Insert a subtree as a left sibling.
    * 
    * @param reader
@@ -683,18 +681,9 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	PathSummaryReader getPathSummary();
 
 	/**
-	 * Get the text value index associated with the current write transaction --
-	 * might be {@code null} if no value index is used.
+	 * Get the page transaction used within the write transaction.
 	 * 
-	 * @return {@link AVLTreeReader} instance
+	 * @return the {@link PageWriteTrx} instance
 	 */
-	AVLTreeReader<Value, NodeReferences> getTextValueIndex();
-
-	/**
-	 * Get the attribute value index associated with the current write transaction
-	 * -- might be {@code null} if no value index is used.
-	 * 
-	 * @return {@link AVLTreeReader} instance
-	 */
-	AVLTreeReader<Value, NodeReferences> getAttributeValueIndex();
+	PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageTransaction();
 }

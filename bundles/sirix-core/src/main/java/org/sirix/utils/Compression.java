@@ -133,21 +133,23 @@ public class Compression {
 		byte[] decompressed = new byte[] {};
 
 		// Create an expandable byte array to hold the decompressed data.
-		try (final ByteArrayOutputStream bos = new ByteArrayOutputStream(
-				compressed.length)) {
-			// Decompress the data.
-			final byte[] buf = new byte[BUFFER_SIZE];
-			while (!mDecompressor.finished()) {
-				try {
-					final int count = mDecompressor.inflate(buf);
-					bos.write(buf, 0, count);
-				} catch (final DataFormatException e) {
-					LOGWRAPPER.error(e.getMessage(), e);
-					throw new RuntimeException(e);
-				}
+		final ByteArrayOutputStream bos = new ByteArrayOutputStream(
+				compressed.length);
+		// Decompress the data.
+		final byte[] buf = new byte[BUFFER_SIZE];
+		while (!mDecompressor.finished()) {
+			try {
+				final int count = mDecompressor.inflate(buf);
+				bos.write(buf, 0, count);
+			} catch (final DataFormatException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+				throw new RuntimeException(e);
 			}
-			// Get the decompressed data.
-			decompressed = bos.toByteArray();
+		}
+		// Get the decompressed data.
+		decompressed = bos.toByteArray();
+		try {
+			bos.close();
 		} catch (final IOException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}

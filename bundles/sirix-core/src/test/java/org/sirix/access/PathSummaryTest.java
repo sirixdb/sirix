@@ -43,7 +43,7 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.index.path.PathSummaryReader;
+import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
 import org.sirix.utils.DocumentCreater;
 

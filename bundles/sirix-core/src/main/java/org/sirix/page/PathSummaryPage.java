@@ -26,13 +26,22 @@ package org.sirix.page;
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+import java.util.HashMap;
+import java.util.Map;
+
 import javax.annotation.Nonnull;
 
+import org.sirix.api.PageReadTrx;
+import org.sirix.api.PageWriteTrx;
+import org.sirix.node.interfaces.Record;
 import org.sirix.page.delegates.PageDelegate;
+import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
+import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
 import com.google.common.io.ByteArrayDataInput;
+import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Page to hold references to a path summary.
@@ -40,28 +49,31 @@ import com.google.common.io.ByteArrayDataInput;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class PathSummaryPage extends AbstractForwardingPage {
+public final class PathSummaryPage extends AbstractForwardingPage {
 
 	/** {@link PageDelegate} instance. */
 	private final PageDelegate mDelegate;
 
-	/** Offset of node page reference. */
-	private static final int INDIRECT_REFERENCE_OFFSET = 0;
+	/** Maximum node keys. */
+	private final Map<Integer, Long> mMaxNodeKeys;
 
 	/**
-	 * Path summary page.
+	 * Constructor.
 	 */
 	public PathSummaryPage() {
-		mDelegate = new PageDelegate(1);
+		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR);
+		mMaxNodeKeys = new HashMap<>();
 	}
 
 	/**
 	 * Get indirect page reference.
 	 * 
+	 * @param index
+	 *          the offset of the indirect page, that is the index number
 	 * @return indirect page reference
 	 */
-	public PageReference getIndirectPageReference() {
-		return getReference(INDIRECT_REFERENCE_OFFSET);
+	public PageReference getIndirectPageReference(int index) {
+		return getReference(index);
 	}
 
 	/**
@@ -71,7 +83,12 @@ public class PathSummaryPage extends AbstractForwardingPage {
 	 *          input bytes to read from
 	 */
 	protected PathSummaryPage(final @Nonnull ByteArrayDataInput in) {
-		mDelegate = new PageDelegate(1, in);
+		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
+		final int size = in.readInt();
+		mMaxNodeKeys = new HashMap<>(size);
+		for (int i = 0; i < size; i++) {
+			mMaxNodeKeys.put(i, in.readLong());
+		}
 	}
 
 	@Override
@@ -88,6 +105,57 @@ public class PathSummaryPage extends AbstractForwardingPage {
 	public Page setDirty(final boolean pDirty) {
 		mDelegate.setDirty(pDirty);
 		return this;
+	}
+
+	/**
+	 * Initialize text value tree.
+	 * 
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} instance
+	 * @param index
+	 *          the index number
+	 */
+	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createPathSummaryTree(
+			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx, final int index) {
+		final PageReference reference = getReference(index);
+		if (reference.getPage() == null && reference.getLogKey() == null
+				&& reference.getKey() == Constants.NULL_ID) {
+			PageUtils.createTree(reference, PageKind.PATHSUMMARYPAGE, index,
+					pageWriteTrx);
+			if (mMaxNodeKeys.get(index) == null) {
+				mMaxNodeKeys.put(index, 0l);
+			} else {
+				mMaxNodeKeys.put(index, mMaxNodeKeys.get(index).longValue() + 1);
+			}
+		}
+	}
+
+	@Override
+	public void serialize(@Nonnull ByteArrayDataOutput out) {
+		super.serialize(out);
+		final int size = mMaxNodeKeys.size();
+		out.writeInt(size);
+		for (int i = 0; i < size; i++) {
+			out.writeLong(mMaxNodeKeys.get(i));
+		}
+	}
+
+	/**
+	 * Get the maximum node key of the specified index by its index number.
+	 * The index number of the PathSummary is 0.
+	 * 
+	 * @param indexNo
+	 *          the index number
+	 * @return the maximum node key stored
+	 */
+	public long getMaxNodeKey(final int indexNo) {
+		return mMaxNodeKeys.get(indexNo);
+	}
+	
+	public long incrementAndGetMaxNodeKey(final int indexNo) {
+		final long newMaxNodeKey = mMaxNodeKeys.get(indexNo).longValue() + 1;
+		mMaxNodeKeys.put(indexNo, newMaxNodeKey);
+		return newMaxNodeKey;
 	}
 
 }

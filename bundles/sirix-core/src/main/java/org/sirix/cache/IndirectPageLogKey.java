@@ -14,17 +14,19 @@ import com.google.common.base.Objects;
  * @author johannes
  * 
  */
-public final class LogKey {
+public final class IndirectPageLogKey {
 	private int mLevel;
 	private int mOffset;
 	private PageKind mPageKind;
+	private int mIndex;
 
-	public LogKey(final @Nonnull PageKind pageKind, final int level,
-			final @Nonnegative int offset) {
+	public IndirectPageLogKey(final @Nonnull PageKind pageKind, final int index,
+			final int level, final @Nonnegative int offset) {
 		assert level >= -1;
 		assert offset >= 0;
 		assert pageKind != null;
 		mPageKind = pageKind;
+		mIndex = index;
 		mLevel = level;
 		mOffset = offset;
 	}
@@ -41,17 +43,21 @@ public final class LogKey {
 		return mPageKind;
 	}
 
+	public int getIndex() {
+		return mIndex;
+	}
+
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mPageKind, mLevel, mOffset);
+		return Objects.hashCode(mPageKind, mIndex, mLevel, mOffset);
 	}
 
 	@Override
 	public boolean equals(final @Nullable Object obj) {
-		if (obj instanceof LogKey) {
-			final LogKey other = (LogKey) obj;
-			return mPageKind == other.mPageKind && mLevel == other.mLevel
-					&& mOffset == other.mOffset;
+		if (obj instanceof IndirectPageLogKey) {
+			final IndirectPageLogKey other = (IndirectPageLogKey) obj;
+			return mPageKind == other.mPageKind && mIndex == other.mIndex
+					&& mLevel == other.mLevel && mOffset == other.mOffset;
 		}
 		return false;
 	}
@@ -59,7 +65,8 @@ public final class LogKey {
 	@Override
 	public String toString() {
 		return Objects.toStringHelper(this).add("pageKind", mPageKind)
-				.add("level", mLevel).add("offset", mOffset).toString();
+				.add("index", mIndex).add("level", mLevel).add("offset", mOffset)
+				.toString();
 	}
 
 }

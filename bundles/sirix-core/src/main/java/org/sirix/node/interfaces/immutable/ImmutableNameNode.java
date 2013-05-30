@@ -1,5 +1,7 @@
 package org.sirix.node.interfaces.immutable;
 
+import org.brackit.xquery.atomic.QNm;
+
 /**
  * Immutable node with a name (element, attribute, namespace, PI...).
  * 
@@ -34,4 +36,11 @@ public interface ImmutableNameNode extends ImmutableNode {
 	 * @return path node key
 	 */
 	long getPathNodeKey();
+	
+	/**
+	 * Get the {@link QNm} associated with the node.
+	 * 
+	 * @return the {@link QNm} of the node
+	 */
+	QNm getName();
 }

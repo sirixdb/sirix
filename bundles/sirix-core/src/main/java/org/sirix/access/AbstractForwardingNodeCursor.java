@@ -10,6 +10,12 @@ import org.sirix.node.interfaces.immutable.ImmutableNode;
 
 import com.google.common.collect.ForwardingObject;
 
+/**
+ * Forwards all methods to the delegate.
+ * 
+ * @author Johannes Lichtenberger, University of Konstanz
+ * 
+ */
 public abstract class AbstractForwardingNodeCursor extends ForwardingObject implements NodeCursor {
 
 	/** Constructor for use by subclasses. */

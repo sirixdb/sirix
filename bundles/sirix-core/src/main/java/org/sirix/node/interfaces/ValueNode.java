@@ -52,4 +52,6 @@ public interface ValueNode extends Node {
 	 *          the value to be set
 	 */
 	void setValue(@Nonnull byte[] value);
+	
+	String getValue();
 }

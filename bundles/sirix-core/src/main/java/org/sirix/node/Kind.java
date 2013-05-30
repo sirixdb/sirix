@@ -41,13 +41,16 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.module.Namespaces;
+import org.brackit.xquery.xdm.Type;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.index.avltree.AVLNode;
-import org.sirix.index.avltree.NodeReferences;
-import org.sirix.index.avltree.Value;
-import org.sirix.index.avltree.ValueKind;
-import org.sirix.index.path.PathNode;
+import org.sirix.index.avltree.keyvalue.CASValue;
+import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.path.summary.PathNode;
 import org.sirix.node.delegates.NameNodeDelegate;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.delegates.StructNodeDelegate;
@@ -57,6 +60,7 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.service.xml.xpath.AtomicValue;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 
 import com.google.common.base.Optional;
@@ -106,7 +110,8 @@ public enum Kind implements RecordPersistenter {
 				namespKeys.add(source.readLong());
 			}
 
-			return new ElementNode(structDel, nameDel, attrKeys, attrs, namespKeys);
+			return new ElementNode(structDel, nameDel, attrKeys, attrs, namespKeys,
+					pageReadTrx);
 		}
 
 		@Override
@@ -151,7 +156,7 @@ public enum Kind implements RecordPersistenter {
 					isCompressed);
 
 			// Returning an instance.
-			return new AttributeNode(nodeDel, nameDel, valDel);
+			return new AttributeNode(nodeDel, nameDel, valDel, pageReadTrx);
 		}
 
 		@Override
@@ -178,7 +183,7 @@ public enum Kind implements RecordPersistenter {
 			// Name delegate.
 			final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
 
-			return new NamespaceNode(nodeDel, nameDel);
+			return new NamespaceNode(nodeDel, nameDel, pageReadTrx);
 		}
 
 		@Override
@@ -256,7 +261,7 @@ public enum Kind implements RecordPersistenter {
 					isCompressed);
 
 			// Returning an instance.
-			return new PINode(structDel, nameDel, valDel);
+			return new PINode(structDel, nameDel, valDel, pageReadTrx);
 		}
 
 		@Override
@@ -364,8 +369,8 @@ public enum Kind implements RecordPersistenter {
 		@Override
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
-			final NodeDelegate delegate = new NodeDelegate(recordID, 0, 0,
-					0, Optional.<SirixDeweyID> absent());
+			final NodeDelegate delegate = new NodeDelegate(recordID, 0, 0, 0,
+					Optional.<SirixDeweyID> absent());
 			return new DeletedNode(delegate);
 		}
 
@@ -373,8 +378,8 @@ public enum Kind implements RecordPersistenter {
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
 				final @Nonnull Record record, final @Nullable Record nextRecord,
 				final @Nonnull PageReadTrx pageReadTrx) {
-//			DeletedNode node = (DeletedNode) record;
-//			putVarLong(sink, node.getNodeKey());
+			// DeletedNode node = (DeletedNode) record;
+			// putVarLong(sink, node.getNodeKey());
 		}
 	},
 
@@ -399,7 +404,7 @@ public enum Kind implements RecordPersistenter {
 		@Override
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
-//			final long nodeKey = getVarLong(source);
+			// final long nodeKey = getVarLong(source);
 			return new DumbNode(recordID);
 		}
 
@@ -407,7 +412,7 @@ public enum Kind implements RecordPersistenter {
 		public void serialize(final @Nonnull ByteArrayDataOutput sink,
 				final @Nonnull Record record, final @Nullable Record nextRecord,
 				final @Nonnull PageReadTrx pageReadTrx) {
-//			putVarLong(sink, record.getNodeKey());
+			// putVarLong(sink, record.getNodeKey());
 		}
 	},
 
@@ -466,11 +471,12 @@ public enum Kind implements RecordPersistenter {
 		@Override
 		public Record deserialize(final @Nonnull ByteArrayDataInput source,
 				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
-			final int size = source.readInt();
-			final byte[] value = new byte[size];
-			source.readFully(value, 0, size);
-			final boolean kind = source.readBoolean();
-			final ValueKind valueKind = kind ? ValueKind.TEXT : ValueKind.ATTRIBUTE;
+			final int valueSize = source.readInt();
+			final byte[] value = new byte[valueSize];
+			source.readFully(value, 0, valueSize);
+			final int typeSize = source.readInt();
+			final byte[] type = new byte[typeSize];
+			source.readFully(type, 0, typeSize);
 			final int keySize = source.readInt();
 			final Set<Long> nodeKeys = new HashSet<>(keySize);
 			for (int i = 0; i < keySize; i++) {
@@ -483,8 +489,10 @@ public enum Kind implements RecordPersistenter {
 			final long rightChild = getVarLong(source);
 			final long pathNodeKey = getVarLong(source);
 			final boolean isChanged = source.readBoolean();
-			final AVLNode<Value, NodeReferences> node = new AVLNode<>(new Value(
-					value, pathNodeKey, valueKind), new NodeReferences(nodeKeys), nodeDel);
+			final AVLNode<CASValue, NodeReferences> node = new AVLNode<CASValue, NodeReferences>(
+					new CASValue(new Str(new String(value, Constants.DEFAULT_ENCODING)),
+							resolveType(new String(type, Constants.DEFAULT_ENCODING)),
+							pathNodeKey), new NodeReferences(nodeKeys), nodeDel);
 			node.setLeftChildKey(leftChild);
 			node.setRightChildKey(rightChild);
 			node.setChanged(isChanged);
@@ -496,12 +504,15 @@ public enum Kind implements RecordPersistenter {
 				final @Nonnull Record record, final @Nullable Record nextRecord,
 				final @Nonnull PageReadTrx pageReadTrx) {
 			@SuppressWarnings("unchecked")
-			final AVLNode<Value, NodeReferences> node = (AVLNode<Value, NodeReferences>) record;
-			final Value key = node.getKey();
+			final AVLNode<CASValue, NodeReferences> node = (AVLNode<CASValue, NodeReferences>) record;
+			final CASValue key = node.getKey();
 			final byte[] textValue = key.getValue();
 			sink.writeInt(textValue.length);
 			sink.write(textValue);
-			sink.writeBoolean(key.getKind() == ValueKind.TEXT ? true : false);
+			final byte[] type = key.getType().toString()
+					.getBytes(Constants.DEFAULT_ENCODING);
+			sink.write(type.length);
+			sink.write(type);
 			final NodeReferences value = node.getValue();
 			final Set<Long> nodeKeys = value.getNodeKeys();
 			sink.writeInt(nodeKeys.size());
@@ -515,6 +526,17 @@ public enum Kind implements RecordPersistenter {
 			putVarLong(sink, key.getPathNodeKey());
 			sink.writeBoolean(node.isChanged());
 		};
+
+		private Type resolveType(final String s) {
+			final QNm name = new QNm(Namespaces.XS_NSURI, Namespaces.XS_PREFIX,
+					s.substring(Namespaces.XS_PREFIX.length() + 1));
+			for (final Type type : Type.builtInTypes) {
+				if (type.getName().getLocalName().equals(name.getLocalName())) {
+					return type;
+				}
+			}
+			throw new IllegalStateException("Unknown content type type: " + name);
+		}
 	},
 
 	/** Node includes a deweyID <=> nodeKey mapping. */
@@ -690,31 +712,31 @@ public enum Kind implements RecordPersistenter {
 		if (pageReadTrx.getSession().getResourceConfig().mDeweyIDsStored) {
 			final Optional<SirixDeweyID> id = nodeDel.getDeweyID();
 			if (id.isPresent()) {
-//				if (prevNode != null && prevNode.getDeweyID().isPresent()) {
-//					final byte[] prevDeweyID = prevNode.getDeweyID().get().toBytes();
-//					final byte[] deweyID = nodeDel.getDeweyID().get().toBytes();
-//					if (prevDeweyID.length <= deweyID.length) {
-//						int i = 0;
-//						for (; i < prevDeweyID.length; i++) {
-//							if (prevDeweyID[i] != deweyID[i]) {
-//								break;
-//							}
-//						}
-//						writeDeweyID(sink, deweyID, i);
-//					} else {
-//						int i = 0;
-//						for (; i < deweyID.length; i++) {
-//							if (prevDeweyID[i] != deweyID[i]) {
-//								break;
-//							}
-//						}
-//						writeDeweyID(sink, prevDeweyID, i);
-//					}
-//				} else {
-					final byte[] deweyID = nodeDel.getDeweyID().get().toBytes();
-					sink.writeByte(deweyID.length);
-					sink.write(deweyID);
-//				}
+				// if (prevNode != null && prevNode.getDeweyID().isPresent()) {
+				// final byte[] prevDeweyID = prevNode.getDeweyID().get().toBytes();
+				// final byte[] deweyID = nodeDel.getDeweyID().get().toBytes();
+				// if (prevDeweyID.length <= deweyID.length) {
+				// int i = 0;
+				// for (; i < prevDeweyID.length; i++) {
+				// if (prevDeweyID[i] != deweyID[i]) {
+				// break;
+				// }
+				// }
+				// writeDeweyID(sink, deweyID, i);
+				// } else {
+				// int i = 0;
+				// for (; i < deweyID.length; i++) {
+				// if (prevDeweyID[i] != deweyID[i]) {
+				// break;
+				// }
+				// }
+				// writeDeweyID(sink, prevDeweyID, i);
+				// }
+				// } else {
+				final byte[] deweyID = nodeDel.getDeweyID().get().toBytes();
+				sink.writeByte(deweyID.length);
+				sink.write(deweyID);
+				// }
 			}
 		}
 	}

@@ -1,4 +1,4 @@
-package org.sirix.index.path;
+package org.sirix.index.path.summary;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -40,8 +40,11 @@ import org.sirix.node.immutable.ImmutableDocument;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.page.PageKind;
+import org.sirix.page.PathSummaryPage;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
@@ -102,7 +105,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 		try {
 			final Optional<? extends Record> node = mPageReadTrx.getRecord(
 					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-					PageKind.PATHSUMMARYPAGE);
+					PageKind.PATHSUMMARYPAGE, 0);
 			if (node.isPresent()) {
 				mCurrentNode = (StructNode) node.get();
 			} else {
@@ -239,7 +242,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 *           if parsing a path fails
 	 */
 	public Set<Long> getPCRsForPaths(final Collection<Path<QNm>> expressions)
-			throws SirixException {
+			throws PathException {
 		assertNotClosed();
 		final Set<Long> pcrs = new HashSet<>();
 		for (final Path<QNm> path : expressions) {
@@ -287,46 +290,42 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 *           if anything went wrong
 	 */
 	public Set<Long> getPCRsForPath(final @Nonnull Path<QNm> path)
-			throws SirixException {
-		try {
-			Set<Long> pcrSet = mPathCache.get(path);
+			throws PathException {
+		Set<Long> pcrSet = mPathCache.get(path);
 
-			if (pcrSet != null) {
-				return pcrSet;
-			}
-
-			pcrSet = new HashSet<Long>();
-
-			final boolean isAttributePattern = path.isAttribute();
-			final int pathLength = path.getLength();
-
-			final long nodeKey = mCurrentNode.getNodeKey();
-			moveToDocumentRoot();
-			for (final Axis axis = new DescendantAxis(this); axis.hasNext();) {
-				final PathNode node = this.getPathNode();
-
-				if (node == null) {
-					continue;
-				}
-
-				if (node.getLevel() < pathLength) {
-					continue;
-				}
-
-				if (isAttributePattern ^ (node.getKind() == Kind.ATTRIBUTE)) {
-					continue;
-				}
-
-				if (path.matches(node.getPath(this))) {
-					pcrSet.add(node.getNodeKey());
-				}
-			}
-			moveTo(nodeKey);
-			mPathCache.put(path, pcrSet);
+		if (pcrSet != null) {
 			return pcrSet;
-		} catch (final PathException e) {
-			throw new SirixException(e);
 		}
+
+		pcrSet = new HashSet<Long>();
+
+		final boolean isAttributePattern = path.isAttribute();
+		final int pathLength = path.getLength();
+
+		final long nodeKey = mCurrentNode.getNodeKey();
+		moveToDocumentRoot();
+		for (final Axis axis = new DescendantAxis(this); axis.hasNext();) {
+			final PathNode node = this.getPathNode();
+
+			if (node == null) {
+				continue;
+			}
+
+			if (node.getLevel() < pathLength) {
+				continue;
+			}
+
+			if (isAttributePattern ^ (node.getKind() == Kind.ATTRIBUTE)) {
+				continue;
+			}
+
+			if (path.matches(node.getPath(this))) {
+				pcrSet.add(node.getNodeKey());
+			}
+		}
+		moveTo(nodeKey);
+		mPathCache.put(path, pcrSet);
+		return pcrSet;
 	}
 
 	@Override
@@ -366,7 +365,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 			// Immediately return node from item list if node key negative.
 			@SuppressWarnings("unchecked")
 			final Optional<? extends StructNode> node = (Optional<? extends StructNode>) mPageReadTrx
-					.getRecord(nodeKey, PageKind.PATHSUMMARYPAGE);
+					.getRecord(nodeKey, PageKind.PATHSUMMARYPAGE, 0);
 			newNode = node;
 		} catch (final SirixIOException e) {
 			newNode = Optional.absent();
@@ -474,7 +473,8 @@ public final class PathSummaryReader implements NodeReadTrx {
 	@Override
 	public long getMaxNodeKey() throws SirixIOException {
 		assertNotClosed();
-		return mPageReadTrx.getActualRevisionRootPage().getMaxPathNodeKey();
+		return ((PathSummaryPage) mPageReadTrx.getActualRevisionRootPage()
+				.getPathSummaryPageReference().getPage()).getMaxNodeKey(0);
 	}
 
 	@Override
@@ -1026,5 +1026,15 @@ public final class PathSummaryReader implements NodeReadTrx {
 	public Optional<SirixDeweyID> getFirstChildDeweyID() {
 		assertNotClosed();
 		return Optional.<SirixDeweyID> absent();
+	}
+
+	@Override
+	public ImmutableNameNode getNameNode() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public ImmutableValueNode getValueNode() {
+		throw new UnsupportedOperationException();
 	}
 }

@@ -38,6 +38,7 @@ import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.settings.Constants;
 import org.sirix.utils.Compression;
 
 import com.google.common.base.Objects;
@@ -88,6 +89,11 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
 	@Override
 	public byte[] getRawValue() {
 		return mCompressed ? Compression.decompress(mVal) : mVal;
+	}
+	
+	@Override
+	public String getValue() {
+		return new String(getRawValue(), Constants.DEFAULT_ENCODING);
 	}
 
 	/**

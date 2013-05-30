@@ -68,10 +68,13 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
+import org.sirix.node.interfaces.immutable.ImmutableValueNode;
 import org.sirix.page.PageKind;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.ItemListImpl;
+import org.sirix.settings.Constants;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
@@ -129,7 +132,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		@SuppressWarnings("unchecked")
 		final Optional<? extends Node> node = (Optional<? extends Node>) mPageReadTrx
 				.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-						PageKind.NODEPAGE);
+						PageKind.NODEPAGE, -1);
 		if (node.isPresent()) {
 			mCurrentNode = node.get();
 		} else {
@@ -169,6 +172,18 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		default:
 			throw new IllegalStateException("Node kind not known!");
 		}
+	}
+	
+	@Override
+	public ImmutableNameNode getNameNode() {
+		assertNotClosed();
+		return (ImmutableNameNode) mCurrentNode;
+	}
+	
+	@Override
+	public ImmutableValueNode getValueNode() {
+		assertNotClosed();
+		return (ImmutableValueNode) mCurrentNode;
 	}
 
 	@Override
@@ -210,8 +225,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 					newNode = Optional.absent();
 				}
 			} else {
-				final Optional<? extends Record> node = mPageReadTrx.getRecord(nodeKey,
-						PageKind.NODEPAGE);
+				final Optional<? extends Record> node = mPageReadTrx.getRecord(nodeKey, PageKind.NODEPAGE, -1);
 				newNode = node;
 			}
 		} catch (final SirixIOException e) {
@@ -308,7 +322,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		assertNotClosed();
 		String returnVal;
 		if (mCurrentNode instanceof ValueNode) {
-			returnVal = new String(((ValueNode) mCurrentNode).getRawValue());
+			returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
 		} else if (mCurrentNode.getKind() == Kind.NAMESPACE) {
 			returnVal = mPageReadTrx.getName(
 					((NamespaceNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);

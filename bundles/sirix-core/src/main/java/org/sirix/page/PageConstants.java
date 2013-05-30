@@ -9,4 +9,5 @@ public final class PageConstants {
 	// 150 KiB.
 	public static final int MAX_RECORD_SIZE = 150_000;
 
+	public static final int MAX_INDEX_NR = 512;
 }

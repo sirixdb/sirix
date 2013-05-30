@@ -11,13 +11,13 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.AttributeValuePage;
+import org.sirix.page.CASPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
-import org.sirix.page.TextValuePage;
+import org.sirix.page.PathPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -51,9 +51,9 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	@Override
 	public PageReference getPageReferenceForPage(
 			@Nonnull PageReference startReference, @Nonnegative long pageKey,
-			@Nonnull PageKind pageKind) throws SirixIOException {
-		return delegate()
-				.getPageReferenceForPage(startReference, pageKey, pageKind);
+			int index, @Nonnull PageKind pageKind) throws SirixIOException {
+		return delegate().getPageReferenceForPage(startReference, pageKey, index,
+				pageKind);
 	}
 
 	@Override
@@ -62,9 +62,9 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public AttributeValuePage getAttributeValuePage(
+	public CASPage getCASPage(
 			@Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
-		return delegate().getAttributeValuePage(revisionRoot);
+		return delegate().getCASPage(revisionRoot);
 	}
 
 	@Override
@@ -80,15 +80,15 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public TextValuePage getTextValuePage(@Nonnull RevisionRootPage revisionRoot)
+	public PathPage getPathPage(@Nonnull RevisionRootPage revisionRoot)
 			throws SirixIOException {
-		return delegate().getTextValuePage(revisionRoot);
+		return delegate().getPathPage(revisionRoot);
 	}
 
 	@Override
 	public Optional<? extends Record> getRecord(@Nonnegative long key,
-			@Nonnull PageKind page) throws SirixIOException {
-		return delegate().getRecord(key, page);
+			@Nonnull PageKind page, @Nonnegative int index) throws SirixIOException {
+		return delegate().getRecord(key, page, index);
 	}
 
 	@Override
@@ -123,9 +123,9 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 
 	@Override
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
-			@Nonnull @Nonnegative Long key, @Nonnull PageKind pageKind)
+			@Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind)
 			throws SirixIOException {
-		return delegate().<K, V, S> getRecordPageContainer(key, pageKind);
+		return delegate().<K, V, S> getRecordPageContainer(key, index, pageKind);
 	}
 
 	@Override
@@ -144,7 +144,8 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Page getFromPageCache(@Nonnull PageReference reference) throws SirixIOException {
+	public Page getFromPageCache(@Nonnull PageReference reference)
+			throws SirixIOException {
 		return delegate().getFromPageCache(reference);
 	}
 
@@ -152,7 +153,7 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	public void putPageCache(@Nonnull TransactionLogPageCache pageLog) {
 		delegate().putPageCache(pageLog);
 	}
-	
+
 	@Override
 	public Reader getReader() {
 		return delegate().getReader();

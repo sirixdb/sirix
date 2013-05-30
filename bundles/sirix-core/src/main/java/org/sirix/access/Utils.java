@@ -11,7 +11,7 @@ import org.brackit.xquery.atomic.QNm;
  * @author Johannes Lichtenberger
  * 
  */
-public class Utils {
+public final class Utils {
 
 	/**
 	 * Building name consisting of a prefix and a name. The namespace-URI is not
@@ -19,7 +19,7 @@ public class Utils {
 	 * 
 	 * @param qName
 	 *          the {@link QName} of an element
-	 * @return a string with [prefix:]localname
+	 * @return a string: [prefix:]localname
 	 */
 	public static String buildName(final @Nonnull QNm qName) {
 		return qName.getPrefix().isEmpty() ? qName.getLocalName()

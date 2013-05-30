@@ -53,8 +53,8 @@ interface DiffObservable {
 	 * @param depth
 	 *          current {@link DiffDepth} instance
 	 */
-	void fireDiff(final @Nonnull DiffType diff, final @Nonnull long newNodeKey,
-			final @Nonnull long oldNodeKey, final @Nonnull DiffDepth depth);
+	void fireDiff(@Nonnull DiffType diff, @Nonnull long newNodeKey,
+			@Nonnull long oldNodeKey, @Nonnull DiffDepth depth);
 
 	/**
 	 * Diff computation done, thus inform listeners.
@@ -71,7 +71,7 @@ interface DiffObservable {
 	 * @param observer
 	 *          instance of the class which implements {@link DiffObserver}
 	 */
-	void addObserver(final @Nonnull DiffObserver observer);
+	void addObserver(@Nonnull DiffObserver observer);
 
 	/**
 	 * Remove an observer.
@@ -79,5 +79,5 @@ interface DiffObservable {
 	 * @param observer
 	 *          instance of the class which implements {@link DiffObserver}
 	 */
-	void removeObserver(final @Nonnull DiffObserver observer);
+	void removeObserver(@Nonnull DiffObserver observer);
 }

@@ -28,6 +28,7 @@
 package org.sirix.page;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.mock;
 
 import java.util.ArrayList;
 
@@ -90,7 +91,7 @@ public class NodePageTest {
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
 		final ElementNode node1 = new ElementNode(strucDel, nameDel,
 				new ArrayList<Long>(), HashBiMap.<Long, Long> create(),
-				new ArrayList<Long>());
+				new ArrayList<Long>(), mock(PageReadTrx.class));
 		node1.insertAttribute(88L, 100);
 		node1.insertAttribute(87L, 101);
 		node1.insertNamespace(99L);

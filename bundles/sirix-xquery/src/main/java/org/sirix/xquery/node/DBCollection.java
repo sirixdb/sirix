@@ -21,6 +21,7 @@ import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.OperationNotSupportedException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.access.Databases;
+import org.sirix.access.IndexController;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;

@@ -6,15 +6,17 @@ import java.io.PrintStream;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
+import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
 import org.sirix.api.NodeCursor;
-import org.sirix.api.PageWriteTrx;
+import org.sirix.api.PageReadTrx;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.interfaces.References;
 import org.sirix.node.DocumentRootNode;
@@ -25,7 +27,6 @@ import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.StructNode;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.PageKind;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -56,11 +57,14 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	/** Strong reference to currently selected node. */
 	private Node mCurrentNode;
 
-	/** {@link PageWriteTrx} for persistent storage. */
-	final PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
+	/** {@link PageReadTrx} for persistent storage. */
+	final PageReadTrx mPageReadTrx;
 
 	/** Page kind. */
 	final PageKind mPageKind;
+
+	/** Index number. */
+	final int mIndex;
 
 	/** Determines movement of the internal cursor. */
 	public enum MoveCursor {
@@ -74,31 +78,37 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pageWriteTrx
-	 *          {@link PageWriteTrx} for persistent storage
-	 * @param kind
-	 *          kind of value (attribute/text)
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} for persistent storage
+	 * @param type
+	 *          kind of index
+	 * @param index
+	 * 					the index number
 	 */
 	private AVLTreeReader(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull ValueKind kind) {
-		mPageWriteTrx = checkNotNull(pageWriteTrx);
-		switch (kind) {
-		case ATTRIBUTE:
-			mPageKind = PageKind.ATTRIBUTEVALUEPAGE;
+			final @Nonnull PageReadTrx pageReadTrx,
+			final @Nonnull IndexType type, final int index) {
+		mPageReadTrx = checkNotNull(pageReadTrx);
+		switch (type) {
+		case PATH:
+			mPageKind = PageKind.PATHPAGE;
 			break;
-		case TEXT:
-			mPageKind = PageKind.TEXTVALUEPAGE;
+		case CAS:
+			mPageKind = PageKind.CASPAGE;
 			break;
+		case NAME:
+			// FIXME
+			throw new UnsupportedOperationException();
 		default:
 			mPageKind = null;
 			throw new IllegalStateException();
 		}
 		mClosed = false;
+		mIndex = index;
 
 		try {
-			Optional<? extends Record> node = mPageWriteTrx.getRecord(
-					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), mPageKind);
+			Optional<? extends Record> node = mPageReadTrx.getRecord(
+					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), mPageKind, index);
 			if (node.isPresent()) {
 				mCurrentNode = (Node) node.get();
 			} else {
@@ -113,16 +123,16 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	/**
 	 * Get a new instance.
 	 * 
-	 * @param pageWriteTrx
-	 *          {@link PageWriteTrx} for persistent storage
-	 * @param kind
-	 *          kind of value (attribute/text)
+	 * @param pageReadTrx
+	 *          {@link PageReadTrx} for persistent storage
+	 * @param type
+	 *          type of index
 	 * @return new tree instance
 	 */
 	public static <K extends Comparable<? super K>, V extends References> AVLTreeReader<K, V> getInstance(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull ValueKind kind) {
-		return new AVLTreeReader<K, V>(pageWriteTrx, kind);
+			final @Nonnull PageReadTrx pageReadTrx,
+			final @Nonnull IndexType type, final @Nonnegative int index) {
+		return new AVLTreeReader<K, V>(pageReadTrx, type, index);
 	}
 
 	/**
@@ -142,6 +152,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		internalDump(out);
 	}
 
+	// Internal function to dump data to a PrintStream instance.
 	private void internalDump(final @Nonnull PrintStream out) {
 		out.println(getAVLNode());
 		final long nodeKey = getAVLNode().getNodeKey();
@@ -371,8 +382,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		try {
 			// Immediately return node from item list if node key negative.
 			@SuppressWarnings("unchecked")
-			final Optional<? extends Node> node = (Optional<? extends Node>) mPageWriteTrx
-					.getRecord(nodeKey, mPageKind);
+			final Optional<? extends Node> node = (Optional<? extends Node>) mPageReadTrx
+					.getRecord(nodeKey, mPageKind, mIndex);
 			newNode = node;
 		} catch (final SirixIOException e) {
 			newNode = Optional.absent();

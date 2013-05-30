@@ -27,12 +27,12 @@
 
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.brackit.xquery.atomic.QNm;
+import org.sirix.api.PageReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -42,6 +42,7 @@ import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.node.immutable.ImmutableAttribute;
 import org.sirix.node.interfaces.NameNode;
 import org.sirix.node.interfaces.ValueNode;
+import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
 
@@ -64,6 +65,9 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	/** Node delegate. */
 	private final NodeDelegate mDel;
 
+	/** {@link PageReadTrx} reference. */
+	private final PageReadTrx mPageReadTrx;
+
 	/**
 	 * Creating an attribute.
 	 * 
@@ -77,10 +81,16 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	 */
 	public AttributeNode(final @Nonnull NodeDelegate nodeDel,
 			final @Nonnull NameNodeDelegate nameDel,
-			final @Nonnull ValNodeDelegate valDel) {
-		mDel = checkNotNull(nodeDel);
-		mNameDel = checkNotNull(nameDel);
+			final @Nonnull ValNodeDelegate valDel,
+			final @Nonnull PageReadTrx pageReadTrx) {
+		assert nodeDel != null : "nodeDel must not be null!";
+		mDel = nodeDel;
+		assert nameDel != null : "nameDel must not be null!";
+		mNameDel = nameDel;
+		assert valDel != null : "valDel must not be null!";
 		mValDel = valDel;
+		assert pageReadTrx != null : "pageReadTrx must not be null!";
+		mPageReadTrx = pageReadTrx;
 	}
 
 	@Override
@@ -185,5 +195,23 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	@Override
 	protected NodeDelegate delegate() {
 		return mDel;
+	}
+
+	@Override
+	public QNm getName() {
+		final String uri = mPageReadTrx.getName(
+				mNameDel.getURIKey(), Kind.NAMESPACE);
+		final int prefixKey = mNameDel.getPrefixKey();
+		final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(
+				prefixKey, Kind.ATTRIBUTE);
+		final int localNameKey = mNameDel.getLocalNameKey();
+		final String localName = localNameKey == -1 ? "" : mPageReadTrx.getName(
+				localNameKey, Kind.ATTRIBUTE);
+		return new QNm(uri, prefix, localName);
+	}
+	
+	@Override
+	public String getValue() {
+		return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);
 	}
 }

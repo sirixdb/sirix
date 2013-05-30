@@ -52,10 +52,10 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SynchronizedTransactionLogPageCache implements Cache<LogKey, Page> {
+public final class SynchronizedTransactionLogPageCache implements Cache<IndirectPageLogKey, Page> {
 
 	/** RAM-Based first cache. */
-	private final LRUCache<LogKey, Page> mFirstCache;
+	private final LRUCache<IndirectPageLogKey, Page> mFirstCache;
 
 	/** Persistend second cache. */
 	private final BerkeleyPersistencePageCache mSecondCache;
@@ -103,12 +103,12 @@ public final class SynchronizedTransactionLogPageCache implements Cache<LogKey, 
 	}
 
 	@Override
-	public ImmutableMap<LogKey, Page> getAll(
-			final @Nonnull Iterable<? extends LogKey> keys) {
-		final ImmutableMap.Builder<LogKey, Page> builder = new ImmutableMap.Builder<>();
+	public ImmutableMap<IndirectPageLogKey, Page> getAll(
+			final @Nonnull Iterable<? extends IndirectPageLogKey> keys) {
+		final ImmutableMap.Builder<IndirectPageLogKey, Page> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
-			for (final LogKey key : keys) {
+			for (final IndirectPageLogKey key : keys) {
 				if (mFirstCache.get(key) != null) {
 					builder.put(key, mFirstCache.get(key));
 				}
@@ -130,7 +130,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<LogKey, 
 	}
 
 	@Override
-	public Page get(final @Nonnull LogKey key) {
+	public Page get(final @Nonnull IndirectPageLogKey key) {
 		Page container = null;
 		try {
 			mReadLock.lock();
@@ -142,7 +142,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<LogKey, 
 	}
 
 	@Override
-	public void put(final @Nonnull LogKey key, final @Nonnull Page value) {
+	public void put(final @Nonnull IndirectPageLogKey key, final @Nonnull Page value) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(key, value);
@@ -152,7 +152,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<LogKey, 
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<? extends LogKey, ? extends Page> map) {
+	public void putAll(final @Nonnull Map<? extends IndirectPageLogKey, ? extends Page> map) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.putAll(map);
@@ -172,7 +172,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<LogKey, 
 	}
 
 	@Override
-	public void remove(final @Nonnull LogKey key) {
+	public void remove(final @Nonnull IndirectPageLogKey key) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.remove(key);

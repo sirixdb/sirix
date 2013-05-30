@@ -9,13 +9,13 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.AttributeValuePage;
+import org.sirix.page.CASPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
-import org.sirix.page.TextValuePage;
+import org.sirix.page.PathPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -49,14 +49,17 @@ public interface PageReadTrx extends AutoCloseable {
 	 * 
 	 * @param key
 	 *          the unique record-ID
-	 * @param page
-	 *          the page from which to fetch the record
+	 * @param pageKind
+	 *          the page kind from which to fetch the record
+	 * @param index
+	 *          the index number
 	 * @return an {@link Optional} reference usually containing the node reference
 	 * @throws SirixIOException
 	 *           if an I/O error occured
 	 */
 	Optional<? extends Record> getRecord(final @Nonnegative long key,
-			final @Nonnull PageKind page) throws SirixIOException;
+			final @Nonnull PageKind pageKind, final int index)
+			throws SirixIOException;
 
 	/**
 	 * Current reference to actual revision-root page.
@@ -120,6 +123,9 @@ public interface PageReadTrx extends AutoCloseable {
 	 * 
 	 * @param key
 	 *          {@code key} of key/value page to get the record from
+	 * @param index
+	 *          index number or {@code -1}, if it's a regular record page to
+	 *          lookup
 	 * @param pageKind
 	 *          kind of page to lookup
 	 * @return {@code the node} or {@code null} if it's not available
@@ -133,7 +139,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 *           if {@code key} is negative
 	 */
 	<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
-			@Nonnull @Nonnegative Long key, @Nonnull PageKind pageKind)
+			@Nonnull @Nonnegative Long key, int index, @Nonnull PageKind pageKind)
 			throws SirixIOException;
 
 	/** Determines if transaction is closed or not. */
@@ -155,7 +161,8 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	Page getFromPageCache(@Nonnegative PageReference reference) throws SirixIOException;
+	Page getFromPageCache(@Nonnegative PageReference reference)
+			throws SirixIOException;
 
 	/**
 	 * Clear the caches.
@@ -198,33 +205,33 @@ public interface PageReadTrx extends AutoCloseable {
 			throws SirixIOException;
 
 	/**
-	 * Get the {@link TextValuePage} associated with the current revision root.
+	 * Get the {@link PathPage} associated with the current revision root.
 	 * 
 	 * @param revisionRoot
-	 *          {@link RevisionRootPage} for which to get the {@link NamePage}
+	 *          {@link RevisionRootPage} for which to get the {@link PathPage}
 	 * @throws SirixIOException
 	 *           if an I/O error occur@Nonnull RevisionRootPage revisionRoots
 	 */
-	TextValuePage getTextValuePage(@Nonnull RevisionRootPage revisionRoot)
+	PathPage getPathPage(@Nonnull RevisionRootPage revisionRoot)
 			throws SirixIOException;
 
 	/**
-	 * Get the {@link AttributeValuePage} associated with the current revision
+	 * Get the {@link CASPage} associated with the current revision
 	 * root.
 	 * 
 	 * @param revisionRoot
-	 *          {@link RevisionRootPage} for which to get the {@link NamePage}
+	 *          {@link RevisionRootPage} for which to get the {@link CASPage}
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	AttributeValuePage getAttributeValuePage(
+	CASPage getCASPage(
 			@Nonnull RevisionRootPage revisionRoot) throws SirixIOException;
 
 	/**
 	 * Get the {@link PathSummaryPage} associated with the current revision root.
 	 * 
 	 * @param revisionRoot
-	 *          {@link RevisionRootPage} for which to get the {@link NamePage}
+	 *          {@link RevisionRootPage} for which to get the {@link PathSummaryPage}
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
@@ -239,6 +246,9 @@ public interface PageReadTrx extends AutoCloseable {
 	 *          root-node of a BPlusTree)
 	 * @param pageKey
 	 *          the unique key of the page to search for
+	 * @param index
+	 *          the index number, or {@code -1} if a regular record pages should be
+	 *          retrieved
 	 * @param pageKind
 	 *          the kind of subtree
 	 * @return {@link PageReference} instance pointing to the page denoted by
@@ -249,9 +259,9 @@ public interface PageReadTrx extends AutoCloseable {
 	 *           if {code pageKey} < 0
 	 */
 	PageReference getPageReferenceForPage(@Nonnull PageReference startReference,
-			@Nonnegative long pageKey, @Nonnull PageKind pageKind)
+			@Nonnegative long pageKey, int index, @Nonnull PageKind pageKind)
 			throws SirixIOException;
-	
+
 	/**
 	 * Get the {@link Reader} to read a page from persistent storage if needed.
 	 * 

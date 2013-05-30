@@ -34,10 +34,12 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.sirix.access.IndexController;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.Session;
+import org.sirix.io.Key;
 
 import com.google.common.base.Objects;
 
@@ -67,7 +69,10 @@ public final class SessionConfiguration {
 	/** Default User. */
 	public static final String DEFAULT_USER = "ALL";
 
-	/** Determines if logs should be dumped to persistent storage at first during a commit or not. */
+	/**
+	 * Determines if logs should be dumped to persistent storage at first during a
+	 * commit or not.
+	 */
 	public static final boolean DUMP_LOGS = false;
 	// END STATIC STANDARD FIELDS
 
@@ -88,8 +93,14 @@ public final class SessionConfiguration {
 	/** ResourceConfiguration for this ResourceConfig. */
 	private final String mResource;
 
-	/** Determines if logs should be dumped to persistent storage at first during a commit or not. */
+	/**
+	 * Determines if logs should be dumped to persistent storage at first during a
+	 * commit or not.
+	 */
 	private final boolean mDumpLogs;
+
+	/** The {@link IndexController} used in this session. */
+	private final IndexController mIndexController;
 
 	/**
 	 * Convenience constructor using the standard settings.
@@ -105,6 +116,7 @@ public final class SessionConfiguration {
 		mUser = builder.mUser;
 		mResource = builder.mResource;
 		mDumpLogs = builder.mDumpLogs;
+		mIndexController = builder.mIndexController;
 	}
 
 	@Override
@@ -135,14 +147,22 @@ public final class SessionConfiguration {
 	}
 
 	/**
-	 * Getter for the file.
+	 * Get the resource.
 	 * 
-	 * @return the file for the configuration
+	 * @return the resource file name
 	 */
 	public String getResource() {
 		return mResource;
 	}
-	
+
+	/**
+	 * Get the {@link IndexController}.
+	 * 
+	 * @return the {@link IndexController} instance
+	 */
+	public IndexController getIndexController() {
+		return mIndexController;
+	}
 
 	/**
 	 * Dump the logs to persistent store or not.
@@ -152,7 +172,7 @@ public final class SessionConfiguration {
 	public boolean dumpLogs() {
 		return mDumpLogs;
 	}
-	
+
 	/**
 	 * Get a new builder instance.
 	 * 
@@ -182,12 +202,19 @@ public final class SessionConfiguration {
 
 		/** User for this session. */
 		private String mUser = SessionConfiguration.DEFAULT_USER;
-		
-		/** Determines if logs should be dumped to persistent storage at first during a commit or not. */
+
+		/**
+		 * Determines if logs should be dumped to persistent storage at first during
+		 * a commit or not.
+		 */
 		private boolean mDumpLogs = SessionConfiguration.DUMP_LOGS;
 
 		/** Resource for the this session. */
 		private final String mResource;
+
+		private final IndexController mIndexController;
+
+		private Key mKey;
 
 		/**
 		 * Constructor for the {@link Builder} with fixed fields to be set.
@@ -197,6 +224,7 @@ public final class SessionConfiguration {
 		 */
 		public Builder(final @Nonnull String resource) {
 			mResource = checkNotNull(resource);
+			mIndexController = new IndexController();
 		}
 
 		/**
@@ -250,7 +278,7 @@ public final class SessionConfiguration {
 			mUser = checkNotNull(user);
 			return this;
 		}
-		
+
 		/**
 		 * Dump transaction-logs to persistent storage at first during a commit.
 		 * 
@@ -261,17 +289,17 @@ public final class SessionConfiguration {
 			return this;
 		}
 
-//		/**
-//		 * Set key for cipher.
-//		 * 
-//		 * @param key
-//		 *          key for cipher
-//		 * @return reference to the builder object
-//		 */
-//		public Builder setKey(final @Nonnull Key key) {
-//			mKey = checkNotNull(key);
-//			return this;
-//		}
+		/**
+		 * Set key for cipher.
+		 * 
+		 * @param key
+		 *          key for cipher
+		 * @return reference to the builder object
+		 */
+		public Builder setKey(final @Nonnull Key key) {
+			mKey = checkNotNull(key);
+			return this;
+		}
 
 		/**
 		 * Building a new {@link SessionConfiguration} with immutable fields.

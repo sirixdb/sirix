@@ -30,7 +30,7 @@ package org.sirix.page;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-import org.sirix.cache.LogKey;
+import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
@@ -48,7 +48,7 @@ import com.google.common.base.Objects;
  */
 public final class PageReference {
 
-	private LogKey mLogKey;
+	private IndirectPageLogKey mLogKey;
 
 	/** In-memory deserialized page instance. */
 	private Page mPage;
@@ -57,8 +57,8 @@ public final class PageReference {
 	private long mKeyValuePageKey = -1;
 
 	/** Key in persistent storage. */
-	private long mKey = Constants.NULL_ID;;
-
+	private long mKey = Constants.NULL_ID;
+	
 	/**
 	 * Default constructor setting up an uninitialized page reference.
 	 */
@@ -142,21 +142,21 @@ public final class PageReference {
 	}
 
 	/**
-	 * Set a {@link LogKey}.
+	 * Set a {@link IndirectPageLogKey}.
 	 * 
 	 * @param logKey
-	 *          the {@link LogKey}
+	 *          the {@link IndirectPageLogKey}
 	 */
-	public void setLogKey(final @Nonnull LogKey logKey) {
+	public void setLogKey(final @Nonnull IndirectPageLogKey logKey) {
 		mLogKey = logKey;
 	}
 
 	/**
-	 * Get a {@link LogKey}
+	 * Get a {@link IndirectPageLogKey}
 	 * 
-	 * @return the {@link LogKey}
+	 * @return the {@link IndirectPageLogKey}
 	 */
-	public LogKey getLogKey() {
+	public IndirectPageLogKey getLogKey() {
 		return mLogKey;
 	}
 }

@@ -28,6 +28,7 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.mock;
 
 import org.junit.After;
 import org.junit.Before;
@@ -75,8 +76,9 @@ public class NamespaceNodeTest {
 				Optional.of(SirixDeweyID.newRootID()));
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15,
 				1);
+		
 		// Create empty node.
-		final NamespaceNode node = new NamespaceNode(nodeDel, nameDel);
+		final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, mock(PageReadTrx.class));
 
 		// Serialize and deserialize node.
 		final ByteArrayDataOutput out = ByteStreams.newDataOutput();

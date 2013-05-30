@@ -44,27 +44,29 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
-import org.sirix.access.conf.ResourceConfiguration.Indexes;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.Session;
-import org.sirix.cache.LogKey;
+import org.sirix.cache.IndexLogKey;
+import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.cache.RecordPageContainer;
+import org.sirix.cache.TransactionIndexLogCache;
 import org.sirix.cache.TransactionLogCache;
 import org.sirix.cache.TransactionLogPageCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.io.Reader;
 import org.sirix.node.DeletedNode;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
-import org.sirix.page.AttributeValuePage;
+import org.sirix.page.CASPage;
 import org.sirix.page.IndirectPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
+import org.sirix.page.PathPage;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
-import org.sirix.page.TextValuePage;
 import org.sirix.page.UberPage;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -102,13 +104,16 @@ final class PageReadTrxImpl implements PageReadTrx {
 	private final LoadingCache<Long, RecordPageContainer<UnorderedKeyValuePage>> mNodeCache;
 
 	/** Internal reference to path cache. */
-	private final LoadingCache<Long, RecordPageContainer<UnorderedKeyValuePage>> mPathCache;
+	private final LoadingCache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mPathSummaryCache;
 
 	/** Internal reference to text value cache. */
-	private final LoadingCache<Long, RecordPageContainer<UnorderedKeyValuePage>> mTextValueCache;
+	private final LoadingCache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mPathCache;
 
 	/** Internal reference to attribute value cache. */
-	private final LoadingCache<Long, RecordPageContainer<UnorderedKeyValuePage>> mAttributeValueCache;
+	private final LoadingCache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mCASCache;
+	
+	/** Internal reference to attribute value cache. */
+	private final LoadingCache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mNameCache;
 
 	/** Internal reference to page cache. */
 	private final LoadingCache<PageReference, Page> mPageCache;
@@ -122,8 +127,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	/** Determines if page reading transaction is closed or not. */
 	private boolean mClosed;
 
-	/** Indexes to read. */
-	private final Set<Indexes> mIndexes;
+	/** Determines if a path summary should be build and kept up-to-date or not. */
+	private final boolean mBuildPathSummary;
 
 	/**
 	 * Optional page transaction log, dependent on the fact, if the log hasn't
@@ -135,19 +140,25 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * Optional path transaction log, dependent on the fact, if the log hasn't
 	 * been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache<UnorderedKeyValuePage>> mPathLog;
+	private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mPathLog;
+	
+	/**
+	 * Optional path transaction log, dependent on the fact, if the log hasn't
+	 * been completely transferred into the data file.
+	 */
+	private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mPathSummaryLog;
 
 	/**
 	 * Optional text value transaction log, dependent on the fact, if the log
 	 * hasn't been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache<UnorderedKeyValuePage>> mTextValueLog;
+	private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mCASLog;
 
 	/**
 	 * Optional attribute value transaction log, dependent on the fact, if the log
 	 * hasn't been completely transferred into the data file.
 	 */
-	private final Optional<TransactionLogCache<UnorderedKeyValuePage>> mAttributeValueLog;
+	private final Optional<TransactionIndexLogCache<UnorderedKeyValuePage>> mNameLog;
 
 	/**
 	 * Optional node transaction log, dependent on the fact, if the log hasn't
@@ -163,6 +174,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 	/** Caching loaded {@link RevisionRootPage}s. */
 	private final LoadingCache<Integer, RevisionRootPage> mRevisionRootCache;
+
+	/** {@link IndexController} instance. */
+	private final IndexController mIndexController;
 
 	/**
 	 * Standard constructor.
@@ -189,8 +203,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 			throws SirixIOException {
 		checkArgument(revision >= 0, "Revision must be >= 0!");
 		mPageWriteTrx = checkNotNull(pageWriteTrx);
-		mIndexes = session.mResourceConfig.mIndexes;
+		mBuildPathSummary = session.mResourceConfig.mPathSummary;
 		mResourceConfig = session.mResourceConfig;
+		mIndexController = session.getIndexController();
 
 		final File commitFile = session.commitFile(revision);
 		final boolean doesExist = commitFile.exists();
@@ -209,31 +224,41 @@ final class PageReadTrxImpl implements PageReadTrx {
 				.of(new TransactionLogCache<UnorderedKeyValuePage>(
 						session.mResourceConfig.mPath, revision, "node", this)) : Optional
 				.<TransactionLogCache<UnorderedKeyValuePage>> absent();
-		if (mIndexes.contains(Indexes.PATH)) {
+		if (mBuildPathSummary) {
+			mPathSummaryLog = doesExist ? Optional
+					.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
+							session.mResourceConfig.mPath, revision, "pathSummary", this))
+					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
+		} else {
+			mPathSummaryLog = Optional
+					.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
+		}
+		if (mIndexController.containsIndex(IndexType.PATH)) {
 			mPathLog = doesExist ? Optional
-					.of(new TransactionLogCache<UnorderedKeyValuePage>(
+					.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
 							session.mResourceConfig.mPath, revision, "path", this))
-					: Optional.<TransactionLogCache<UnorderedKeyValuePage>> absent();
+					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
 		} else {
-			mPathLog = Optional.<TransactionLogCache<UnorderedKeyValuePage>> absent();
+			mPathLog = Optional
+					.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
 		}
-		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
-			mTextValueLog = doesExist ? Optional
-					.of(new TransactionLogCache<UnorderedKeyValuePage>(
-							session.mResourceConfig.mPath, revision, "value", this))
-					: Optional.<TransactionLogCache<UnorderedKeyValuePage>> absent();
+		if (mIndexController.containsIndex(IndexType.CAS)) {
+			mCASLog = doesExist ? Optional
+					.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
+							session.mResourceConfig.mPath, revision, "cas", this))
+					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
 		} else {
-			mTextValueLog = Optional
-					.<TransactionLogCache<UnorderedKeyValuePage>> absent();
+			mCASLog = Optional
+					.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
 		}
-		if (mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
-			mAttributeValueLog = doesExist ? Optional
-					.of(new TransactionLogCache<UnorderedKeyValuePage>(
-							session.mResourceConfig.mPath, revision, "value", this))
-					: Optional.<TransactionLogCache<UnorderedKeyValuePage>> absent();
+		if (mIndexController.containsIndex(IndexType.NAME)) {
+			mNameLog = doesExist ? Optional
+					.of(new TransactionIndexLogCache<UnorderedKeyValuePage>(
+							session.mResourceConfig.mPath, revision, "name", this))
+					: Optional.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
 		} else {
-			mAttributeValueLog = Optional
-					.<TransactionLogCache<UnorderedKeyValuePage>> absent();
+			mNameLog = Optional
+					.<TransactionIndexLogCache<UnorderedKeyValuePage>> absent();
 		}
 
 		// In memory caches from data directory.
@@ -255,66 +280,87 @@ final class PageReadTrxImpl implements PageReadTrx {
 										: RecordPageContainer
 												.<UnorderedKeyValuePage> emptyInstance();
 								return (RecordPageContainer<UnorderedKeyValuePage>) (container
-										.equals(RecordPageContainer.EMPTY_INSTANCE) == true ? pageReadTrx
+										.equals(RecordPageContainer.EMPTY_INSTANCE) ? pageReadTrx
 										.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
-												key, PageKind.NODEPAGE)
+												key, -1, PageKind.NODEPAGE)
 										: container);
 							}
 						});
 		final CacheBuilder<Object, Object> builder = CacheBuilder.newBuilder()
 				.concurrencyLevel(1).maximumSize(20);
-		if (mIndexes.contains(Indexes.PATH)) {
-			mPathCache = builder
-					.build(new CacheLoader<Long, RecordPageContainer<UnorderedKeyValuePage>>() {
+		if (mBuildPathSummary) {
+			mPathSummaryCache = builder
+					.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
 						public RecordPageContainer<UnorderedKeyValuePage> load(
-								final @Nonnull Long key) throws SirixException {
-							final RecordPageContainer<UnorderedKeyValuePage> container = mPathLog
-									.isPresent() ? mPathLog.get().get(key) : RecordPageContainer
+								final @Nonnull IndexLogKey key) throws SirixException {
+							final RecordPageContainer<UnorderedKeyValuePage> container = mPathSummaryLog
+									.isPresent() ? mPathSummaryLog.get().get(key) : RecordPageContainer
 									.<UnorderedKeyValuePage> emptyInstance();
 							return (container.equals(RecordPageContainer
 									.<UnorderedKeyValuePage> emptyInstance()) ? pageReadTrx
 									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
-											key, PageKind.PATHSUMMARYPAGE)
+											key.getRecordPageKey(), key.getIndex(),
+											PageKind.PATHSUMMARYPAGE)
 									: container);
+						}
+					});
+		} else {
+			mPathSummaryCache = null;
+		}
+		if (mIndexController.containsIndex(IndexType.PATH)) {
+			mPathCache = builder
+					.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
+						public RecordPageContainer<UnorderedKeyValuePage> load(
+								final @Nonnull IndexLogKey key) throws SirixException {
+							final RecordPageContainer<UnorderedKeyValuePage> container = mPathLog
+									.isPresent() ? mPathLog.get().get(key)
+									: RecordPageContainer.<UnorderedKeyValuePage> emptyInstance();
+							return container.equals(RecordPageContainer
+									.<UnorderedKeyValuePage> emptyInstance()) ? pageReadTrx
+									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
+											key.getRecordPageKey(), key.getIndex(),
+											PageKind.PATHPAGE)
+									: container;
 						}
 					});
 		} else {
 			mPathCache = null;
 		}
-		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
-			mTextValueCache = builder
-					.build(new CacheLoader<Long, RecordPageContainer<UnorderedKeyValuePage>>() {
+		if (mIndexController.containsIndex(IndexType.CAS)) {
+			mCASCache = builder
+					.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
 						public RecordPageContainer<UnorderedKeyValuePage> load(
-								final @Nonnull Long key) throws SirixException {
-							final RecordPageContainer<UnorderedKeyValuePage> container = mTextValueLog
-									.isPresent() ? mTextValueLog.get().get(key)
-									: RecordPageContainer.<UnorderedKeyValuePage> emptyInstance();
-							return container.equals(RecordPageContainer
-									.<UnorderedKeyValuePage> emptyInstance()) ? pageReadTrx
-									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
-											key, PageKind.TEXTVALUEPAGE)
-									: container;
-						}
-					});
-		} else {
-			mTextValueCache = null;
-		}
-		if (mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
-			mAttributeValueCache = builder
-					.build(new CacheLoader<Long, RecordPageContainer<UnorderedKeyValuePage>>() {
-						public RecordPageContainer<UnorderedKeyValuePage> load(
-								final @Nonnull Long key) throws SirixException {
-							final RecordPageContainer<UnorderedKeyValuePage> container = mAttributeValueLog
-									.isPresent() ? mAttributeValueLog.get().get(key)
+								final @Nonnull IndexLogKey key) throws SirixException {
+							final RecordPageContainer<UnorderedKeyValuePage> container = mCASLog
+									.isPresent() ? mCASLog.get().get(key)
 									: RecordPageContainer.<UnorderedKeyValuePage> emptyInstance();
 							return container.equals(RecordPageContainer.EMPTY_INSTANCE) ? pageReadTrx
 									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
-											key, PageKind.ATTRIBUTEVALUEPAGE)
+											key.getRecordPageKey(), key.getIndex(),
+											PageKind.CASPAGE)
 									: container;
 						}
 					});
 		} else {
-			mAttributeValueCache = null;
+			mCASCache = null;
+		}
+		if (mIndexController.containsIndex(IndexType.NAME)) {
+			mNameCache = builder
+					.build(new CacheLoader<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>>() {
+						public RecordPageContainer<UnorderedKeyValuePage> load(
+								final @Nonnull IndexLogKey key) throws SirixException {
+							final RecordPageContainer<UnorderedKeyValuePage> container = mNameLog
+									.isPresent() ? mNameLog.get().get(key)
+									: RecordPageContainer.<UnorderedKeyValuePage> emptyInstance();
+							return container.equals(RecordPageContainer.EMPTY_INSTANCE) ? pageReadTrx
+									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
+											key.getRecordPageKey(), key.getIndex(),
+											PageKind.NAMEPAGE)
+									: container;
+						}
+					});
+		} else {
+			mNameCache = null;
 		}
 
 		final CacheBuilder<Object, Object> pageCacheBuilder = CacheBuilder
@@ -366,27 +412,31 @@ final class PageReadTrxImpl implements PageReadTrx {
 
 	@Override
 	public Optional<Record> getRecord(final @Nonnegative long nodeKey,
-			final @Nonnull PageKind pageKind) throws SirixIOException {
+			final @Nonnull PageKind pageKind, final @Nonnegative int index)
+			throws SirixIOException {
 		checkArgument(nodeKey >= 0);
 		checkNotNull(pageKind);
 		assertNotClosed();
 
-		final long nodePageKey = pageKey(nodeKey);
+		final long recordPageKey = pageKey(nodeKey);
 
 		RecordPageContainer<UnorderedKeyValuePage> cont;
 		try {
 			switch (pageKind) {
 			case NODEPAGE:
-				cont = mNodeCache.get(nodePageKey);
+				cont = mNodeCache.get(recordPageKey);
 				break;
 			case PATHSUMMARYPAGE:
-				cont = mPathCache.get(nodePageKey);
+				cont = mPathSummaryCache.get(new IndexLogKey(recordPageKey, index));
 				break;
-			case TEXTVALUEPAGE:
-				cont = mTextValueCache.get(nodePageKey);
+			case PATHPAGE:
+				cont = mPathCache.get(new IndexLogKey(recordPageKey, index));
 				break;
-			case ATTRIBUTEVALUEPAGE:
-				cont = mAttributeValueCache.get(nodePageKey);
+			case CASPAGE:
+				cont = mCASCache.get(new IndexLogKey(recordPageKey, index));
+				break;
+			case NAMEPAGE:
+				cont = mNameCache.get(new IndexLogKey(recordPageKey, index));
 				break;
 			default:
 				throw new IllegalStateException();
@@ -434,14 +484,17 @@ final class PageReadTrxImpl implements PageReadTrx {
 	@Override
 	public void clearCaches() {
 		assertNotClosed();
-		if (mIndexes.contains(Indexes.PATH)) {
+		if (mBuildPathSummary) {
+			mPathSummaryCache.invalidateAll();
+		}
+		if (mPathCache != null) {
 			mPathCache.invalidateAll();
 		}
-		if (mIndexes.contains(Indexes.TEXT_VALUE)) {
-			mTextValueCache.invalidateAll();
+		if (mCASCache != null) {
+			mCASCache.invalidateAll();
 		}
-		if (mIndexes.contains(Indexes.ATTRIBUTE_VALUE)) {
-			mAttributeValueCache.invalidateAll();
+		if (mNameCache != null) {
+			mNameCache.invalidateAll();
 		}
 		mNodeCache.invalidateAll();
 		mPageCache.invalidateAll();
@@ -449,11 +502,14 @@ final class PageReadTrxImpl implements PageReadTrx {
 		if (mPathLog.isPresent()) {
 			mPathLog.get().clear();
 		}
-		if (mTextValueLog.isPresent()) {
-			mTextValueLog.get().clear();
+		if (mCASLog.isPresent()) {
+			mCASLog.get().clear();
 		}
-		if (mAttributeValueLog.isPresent()) {
-			mAttributeValueLog.get().clear();
+		if (mNameLog.isPresent()) {
+			mNameLog.get().clear();
+		}
+		if (mPathSummaryLog.isPresent()) {
+			mPathSummaryLog.get().clear();
 		}
 		if (mNodeLog.isPresent()) {
 			mNodeLog.get().clear();
@@ -469,11 +525,14 @@ final class PageReadTrxImpl implements PageReadTrx {
 		if (mPathLog.isPresent()) {
 			mPathLog.get().close();
 		}
-		if (mTextValueLog.isPresent()) {
-			mTextValueLog.get().close();
+		if (mCASLog.isPresent()) {
+			mCASLog.get().close();
 		}
-		if (mAttributeValueLog.isPresent()) {
-			mAttributeValueLog.get().close();
+		if (mNameLog.isPresent()) {
+			mNameLog.get().close();
+		}
+		if (mPathSummaryLog.isPresent()) {
+			mPathSummaryLog.get().close();
 		}
 		if (mNodeLog.isPresent()) {
 			mNodeLog.get().close();
@@ -503,7 +562,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 		// The indirect page reference either fails horribly or returns a non null
 		// instance.
 		final PageReference reference = getPageReferenceForPage(
-				mUberPage.getIndirectPageReference(), revisionKey, PageKind.UBERPAGE);
+				mUberPage.getIndirectPageReference(), revisionKey, -1,
+				PageKind.UBERPAGE);
 		try {
 			if (mPageWriteTrx.isPresent()) {
 				return (RevisionRootPage) mPageWriteTrx.get().mPageLog.get(reference
@@ -534,20 +594,20 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public final TextValuePage getTextValuePage(
+	public final PathPage getPathPage(
 			final @Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
 		assertNotClosed();
-		return (TextValuePage) getPage(revisionRoot.getTextValuePageReference(),
-				PageKind.TEXTVALUEPAGE);
+		return (PathPage) getPage(revisionRoot.getPathPageReference(),
+				PageKind.PATHPAGE);
 	}
 
 	@Override
-	public final AttributeValuePage getAttributeValuePage(
+	public final CASPage getCASPage(
 			final @Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
 		assertNotClosed();
-		return (AttributeValuePage) getPage(
-				revisionRoot.getAttributeValuePageReference(),
-				PageKind.ATTRIBUTEVALUEPAGE);
+		return (CASPage) getPage(
+				revisionRoot.getCASPageReference(),
+				PageKind.CASPAGE);
 	}
 
 	/**
@@ -563,7 +623,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		try {
 			Page page = reference.getPage();
 			if (mPageWriteTrx.isPresent() || mPageLog.isPresent()) {
-				reference.setLogKey(new LogKey(pageKind, -1, 0));
+				reference.setLogKey(new IndirectPageLogKey(pageKind, -1, -1, 0));
 			}
 			if (page == null) {
 				page = mPageCache.get(reference);
@@ -584,13 +644,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 	// TODO: Write another interface for this internal kind of stuff.
 	@Override
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> RecordPageContainer<S> getRecordPageContainer(
-			final @Nonnull @Nonnegative Long recordPageKey,
+			final @Nonnull @Nonnegative Long recordPageKey, final int index,
 			final @Nonnull PageKind pageKind) throws SirixIOException {
 		assertNotClosed();
 		checkArgument(recordPageKey >= 0, "recordPageKey must not be negative!");
 		try {
 			final List<S> pages = (List<S>) this.<K, V, S> getSnapshotPages(
-					checkNotNull(recordPageKey), checkNotNull(pageKind),
+					checkNotNull(recordPageKey), index, checkNotNull(pageKind),
 					Optional.<PageReference> absent());
 			if (pages.size() == 0) {
 				return RecordPageContainer.<S> emptyInstance();
@@ -614,6 +674,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *          key of node page
 	 * @param pageKind
 	 *          kind of page, that is the type of tree to dereference
+	 * @param index
+	 *          index number or {@code -1}, if it's a regular record page
 	 * @param pageReference
 	 *          optional page reference pointing to the first page
 	 * @return dereferenced pages
@@ -623,7 +685,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 * @throws ExecutionException
 	 */
 	final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> List<S> getSnapshotPages(
-			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
+			final @Nonnegative long recordPageKey, final int index,
+			final @Nonnull PageKind pageKind,
 			final @Nonnull Optional<PageReference> pageReference)
 			throws SirixIOException, ExecutionException {
 		assert recordPageKey >= 0;
@@ -643,9 +706,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 					refToRecordPage = pageReference.get();
 				} else {
 					final PageReference tmpRef = getPageReference(
-							mRevisionRootCache.get(i), pageKind);
+							mRevisionRootCache.get(i), pageKind, index);
 					refToRecordPage = getPageReferenceForPage(tmpRef, recordPageKey,
-							pageKind);
+							index, pageKind);
 				}
 			} else {
 				final Optional<PageReference> reference = pages.get(pages.size() - 1)
@@ -674,8 +737,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	/**
-	 * Get the page reference which points to the right subtree (usual nodes, path
-	 * summary nodes, value index nodes).
+	 * Get the page reference which points to the right subtree (nodes, path
+	 * summary nodes, CAS index nodes, Path index nodes or Name index nodes).
 	 * 
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} instance
@@ -683,21 +746,22 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 *          the page kind to determine the right subtree
 	 */
 	PageReference getPageReference(final @Nonnull RevisionRootPage revisionRoot,
-			final @Nonnull PageKind pageKind) throws SirixIOException {
+			final @Nonnull PageKind pageKind, final int index)
+			throws SirixIOException {
 		assert revisionRoot != null;
 		PageReference ref = null;
 		switch (pageKind) {
 		case NODEPAGE:
 			ref = revisionRoot.getIndirectPageReference();
 			break;
-		case TEXTVALUEPAGE:
-			ref = getTextValuePage(revisionRoot).getIndirectPageReference();
+		case CASPAGE:
+			ref = getCASPage(revisionRoot).getIndirectPageReference(index);
 			break;
-		case ATTRIBUTEVALUEPAGE:
-			ref = getAttributeValuePage(revisionRoot).getIndirectPageReference();
+		case PATHPAGE:
+			ref = getPathPage(revisionRoot).getIndirectPageReference(index);
 			break;
 		case PATHSUMMARYPAGE:
-			ref = getPathSummaryPage(revisionRoot).getIndirectPageReference();
+			ref = getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
 			break;
 		default:
 			throw new IllegalStateException(
@@ -751,7 +815,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	@Override
 	public final PageReference getPageReferenceForPage(
 			final @Nonnull PageReference startReference, final @Nonnegative long key,
-			final @Nonnull PageKind pageKind) throws SirixIOException {
+			final int index, final @Nonnull PageKind pageKind)
+			throws SirixIOException {
 		assertNotClosed();
 
 		// Initial state pointing to the indirect page of level 0.
@@ -767,10 +832,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 		for (int level = 0, height = inpLevelPageCountExp.length; level < height; level++) {
 			offset = (int) (levelKey >> inpLevelPageCountExp[level]);
 			levelKey -= offset << inpLevelPageCountExp[level];
-			if (reference.getLogKey() == null
-					&& (mPageWriteTrx.isPresent() || mPageLog.isPresent())) {
-				reference.setLogKey(new LogKey(pageKind, level, parentOffset
-						* Constants.INP_REFERENCE_COUNT + offset));
+			if (reference.getLogKey() == null) {
+//					&& (mPageWriteTrx.isPresent() || mPageLog.isPresent())) {
+				reference.setLogKey(new IndirectPageLogKey(pageKind, index, level,
+						parentOffset * Constants.INP_REFERENCE_COUNT + offset));
 			}
 			final Page derefPage = dereferenceIndirectPage(reference);
 			if (derefPage == null) {
@@ -787,10 +852,11 @@ final class PageReadTrxImpl implements PageReadTrx {
 		}
 
 		// Return reference to leaf of indirect tree.
-		if (reference != null && reference.getLogKey() == null
-				&& (mPageWriteTrx.isPresent() || mPageLog.isPresent())) {
-			reference.setLogKey(new LogKey(pageKind, inpLevelPageCountExp.length,
-					parentOffset * Constants.INP_REFERENCE_COUNT + offset));
+		if (reference != null && reference.getLogKey() == null) {
+//				&& (mPageWriteTrx.isPresent() || mPageLog.isPresent())) {
+			reference.setLogKey(new IndirectPageLogKey(pageKind, index,
+					inpLevelPageCountExp.length, parentOffset
+							* Constants.INP_REFERENCE_COUNT + offset));
 		}
 		return reference;
 	}

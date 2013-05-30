@@ -28,6 +28,7 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.mock;
 
 import org.junit.After;
 import org.junit.Before;
@@ -80,7 +81,7 @@ public class AttributeNodeTest {
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
 		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 
-		final AttributeNode node = new AttributeNode(del, nameDel, valDel);
+		final AttributeNode node = new AttributeNode(del, nameDel, valDel, mock(PageReadTrx.class));
 
 		// Create empty node.
 		check(node);
