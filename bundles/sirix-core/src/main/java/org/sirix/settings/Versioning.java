@@ -79,10 +79,6 @@ public enum Versioning {
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 
-			for (final Map.Entry<K, byte[]> entry : pages.get(0).slotEntrySet()) {
-				returnVal.get(0).setSlot(entry.getKey(), entry.getValue());
-				returnVal.get(1).setSlot(entry.getKey(), entry.getValue());
-			}
 			for (final Map.Entry<K, V> entry : pages.get(0).entrySet()) {
 				returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
 				returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
@@ -122,8 +118,8 @@ public enum Versioning {
 			assert latest.getPageKey() == recordPageKey;
 			assert fullDump.getPageKey() == recordPageKey;
 
-			for (final Map.Entry<K, byte[]> entry : latest.slotEntrySet()) {
-				returnVal.setSlot(entry.getKey(), entry.getValue());
+			for (final Map.Entry<K, V> entry : latest.entrySet()) {
+				returnVal.setEntry(entry.getKey(), entry.getValue());
 			}
 			for (final Map.Entry<K, PageReference> entry : latest.referenceEntrySet()) {
 				returnVal.setPageReference(entry.getKey(), entry.getValue());
@@ -131,9 +127,9 @@ public enum Versioning {
 
 			// Skip full dump if not needed (fulldump equals latest page).
 			if (pages.size() == 2) {
-				for (final Entry<K, byte[]> entry : fullDump.slotEntrySet()) {
-					if (returnVal.getSlotValue(entry.getKey()) == null) {
-						returnVal.setSlot(entry.getKey(), entry.getValue());
+				for (final Entry<K, V> entry : fullDump.entrySet()) {
+					if (returnVal.getValue(entry.getKey()) == null) {
+						returnVal.setEntry(entry.getKey(), entry.getValue());
 						if (returnVal.size() == Constants.NDP_NODE_COUNT) {
 							break;
 						}
@@ -171,9 +167,9 @@ public enum Versioning {
 			final boolean isFullDump = revision % revToRestore == 0;
 
 			// Iterate through all nodes of the latest revision.
-			for (final Map.Entry<K, byte[]> entry : latest.slotEntrySet()) {
-				returnVal.get(0).setSlot(entry.getKey(), entry.getValue());
-				returnVal.get(1).setSlot(entry.getKey(), entry.getValue());
+			for (final Map.Entry<K, V> entry : latest.entrySet()) {
+				returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
+				returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
 			}
 			// Iterate through all nodes of the latest revision.
 			for (final Map.Entry<K, PageReference> entry : latest.referenceEntrySet()) {
@@ -184,14 +180,14 @@ public enum Versioning {
 			// If not all entries are filled.
 			if (latest.size() != Constants.NDP_NODE_COUNT) {
 				// Iterate through the full dump.
-				for (final Map.Entry<K, byte[]> entry : fullDump.slotEntrySet()) {
-					if (returnVal.get(0).getSlotValue(entry.getKey()) == null) {
-						returnVal.get(0).setSlot(entry.getKey(), entry.getValue());
+				for (final Map.Entry<K, V> entry : fullDump.entrySet()) {
+					if (returnVal.get(0).getValue(entry.getKey()) == null) {
+						returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
 					}
 
 					if (isFullDump
-							&& returnVal.get(1).getSlotValue(entry.getKey()) == null) {
-						returnVal.get(1).setSlot(entry.getKey(), entry.getValue());
+							&& returnVal.get(1).getValue(entry.getKey()) == null) {
+						returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
 					}
 
 					if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
@@ -262,10 +258,10 @@ public enum Versioning {
 				if (filledPage) {
 					break;
 				}
-				for (final Entry<K, byte[]> entry : page.slotEntrySet()) {
+				for (final Entry<K, V> entry : page.entrySet()) {
 					final K recordKey = entry.getKey();
-					if (returnVal.getSlotValue(recordKey) == null) {
-						returnVal.setSlot(recordKey, entry.getValue());
+					if (returnVal.getValue(recordKey) == null) {
+						returnVal.setEntry(recordKey, entry.getValue());
 						if (returnVal.size() == Constants.NDP_NODE_COUNT) {
 							filledPage = true;
 							break;
@@ -311,16 +307,16 @@ public enum Versioning {
 					break;
 				}
 
-				for (final Entry<K, byte[]> entry : page.slotEntrySet()) {
+				for (final Entry<K, V> entry : page.entrySet()) {
 					// Caching the complete page.
 					final K key = entry.getKey();
 					assert key != null;
-					if (entry != null && returnVal.get(0).getSlotValue(key) == null) {
-						returnVal.get(0).setSlot(key, entry.getValue());
+					if (entry != null && returnVal.get(0).getValue(key) == null) {
+						returnVal.get(0).setEntry(key, entry.getValue());
 
-						if (returnVal.get(1).getSlotValue(entry.getKey()) == null
+						if (returnVal.get(1).getValue(entry.getKey()) == null
 								&& isFullDump) {
-							returnVal.get(1).setSlot(key, entry.getValue());
+							returnVal.get(1).setEntry(key, entry.getValue());
 						}
 
 						if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {
@@ -395,10 +391,10 @@ public enum Versioning {
 				if (filledPage) {
 					break;
 				}
-				for (final Entry<K, byte[]> entry : page.slotEntrySet()) {
+				for (final Entry<K, V> entry : page.entrySet()) {
 					final K recordKey = entry.getKey();
-					if (returnVal.getSlotValue(recordKey) == null) {
-						returnVal.setSlot(recordKey, entry.getValue());
+					if (returnVal.getValue(recordKey) == null) {
+						returnVal.setEntry(recordKey, entry.getValue());
 						if (returnVal.size() == Constants.NDP_NODE_COUNT) {
 							filledPage = true;
 							break;
@@ -440,17 +436,17 @@ public enum Versioning {
 				final T page = pages.get(i);
 				assert page.getPageKey() == recordPageKey;
 
-				for (final Entry<K, byte[]> entry : page.slotEntrySet()) {
+				for (final Entry<K, V> entry : page.entrySet()) {
 					// Caching the complete page.
 					final K key = entry.getKey();
 					assert key != null;
-					if (returnVal.get(0).getSlotValue(key) == null) {
-						returnVal.get(0).setSlot(key, entry.getValue());
+					if (returnVal.get(0).getValue(key) == null) {
+						returnVal.get(0).setEntry(key, entry.getValue());
 					}
 
 					if (i == pages.size() - 1
-							&& returnVal.get(1).getSlotValue(key) == null) {
-						returnVal.get(1).setSlot(key, entry.getValue());
+							&& returnVal.get(1).getValue(key) == null) {
+						returnVal.get(1).setEntry(key, entry.getValue());
 					}
 
 					if (returnVal.get(0).size() == Constants.NDP_NODE_COUNT) {

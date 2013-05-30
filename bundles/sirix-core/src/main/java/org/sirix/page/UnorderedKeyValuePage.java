@@ -31,7 +31,6 @@ import static org.sirix.node.Utils.putVarLong;
 
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -77,7 +76,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	private boolean mAddedReferences;
 
-	private Map<Long, PageReference> mReferences;
+	private final Map<Long, PageReference> mReferences;
 
 	/** Key of record page. This is the base key of all contained nodes. */
 	private final long mRecordPageKey;
@@ -88,7 +87,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 */
 	private final LinkedHashMap<Long, Record> mRecords;
 
-	/** Key <=> Offset/Byte-array mapping. */
 	private final Map<Long, byte[]> mSlots;
 
 	/** Determine if node page has been modified. */
@@ -127,10 +125,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		mReferences = new HashMap<>();
 		mRecordPageKey = recordPageKey;
 		mRecords = new LinkedHashMap<>();
+		mSlots = new HashMap<>();
 		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
 		mPageKind = pageKind;
-		mSlots = new HashMap<>();
 		mPersistenter = pageReadTrx.getSession().getResourceConfig().mPersistenter;
 		mPreviousPageReference = previousPageRef;
 	}
@@ -146,16 +144,19 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	protected UnorderedKeyValuePage(final @Nonnull ByteArrayDataInput in,
 			final @Nonnull PageReadTrx pageReadTrx) {
 		mRecordPageKey = getVarLong(in);
+		mPersistenter = pageReadTrx.getSession().getResourceConfig().mPersistenter;
+		mPageReadTrx = pageReadTrx;
+		mSlots = new HashMap<>();
 		final int normalEntrySize = in.readInt();
 		mRecords = new LinkedHashMap<>(normalEntrySize);
-		mPersistenter = pageReadTrx.getSession().getResourceConfig().mPersistenter;
-		mSlots = new HashMap<>(normalEntrySize);
 		for (int index = 0; index < normalEntrySize; index++) {
 			final long key = getVarLong(in);
-			final int length = in.readInt();
-			final byte[] payload = new byte[length];
-			in.readFully(payload);
-			mSlots.put(key, payload);
+			final int dataSize = in.readInt();
+			final byte[] data = new byte[dataSize];
+			in.readFully(data);
+			final Record record = mPersistenter.deserialize(ByteStreams.newDataInput(data), key,
+					mPageReadTrx);
+			mRecords.put(key, record);
 		}
 		final int overlongEntrySize = in.readInt();
 		mReferences = new HashMap<>(overlongEntrySize);
@@ -166,7 +167,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			mReferences.put(key, reference);
 		}
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
-		mPageReadTrx = pageReadTrx;
 		final boolean hasPreviousReference = in.readBoolean();
 		if (hasPreviousReference) {
 			final PageReference previousPageReference = new PageReference();
@@ -188,29 +188,21 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		assert key != null : "key must not be null!";
 		Record record = mRecords.get(key);
 		if (record == null) {
-			final byte[] in = mSlots.get(key);
-			if (in == null) {
-				byte[] data = null;
-				try {
-					final PageReference reference = mReferences.get(key);
-					if (reference != null && reference.getKey() != Constants.NULL_ID) {
-						data = ((OverflowPage) mPageReadTrx.getReader().read(
-								reference.getKey(), mPageReadTrx)).getData();
-					} else {
-						return null;
-					}
-				} catch (final SirixIOException e) {
+			byte[] data = null;
+			try {
+				final PageReference reference = mReferences.get(key);
+				if (reference != null && reference.getKey() != Constants.NULL_ID) {
+					data = ((OverflowPage) mPageReadTrx.getReader().read(
+							reference.getKey(), mPageReadTrx)).getData();
+				} else {
 					return null;
 				}
-				record = mPersistenter.deserialize(ByteStreams.newDataInput(data), key,
-						mPageReadTrx);
-				mRecords.put(key, record);
-			} else if (in != null) {
-				record = mPersistenter.deserialize(ByteStreams.newDataInput(in), key,
-						mPageReadTrx);
-				mSlots.remove(key);
-				mRecords.put(key, record);
+			} catch (final SirixIOException e) {
+				return null;
 			}
+			record = mPersistenter.deserialize(ByteStreams.newDataInput(data), key,
+					mPageReadTrx);
+			mRecords.put(key, record);
 		}
 		return record;
 	}
@@ -219,11 +211,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	public void setEntry(final @Nonnull Long key, final @Nonnull Record value) {
 		assert value != null : "record must not be null!";
 		mAddedReferences = false;
-		if (!mRecords.containsKey(key)) {
-			if (mSlots.containsKey(key)) {
-				mSlots.remove(key);
-			}
-		}
 		mRecords.put(key, value);
 	}
 
@@ -234,7 +221,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		}
 		putVarLong(out, mRecordPageKey);
 		// Write normal entries.
-		out.writeInt(mSlots.size());
+		out.writeInt(mRecords.size());
 		for (final Entry<Long, byte[]> entry : mSlots.entrySet()) {
 			putVarLong(out, entry.getKey());
 			final byte[] data = entry.getValue();
@@ -250,6 +237,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			// Write key in persistent storage.
 			out.writeLong(entry.getValue().getKey());
 		}
+		// Write previous reference if it has any reference.
 		final boolean hasPreviousReference = mPreviousPageReference.isPresent();
 		out.writeBoolean(hasPreviousReference);
 		if (hasPreviousReference) {
@@ -265,9 +253,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		for (final Record record : mRecords.values()) {
 			helper.add("record", record);
 		}
-		for (final byte[] record : mSlots.values()) {
-			helper.add("record", record);
-		}
 		for (final PageReference reference : mReferences.values()) {
 			helper.add("reference", reference);
 		}
@@ -281,7 +266,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mRecordPageKey, mRecords, mSlots, mReferences);
+		return Objects.hashCode(mRecordPageKey, mRecords, mReferences);
 	}
 
 	@Override
@@ -290,7 +275,6 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			final UnorderedKeyValuePage other = (UnorderedKeyValuePage) obj;
 			return mRecordPageKey == other.mRecordPageKey
 					&& Objects.equal(mRecords, other.mRecords)
-					&& Objects.equal(mSlots, other.mSlots)
 					&& Objects.equal(mReferences, other.mReferences);
 		}
 		return false;
@@ -318,25 +302,10 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	// Add references to OverflowPages.
 	private void addReferences() {
-		final Set<Long> entriesToDelete = new HashSet<>();
-		for (final Entry<Long, byte[]> entry : mSlots.entrySet()) {
-			final byte[] data = entry.getValue();
-			if (data.length > PageConstants.MAX_RECORD_SIZE) {
-				final PageReference reference = new PageReference();
-				reference.setPage(new OverflowPage(data));
-				mReferences.put(entry.getKey(), reference);
-				entriesToDelete.add(entry.getKey());
-			}
-		}
-		// Remove entries which have been added to the references.
-		for (final long key : entriesToDelete) {
-			mSlots.remove(key);
-		}
 		final PeekingIterator<Entry<Long, Record>> it = Iterators
 				.peekingIterator(mRecords.entrySet().iterator());
 		while (it.hasNext()) {
 			final Entry<Long, Record> entry = it.next();
-			it.remove();
 			final Record record = entry.getValue();
 			final long recordID = record.getNodeKey();
 			if (mSlots.get(recordID) == null) {
@@ -404,32 +373,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public void setSlot(final @Nonnull Long key, final @Nonnull byte[] in) {
-		assert key != null;
-		assert key >= 0;
-		assert in != null;
-		mAddedReferences = false;
-		if (!mSlots.containsKey(key)) {
-			if (mRecords.containsKey(key)) {
-				mRecords.remove(key);
-			}
-		}
-		mSlots.put(key, in);
-	}
-
-	@Override
-	public byte[] getSlotValue(final @Nonnull Long key) {
-		return mSlots.get(key);
-	}
-
-	@Override
-	public Set<Entry<Long, byte[]>> slotEntrySet() {
-		return mSlots.entrySet();
-	}
-
-	@Override
 	public int size() {
-		return mSlots.size() + mRecords.size() + mReferences.size();
+		return mRecords.size() + mReferences.size();
 	}
 
 	@Override

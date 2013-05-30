@@ -54,27 +54,6 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	V getValue(@Nonnull K key);
 
 	/**
-	 * Set the payload of the key/value page.
-	 * 
-	 * @param key
-	 *          the key
-	 * @param value
-	 *          the value in bytes
-	 */
-	void setSlot(@Nonnull K key, @Nonnull byte[] value);
-
-	/**
-	 * Get the slot value, or {@code null} if not present.
-	 * 
-	 * @param key
-	 *          the key
-	 * @return byte array with the data
-	 */
-	byte[] getSlotValue(@Nonnull K key);
-
-	Set<Entry<K, byte[]>> slotEntrySet();
-
-	/**
 	 * Store or overwrite a single entry. The implementation must make sure if the
 	 * key must be permitted, the value or none.
 	 * 
