@@ -1995,6 +1995,9 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 							.getPageTransaction(), mNodeRtx.getSession(), mNodeFactory,
 					mNodeRtx);
 		}
+		
+		// Recreate index listeners.
+		mIndexController.createIndexListeners(mIndexController.getIndexes().getIndexDefs(), this);
 	}
 
 	/**

@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 import org.brackit.xquery.node.d2linked.D2NodeBuilder;
 import org.brackit.xquery.node.parser.DocumentParser;
@@ -74,6 +75,10 @@ public final class IndexController {
 		mListeners = new HashSet<>();
 		mPathIndex = new PathIndexImpl<Long, NodeReferences>();
 		mCASIndex = new CASIndexImpl<CASValue, NodeReferences>();
+	}
+	
+	public Indexes getIndexes() {
+		return mIndexes;
 	}
 
 	/**
@@ -167,6 +172,13 @@ public final class IndexController {
 		// Build the indexes.
 		new IndexBuilder(nodeWriteTrx, indexBuilders).build();
 
+		// Build and create index listeners.
+		return createIndexListeners(indexDefs, nodeWriteTrx);
+	}
+	
+	public IndexController createIndexListeners(final @Nonnull Set<IndexDef> indexDefs,
+			final @Nonnull NodeWriteTrx nodeWriteTrx) {
+		checkNotNull(nodeWriteTrx);
 		// Save for upcoming modifications.
 		for (final IndexDef indexDef : indexDefs) {
 			mIndexes.add(indexDef);
