@@ -282,7 +282,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 								return (RecordPageContainer<UnorderedKeyValuePage>) (container
 										.equals(RecordPageContainer.EMPTY_INSTANCE) ? pageReadTrx
 										.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
-												key, -1, PageKind.NODEPAGE)
+												key, -1, PageKind.RECORDPAGE)
 										: container);
 							}
 						});
@@ -423,7 +423,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		RecordPageContainer<UnorderedKeyValuePage> cont;
 		try {
 			switch (pageKind) {
-			case NODEPAGE:
+			case RECORDPAGE:
 				cont = mNodeCache.get(recordPageKey);
 				break;
 			case PATHSUMMARYPAGE:
@@ -751,7 +751,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		assert revisionRoot != null;
 		PageReference ref = null;
 		switch (pageKind) {
-		case NODEPAGE:
+		case RECORDPAGE:
 			ref = revisionRoot.getIndirectPageReference();
 			break;
 		case CASPAGE:

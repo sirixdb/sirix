@@ -9,6 +9,7 @@ import org.sirix.cache.IndirectPageLogKey;
 import org.sirix.cache.RecordPageContainer;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.IndexType;
 import org.sirix.node.Kind;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageKind;
@@ -28,6 +29,17 @@ import com.google.common.base.Optional;
  */
 public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>>
 		extends PageReadTrx {
+
+	/**
+	 * Setup the transaction log for different index-types.
+	 * 
+	 * @param indexType
+	 *          the {@link IndexType}
+	 * @return {@code true}, if all transaction logs have been created, {@code false} otherwise
+	 * @throws SirixIOException
+	 * 					if setting up the transaction log fails
+	 */
+	boolean setupIndexTransactionLog(@Nonnull IndexType indexType) throws SirixIOException;
 
 	/**
 	 * Put a page into the cache.

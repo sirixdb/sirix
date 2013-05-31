@@ -32,7 +32,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -107,17 +106,17 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/** Cache to store the changes in this transaction log. */
 	final Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> mNodeLog;
 
-	/** Cache to store path index changes in this transaction log. */
-	final Cache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mPathLog;
-
 	/** Cache to store path summary changes in this transaction log. */
 	final Cache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mPathSummaryLog;
 
+	/** Cache to store path index changes in this transaction log. */
+	Cache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mPathLog;
+
 	/** Cache to store CAS index changes in this transaction log. */
-	final Cache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mCASLog;
+	Cache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mCASLog;
 
 	/** Cache to store name index changes in this transaction log. */
-	final Cache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mNameLog;
+	Cache<IndexLogKey, RecordPageContainer<UnorderedKeyValuePage>> mNameLog;
 
 	/** Last reference to the actual revRoot. */
 	private final RevisionRootPage mNewRoot;
@@ -186,20 +185,14 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		if (mIndexController.containsIndex(IndexType.PATH)) {
 			mPathLog = new SynchronizedIndexTransactionLogCache<>(
 					session.mResourceConfig.mPath, revision, "path", this);
-		} else {
-			mPathLog = null;
 		}
 		if (mIndexController.containsIndex(IndexType.CAS)) {
 			mCASLog = new SynchronizedIndexTransactionLogCache<>(
 					session.mResourceConfig.mPath, revision, "cas", this);
-		} else {
-			mCASLog = null;
 		}
 		if (mIndexController.containsIndex(IndexType.NAME)) {
 			mNameLog = new SynchronizedIndexTransactionLogCache<>(
 					session.mResourceConfig.mPath, revision, "name", this);
-		} else {
-			mNameLog = null;
 		}
 
 		// Create revision tree if needed.
@@ -290,7 +283,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		// Allocate record key and increment record count.
 		long recordKey;
 		switch (pageKind) {
-		case NODEPAGE:
+		case RECORDPAGE:
 			recordKey = mNewRoot.incrementAndGetMaxNodeKey();
 			break;
 		case PATHSUMMARYPAGE:
@@ -381,7 +374,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			final @Nonnegative long recordPageKey) {
 		if (pageKind != null) {
 			switch (pageKind) {
-			case NODEPAGE:
+			case RECORDPAGE:
 				return mNodeLog.get(recordPageKey);
 			case PATHSUMMARYPAGE:
 				return mPathSummaryLog.get(new IndexLogKey(recordPageKey, index));
@@ -394,6 +387,40 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			}
 		}
 		return RecordPageContainer.<UnorderedKeyValuePage> emptyInstance();
+	}
+
+	@Override
+	public boolean setupIndexTransactionLog(final IndexType indexType)
+			throws SirixIOException {
+		if (mCASLog != null && mNameLog != null && mPathLog != null) {
+			return true;
+		}
+		switch (indexType) {
+		case CAS:
+			if (mCASLog == null) {
+				mCASLog = new SynchronizedIndexTransactionLogCache<>(
+						mPageRtx.mSession.mResourceConfig.mPath,
+						mPageRtx.getRevisionNumber(), "cas", this);
+			}
+			break;
+		case NAME:
+			if (mNameLog == null) {
+				mNameLog = new SynchronizedIndexTransactionLogCache<>(
+						mPageRtx.mSession.mResourceConfig.mPath,
+						mPageRtx.getRevisionNumber(), "name", this);
+			}
+			break;
+		case PATH:
+			if (mPathLog == null) {
+				mPathLog = new SynchronizedIndexTransactionLogCache<>(
+						mPageRtx.mSession.mResourceConfig.mPath,
+						mPageRtx.getRevisionNumber(), "path", this);
+			}
+			break;
+		default:
+			throw new IllegalStateException("Index type not known!");
+		}
+		return false;
 	}
 
 	// /**
@@ -465,7 +492,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			case CASPAGE:
 			case PATHPAGE:
 			case NAMEPAGE:
-			case NODEPAGE:
+			case RECORDPAGE:
 			case PATHSUMMARYPAGE:
 				cont = getUnorderedRecordPageContainer(pageKind, index, recordPageKey);
 				break;
@@ -508,7 +535,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 						switch (recordPageKind) {
 						case NAMEPAGE:
 						case CASPAGE:
-						case NODEPAGE:
+						case RECORDPAGE:
 						case PATHSUMMARYPAGE:
 						case PATHPAGE:
 							// Revision to commit is a full dump => get the full page and
@@ -752,7 +779,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			reference.setKeyValuePageKey(recordPageKey);
 
 			switch (pageKind) {
-			case NODEPAGE:
+			case RECORDPAGE:
 				mNodeLog.put(recordPageKey, cont);
 				break;
 			case PATHSUMMARYPAGE:
@@ -969,7 +996,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		checkArgument(recordPageKey >= 0, "key must be >= 0!");
 		checkNotNull(pageContainer);
 		switch (pageKind) {
-		case NODEPAGE:
+		case RECORDPAGE:
 			mNodeLog.put(recordPageKey, pageContainer);
 			break;
 		case PATHSUMMARYPAGE:

@@ -102,7 +102,7 @@ public class PageTest {
 
 		// NodePage setup.
 		final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(
-				TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.NODEPAGE, Optional.<PageReference> absent(), mPageReadTrx);
+				TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE, Optional.<PageReference> absent(), mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 			final Record record = TestHelper.generateOne();
 			nodePage.setEntry(record.getNodeKey(), record);

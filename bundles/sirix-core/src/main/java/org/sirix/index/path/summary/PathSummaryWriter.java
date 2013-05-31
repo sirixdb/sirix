@@ -616,7 +616,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	private void resetPathNodeKey(final @Nonnegative long nodeKey)
 			throws SirixException {
 		final NameNode currNode = (NameNode) mPageWriteTrx
-				.prepareEntryForModification(nodeKey, PageKind.NODEPAGE, -1, 
+				.prepareEntryForModification(nodeKey, PageKind.RECORDPAGE, -1, 
 						Optional.<UnorderedKeyValuePage> absent());
 		currNode.setPathNodeKey(mPathSummaryReader.getNodeKey());
 	}
@@ -704,7 +704,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			// Set new path node.
 			final NameNode node = (NameNode) mPageWriteTrx
 					.prepareEntryForModification(mNodeRtx.getNodeKey(),
-							PageKind.NODEPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
 			node.setPathNodeKey(mPathSummaryReader.getNodeKey());
 		} else {
 			throw new IllegalStateException();

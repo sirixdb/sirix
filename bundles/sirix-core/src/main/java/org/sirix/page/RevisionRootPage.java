@@ -265,7 +265,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 		final PageReference reference = getIndirectPageReference();
 		if (reference.getPage() == null && reference.getLogKey() == null
 				&& reference.getKey() == Constants.NULL_ID) {
-			PageUtils.createTree(reference, PageKind.NODEPAGE, -1, pageWriteTrx);
+			PageUtils.createTree(reference, PageKind.RECORDPAGE, -1, pageWriteTrx);
 			incrementAndGetMaxNodeKey();
 		}
 	}

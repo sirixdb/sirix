@@ -132,7 +132,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		@SuppressWarnings("unchecked")
 		final Optional<? extends Node> node = (Optional<? extends Node>) mPageReadTrx
 				.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-						PageKind.NODEPAGE, -1);
+						PageKind.RECORDPAGE, -1);
 		if (node.isPresent()) {
 			mCurrentNode = node.get();
 		} else {
@@ -225,7 +225,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 					newNode = Optional.absent();
 				}
 			} else {
-				final Optional<? extends Record> node = mPageReadTrx.getRecord(nodeKey, PageKind.NODEPAGE, -1);
+				final Optional<? extends Record> node = mPageReadTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
 				newNode = node;
 			}
 		} catch (final SirixIOException e) {

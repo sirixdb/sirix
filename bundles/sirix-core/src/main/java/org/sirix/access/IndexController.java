@@ -9,7 +9,6 @@ import java.util.HashSet;
 import java.util.Set;
 
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 import org.brackit.xquery.node.d2linked.D2NodeBuilder;
 import org.brackit.xquery.node.parser.DocumentParser;
@@ -77,6 +76,26 @@ public final class IndexController {
 		mCASIndex = new CASIndexImpl<CASValue, NodeReferences>();
 	}
 	
+	/**
+	 * Determines if an index of the specified type is available.
+	 * 
+	 * @param type
+	 *          type of index to lookup
+	 * @return {@code true} if an index of the specified type exists,
+	 *         {@code false} otherwise
+	 */
+	public boolean containsIndex(IndexType type) {
+		for (final IndexDef indexDef : mIndexes.getIndexDefs()) {
+			if (indexDef.getType() == type) return true;
+		}
+		return false;
+	}
+	
+	/**
+	 * Get the indexes.
+	 * 
+	 * @return the indexes
+	 */
 	public Indexes getIndexes() {
 		return mIndexes;
 	}
@@ -145,9 +164,36 @@ public final class IndexController {
 	 * @param nodeWriteTrx
 	 *          the {@link NodeWriteTrx} used
 	 * @return this {@link IndexController} instance
+	 * @throws SirixIOException 
+	 * 						if an I/O exception during index creation occured
 	 */
 	public IndexController createIndexes(final @Nonnull Set<IndexDef> indexDefs,
-			final @Nonnull NodeWriteTrx nodeWriteTrx) {
+			final @Nonnull NodeWriteTrx nodeWriteTrx) throws SirixIOException {
+		// Initialize transaction logs.
+		final PageWriteTrx<?, ?, ?> pageWriteTrx = nodeWriteTrx.getPageTransaction();
+		for (final IndexDef indexDef : indexDefs) {
+			final boolean allTrxLogsCreated = pageWriteTrx.setupIndexTransactionLog(indexDef.getType());
+			if (allTrxLogsCreated) {
+				break;
+			}
+		}
+		
+		// Build the indexes.
+		new IndexBuilder(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx)).build();
+
+		// Create index listeners for upcoming changes.
+		return createIndexListeners(indexDefs, nodeWriteTrx);
+	}
+	
+	/**
+	 * Create index builders.
+	 * 
+	 * @param indexDefs the {@link IndexDef}s
+	 * @param nodeWriteTrx the {@link NodeWriteTrx}
+	 * 
+	 * @return the created index builder instances
+	 */
+	Set<Visitor> createIndexBuilders(final @Nonnull Set<IndexDef> indexDefs, final @Nonnull NodeWriteTrx nodeWriteTrx) {
 		// Index builders for all index definitions.
 		final Set<Visitor> indexBuilders = new HashSet<>(indexDefs.size());
 		for (final IndexDef indexDef : indexDefs) {
@@ -168,15 +214,18 @@ public final class IndexController {
 				break;
 			}
 		}
-
-		// Build the indexes.
-		new IndexBuilder(nodeWriteTrx, indexBuilders).build();
-
-		// Build and create index listeners.
-		return createIndexListeners(indexDefs, nodeWriteTrx);
+		return indexBuilders;
 	}
 	
-	public IndexController createIndexListeners(final @Nonnull Set<IndexDef> indexDefs,
+	/**
+	 * Create index listeners.
+	 * 
+	 * @param indexDefs the {@link IndexDef}s
+	 * @param nodeWriteTrx the {@link NodeWriteTrx}
+	 * 
+	 * @return this {@link IndexController} instance
+	 */
+	IndexController createIndexListeners(final @Nonnull Set<IndexDef> indexDefs,
 			final @Nonnull NodeWriteTrx nodeWriteTrx) {
 		checkNotNull(nodeWriteTrx);
 		// Save for upcoming modifications.
@@ -230,21 +279,6 @@ public final class IndexController {
 			final @Nonnull IndexDef indexDef) {
 		return mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx,
 				pathSummaryReader, indexDef);
-	}
-
-	/**
-	 * Determines if an index of the specified type is available.
-	 * 
-	 * @param type
-	 *          type of index to lookup
-	 * @return {@code true} if an index of the specified type exists,
-	 *         {@code false} otherwise
-	 */
-	public boolean containsIndex(IndexType type) {
-		for (final IndexDef indexDef : mIndexes.getIndexDefs()) {
-			if (indexDef.getType() == type) return true;
-		}
-		return false;
 	}
 
 }

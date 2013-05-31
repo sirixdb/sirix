@@ -44,7 +44,7 @@ public enum PageKind {
 	/**
 	 * {@link UnorderedKeyValuePage}.
 	 */
-	NODEPAGE((byte) 1, UnorderedKeyValuePage.class) {
+	RECORDPAGE((byte) 1, UnorderedKeyValuePage.class) {
 		@Override
 		@Nonnull
 		Page deserializePage(final @Nonnull ByteArrayDataInput source,
@@ -55,7 +55,7 @@ public enum PageKind {
 		@Override
 		void serializePage(final @Nonnull ByteArrayDataOutput sink,
 				final @Nonnull Page page) {
-			sink.writeByte(NODEPAGE.mId);
+			sink.writeByte(RECORDPAGE.mId);
 			page.serialize(sink);
 		}
 

@@ -126,7 +126,7 @@ public class NodeFactoryImpl implements NodeFactory {
 				nodeDel.getNodeKey(),
 				new ElementNode(structDel, nameDel, new ArrayList<Long>(), HashBiMap
 						.<Long, Long> create(), new ArrayList<Long>(), mPageWriteTrx),
-				PageKind.NODEPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
+				PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
 	}
 
 	@Override
@@ -147,7 +147,7 @@ public class NodeFactoryImpl implements NodeFactory {
 				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0,
 				0);
 		return (TextNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
-				new TextNode(valDel, structDel), PageKind.NODEPAGE, -1,
+				new TextNode(valDel, structDel), PageKind.RECORDPAGE, -1,
 				Optional.<UnorderedKeyValuePage> absent());
 	}
 
@@ -174,7 +174,7 @@ public class NodeFactoryImpl implements NodeFactory {
 
 		return (AttributeNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
 				new AttributeNode(nodeDel, nameDel, valDel, mPageWriteTrx),
-				PageKind.NODEPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
+				PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
 	}
 
 	@Override
@@ -190,7 +190,7 @@ public class NodeFactoryImpl implements NodeFactory {
 				prefixKey, -1, pathNodeKey);
 
 		return (NamespaceNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
-				new NamespaceNode(nodeDel, nameDel, mPageWriteTrx), PageKind.NODEPAGE,
+				new NamespaceNode(nodeDel, nameDel, mPageWriteTrx), PageKind.RECORDPAGE,
 				-1, Optional.<UnorderedKeyValuePage> absent());
 	}
 
@@ -220,7 +220,7 @@ public class NodeFactoryImpl implements NodeFactory {
 		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, content, false);
 
 		return (PINode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(), new PINode(
-				structDel, nameDel, valDel, mPageWriteTrx), PageKind.NODEPAGE, -1,
+				structDel, nameDel, valDel, mPageWriteTrx), PageKind.RECORDPAGE, -1,
 				Optional.<UnorderedKeyValuePage> absent());
 	}
 
@@ -242,7 +242,7 @@ public class NodeFactoryImpl implements NodeFactory {
 				Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0,
 				0);
 		return (CommentNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
-				new CommentNode(valDel, structDel), PageKind.NODEPAGE, -1,
+				new CommentNode(valDel, structDel), PageKind.RECORDPAGE, -1,
 				Optional.<UnorderedKeyValuePage> absent());
 	}
 }

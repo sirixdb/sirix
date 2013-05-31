@@ -18,6 +18,7 @@ import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Stream;
 
 import com.google.common.base.Optional;
+
 /**
  * @author Karsten Schmidt
  * @author Sebastian Baechle

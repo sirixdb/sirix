@@ -53,7 +53,7 @@ public enum InsertPos {
 	ASFIRSTCHILD {
 		@Override
 		void processMove(final @Nonnull StructNode fromNode,
-				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrxImpl wtx)
+				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrx wtx)
 				throws SirixException {
 			assert fromNode != null;
 			assert toNode != null;
@@ -61,7 +61,7 @@ public enum InsertPos {
 
 			// Adapt childCount of parent where the subtree has to be inserted.
 			StructNode newParent = (StructNode) wtx.getPageTransaction()
-					.prepareEntryForModification(toNode.getNodeKey(), PageKind.NODEPAGE,
+					.prepareEntryForModification(toNode.getNodeKey(), PageKind.RECORDPAGE,
 							-1, Optional.<UnorderedKeyValuePage> absent());
 			if (fromNode.getParentKey() != toNode.getNodeKey()) {
 				newParent.incrementChildCount();
@@ -77,7 +77,7 @@ public enum InsertPos {
 					wtx.moveTo(wtx.getRightSiblingKey());
 					final TextNode moved = (TextNode) wtx.getPageTransaction()
 							.prepareEntryForModification(fromNode.getNodeKey(),
-									PageKind.NODEPAGE, -1,
+									PageKind.RECORDPAGE, -1,
 									Optional.<UnorderedKeyValuePage> absent());
 					moved.setRightSiblingKey(wtx.getNodeKey());
 
@@ -93,21 +93,21 @@ public enum InsertPos {
 					// Adapt left sibling key of former right sibling of first child.
 					wtx.moveTo(moved.getRightSiblingKey());
 					final StructNode rightSibling = (StructNode) wtx.getPageTransaction()
-							.prepareEntryForModification(wtx.getNodeKey(), PageKind.NODEPAGE,
+							.prepareEntryForModification(wtx.getNodeKey(), PageKind.RECORDPAGE,
 									-1, Optional.<UnorderedKeyValuePage> absent());
 					rightSibling.setLeftSiblingKey(fromNode.getNodeKey());
 				} else {
 					// Adapt left sibling key of former first child.
 					final StructNode oldFirstChild = (StructNode) wtx
 							.getPageTransaction().prepareEntryForModification(
-									toNode.getFirstChildKey(), PageKind.NODEPAGE, -1,
+									toNode.getFirstChildKey(), PageKind.RECORDPAGE, -1,
 									Optional.<UnorderedKeyValuePage> absent());
 					oldFirstChild.setLeftSiblingKey(fromNode.getNodeKey());
 
 					// Adapt right sibling key of moved node.
 					final StructNode moved = (StructNode) wtx.getPageTransaction()
 							.prepareEntryForModification(fromNode.getNodeKey(),
-									PageKind.NODEPAGE, -1,
+									PageKind.RECORDPAGE, -1,
 									Optional.<UnorderedKeyValuePage> absent());
 					moved.setRightSiblingKey(oldFirstChild.getNodeKey());
 				}
@@ -115,21 +115,21 @@ public enum InsertPos {
 				// Adapt right sibling key of moved node.
 				final StructNode moved = (StructNode) wtx.getPageTransaction()
 						.prepareEntryForModification(fromNode.getNodeKey(),
-								PageKind.NODEPAGE, -1,
+								PageKind.RECORDPAGE, -1,
 								Optional.<UnorderedKeyValuePage> absent());
 				moved.setRightSiblingKey(Fixed.NULL_NODE_KEY.getStandardProperty());
 			}
 
 			// Adapt first child key of parent where the subtree has to be inserted.
 			newParent = (StructNode) wtx.getPageTransaction()
-					.prepareEntryForModification(toNode.getNodeKey(), PageKind.NODEPAGE,
+					.prepareEntryForModification(toNode.getNodeKey(), PageKind.RECORDPAGE,
 							-1, Optional.<UnorderedKeyValuePage> absent());
 			newParent.setFirstChildKey(fromNode.getNodeKey());
 
 			// Adapt left sibling key and parent key of moved node.
 			final StructNode moved = (StructNode) wtx.getPageTransaction()
 					.prepareEntryForModification(fromNode.getNodeKey(),
-							PageKind.NODEPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
 			moved.setLeftSiblingKey(Fixed.NULL_NODE_KEY.getStandardProperty());
 			moved.setParentKey(toNode.getNodeKey());
 		}
@@ -158,7 +158,7 @@ public enum InsertPos {
 	ASRIGHTSIBLING {
 		@Override
 		void processMove(final @Nonnull StructNode fromNode,
-				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrxImpl wtx)
+				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrx wtx)
 				throws SirixException {
 			assert fromNode != null;
 			assert toNode != null;
@@ -169,7 +169,7 @@ public enum InsertPos {
 			if (fromNode.getParentKey() != toNode.getParentKey()) {
 				final StructNode parentNode = (StructNode) wtx.getPageTransaction()
 						.prepareEntryForModification(toNode.getParentKey(),
-								PageKind.NODEPAGE, -1,
+								PageKind.RECORDPAGE, -1,
 								Optional.<UnorderedKeyValuePage> absent());
 				parentNode.incrementChildCount();
 			}
@@ -186,7 +186,7 @@ public enum InsertPos {
 				if (toNode.hasRightSibling()) {
 					final StructNode rightSibling = (StructNode) wtx.getPageTransaction()
 							.prepareEntryForModification(wtx.getRightSiblingKey(),
-									PageKind.NODEPAGE, -1,
+									PageKind.RECORDPAGE, -1,
 									Optional.<UnorderedKeyValuePage> absent());
 					rightSibling.setLeftSiblingKey(fromNode.getNodeKey());
 				}
@@ -194,7 +194,7 @@ public enum InsertPos {
 				// Adapt sibling keys of moved node.
 				final TextNode movedNode = (TextNode) wtx.getPageTransaction()
 						.prepareEntryForModification(fromNode.getNodeKey(),
-								PageKind.NODEPAGE, -1,
+								PageKind.RECORDPAGE, -1,
 								Optional.<UnorderedKeyValuePage> absent());
 				movedNode.setRightSiblingKey(toNode.getRightSiblingKey());
 				// Adapt left sibling key of moved node.
@@ -207,7 +207,7 @@ public enum InsertPos {
 
 				final StructNode insertAnchor = (StructNode) wtx.getPageTransaction()
 						.prepareEntryForModification(toNode.getNodeKey(),
-								PageKind.NODEPAGE, -1,
+								PageKind.RECORDPAGE, -1,
 								Optional.<UnorderedKeyValuePage> absent());
 				// Adapt right sibling key of node where the subtree has to be inserted.
 				insertAnchor.setRightSiblingKey(fromNode.getNodeKey());
@@ -222,14 +222,14 @@ public enum InsertPos {
 
 				// Adapt left sibling key of former right sibling of first child.
 				final StructNode rightSibling = (StructNode) wtx.getPageTransaction()
-						.prepareEntryForModification(wtx.getNodeKey(), PageKind.NODEPAGE,
+						.prepareEntryForModification(wtx.getNodeKey(), PageKind.RECORDPAGE,
 								-1, Optional.<UnorderedKeyValuePage> absent());
 				rightSibling.setLeftSiblingKey(fromNode.getNodeKey());
 
 				// Adapt sibling keys of moved node.
 				final TextNode movedNode = (TextNode) wtx.getPageTransaction()
 						.prepareEntryForModification(fromNode.getNodeKey(),
-								PageKind.NODEPAGE, -1,
+								PageKind.RECORDPAGE, -1,
 								Optional.<UnorderedKeyValuePage> absent());
 				movedNode.setRightSiblingKey(rightSibling.getNodeKey());
 				movedNode.setLeftSiblingKey(toNode.getNodeKey());
@@ -245,7 +245,7 @@ public enum InsertPos {
 
 				final StructNode insertAnchor = (StructNode) wtx.getPageTransaction()
 						.prepareEntryForModification(toNode.getNodeKey(),
-								PageKind.NODEPAGE, -1,
+								PageKind.RECORDPAGE, -1,
 								Optional.<UnorderedKeyValuePage> absent());
 				// Adapt right sibling key of node where the subtree has to be inserted.
 				insertAnchor.setRightSiblingKey(fromNode.getNodeKey());
@@ -253,7 +253,7 @@ public enum InsertPos {
 				// No text merging involved.
 				final StructNode insertAnchor = (StructNode) wtx.getPageTransaction()
 						.prepareEntryForModification(toNode.getNodeKey(),
-								PageKind.NODEPAGE, -1,
+								PageKind.RECORDPAGE, -1,
 								Optional.<UnorderedKeyValuePage> absent());
 				final long rightSiblKey = insertAnchor.getRightSiblingKey();
 				// Adapt right sibling key of node where the subtree has to be inserted.
@@ -263,14 +263,14 @@ public enum InsertPos {
 					// Adapt left sibling key of former right sibling.
 					final StructNode oldRightSibling = (StructNode) wtx
 							.getPageTransaction().prepareEntryForModification(rightSiblKey,
-									PageKind.NODEPAGE, -1,
+									PageKind.RECORDPAGE, -1,
 									Optional.<UnorderedKeyValuePage> absent());
 					oldRightSibling.setLeftSiblingKey(fromNode.getNodeKey());
 				}
 				// Adapt right- and left-sibling key of moved node.
 				final StructNode movedNode = (StructNode) wtx.getPageTransaction()
 						.prepareEntryForModification(fromNode.getNodeKey(),
-								PageKind.NODEPAGE, -1,
+								PageKind.RECORDPAGE, -1,
 								Optional.<UnorderedKeyValuePage> absent());
 				movedNode.setRightSiblingKey(rightSiblKey);
 				movedNode.setLeftSiblingKey(insertAnchor.getNodeKey());
@@ -279,7 +279,7 @@ public enum InsertPos {
 			// Adapt parent key of moved node.
 			final StructNode movedNode = (StructNode) wtx.getPageTransaction()
 					.prepareEntryForModification(fromNode.getNodeKey(),
-							PageKind.NODEPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
+							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
 			movedNode.setParentKey(toNode.getParentKey());
 		}
 
@@ -305,7 +305,7 @@ public enum InsertPos {
 	ASNONSTRUCTURAL {
 		@Override
 		void processMove(final @Nonnull StructNode fromNode,
-				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrxImpl wtx)
+				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrx wtx)
 				throws SirixException {
 			// Not allowed.
 			throw new AssertionError("May never be invoked!");
@@ -338,7 +338,7 @@ public enum InsertPos {
 	ASLEFTSIBLING {
 		@Override
 		void processMove(final @Nonnull StructNode pFromNode,
-				final @Nonnull StructNode pToNode, final @Nonnull NodeWriteTrxImpl pWtx)
+				final @Nonnull StructNode pToNode, final @Nonnull NodeWriteTrx pWtx)
 				throws SirixException {
 			throw new UnsupportedOperationException();
 		}
@@ -376,7 +376,7 @@ public enum InsertPos {
 	 *           if an I/O error occurs
 	 */
 	abstract void processMove(final @Nonnull StructNode fromNode,
-			final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrxImpl wtx)
+			final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrx wtx)
 			throws SirixException;
 
 	/**
