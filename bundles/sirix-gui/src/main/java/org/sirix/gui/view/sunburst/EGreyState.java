@@ -27,7 +27,6 @@
 package org.sirix.gui.view.sunburst;
 
 import org.sirix.gui.view.EHover;
-import org.sirix.gui.view.sunburst.SunburstItem;
 
 import processing.core.PConstants;
 import processing.core.PGraphics;

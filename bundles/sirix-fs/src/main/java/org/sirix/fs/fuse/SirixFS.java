@@ -26,30 +26,6 @@
  */
 package org.sirix.fs.fuse;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
-import java.io.File;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
-import org.slf4j.LoggerFactory;
-import org.sirix.access.DatabaseImpl;
-import org.sirix.access.conf.SessionConfiguration;
-import org.sirix.api.Database;
-import org.sirix.api.Filter;
-import org.sirix.api.NodeWriteTrx;
-import org.sirix.axis.AbstractAxis;
-import org.sirix.axis.AttributeAxis;
-import org.sirix.axis.ChildAxis;
-import org.sirix.axis.filter.NameFilter;
-import org.sirix.exception.SirixException;
-import org.sirix.node.Kind;
-import org.sirix.node.ElementNode;
-import org.sirix.utils.LogWrapper;
 
 ///**
 // * Platform independent FUSE part (native part is provided by sirixfs library).

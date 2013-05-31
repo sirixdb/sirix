@@ -46,7 +46,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
 import org.sirix.diff.DiffFactory.DiffType;
@@ -56,13 +55,15 @@ import org.sirix.gui.view.AbstractObservableComponent;
 import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.model.interfaces.Container;
 import org.sirix.gui.view.model.interfaces.Model;
-import org.sirix.gui.view.sunburst.XPathState;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
+import org.sirix.gui.view.sunburst.XPathState;
 import org.sirix.node.Kind;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import processing.core.PApplet;
 
 /**

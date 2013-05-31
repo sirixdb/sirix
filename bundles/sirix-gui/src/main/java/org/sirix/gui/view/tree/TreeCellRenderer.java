@@ -37,7 +37,6 @@ import java.awt.Component;
 import javax.swing.JTree;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.xml.XMLConstants;
-import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;

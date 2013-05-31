@@ -31,10 +31,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.utils.Files;
-import org.sirix.wikipedia.hadoop.DateWritable;
-import org.sirix.wikipedia.hadoop.XMLInputFormat;
-import org.sirix.wikipedia.hadoop.XMLMap;
-import org.sirix.wikipedia.hadoop.XMLReduce;
 
 public final class TestSortWiki extends XMLTestCase {
 

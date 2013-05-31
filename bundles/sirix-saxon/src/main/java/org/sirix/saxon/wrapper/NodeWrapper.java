@@ -29,9 +29,6 @@ package org.sirix.saxon.wrapper;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
-import javax.annotation.Nonnull;
-
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;
 import net.sf.saxon.om.Axis;

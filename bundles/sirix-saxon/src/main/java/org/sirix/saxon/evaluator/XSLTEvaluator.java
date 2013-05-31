@@ -33,7 +33,6 @@ import java.io.File;
 import java.io.OutputStream;
 import java.util.concurrent.Callable;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.xml.transform.stream.StreamSource;
 
@@ -46,6 +45,7 @@ import net.sf.saxon.s9api.XdmNode;
 import net.sf.saxon.s9api.XsltCompiler;
 import net.sf.saxon.s9api.XsltExecutable;
 import net.sf.saxon.s9api.XsltTransformer;
+
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
 import org.sirix.saxon.wrapper.DocumentWrapper;

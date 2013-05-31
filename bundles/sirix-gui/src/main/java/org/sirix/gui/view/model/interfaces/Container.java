@@ -27,7 +27,6 @@
 package org.sirix.gui.view.model.interfaces;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.gui.view.sunburst.Pruning;
 

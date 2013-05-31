@@ -27,8 +27,6 @@
 
 package org.sirix.gui.view.sunburst.axis;
 
-import com.google.common.base.Optional;
-
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -38,9 +36,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffDepth;
@@ -49,15 +45,17 @@ import org.sirix.diff.DiffTuple;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.model.interfaces.TraverseModel;
+import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.Moved;
 import org.sirix.gui.view.sunburst.Pruning;
-import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.model.Modification;
 import org.sirix.gui.view.sunburst.model.Modifications;
-import org.sirix.node.Kind;
-import org.sirix.node.interfaces.StructNode;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import processing.core.PConstants;
+
+import com.google.common.base.Optional;
 
 /**
  * Special sunburst compare descendant axis.

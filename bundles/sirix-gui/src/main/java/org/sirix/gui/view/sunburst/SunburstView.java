@@ -28,7 +28,6 @@
 package org.sirix.gui.view.sunburst;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Optional;
 
 import java.awt.Dimension;
 import java.awt.event.MouseEvent;
@@ -36,20 +35,23 @@ import java.awt.event.MouseEvent;
 import javax.annotation.Nullable;
 import javax.swing.JComponent;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.gui.GUIProp;
 import org.sirix.gui.ProgressGlassPane;
 import org.sirix.gui.view.AbstractView;
+import org.sirix.gui.view.ProcessingEmbeddedView;
 import org.sirix.gui.view.ProcessingView;
 import org.sirix.gui.view.View;
-import org.sirix.gui.view.VisualItem;
-import org.sirix.gui.view.ProcessingEmbeddedView;
 import org.sirix.gui.view.ViewNotifier;
+import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.sunburst.model.SunburstModel;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import processing.core.PApplet;
+
+import com.google.common.base.Optional;
 
 /**
  * <h1>SunburstView</h1>

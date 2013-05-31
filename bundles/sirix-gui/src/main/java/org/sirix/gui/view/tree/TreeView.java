@@ -27,8 +27,6 @@
 
 package org.sirix.gui.view.tree;
 
-import com.google.common.base.Optional;
-
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.event.ComponentListener;
@@ -45,11 +43,13 @@ import javax.swing.tree.TreeSelectionModel;
 import org.sirix.gui.GUI;
 import org.sirix.gui.GUIProp;
 import org.sirix.gui.ReadDB;
-import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.gui.view.View;
-import org.sirix.gui.view.VisualItem;
 import org.sirix.gui.view.ViewNotifier;
+import org.sirix.gui.view.VisualItem;
+import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.node.interfaces.Node;
+
+import com.google.common.base.Optional;
 
 /**
  * <h1>TreeView</h1>

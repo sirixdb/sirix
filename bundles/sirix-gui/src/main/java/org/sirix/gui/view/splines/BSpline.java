@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
 import org.sirix.gui.view.sunburst.AbstractSunburstGUI.EDrawLine;
+
 import processing.core.PGraphics;
 import processing.core.PVector;
 

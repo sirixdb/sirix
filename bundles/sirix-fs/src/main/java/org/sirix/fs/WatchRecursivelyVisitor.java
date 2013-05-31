@@ -30,7 +30,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
-import com.google.common.collect.Maps;
 
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -44,6 +43,8 @@ import java.util.List;
 import java.util.Map;
 
 import javax.annotation.Nonnull;
+
+import com.google.common.collect.Maps;
 
 /** Watches a directory recursively. */
 @Nonnull

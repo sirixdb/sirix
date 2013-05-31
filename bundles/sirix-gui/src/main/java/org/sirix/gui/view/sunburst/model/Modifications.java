@@ -8,13 +8,13 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.RecursiveTask;
 
-import org.slf4j.LoggerFactory;
-import org.sirix.diff.DiffTuple;
 import org.sirix.diff.DiffDepth;
 import org.sirix.diff.DiffFactory.DiffType;
+import org.sirix.diff.DiffTuple;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.view.model.interfaces.TraverseModel;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 /** Counts modifications. */
 public final class Modifications extends RecursiveTask<Modification> implements Callable<Modification> {

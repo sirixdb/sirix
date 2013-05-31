@@ -33,7 +33,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.Databases;
 import org.sirix.access.conf.SessionConfiguration;

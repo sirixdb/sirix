@@ -27,11 +27,9 @@
 
 package org.sirix.gui.view;
 
-import com.google.common.base.Optional;
-
 import javax.swing.JComponent;
 
-import org.sirix.gui.view.VisualItemAxis;
+import com.google.common.base.Optional;
 
 /**
  * <h1>IView</h1>

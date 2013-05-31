@@ -33,7 +33,6 @@ import java.awt.event.MouseEvent;
 import java.util.List;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.xml.stream.FactoryConfigurationError;

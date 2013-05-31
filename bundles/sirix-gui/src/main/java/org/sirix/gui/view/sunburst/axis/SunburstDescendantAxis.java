@@ -37,16 +37,17 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.gui.view.model.interfaces.TraverseModel;
+import org.sirix.gui.view.sunburst.Item;
 import org.sirix.gui.view.sunburst.Moved;
 import org.sirix.gui.view.sunburst.Pruning;
-import org.sirix.gui.view.sunburst.Item;
 import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import processing.core.PConstants;
 
 /**

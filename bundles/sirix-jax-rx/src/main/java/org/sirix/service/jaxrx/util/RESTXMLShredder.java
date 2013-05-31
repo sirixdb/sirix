@@ -33,7 +33,6 @@ package org.sirix.service.jaxrx.util;
 import java.io.IOException;
 import java.io.InputStream;
 
-import javax.annotation.Nonnull;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamException;

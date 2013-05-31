@@ -27,7 +27,6 @@
 package org.sirix.gui.view.smallmultiple;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import controlP5.ControlEvent;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -39,7 +38,6 @@ import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
 import javax.swing.JOptionPane;
 
-import org.slf4j.LoggerFactory;
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.ViewUtilities;
 import org.sirix.gui.view.model.interfaces.Model;
@@ -50,8 +48,11 @@ import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.control.AbstractSunburstControl;
 import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import processing.core.PApplet;
 import processing.core.PConstants;
+import controlP5.ControlEvent;
 
 /**
  * Controller for the {@link SmallmultipleView}.

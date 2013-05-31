@@ -27,9 +27,18 @@
 
 package org.sirix.gui;
 
-import java.awt.Color;
+import static org.sirix.gui.GUICommands.OPEN;
+import static org.sirix.gui.GUICommands.QUIT;
+import static org.sirix.gui.GUICommands.SEPARATOR;
+import static org.sirix.gui.GUICommands.SERIALIZE;
+import static org.sirix.gui.GUICommands.SHREDDER;
+import static org.sirix.gui.GUICommands.SHREDDER_UPDATE;
+import static org.sirix.gui.GUICommands.SMALLMULTIPLES;
+import static org.sirix.gui.GUICommands.SUNBURST;
+import static org.sirix.gui.GUICommands.TEXT;
+import static org.sirix.gui.GUICommands.TREE;
 
-import static org.sirix.gui.GUICommands.*;
+import java.awt.Color;
 
 /**
  * <h1>GUIConstants</h1>

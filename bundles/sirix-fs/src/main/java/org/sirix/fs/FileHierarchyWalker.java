@@ -1,7 +1,6 @@
 package org.sirix.fs;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Optional;
 
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -13,12 +12,14 @@ import java.util.Map;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.fs.HierarchyFileVisitor.Builder;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
-import org.sirix.api.Session;
 import org.sirix.api.NodeWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
+import org.sirix.fs.HierarchyFileVisitor.Builder;
+
+import com.google.common.base.Optional;
 
 /**
  * Parses a directory in the file system and creates a sirix {@IDatabase} with an initial

@@ -34,7 +34,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
 
-import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventFactory;
 import javax.xml.stream.XMLEventReader;

@@ -31,12 +31,20 @@
 
 package org.sirix.gui;
 
-import java.awt.*;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.awt.AlphaComposite;
+import java.awt.Color;
+import java.awt.Composite;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.GradientPaint;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.LinearGradientPaint;
+import java.awt.Paint;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
 
 import javax.swing.JComponent;
-import javax.swing.SwingUtilities;
 
 /**
  * 

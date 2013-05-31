@@ -31,8 +31,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.concurrent.Callable;
 
-import javax.annotation.Nonnull;
-
 import net.sf.saxon.Configuration;
 import net.sf.saxon.om.NodeInfo;
 import net.sf.saxon.s9api.Processor;
@@ -40,11 +38,11 @@ import net.sf.saxon.s9api.SAXDestination;
 import net.sf.saxon.s9api.SaxonApiException;
 import net.sf.saxon.s9api.XQueryCompiler;
 import net.sf.saxon.s9api.XQueryExecutable;
+
 import org.sirix.api.Session;
 import org.sirix.saxon.wrapper.DocumentWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.xml.sax.ContentHandler;
 
 /**

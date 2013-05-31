@@ -27,6 +27,16 @@
 package org.sirix.gui.view;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+
+import java.io.File;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.sirix.diff.DiffTuple;
+import org.sirix.exception.SirixIOException;
+import org.sirix.utils.Files;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
+
 import com.sleepycat.bind.EntryBinding;
 import com.sleepycat.bind.serial.ClassCatalog;
 import com.sleepycat.bind.serial.SerialBinding;
@@ -37,15 +47,6 @@ import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
 import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
-
-import java.io.File;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import org.sirix.diff.DiffTuple;
-import org.sirix.exception.SirixIOException;
-import org.sirix.utils.Files;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 
 /** Database to store generated diffs. */
 public class DiffDatabase implements AutoCloseable {

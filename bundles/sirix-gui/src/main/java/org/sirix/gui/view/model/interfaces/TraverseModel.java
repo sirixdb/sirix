@@ -27,20 +27,20 @@
 
 package org.sirix.gui.view.model.interfaces;
 
-import com.google.common.base.Optional;
-
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
-import javax.annotation.Nonnull;
+import javax.annotation.Resource;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.gui.view.sunburst.Item;
-import org.sirix.gui.view.sunburst.axis.SunburstDescendantAxis;
 import org.sirix.gui.view.sunburst.SunburstItem;
+import org.sirix.gui.view.sunburst.axis.SunburstDescendantAxis;
 import org.sirix.gui.view.sunburst.model.Modification;
+
+import com.google.common.base.Optional;
 
 /**
  * Interface which has to be implemented from traversal models. That is a class which encapsulates all

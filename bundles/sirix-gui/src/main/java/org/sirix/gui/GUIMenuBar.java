@@ -27,12 +27,12 @@
 
 package org.sirix.gui;
 
+import static org.sirix.gui.GUIConstants.MENUBAR;
+import static org.sirix.gui.GUIConstants.MENUITEMS;
+
 import javax.swing.JComponent;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
-
-import static org.sirix.gui.GUIConstants.MENUBAR;
-import static org.sirix.gui.GUIConstants.MENUITEMS;
 
 /**
  * This is the menu bar of the main window.

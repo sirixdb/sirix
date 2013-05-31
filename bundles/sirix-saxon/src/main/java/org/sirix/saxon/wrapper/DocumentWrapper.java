@@ -34,7 +34,6 @@ import java.util.Collections;
 import java.util.Iterator;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import net.sf.saxon.Configuration;
 import net.sf.saxon.event.Receiver;

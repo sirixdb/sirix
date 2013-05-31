@@ -1,7 +1,6 @@
 package org.sirix.fs;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
 import java.nio.file.Path;
 
@@ -9,6 +8,8 @@ import javax.annotation.Nonnull;
 
 import org.sirix.api.Database;
 import org.sirix.api.Session;
+
+import com.google.common.base.Objects;
 
 /**
  * Container for {@code {@link Path}/{@link Database} combinations. Note that it may be refined to {@code {

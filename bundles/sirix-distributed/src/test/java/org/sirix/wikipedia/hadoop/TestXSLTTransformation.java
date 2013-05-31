@@ -35,7 +35,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.utils.LogWrapper;
-import org.sirix.wikipedia.hadoop.XMLReduce;
 import org.slf4j.LoggerFactory;
 
 

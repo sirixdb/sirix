@@ -36,8 +36,8 @@ import javax.annotation.Nonnull;
 
 import org.sirix.gui.ReadDB;
 import org.sirix.gui.view.VisualItem;
-import org.sirix.gui.view.sunburst.SunburstView;
 import org.sirix.gui.view.sunburst.SunburstItem;
+import org.sirix.gui.view.sunburst.SunburstView;
 import org.sirix.service.xml.shredder.Insert;
 
 /**

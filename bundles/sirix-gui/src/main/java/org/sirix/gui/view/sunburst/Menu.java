@@ -42,7 +42,9 @@ import org.sirix.gui.view.sunburst.SunburstView.Embedded;
 import org.sirix.service.xml.shredder.Insert;
 
 import processing.core.PApplet;
+
 import com.google.common.base.Optional;
+
 import controlP5.ControlGroup;
 
 /**

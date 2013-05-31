@@ -32,7 +32,7 @@ import java.awt.event.MouseListener;
 import org.sirix.gui.ProgressGlassPane;
 import org.sirix.gui.view.controls.Control;
 import org.sirix.gui.view.model.interfaces.Model;
-import org.sirix.gui.view.sunburst.control.SunburstControl;
+
 import processing.core.PApplet;
 
 /**

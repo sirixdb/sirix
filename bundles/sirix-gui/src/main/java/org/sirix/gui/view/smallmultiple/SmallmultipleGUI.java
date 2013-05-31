@@ -34,7 +34,6 @@ import java.util.Comparator;
 import java.util.List;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.gui.ReadDB;
@@ -43,10 +42,10 @@ import org.sirix.gui.view.smallmultiple.SmallmultipleView.Embedded;
 import org.sirix.gui.view.sunburst.AbstractSunburstGUI;
 import org.sirix.gui.view.sunburst.Draw;
 import org.sirix.gui.view.sunburst.EGreyState;
-import org.sirix.gui.view.sunburst.ViewType;
 import org.sirix.gui.view.sunburst.SunburstGUI;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.SunburstItemKeyEquivalence;
+import org.sirix.gui.view.sunburst.ViewType;
 import org.sirix.gui.view.sunburst.control.SunburstControl;
 
 import processing.core.PApplet;

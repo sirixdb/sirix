@@ -22,6 +22,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
+
 import javax.xml.stream.FactoryConfigurationError;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;

@@ -32,7 +32,6 @@ import java.io.InputStream;
 import java.util.HashSet;
 import java.util.Set;
 
-import javax.annotation.Nonnull;
 import javax.ws.rs.core.StreamingOutput;
 
 import org.jaxrx.JaxRx;

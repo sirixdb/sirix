@@ -28,20 +28,18 @@
 
 package org.sirix.saxon.wrapper;
 
+import static org.junit.Assert.assertEquals;
+
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
-
-import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.access.DatabaseImpl;
-import org.sirix.exception.SirixException;
-import org.sirix.saxon.evaluator.XQueryEvaluatorOutputStream;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
+import org.sirix.Holder;
+import org.sirix.TestHelper;
+import org.sirix.exception.SirixException;
+import org.sirix.saxon.evaluator.XQueryEvaluatorOutputStream;
 
 /**
  * Test XQuery S9Api.

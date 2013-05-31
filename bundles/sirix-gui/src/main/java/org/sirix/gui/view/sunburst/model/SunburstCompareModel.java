@@ -43,8 +43,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -55,10 +53,10 @@ import org.sirix.gui.view.VisualItemAxis;
 import org.sirix.gui.view.model.AbstractModel;
 import org.sirix.gui.view.model.TraverseCompareTree;
 import org.sirix.gui.view.model.interfaces.Container;
-import org.sirix.gui.view.sunburst.XPathState;
 import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.SunburstView.Embedded;
+import org.sirix.gui.view.sunburst.XPathState;
 import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;

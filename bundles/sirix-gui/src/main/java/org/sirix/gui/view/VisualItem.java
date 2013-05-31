@@ -33,9 +33,9 @@ import javax.annotation.Nonnull;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.view.sunburst.Draw;
 import org.sirix.gui.view.sunburst.EGreyState;
-import org.sirix.gui.view.sunburst.XPathState;
 import org.sirix.gui.view.sunburst.SunburstItem.EColorNode;
-import org.sirix.node.interfaces.Node;
+import org.sirix.gui.view.sunburst.XPathState;
+
 import processing.core.PGraphics;
 
 /**

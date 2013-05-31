@@ -31,8 +31,9 @@ import java.nio.file.attribute.BasicFileAttributes;
 
 import javax.annotation.Nonnull;
 
-import com.google.common.base.Optional;
 import org.sirix.api.NodeReadTrx;
+
+import com.google.common.base.Optional;
 
 /**
  * Interface for all visitor implementations to equip the parsing of directories

@@ -30,16 +30,14 @@
  */
 package org.sirix.service.jaxrx.server;
 
-import com.sun.jersey.api.client.Client;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.WebResource;
-
-import org.sirix.service.jaxrx.server.StartServer;
+import static org.junit.Assert.assertEquals;
 
 import org.junit.Ignore;
 import org.junit.Test;
 
-import static org.junit.Assert.assertEquals;
+import com.sun.jersey.api.client.Client;
+import com.sun.jersey.api.client.ClientResponse;
+import com.sun.jersey.api.client.WebResource;
 
 /**
  * This class is responsible to test the {@link StartServer} class.

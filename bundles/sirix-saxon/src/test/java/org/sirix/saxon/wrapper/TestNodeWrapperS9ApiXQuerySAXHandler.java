@@ -27,22 +27,19 @@
 
 package org.sirix.saxon.wrapper;
 
-import org.xml.sax.Attributes;
-import org.xml.sax.ContentHandler;
-import org.xml.sax.SAXException;
-import org.xml.sax.helpers.XMLFilterImpl;
-
-import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.access.DatabaseImpl;
-import org.sirix.exception.SirixException;
-import org.sirix.saxon.evaluator.XQueryEvaluatorSAXHandler;
+import static org.junit.Assert.assertEquals;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
+import org.sirix.Holder;
+import org.sirix.TestHelper;
+import org.sirix.exception.SirixException;
+import org.sirix.saxon.evaluator.XQueryEvaluatorSAXHandler;
+import org.xml.sax.Attributes;
+import org.xml.sax.ContentHandler;
+import org.xml.sax.SAXException;
+import org.xml.sax.helpers.XMLFilterImpl;
 
 /**
  * <h1>TestNodeWrapperS9ApiXQueryHandler</h1>

@@ -50,6 +50,7 @@ import org.sirix.gui.view.sunburst.SunburstContainer;
 import org.sirix.gui.view.sunburst.SunburstItem;
 import org.sirix.gui.view.sunburst.control.SunburstControl;
 import org.sirix.gui.view.sunburst.model.SunburstCompareModel;
+
 import processing.core.PApplet;
 
 /**

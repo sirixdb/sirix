@@ -40,7 +40,6 @@ import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.gui.view.model.interfaces.Container;
 import org.sirix.gui.view.model.interfaces.Model;
 import org.sirix.gui.view.smallmultiple.ECompare;
-import org.sirix.gui.view.sunburst.SunburstItem;
 
 /**
  * Contains settings used for updating the model.

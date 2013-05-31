@@ -30,6 +30,7 @@ package org.sirix.saxon.wrapper;
 import static org.junit.Assert.assertEquals;
 import net.sf.saxon.s9api.XdmItem;
 import net.sf.saxon.s9api.XdmValue;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;

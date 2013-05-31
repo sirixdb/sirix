@@ -28,13 +28,14 @@
 package org.sirix.gui.view;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Optional;
 
 import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Set;
 
 import org.sirix.gui.GUI;
+
+import com.google.common.base.Optional;
 
 /**
  * <h1>ViewNotifier</h1>

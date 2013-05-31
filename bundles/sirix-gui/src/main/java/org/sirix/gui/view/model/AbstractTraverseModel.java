@@ -3,7 +3,6 @@ package org.sirix.gui.view.model;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventFactory;
 import javax.xml.stream.events.Attribute;
