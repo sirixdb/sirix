@@ -1,7 +1,5 @@
 package org.sirix.xquery.node;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XMarkTest;
 import org.brackit.xquery.XQuery;

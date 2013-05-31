@@ -2,8 +2,6 @@ package org.sirix.xquery.stream;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Stream;
 import org.sirix.api.Axis;
@@ -18,7 +16,7 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger
  * 
  */
-public class SirixStream implements Stream<DBNode> {
+public final class SirixStream implements Stream<DBNode> {
 	/** Sirix {@link Axis}. */
 	private final Axis mAxis;
 

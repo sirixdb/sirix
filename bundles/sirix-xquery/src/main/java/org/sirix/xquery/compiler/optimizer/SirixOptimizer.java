@@ -2,8 +2,6 @@ package org.sirix.xquery.compiler.optimizer;
 
 import java.util.Map;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;

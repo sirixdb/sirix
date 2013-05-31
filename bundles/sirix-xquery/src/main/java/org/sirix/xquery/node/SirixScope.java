@@ -1,6 +1,5 @@
 package org.sirix.xquery.node;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;

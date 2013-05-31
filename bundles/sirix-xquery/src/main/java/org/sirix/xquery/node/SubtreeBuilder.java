@@ -6,8 +6,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.node.parser.SubtreeHandler;

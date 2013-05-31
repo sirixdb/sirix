@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.QNm;
@@ -20,17 +19,22 @@ import org.brackit.xquery.expr.Accessor;
 import org.brackit.xquery.node.stream.EmptyStream;
 import org.brackit.xquery.util.Cfg;
 import org.brackit.xquery.xdm.Axis;
+import org.brackit.xquery.xdm.Kind;
 import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.type.NodeType;
 import org.sirix.api.NodeReadTrx;
+import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.SelfAxis;
+import org.sirix.axis.filter.CommentFilter;
 import org.sirix.axis.filter.ElementFilter;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.NameFilter;
+import org.sirix.axis.filter.PIFilter;
+import org.sirix.axis.filter.TextFilter;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
@@ -48,10 +52,17 @@ import com.google.common.collect.ImmutableSet.Builder;
  * 
  */
 public final class SirixTranslator extends TopDownTranslator {
-	
+
 	/** Optimize accessors or not. */
 	public static final boolean OPTIMIZE = Cfg.asBool(
 			"org.sirix.xquery.optimize.accessor", true);
+
+	/**
+	 * Number of children (needed as a threshold to lookup in path summary if a path exists at
+	 * all).
+	 */
+	public static final int CHILD_THRESHOLD = Cfg.asInt(
+			"org.sirix.xquery.optimize.child.threshold", 50);
 
 	/**
 	 * Constructor.
@@ -73,8 +84,109 @@ public final class SirixTranslator extends TopDownTranslator {
 			return new DescOrSelf(Axis.DESCENDANT);
 		case XQ.DESCENDANT_OR_SELF:
 			return new DescOrSelf(Axis.DESCENDANT_OR_SELF);
+		case XQ.CHILD:
+			return new Child(Axis.CHILD);
+		case XQ.ATTRIBUTE:
+			return new Attribute(Axis.ATTRIBUTE);
 		default:
 			return super.axis(node);
+		}
+	}
+	
+	/**
+	 * {@code attribute::} optimization.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	private class Attribute extends Accessor {
+		/**
+		 * Constructor.
+		 * 
+		 * @param axis
+		 *          the axis to evaluate
+		 */
+		public Attribute(final Axis axis) {
+			super(axis);
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(final Node<?> node,
+				final NodeType test) throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			return new SirixStream(new FilterAxis(new AttributeAxis(rtx), new NameFilter(rtx, test.getQName().toString())),
+					dbNode.getCollection());
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(Node<?> node)
+				throws QueryException {
+			return null;
+		}
+	}
+
+	/**
+	 * {@code child::} optimization.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	private class Child extends Accessor {
+		/**
+		 * Map with PCR <=> matching nodes.
+		 */
+		private final Map<Long, BitSet> mFilterMap;
+
+		/**
+		 * Constructor.
+		 * 
+		 * @param axis
+		 *          the axis to evaluate
+		 */
+		public Child(final Axis axis) {
+			super(axis);
+			mFilterMap = new HashMap<>();
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(final Node<?> node,
+				final NodeType test) throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			if (test.getNodeKind() == Kind.ELEMENT
+					&& rtx.getChildCount() > CHILD_THRESHOLD) {
+				try {
+					final long pcr = dbNode.getPCR();
+					BitSet matches = mFilterMap.get(pcr);
+					final PathSummaryReader reader = rtx.getSession().openPathSummary(
+							rtx.getRevisionNumber());
+					if (matches == null) {
+						reader.moveTo(pcr);
+						final int level = reader.getLevel() + 1;
+						final QNm name = test.getQName();
+						matches = reader.match(name, level);
+						mFilterMap.put(pcr, matches);
+					}
+					// No matches.
+					if (matches.cardinality() == 0) {
+						reader.close();
+						return new EmptyStream<DBNode>();
+					}
+					reader.close();
+				} catch (final SirixException e) {
+					throw new QueryException(new QNm(e.getMessage()), e);
+				}
+			}
+
+			return new SirixStream(SirixTranslator.this.getAxis(test, rtx),
+					dbNode.getCollection());
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(Node<?> node)
+				throws QueryException {
+			return null;
 		}
 	}
 
@@ -84,7 +196,7 @@ public final class SirixTranslator extends TopDownTranslator {
 	 * @author Johannes Lichtenberger
 	 * 
 	 */
-	private static class DescOrSelf extends Accessor {
+	private class DescOrSelf extends Accessor {
 		/**
 		 * Determines if current node is included (-or-self part).
 		 */
@@ -111,144 +223,149 @@ public final class SirixTranslator extends TopDownTranslator {
 		@Override
 		public Stream<? extends Node<?>> performStep(final Node<?> node,
 				final NodeType test) throws QueryException {
-			final DBNode dbNode = (DBNode) node;
-			try {
-				final long pcr = dbNode.getPCR();
-				BitSet matches = mFilterMap.get(pcr);
-				final NodeReadTrx rtx = dbNode.getTrx();
-				final PathSummaryReader reader = rtx.getSession().openPathSummary(
-						rtx.getRevisionNumber());
-				if (matches == null) {
-					reader.moveTo(pcr);
-					final int level = reader.getLevel();
-					final QNm name = test.getQName();
-					matches = reader.match(name, level);
-					mFilterMap.put(pcr, matches);
-				}
-				// No matches.
-				if (matches.cardinality() == 0) {
-					reader.close();
-					return new EmptyStream<DBNode>();
-				}
-				// One match.
-				if (matches.cardinality() == 1) {
-					final int level = dbNode.getDeweyID().get().getLevel();
-					final long pcr2 = matches.nextSetBit(0);
-					reader.moveTo(pcr2);
-					final int matchLevel = reader.getPathNode().getLevel();
-					// Match at the same level.
-					if (mSelf == IncludeSelf.YES && matchLevel == level) {
-						reader.close();
-						return new SirixStream(new SelfAxis(rtx), dbNode.getCollection());
+			if (test.getNodeKind() == Kind.ELEMENT) {
+				final DBNode dbNode = (DBNode) node;
+				try {
+					final long pcr = dbNode.getPCR();
+					BitSet matches = mFilterMap.get(pcr);
+					final NodeReadTrx rtx = dbNode.getTrx();
+					final PathSummaryReader reader = rtx.getSession().openPathSummary(
+							rtx.getRevisionNumber());
+					if (matches == null) {
+						reader.moveTo(pcr);
+						final int level = mSelf == IncludeSelf.YES ? reader.getLevel()
+								: reader.getLevel() + 1;
+						final QNm name = test.getQName();
+						matches = reader.match(name, level);
+						mFilterMap.put(pcr, matches);
 					}
-					// Match at the next level (single child-path).
-					if (matchLevel == level + 1) {
+					// No matches.
+					if (matches.cardinality() == 0) {
 						reader.close();
-						return new SirixStream(new FilterAxis(new ChildAxis(rtx),
-								new ElementFilter(rtx), new NameFilter(rtx, test.getQName()
-										.toString())), dbNode.getCollection());
+						return new EmptyStream<DBNode>();
 					}
-					// Match at a level below the child level.
-					final Deque<QNm> names = getNames(matchLevel, level, reader);
-					reader.close();
-					return new SirixStream(buildQuery(rtx, names), dbNode.getCollection());
-				}
-				// More than one match.
-				boolean onSameLevel = true;
-				int i = matches.nextSetBit(0);
-				reader.moveTo(i);
-				int level = reader.getLevel();
-				int tmpLevel = level;
-				for (i = matches.nextSetBit(i + 1); i >= 0; i = matches
-						.nextSetBit(i + 1)) {
+					// One match.
+					if (matches.cardinality() == 1) {
+						final int level = dbNode.getDeweyID().get().getLevel();
+						final long pcr2 = matches.nextSetBit(0);
+						reader.moveTo(pcr2);
+						final int matchLevel = reader.getPathNode().getLevel();
+						// Match at the same level.
+						if (mSelf == IncludeSelf.YES && matchLevel == level) {
+							reader.close();
+							return new SirixStream(new SelfAxis(rtx), dbNode.getCollection());
+						}
+						// Match at the next level (single child-path).
+						if (matchLevel == level + 1) {
+							reader.close();
+							return new SirixStream(new FilterAxis(new ChildAxis(rtx),
+									new ElementFilter(rtx), new NameFilter(rtx, test.getQName()
+											.toString())), dbNode.getCollection());
+						}
+						// Match at a level below the child level.
+						final Deque<QNm> names = getNames(matchLevel, level, reader);
+						reader.close();
+						return new SirixStream(buildQuery(rtx, names),
+								dbNode.getCollection());
+					}
+					// More than one match.
+					boolean onSameLevel = true;
+					int i = matches.nextSetBit(0);
 					reader.moveTo(i);
-					level = reader.getLevel();
-					if (level != tmpLevel) {
-						onSameLevel = false;
-						break;
+					int level = reader.getLevel();
+					int tmpLevel = level;
+					for (i = matches.nextSetBit(i + 1); i >= 0; i = matches
+							.nextSetBit(i + 1)) {
+						reader.moveTo(i);
+						level = reader.getLevel();
+						if (level != tmpLevel) {
+							onSameLevel = false;
+							break;
+						}
 					}
-				}
-				// Matches on same level.
-				if (onSameLevel) {
-					final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(
-							matches.cardinality());
-					for (int j = level, nodeLevel = dbNode.getDeweyID().get().getLevel(); j > nodeLevel; j--) {
-						// Build an immutable set and turn it into a list for sorting.
-						Builder<QNm> pathNodeQNmBuilder = ImmutableSet.<QNm> builder();
+					// Matches on same level.
+					if (onSameLevel) {
+						final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(
+								matches.cardinality());
+						for (int j = level, nodeLevel = dbNode.getDeweyID().get()
+								.getLevel(); j > nodeLevel; j--) {
+							// Build an immutable set and turn it into a list for sorting.
+							Builder<QNm> pathNodeQNmBuilder = ImmutableSet.<QNm> builder();
+							for (i = matches.nextSetBit(0); i >= 0; i = matches
+									.nextSetBit(i + 1)) {
+								reader.moveTo(i);
+								for (int k = level; k > j; k--) {
+									reader.moveToParent();
+								}
+								pathNodeQNmBuilder.add(reader.getName());
+							}
+							final List<QNm> pathNodeQNmsList = pathNodeQNmBuilder.build()
+									.asList();
+							final QNm name = pathNodeQNmsList.get(0);
+							boolean sameName = true;
+							for (int k = 1; k < pathNodeQNmsList.size(); k++) {
+								if (pathNodeQNmsList.get(k).atomicCmp(name) != 0) {
+									sameName = false;
+									break;
+								}
+							}
+
+							axisQueue.push(sameName ? new FilterAxis(new ChildAxis(rtx),
+									new ElementFilter(rtx), new NameFilter(rtx, name))
+									: new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx)));
+						}
+
+						org.sirix.api.Axis axis = axisQueue.pop();
+						for (int k = 0, size = axisQueue.size(); k < size; k++) {
+							axis = new NestedAxis(axis, axisQueue.pop());
+						}
+						reader.close();
+						return new SirixStream(axis, dbNode.getCollection());
+						// return new SirixStream(new FilterAxis(new DescendantAxis(rtx,
+						// mSelf),
+						// new ElementFilter(rtx), new NameFilter(rtx, test.getQName()
+						// .toString())), dbNode.getCollection());
+					} else {
+						// Matches on different levels.
+						// TODO: Use ConcurrentUnionAxis.
+						final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(
+								matches.cardinality());
+						level = dbNode.getDeweyID().get().getLevel();
 						for (i = matches.nextSetBit(0); i >= 0; i = matches
 								.nextSetBit(i + 1)) {
 							reader.moveTo(i);
-							for (int k = level; k > j; k--) {
-								reader.moveToParent();
+							final int matchLevel = reader.getPathNode().getLevel();
+
+							// Match at the same level.
+							if (mSelf == IncludeSelf.YES && matchLevel == level) {
+								axisQueue.addLast(new SelfAxis(rtx));
 							}
-							pathNodeQNmBuilder.add(reader.getName());
-						}
-						final List<QNm> pathNodeQNmsList = pathNodeQNmBuilder.build()
-								.asList();
-						final QNm name = pathNodeQNmsList.get(0);
-						boolean sameName = true;
-						for (int k = 1; k < pathNodeQNmsList.size(); k++) {
-							if (pathNodeQNmsList.get(k).atomicCmp(name) != 0) {
-								sameName = false;
-								break;
+							// Match at the next level (single child-path).
+							else if (matchLevel == level + 1) {
+								axisQueue.addLast(new FilterAxis(new ChildAxis(rtx),
+										new ElementFilter(rtx), new NameFilter(rtx, test.getQName()
+												.toString())));
+							}
+							// Match at a level below the child level.
+							else {
+								final Deque<QNm> names = getNames(matchLevel, level, reader);
+								axisQueue.addLast(buildQuery(rtx, names));
 							}
 						}
-
-						axisQueue.push(sameName ? new FilterAxis(new ChildAxis(rtx),
-								new ElementFilter(rtx), new NameFilter(rtx, name))
-								: new FilterAxis(new ChildAxis(rtx), new ElementFilter(rtx)));
-					}
-
-					org.sirix.api.Axis axis = axisQueue.pop();
-					for (int k = 0, size = axisQueue.size(); k < size; k++) {
-						axis = new NestedAxis(axis, axisQueue.pop());
-					}
-					reader.close();
-					return new SirixStream(axis, dbNode.getCollection());
-					// return new SirixStream(new FilterAxis(new DescendantAxis(rtx,
-					// mSelf),
-					// new ElementFilter(rtx), new NameFilter(rtx, test.getQName()
-					// .toString())), dbNode.getCollection());
-				} else {
-					// Matches on different levels.
-					// TODO: Use ConcurrentUnionAxis.
-					final Deque<org.sirix.api.Axis> axisQueue = new ArrayDeque<>(
-							matches.cardinality());
-					level = dbNode.getDeweyID().get().getLevel();
-					for (i = matches.nextSetBit(0); i >= 0; i = matches.nextSetBit(i + 1)) {
-						reader.moveTo(i);
-						final int matchLevel = reader.getPathNode().getLevel();
-
-						// Match at the same level.
-						if (mSelf == IncludeSelf.YES && matchLevel == level) {
-							axisQueue.addLast(new SelfAxis(rtx));
+						org.sirix.api.Axis axis = new UnionAxis(rtx, axisQueue.pollFirst(),
+								axisQueue.pollFirst());
+						final int size = axisQueue.size();
+						for (i = 0; i < size; i++) {
+							axis = new UnionAxis(rtx, axis, axisQueue.pollFirst());
 						}
-						// Match at the next level (single child-path).
-						else if (matchLevel == level + 1) {
-							axisQueue.addLast(new FilterAxis(new ChildAxis(rtx),
-									new ElementFilter(rtx), new NameFilter(rtx, test.getQName()
-											.toString())));
-						}
-						// Match at a level below the child level.
-						else {
-							final Deque<QNm> names = getNames(matchLevel, level, reader);
-							axisQueue.addLast(buildQuery(rtx, names));
-						}
+						reader.close();
+						return new SirixStream(axis, dbNode.getCollection());
 					}
-					org.sirix.api.Axis axis = new UnionAxis(rtx, axisQueue.pollFirst(),
-							axisQueue.pollFirst());
-					final int size = axisQueue.size();
-					for (i = 0; i < size; i++) {
-						axis = new UnionAxis(rtx, axis, axisQueue.pollFirst());
-					}
-					reader.close();
-					return new SirixStream(axis, dbNode.getCollection());
+				} catch (final SirixException e) {
+					throw new QueryException(new QNm(e.getMessage()), e);
 				}
-			} catch (final SirixException e) {
-				// TODO: exception handling.
-				e.printStackTrace();
-				return null;
 			}
+			return super.performStep(node, test);
 		}
 
 		// Get all names on the path up to level.
@@ -280,5 +397,29 @@ public final class SirixTranslator extends TopDownTranslator {
 				throws QueryException {
 			return null;
 		}
+	}
+
+	private org.sirix.api.Axis getAxis(final NodeType test, final NodeReadTrx trx) {
+		FilterAxis axis = null;
+		switch (test.getNodeKind()) {
+		case COMMENT:
+			axis = new FilterAxis(new ChildAxis(trx), new CommentFilter(trx));
+			break;
+		case PROCESSING_INSTRUCTION:
+			axis = new FilterAxis(new ChildAxis(trx), new PIFilter(trx));
+			break;
+		case ELEMENT:
+			axis = new FilterAxis(new ChildAxis(trx), new ElementFilter(trx),
+					new NameFilter(trx, test.getQName().toString()));
+			break;
+		case TEXT:
+			axis = new FilterAxis(new ChildAxis(trx), new TextFilter(trx));
+			break;
+		case NAMESPACE:
+		case ATTRIBUTE:
+		case DOCUMENT:
+			throw new AssertionError("May never happen!");
+		}
+		return axis;
 	}
 }
