@@ -3,7 +3,6 @@ package org.sirix.axis.filter;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.index.path.summary.PathSummaryReader;
 
@@ -29,7 +28,7 @@ public class PathLevelFilter extends AbstractFilter {
 	 * @param pLevel
 	 *          level of node
 	 */
-	public PathLevelFilter(final @Nonnull PathSummaryReader pRtx,
+	public PathLevelFilter(final PathSummaryReader pRtx,
 			final @Nonnegative int pLevel) {
 		super(pRtx);
 		checkArgument(pLevel >= 0);

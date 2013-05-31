@@ -66,5 +66,5 @@ public interface Container<T> {
    *          {@link Pruning} enum which determines if tree should be pruned or not
    * @return instance
    */
-  T setPruning(@Nonnull Pruning pPruning);
+  T setPruning(Pruning pPruning);
 }

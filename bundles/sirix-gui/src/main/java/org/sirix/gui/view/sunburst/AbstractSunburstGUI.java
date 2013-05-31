@@ -364,7 +364,7 @@ public abstract class AbstractSunburstGUI implements ProcessingGUI,
 	 *          {@link ReadDB} instance
 	 */
 	@SuppressWarnings("unchecked")
-	protected AbstractSunburstGUI(@Nonnull final PApplet pApplet,
+	protected AbstractSunburstGUI(final PApplet pApplet,
 			@Nonnull final SunburstControl pControl, @Nonnull final ReadDB pDb) {
 		mParent = checkNotNull(pApplet);
 		mControl = checkNotNull(pControl);
@@ -564,7 +564,7 @@ public abstract class AbstractSunburstGUI implements ProcessingGUI,
 
 	/** Update items as well as the buffered offscreen image. */
 	@Override
-	public void update(final @Nonnull EResetZoomer pReset) {
+	public void update(final EResetZoomer pReset) {
 		LOGWRAPPER.debug("[update()]: Available permits: "
 				+ mLock.availablePermits());
 		LOGWRAPPER.debug("parent width: " + mParent.width + " parent height: "
@@ -690,7 +690,7 @@ public abstract class AbstractSunburstGUI implements ProcessingGUI,
 	 *          drawing strategy
 	 */
 	@SuppressWarnings("unchecked")
-	protected synchronized void drawItems(final @Nonnull Draw pDraw) {
+	protected synchronized void drawItems(final Draw pDraw) {
 		checkNotNull(pDraw);
 		if (!isShowArcs()) {
 			pDraw.drawRings(this);

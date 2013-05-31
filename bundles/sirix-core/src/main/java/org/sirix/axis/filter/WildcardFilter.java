@@ -29,8 +29,6 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
 
@@ -70,8 +68,8 @@ public class WildcardFilter extends AbstractFilter {
 	 *          defines, if the specified part is the prefix, or the local name
 	 *          (true, if it is the local name)
 	 */
-	public WildcardFilter(final @Nonnull NodeReadTrx rtx, final @Nonnull String knownPart,
-			final @Nonnull EType type) {
+	public WildcardFilter(final NodeReadTrx rtx, final String knownPart,
+			final EType type) {
 		super(rtx);
 		mType = checkNotNull(type);
 		mKnownPartKey = getTrx().keyForName(checkNotNull(knownPart));

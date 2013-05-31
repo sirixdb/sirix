@@ -4,8 +4,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Set;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
@@ -47,9 +45,9 @@ final class CASIndexBuilder extends AbstractVisitor {
 	private final Type mType;
 
 	CASIndexBuilder(
-			final @Nonnull NodeReadTrx rtx,
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull PathSummaryReader pathSummaryReader, final @Nonnull IndexDef indexDefinition) {
+			final NodeReadTrx rtx,
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final PathSummaryReader pathSummaryReader, final IndexDef indexDefinition) {
 		mRtx = checkNotNull(rtx);
 		mPathSummaryReader = checkNotNull(pathSummaryReader);
 		mPaths = checkNotNull(indexDefinition.getPaths());
@@ -58,16 +56,16 @@ final class CASIndexBuilder extends AbstractVisitor {
 	}
 
 	@Override
-	public VisitResult visit(@Nonnull ImmutableElement node) {
+	public VisitResult visit(ImmutableElement node) {
 		return process(node);
 	}
 
 	@Override
-	public VisitResult visit(@Nonnull ImmutableText node) {
+	public VisitResult visit(ImmutableText node) {
 		return process(node);
 	}
 
-	private VisitResult process(final @Nonnull ImmutableNode node) {
+	private VisitResult process(final ImmutableNode node) {
 		try {
 			mRtx.moveTo(node.getParentKey());
 			// Must be a name node in any case.
@@ -89,8 +87,8 @@ final class CASIndexBuilder extends AbstractVisitor {
 		return VisitResultType.CONTINUE;
 	}
 
-	private void setNodeReferences(final @Nonnull ImmutableNode node,
-			final @Nonnull NodeReferences references, final @Nonnull CASValue value)
+	private void setNodeReferences(final ImmutableNode node,
+			final NodeReferences references, final CASValue value)
 			throws SirixIOException {
 		mAVLTreeWriter.index(value, references.addNodeKey(node.getNodeKey()),
 				MoveCursor.NO_MOVE);

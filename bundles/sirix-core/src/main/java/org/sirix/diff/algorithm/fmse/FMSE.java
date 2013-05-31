@@ -35,7 +35,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.QNm;
@@ -1094,8 +1093,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 * @throws SirixException
 	 *           if anything in sirix fails
 	 */
-	private void init(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull Visitor visitor) {
+	private void init(final NodeReadTrx rtx,
+			final Visitor visitor) {
 		assert visitor != null;
 
 		final long nodeKey = rtx.getNodeKey();
@@ -1120,8 +1119,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 * @param visitor
 	 *          {@link LabelFMSEVisitor} used to save node type/list
 	 */
-	private void getLabels(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull LabelFMSEVisitor visitor) {
+	private void getLabels(final NodeReadTrx rtx,
+			final LabelFMSEVisitor visitor) {
 		assert rtx != null;
 		assert visitor != null;
 
@@ -1175,7 +1174,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 *          {@link NodeReadTrx} implementation reference
 	 * @return string value of current node
 	 */
-	private String getNodeValue(final long nodeKey, final @Nonnull NodeReadTrx rtx) {
+	private String getNodeValue(final long nodeKey, final NodeReadTrx rtx) {
 		assert nodeKey >= 0;
 		assert rtx != null;
 		rtx.moveTo(nodeKey);

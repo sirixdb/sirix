@@ -27,7 +27,6 @@
 
 package org.sirix.cache;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.page.PagePersistenter;
@@ -102,7 +101,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 *          the new revision
 	 */
 	@SuppressWarnings("unchecked")
-	public RecordPageContainer(final @Nonnull T complete) {
+	public RecordPageContainer(final T complete) {
 		this(complete, (T) complete.newInstance(complete.getPageKey(),
 				complete.getPageKind(), complete.getPreviousReference(),
 				complete.getPageReadTrx()));
@@ -116,8 +115,8 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 * @param modifying
 	 *          to be used as a base for this container
 	 */
-	public RecordPageContainer(final @Nonnull T complete,
-			final @Nonnull T modifying) {
+	public RecordPageContainer(final T complete,
+			final T modifying) {
 		// Assertions as it's not part of the public API.
 		assert complete != null;
 		assert modifying != null;
@@ -149,7 +148,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 * @param out
 	 *          for serialization
 	 */
-	public void serialize(final @Nonnull TupleOutput out) {
+	public void serialize(final TupleOutput out) {
 		final ByteArrayDataOutput sink = ByteStreams.newDataOutput();
 		PagePersistenter.serializePage(sink, mComplete);
 		PagePersistenter.serializePage(sink, mModified);

@@ -28,15 +28,15 @@
 package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.base.Objects;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NodeDelegate;
 import org.sirix.node.interfaces.Node;
+
+import com.google.common.base.Objects;
 
 /**
  * If a node is deleted, it will be encapsulated over this class.
@@ -57,7 +57,7 @@ public final class DeletedNode extends AbstractForwardingNode {
 	 * @param nodeDel
 	 *          node delegate
 	 */
-	public DeletedNode(@Nonnull final NodeDelegate nodeDel) {
+	public DeletedNode(final NodeDelegate nodeDel) {
 		mDel = checkNotNull(nodeDel);
 	}
 

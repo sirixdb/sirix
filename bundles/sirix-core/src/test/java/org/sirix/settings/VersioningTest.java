@@ -30,8 +30,6 @@ package org.sirix.settings;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -240,7 +238,7 @@ public class VersioningTest {
 	 * @throws SirixException
 	 *           if inserting elements fails
 	 */
-	private void setFoooo(final @Nonnull NodeWriteTrx wtx) throws SirixException {
+	private void setFoooo(final NodeWriteTrx wtx) throws SirixException {
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
 		wtx.moveToRightSibling();
@@ -255,7 +253,7 @@ public class VersioningTest {
 	 * @throws SirixException
 	 *           if inserting elements fails
 	 */
-	private void setFooBar(final @Nonnull NodeWriteTrx wtx) throws SirixException {
+	private void setFooBar(final NodeWriteTrx wtx) throws SirixException {
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
 		wtx.setName(new QNm("foobar"));
@@ -269,7 +267,7 @@ public class VersioningTest {
 	 * @throws SirixException
 	 *           if inserting elements fails
 	 */
-	private void setBaaaz(final @Nonnull NodeWriteTrx wtx) throws SirixException {
+	private void setBaaaz(final NodeWriteTrx wtx) throws SirixException {
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 3; i++) {
@@ -286,7 +284,7 @@ public class VersioningTest {
 	 * @throws SirixException
 	 *           if inserting elements fails
 	 */
-	private void fillNodePage(final @Nonnull NodeWriteTrx wtx)
+	private void fillNodePage(final NodeWriteTrx wtx)
 			throws SirixException {
 		for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
 			wtx.insertElementAsRightSibling(new QNm("foo"));
@@ -301,7 +299,7 @@ public class VersioningTest {
 	 * @throws SirixException
 	 *           if movement fails
 	 */
-	private void move(final @Nonnull NodeReadTrx rtx) throws SirixException {
+	private void move(final NodeReadTrx rtx) throws SirixException {
 		for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
 			assertTrue(rtx.moveToRightSibling().hasMoved());
 		}

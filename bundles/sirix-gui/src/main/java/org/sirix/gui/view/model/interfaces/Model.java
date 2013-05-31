@@ -71,7 +71,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    * @param pContainer
    *          {@link Container} implementation with options
    */
-  void traverseTree(@Nonnull Container<S> pContainer);
+  void traverseTree(Container<S> pContainer);
 
   /** Undo operation. */
   void undo();
@@ -82,7 +82,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    * @param pContainer
    *          {@link Container} reference with options
    */
-  void update(@Nonnull final Container<S> pContainer);
+  void update(final Container<S> pContainer);
 
   /**
    * XPath evaluation.
@@ -90,7 +90,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    * @param pXPathExpression
    *          XPath expression to evaluate
    */
-  void evaluateXPath(@Nonnull String pXPathExpression);
+  void evaluateXPath(String pXPathExpression);
 
   /**
    * Spefify how to insert an XML fragment.
@@ -98,7 +98,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    * @param paramInsert
    *          determines how to insert an XMl fragment
    */
-  void setInsert(@Nonnull Insert pInsert);
+  void setInsert(Insert pInsert);
 
   /**
    * Update {@link ReadDB} instance.
@@ -108,7 +108,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    * @param pContainer
    *          {@link Container} instance
    */
-  void updateDb(@Nonnull ReadDB pDB, @Nonnull Container<S> pContainer);
+  void updateDb(ReadDB pDB, @Nonnull Container<S> pContainer);
 
   /**
    * Add a {@link PropertyChangeListener}.
@@ -116,7 +116,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    * @param paramListener
    *          the listener to add
    */
-  void addPropertyChangeListener(@Nonnull PropertyChangeListener pListener);
+  void addPropertyChangeListener(PropertyChangeListener pListener);
 
   /**
    * Remove a {@link PropertyChangeListener}.
@@ -124,7 +124,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
    * @param paramListener
    *          the listener to remove
    */
-  void removePropertyChangeListener(@Nonnull PropertyChangeListener pListener);
+  void removePropertyChangeListener(PropertyChangeListener pListener);
 //
 //  /**
 //   * Fire a property change.
@@ -136,7 +136,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
 //   * @param pNewValue
 //   *          new value
 //   */
-//  void firePropertyChange(@Nonnull String pPropertyName, @Nonnull Object pOldValue, @Nonnull Object pNewValue);
+//  void firePropertyChange(String pPropertyName, @Nonnull Object pOldValue, @Nonnull Object pNewValue);
 
   /**
    * Get the database handle.
@@ -148,7 +148,7 @@ public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>
   /**
    * Set a list of new items.
    */
-  void setItems(@Nonnull List<T> pItems);
+  void setItems(List<T> pItems);
 
   /**
    * Set minimum and maximum text length as well as descendant count.

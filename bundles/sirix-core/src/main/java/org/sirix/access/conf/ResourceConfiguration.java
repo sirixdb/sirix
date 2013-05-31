@@ -39,7 +39,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.HashKind;
 import org.sirix.access.SessionImpl;
@@ -102,7 +101,7 @@ public final class ResourceConfiguration {
 		 * @param isFolder
 		 *          determines if the file denotes a filer or not
 		 */
-		private Paths(final @Nonnull File file, final boolean isFolder) {
+		private Paths(final File file, final boolean isFolder) {
 			mFile = file;
 			mIsFolder = isFolder;
 		}
@@ -135,7 +134,7 @@ public final class ResourceConfiguration {
 		 * @throws NullPointerException
 		 *           if {@code pFile} is {@code null}
 		 */
-		public static int compareStructure(final @Nonnull File file) {
+		public static int compareStructure(final File file) {
 			int existing = 0;
 			for (final Paths paths : values()) {
 				final File currentFile = new File(file, paths.getFile().getName());
@@ -214,8 +213,8 @@ public final class ResourceConfiguration {
 	 *           if {@code resource} or {@code config} is {@code null}
 	 * @return {@link Builder} instance
 	 */
-	public static Builder newBuilder(final @Nonnull String resource,
-			final @Nonnull DatabaseConfiguration config) {
+	public static Builder newBuilder(final String resource,
+			final DatabaseConfiguration config) {
 		return new Builder(resource, config);
 	}
 
@@ -226,7 +225,7 @@ public final class ResourceConfiguration {
 	 *          {@link Builder} reference
 	 */
 	private ResourceConfiguration(
-			final @Nonnull ResourceConfiguration.Builder builder) {
+			final ResourceConfiguration.Builder builder) {
 		mStorage = builder.mType;
 		mByteHandler = builder.mByteHandler;
 		mRevisionKind = builder.mRevisionKind;
@@ -325,7 +324,7 @@ public final class ResourceConfiguration {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public static void serialize(final @Nonnull ResourceConfiguration config)
+	public static void serialize(final ResourceConfiguration config)
 			throws SirixIOException {
 		final File configFile = config.getConfigFile();
 		try (final FileWriter fileWriter = new FileWriter(configFile);
@@ -379,7 +378,7 @@ public final class ResourceConfiguration {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public static ResourceConfiguration deserialize(final @Nonnull File file)
+	public static ResourceConfiguration deserialize(final File file)
 			throws SirixIOException {
 		try {
 			final File configFiler = new File(file, Paths.CONFIG_BINARY.getFile()
@@ -525,8 +524,8 @@ public final class ResourceConfiguration {
 		 * @throws NullPointerException
 		 *           if {@code resource} or {@code config} is {@code null}
 		 */
-		public Builder(final @Nonnull String resource,
-				final @Nonnull DatabaseConfiguration config) {
+		public Builder(final String resource,
+				final DatabaseConfiguration config) {
 			mResource = checkNotNull(resource);
 			mDBConfig = checkNotNull(config);
 			mPathSummary = true;
@@ -540,12 +539,12 @@ public final class ResourceConfiguration {
 		 *          storage type to use
 		 * @return reference to the builder object
 		 */
-		public Builder storageType(final @Nonnull StorageType type) {
+		public Builder storageType(final StorageType type) {
 			mType = checkNotNull(type);
 			return this;
 		}
 
-		public Builder persistenter(final @Nonnull RecordPersistenter persistenter) {
+		public Builder persistenter(final RecordPersistenter persistenter) {
 			mPersistenter = checkNotNull(persistenter);
 			return this;
 		}
@@ -557,7 +556,7 @@ public final class ResourceConfiguration {
 		 *          versioning algorithm to use
 		 * @return reference to the builder object
 		 */
-		public Builder versioningApproach(final @Nonnull Versioning versioning) {
+		public Builder versioningApproach(final Versioning versioning) {
 			mRevisionKind = checkNotNull(versioning);
 			return this;
 		}
@@ -569,7 +568,7 @@ public final class ResourceConfiguration {
 		 *          hash kind to use
 		 * @return reference to the builder object
 		 */
-		public Builder hashKind(final @Nonnull HashKind hashKind) {
+		public Builder hashKind(final HashKind hashKind) {
 			mHashKind = checkNotNull(hashKind);
 			return this;
 		}
@@ -582,7 +581,7 @@ public final class ResourceConfiguration {
 		 * @return reference to the builder object
 		 */
 		public Builder byteHandlerPipeline(
-				final @Nonnull ByteHandlePipeline byteHandler) {
+				final ByteHandlePipeline byteHandler) {
 			mByteHandler = checkNotNull(byteHandler);
 			return this;
 		}

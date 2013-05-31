@@ -46,7 +46,7 @@ public interface NodeFactory {
 	 */
 	PathNode createPathNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final long rightSibKey,
-			final long hash, final @Nonnull QNm name, final @Nonnull Kind kind,
+			final long hash, final QNm name, final Kind kind,
 			final @Nonnegative int level) throws SirixIOException;
 
 	/**
@@ -72,9 +72,9 @@ public interface NodeFactory {
 	 */
 	PINode createPINode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final @Nonnull QNm target, final @Nonnull byte[] content,
+			final QNm target, final byte[] content,
 			final boolean isCompressed, final @Nonnegative long pathNodeKey,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException;
+			final Optional<SirixDeweyID> id) throws SirixIOException;
 
 	/**
 	 * Create a {@link CommentNode}.
@@ -98,7 +98,7 @@ public interface NodeFactory {
 	CommentNode createCommentNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
 			@Nonnull byte[] value, final boolean isCompressed,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException;
+			final Optional<SirixDeweyID> id) throws SirixIOException;
 
 	/**
 	 * Create an {@link ElementNode}.
@@ -123,9 +123,9 @@ public interface NodeFactory {
 	 */
 	ElementNode createElementNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final long hash, final @Nonnull QNm name,
+			final long hash, final QNm name,
 			final @Nonnegative long pathNodeKey,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException;
+			final Optional<SirixDeweyID> id) throws SirixIOException;
 
 	/**
 	 * Create a {@link TextNode}.
@@ -148,8 +148,8 @@ public interface NodeFactory {
 	 */
 	TextNode createTextNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final @Nonnull byte[] value, final boolean isCompressed,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException;
+			final byte[] value, final boolean isCompressed,
+			final Optional<SirixDeweyID> id) throws SirixIOException;
 
 	/**
 	 * Create an {@link AttributeNode}.
@@ -165,9 +165,9 @@ public interface NodeFactory {
 	 *           if an I/O error occurs
 	 */
 	AttributeNode createAttributeNode(final @Nonnegative long parentKey,
-			final @Nonnull QNm name, final @Nonnull byte[] value,
+			final QNm name, final byte[] value,
 			final @Nonnegative long pathNodeKey,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException;
+			final Optional<SirixDeweyID> id) throws SirixIOException;
 
 	/**
 	 * Create a {@link NamespaceNode}.
@@ -187,5 +187,5 @@ public interface NodeFactory {
 	NamespaceNode createNamespaceNode(final @Nonnegative long parentKey,
 			final int uriKey, final int prefixKey,
 			final @Nonnegative long pathNodeKey,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException;
+			final Optional<SirixDeweyID> id) throws SirixIOException;
 }

@@ -26,8 +26,6 @@
  */
 package org.sirix.access;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
@@ -52,8 +50,8 @@ public enum InsertPos {
 	/** Insert as first child. */
 	ASFIRSTCHILD {
 		@Override
-		void processMove(final @Nonnull StructNode fromNode,
-				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrx wtx)
+		void processMove(final StructNode fromNode,
+				final StructNode toNode, final NodeWriteTrx wtx)
 				throws SirixException {
 			assert fromNode != null;
 			assert toNode != null;
@@ -135,8 +133,8 @@ public enum InsertPos {
 		}
 
 		@Override
-		void insertNode(final @Nonnull NodeWriteTrx wtx,
-				final @Nonnull NodeReadTrx rtx) throws SirixException {
+		void insertNode(final NodeWriteTrx wtx,
+				final NodeReadTrx rtx) throws SirixException {
 			assert wtx != null;
 			assert rtx != null;
 			assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.DOCUMENT;
@@ -157,8 +155,8 @@ public enum InsertPos {
 	/** Insert as right sibling. */
 	ASRIGHTSIBLING {
 		@Override
-		void processMove(final @Nonnull StructNode fromNode,
-				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrx wtx)
+		void processMove(final StructNode fromNode,
+				final StructNode toNode, final NodeWriteTrx wtx)
 				throws SirixException {
 			assert fromNode != null;
 			assert toNode != null;
@@ -284,8 +282,8 @@ public enum InsertPos {
 		}
 
 		@Override
-		void insertNode(final @Nonnull NodeWriteTrx wtx,
-				final @Nonnull NodeReadTrx rtx) throws SirixException {
+		void insertNode(final NodeWriteTrx wtx,
+				final NodeReadTrx rtx) throws SirixException {
 			assert wtx != null;
 			assert rtx != null;
 			assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.TEXT;
@@ -304,16 +302,16 @@ public enum InsertPos {
 	/** Insert as a non structural node. */
 	ASNONSTRUCTURAL {
 		@Override
-		void processMove(final @Nonnull StructNode fromNode,
-				final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrx wtx)
+		void processMove(final StructNode fromNode,
+				final StructNode toNode, final NodeWriteTrx wtx)
 				throws SirixException {
 			// Not allowed.
 			throw new AssertionError("May never be invoked!");
 		}
 
 		@Override
-		void insertNode(final @Nonnull NodeWriteTrx wtx,
-				final @Nonnull NodeReadTrx rtx) throws SirixException {
+		void insertNode(final NodeWriteTrx wtx,
+				final NodeReadTrx rtx) throws SirixException {
 			assert wtx != null;
 			assert rtx != null;
 			assert wtx.getKind() == Kind.ELEMENT;
@@ -337,15 +335,15 @@ public enum InsertPos {
 
 	ASLEFTSIBLING {
 		@Override
-		void processMove(final @Nonnull StructNode pFromNode,
-				final @Nonnull StructNode pToNode, final @Nonnull NodeWriteTrx pWtx)
+		void processMove(final StructNode pFromNode,
+				final StructNode pToNode, final NodeWriteTrx pWtx)
 				throws SirixException {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
-		void insertNode(final @Nonnull NodeWriteTrx pWtx,
-				final @Nonnull NodeReadTrx pRtx) throws SirixException {
+		void insertNode(final NodeWriteTrx pWtx,
+				final NodeReadTrx pRtx) throws SirixException {
 			assert pWtx != null;
 			assert pRtx != null;
 			assert pWtx.getKind() == Kind.ELEMENT || pWtx.getKind() == Kind.TEXT;
@@ -375,8 +373,8 @@ public enum InsertPos {
 	 * @throws SirixException
 	 *           if an I/O error occurs
 	 */
-	abstract void processMove(final @Nonnull StructNode fromNode,
-			final @Nonnull StructNode toNode, final @Nonnull NodeWriteTrx wtx)
+	abstract void processMove(final StructNode fromNode,
+			final StructNode toNode, final NodeWriteTrx wtx)
 			throws SirixException;
 
 	/**
@@ -391,6 +389,6 @@ public enum InsertPos {
 	 * @throws SirixException
 	 *           if insertion of node fails
 	 */
-	abstract void insertNode(final @Nonnull NodeWriteTrx wtx,
-			final @Nonnull NodeReadTrx rtx) throws SirixException;
+	abstract void insertNode(final NodeWriteTrx wtx,
+			final NodeReadTrx rtx) throws SirixException;
 }

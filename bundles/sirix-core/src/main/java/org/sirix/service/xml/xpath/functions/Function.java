@@ -32,11 +32,9 @@ import java.util.List;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.Node;
-import org.sirix.node.interfaces.ValueNode;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.EXPathError;
 import org.sirix.service.xml.xpath.functions.sequences.FNBoolean;

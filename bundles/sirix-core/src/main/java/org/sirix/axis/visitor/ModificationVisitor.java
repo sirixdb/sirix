@@ -6,7 +6,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.IOException;
 import java.util.Random;
 
-import javax.annotation.Nonnull;
 import javax.xml.stream.XMLStreamException;
 
 import org.brackit.xquery.atomic.QNm;
@@ -67,7 +66,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 	}
 
 	@Override
-	public VisitResult visit(final @Nonnull ImmutableElement node) {
+	public VisitResult visit(final ImmutableElement node) {
 		return processNode(node);
 	}
 
@@ -89,7 +88,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 	}
 
 	@Override
-	public VisitResult visit(final @Nonnull ImmutableText node) {
+	public VisitResult visit(final ImmutableText node) {
 		return processNode(node);
 	}
 

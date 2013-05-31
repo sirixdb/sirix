@@ -27,12 +27,10 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.Expression;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixXPathException;
+import org.sirix.service.xml.xpath.AbstractAxis;
 
 /**
  * <h1>AbstractExpression</h1>
@@ -59,7 +57,7 @@ public abstract class AbstractExpression extends AbstractAxis implements
 	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public AbstractExpression(@Nonnull final NodeReadTrx pRtx) {
+	public AbstractExpression(final NodeReadTrx pRtx) {
 		super(pRtx);
 		mIsFirst = true;
 	}

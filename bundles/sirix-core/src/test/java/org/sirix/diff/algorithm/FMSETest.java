@@ -9,8 +9,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-import javax.annotation.Nonnull;
-
 import org.custommonkey.xmlunit.DetailedDiff;
 import org.custommonkey.xmlunit.Diff;
 import org.custommonkey.xmlunit.Difference;
@@ -234,7 +232,7 @@ public final class FMSETest extends XMLTestCase {
 	 * @throws Exception
 	 *           if any exception occurs
 	 */
-	private void test(@Nonnull final String FOLDER) throws Exception {
+	private void test(final String FOLDER) throws Exception {
 		Database database = TestHelper.getDatabase(PATHS.PATH1.getFile());
 		Session session = database.getSession(new SessionConfiguration.Builder(
 				TestHelper.RESOURCE).build());

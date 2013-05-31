@@ -35,7 +35,6 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.exception.SirixIOException;
@@ -85,7 +84,7 @@ public final class DatabaseConfiguration {
 		 * @param isFolder
 		 *          determines if the file is a folder instead
 		 */
-		private Paths(final @Nonnull File file, final boolean isFolder) {
+		private Paths(final File file, final boolean isFolder) {
 			mFile = checkNotNull(file);
 			mIsFolder = isFolder;
 		}
@@ -116,7 +115,7 @@ public final class DatabaseConfiguration {
 		 * @return -1 if less folders are there, 0 if the structure is equal to the
 		 *         one expected, 1 if the structure has more folders
 		 */
-		public static int compareStructure(final @Nonnull File file) {
+		public static int compareStructure(final File file) {
 			checkNotNull(file);
 			int existing = 0;
 			for (final Paths paths : values()) {
@@ -150,7 +149,7 @@ public final class DatabaseConfiguration {
 	 * @param file
 	 *          file to be set
 	 */
-	public DatabaseConfiguration(final @Nonnull File file) {
+	public DatabaseConfiguration(final File file) {
 		mBinaryVersion = BINARY;
 		mFile = file.getAbsoluteFile();
 	}
@@ -224,7 +223,7 @@ public final class DatabaseConfiguration {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public static void serialize(final @Nonnull DatabaseConfiguration config)
+	public static void serialize(final DatabaseConfiguration config)
 			throws SirixIOException {
 		try (final FileWriter fileWriter = new FileWriter(config.getConfigFile());
 				final JsonWriter jsonWriter = new JsonWriter(fileWriter);) {
@@ -247,7 +246,7 @@ public final class DatabaseConfiguration {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public static DatabaseConfiguration deserialize(final @Nonnull File file)
+	public static DatabaseConfiguration deserialize(final File file)
 			throws SirixIOException {
 		try (final FileReader fileReader = new FileReader(new File(file,
 				Paths.CONFIGBINARY.getFile().getName()));

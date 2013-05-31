@@ -5,7 +5,6 @@ import java.util.HashSet;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.index.avltree.interfaces.References;
@@ -36,7 +35,7 @@ public class NodeReferences implements References {
 	 * @param nodeKeys
 	 *          node keys
 	 */
-	public NodeReferences(final @Nonnull Set<Long> nodeKeys) {
+	public NodeReferences(final Set<Long> nodeKeys) {
 		mNodeKeys = nodeKeys;
 	}
 

@@ -107,7 +107,7 @@ public final class SunburstCompareModel extends AbstractModel<SunburstContainer,
   }
 
   @Override
-  public synchronized void update(@Nonnull final Container<SunburstContainer> pContainer) {
+  public synchronized void update(final Container<SunburstContainer> pContainer) {
     // Cast guaranteed to work.
     mContainer = (SunburstContainer)checkNotNull(pContainer);
     mLastItems.push(new ArrayList<SunburstItem>(mItems));
@@ -116,7 +116,7 @@ public final class SunburstCompareModel extends AbstractModel<SunburstContainer,
   }
 
   @Override
-  public synchronized void traverseTree(@Nonnull final Container<SunburstContainer> pContainer) {
+  public synchronized void traverseTree(final Container<SunburstContainer> pContainer) {
     // Cast guaranteed to work.
     mContainer = (SunburstContainer)checkNotNull(pContainer);
     final SunburstContainer container = (SunburstContainer)pContainer;
@@ -127,7 +127,7 @@ public final class SunburstCompareModel extends AbstractModel<SunburstContainer,
   }
 
   @Override
-  public synchronized final void evaluateXPath(@Nonnull final String pXPathExpression) {
+  public synchronized final void evaluateXPath(final String pXPathExpression) {
     if (!pXPathExpression.isEmpty()) {
       final ReadDB db = mDb.get();
       mPool.submit(new TemporalXPathEvaluation(db.getSession(), db.getRevisionNumber(), mContainer

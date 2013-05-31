@@ -3,6 +3,9 @@ package org.sirix.encryption;
 import java.io.File;
 import java.util.SortedMap;
 
+import org.sirix.access.AbstractKeyDatabase;
+import org.sirix.exception.SirixIOException;
+
 import com.sleepycat.je.DatabaseConfig;
 import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.Environment;
@@ -11,9 +14,6 @@ import com.sleepycat.je.EnvironmentLockedException;
 import com.sleepycat.persist.EntityStore;
 import com.sleepycat.persist.PrimaryIndex;
 import com.sleepycat.persist.StoreConfig;
-
-import org.sirix.access.AbstractKeyDatabase;
-import org.sirix.exception.SirixIOException;
 
 /**
  * Berkeley implementation of a persistent key manager database. That means that

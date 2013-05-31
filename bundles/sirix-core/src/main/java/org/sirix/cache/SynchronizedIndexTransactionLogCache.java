@@ -34,7 +34,6 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
@@ -85,9 +84,9 @@ public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public SynchronizedIndexTransactionLogCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+	public SynchronizedIndexTransactionLogCache(final File file,
+			final @Nonnegative int revision, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
 		mSecondCache = new BerkeleyIndexPersistenceCache<>(file, revision, logType,
 				pageReadTrx);
 		mFirstCache = new LRUCache<IndexLogKey, RecordPageContainer<T>>(mSecondCache);
@@ -105,7 +104,7 @@ public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?
 
 	@Override
 	public ImmutableMap<IndexLogKey, RecordPageContainer<T>> getAll(
-			final @Nonnull Iterable<? extends IndexLogKey> pKeys) {
+			final Iterable<? extends IndexLogKey> pKeys) {
 		final ImmutableMap.Builder<IndexLogKey, RecordPageContainer<T>> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
@@ -131,7 +130,7 @@ public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?
 	}
 
 	@Override
-	public RecordPageContainer<T> get(final @Nonnull IndexLogKey key) {
+	public RecordPageContainer<T> get(final IndexLogKey key) {
 		@SuppressWarnings("unchecked")
 		RecordPageContainer<T> container = (RecordPageContainer<T>) RecordPageContainer.EMPTY_INSTANCE;
 		try {
@@ -146,8 +145,8 @@ public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?
 	}
 
 	@Override
-	public void put(final @Nonnull IndexLogKey key,
-			final @Nonnull RecordPageContainer<T> value) {
+	public void put(final IndexLogKey key,
+			final RecordPageContainer<T> value) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(key, value);
@@ -158,7 +157,7 @@ public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?
 
 	@Override
 	public void putAll(
-			final @Nonnull Map<? extends IndexLogKey, ? extends RecordPageContainer<T>> map) {
+			final Map<? extends IndexLogKey, ? extends RecordPageContainer<T>> map) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.putAll(map);
@@ -178,7 +177,7 @@ public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?
 	}
 
 	@Override
-	public void remove(final @Nonnull IndexLogKey key) {
+	public void remove(final IndexLogKey key) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.remove(key);

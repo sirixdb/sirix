@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.AbstractVisitor;
 import org.sirix.api.NodeWriteTrx;
@@ -57,8 +56,8 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	 * @param startKey
 	 *          start key
 	 */
-	public DeleteFMSEVisitor(final @Nonnull NodeWriteTrx wtx,
-			final @Nonnull Matching matching, @Nonnegative final long startKey) {
+	public DeleteFMSEVisitor(final NodeWriteTrx wtx,
+			final Matching matching, @Nonnegative final long startKey) {
 		mWtx = checkNotNull(wtx);
 		mMatching = checkNotNull(matching);
 		checkArgument(startKey >= 0, "start key must be >= 0!");
@@ -66,7 +65,7 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	}
 
 	@Override
-	public VisitResult visit(final @Nonnull ImmutableElement node) {
+	public VisitResult visit(final ImmutableElement node) {
 		final Long partner = mMatching.partner(node.getNodeKey());
 		if (partner == null) {
 			VisitResult retVal = delete(node);
@@ -111,17 +110,17 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	}
 
 	@Override
-	public VisitResult visit(final @Nonnull ImmutableText node) {
+	public VisitResult visit(final ImmutableText node) {
 		return deleteLeaf(node);
 	}
 
 	@Override
-	public VisitResult visit(final @Nonnull ImmutableComment node) {
+	public VisitResult visit(final ImmutableComment node) {
 		return deleteLeaf(node);
 	}
 
 	@Override
-	public VisitResult visit(final @Nonnull ImmutablePI node) {
+	public VisitResult visit(final ImmutablePI node) {
 		return deleteLeaf(node);
 	}
 
@@ -132,7 +131,7 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	 *          the node to delete
 	 * @return the result of the deletion
 	 */
-	private VisitResult deleteLeaf(final @Nonnull ImmutableNode node) {
+	private VisitResult deleteLeaf(final ImmutableNode node) {
 		final Long partner = mMatching.partner(node.getNodeKey());
 		if (partner == null) {
 			VisitResult retVal = delete(node);
@@ -156,7 +155,7 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	 *          the node to check and possibly delete
 	 * @return {@code EVisitResult} how to move the transaction subsequently
 	 */
-	private VisitResult delete(final @Nonnull ImmutableNode node) {
+	private VisitResult delete(final ImmutableNode node) {
 		try {
 			mWtx.moveTo(node.getNodeKey());
 			final long nodeKey = mWtx.getNodeKey();

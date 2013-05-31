@@ -2,7 +2,6 @@ package org.sirix.node.immutable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
@@ -33,7 +32,7 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
 	 * @param node
 	 *          mutable {@link CommentNode}
 	 */
-	private ImmutableComment(final @Nonnull CommentNode node) {
+	private ImmutableComment(final CommentNode node) {
 		mNode = checkNotNull(node);
 	}
 
@@ -44,7 +43,7 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
 	 *          the mutable {@link CommentNode} to wrap
 	 * @return immutable comment node instance
 	 */
-	public static ImmutableComment of(final @Nonnull CommentNode node) {
+	public static ImmutableComment of(final CommentNode node) {
 		return new ImmutableComment(node);
 	}
 
@@ -59,7 +58,7 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(final Visitor visitor) {
 		return visitor.visit(this);
 	}
 

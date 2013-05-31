@@ -2,7 +2,6 @@ package org.sirix.node.immutable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -36,7 +35,7 @@ public final class ImmutableAttribute implements ImmutableValueNode, ImmutableNa
 	 * @param node
 	 *          mutable {@link AttributeNode}
 	 */
-	private ImmutableAttribute(final @Nonnull AttributeNode node) {
+	private ImmutableAttribute(final AttributeNode node) {
 		mNode = checkNotNull(node);
 	}
 
@@ -47,7 +46,7 @@ public final class ImmutableAttribute implements ImmutableValueNode, ImmutableNa
 	 *          the {@link AttributeNode} which should be immutable
 	 * @return an immutable instance
 	 */
-	public static ImmutableAttribute of(final @Nonnull AttributeNode node) {
+	public static ImmutableAttribute of(final AttributeNode node) {
 		return new ImmutableAttribute(node);
 	}
 
@@ -62,7 +61,7 @@ public final class ImmutableAttribute implements ImmutableValueNode, ImmutableNa
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(final Visitor visitor) {
 		return visitor.visit(this);
 	}
 

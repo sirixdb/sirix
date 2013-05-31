@@ -70,8 +70,8 @@
 //	 * @param pInsert
 //	 *          determines how to insert a node
 //	 */
-//	InsertSubtreeVisitor(final @Nonnull NodeReadTrx pRtx,
-//			final @Nonnull NodeWriteTrx pWtx, final @Nonnull InsertPos pInsert) {
+//	InsertSubtreeVisitor(final NodeReadTrx pRtx,
+//			final NodeWriteTrx pWtx, final InsertPos pInsert) {
 //		mRtx = checkNotNull(pRtx);
 //		mWtx = checkNotNull(pWtx);
 //		mInsert = checkNotNull(pInsert);
@@ -79,7 +79,7 @@
 //	}
 
 	// @Override
-	// public EVisitResult visit(final @Nonnull ElementNode pNode) {
+	// public EVisitResult visit(final ElementNode pNode) {
 	// mRtx.moveTo(pNode.getNodeKey());
 	// try {
 	// mInsert.insertNode(mWtx, mRtx);
@@ -121,7 +121,7 @@
 	// }
 	//
 	// @Override
-	// public EVisitResult visit(final @Nonnull TextNode pNode) {
+	// public EVisitResult visit(final TextNode pNode) {
 	// mRtx.moveTo(pNode.getNodeKey());
 	// try {
 	// mInsert.insertNode(mWtx, mRtx);
@@ -163,7 +163,7 @@
 	// }
 	//
 	// @Override
-	// public EVisitResult visit(@Nonnull CommentNode pNode) {
+	// public EVisitResult visit(CommentNode pNode) {
 	// // FIXME.
 	// return null;
 	// }

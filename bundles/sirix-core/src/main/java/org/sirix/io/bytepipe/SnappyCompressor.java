@@ -2,8 +2,6 @@ package org.sirix.io.bytepipe;
 
 import java.io.IOException;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.exception.SirixIOException;
 import org.xerial.snappy.Snappy;
 
@@ -16,7 +14,7 @@ import org.xerial.snappy.Snappy;
 public class SnappyCompressor implements ByteHandler {
 
 	@Override
-	public byte[] serialize(final @Nonnull byte[] toSerialize)
+	public byte[] serialize(final byte[] toSerialize)
 			throws SirixIOException {
 		byte[] compressed;
 		try {
@@ -28,7 +26,7 @@ public class SnappyCompressor implements ByteHandler {
 	}
 
 	@Override
-	public byte[] deserialize(final @Nonnull byte[] toDeserialize)
+	public byte[] deserialize(final byte[] toDeserialize)
 			throws SirixIOException {
 		byte[] uncompressed;
 		try {

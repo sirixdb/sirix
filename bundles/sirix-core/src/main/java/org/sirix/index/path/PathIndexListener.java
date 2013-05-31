@@ -4,8 +4,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Set;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -33,8 +31,8 @@ final class PathIndexListener implements ChangeListener {
 	private final Set<Path<QNm>> mPaths;
 
 	PathIndexListener(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull PathSummaryReader pathSummaryReader, final @Nonnull IndexDef indexDef) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
 		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx, indexDef.getType(),
 				indexDef.getID());
 		mPathSummaryReader = checkNotNull(pathSummaryReader);
@@ -42,7 +40,7 @@ final class PathIndexListener implements ChangeListener {
 	}
 
 	@Override
-	public void listen(final @Nonnull ChangeType type, final @Nonnull ImmutableNode node,
+	public void listen(final ChangeType type, final ImmutableNode node,
 			final long pathNodeKey) throws SirixIOException {
 		if (node instanceof NameNode) {
 			mPathSummaryReader.moveTo(pathNodeKey);
@@ -73,8 +71,8 @@ final class PathIndexListener implements ChangeListener {
 		}
 	}
 
-	private void setNodeReferences(final @Nonnull ImmutableNode node,
-			final @Nonnull NodeReferences references, final @Nonnull long pathNodeKey)
+	private void setNodeReferences(final ImmutableNode node,
+			final NodeReferences references, final long pathNodeKey)
 			throws SirixIOException {
 		mAVLTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()),
 				MoveCursor.NO_MOVE);

@@ -29,16 +29,16 @@ package org.sirix.cache;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.google.common.base.Objects;
-import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+
+import com.google.common.base.Objects;
+import com.google.common.collect.ImmutableMap;
 
 /**
  * An LRU cache, based on {@code LinkedHashMap}. This cache can hold an possible
@@ -71,7 +71,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	 *          the reference to the second {@link Cache} where the data is stored
 	 *          when it gets removed from the first one.
 	 */
-	public LRUCache(final @Nonnull Cache<K, V> secondCache) {
+	public LRUCache(final Cache<K, V> secondCache) {
 		// Assertion instead of checkNotNull(...).
 		assert secondCache != null;
 		mSecondCache = secondCache;
@@ -111,7 +111,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	 *         this key exists in the cache
 	 */
 	@Override
-	public V get(final @Nonnull K key) {
+	public V get(final K key) {
 		V page = (V) mMap.get(key);
 		if (page == null) {
 			page = (V) mSecondCache.get(key);
@@ -130,7 +130,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	 *          a value to be associated with the specified key
 	 */
 	@Override
-	public void put(final @Nonnull K key, final @Nonnull V value) {
+	public void put(final K key, final V value) {
 		mMap.put(key, value);
 	}
 
@@ -168,7 +168,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public ImmutableMap<K, V> getAll(final @Nonnull Iterable<? extends K> keys) {
+	public ImmutableMap<K, V> getAll(final Iterable<? extends K> keys) {
 		final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
 		for (final K key : keys) {
 			if (mMap.get(key) != null) {
@@ -179,7 +179,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<? extends K, ? extends V> map) {
+	public void putAll(final Map<? extends K, ? extends V> map) {
 		mMap.putAll(checkNotNull(map));
 	}
 
@@ -198,7 +198,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public void remove(final @Nonnull K key) {
+	public void remove(final K key) {
 		mMap.remove(key);
 		if (mSecondCache.get(key) != null) {
 			mSecondCache.remove(key);

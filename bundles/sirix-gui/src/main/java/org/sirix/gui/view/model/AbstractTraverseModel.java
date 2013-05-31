@@ -29,7 +29,7 @@ public abstract class AbstractTraverseModel extends AbstractObservableComponent 
    *          Sirix {@link NodeReadTrx}
    * @return {@link List} of {@link Attribute}s
    */
-  protected List<Attribute> fillAttributes(@Nonnull final NodeReadTrx rtx) {
+  protected List<Attribute> fillAttributes(final NodeReadTrx rtx) {
     assert rtx != null;
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     // Casting to ElementNode is always safe because we don't iterate over attributes in the axis.
@@ -53,7 +53,7 @@ public abstract class AbstractTraverseModel extends AbstractObservableComponent 
    *          Sirix {@link NodeReadTrx}
    * @return {@link List} of {@link Namespace}s
    */
-  protected List<Namespace> fillNamespaces(@Nonnull final NodeReadTrx pRtx) {
+  protected List<Namespace> fillNamespaces(final NodeReadTrx pRtx) {
     assert pRtx != null;
     final XMLEventFactory eventFactory = XMLEventFactory.newInstance();
     // Casting to ElementNode is always safe because we don't iterate over attributes in the axis.

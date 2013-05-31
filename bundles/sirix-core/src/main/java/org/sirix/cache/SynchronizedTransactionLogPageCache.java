@@ -34,7 +34,6 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
@@ -84,9 +83,9 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Indirect
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public SynchronizedTransactionLogPageCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+	public SynchronizedTransactionLogPageCache(final File file,
+			final @Nonnegative int revision, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
 		mSecondCache = new BerkeleyPersistencePageCache(file, revision, logType,
 				pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
@@ -104,7 +103,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Indirect
 
 	@Override
 	public ImmutableMap<IndirectPageLogKey, Page> getAll(
-			final @Nonnull Iterable<? extends IndirectPageLogKey> keys) {
+			final Iterable<? extends IndirectPageLogKey> keys) {
 		final ImmutableMap.Builder<IndirectPageLogKey, Page> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
@@ -130,7 +129,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Indirect
 	}
 
 	@Override
-	public Page get(final @Nonnull IndirectPageLogKey key) {
+	public Page get(final IndirectPageLogKey key) {
 		Page container = null;
 		try {
 			mReadLock.lock();
@@ -142,7 +141,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Indirect
 	}
 
 	@Override
-	public void put(final @Nonnull IndirectPageLogKey key, final @Nonnull Page value) {
+	public void put(final IndirectPageLogKey key, final Page value) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(key, value);
@@ -152,7 +151,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Indirect
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<? extends IndirectPageLogKey, ? extends Page> map) {
+	public void putAll(final Map<? extends IndirectPageLogKey, ? extends Page> map) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.putAll(map);
@@ -172,7 +171,7 @@ public final class SynchronizedTransactionLogPageCache implements Cache<Indirect
 	}
 
 	@Override
-	public void remove(final @Nonnull IndirectPageLogKey key) {
+	public void remove(final IndirectPageLogKey key) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.remove(key);

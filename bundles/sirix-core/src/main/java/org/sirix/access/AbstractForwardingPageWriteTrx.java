@@ -46,7 +46,7 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	}
 
 	@Override
-	public V createEntry(@Nonnull K key, @Nonnull V record, @Nonnull PageKind pageKind, @Nonnegative int index, @Nonnull Optional<S> keyValuePage)
+	public V createEntry(K key, @Nonnull V record, @Nonnull PageKind pageKind, @Nonnegative int index, @Nonnull Optional<S> keyValuePage)
 			throws SirixIOException {
 		return delegate().createEntry(key, record, pageKind, index, keyValuePage);
 	}
@@ -64,13 +64,13 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	}
 
 	@Override
-	public int createNameKey(@Nonnull String name, @Nonnull Kind kind)
+	public int createNameKey(String name, @Nonnull Kind kind)
 			throws SirixIOException {
 		return delegate().createNameKey(name, kind);
 	}
 
 	@Override
-	public UberPage commit(@Nonnull MultipleWriteTrx multipleWriteTrx)
+	public UberPage commit(MultipleWriteTrx multipleWriteTrx)
 			throws SirixException {
 		return delegate().commit(multipleWriteTrx);
 	}
@@ -83,12 +83,12 @@ public abstract class AbstractForwardingPageWriteTrx<K extends Comparable<? supe
 	}
 
 	@Override
-	public void commit(@Nonnull PageReference reference) throws SirixException {
+	public void commit(PageReference reference) throws SirixException {
 		delegate().commit(reference);
 	}
 
 	@Override
-	public void restore(@Nonnull Restore restore) {
+	public void restore(Restore restore) {
 		delegate().restore(restore);
 	}
 

@@ -51,7 +51,7 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 *          the key
 	 * @return value with given key, or {@code null} if not present
 	 */
-	V getValue(@Nonnull K key);
+	V getValue(K key);
 
 	/**
 	 * Store or overwrite a single entry. The implementation must make sure if the
@@ -62,7 +62,7 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @param value
 	 *          value to store
 	 */
-	void setEntry(@Nonnull K key, @Nonnull V value);
+	void setEntry(K key, @Nonnull V value);
 
 	Set<Entry<K, PageReference>> referenceEntrySet();
 
@@ -77,9 +77,9 @@ public interface KeyValuePage<K extends Comparable<? super K>, V extends Record>
 	 * @param reference
 	 *          reference to store
 	 */
-	void setPageReference(@Nonnull K key, @Nonnull PageReference reference);
+	void setPageReference(K key, @Nonnull PageReference reference);
 
-	PageReference getPageReference(@Nonnull K key);
+	PageReference getPageReference(K key);
 
 	/**
 	 * Create a new instance.

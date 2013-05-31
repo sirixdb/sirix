@@ -7,7 +7,6 @@ import java.util.Set;
 import java.util.TreeMap;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
@@ -79,7 +78,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	 *          determines if it's a leaf or inner node page
 	 */
 	public BPlusLeafNodePage(final @Nonnegative long recordPageKey,
-			final @Nonnull PageKind pageKind, final @Nonnull Optional<PageReference> previousPageRef, final @Nonnull PageReadTrx pageReadTrx) {
+			final PageKind pageKind, final Optional<PageReference> previousPageRef, final PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -102,8 +101,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	 * @param pageReadTrx
 	 *          {@link 
 	 */
-	protected BPlusLeafNodePage(final @Nonnull ByteArrayDataInput in,
-			final @Nonnull PageReadTrx pageReadTrx) {
+	protected BPlusLeafNodePage(final ByteArrayDataInput in,
+			final PageReadTrx pageReadTrx) {
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mRecords = new TreeMap<>();
@@ -123,16 +122,16 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		mPageKind = PageKind.getKind(in.readByte());
 	}
 
-	public void setLeftPage(final @Nonnull Optional<PageReference> leftPage) {
+	public void setLeftPage(final Optional<PageReference> leftPage) {
 		mLeftPage = leftPage;
 	}
 
-	public void setRightPage(final @Nonnull Optional<PageReference> rightPage) {
+	public void setRightPage(final Optional<PageReference> rightPage) {
 		mLeftPage = rightPage;
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+	public void serialize(final ByteArrayDataOutput out) {
 		out.writeLong(mRecordPageKey);
 		serializePointer(mLeftPage, out);
 		serializePointer(mRightPage, out);
@@ -144,8 +143,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		}
 	}
 
-	private void serializePointer(final @Nonnull Optional<PageReference> page,
-			final @Nonnull ByteArrayDataOutput out) {
+	private void serializePointer(final Optional<PageReference> page,
+			final ByteArrayDataOutput out) {
 		if (page.isPresent()) {
 			out.writeBoolean(page.get().getKey() == org.sirix.settings.Constants.NULL_ID ? false
 					: true);
@@ -196,21 +195,21 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	}
 
 	@Override
-	public V getValue(final @Nonnull K key) {
+	public V getValue(final K key) {
 		return mRecords.get(key);
 	}
 
 	@Override
-	public void setEntry(final @Nonnull K key, final @Nullable V value) {
+	public void setEntry(final K key, final @Nullable V value) {
 		mRecords.put(key, value);
 	}
 
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<K, V>> C newInstance(
-			final @Nonnegative long recordPageKey, final @Nonnull PageKind pageKind,
-			final @Nonnull Optional<PageReference> previousPageRef,
-			final @Nonnull PageReadTrx pageReadTrx) {
+			final @Nonnegative long recordPageKey, final PageKind pageKind,
+			final Optional<PageReference> previousPageRef,
+			final PageReadTrx pageReadTrx) {
 		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind, previousPageRef, pageReadTrx);
 	}
 

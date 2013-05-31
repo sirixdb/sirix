@@ -7,7 +7,6 @@ import java.util.HashSet;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.node.parser.FragmentHelper;
@@ -104,7 +103,7 @@ public final class Indexes implements Materializable {
 		}
 	}
 
-	public Optional<IndexDef> findPathIndex(final @Nonnull Path<QNm> path) throws DocumentException {
+	public Optional<IndexDef> findPathIndex(final Path<QNm> path) throws DocumentException {
 		checkNotNull(path);
 		try {
 			for (final IndexDef index : mIndexes) {
@@ -126,7 +125,7 @@ public final class Indexes implements Materializable {
 		}
 	}
 
-	public Optional<IndexDef> findCASIndex(final @Nonnull Path<QNm> path) throws DocumentException {
+	public Optional<IndexDef> findCASIndex(final Path<QNm> path) throws DocumentException {
 		checkNotNull(path);
 		try {
 			for (final IndexDef index : mIndexes) {

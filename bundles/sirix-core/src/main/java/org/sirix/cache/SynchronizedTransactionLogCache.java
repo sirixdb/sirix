@@ -34,7 +34,6 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
@@ -85,9 +84,9 @@ public final class SynchronizedTransactionLogCache<T extends KeyValuePage<?, ?>>
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public SynchronizedTransactionLogCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+	public SynchronizedTransactionLogCache(final File file,
+			final @Nonnegative int revision, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
 		mSecondCache = new BerkeleyPersistenceCache<>(file, revision, logType,
 				pageReadTrx);
 		mFirstCache = new LRUCache<Long, RecordPageContainer<T>>(mSecondCache);
@@ -105,7 +104,7 @@ public final class SynchronizedTransactionLogCache<T extends KeyValuePage<?, ?>>
 
 	@Override
 	public ImmutableMap<Long, RecordPageContainer<T>> getAll(
-			final @Nonnull Iterable<? extends Long> pKeys) {
+			final Iterable<? extends Long> pKeys) {
 		final ImmutableMap.Builder<Long, RecordPageContainer<T>> builder = new ImmutableMap.Builder<>();
 		try {
 			mReadLock.lock();
@@ -131,7 +130,7 @@ public final class SynchronizedTransactionLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public RecordPageContainer<T> get(final @Nonnull Long key) {
+	public RecordPageContainer<T> get(final Long key) {
 		@SuppressWarnings("unchecked")
 		RecordPageContainer<T> container = (RecordPageContainer<T>) RecordPageContainer.EMPTY_INSTANCE;
 		try {
@@ -146,8 +145,8 @@ public final class SynchronizedTransactionLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void put(final @Nonnull Long key,
-			final @Nonnull RecordPageContainer<T> value) {
+	public void put(final Long key,
+			final RecordPageContainer<T> value) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(key, value);
@@ -158,7 +157,7 @@ public final class SynchronizedTransactionLogCache<T extends KeyValuePage<?, ?>>
 
 	@Override
 	public void putAll(
-			final @Nonnull Map<? extends Long, ? extends RecordPageContainer<T>> map) {
+			final Map<? extends Long, ? extends RecordPageContainer<T>> map) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.putAll(map);
@@ -178,7 +177,7 @@ public final class SynchronizedTransactionLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void remove(final @Nonnull Long key) {
+	public void remove(final Long key) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.remove(key);

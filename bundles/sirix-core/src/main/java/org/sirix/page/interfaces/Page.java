@@ -51,7 +51,7 @@ public interface Page {
 	 * @param out
 	 *          {@link ByteArrayDataOutput} reference to serialize to
 	 */
-	void serialize(final @Nonnull ByteArrayDataOutput out);
+	void serialize(final ByteArrayDataOutput out);
 
 	/**
 	 * Get all page references.

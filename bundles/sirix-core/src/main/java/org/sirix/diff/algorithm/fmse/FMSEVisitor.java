@@ -30,8 +30,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Map;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.access.AbstractVisitor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -75,16 +73,16 @@ public final class FMSEVisitor extends AbstractVisitor {
 	 * @throws NullPointerException
 	 *           if one of the arguments is {@code null}
 	 */
-	public FMSEVisitor(final @Nonnull NodeReadTrx readTransaction,
-			final @Nonnull Map<Long, Boolean> inOrder,
-			final @Nonnull Map<Long, Long> descendants) throws SirixException {
+	public FMSEVisitor(final NodeReadTrx readTransaction,
+			final Map<Long, Boolean> inOrder,
+			final Map<Long, Long> descendants) throws SirixException {
 		mRtx = checkNotNull(readTransaction);
 		mInOrder = checkNotNull(inOrder);
 		mDescendants = checkNotNull(descendants);
 	}
 
 	@Override
-	public VisitResultType visit(final @Nonnull ImmutableElement node) {
+	public VisitResultType visit(final ImmutableElement node) {
 		final long nodeKey = node.getNodeKey();
 		mRtx.moveTo(nodeKey);
 		for (int i = 0, attCount = mRtx.getAttributeCount(); i < attCount; i++) {
@@ -132,17 +130,17 @@ public final class FMSEVisitor extends AbstractVisitor {
 	}
 
 	@Override
-	public VisitResultType visit(final @Nonnull ImmutableText node) {
+	public VisitResultType visit(final ImmutableText node) {
 		return visiLeafNode(node);
 	}
 
 	@Override
-	public VisitResultType visit(final @Nonnull ImmutableComment node) {
+	public VisitResultType visit(final ImmutableComment node) {
 		return visiLeafNode(node);
 	}
 
 	@Override
-	public VisitResultType visit(final @Nonnull ImmutablePI node) {
+	public VisitResultType visit(final ImmutablePI node) {
 		return visiLeafNode(node);
 	}
 
@@ -153,7 +151,7 @@ public final class FMSEVisitor extends AbstractVisitor {
 	 *          the node to visit
 	 * @return {@link VisitResultType} value to continue normally
 	 */
-	private VisitResultType visiLeafNode(final @Nonnull ImmutableNode pNode) {
+	private VisitResultType visiLeafNode(final ImmutableNode pNode) {
 		final long nodeKey = pNode.getNodeKey();
 		mRtx.moveTo(nodeKey);
 		mInOrder.put(mRtx.getNodeKey(), false);

@@ -33,7 +33,6 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeCursor;
@@ -83,7 +82,7 @@ public abstract class AbstractAxis implements Axis {
 	 * @throws NullPointerException
 	 *           if {@code paramRtx} is {@code null}
 	 */
-	public AbstractAxis(final @Nonnull NodeCursor pRtx) {
+	public AbstractAxis(final NodeCursor pRtx) {
 		mRtx = checkNotNull(pRtx);
 		mIncludeSelf = IncludeSelf.NO;
 		mHasNext = true;
@@ -98,8 +97,8 @@ public abstract class AbstractAxis implements Axis {
 	 * @param pIncludeSelf
 	 *          determines if self is included
 	 */
-	public AbstractAxis(final @Nonnull NodeCursor pRtx,
-			final @Nonnull IncludeSelf pIncludeSelf) {
+	public AbstractAxis(final NodeCursor pRtx,
+			final IncludeSelf pIncludeSelf) {
 		mRtx = checkNotNull(pRtx);
 		mIncludeSelf = checkNotNull(pIncludeSelf);
 		mHasNext = true;
@@ -301,7 +300,7 @@ public abstract class AbstractAxis implements Axis {
 	 *          {@link Visitor} implementation
 	 */
 	@Override
-	public final void foreach(@Nonnull final Visitor pVisitor) {
+	public final void foreach(final Visitor pVisitor) {
 		checkNotNull(pVisitor);
 		for (; hasNext(); next()) {
 			mRtx.acceptVisitor(pVisitor);

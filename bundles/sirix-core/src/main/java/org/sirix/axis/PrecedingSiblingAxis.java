@@ -27,8 +27,6 @@
 
 package org.sirix.axis;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
 import org.sirix.settings.Fixed;
@@ -55,7 +53,7 @@ public final class PrecedingSiblingAxis extends AbstractAxis {
 	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public PrecedingSiblingAxis(final @Nonnull NodeReadTrx rtx) {
+	public PrecedingSiblingAxis(final NodeReadTrx rtx) {
 		super(rtx);
 	}
 

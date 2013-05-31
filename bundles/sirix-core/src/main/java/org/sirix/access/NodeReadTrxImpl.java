@@ -34,7 +34,6 @@ import java.util.Collections;
 import java.util.List;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -122,9 +121,9 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	NodeReadTrxImpl(final @Nonnull SessionImpl session,
+	NodeReadTrxImpl(final SessionImpl session,
 			final @Nonnegative long transactionID,
-			final @Nonnull PageReadTrx pageReadTransaction) throws SirixIOException {
+			final PageReadTrx pageReadTransaction) throws SirixIOException {
 		mSession = checkNotNull(session);
 		checkArgument(transactionID >= 0);
 		mId = transactionID;
@@ -376,7 +375,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public int keyForName(final @Nonnull String name) {
+	public int keyForName(final String name) {
 		assertNotClosed();
 		return NamePageHash.generateHashForString(name);
 	}
@@ -539,7 +538,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToAttributeByName(
-			final @Nonnull QNm name) {
+			final QNm name) {
 		assertNotClosed();
 		if (mCurrentNode.getKind() == Kind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
@@ -580,8 +579,8 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public final int getNameCount(final @Nonnull String name,
-			final @Nonnull Kind kind) {
+	public final int getNameCount(final String name,
+			final Kind kind) {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
 			return mPageReadTrx.getNameCount(
@@ -701,7 +700,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(final Visitor visitor) {
 		assertNotClosed();
 		return mCurrentNode.acceptVisitor(visitor);
 	}

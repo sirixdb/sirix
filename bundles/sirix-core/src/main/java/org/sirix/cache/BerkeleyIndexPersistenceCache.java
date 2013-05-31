@@ -34,14 +34,12 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.interfaces.KeyValuePage;
 
 import com.google.common.collect.ImmutableMap;
-import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Cursor;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
@@ -112,9 +110,9 @@ public final class BerkeleyIndexPersistenceCache<T extends KeyValuePage<?, ?>>
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public BerkeleyIndexPersistenceCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+	public BerkeleyIndexPersistenceCache(final File file,
+			final @Nonnegative int revision, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
 		super(file, revision, logType);
 		try {
 			// Create a new, transactional database environment.
@@ -141,8 +139,8 @@ public final class BerkeleyIndexPersistenceCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void putPersistent(final @Nonnull IndexLogKey key,
-			final @Nonnull RecordPageContainer<T> page) throws SirixIOException {
+	public void putPersistent(final IndexLogKey key,
+			final RecordPageContainer<T> page) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mEntries++;
@@ -185,7 +183,7 @@ public final class BerkeleyIndexPersistenceCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public RecordPageContainer<T> getPersistent(final @Nonnull IndexLogKey key)
+	public RecordPageContainer<T> getPersistent(final IndexLogKey key)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -203,13 +201,13 @@ public final class BerkeleyIndexPersistenceCache<T extends KeyValuePage<?, ?>>
 
 	@Override
 	public ImmutableMap<IndexLogKey, RecordPageContainer<T>> getAll(
-			final @Nonnull Iterable<? extends IndexLogKey> keys) {
+			final Iterable<? extends IndexLogKey> keys) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public void putAll(
-			final @Nonnull Map<? extends IndexLogKey, ? extends RecordPageContainer<T>> map) {
+			final Map<? extends IndexLogKey, ? extends RecordPageContainer<T>> map) {
 		for (final Entry<? extends IndexLogKey, ? extends RecordPageContainer<T>> entry : map
 				.entrySet()) {
 			put(entry.getKey(), entry.getValue());
@@ -222,7 +220,7 @@ public final class BerkeleyIndexPersistenceCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void remove(final @Nonnull IndexLogKey key) {
+	public void remove(final IndexLogKey key) {
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
 		final OperationStatus status = mDatabase.delete(null, keyEntry);

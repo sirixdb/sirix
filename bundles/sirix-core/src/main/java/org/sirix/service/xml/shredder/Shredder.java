@@ -1,7 +1,5 @@
 package org.sirix.service.xml.shredder;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.exception.SirixException;
 
 /**
@@ -25,7 +23,7 @@ public interface Shredder<S, T> {
 	 * @param target
 	 *          the target
 	 */
-	void processPI(final @Nonnull S content, final @Nonnull S target)
+	void processPI(S content, S target)
 			throws SirixException;
 
 	/**
@@ -34,7 +32,7 @@ public interface Shredder<S, T> {
 	 * @param value
 	 *          the value
 	 */
-	void processComment(@Nonnull final S value) throws SirixException;
+	void processComment(S value) throws SirixException;
 
 	/**
 	 * Process a start tag.
@@ -44,7 +42,7 @@ public interface Shredder<S, T> {
 	 * @throws SirixException
 	 *           if Sirix fails to insert a new node
 	 */
-	void processStartTag(@Nonnull final T name) throws SirixException;
+	void processStartTag(T name) throws SirixException;
 
 	/**
 	 * Process a text node
@@ -54,7 +52,7 @@ public interface Shredder<S, T> {
 	 * @throws SirixException
 	 *           if Sirix fails to insert a new node
 	 */
-	void processText(@Nonnull final S text) throws SirixException;
+	void processText(S text) throws SirixException;
 
 	/**
 	 * Process an end tag.
@@ -64,7 +62,7 @@ public interface Shredder<S, T> {
 	 * @throws SirixException
 	 *           if Sirix fails to insert a new node
 	 */
-	void processEndTag(@Nonnull final T name) throws SirixException;
+	void processEndTag(T name) throws SirixException;
 
 	/**
 	 * Process an empty element.
@@ -74,5 +72,5 @@ public interface Shredder<S, T> {
 	 * @throws SirixException
 	 *           if Sirix fails to insert a new node
 	 */
-	void processEmptyElement(@Nonnull final T name) throws SirixException;
+	void processEmptyElement(T name) throws SirixException;
 }

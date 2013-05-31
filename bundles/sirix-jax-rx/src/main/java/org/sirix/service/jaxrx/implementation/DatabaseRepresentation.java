@@ -105,7 +105,7 @@ public class DatabaseRepresentation {
 	 * @param storagePath
 	 *          path to storage
 	 */
-	public DatabaseRepresentation(final @Nonnull File storagePath) {
+	public DatabaseRepresentation(final File storagePath) {
 		mStoragePath = checkNotNull(storagePath);
 	}
 

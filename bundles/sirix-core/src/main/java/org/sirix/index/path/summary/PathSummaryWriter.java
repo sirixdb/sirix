@@ -6,7 +6,6 @@ import java.util.HashSet;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.QNm;
@@ -108,9 +107,9 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 *          Sirix {@link NodeReadTrxImpl}
 	 */
 	private PathSummaryWriter(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull Session session, final @Nonnull NodeFactory nodeFactory,
-			final @Nonnull NodeReadTrxImpl rtx) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final Session session, final NodeFactory nodeFactory,
+			final NodeReadTrxImpl rtx) {
 		mPageWriteTrx = pageWriteTrx;
 		mPathSummaryReader = PathSummaryReader.getInstance(pageWriteTrx, session);
 		mNodeRtx = rtx;
@@ -132,9 +131,9 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @return new path summary writer instance
 	 */
 	public static final PathSummaryWriter getInstance(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull Session session, final @Nonnull NodeFactory nodeFactory,
-			final @Nonnull NodeReadTrxImpl rtx) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final Session session, final NodeFactory nodeFactory,
+			final NodeReadTrxImpl rtx) {
 		// Uses the implementation of NodeReadTrx rather than the interface,
 		// otherwise nodes are wrapped in immutable nodes because only getNode() is
 		// available
@@ -164,8 +163,8 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public long getPathNodeKey(final @Nonnull QNm name,
-			final @Nonnull Kind pathKind) throws SirixException {
+	public long getPathNodeKey(final QNm name,
+			final Kind pathKind) throws SirixException {
 		final Kind kind = mNodeRtx.getNode().getKind();
 		int level = 0;
 		if (kind == Kind.DOCUMENT) {
@@ -223,7 +222,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws SirixException
 	 *           if an I/O error occurs
 	 */
-	public PathSummaryWriter insertPathAsFirstChild(final @Nonnull QNm name,
+	public PathSummaryWriter insertPathAsFirstChild(final QNm name,
 			final Kind pathKind, final int level) throws SirixException {
 		if (!XMLToken.isValidQName(checkNotNull(name))) {
 			throw new IllegalArgumentException("The QName is not valid!");
@@ -256,8 +255,8 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws SirixIOException
 	 *           if anything weird happens
 	 */
-	private void adaptForInsert(final @Nonnull Node newNode,
-			final @Nonnull InsertPos insertPos, final @Nonnull PageKind pageKind)
+	private void adaptForInsert(final Node newNode,
+			final InsertPos insertPos, final PageKind pageKind)
 			throws SirixIOException {
 		assert newNode != null;
 		assert insertPos != null;
@@ -305,9 +304,9 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code pNode} or {@code pQName} is null
 	 */
-	public void adaptPathForChangedNode(final @Nonnull ImmutableNameNode node,
-			final @Nonnull QNm name, final int uriKey, final int prefixKey,
-			final int localNameKey, final @Nonnull OPType type) throws SirixException {
+	public void adaptPathForChangedNode(final ImmutableNameNode node,
+			final QNm name, final int uriKey, final int prefixKey,
+			final int localNameKey, final OPType type) throws SirixException {
 		// Possibly either reset a path node or decrement its reference counter
 		// and search for the new path node or insert it.
 		movePathSummary();
@@ -477,7 +476,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			final @Nonnegative long newPathNodeKey,
 			final @Nonnegative long oldNodeKey, final int uriKey,
 			final int prefixKey, final int localNameKey,
-			final @Nonnull Remove remove, final @Nonnull OPType type)
+			final Remove remove, final OPType type)
 			throws SirixException {
 		final PathSummaryReader cloned = PathSummaryReader.getInstance(
 				mPageWriteTrx, mNodeRtx.getSession());
@@ -590,7 +589,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 *          the node to lookup for it's {@link PathNode}
 	 * @return level of the path node
 	 */
-	private int moveSummaryGetLevel(final @Nonnull ImmutableNode node) {
+	private int moveSummaryGetLevel(final ImmutableNode node) {
 		assert node != null;
 		// Get parent path node and level.
 		mNodeRtx.moveToParent();
@@ -627,7 +626,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws SirixException
 	 *           if Sirix fails to remove the path node
 	 */
-	private void removePathSummaryNode(final @Nonnull Remove remove)
+	private void removePathSummaryNode(final Remove remove)
 			throws SirixException {
 		// Remove all descendant nodes.
 		if (remove == Remove.YES) {
@@ -719,7 +718,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs while decrementing the reference counter
 	 */
-	private void deleteOrDecrement(final @Nonnull Set<Long> nodesToDelete)
+	private void deleteOrDecrement(final Set<Long> nodesToDelete)
 			throws SirixIOException {
 		if (mNodeRtx.getNode() instanceof ImmutableNameNode) {
 			movePathSummary();
@@ -748,8 +747,8 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public void remove(final @Nonnull NameNode node,
-			final @Nonnull Kind nodeKind, final @Nonnull NamePage page)
+	public void remove(final NameNode node,
+			final Kind nodeKind, final NamePage page)
 			throws SirixException {
 		if (mPathSummaryReader.moveTo(node.getPathNodeKey()).hasMoved()) {
 			if (mPathSummaryReader.getReferences() == 1) {

@@ -27,8 +27,6 @@
 
 package org.sirix.service.xml.xpath.expr;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 
 /**
@@ -49,7 +47,7 @@ public class LiteralExpr extends AbstractExpression {
 	 * @param mItemKey
 	 *          itemKey of the literal
 	 */
-	public LiteralExpr(@Nonnull final NodeReadTrx pRtx, final long pItemKey) {
+	public LiteralExpr(final NodeReadTrx pRtx, final long pItemKey) {
 		super(pRtx);
 		mLiteralKey = pItemKey;
 	}

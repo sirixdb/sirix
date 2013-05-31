@@ -27,8 +27,6 @@
 
 package org.sirix.axis;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 
 /**
@@ -50,7 +48,7 @@ public final class ChildAxis extends AbstractAxis {
 	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public ChildAxis(final @Nonnull NodeReadTrx rtx) {
+	public ChildAxis(final NodeReadTrx rtx) {
 		super(rtx);
 	}
 

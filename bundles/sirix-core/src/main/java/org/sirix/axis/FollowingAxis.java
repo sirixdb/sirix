@@ -30,8 +30,6 @@ package org.sirix.axis;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 
 /**
@@ -56,7 +54,7 @@ public final class FollowingAxis extends AbstractAxis {
 	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public FollowingAxis(final @Nonnull NodeReadTrx rtx) {
+	public FollowingAxis(final NodeReadTrx rtx) {
 		super(rtx);
 		mIsFirst = true;
 		mRightSiblingStack = new ArrayDeque<>();

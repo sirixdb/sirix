@@ -15,9 +15,9 @@ import org.sirix.page.CASPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
+import org.sirix.page.PathPage;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
-import org.sirix.page.PathPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -68,7 +68,7 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public NamePage getNamePage(@Nonnull RevisionRootPage revisionRoot)
+	public NamePage getNamePage(RevisionRootPage revisionRoot)
 			throws SirixIOException {
 		return delegate().getNamePage(revisionRoot);
 	}
@@ -80,7 +80,7 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public PathPage getPathPage(@Nonnull RevisionRootPage revisionRoot)
+	public PathPage getPathPage(RevisionRootPage revisionRoot)
 			throws SirixIOException {
 		return delegate().getPathPage(revisionRoot);
 	}
@@ -144,13 +144,13 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Page getFromPageCache(@Nonnull PageReference reference)
+	public Page getFromPageCache(PageReference reference)
 			throws SirixIOException {
 		return delegate().getFromPageCache(reference);
 	}
 
 	@Override
-	public void putPageCache(@Nonnull TransactionLogPageCache pageLog) {
+	public void putPageCache(TransactionLogPageCache pageLog) {
 		delegate().putPageCache(pageLog);
 	}
 

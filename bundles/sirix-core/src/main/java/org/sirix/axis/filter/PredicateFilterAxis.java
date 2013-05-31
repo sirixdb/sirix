@@ -29,8 +29,6 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbstractAxis;
@@ -62,8 +60,8 @@ public class PredicateFilterAxis extends AbstractAxis {
 	 * @param predicate
 	 *          predicate expression
 	 */
-	public PredicateFilterAxis(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull Axis predicate) {
+	public PredicateFilterAxis(final NodeReadTrx rtx,
+			final Axis predicate) {
 		super(rtx);
 		mIsFirst = true;
 		mPredicate = checkNotNull(predicate);

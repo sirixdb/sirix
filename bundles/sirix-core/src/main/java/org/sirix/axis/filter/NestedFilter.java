@@ -51,7 +51,7 @@ public class NestedFilter extends AbstractFilter {
 	 * @param axisTest
 	 *          test to perform for each node found with axis
 	 */
-	public NestedFilter(@Nonnull final NodeReadTrx pRtx,
+	public NestedFilter(final NodeReadTrx pRtx,
 			@Nonnull final Filter... pAxisTest) {
 		super(pRtx);
 		mFilter = pAxisTest;

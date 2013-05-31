@@ -72,8 +72,8 @@ public class DBCollection extends
 	 * @param database
 	 *          Sirix {@link Database} reference
 	 */
-	public DBCollection(final @Nonnull String name,
-			final @Nonnull Database database, final Updating updating) {
+	public DBCollection(final String name,
+			final Database database, final Updating updating) {
 		super(checkNotNull(name));
 		mDatabase = checkNotNull(database);
 		mUpdating = checkNotNull(updating);
@@ -169,7 +169,7 @@ public class DBCollection extends
 	}
 
 	@Override
-	public AbstractTemporalNode<DBNode> add(@Nonnull SubtreeParser parser)
+	public AbstractTemporalNode<DBNode> add(SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
 		try {
 			final String resource = "collection" + mResources++;

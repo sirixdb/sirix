@@ -28,7 +28,6 @@
 package org.sirix.axis;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
@@ -55,7 +54,7 @@ public final class AncestorAxis extends AbstractAxis {
 	 * @param paramRtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public AncestorAxis(final @Nonnull NodeReadTrx rtx) {
+	public AncestorAxis(final NodeReadTrx rtx) {
 		super(rtx);
 	}
 
@@ -67,8 +66,8 @@ public final class AncestorAxis extends AbstractAxis {
 	 * @param includeSelf
 	 *          Is self included?
 	 */
-	public AncestorAxis(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull IncludeSelf includeSelf) {
+	public AncestorAxis(final NodeReadTrx rtx,
+			final IncludeSelf includeSelf) {
 		super(rtx, includeSelf);
 	}
 

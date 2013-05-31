@@ -34,7 +34,6 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
@@ -96,7 +95,7 @@ public abstract class AbstractAxis implements Axis {
 	 * @throws NullPointerException
 	 *           if {@code paramRtx} is {@code null}
 	 */
-	public AbstractAxis(final @Nonnull NodeReadTrx rtx) {
+	public AbstractAxis(final NodeReadTrx rtx) {
 		mRtx = checkNotNull(rtx);
 		mIncludeSelf = IncludeSelf.NO;
 		reset(rtx.getNodeKey());
@@ -112,8 +111,8 @@ public abstract class AbstractAxis implements Axis {
 	 * @throws NullPointerException
 	 *           if {@code rtx} or {@code includeSelf} is {@code null}
 	 */
-	public AbstractAxis(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull IncludeSelf includeSelf) {
+	public AbstractAxis(final NodeReadTrx rtx,
+			final IncludeSelf includeSelf) {
 		mRtx = checkNotNull(rtx);
 		mIncludeSelf = checkNotNull(includeSelf);
 		reset(rtx.getNodeKey());
@@ -333,7 +332,7 @@ public abstract class AbstractAxis implements Axis {
 	 *          {@link IVisitor} implementation
 	 */
 	@Override
-	public final void foreach(@Nonnull final Visitor visitor) {
+	public final void foreach(final Visitor visitor) {
 		checkNotNull(visitor);
 		while (hasNext()) {
 			next();

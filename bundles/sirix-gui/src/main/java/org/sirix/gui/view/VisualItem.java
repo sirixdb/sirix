@@ -55,7 +55,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * @param pGraphics
 	 *          the {@link PGraphics} instance to write to
 	 */
-	void update(@Nonnull Draw pDraw, int pMappingMode,
+	void update(Draw pDraw, int pMappingMode,
 			@Nonnull PGraphics pGraphics);
 
 	/**
@@ -64,7 +64,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * @param pGraphic
 	 *          {@link PGraphics} instance
 	 */
-	void hover(@Nonnull PGraphics pGraphic);
+	void hover(PGraphics pGraphic);
 
 	/**
 	 * Get node key.
@@ -79,7 +79,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * @param pState
 	 *          {@link XPathState} value
 	 */
-	void setXPathState(@Nonnull XPathState pState);
+	void setXPathState(XPathState pState);
 
 	/**
 	 * Set grey state.
@@ -87,7 +87,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * @param pState
 	 *          {@link EGreyState} value
 	 */
-	void setGreyState(@Nonnull EGreyState pState);
+	void setGreyState(EGreyState pState);
 
 	/**
 	 * Get grey state.
@@ -109,7 +109,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * @param pColorNode
 	 *          enum to determine if node should be colored or not
 	 */
-	void setColorNode(@Nonnull EColorNode pColorNode);
+	void setColorNode(EColorNode pColorNode);
 
 	/**
 	 * Set the revision the item belongs to.

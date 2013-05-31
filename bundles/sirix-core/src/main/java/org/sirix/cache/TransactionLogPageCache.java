@@ -31,7 +31,6 @@ import java.io.File;
 import java.util.Map;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
@@ -72,9 +71,9 @@ public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, 
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public TransactionLogPageCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+	public TransactionLogPageCache(final File file,
+			final @Nonnegative int revision, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
 		mSecondCache = new BerkeleyPersistencePageCache(file, revision, logType,
 				pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
@@ -92,7 +91,7 @@ public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, 
 
 	@Override
 	public ImmutableMap<IndirectPageLogKey, Page> getAll(
-			final @Nonnull Iterable<? extends IndirectPageLogKey> keys) {
+			final Iterable<? extends IndirectPageLogKey> keys) {
 		final ImmutableMap.Builder<IndirectPageLogKey, Page> builder = new ImmutableMap.Builder<>();
 			for (final IndirectPageLogKey key : keys) {
 				if (mFirstCache.get(key) != null) {
@@ -108,17 +107,17 @@ public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, 
 	}
 
 	@Override
-	public Page get(final @Nonnull IndirectPageLogKey key) {
+	public Page get(final IndirectPageLogKey key) {
 	  return mFirstCache.get(key);
 	}
 
 	@Override
-	public void put(final @Nonnull IndirectPageLogKey key, final @Nonnull Page value) {
+	public void put(final IndirectPageLogKey key, final Page value) {
 			mFirstCache.put(key, value);
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<? extends IndirectPageLogKey, ? extends Page> map) {
+	public void putAll(final Map<? extends IndirectPageLogKey, ? extends Page> map) {
 			mFirstCache.putAll(map);
 	}
 
@@ -128,7 +127,7 @@ public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, 
 	}
 
 	@Override
-	public void remove(final @Nonnull IndirectPageLogKey key) {
+	public void remove(final IndirectPageLogKey key) {
 			mFirstCache.remove(key);
 			if (mSecondCache.get(key) != null) {
 				mSecondCache.remove(key);

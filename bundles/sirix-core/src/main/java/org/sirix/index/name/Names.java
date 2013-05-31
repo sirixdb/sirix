@@ -6,8 +6,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.settings.Constants;
 
 import com.google.common.collect.HashBiMap;
@@ -42,7 +40,7 @@ public final class Names {
 	 * @param in
 	 *          the persistent storage
 	 */
-	private Names(final @Nonnull ByteArrayDataInput in) {
+	private Names(final ByteArrayDataInput in) {
 		final int mapSize = in.readInt();
 		mNameMap = HashBiMap.create(mapSize);
 		mCountNameMapping = new HashMap<>(mapSize);
@@ -64,7 +62,7 @@ public final class Names {
 	 * @param out
 	 *          the persistent storage
 	 */
-	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+	public void serialize(final ByteArrayDataOutput out) {
 		out.writeInt(mNameMap.size());
 		for (final Entry<Integer, byte[]> entry : mNameMap.entrySet()) {
 			out.writeInt(entry.getKey());
@@ -102,7 +100,7 @@ public final class Names {
 	 *          the string representation
 	 * @return byte representation of a string value in a map
 	 */
-	private byte[] getBytes(final @Nonnull String name) {
+	private byte[] getBytes(final String name) {
 		return name.getBytes(Constants.DEFAULT_ENCODING);
 	}
 
@@ -114,7 +112,7 @@ public final class Names {
 	 * @param name
 	 *          name to create key for
 	 */
-	public void setName(final int pKey, final @Nonnull String name) {
+	public void setName(final int pKey, final String name) {
 		final Integer prevValue = mCountNameMapping.get(pKey);
 		if (prevValue == null) {
 			mNameMap.put(pKey, checkNotNull(getBytes(name)));
@@ -181,7 +179,7 @@ public final class Names {
 	 *          input source, the persistent storage
 	 * @return cloned index
 	 */
-	public static Names clone(final @Nonnull ByteArrayDataInput in) {
+	public static Names clone(final ByteArrayDataInput in) {
 		return new Names(in);
 	}
 }

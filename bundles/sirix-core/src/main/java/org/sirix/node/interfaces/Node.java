@@ -27,8 +27,6 @@
 
 package org.sirix.node.interfaces;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -53,7 +51,7 @@ public interface Node extends ImmutableNode {
 	 * @param id
 	 *          new dewey ID
 	 */
-	void setDeweyID(@Nonnull Optional<SirixDeweyID> id);
+	void setDeweyID(Optional<SirixDeweyID> id);
 
 	/**
 	 * Set the type key.

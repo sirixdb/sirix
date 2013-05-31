@@ -29,7 +29,6 @@ package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
@@ -86,7 +85,7 @@ public final class NullNode implements StructNode {
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResultType acceptVisitor(final Visitor visitor) {
 		throw new UnsupportedOperationException();
 	}
 
@@ -232,7 +231,7 @@ public final class NullNode implements StructNode {
 	}
 
 	@Override
-	public void setDeweyID(@Nonnull Optional<SirixDeweyID> id) {
+	public void setDeweyID(Optional<SirixDeweyID> id) {
 		throw new UnsupportedOperationException();
 	}
 }

@@ -29,7 +29,6 @@ package org.sirix.node.delegates;
 import java.util.Arrays;
 import java.util.zip.Deflater;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
@@ -72,8 +71,8 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
 	 * @param compressed
 	 *          compress value or not
 	 */
-	public ValNodeDelegate(final @Nonnull NodeDelegate nodeDel,
-			final @Nonnull byte[] val, final boolean compressed) {
+	public ValNodeDelegate(final NodeDelegate nodeDel,
+			final byte[] val, final boolean compressed) {
 		assert nodeDel != null : "nodeDel must not be null!";
 		assert val != null : "val must not be null!";
 		mDelegate = nodeDel;
@@ -82,7 +81,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResultType acceptVisitor(final Visitor visitor) {
 		return mDelegate.acceptVisitor(visitor);
 	}
 
@@ -106,7 +105,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
 	}
 
 	@Override
-	public void setValue(final @Nonnull byte[] value) {
+	public void setValue(final byte[] value) {
 		mCompressed = new String(value).length() > 10 ? true : false;
 		mVal = mCompressed ? Compression.compress(value,
 				Deflater.DEFAULT_COMPRESSION) : value;

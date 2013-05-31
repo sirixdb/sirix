@@ -34,8 +34,8 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
-import org.sirix.io.StorageType;
 import org.sirix.io.IOTestHelper;
+import org.sirix.io.StorageType;
 
 public class FileTest {
 	private ResourceConfiguration resourceConf;

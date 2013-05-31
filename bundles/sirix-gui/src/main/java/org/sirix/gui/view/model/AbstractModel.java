@@ -139,7 +139,7 @@ public abstract class AbstractModel<S, T extends VisualItem> extends AbstractObs
    * @param pDb
    *          {@link ReadDB} reference
    */
-  protected AbstractModel(@Nonnull final PApplet pApplet, @Nonnull final ReadDB pDb) {
+  protected AbstractModel(final PApplet pApplet, @Nonnull final ReadDB pDb) {
     checkNotNull(pApplet);
     checkNotNull(pDb);
     mParent = pApplet;
@@ -163,12 +163,12 @@ public abstract class AbstractModel<S, T extends VisualItem> extends AbstractObs
    * @param pPool
    *          thread pool; {@link ExecutorService} instance
    */
-  public final void shutdown(@Nonnull final ExecutorService pPool) {
+  public final void shutdown(final ExecutorService pPool) {
     pPool.shutdown(); // Disable new tasks from being submitted.
   }
 
   @Override
-  public final void updateDb(@Nonnull final ReadDB pDb, @Nonnull final Container<S> pContainer) {
+  public final void updateDb(final ReadDB pDb, @Nonnull final Container<S> pContainer) {
     checkNotNull(pDb);
     checkNotNull(pContainer);
     setDb(pDb);
@@ -186,7 +186,7 @@ public abstract class AbstractModel<S, T extends VisualItem> extends AbstractObs
   }
 
   @Override
-  public void evaluateXPath(@Nonnull final String pXPathExpression) {
+  public void evaluateXPath(final String pXPathExpression) {
     checkNotNull(pXPathExpression);
 
     // Initialize all items to ISNOTFOUND.
@@ -479,7 +479,7 @@ public abstract class AbstractModel<S, T extends VisualItem> extends AbstractObs
    *          determines how to insert an XML fragment
    */
   @Override
-  public void setInsert(@Nonnull final Insert pInsert) {
+  public void setInsert(final Insert pInsert) {
     mInsert = checkNotNull(pInsert);
   }
 
@@ -499,7 +499,7 @@ public abstract class AbstractModel<S, T extends VisualItem> extends AbstractObs
    * @param pDb
    *          the {@link ReadDB} instance to set
    */
-  public synchronized void setDb(@Nonnull final ReadDB pDb) {
+  public synchronized void setDb(final ReadDB pDb) {
     checkNotNull(pDb);
     final ReadDB currDB = mDb.get();
     if (!currDB.equals(pDb)) {
@@ -520,7 +520,7 @@ public abstract class AbstractModel<S, T extends VisualItem> extends AbstractObs
   }
 
   @Override
-  public void setItems(@Nonnull final List<T> pItems) {
+  public void setItems(final List<T> pItems) {
     mItems = checkNotNull(pItems);
   }
 }

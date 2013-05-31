@@ -110,7 +110,7 @@ public class DBStore implements Store, AutoCloseable {
 		 *          storage type
 		 * @return this builder instance
 		 */
-		public Builder storageType(final @Nonnull StorageType storageType) {
+		public Builder storageType(final StorageType storageType) {
 			mStorageType = checkNotNull(storageType);
 			return this;
 		}
@@ -122,7 +122,7 @@ public class DBStore implements Store, AutoCloseable {
 		 *          the location
 		 * @return this builder instance
 		 */
-		public Builder location(final @Nonnull File location) {
+		public Builder location(final File location) {
 			mLocation = checkNotNull(location);
 			return this;
 		}
@@ -143,7 +143,7 @@ public class DBStore implements Store, AutoCloseable {
 	 * @param builder
 	 *          builder instance
 	 */
-	private DBStore(final @Nonnull Builder builder) {
+	private DBStore(final Builder builder) {
 		mDatabases = new HashSet<>();
 		mUpdating = builder.mIsUpdatable ? Updating.YES : Updating.NO;
 		mStorageType = builder.mStorageType;
@@ -156,7 +156,7 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> lookup(final @Nonnull String name)
+	public Collection<?> lookup(final String name)
 			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, name));
@@ -173,7 +173,7 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final @Nonnull String name)
+	public Collection<?> create(final String name)
 			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, name));
@@ -191,8 +191,8 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final @Nonnull String name,
-			final @Nonnull SubtreeParser parser) throws DocumentException {
+	public Collection<?> create(final String name,
+			final SubtreeParser parser) throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, name));
 		try {
@@ -225,7 +225,7 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final @Nonnull String name,
+	public Collection<?> create(final String name,
 			final @Nullable Stream<SubtreeParser> pParsers) throws DocumentException {
 		if (pParsers != null) {
 			final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
@@ -283,7 +283,7 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public void drop(final @Nonnull String name) throws DocumentException {
+	public void drop(final String name) throws DocumentException {
 		final DatabaseConfiguration dbConfig = new DatabaseConfiguration(new File(
 				mLocation, name));
 		if (Databases.existsDatabase(dbConfig)) {
@@ -297,7 +297,7 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public void makeDir(final @Nonnull String path) throws DocumentException {
+	public void makeDir(final String path) throws DocumentException {
 		try {
 			Files.createDirectory(java.nio.file.Paths.get(path));
 		} catch (final IOException e) {

@@ -1,7 +1,5 @@
 package org.sirix.api;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
 import org.sirix.api.visitor.VisitResult;
@@ -176,7 +174,7 @@ public interface NodeCursor extends AutoCloseable {
 	 *          {@link Visitor} implementation
 	 * @return {@link VisitResultType} value
 	 */
-	VisitResult acceptVisitor(@Nonnull Visitor visitor);
+	VisitResult acceptVisitor(Visitor visitor);
 
 	/**
 	 * Get the immutable node where the cursor currently is located.

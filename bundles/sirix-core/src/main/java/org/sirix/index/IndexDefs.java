@@ -3,8 +3,6 @@ package org.sirix.index;
 import java.util.HashSet;
 import java.util.Set;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Type;
@@ -38,7 +36,7 @@ public final class IndexDefs {
 	 * @return a new {@link IndexDef} instance
 	 */
 	public static IndexDef createCASIdxDef(final boolean unique,
-			final @Nonnull Optional<Type> optType, final @Nonnull Set<Path<QNm>> paths) {
+			final Optional<Type> optType, final Set<Path<QNm>> paths) {
 		final Type type = optType.isPresent() ? optType.get() : Type.STR;
 		return new IndexDef(type, paths, unique);
 	}
@@ -60,13 +58,13 @@ public final class IndexDefs {
 	}
 
 	public static IndexDef createFilteredNameIdxDef(
-			final @Nonnull Set<QNm> excluded) {
+			final Set<QNm> excluded) {
 		final Set<QNm> included = new HashSet<QNm>();
 		return new IndexDef(included, excluded);
 	}
 
 	public static IndexDef createSelectiveNameIdxDef(
-			final @Nonnull Set<QNm> included) {
+			final Set<QNm> included) {
 		final HashSet<QNm> excluded = new HashSet<QNm>();
 		return new IndexDef(included, excluded);
 	}

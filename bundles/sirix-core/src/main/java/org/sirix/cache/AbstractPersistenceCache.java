@@ -30,7 +30,6 @@ package org.sirix.cache;
 import java.io.File;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -68,8 +67,8 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 	 * @param logType
 	 *          type of log to append to the path of the log
 	 */
-	protected AbstractPersistenceCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType) {
+	protected AbstractPersistenceCache(final File file,
+			final @Nonnegative int revision, final String logType) {
 		mPlace = new File(new File(new File(file,
 				ResourceConfiguration.Paths.TRANSACTION_LOG.getFile().getName()),
 				Integer.toString(revision)), logType);
@@ -86,8 +85,8 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 	 * @return {@code true} if it removed at least one database, {@code false}
 	 *         otherwise
 	 */
-	protected boolean removeExistingDatabase(final @Nonnull String dbName,
-			final @Nonnull Environment environment) {
+	protected boolean removeExistingDatabase(final String dbName,
+			final Environment environment) {
 		// Make a database within that environment.
 		boolean removed = false;
 		if (mPlace.list().length == 0) {
@@ -112,7 +111,7 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public final void put(final @Nonnull K key, final @Nonnull V page) {
+	public final void put(final K key, final V page) {
 		try {
 			putPersistent(key, page);
 		} catch (final SirixIOException exc) {
@@ -139,7 +138,7 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public final V get(final @Nonnull K pKey) {
+	public final V get(final K pKey) {
 		try {
 			return getPersistent(pKey);
 		} catch (final SirixIOException e) {
@@ -165,7 +164,7 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 	 * @throws SirixIOException
 	 *           if something odd happens
 	 */
-	public abstract void putPersistent(final @Nonnull K key, final @Nonnull V page)
+	public abstract void putPersistent(final K key, final V page)
 			throws SirixIOException;
 
 	/**
@@ -177,5 +176,5 @@ public abstract class AbstractPersistenceCache<K, V> implements Cache<K, V> {
 	 * @throws SirixIOException
 	 *           if something odd happens.
 	 */
-	public abstract V getPersistent(final @Nonnull K key) throws SirixIOException;
+	public abstract V getPersistent(final K key) throws SirixIOException;
 }

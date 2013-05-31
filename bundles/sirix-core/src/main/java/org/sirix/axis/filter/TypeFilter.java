@@ -27,8 +27,6 @@
 
 package org.sirix.axis.filter;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 
 /**
@@ -51,7 +49,7 @@ public class TypeFilter extends AbstractFilter {
 	 * @param pType
 	 *          type to match
 	 */
-	public TypeFilter(final @Nonnull NodeReadTrx pRtx, final int pType) {
+	public TypeFilter(final NodeReadTrx pRtx, final int pType) {
 		super(pRtx);
 		mType = pType;
 	}
@@ -64,7 +62,7 @@ public class TypeFilter extends AbstractFilter {
 	 * @param pTypeName
 	 *          name of the type to match
 	 */
-	public TypeFilter(final NodeReadTrx pRtx, final @Nonnull String pTypeName) {
+	public TypeFilter(final NodeReadTrx pRtx, final String pTypeName) {
 		this(pRtx, pRtx.keyForName(pTypeName));
 	}
 

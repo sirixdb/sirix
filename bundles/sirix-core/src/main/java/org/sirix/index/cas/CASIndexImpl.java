@@ -20,7 +20,7 @@ import com.google.common.base.Optional;
 public final class CASIndexImpl<K extends Comparable<? super K>, V extends References> implements CASIndex<K, V> {
 
 	@Override
-	public CASIndexBuilder createBuilder(@Nonnull NodeReadTrx rtx,
+	public CASIndexBuilder createBuilder(NodeReadTrx rtx,
 			@Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			@Nonnull PathSummaryReader pathSummaryReader, @Nonnull IndexDef indexDef) {
 		return new CASIndexBuilder(rtx, pageWriteTrx, pathSummaryReader, indexDef);
@@ -34,7 +34,7 @@ public final class CASIndexImpl<K extends Comparable<? super K>, V extends Refer
 	}
 
 	@Override
-	public Iterator<Optional<V>> openIndex(@Nonnull PageReadTrx pageReadTrx,
+	public Iterator<Optional<V>> openIndex(PageReadTrx pageReadTrx,
 			@Nonnull K key, @Nonnull IndexDef indexDef, @Nonnull SearchMode mode) {
 		final AVLTreeReader<K, V> reader = AVLTreeReader.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
 		return reader.new AVLIterator(key, mode);

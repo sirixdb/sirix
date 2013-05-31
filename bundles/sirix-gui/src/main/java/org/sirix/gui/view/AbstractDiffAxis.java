@@ -197,7 +197,7 @@ public abstract class AbstractDiffAxis implements Iterator<Long>, Iterable<Long>
    * @param pRtx
    *          sirix {@link NodeReadTrx}
    */
-  public void setTransaction(@Nonnull final NodeReadTrx pRtx) {
+  public void setTransaction(final NodeReadTrx pRtx) {
     mRtx = checkNotNull(pRtx);
   }
 }

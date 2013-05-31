@@ -13,11 +13,10 @@ import java.util.Stack;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 
+import org.sirix.exception.SirixEncryptionException;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
-
-import org.sirix.exception.SirixEncryptionException;
 
 /**
  * Class for parsing the initial given right tree and storing all data into the

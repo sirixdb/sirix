@@ -29,8 +29,6 @@ package org.sirix.page;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.node.interfaces.Record;
@@ -82,7 +80,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 	 * @param in
 	 *          input bytes to read from
 	 */
-	protected PathSummaryPage(final @Nonnull ByteArrayDataInput in) {
+	protected PathSummaryPage(final ByteArrayDataInput in) {
 		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
 		final int size = in.readInt();
 		mMaxNodeKeys = new HashMap<>(size);
@@ -116,7 +114,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 	 *          the index number
 	 */
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createPathSummaryTree(
-			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx, final int index) {
+			final PageWriteTrx<K, V, S> pageWriteTrx, final int index) {
 		final PageReference reference = getReference(index);
 		if (reference.getPage() == null && reference.getLogKey() == null
 				&& reference.getKey() == Constants.NULL_ID) {
@@ -131,7 +129,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(@Nonnull ByteArrayDataOutput out) {
+	public void serialize(ByteArrayDataOutput out) {
 		super.serialize(out);
 		final int size = mMaxNodeKeys.size();
 		out.writeInt(size);

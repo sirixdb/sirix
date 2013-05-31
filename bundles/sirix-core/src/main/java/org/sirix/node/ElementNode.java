@@ -93,12 +93,12 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	 * @param namespaceKeys
 	 *          keys of namespaces to be set
 	 */
-	public ElementNode(final @Nonnull StructNodeDelegate structDel,
-			final @Nonnull NameNodeDelegate nameDel,
-			final @Nonnull List<Long> attributeKeys,
-			final @Nonnull BiMap<Long, Long> attributes,
-			final @Nonnull List<Long> namespaceKeys,
-			final @Nonnull PageReadTrx pageReadTrx) {
+	public ElementNode(final StructNodeDelegate structDel,
+			final NameNodeDelegate nameDel,
+			final List<Long> attributeKeys,
+			final BiMap<Long, Long> attributes,
+			final List<Long> namespaceKeys,
+			final PageReadTrx pageReadTrx) {
 		assert structDel != null;
 		mStructNodeDel = structDel;
 		assert nameDel != null;
@@ -143,7 +143,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	 *          the attribute-name to lookup
 	 * @return the attribute key associated with the name
 	 */
-	public Optional<Long> getAttributeKeyByName(final @Nonnull QNm name) {
+	public Optional<Long> getAttributeKeyByName(final QNm name) {
 		final int prefixIndex = name.getPrefix() != null
 				&& !name.getPrefix().isEmpty() ? NamePageHash
 				.generateHashForString(name.getPrefix()) : -1;
@@ -275,7 +275,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(final Visitor visitor) {
 		return visitor.visit(ImmutableElement.of(this));
 	}
 

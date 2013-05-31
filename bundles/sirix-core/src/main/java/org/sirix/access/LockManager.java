@@ -27,7 +27,6 @@
 
 package org.sirix.access;
 
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * <h1>LockManager</h1>

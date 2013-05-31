@@ -27,8 +27,6 @@
 
 package org.sirix.api.visitor;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.node.immutable.ImmutableAttribute;
 import org.sirix.node.immutable.ImmutableComment;
 import org.sirix.node.immutable.ImmutableDocument;
@@ -51,7 +49,7 @@ public interface Visitor {
 	 * @param node
 	 *          the {@link ImmutablePI}
 	 */
-	VisitResult visit(@Nonnull final ImmutablePI node);
+	VisitResult visit(ImmutablePI node);
 
 	/**
 	 * Do something when visiting a {@link ImmutableComment}.
@@ -59,7 +57,7 @@ public interface Visitor {
 	 * @param node
 	 *          the {@link ImmutableComment}
 	 */
-	VisitResult visit(@Nonnull final ImmutableComment node);
+	VisitResult visit(ImmutableComment node);
 
 	/**
 	 * Do something when visiting an {@link ImmutableElement}.
@@ -67,7 +65,7 @@ public interface Visitor {
 	 * @param node
 	 *          the {@link ImmutableElement}
 	 */
-	VisitResult visit(@Nonnull final ImmutableElement node);
+	VisitResult visit(ImmutableElement node);
 
 	/**
 	 * Do something when visiting a {@link ImmutableAttribute}.
@@ -75,7 +73,7 @@ public interface Visitor {
 	 * @param node
 	 *          the {@link ImmutableAttribute}
 	 */
-	VisitResult visit(@Nonnull final ImmutableAttribute node);
+	VisitResult visit(ImmutableAttribute node);
 
 	/**
 	 * ImmutableDocumentRoot Do something when visiting a
@@ -84,7 +82,7 @@ public interface Visitor {
 	 * @param node
 	 *          the {@link ImmutableNamespace}
 	 */
-	VisitResult visit(@Nonnull final ImmutableNamespace node);
+	VisitResult visit(ImmutableNamespace node);
 
 	/**
 	 * Do something when visiting a {@link ImmutableText}.
@@ -92,7 +90,7 @@ public interface Visitor {
 	 * @param node
 	 *          the {@link ImmutableText}
 	 */
-	VisitResult visit(@Nonnull final ImmutableText node);
+	VisitResult visit(ImmutableText node);
 
 	/**
 	 * Do something when visiting the {@link ImmutableDocument}.
@@ -100,5 +98,5 @@ public interface Visitor {
 	 * @param node
 	 *          the {@link ImmutableDocument}
 	 */
-	VisitResult visit(@Nonnull final ImmutableDocument node);
+	VisitResult visit(ImmutableDocument node);
 }

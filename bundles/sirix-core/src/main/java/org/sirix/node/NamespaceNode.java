@@ -30,7 +30,6 @@ package org.sirix.node;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -70,8 +69,8 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 	 * @param nameDel
 	 *          {@link NameNodeDelegate} reference
 	 */
-	public NamespaceNode(final @Nonnull NodeDelegate nodeDel,
-			final @Nonnull NameNodeDelegate nameDel, final @Nonnull PageReadTrx pageReadTrx) {
+	public NamespaceNode(final NodeDelegate nodeDel,
+			final NameNodeDelegate nameDel, final PageReadTrx pageReadTrx) {
 		mNodeDel = checkNotNull(nodeDel);
 		mNameDel = checkNotNull(nameDel);
 		mPageReadTrx = checkNotNull(pageReadTrx);
@@ -113,7 +112,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(final Visitor visitor) {
 		return visitor.visit(ImmutableNamespace.of(this));
 	}
 

@@ -220,7 +220,7 @@ public final class GUI extends JFrame {
 	 * @param pRevision
 	 *          determines the revision to open
 	 */
-	public void execute(final @Nonnull File pFile,
+	public void execute(final File pFile,
 			final @Nonnegative int pRevision) {
 		if (mReadDB == null
 				|| !pFile.equals(mReadDB.getDatabase().getDatabaseConfig().getFile())

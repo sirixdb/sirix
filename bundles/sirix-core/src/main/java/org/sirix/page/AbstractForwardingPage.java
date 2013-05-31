@@ -27,17 +27,17 @@
 package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import com.google.common.collect.ForwardingObject;
-import com.google.common.io.ByteArrayDataOutput;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
+
+import com.google.common.collect.ForwardingObject;
+import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Forwarding the implementation of all methods in the {@link Page} interface to
@@ -58,7 +58,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
 
 	@Override
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
+			final PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
 		delegate().commit(checkNotNull(pageWriteTrx));
 	}
 
@@ -73,7 +73,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+	public void serialize(final ByteArrayDataOutput out) {
 		delegate().serialize(checkNotNull(out));
 	}
 

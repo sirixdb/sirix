@@ -1,7 +1,5 @@
 package org.sirix.index.avltree;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.index.avltree.interfaces.ImmutableAVLNode;
@@ -31,7 +29,7 @@ public final class ImmutableAVLNodeImpl<K extends Comparable<? super K>, V>
 	 * @param node
 	 *          {@link AVLNode} to wrap.
 	 */
-	public ImmutableAVLNodeImpl(final @Nonnull AVLNode<K, V> node) {
+	public ImmutableAVLNodeImpl(final AVLNode<K, V> node) {
 		assert node != null;
 		mNode = node;
 	}
@@ -42,7 +40,7 @@ public final class ImmutableAVLNodeImpl<K extends Comparable<? super K>, V>
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(Visitor visitor) {
 		return mNode.acceptVisitor(visitor);
 	}
 

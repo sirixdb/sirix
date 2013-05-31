@@ -38,7 +38,6 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
@@ -115,9 +114,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 *          the page reading transaction
 	 */
 	public UnorderedKeyValuePage(final @Nonnegative long recordPageKey,
-			final @Nonnull PageKind pageKind,
-			final @Nonnull Optional<PageReference> previousPageRef,
-			final @Nonnull PageReadTrx pageReadTrx) {
+			final PageKind pageKind,
+			final Optional<PageReference> previousPageRef,
+			final PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -141,8 +140,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} implementation
 	 */
-	protected UnorderedKeyValuePage(final @Nonnull ByteArrayDataInput in,
-			final @Nonnull PageReadTrx pageReadTrx) {
+	protected UnorderedKeyValuePage(final ByteArrayDataInput in,
+			final PageReadTrx pageReadTrx) {
 		mRecordPageKey = getVarLong(in);
 		mPersistenter = pageReadTrx.getSession().getResourceConfig().mPersistenter;
 		mPageReadTrx = pageReadTrx;
@@ -184,7 +183,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public Record getValue(final @Nonnull Long key) {
+	public Record getValue(final Long key) {
 		assert key != null : "key must not be null!";
 		Record record = mRecords.get(key);
 		if (record == null) {
@@ -208,14 +207,14 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public void setEntry(final @Nonnull Long key, final @Nonnull Record value) {
+	public void setEntry(final Long key, final Record value) {
 		assert value != null : "record must not be null!";
 		mAddedReferences = false;
 		mRecords.put(key, value);
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+	public void serialize(final ByteArrayDataOutput out) {
 		if (!mAddedReferences) {
 			addReferences();
 		}
@@ -360,9 +359,9 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	@SuppressWarnings("unchecked")
 	@Override
 	public <C extends KeyValuePage<Long, Record>> C newInstance(
-			final long recordPageKey, final @Nonnull PageKind pageKind,
-			final @Nonnull Optional<PageReference> previousPageRef,
-			final @Nonnull PageReadTrx pageReadTrx) {
+			final long recordPageKey, final PageKind pageKind,
+			final Optional<PageReference> previousPageRef,
+			final PageReadTrx pageReadTrx) {
 		return (C) new UnorderedKeyValuePage(recordPageKey, pageKind,
 				previousPageRef, pageReadTrx);
 	}
@@ -378,8 +377,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public void setPageReference(final @Nonnull Long key,
-			final @Nonnull PageReference reference) {
+	public void setPageReference(final Long key,
+			final PageReference reference) {
 		assert key != null;
 		mReferences.put(key, reference);
 	}
@@ -390,7 +389,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public PageReference getPageReference(final @Nonnull Long key) {
+	public PageReference getPageReference(final Long key) {
 		assert key != null;
 		return mReferences.get(key);
 	}

@@ -3,7 +3,6 @@ package org.sirix.index.avltree.keyvalue;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.QueryException;
@@ -11,7 +10,6 @@ import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.exception.SirixException;
 import org.sirix.index.AtomicUtil;
-import org.sirix.settings.Constants;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -50,7 +48,7 @@ public final class CASValue implements Comparable<CASValue> {
 	 * @param pathNodeKey
 	 *          the path node-key
 	 */
-	public CASValue(final @Nonnull Atomic value, final @Nonnull Type type,
+	public CASValue(final Atomic value, final Type type,
 			final @Nonnegative long pathNodeKey) {
 		mValue = checkNotNull(value);
 		mType = checkNotNull(type);

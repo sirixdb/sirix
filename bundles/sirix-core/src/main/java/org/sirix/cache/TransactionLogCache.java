@@ -31,7 +31,6 @@ import java.io.File;
 import java.util.Map;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
@@ -73,9 +72,9 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>> implements
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public TransactionLogCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+	public TransactionLogCache(final File file,
+			final @Nonnegative int revision, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
 		mSecondCache = new BerkeleyPersistenceCache<>(file, revision, logType,
 				pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
@@ -93,7 +92,7 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>> implements
 
 	@Override
 	public ImmutableMap<Long, RecordPageContainer<T>> getAll(
-			final @Nonnull Iterable<? extends Long> pKeys) {
+			final Iterable<? extends Long> pKeys) {
 		final ImmutableMap.Builder<Long, RecordPageContainer<T>> builder = new ImmutableMap.Builder<>();
 		for (final Long key : pKeys) {
 			if (mFirstCache.get(key) != null) {
@@ -109,7 +108,7 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>> implements
 	}
 
 	@Override
-	public RecordPageContainer<T> get(final @Nonnull Long key) {
+	public RecordPageContainer<T> get(final Long key) {
 		@SuppressWarnings("unchecked")
 		RecordPageContainer<T> container = (RecordPageContainer<T>) RecordPageContainer.EMPTY_INSTANCE;
 		if (mFirstCache.get(key) != null) {
@@ -119,14 +118,14 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>> implements
 	}
 
 	@Override
-	public void put(final @Nonnull Long key,
-			final @Nonnull RecordPageContainer<T> value) {
+	public void put(final Long key,
+			final RecordPageContainer<T> value) {
 		mFirstCache.put(key, value);
 	}
 
 	@Override
 	public void putAll(
-			final @Nonnull Map<? extends Long, ? extends RecordPageContainer<T>> map) {
+			final Map<? extends Long, ? extends RecordPageContainer<T>> map) {
 		mFirstCache.putAll(map);
 	}
 
@@ -136,7 +135,7 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>> implements
 	}
 
 	@Override
-	public void remove(final @Nonnull Long key) {
+	public void remove(final Long key) {
 		mFirstCache.remove(key);
 		if (mSecondCache.get(key) != null) {
 			mSecondCache.remove(key);

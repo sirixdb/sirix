@@ -28,7 +28,6 @@
 package org.sirix.api;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -67,7 +66,7 @@ public interface Database extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if anything happens while creating the resource
 	 */
-	boolean createResource(@Nonnull ResourceConfiguration config)
+	boolean createResource(ResourceConfiguration config)
 			throws SirixIOException;
 
 	/**
@@ -77,7 +76,7 @@ public interface Database extends AutoCloseable {
 	 *          resource to be checked
 	 * @return {@code true}, if existing, {@code false} otherwise
 	 */
-	boolean existsResource(@Nonnull String name);
+	boolean existsResource(String name);
 
 	/**
 	 * List all resources within this database.
@@ -95,7 +94,7 @@ public interface Database extends AutoCloseable {
 	 * @throws SirixException
 	 *           if can't get session
 	 */
-	Session getSession(@Nonnull SessionConfiguration config)
+	Session getSession(SessionConfiguration config)
 			throws SirixException;
 
 	/**
@@ -105,7 +104,7 @@ public interface Database extends AutoCloseable {
 	 * @param name
 	 *          resource name
 	 */
-	Database truncateResource(@Nonnull String name);
+	Database truncateResource(String name);
 
 	/**
 	 * Closing the database for further access.
@@ -153,5 +152,5 @@ public interface Database extends AutoCloseable {
 	 * @throws NullPointerException
 	 *           if {@code pName} is {@code null}
 	 */
-	long getResourceID(@Nonnull String name);
+	long getResourceID(String name);
 }

@@ -33,8 +33,6 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
 import org.sirix.io.Writer;
@@ -71,8 +69,8 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public FileWriter(final @Nonnull File storage,
-			final @Nonnull ByteHandler handler) throws SirixIOException {
+	public FileWriter(final File storage,
+			final ByteHandler handler) throws SirixIOException {
 		try {
 			mFile = new RandomAccessFile(storage, "rw");
 		} catch (final FileNotFoundException e) {
@@ -90,7 +88,7 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 	 *           if errors during writing occur
 	 */
 	@Override
-	public void write(final @Nonnull PageReference pageReference)
+	public void write(final PageReference pageReference)
 			throws SirixIOException {
 		// Serialise page.
 		final Page page = pageReference.getPage();
@@ -140,7 +138,7 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 	}
 
 	@Override
-	public void writeFirstReference(final @Nonnull PageReference pageReference)
+	public void writeFirstReference(final PageReference pageReference)
 			throws SirixIOException {
 		try {
 			write(pageReference);

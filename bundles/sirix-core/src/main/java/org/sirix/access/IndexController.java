@@ -108,7 +108,7 @@ public final class IndexController {
 	 * @throws SirixException
 	 *           if an exception occurs during serialization
 	 */
-	public void serialize(final @Nonnull OutputStream out) throws SirixException {
+	public void serialize(final OutputStream out) throws SirixException {
 		try {
 			new SubtreePrinter(new PrintStream(checkNotNull(out))).print(mIndexes
 					.materialize());
@@ -125,7 +125,7 @@ public final class IndexController {
 	 * @throws SirixException
 	 *           if an exception occurs during serialization
 	 */
-	public Node<?> deserialize(final @Nonnull InputStream in) throws SirixException {
+	public Node<?> deserialize(final InputStream in) throws SirixException {
 		try {
 			final DocumentParser parser = new DocumentParser(in);
 			final D2NodeBuilder builder = new D2NodeBuilder();
@@ -149,7 +149,7 @@ public final class IndexController {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public void notifyChange(@Nonnull ChangeType type,
+	public void notifyChange(ChangeType type,
 			@Nonnull ImmutableNode node, long pathNodeKey) throws SirixIOException {
 		for (final ChangeListener listener : mListeners) {
 			listener.listen(type, node, pathNodeKey);
@@ -167,8 +167,8 @@ public final class IndexController {
 	 * @throws SirixIOException 
 	 * 						if an I/O exception during index creation occured
 	 */
-	public IndexController createIndexes(final @Nonnull Set<IndexDef> indexDefs,
-			final @Nonnull NodeWriteTrx nodeWriteTrx) throws SirixIOException {
+	public IndexController createIndexes(final Set<IndexDef> indexDefs,
+			final NodeWriteTrx nodeWriteTrx) throws SirixIOException {
 		// Initialize transaction logs.
 		final PageWriteTrx<?, ?, ?> pageWriteTrx = nodeWriteTrx.getPageTransaction();
 		for (final IndexDef indexDef : indexDefs) {
@@ -193,7 +193,7 @@ public final class IndexController {
 	 * 
 	 * @return the created index builder instances
 	 */
-	Set<Visitor> createIndexBuilders(final @Nonnull Set<IndexDef> indexDefs, final @Nonnull NodeWriteTrx nodeWriteTrx) {
+	Set<Visitor> createIndexBuilders(final Set<IndexDef> indexDefs, final NodeWriteTrx nodeWriteTrx) {
 		// Index builders for all index definitions.
 		final Set<Visitor> indexBuilders = new HashSet<>(indexDefs.size());
 		for (final IndexDef indexDef : indexDefs) {
@@ -225,8 +225,8 @@ public final class IndexController {
 	 * 
 	 * @return this {@link IndexController} instance
 	 */
-	IndexController createIndexListeners(final @Nonnull Set<IndexDef> indexDefs,
-			final @Nonnull NodeWriteTrx nodeWriteTrx) {
+	IndexController createIndexListeners(final Set<IndexDef> indexDefs,
+			final NodeWriteTrx nodeWriteTrx) {
 		checkNotNull(nodeWriteTrx);
 		// Save for upcoming modifications.
 		for (final IndexDef indexDef : indexDefs) {
@@ -252,31 +252,31 @@ public final class IndexController {
 	}
 
 	private ChangeListener createPathIndexListener(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull PathSummaryReader pathSummaryReader,
-			final @Nonnull IndexDef indexDef) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final PathSummaryReader pathSummaryReader,
+			final IndexDef indexDef) {
 		return mPathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
 	}
 
 	private ChangeListener createCASIndexListener(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull PathSummaryReader pathSummaryReader,
-			final @Nonnull IndexDef indexDef) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final PathSummaryReader pathSummaryReader,
+			final IndexDef indexDef) {
 		return mCASIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
 	}
 
 	private Visitor createPathIndexBuilder(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull PathSummaryReader pathSummaryReader,
-			final @Nonnull IndexDef indexDef) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final PathSummaryReader pathSummaryReader,
+			final IndexDef indexDef) {
 		return mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
 	}
 
 	private Visitor createCASIndexBuilder(
-			final @Nonnull NodeReadTrx nodeReadTrx,
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull PathSummaryReader pathSummaryReader,
-			final @Nonnull IndexDef indexDef) {
+			final NodeReadTrx nodeReadTrx,
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final PathSummaryReader pathSummaryReader,
+			final IndexDef indexDef) {
 		return mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx,
 				pathSummaryReader, indexDef);
 	}

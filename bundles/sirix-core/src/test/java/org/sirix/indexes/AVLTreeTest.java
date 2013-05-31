@@ -5,8 +5,6 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.Set;
 
-import javax.annotation.Nonnull;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -75,8 +73,8 @@ public class AVLTreeTest {
 //				.getTextValueIndex();
 	}
 
-	private void check(final @Nonnull Optional<NodeReferences> barRefs,
-			final @Nonnull Set<Long> keys) {
+	private void check(final Optional<NodeReferences> barRefs,
+			final Set<Long> keys) {
 		assertTrue(barRefs.isPresent());
 		assertEquals(keys, barRefs.get().getNodeKeys());
 	}

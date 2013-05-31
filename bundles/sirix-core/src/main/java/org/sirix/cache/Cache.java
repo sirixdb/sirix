@@ -27,11 +27,11 @@
 
 package org.sirix.cache;
 
-import com.google.common.collect.ImmutableMap;
-
 import java.util.Map;
 
 import javax.annotation.Nonnull;
+
+import com.google.common.collect.ImmutableMap;
 
 /**
  * Interface for all upcoming cache implementations. Can be a weak one, a
@@ -60,7 +60,7 @@ public interface Cache<K, V> {
 	 *          the key for the requested {@link RecordPageContainer}
 	 * @return {@link RecordPageContainer} instance related to this key
 	 */
-	V get(@Nonnull K key);
+	V get(K key);
 
 	/**
 	 * Putting a key/value into the cache.
@@ -70,7 +70,7 @@ public interface Cache<K, V> {
 	 * @param value
 	 *          should be putted in the cache as well
 	 */
-	void put(@Nonnull K key, @Nonnull V value);
+	void put(K key, @Nonnull V value);
 
 	/**
 	 * Put all entries from a map into the cache.
@@ -78,7 +78,7 @@ public interface Cache<K, V> {
 	 * @param map
 	 *          map with entries to put into the cache
 	 */
-	void putAll(@Nonnull Map<? extends K, ? extends V> map);
+	void putAll(Map<? extends K, ? extends V> map);
 
 	/**
 	 * Save all entries of this cache in the secondary cache without removing
@@ -93,7 +93,7 @@ public interface Cache<K, V> {
 	 *          {@link Iterable} of keys
 	 * @return {@link ImmutableMap} instance with corresponding values
 	 */
-	ImmutableMap<K, V> getAll(@Nonnull Iterable<? extends K> keys);
+	ImmutableMap<K, V> getAll(Iterable<? extends K> keys);
 
 	/**
 	 * Remove key from storage.
@@ -101,7 +101,7 @@ public interface Cache<K, V> {
 	 * @param key
 	 *          key to remove
 	 */
-	void remove(@Nonnull K key);
+	void remove(K key);
 
 	/** Close a cache, might be a file handle for persistent caches. */
 	void close();

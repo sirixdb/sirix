@@ -34,7 +34,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
@@ -112,9 +111,9 @@ public final class BerkeleyPersistenceCache<T extends KeyValuePage<?, ?>>
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public BerkeleyPersistenceCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+	public BerkeleyPersistenceCache(final File file,
+			final @Nonnegative int revision, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
 		super(file, revision, logType);
 		try {
 			// Create a new, transactional database environment.
@@ -141,8 +140,8 @@ public final class BerkeleyPersistenceCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void putPersistent(final @Nonnull Long key,
-			final @Nonnull RecordPageContainer<T> page) throws SirixIOException {
+	public void putPersistent(final Long key,
+			final RecordPageContainer<T> page) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mEntries++;
@@ -185,7 +184,7 @@ public final class BerkeleyPersistenceCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public RecordPageContainer<T> getPersistent(final @Nonnull Long key)
+	public RecordPageContainer<T> getPersistent(final Long key)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -203,13 +202,13 @@ public final class BerkeleyPersistenceCache<T extends KeyValuePage<?, ?>>
 
 	@Override
 	public ImmutableMap<Long, RecordPageContainer<T>> getAll(
-			final @Nonnull Iterable<? extends Long> keys) {
+			final Iterable<? extends Long> keys) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
 	public void putAll(
-			final @Nonnull Map<? extends Long, ? extends RecordPageContainer<T>> map) {
+			final Map<? extends Long, ? extends RecordPageContainer<T>> map) {
 		for (final Entry<? extends Long, ? extends RecordPageContainer<T>> entry : map
 				.entrySet()) {
 			put(entry.getKey(), entry.getValue());
@@ -222,7 +221,7 @@ public final class BerkeleyPersistenceCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void remove(final @Nonnull Long key) {
+	public void remove(final Long key) {
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
 		final OperationStatus status = mDatabase.delete(null, keyEntry);

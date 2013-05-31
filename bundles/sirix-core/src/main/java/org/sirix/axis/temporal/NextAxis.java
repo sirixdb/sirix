@@ -4,7 +4,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -49,7 +48,7 @@ public class NextAxis extends AbstractTemporalAxis {
 	 * @param revision
 	 *          current revision
 	 */
-	public NextAxis(final @Nonnull Session session,
+	public NextAxis(final Session session,
 			final @Nonnegative long nodeKey, final @Nonnegative int revision) {
 		mSession = checkNotNull(session);
 		mRevision = 0;

@@ -31,7 +31,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.access.IndexController;
@@ -109,7 +108,7 @@ public final class SessionConfiguration {
 	 *          {@link Builder} reference
 	 */
 	private SessionConfiguration(
-			final @Nonnull SessionConfiguration.Builder builder) {
+			final SessionConfiguration.Builder builder) {
 		mWtxAllowed = builder.mWtxAllowed;
 		mRtxAllowed = builder.mRtxAllowed;
 		mCommitThreshold = builder.mCommitThreshold;
@@ -182,7 +181,7 @@ public final class SessionConfiguration {
 	 *           if {@code resource} or {@code config} is {@code null}
 	 * @return {@link Builder} instance
 	 */
-	public static Builder newBuilder(final @Nonnull String resource) {
+	public static Builder newBuilder(final String resource) {
 		return new Builder(resource);
 	}
 
@@ -222,7 +221,7 @@ public final class SessionConfiguration {
 		 * @param resource
 		 *          the resource
 		 */
-		public Builder(final @Nonnull String resource) {
+		public Builder(final String resource) {
 			mResource = checkNotNull(resource);
 			mIndexController = new IndexController();
 		}
@@ -274,7 +273,7 @@ public final class SessionConfiguration {
 		 *          the user accessing the resource
 		 * @return reference to the builder object
 		 */
-		public Builder user(final @Nonnull String user) {
+		public Builder user(final String user) {
 			mUser = checkNotNull(user);
 			return this;
 		}
@@ -296,7 +295,7 @@ public final class SessionConfiguration {
 		 *          key for cipher
 		 * @return reference to the builder object
 		 */
-		public Builder setKey(final @Nonnull Key key) {
+		public Builder setKey(final Key key) {
 			mKey = checkNotNull(key);
 			return this;
 		}

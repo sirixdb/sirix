@@ -289,7 +289,7 @@ public final class SunburstItem implements VisualItem {
 		 * @param pGUI
 		 *          GUI which extends {@link AbstractSunburstGUI}
 		 */
-		public Builder(@Nonnull final PApplet pApplet,
+		public Builder(final PApplet pApplet,
 				@Nonnegative final float pAngleStart,
 				@Nonnegative final float pExtension,
 				@Nonnull final NodeRelations pRelations, @Nonnull final ReadDB pReadDB,
@@ -322,7 +322,7 @@ public final class SunburstItem implements VisualItem {
 		 *          {@link QName} of the current node
 		 * @return this builder
 		 */
-		public Builder setQName(@Nonnull final QNm pQName) {
+		public Builder setQName(final QNm pQName) {
 			mQName = checkNotNull(pQName);
 			return this;
 		}
@@ -334,7 +334,7 @@ public final class SunburstItem implements VisualItem {
 		 *          {@link List} of attributes
 		 * @return this builder
 		 */
-		public Builder setAttributes(@Nonnull final List<Attribute> pAttributes) {
+		public Builder setAttributes(final List<Attribute> pAttributes) {
 			mAttributes = checkNotNull(pAttributes);
 			return this;
 		}
@@ -346,7 +346,7 @@ public final class SunburstItem implements VisualItem {
 		 *          {@link List} of namespaces
 		 * @return this builder
 		 */
-		public Builder setNamespaces(@Nonnull final List<Namespace> pNamespaces) {
+		public Builder setNamespaces(final List<Namespace> pNamespaces) {
 			mNamespaces = checkNotNull(pNamespaces);
 			return this;
 		}
@@ -383,7 +383,7 @@ public final class SunburstItem implements VisualItem {
 		 *          {@link QNm} of the current node
 		 * @return this builder
 		 */
-		public Builder setOldQName(@Nonnull final QNm pOldQName) {
+		public Builder setOldQName(final QNm pOldQName) {
 			mOldQName = checkNotNull(pOldQName);
 			return this;
 		}
@@ -395,7 +395,7 @@ public final class SunburstItem implements VisualItem {
 		 *          text string in case of a text node
 		 * @return this builder
 		 */
-		public Builder setText(@Nonnull final String pText) {
+		public Builder setText(final String pText) {
 			mText = checkNotNull(pText);
 			return this;
 		}
@@ -407,7 +407,7 @@ public final class SunburstItem implements VisualItem {
 		 *          text string in case of a text node
 		 * @return this builder
 		 */
-		public Builder setOldText(@Nonnull final String pOldText) {
+		public Builder setOldText(final String pOldText) {
 			mOldText = checkNotNull(pOldText);
 			return this;
 		}
@@ -419,7 +419,7 @@ public final class SunburstItem implements VisualItem {
 		 *          {@link DiffType}
 		 * @return this builder
 		 */
-		public Builder setDiff(@Nonnull final DiffType pDiff) {
+		public Builder setDiff(final DiffType pDiff) {
 			mDiff = checkNotNull(pDiff);
 			return this;
 		}
@@ -459,7 +459,7 @@ public final class SunburstItem implements VisualItem {
 	 * @throws NullPointerException
 	 *           if {@code pItem} is {@code null}
 	 */
-	public SunburstItem(@Nonnull final SunburstItem pItem) {
+	public SunburstItem(final SunburstItem pItem) {
 		mNodeKey = pItem.mNodeKey;
 		mKind = pItem.mKind;
 		mOrigDepth = pItem.mOrigDepth;
@@ -511,7 +511,7 @@ public final class SunburstItem implements VisualItem {
 	 * @param pBuilder
 	 *          the Builder to build a new sunburst item
 	 */
-	private SunburstItem(@Nonnull final Builder pBuilder) {
+	private SunburstItem(final Builder pBuilder) {
 		mKind = pBuilder.mKind;
 		mNodeKey = pBuilder.mNodeKey;
 		mOrigDepth = pBuilder.mRelations.mOrigDepth;
@@ -562,7 +562,7 @@ public final class SunburstItem implements VisualItem {
 	 * @param pDiff
 	 *          kind of diff to set
 	 */
-	public void setDiff(@Nonnull final DiffType pDiff) {
+	public void setDiff(final DiffType pDiff) {
 		mDiff = checkNotNull(pDiff);
 	}
 
@@ -600,7 +600,7 @@ public final class SunburstItem implements VisualItem {
 	 *           if {@code pGraphic} is null
 	 */
 	@Override
-	public void update(final @Nonnull Draw pDraw,
+	public void update(final Draw pDraw,
 			@Nonnegative final int pMappingMode, @Nonnull final PGraphics pGraphic) {
 		checkArgument(pMappingMode == 1 || pMappingMode == 2 || pMappingMode == 3);
 		checkNotNull(pGraphic);
@@ -851,7 +851,7 @@ public final class SunburstItem implements VisualItem {
 	 * @param pW
 	 *          width of ellipse
 	 */
-	private void drawArc(@Nonnull final PGraphics pGraphic,
+	private void drawArc(final PGraphics pGraphic,
 			@Nonnegative final float pW) {
 		assert pGraphic != null;
 		assert pW >= 0f;
@@ -1372,7 +1372,7 @@ public final class SunburstItem implements VisualItem {
 	}
 
 	@Override
-	public void hover(@Nonnull final PGraphics pGraphic) {
+	public void hover(final PGraphics pGraphic) {
 		if (mGreyState == EGreyState.NO) {
 			final PGraphics graphic = mGraphic;
 			mGraphic = checkNotNull(pGraphic);
@@ -1485,7 +1485,7 @@ public final class SunburstItem implements VisualItem {
 	 *          set state to this value
 	 */
 	@Override
-	public void setXPathState(@Nonnull final XPathState pState) {
+	public void setXPathState(final XPathState pState) {
 		mXPathState = checkNotNull(pState);
 	}
 
@@ -1500,7 +1500,7 @@ public final class SunburstItem implements VisualItem {
 	 *          set state to this value
 	 */
 	@Override
-	public void setGreyState(@Nonnull final EGreyState pState) {
+	public void setGreyState(final EGreyState pState) {
 		mGreyState = checkNotNull(pState);
 	}
 
@@ -1610,7 +1610,7 @@ public final class SunburstItem implements VisualItem {
 	 *          enum which determines if node has to be colored or not
 	 */
 	@Override
-	public void setColorNode(@Nonnull final EColorNode pColorNode) {
+	public void setColorNode(final EColorNode pColorNode) {
 		mColorNode = checkNotNull(pColorNode);
 	}
 

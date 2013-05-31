@@ -7,7 +7,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.Move;
 import org.sirix.access.Moved;
@@ -86,8 +85,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	 * 					the index number
 	 */
 	private AVLTreeReader(
-			final @Nonnull PageReadTrx pageReadTrx,
-			final @Nonnull IndexType type, final int index) {
+			final PageReadTrx pageReadTrx,
+			final IndexType type, final int index) {
 		mPageReadTrx = checkNotNull(pageReadTrx);
 		switch (type) {
 		case PATH:
@@ -130,8 +129,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	 * @return new tree instance
 	 */
 	public static <K extends Comparable<? super K>, V extends References> AVLTreeReader<K, V> getInstance(
-			final @Nonnull PageReadTrx pageReadTrx,
-			final @Nonnull IndexType type, final @Nonnegative int index) {
+			final PageReadTrx pageReadTrx,
+			final IndexType type, final @Nonnegative int index) {
 		return new AVLTreeReader<K, V>(pageReadTrx, type, index);
 	}
 
@@ -141,7 +140,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	 * @param out
 	 *          {@link PrintStream} to print to
 	 */
-	public void dump(final @Nonnull PrintStream out) {
+	public void dump(final PrintStream out) {
 		moveToDocumentRoot();
 		if (((DocumentRootNode) getNode()).hasFirstChild()) {
 			moveToFirstChild();
@@ -153,7 +152,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	}
 
 	// Internal function to dump data to a PrintStream instance.
-	private void internalDump(final @Nonnull PrintStream out) {
+	private void internalDump(final PrintStream out) {
 		out.println(getAVLNode());
 		final long nodeKey = getAVLNode().getNodeKey();
 		if (getAVLNode().hasLeftChild()) {
@@ -191,7 +190,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	 * @return {@link Optional} reference (with the found value, or a reference
 	 *         which indicates that the value hasn't been found)
 	 */
-	public Optional<V> get(final @Nonnull K key, final @Nonnull SearchMode mode) {
+	public Optional<V> get(final K key, final SearchMode mode) {
 		moveToDocumentRoot();
 		if (!((DocumentRootNode) getNode()).hasFirstChild()) {
 			return Optional.absent();
@@ -242,7 +241,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		 * @param mode
 		 *          the search mode
 		 */
-		public AVLIterator(final @Nonnull K key, final @Nonnull SearchMode mode) {
+		public AVLIterator(final K key, final SearchMode mode) {
 			mKey = checkNotNull(key);
 			mFirst = true;
 			mKeys = new ArrayDeque<>();
@@ -312,7 +311,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	 * 
 	 * @param node
 	 */
-	public void setCurrentNode(final @Nonnull AVLNode<K, V> node) {
+	public void setCurrentNode(final AVLNode<K, V> node) {
 		mCurrentNode = checkNotNull(node);
 	}
 
@@ -368,7 +367,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(@Nonnull Visitor visitor) {
+	public VisitResultType acceptVisitor(Visitor visitor) {
 		throw new UnsupportedOperationException();
 	}
 

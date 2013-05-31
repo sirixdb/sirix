@@ -2,7 +2,6 @@ package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
@@ -47,8 +46,8 @@ public class CommentNode extends AbstractStructForwardingNode implements
 	 * @param structDel
 	 *          delegate for {@link StructNode} implementation
 	 */
-	public CommentNode(final @Nonnull ValNodeDelegate valDel,
-			final @Nonnull StructNodeDelegate structDel) {
+	public CommentNode(final ValNodeDelegate valDel,
+			final StructNodeDelegate structDel) {
 		mStructNodeDel = checkNotNull(structDel);
 		mValDel = checkNotNull(valDel);
 	}
@@ -67,7 +66,7 @@ public class CommentNode extends AbstractStructForwardingNode implements
 	}
 
 	@Override
-	public void setValue(final @Nonnull byte[] value) {
+	public void setValue(final byte[] value) {
 		mValue = null;
 		mValDel.setValue(value);
 	}
@@ -78,7 +77,7 @@ public class CommentNode extends AbstractStructForwardingNode implements
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(final Visitor visitor) {
 		return visitor.visit(ImmutableComment.of(this));
 	}
 

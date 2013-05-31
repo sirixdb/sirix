@@ -145,7 +145,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullpointerException
 	 *           if {@code pRtx} is {@code null}
 	 */
-	NodeWriteTrx copySubtreeAsFirstChild(@Nonnull NodeReadTrx rtx)
+	NodeWriteTrx copySubtreeAsFirstChild(NodeReadTrx rtx)
 			throws SirixException;
 
 	/**
@@ -162,7 +162,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullpointerException
 	 *           if {@code pRtx} is {@code null}
 	 */
-	NodeWriteTrx copySubtreeAsLeftSibling(@Nonnull NodeReadTrx rtx)
+	NodeWriteTrx copySubtreeAsLeftSibling(NodeReadTrx rtx)
 			throws SirixException;
 
 	/**
@@ -179,7 +179,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullpointerException
 	 *           if {@code pRtx} is {@code null}
 	 */
-	NodeWriteTrx copySubtreeAsRightSibling(@Nonnull NodeReadTrx rtx)
+	NodeWriteTrx copySubtreeAsRightSibling(NodeReadTrx rtx)
 			throws SirixException;
 
 	/**
@@ -198,7 +198,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws SirixException
 	 *           if anything in Sirix fails
 	 */
-	NodeWriteTrx replaceNode(@Nonnull String xml) throws SirixException,
+	NodeWriteTrx replaceNode(String xml) throws SirixException,
 			IOException, XMLStreamException;
 
 	/**
@@ -212,7 +212,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	NodeWriteTrx replaceNode(@Nonnull NodeReadTrx rtx) throws SirixException;
+	NodeWriteTrx replaceNode(NodeReadTrx rtx) throws SirixException;
 
 	/**
 	 * Move a subtree rooted at {@code pToKey} to the first child of the current
@@ -286,7 +286,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertCommentAsLeftSibling(@Nonnull String value)
+	NodeWriteTrx insertCommentAsLeftSibling(String value)
 			throws SirixException;
 
 	/**
@@ -301,7 +301,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertCommentAsRightSibling(@Nonnull String value)
+	NodeWriteTrx insertCommentAsRightSibling(String value)
 			throws SirixException;
 
 	/**
@@ -316,7 +316,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertCommentAsFirstChild(@Nonnull String value)
+	NodeWriteTrx insertCommentAsFirstChild(String value)
 			throws SirixException;
 
 	/**
@@ -333,7 +333,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code content} or {@code target} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertPIAsLeftSibling(@Nonnull String content,
+	NodeWriteTrx insertPIAsLeftSibling(String content,
 			@Nonnull String target) throws SirixException;
 
 	/**
@@ -350,7 +350,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code content} or {@code target} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertPIAsRightSibling(@Nonnull String content,
+	NodeWriteTrx insertPIAsRightSibling(String content,
 			@Nonnull String target) throws SirixException;
 
 	/**
@@ -367,7 +367,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code content} or {@code target} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertPIAsFirstChild(@Nonnull String content,
+	NodeWriteTrx insertPIAsFirstChild(String content,
 			@Nonnull String target) throws SirixException;
 
 	/**
@@ -382,7 +382,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsFirstChild(@Nonnull QNm name)
+	NodeWriteTrx insertElementAsFirstChild(QNm name)
 			throws SirixException;
 
 	/**
@@ -397,7 +397,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsLeftSibling(@Nonnull QNm name)
+	NodeWriteTrx insertElementAsLeftSibling(QNm name)
 			throws SirixException;
 
 	/**
@@ -412,7 +412,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsRightSibling(@Nonnull QNm name)
+	NodeWriteTrx insertElementAsRightSibling(QNm name)
 			throws SirixException;
 
 	/**
@@ -429,7 +429,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertTextAsFirstChild(@Nonnull String value)
+	NodeWriteTrx insertTextAsFirstChild(String value)
 			throws SirixException;
 
 	/**
@@ -444,7 +444,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertTextAsLeftSibling(@Nonnull String value)
+	NodeWriteTrx insertTextAsLeftSibling(String value)
 			throws SirixException;
 
 	/**
@@ -459,7 +459,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertTextAsRightSibling(@Nonnull String value)
+	NodeWriteTrx insertTextAsRightSibling(String value)
 			throws SirixException;
 
 	/**
@@ -476,7 +476,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} or {@code value} is null
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertAttribute(@Nonnull QNm name, @Nonnull String value)
+	NodeWriteTrx insertAttribute(QNm name, @Nonnull String value)
 			throws SirixException;
 
 	/**
@@ -493,7 +493,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} or {@code value} is null
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertAttribute(@Nonnull QNm name, @Nonnull String value,
+	NodeWriteTrx insertAttribute(QNm name, @Nonnull String value,
 			@Nonnull Movement move) throws SirixException;
 
 	/**
@@ -508,7 +508,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} is null
 	 * @return the current transaction
 	 */
-	NodeWriteTrx insertNamespace(@Nonnull QNm name) throws SirixException;
+	NodeWriteTrx insertNamespace(QNm name) throws SirixException;
 
 	/**
 	 * Insert namespace declaration in currently selected node. The cursor is
@@ -522,7 +522,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code name} or {@code move} is null
 	 */
-	NodeWriteTrx insertNamespace(@Nonnull QNm name, @Nonnull Movement move)
+	NodeWriteTrx insertNamespace(QNm name, @Nonnull Movement move)
 			throws SirixException;
 
 /**
@@ -538,7 +538,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
    * @throws NullPointerException
    *          if {@code reader} or {@code insert} is {@code null}
    */
-	NodeWriteTrx insertSubtreeAsFirstChild(@Nonnull XMLEventReader reader)
+	NodeWriteTrx insertSubtreeAsFirstChild(XMLEventReader reader)
 			throws SirixException;
 
 /**
@@ -554,7 +554,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
    * @throws NullPointerException
    *          if {@code reader} or {@code insert} is {@code null}
    */
-	NodeWriteTrx insertSubtreeAsRightSibling(@Nonnull XMLEventReader reader)
+	NodeWriteTrx insertSubtreeAsRightSibling(XMLEventReader reader)
 			throws SirixException;
 
 /**
@@ -570,7 +570,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
    * @throws NullPointerException
    *          if {@code reader} or {@code insert} is {@code null}
    */
-	NodeWriteTrx insertSubtreeAsLeftSibling(@Nonnull XMLEventReader reader)
+	NodeWriteTrx insertSubtreeAsLeftSibling(XMLEventReader reader)
 			throws SirixException;
 
 	/**
@@ -603,7 +603,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code pName} is {@code null}
 	 */
-	NodeWriteTrx setName(@Nonnull QNm name) throws SirixException;
+	NodeWriteTrx setName(QNm name) throws SirixException;
 
 	/**
 	 * Set value of node.
@@ -616,7 +616,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullPointerException
 	 *           if {@code value} is {@code null}
 	 */
-	NodeWriteTrx setValue(@Nonnull String value) throws SirixException;
+	NodeWriteTrx setValue(String value) throws SirixException;
 
 	/**
 	 * Commit all modifications of the exclusive write transaction. Even commit if
@@ -662,7 +662,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @param hook
 	 *          pre commit hook
 	 */
-	void addPreCommitHook(@Nonnull PreCommitHook hook);
+	void addPreCommitHook(PreCommitHook hook);
 
 	/**
 	 * Add a post commit hook.
@@ -670,7 +670,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @param hook
 	 *          post commit hook
 	 */
-	void addPostCommitHook(@Nonnull PostCommitHook hook);
+	void addPostCommitHook(PostCommitHook hook);
 
 	/**
 	 * Get the {@link PathSummaryReader} associated with the current write

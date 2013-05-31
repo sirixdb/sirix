@@ -27,8 +27,6 @@
 
 package org.sirix.axis.filter;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeReadTrx;
 
@@ -55,7 +53,7 @@ public final class NameFilter extends AbstractFilter {
 	 * @param name
 	 *          name to check
 	 */
-	public NameFilter(final @Nonnull NodeReadTrx rtx, final @Nonnull QNm name) {
+	public NameFilter(final NodeReadTrx rtx, final QNm name) {
 		super(rtx);
 		mPrefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty()) ? -1
 				: rtx.keyForName(name.getPrefix());
@@ -70,7 +68,7 @@ public final class NameFilter extends AbstractFilter {
 	 * @param name
 	 *          name to check
 	 */
-	public NameFilter(final @Nonnull NodeReadTrx rtx, final @Nonnull String name) {
+	public NameFilter(final NodeReadTrx rtx, final String name) {
 		super(rtx);
 		final int index = name.indexOf(":");
 		if (index != -1) {

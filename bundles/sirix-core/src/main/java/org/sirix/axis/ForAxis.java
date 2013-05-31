@@ -73,7 +73,7 @@ public final class ForAxis extends AbstractAxis {
 	 * @param returnExpr
 	 *          the return expression of the for expression
 	 */
-	public ForAxis(@Nonnull final Axis range, @Nonnull final Axis returnExpr) {
+	public ForAxis(final Axis range, @Nonnull final Axis returnExpr) {
 		super(range.getTrx());
 		mRange = range;
 		mReturn = returnExpr;

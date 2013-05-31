@@ -54,8 +54,8 @@ public final class PagePersistenter {
 	 * @return {@link Page} instance
 	 */
 	public static @Nonnull
-	Page deserializePage(final @Nonnull ByteArrayDataInput source,
-			final @Nonnull PageReadTrx pageReadTrx) {
+	Page deserializePage(final ByteArrayDataInput source,
+			final PageReadTrx pageReadTrx) {
 		return PageKind.getKind(source.readByte()).deserializePage(source,
 				pageReadTrx);
 	}
@@ -68,8 +68,8 @@ public final class PagePersistenter {
 	 * @param page
 	 *          the {@link Page} to serialize
 	 */
-	public static void serializePage(final @Nonnull ByteArrayDataOutput sink,
-			final @Nonnull Page page) {
+	public static void serializePage(final ByteArrayDataOutput sink,
+			final Page page) {
 		PageKind.getKind(page.getClass()).serializePage(sink, page);
 	}
 

@@ -31,7 +31,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.settings.Fixed;
@@ -58,7 +57,7 @@ public final class DescendantAxis extends AbstractAxis {
 	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public DescendantAxis(final @Nonnull NodeReadTrx rtx) {
+	public DescendantAxis(final NodeReadTrx rtx) {
 		super(rtx);
 	}
 
@@ -70,8 +69,8 @@ public final class DescendantAxis extends AbstractAxis {
 	 * @param includeSelf
 	 *          Is self included?
 	 */
-	public DescendantAxis(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull IncludeSelf includeSelf) {
+	public DescendantAxis(final NodeReadTrx rtx,
+			final IncludeSelf includeSelf) {
 		super(rtx, includeSelf);
 	}
 

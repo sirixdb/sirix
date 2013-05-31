@@ -27,8 +27,6 @@
 
 package org.sirix.io;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.exception.SirixIOException;
 import org.sirix.page.PageReference;
 
@@ -49,7 +47,7 @@ public interface Writer extends Reader {
 	 * @throws SirixIOException
 	 *           execption to be thrown if something bad happens
 	 */
-	void write(final @Nonnull PageReference pageReference)
+	void write(final PageReference pageReference)
 			throws SirixIOException;
 
 	/**
@@ -60,7 +58,7 @@ public interface Writer extends Reader {
 	 * @throws SirixIOException
 	 *           if an I/O error occured
 	 */
-	void writeFirstReference(final @Nonnull PageReference pageReference)
+	void writeFirstReference(final PageReference pageReference)
 			throws SirixIOException;
 
 }

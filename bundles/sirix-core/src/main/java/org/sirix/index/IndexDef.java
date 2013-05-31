@@ -8,7 +8,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -64,7 +63,7 @@ public final class IndexDef implements Materializable {
 	/**
 	 * Name index.
 	 */
-	IndexDef(final @Nonnull Set<QNm> included, final @Nonnull Set<QNm> excluded) {
+	IndexDef(final Set<QNm> included, final Set<QNm> excluded) {
 		mType = IndexType.NAME;
 		mIncluded.addAll(included);
 		mExcluded.addAll(excluded);
@@ -73,7 +72,7 @@ public final class IndexDef implements Materializable {
 	/**
 	 * Path index.
 	 */
-	IndexDef(final @Nonnull Set<Path<QNm>> paths) {
+	IndexDef(final Set<Path<QNm>> paths) {
 		mType = IndexType.PATH;
 		mPaths.addAll(paths);
 	}
@@ -81,7 +80,7 @@ public final class IndexDef implements Materializable {
 	/**
 	 * CAS index.
 	 */
-	IndexDef(final @Nonnull Type contentType, final @Nonnull Set<Path<QNm>> paths, boolean unique) {
+	IndexDef(final Type contentType, final Set<Path<QNm>> paths, boolean unique) {
 		mType = IndexType.CAS;
 		mContentType = checkNotNull(contentType);
 		mPaths.addAll(paths);

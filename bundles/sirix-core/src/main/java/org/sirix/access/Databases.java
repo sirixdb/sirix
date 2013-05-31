@@ -5,8 +5,6 @@ import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.api.Database;
@@ -38,7 +36,7 @@ public class Databases {
 	 *           if something odd happens within the creation process.
 	 */
 	public static synchronized boolean createDatabase(
-			final @Nonnull DatabaseConfiguration dbConfig) throws SirixIOException {
+			final DatabaseConfiguration dbConfig) throws SirixIOException {
 		boolean returnVal = true;
 		// if file is existing, skipping
 		if (dbConfig.getFile().exists()) {
@@ -90,7 +88,7 @@ public class Databases {
 	 *           if Sirix fails to delete the database
 	 */
 	public static synchronized void truncateDatabase(
-			final @Nonnull DatabaseConfiguration dbConfig) throws SirixIOException {
+			final DatabaseConfiguration dbConfig) throws SirixIOException {
 		// check that database must be closed beforehand
 		if (!DATABASEMAP.containsKey(dbConfig.getFile())) {
 			// if file is existing and folder is a tt-dataplace, delete it
@@ -116,7 +114,7 @@ public class Databases {
 	 * @throws NullPointerException
 	 *           if {@code pFile} is {@code null}
 	 */
-	public static synchronized Database openDatabase(final @Nonnull File file)
+	public static synchronized Database openDatabase(final File file)
 			throws SirixException {
 		if (!file.exists()) {
 			throw new SirixUsageException(
@@ -158,7 +156,7 @@ public class Databases {
 	 * @return {@code true}, if database exists, {@code false} otherwise
 	 */
 	public static synchronized boolean existsDatabase(
-			final @Nonnull DatabaseConfiguration dbConfig) {
+			final DatabaseConfiguration dbConfig) {
 		return dbConfig.getFile().exists()
 				&& DatabaseConfiguration.Paths.compareStructure(dbConfig.getFile()) == 0 ? true
 				: false;
@@ -172,7 +170,7 @@ public class Databases {
 	 * @return the database handle associated with the file or {@code null} if no
 	 *         database handle has been opened before for the specified file
 	 */
-	static synchronized Database getDatabase(final @Nonnull File file) {
+	static synchronized Database getDatabase(final File file) {
 		return DATABASEMAP.get(file);
 	}
 
@@ -186,8 +184,8 @@ public class Databases {
 	 * @return the database handle associated with the file or {@code null} if no
 	 *         database handle has been opened before for the specified file
 	 */
-	static synchronized Database putDatabase(final @Nonnull File file,
-			final @Nonnull Database database) {
+	static synchronized Database putDatabase(final File file,
+			final Database database) {
 		return DATABASEMAP.putIfAbsent(file, database);
 	}
 
@@ -197,7 +195,7 @@ public class Databases {
 	 * @param file
 	 *          database file to remove
 	 */
-	static synchronized void removeDatabase(final @Nonnull File file) {
+	static synchronized void removeDatabase(final File file) {
 		DATABASEMAP.remove(file);
 	}
 }

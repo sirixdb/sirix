@@ -6,7 +6,6 @@ import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 
-import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.QNm;
@@ -286,7 +285,7 @@ public final class XMLToken {
 	 * @throws NullPointerException
 	 *           if {@code pValue} is {@code null}
 	 */
-	public static String escapeAttribute(@Nonnull final String value) {
+	public static String escapeAttribute(final String value) {
 		checkNotNull(value);
 		final StringBuilder escape = new StringBuilder();
 		for (final char i : value.toCharArray()) {
@@ -322,7 +321,7 @@ public final class XMLToken {
 	 * @throws NullPointerException
 	 *           if {@code pValue} is {@code null}
 	 */
-	public static String escapeContent(@Nonnull final String value) {
+	public static String escapeContent(final String value) {
 		checkNotNull(value);
 		final StringBuilder escape = new StringBuilder();
 		for (final char i : value.toCharArray()) {

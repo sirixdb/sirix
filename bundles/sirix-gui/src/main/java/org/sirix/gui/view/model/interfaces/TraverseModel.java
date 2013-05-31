@@ -82,7 +82,7 @@ public interface TraverseModel extends Observable {
    *           if {@code paramDepth < 0} or {@code paramIndex < 0}
    * 
    */
-  float createSunburstItem(@Nonnull Item pItem, int pDepth, int pIndex);
+  float createSunburstItem(Item pItem, int pDepth, int pIndex);
 
   /**
    * Write a descendants per node in a {@link BlockingQueue}.
@@ -96,7 +96,7 @@ public interface TraverseModel extends Observable {
    * @throws NullPointerException
    *           if {@code paramRtx} is {@code null}
    */
-  void descendants(@Nonnull Optional<NodeReadTrx> pRtx)
+  void descendants(Optional<NodeReadTrx> pRtx)
     throws InterruptedException, ExecutionException;
 
   /**

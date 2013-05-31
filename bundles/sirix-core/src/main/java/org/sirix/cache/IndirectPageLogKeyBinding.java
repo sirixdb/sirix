@@ -1,7 +1,5 @@
 package org.sirix.cache;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.page.PageKind;
 
 import com.sleepycat.bind.tuple.TupleBinding;
@@ -18,14 +16,14 @@ import com.sleepycat.bind.tuple.TupleOutput;
 public final class IndirectPageLogKeyBinding extends
 		TupleBinding<IndirectPageLogKey> {
 	@Override
-	public IndirectPageLogKey entryToObject(final @Nonnull TupleInput in) {
+	public IndirectPageLogKey entryToObject(final TupleInput in) {
 		return new IndirectPageLogKey(PageKind.getKind(in.readByte()),
 				in.readInt(), in.readInt(), in.readInt());
 	}
 
 	@Override
-	public void objectToEntry(final @Nonnull IndirectPageLogKey key,
-			final @Nonnull TupleOutput out) {
+	public void objectToEntry(final IndirectPageLogKey key,
+			final TupleOutput out) {
 		out.writeByte(key.getPageKind().getID());
 		out.writeInt(key.getIndex());
 		out.writeInt(key.getLevel());

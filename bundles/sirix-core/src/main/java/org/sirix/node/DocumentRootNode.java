@@ -66,7 +66,7 @@ public final class DocumentRootNode extends AbstractStructForwardingNode
 	 * @param structDel
 	 *          {@link StructNodeDelegate} reference
 	 */
-	public DocumentRootNode(final @Nonnull NodeDelegate nodeDel,
+	public DocumentRootNode(final NodeDelegate nodeDel,
 			@Nonnull final StructNodeDelegate structDel) {
 		mNodeDel = checkNotNull(nodeDel);
 		mStructNodeDel = checkNotNull(structDel);
@@ -78,7 +78,7 @@ public final class DocumentRootNode extends AbstractStructForwardingNode
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(final Visitor visitor) {
 		return visitor.visit(ImmutableDocument.of(this));
 	}
 

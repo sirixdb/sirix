@@ -28,7 +28,6 @@
 package org.sirix.node;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -79,10 +78,10 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	 *          {@link ValNodeDelegate} to be set
 	 * 
 	 */
-	public AttributeNode(final @Nonnull NodeDelegate nodeDel,
-			final @Nonnull NameNodeDelegate nameDel,
-			final @Nonnull ValNodeDelegate valDel,
-			final @Nonnull PageReadTrx pageReadTrx) {
+	public AttributeNode(final NodeDelegate nodeDel,
+			final NameNodeDelegate nameDel,
+			final ValNodeDelegate valDel,
+			final PageReadTrx pageReadTrx) {
 		assert nodeDel != null : "nodeDel must not be null!";
 		mDel = nodeDel;
 		assert nameDel != null : "nameDel must not be null!";
@@ -99,7 +98,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor pVisitor) {
+	public VisitResult acceptVisitor(final Visitor pVisitor) {
 		return pVisitor.visit(ImmutableAttribute.of(this));
 	}
 
@@ -145,7 +144,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	}
 
 	@Override
-	public void setValue(final @Nonnull byte[] pVal) {
+	public void setValue(final byte[] pVal) {
 		mValDel.setValue(pVal);
 	}
 

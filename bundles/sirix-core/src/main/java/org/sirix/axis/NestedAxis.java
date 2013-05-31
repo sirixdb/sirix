@@ -29,8 +29,6 @@ package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 
 /**
@@ -59,8 +57,8 @@ public final class NestedAxis extends AbstractAxis {
 	 * @param childAxis
 	 *          outer nested axis
 	 */
-	public NestedAxis(final @Nonnull Axis parentAxis,
-			final @Nonnull Axis childAxis) {
+	public NestedAxis(final Axis parentAxis,
+			final Axis childAxis) {
 		super(parentAxis.getTrx());
 		mParentAxis = checkNotNull(parentAxis);
 		mChildAxis = checkNotNull(childAxis);

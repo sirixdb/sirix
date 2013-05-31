@@ -34,7 +34,6 @@ import java.util.Deque;
 import java.util.concurrent.Callable;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
@@ -74,7 +73,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
 	 * @param revisions
 	 *          revisions to serialize
 	 */
-	public AbstractSerializer(final @Nonnull Session session,
+	public AbstractSerializer(final Session session,
 			final @Nonnegative int revision, final int... revisions) {
 		mStack = new ArrayDeque<>();
 		mRevisions = revisions == null ? new int[1] : new int[revisions.length + 1];
@@ -95,7 +94,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
 	 * @param revisions
 	 *          revisions to serialize
 	 */
-	public AbstractSerializer(final @Nonnull Session session,
+	public AbstractSerializer(final Session session,
 			final @Nonnegative long key, final @Nonnegative int revision,
 			final int... revisions) {
 		mStack = new ArrayDeque<>();
@@ -221,7 +220,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
 	 * @param rtx
 	 *          Sirix {@link NodeReadTrx}
 	 */
-	protected abstract void emitStartElement(final @Nonnull NodeReadTrx rtx);
+	protected abstract void emitStartElement(final NodeReadTrx rtx);
 
 	/**
 	 * Emit end tag.
@@ -229,7 +228,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
 	 * @param rtx
 	 *          Sirix {@link NodeReadTrx}
 	 */
-	protected abstract void emitEndElement(final @Nonnull NodeReadTrx rtx);
+	protected abstract void emitEndElement(final NodeReadTrx rtx);
 
 	/** Emit a start tag, which encapsulates several revisions. */
 	protected abstract void emitStartManualRootElement();

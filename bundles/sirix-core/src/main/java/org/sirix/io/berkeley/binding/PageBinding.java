@@ -27,8 +27,6 @@
 
 package org.sirix.io.berkeley.binding;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
@@ -69,7 +67,7 @@ public final class PageBinding extends TupleBinding<Page> {
 	 * @param pageBinding
 	 *          page binding
 	 */
-	public PageBinding(final @Nonnull PageBinding pageBinding) {
+	public PageBinding(final PageBinding pageBinding) {
 		mByteHandler = new ByteHandlePipeline(pageBinding.mByteHandler);
 		mPageReadTrx = pageBinding.mPageReadTrx;
 	}
@@ -80,7 +78,7 @@ public final class PageBinding extends TupleBinding<Page> {
 	 * @param byteHandler
 	 *          byte handler pipleine
 	 */
-	public PageBinding(final @Nonnull ByteHandlePipeline byteHandler) {
+	public PageBinding(final ByteHandlePipeline byteHandler) {
 		assert byteHandler != null : "byteHandler must not be null!";
 		mByteHandler = byteHandler;
 	}
@@ -93,8 +91,8 @@ public final class PageBinding extends TupleBinding<Page> {
 	 * @param pageReadTrx
 	 * 					page reading transaction
 	 */
-	public PageBinding(final @Nonnull ByteHandlePipeline byteHandler,
-			final @Nonnull PageReadTrx pageReadTrx) {
+	public PageBinding(final ByteHandlePipeline byteHandler,
+			final PageReadTrx pageReadTrx) {
 		assert byteHandler != null : "byteHandler must not be null!";
 		mByteHandler = byteHandler;
 		mPageReadTrx = pageReadTrx;

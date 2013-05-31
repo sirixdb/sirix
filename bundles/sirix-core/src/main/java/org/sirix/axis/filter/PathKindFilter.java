@@ -2,8 +2,6 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.Kind;
@@ -27,8 +25,8 @@ public class PathKindFilter extends AbstractFilter {
 	 * @param type
 	 *          type to match
 	 */
-	public PathKindFilter(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull Kind type) {
+	public PathKindFilter(final NodeReadTrx rtx,
+			final Kind type) {
 		super(rtx);
 		checkArgument(rtx instanceof PathSummaryReader);
 		mType = type;

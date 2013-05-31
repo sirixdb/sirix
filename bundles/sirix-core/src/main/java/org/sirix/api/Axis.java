@@ -1,7 +1,6 @@
 package org.sirix.api;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.visitor.Visitor;
 import org.sirix.axis.IncludeSelf;
@@ -27,7 +26,7 @@ public interface Axis extends PeekingIterator<Long>, Iterable<Long> {
 	 * @param visitor
 	 *          {@link Visitor} implementation
 	 */
-	void foreach(@Nonnull Visitor visitor);
+	void foreach(Visitor visitor);
 
 	/**
 	 * Thread safe node iterator.

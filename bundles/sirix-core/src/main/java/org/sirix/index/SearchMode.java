@@ -12,7 +12,7 @@ public enum SearchMode {
 	/** Greater than the specified key. */
 	GREATER {
 		@Override
-		public <K extends Comparable<? super K>> int compare(@Nonnull K firstKey,
+		public <K extends Comparable<? super K>> int compare(K firstKey,
 				@Nonnull K secondKey) {
 			final int result = firstKey.compareTo(secondKey);
 			return firstKey.compareTo(secondKey) > 0 ? 0 : result;
@@ -22,7 +22,7 @@ public enum SearchMode {
 	/** Less than the specified key. */
 	LESS {
 		@Override
-		public <K extends Comparable<? super K>> int compare(@Nonnull K firstKey,
+		public <K extends Comparable<? super K>> int compare(K firstKey,
 				@Nonnull K secondKey) {
 			final int result = firstKey.compareTo(secondKey);
 			return firstKey.compareTo(secondKey) < 0 ? 0 : result;
@@ -32,7 +32,7 @@ public enum SearchMode {
 	/** Greater or equal than the specified key. */
 	GREATER_OR_EQUAL {
 		@Override
-		public <K extends Comparable<? super K>> int compare(@Nonnull K firstKey,
+		public <K extends Comparable<? super K>> int compare(K firstKey,
 				@Nonnull K secondKey) {
 			final int result = firstKey.compareTo(secondKey);
 			return firstKey.compareTo(secondKey) >= 0 ? 0 : result;
@@ -42,7 +42,7 @@ public enum SearchMode {
 	/** Less or equal than the specified key. */
 	LESS_OR_EQUAL {
 		@Override
-		public <K extends Comparable<? super K>> int compare(@Nonnull K firstKey,
+		public <K extends Comparable<? super K>> int compare(K firstKey,
 				@Nonnull K secondKey) {
 			final int result = firstKey.compareTo(secondKey);
 			return firstKey.compareTo(secondKey) <= 0 ? 0 : result;
@@ -52,7 +52,7 @@ public enum SearchMode {
 	/** Equal to the specified key. */
 	EQUAL {
 		@Override
-		public <K extends Comparable<? super K>> int compare(@Nonnull K firstKey,
+		public <K extends Comparable<? super K>> int compare(K firstKey,
 				@Nonnull K secondKey) {
 			return firstKey.compareTo(secondKey);
 		}
@@ -69,5 +69,5 @@ public enum SearchMode {
 	 *         {@code +1}
 	 */
 	public abstract <K extends Comparable<? super K>> int compare(
-			final @Nonnull K firstKey, final @Nonnull K secondKey);
+			final K firstKey, final K secondKey);
 }

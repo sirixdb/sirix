@@ -2,9 +2,9 @@ package org.sirix.cache;
 
 import java.util.Map;
 
-import com.google.common.collect.ImmutableMap;
-
 import javax.annotation.Nonnull;
+
+import com.google.common.collect.ImmutableMap;
 
 public class EmptyCache<K, V> implements Cache<K, V> {
 
@@ -16,21 +16,21 @@ public class EmptyCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public V get(@Nonnull K key) {
+	public V get(K key) {
 		return null;
 	}
 
 	@Override
-	public void put(@Nonnull K key, @Nonnull V value) {
+	public void put(K key, @Nonnull V value) {
 	}
 
 	@Override
-	public ImmutableMap<K, V> getAll(@Nonnull Iterable<? extends K> keys) {
+	public ImmutableMap<K, V> getAll(Iterable<? extends K> keys) {
 		return null;
 	}
 
 	@Override
-	public void putAll(@Nonnull Map<? extends K, ? extends V> map) {
+	public void putAll(Map<? extends K, ? extends V> map) {
 	}
 
 	@Override
@@ -38,7 +38,7 @@ public class EmptyCache<K, V> implements Cache<K, V> {
 	}
 
 	@Override
-	public void remove(@Nonnull K key) {
+	public void remove(K key) {
 	}
 
 	@Override

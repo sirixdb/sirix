@@ -29,8 +29,6 @@ package org.sirix.utils;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
-
 import org.slf4j.Logger;
 
 /**
@@ -50,7 +48,7 @@ public final class LogWrapper {
 	 * @param pLogger
 	 *          logger
 	 */
-	public LogWrapper(final @Nonnull Logger pLogger) {
+	public LogWrapper(final Logger pLogger) {
 		mLogger = checkNotNull(pLogger);
 	}
 

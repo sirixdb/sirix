@@ -1,7 +1,6 @@
 package org.sirix.node;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
@@ -19,17 +18,17 @@ import com.google.common.io.ByteArrayDataOutput;
  */
 public final class NodePersistenter implements RecordPersistenter {
 	@Override
-	public Record deserialize(final @Nonnull ByteArrayDataInput source,
-			final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+	public Record deserialize(final ByteArrayDataInput source,
+			final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 		final byte id = source.readByte();
 		final Kind enumKind = Kind.getKind(id);
 		return enumKind.deserialize(source, recordID, pageReadTrx);
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput sink,
-			final @Nonnull Record record, final @Nullable Record nextRecord,
-			final @Nonnull PageReadTrx pageReadTrx) {
+	public void serialize(final ByteArrayDataOutput sink,
+			final Record record, final @Nullable Record nextRecord,
+			final PageReadTrx pageReadTrx) {
 		final Kind nodeKind = (Kind) record.getKind();
 		final byte id = nodeKind.getId();
 		sink.writeByte(id);

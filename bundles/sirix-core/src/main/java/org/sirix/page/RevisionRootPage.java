@@ -102,7 +102,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 * @param in
 	 *          input stream
 	 */
-	protected RevisionRootPage(final @Nonnull ByteArrayDataInput in) {
+	protected RevisionRootPage(final ByteArrayDataInput in) {
 		mDelegate = new PageDelegate(5, in);
 		mRevision = in.readInt();
 		mMaxNodeKey = in.readLong();
@@ -118,7 +118,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 *          revision number to use
 	 */
 	public RevisionRootPage(
-			final @Nonnull RevisionRootPage committedRevisionRootPage,
+			final RevisionRootPage committedRevisionRootPage,
 			final @Nonnegative int representRev) {
 		mDelegate = new PageDelegate(committedRevisionRootPage);
 		mRevision = representRev;
@@ -220,7 +220,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+	public void serialize(final ByteArrayDataOutput out) {
 		mRevisionTimestamp = System.currentTimeMillis();
 		mDelegate.serialize(checkNotNull(out));
 		out.writeInt(mRevision);
@@ -261,7 +261,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 *          {@link PageReadTrx} instance
 	 */
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNodeTree(
-			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
+			final PageWriteTrx<K, V, S> pageWriteTrx) {
 		final PageReference reference = getIndirectPageReference();
 		if (reference.getPage() == null && reference.getLogKey() == null
 				&& reference.getKey() == Constants.NULL_ID) {

@@ -5,8 +5,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
@@ -41,8 +39,8 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	 * @throws NullPointerException
 	 *           if {@code pWtx} is {@code null}
 	 */
-	public AbstractShredder(final @Nonnull NodeWriteTrx wtx,
-			final @Nonnull Insert insertLocation) {
+	public AbstractShredder(final NodeWriteTrx wtx,
+			final Insert insertLocation) {
 		mWtx = checkNotNull(wtx);
 		mInsertLocation = checkNotNull(insertLocation);
 		mParents = new ArrayDeque<>();
@@ -50,7 +48,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	}
 
 	@Override
-	public void processComment(final @Nonnull String commentValue)
+	public void processComment(final String commentValue)
 			throws SirixException {
 		final String value = checkNotNull(commentValue);
 		long key;
@@ -67,8 +65,8 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	}
 
 	@Override
-	public void processPI(final @Nonnull String processingContent,
-			final @Nonnull String processingTarget) throws SirixException {
+	public void processPI(final String processingContent,
+			final String processingTarget) throws SirixException {
 		final String content = checkNotNull(processingContent);
 		final String target = checkNotNull(processingTarget);
 		long key;
@@ -85,7 +83,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	}
 
 	@Override
-	public void processText(final @Nonnull String textValue)
+	public void processText(final String textValue)
 			throws SirixException {
 		final String text = checkNotNull(textValue);
 		long key;
@@ -102,7 +100,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	}
 
 	@Override
-	public void processStartTag(final @Nonnull QNm elementName)
+	public void processStartTag(final QNm elementName)
 			throws SirixException {
 		final QNm name = checkNotNull(elementName);
 		long key = -1;
@@ -142,13 +140,13 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	}
 
 	@Override
-	public void processEndTag(final @Nonnull QNm elementName) {
+	public void processEndTag(final QNm elementName) {
 		mParents.pop();
 		mWtx.moveTo(mParents.peek());
 	}
 
 	@Override
-	public void processEmptyElement(final @Nonnull QNm elementName)
+	public void processEmptyElement(final QNm elementName)
 			throws SirixException {
 		processStartTag(elementName);
 		processEndTag(elementName);

@@ -29,8 +29,8 @@ package org.sirix.service.xml.xpath.comparators;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixXPathException;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.expr.LiteralExpr;
 import org.sirix.service.xml.xpath.types.Type;

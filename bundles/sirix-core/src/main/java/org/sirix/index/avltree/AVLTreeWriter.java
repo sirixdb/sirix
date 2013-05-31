@@ -4,7 +4,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.access.AbstractForwardingNodeCursor;
@@ -65,8 +64,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 *          type of index
 	 */
 	private AVLTreeWriter(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull IndexType type, final @Nonnegative int index) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final IndexType type, final @Nonnegative int index) {
 		try {
 			switch (type) {
 			case PATH:
@@ -113,8 +112,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 * @return new tree instance
 	 */
 	public static <K extends Comparable<? super K>, V extends References> AVLTreeWriter<K, V> getInstance(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull IndexType type, final int index) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final IndexType type, final int index) {
 		return new AVLTreeWriter<K, V>(pageWriteTrx, type, index);
 	}
 
@@ -135,8 +134,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 *           if an I/O error occurs
 	 */
 	@SuppressWarnings("unchecked")
-	public V index(final @Nonnull K key, final @Nonnull V value,
-			final @Nonnull MoveCursor move) throws SirixIOException {
+	public V index(final K key, final V value,
+			final MoveCursor move) throws SirixIOException {
 		if (move == MoveCursor.TO_DOCUMENT_ROOT) {
 			moveToDocumentRoot();
 		}
@@ -224,7 +223,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 * @return maximum node key
 	 * @throws SirixIOException
 	 */
-	private long getNewNodeKey(final @Nonnull RevisionRootPage root)
+	private long getNewNodeKey(final RevisionRootPage root)
 			throws SirixIOException {
 		switch (mAVLTreeReader.mPageKind) {
 		case PATHPAGE:
@@ -255,7 +254,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 * @throws SirixIOException
 	 *           if an I/O error occured
 	 */
-	public boolean remove(final @Nonnull K key, final @Nonnegative long nodeKey)
+	public boolean remove(final K key, final @Nonnegative long nodeKey)
 			throws SirixIOException {
 		checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
 		final Optional<V> searchedValue = mAVLTreeReader.get(checkNotNull(key),
@@ -514,7 +513,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void adjust(@Nonnull AVLNode<K, V> node) throws SirixIOException {
+	private void adjust(AVLNode<K, V> node) throws SirixIOException {
 		setChanged(node, true);
 
 		while (node != null
@@ -576,7 +575,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private void setChanged(final @Nonnull AVLNode<K, V> nodeToChange,
+	private void setChanged(final AVLNode<K, V> nodeToChange,
 			final boolean changed) throws SirixIOException {
 		@SuppressWarnings("unchecked")
 		final AVLNode<K, V> node = (AVLNode<K, V>) mPageWriteTrx
@@ -643,7 +642,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 *           if an I/O error occurs
 	 */
 	@SuppressWarnings({ "unchecked" })
-	private void rotateLeft(@Nonnull AVLNode<K, V> node) throws SirixIOException {
+	private void rotateLeft(AVLNode<K, V> node) throws SirixIOException {
 		moveTo(node.getNodeKey());
 
 		AVLNode<K, V> right = ((AVLTreeReader<K, V>) moveToLastChild().get())
@@ -709,7 +708,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 *           if an I/O error occurs
 	 */
 	@SuppressWarnings({ "unchecked" })
-	private void rotateRight(@Nonnull AVLNode<K, V> node) throws SirixIOException {
+	private void rotateRight(AVLNode<K, V> node) throws SirixIOException {
 		moveTo(node.getNodeKey());
 
 		AVLNode<K, V> leftChild = ((AVLTreeReader<K, V>) moveToFirstChild().get())
@@ -784,7 +783,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 * @return {@link Optional} reference (with the found value, or a reference
 	 *         which indicates that the value hasn't been found)
 	 */
-	public Optional<V> get(final @Nonnull K key, final @Nonnull SearchMode mode) {
+	public Optional<V> get(final K key, final SearchMode mode) {
 		return mAVLTreeReader.get(checkNotNull(key), checkNotNull(mode));
 	}
 

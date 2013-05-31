@@ -1,7 +1,5 @@
 package org.sirix.page;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Record;
@@ -36,13 +34,13 @@ public final class OverflowPage implements Page {
 	 * @param data
 	 *          data to be stored
 	 */
-	public OverflowPage(final @Nonnull byte[] data) {
+	public OverflowPage(final byte[] data) {
 		assert data != null;
 		mIsDirty = true;
 		mData = data;
 	}
 	
-	public OverflowPage(final @Nonnull ByteArrayDataInput in) {
+	public OverflowPage(final ByteArrayDataInput in) {
 		mData = new byte[in.readInt()];
 		in.readFully(mData);
 	}
@@ -74,7 +72,7 @@ public final class OverflowPage implements Page {
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+	public void serialize(final ByteArrayDataOutput out) {
 		out.writeInt(mData.length);
 		out.write(mData);
 	}

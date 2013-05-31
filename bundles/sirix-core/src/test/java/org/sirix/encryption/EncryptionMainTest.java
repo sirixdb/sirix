@@ -28,19 +28,7 @@ package org.sirix.encryption;
 
 import java.io.File;
 
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
 import org.sirix.Holder;
-import org.sirix.TestHelper;
-import org.sirix.TestHelper.PATHS;
-import org.sirix.axis.AbstractAxis;
-import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixEncryptionException;
-import org.sirix.service.xml.shredder.XMLShredder;
-import org.sirix.service.xml.xpath.XPathAxis;
-import org.sirix.service.xml.xpath.XPathStringChecker;
 
 public class EncryptionMainTest {
 

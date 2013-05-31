@@ -87,8 +87,8 @@ public final class XQueryEvaluatorOutputStream implements Callable<Void> {
 	 * @param paramOut
 	 *          output Stream
 	 */
-	public XQueryEvaluatorOutputStream(final @Nonnull String expression,
-			final @Nonnull Session session, final OutputStream out) {
+	public XQueryEvaluatorOutputStream(final String expression,
+			final Session session, final OutputStream out) {
 		this(expression, session, out, null);
 	}
 
@@ -104,8 +104,8 @@ public final class XQueryEvaluatorOutputStream implements Callable<Void> {
 	 * @param serializer
 	 *          Serializer, for which one can specify output properties
 	 */
-	public XQueryEvaluatorOutputStream(final @Nonnull String expression,
-			final @Nonnull Session session, final @Nonnull OutputStream out,
+	public XQueryEvaluatorOutputStream(final String expression,
+			final Session session, final OutputStream out,
 			@Nullable final Serializer serializer) {
 		mExpression = checkNotNull(expression);
 		mSession = checkNotNull(session);

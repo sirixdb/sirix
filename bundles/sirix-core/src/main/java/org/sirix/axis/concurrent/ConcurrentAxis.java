@@ -35,7 +35,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
@@ -102,8 +101,8 @@ public class ConcurrentAxis extends AbstractAxis {
 	 * @param childAxis
 	 *          producer axis
 	 */
-	public ConcurrentAxis(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull Axis childAxis) {
+	public ConcurrentAxis(final NodeReadTrx rtx,
+			final Axis childAxis) {
 		super(rtx);
 		if (rtx.equals(childAxis.getTrx()) && rtx.getTransactionID() == childAxis.getTrx().getTransactionID()) {
 			throw new IllegalArgumentException(

@@ -62,7 +62,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	 * @param level
 	 *          level of this path node
 	 */
-	public PathNode(@Nonnull final NodeDelegate nodeDel,
+	public PathNode(final NodeDelegate nodeDel,
 			@Nonnull final StructNodeDelegate structNodeDel,
 			@Nonnull final NameNodeDelegate nameNodeDel, @Nonnull final Kind kind,
 			@Nonnegative final int references, @Nonnegative final int level) {
@@ -82,7 +82,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	 * 						 {@link PathSummaryReader} instance
 	 * @return path up to the root
 	 */
-	public Path<QNm> getPath(final @Nonnull PathSummaryReader reader) {
+	public Path<QNm> getPath(final PathSummaryReader reader) {
 		PathNode node = this;
 		reader.moveTo(node.getNodeKey());
 		final PathNode[] path = new PathNode[mLevel];
@@ -195,7 +195,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResultType acceptVisitor(final Visitor visitor) {
 		throw new UnsupportedOperationException();
 	}
 

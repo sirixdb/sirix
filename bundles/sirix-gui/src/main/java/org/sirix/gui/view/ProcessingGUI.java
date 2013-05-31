@@ -27,7 +27,7 @@ public interface ProcessingGUI {
 	 * @param pReset
 	 *          determines if zoomer must be resetted or not
 	 */
-	void update(final @Nonnull EResetZoomer pReset);
+	void update(final EResetZoomer pReset);
 
 	/**
 	 * Relocate ControlP5 stuff after the frame which includes the view has been

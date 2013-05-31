@@ -58,107 +58,107 @@ public abstract class AbstractForwardingNodeWriteTrx extends
 	}
 
 	@Override
-	public NodeWriteTrx copySubtreeAsFirstChild(@Nonnull NodeReadTrx rtx)
+	public NodeWriteTrx copySubtreeAsFirstChild(NodeReadTrx rtx)
 			throws SirixException {
 		return delegate().copySubtreeAsFirstChild(rtx);
 	}
 
 	@Override
-	public NodeWriteTrx copySubtreeAsLeftSibling(@Nonnull NodeReadTrx rtx)
+	public NodeWriteTrx copySubtreeAsLeftSibling(NodeReadTrx rtx)
 			throws SirixException {
 		return delegate().copySubtreeAsLeftSibling(rtx);
 	}
 
 	@Override
-	public NodeWriteTrx copySubtreeAsRightSibling(@Nonnull NodeReadTrx rtx)
+	public NodeWriteTrx copySubtreeAsRightSibling(NodeReadTrx rtx)
 			throws SirixException {
 		return delegate().copySubtreeAsRightSibling(rtx);
 	}
 
 	@Override
-	public NodeWriteTrx insertAttribute(@Nonnull QNm name, @Nonnull String value)
+	public NodeWriteTrx insertAttribute(QNm name, @Nonnull String value)
 			throws SirixException {
 		return delegate().insertAttribute(name, value);
 	}
 
 	@Override
-	public NodeWriteTrx insertAttribute(@Nonnull QNm name, @Nonnull String value,
+	public NodeWriteTrx insertAttribute(QNm name, @Nonnull String value,
 			@Nonnull Movement move) throws SirixException {
 		return delegate().insertAttribute(name, value, move);
 	}
 
 	@Override
-	public NodeWriteTrx insertElementAsFirstChild(@Nonnull QNm name)
+	public NodeWriteTrx insertElementAsFirstChild(QNm name)
 			throws SirixException {
 		return delegate().insertElementAsFirstChild(name);
 	}
 
 	@Override
-	public NodeWriteTrx insertElementAsLeftSibling(@Nonnull QNm name)
+	public NodeWriteTrx insertElementAsLeftSibling(QNm name)
 			throws SirixException {
 		return delegate().insertElementAsLeftSibling(name);
 	}
 
 	@Override
-	public NodeWriteTrx insertElementAsRightSibling(@Nonnull QNm name)
+	public NodeWriteTrx insertElementAsRightSibling(QNm name)
 			throws SirixException {
 		return delegate().insertElementAsRightSibling(name);
 	}
 
 	@Override
-	public NodeWriteTrx insertNamespace(@Nonnull QNm name) throws SirixException {
+	public NodeWriteTrx insertNamespace(QNm name) throws SirixException {
 		return delegate().insertNamespace(name);
 	}
 
 	@Override
-	public NodeWriteTrx insertNamespace(@Nonnull QNm name, @Nonnull Movement move)
+	public NodeWriteTrx insertNamespace(QNm name, @Nonnull Movement move)
 			throws SirixException {
 		return delegate().insertNamespace(name, move);
 	}
 
 	@Override
-	public NodeWriteTrx insertSubtreeAsFirstChild(@Nonnull XMLEventReader reader)
+	public NodeWriteTrx insertSubtreeAsFirstChild(XMLEventReader reader)
 			throws SirixException {
 		return delegate().insertSubtreeAsFirstChild(reader);
 	}
 
 	@Override
-	public NodeWriteTrx insertSubtreeAsRightSibling(@Nonnull XMLEventReader reader)
+	public NodeWriteTrx insertSubtreeAsRightSibling(XMLEventReader reader)
 			throws SirixException {
 		return delegate().insertSubtreeAsRightSibling(reader);
 	}
 
 	@Override
-	public NodeWriteTrx insertSubtreeAsLeftSibling(@Nonnull XMLEventReader reader)
+	public NodeWriteTrx insertSubtreeAsLeftSibling(XMLEventReader reader)
 			throws SirixException {
 		return delegate().insertSubtreeAsLeftSibling(reader);
 	}
 
 	@Override
-	public NodeWriteTrx insertTextAsFirstChild(@Nonnull String value)
+	public NodeWriteTrx insertTextAsFirstChild(String value)
 			throws SirixException {
 		return delegate().insertTextAsFirstChild(value);
 	}
 
 	@Override
-	public NodeWriteTrx insertTextAsLeftSibling(@Nonnull String value)
+	public NodeWriteTrx insertTextAsLeftSibling(String value)
 			throws SirixException {
 		return delegate().insertTextAsLeftSibling(value);
 	}
 
 	@Override
-	public NodeWriteTrx insertTextAsRightSibling(@Nonnull String value)
+	public NodeWriteTrx insertTextAsRightSibling(String value)
 			throws SirixException {
 		return delegate().insertTextAsRightSibling(value);
 	}
 
 	@Override
-	public NodeWriteTrx setName(@Nonnull QNm name) throws SirixException {
+	public NodeWriteTrx setName(QNm name) throws SirixException {
 		return delegate().setName(name);
 	}
 
 	@Override
-	public NodeWriteTrx setValue(@Nonnull String value) throws SirixException {
+	public NodeWriteTrx setValue(String value) throws SirixException {
 		return delegate().setValue(value);
 	}
 

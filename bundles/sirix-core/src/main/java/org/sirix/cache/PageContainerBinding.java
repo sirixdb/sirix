@@ -27,7 +27,6 @@
 
 package org.sirix.cache;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
@@ -56,7 +55,7 @@ public class PageContainerBinding<T extends KeyValuePage<?, ?>> extends
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} instance
 	 */
-	public PageContainerBinding(final @Nonnull PageReadTrx pageReadTrx) {
+	public PageContainerBinding(final PageReadTrx pageReadTrx) {
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
 		mPageReadTrx = pageReadTrx;
 	}

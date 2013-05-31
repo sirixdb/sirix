@@ -13,9 +13,9 @@ import org.sirix.page.CASPage;
 import org.sirix.page.NamePage;
 import org.sirix.page.PageKind;
 import org.sirix.page.PageReference;
+import org.sirix.page.PathPage;
 import org.sirix.page.PathSummaryPage;
 import org.sirix.page.RevisionRootPage;
-import org.sirix.page.PathPage;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
@@ -58,7 +58,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 *           if an I/O error occured
 	 */
 	Optional<? extends Record> getRecord(final @Nonnegative long key,
-			final @Nonnull PageKind pageKind, final int index)
+			final PageKind pageKind, final int index)
 			throws SirixIOException;
 
 	/**
@@ -175,7 +175,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @param pageLog
 	 *          persistent page log
 	 */
-	void putPageCache(@Nonnull TransactionLogPageCache pageLog);
+	void putPageCache(TransactionLogPageCache pageLog);
 
 	/**
 	 * Close the caches.
@@ -201,7 +201,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	NamePage getNamePage(@Nonnull RevisionRootPage revisionRoot)
+	NamePage getNamePage(RevisionRootPage revisionRoot)
 			throws SirixIOException;
 
 	/**
@@ -212,7 +212,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if an I/O error occur@Nonnull RevisionRootPage revisionRoots
 	 */
-	PathPage getPathPage(@Nonnull RevisionRootPage revisionRoot)
+	PathPage getPathPage(RevisionRootPage revisionRoot)
 			throws SirixIOException;
 
 	/**
@@ -235,7 +235,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	PathSummaryPage getPathSummaryPage(@Nonnull RevisionRootPage revisionRoot)
+	PathSummaryPage getPathSummaryPage(RevisionRootPage revisionRoot)
 			throws SirixIOException;
 
 	/**
@@ -258,7 +258,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws IllegalArgumentException
 	 *           if {code pageKey} < 0
 	 */
-	PageReference getPageReferenceForPage(@Nonnull PageReference startReference,
+	PageReference getPageReferenceForPage(PageReference startReference,
 			@Nonnegative long pageKey, int index, @Nonnull PageKind pageKind)
 			throws SirixIOException;
 

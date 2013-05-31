@@ -38,7 +38,6 @@ import java.util.Iterator;
 import java.util.Queue;
 import java.util.concurrent.Callable;
 
-import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;
@@ -138,8 +137,8 @@ public final class XMLShredder extends AbstractShredder implements
 		 * @param insert
 		 *          insertion position
 		 */
-		public Builder(final @Nonnull NodeWriteTrx wtx,
-				final @Nonnull XMLEventReader reader, final @Nonnull Insert insert) {
+		public Builder(final NodeWriteTrx wtx,
+				final XMLEventReader reader, final Insert insert) {
 			mWtx = checkNotNull(wtx);
 			mReader = checkNotNull(reader);
 			mInsert = checkNotNull(insert);
@@ -195,7 +194,7 @@ public final class XMLShredder extends AbstractShredder implements
 	 * @param builder
 	 *          builder reference
 	 */
-	private XMLShredder(final @Nonnull Builder builder) {
+	private XMLShredder(final Builder builder) {
 		super(builder.mWtx, builder.mInsert);
 		mWtx = builder.mWtx;
 		mReader = builder.mReader;
@@ -303,7 +302,7 @@ public final class XMLShredder extends AbstractShredder implements
 	 * @throws SirixException
 	 *           if adding {@link ElementNode} fails
 	 */
-	private void addNewElement(final @Nonnull StartElement event)
+	private void addNewElement(final StartElement event)
 			throws SirixException {
 		assert event != null;
 		final QName qName = event.getName();
@@ -384,7 +383,7 @@ public final class XMLShredder extends AbstractShredder implements
 	 *           if any parsing error occurs
 	 */
 	public static synchronized XMLEventReader createFileReader(
-			final @Nonnull File xmlFile) throws IOException, XMLStreamException {
+			final File xmlFile) throws IOException, XMLStreamException {
 		checkNotNull(xmlFile);
 		final XMLInputFactory factory = XMLInputFactory.newInstance();
 		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
@@ -405,7 +404,7 @@ public final class XMLShredder extends AbstractShredder implements
 	 *           if any parsing error occurs
 	 */
 	public static synchronized XMLEventReader createStringReader(
-			final @Nonnull String xmlString) throws IOException, XMLStreamException {
+			final String xmlString) throws IOException, XMLStreamException {
 		checkNotNull(xmlString);
 		final XMLInputFactory factory = XMLInputFactory.newInstance();
 		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
@@ -426,7 +425,7 @@ public final class XMLShredder extends AbstractShredder implements
 	 *           if any parsing error occurs
 	 */
 	public static synchronized XMLEventReader createQueueReader(
-			final @Nonnull Queue<XMLEvent> events) throws IOException,
+			final Queue<XMLEvent> events) throws IOException,
 			XMLStreamException {
 		return new QueueEventReader(checkNotNull(events));
 	}

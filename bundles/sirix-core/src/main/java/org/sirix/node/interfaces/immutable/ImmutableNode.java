@@ -1,6 +1,5 @@
 package org.sirix.node.interfaces.immutable;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
@@ -53,7 +52,7 @@ public interface ImmutableNode extends Record {
 	 *          implementation of the {@link Visitor} interface
 	 * @return the result of a visit
 	 */
-	VisitResult acceptVisitor(@Nonnull Visitor visitor);
+	VisitResult acceptVisitor(Visitor visitor);
 	
 	/**
 	 * Getting the persistent stored hash.

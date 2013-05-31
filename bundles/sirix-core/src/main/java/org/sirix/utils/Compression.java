@@ -35,8 +35,6 @@ import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
 
-import javax.annotation.Nonnull;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,7 +71,7 @@ public class Compression {
 	 * @throws NullPointerException
 	 *           if {@code pToCompress} is {@code null}
 	 */
-	public static byte[] compress(final @Nonnull byte[] toCompress,
+	public static byte[] compress(final byte[] toCompress,
 			final int pLevel) {
 		checkNotNull(toCompress);
 		checkArgument(pLevel >= -1 && pLevel <= 9,
@@ -123,7 +121,7 @@ public class Compression {
 	 * @throws NullPointerException
 	 *           if {@code pCompressed} is {@code null}
 	 */
-	public static byte[] decompress(final @Nonnull byte[] compressed) {
+	public static byte[] decompress(final byte[] compressed) {
 		checkNotNull(compressed);
 
 		// Reset the decompressor and give it the data to compress.

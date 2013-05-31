@@ -36,8 +36,8 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.xpath.XPathAxis;
 import org.sirix.service.xml.xpath.AbstractAxis;
+import org.sirix.service.xml.xpath.XPathAxis;
 
 /**
  * JUnit-test class to test the functionality of the DubFilter.

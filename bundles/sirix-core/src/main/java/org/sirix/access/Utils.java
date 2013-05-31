@@ -1,6 +1,5 @@
 package org.sirix.access;
 
-import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 
 import org.brackit.xquery.atomic.QNm;
@@ -21,7 +20,7 @@ public final class Utils {
 	 *          the {@link QName} of an element
 	 * @return a string: [prefix:]localname
 	 */
-	public static String buildName(final @Nonnull QNm qName) {
+	public static String buildName(final QNm qName) {
 		return qName.getPrefix().isEmpty() ? qName.getLocalName()
 				: new StringBuilder(qName.getPrefix()).append(":")
 						.append(qName.getLocalName()).toString();

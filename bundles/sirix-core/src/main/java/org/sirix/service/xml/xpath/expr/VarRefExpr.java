@@ -51,7 +51,7 @@ public class VarRefExpr extends AbstractExpression implements IObserver {
 	 *          reference the variable expression that computes the items the
 	 *          variable holds
 	 */
-	public VarRefExpr(@Nonnull final NodeReadTrx pRtx,
+	public VarRefExpr(final NodeReadTrx pRtx,
 			@Nonnull final VariableAxis pVariable) {
 		super(pRtx);
 		pVariable.addObserver(this);

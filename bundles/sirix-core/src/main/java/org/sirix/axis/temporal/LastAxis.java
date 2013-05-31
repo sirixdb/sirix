@@ -4,7 +4,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -44,7 +43,7 @@ public class LastAxis extends AbstractTemporalAxis {
 	 * @param nodeKey
 	 *          the key of the node to lookup in each revision
 	 */
-	public LastAxis(final @Nonnull Session session,
+	public LastAxis(final Session session,
 			final @Nonnegative long nodeKey) {
 		mSession = checkNotNull(session);
 		checkArgument(nodeKey > -1, "nodeKey must be >= 0!");

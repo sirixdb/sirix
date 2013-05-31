@@ -4,8 +4,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Set;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.util.path.Path;
@@ -38,8 +36,8 @@ public final class CASIndexListener implements ChangeListener {
 	private final Type mType;
 
 	public CASIndexListener(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull PathSummaryReader pathSummaryReader, final @Nonnull IndexDef indexDef) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
 		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx,
 				indexDef.getType(), indexDef.getID());
 		mPathSummaryReader = checkNotNull(pathSummaryReader);
@@ -48,7 +46,7 @@ public final class CASIndexListener implements ChangeListener {
 	}
 
 	@Override
-	public void listen(final @Nonnull ChangeType type, final @Nonnull ImmutableNode node,
+	public void listen(final ChangeType type, final ImmutableNode node,
 			final long pathNodeKey) throws SirixIOException {
 		if (node instanceof ValueNode) {
 			final ValueNode valueNode = ((ValueNode) node);
@@ -74,7 +72,7 @@ public final class CASIndexListener implements ChangeListener {
 		}
 	}
 
-	private void insert(final @Nonnull ValueNode node, final long pathNodeKey) throws SirixIOException {
+	private void insert(final ValueNode node, final long pathNodeKey) throws SirixIOException {
 		final CASValue indexValue = new CASValue(new Str(node.getValue()), mType, pathNodeKey);
 		final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(
 				indexValue, SearchMode.EQUAL);
@@ -86,8 +84,8 @@ public final class CASIndexListener implements ChangeListener {
 		}
 	}
 
-	private void setNodeReferences(final @Nonnull Node node,
-			final @Nonnull NodeReferences references, final @Nonnull CASValue indexValue)
+	private void setNodeReferences(final Node node,
+			final NodeReferences references, final CASValue indexValue)
 			throws SirixIOException {
 		mAVLTreeWriter.index(indexValue, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
 	}

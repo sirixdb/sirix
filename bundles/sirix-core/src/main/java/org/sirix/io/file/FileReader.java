@@ -34,7 +34,6 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
@@ -82,8 +81,8 @@ public final class FileReader implements Reader {
 	 * @throws SirixIOException
 	 *           if something bad happens
 	 */
-	public FileReader(final @Nonnull File concreteStorage,
-			final @Nonnull ByteHandler handler) throws SirixIOException {
+	public FileReader(final File concreteStorage,
+			final ByteHandler handler) throws SirixIOException {
 		try {
 			if (!concreteStorage.exists()) {
 				concreteStorage.getParentFile().mkdirs();

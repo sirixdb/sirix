@@ -2,8 +2,6 @@ package org.sirix.index.path;
 
 import java.util.Iterator;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.index.IndexDef;
@@ -21,24 +19,24 @@ public final class PathIndexImpl<K extends Comparable<? super K>, V extends Refe
 
 	@Override
 	public PathIndexBuilder createBuilder(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull PathSummaryReader pathSummaryReader,
-			final @Nonnull IndexDef indexDef) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final PathSummaryReader pathSummaryReader,
+			final IndexDef indexDef) {
 		return new PathIndexBuilder(pageWriteTrx, pathSummaryReader, indexDef);
 	}
 
 	@Override
 	public PathIndexListener createListener(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull PathSummaryReader pathSummaryReader,
-			final @Nonnull IndexDef indexDef) {
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final PathSummaryReader pathSummaryReader,
+			final IndexDef indexDef) {
 		return new PathIndexListener(pageWriteTrx, pathSummaryReader, indexDef);
 	}
 
 	@Override
 	public Iterator<Optional<V>> openIndex(
-			final @Nonnull PageReadTrx pageReadTrx, final @Nonnull K key,
-			final @Nonnull IndexDef indexDef, final @Nonnull SearchMode mode) {
+			final PageReadTrx pageReadTrx, final K key,
+			final IndexDef indexDef, final SearchMode mode) {
 		final AVLTreeReader<K, V> reader = AVLTreeReader.getInstance(pageReadTrx,
 				indexDef.getType(), indexDef.getID());
 		return reader.new AVLIterator(key, mode);

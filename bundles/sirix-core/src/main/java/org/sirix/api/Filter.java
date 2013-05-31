@@ -66,7 +66,7 @@ package org.sirix.api;
  * // Must extend &lt;code&gt;AbstractFilter&lt;/code&gt; and implement &lt;code&gt;Filter&lt;/code&gt;.
  * public final class ExampleFilter extends AbstractFilter {
  * 
- * 	public ExampleFilter(final @Nonnull INodeReadTrx pRtx) {
+ * 	public ExampleFilter(final INodeReadTrx pRtx) {
  * 		// Must be called as first.
  * 		super(pRtx);
  * 	}

@@ -29,7 +29,7 @@ public interface RecordPersistenter {
 	 *           if one of the parameters is {@code null}
 	 */
 	@Nonnull
-	Record deserialize(@Nonnull ByteArrayDataInput source, @Nonnegative long recordID, 
+	Record deserialize(ByteArrayDataInput source, @Nonnegative long recordID, 
 			@Nonnull PageReadTrx pageReadTrx);
 
 	/**
@@ -47,6 +47,6 @@ public interface RecordPersistenter {
 	 * @throws NullPointerException
 	 *           if one of the parameters is {@code null}
 	 */
-	void serialize(@Nonnull ByteArrayDataOutput sink, @Nonnull Record record,
+	void serialize(ByteArrayDataOutput sink, @Nonnull Record record,
 			@Nonnull Record previousRecord, @Nonnull PageReadTrx pageReadTrx);
 }

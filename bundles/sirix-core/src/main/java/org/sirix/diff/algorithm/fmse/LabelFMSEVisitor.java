@@ -33,8 +33,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.access.AbstractVisitor;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -69,7 +67,7 @@ public final class LabelFMSEVisitor extends AbstractVisitor {
 	 * @throws SirixException
 	 *           if setting up sirix fails
 	 */
-	public LabelFMSEVisitor(@Nonnull final NodeReadTrx pReadTrx)
+	public LabelFMSEVisitor(final NodeReadTrx pReadTrx)
 			throws SirixException {
 		mRtx = checkNotNull(pReadTrx);
 		mLabels = new HashMap<>();
@@ -77,7 +75,7 @@ public final class LabelFMSEVisitor extends AbstractVisitor {
 	}
 
 	@Override
-	public VisitResultType visit(@Nonnull final ImmutableElement pNode) {
+	public VisitResultType visit(final ImmutableElement pNode) {
 		final long nodeKey = pNode.getNodeKey();
 		mRtx.moveTo(nodeKey);
 		for (int i = 0, nspCount = mRtx.getNamespaceCount(); i < nspCount; i++) {
@@ -98,7 +96,7 @@ public final class LabelFMSEVisitor extends AbstractVisitor {
 	}
 
 	@Override
-	public VisitResultType visit(@Nonnull final ImmutableText pNode) {
+	public VisitResultType visit(final ImmutableText pNode) {
 		mRtx.moveTo(pNode.getNodeKey());
 		addLeafLabel();
 		return VisitResultType.CONTINUE;

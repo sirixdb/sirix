@@ -84,8 +84,8 @@ public final class XQueryEvaluatorSAXHandler implements Callable<Void> {
 	 * @param handler
 	 *          SAX content handler
 	 */
-	public XQueryEvaluatorSAXHandler(final @Nonnull String expression,
-			final @Nonnull Session session, final @Nonnull ContentHandler handler) {
+	public XQueryEvaluatorSAXHandler(final String expression,
+			final Session session, final ContentHandler handler) {
 		mExpression = checkNotNull(expression);
 		mSession = checkNotNull(session);
 		mHandler = checkNotNull(handler);

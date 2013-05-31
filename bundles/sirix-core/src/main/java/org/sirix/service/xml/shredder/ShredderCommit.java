@@ -27,8 +27,6 @@
 
 package org.sirix.service.xml.shredder;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
 
@@ -42,14 +40,14 @@ public enum ShredderCommit {
 	/** Auto commit afterwards. */
 	COMMIT {
 		@Override
-		void commit(final @Nonnull NodeWriteTrx wtx) throws SirixException {
+		void commit(final NodeWriteTrx wtx) throws SirixException {
 			wtx.commit();
 		}
 	},
 	/** Do not commit after subtree has been shreddered. */
 	NOCOMMIT {
 		@Override
-		void commit(final @Nonnull NodeWriteTrx wtx) throws SirixException {
+		void commit(final NodeWriteTrx wtx) throws SirixException {
 			// Do nothing.
 		}
 	};
@@ -62,5 +60,5 @@ public enum ShredderCommit {
 	 * @throws SirixException
 	 *           if commiting changes fails
 	 */
-	abstract void commit(final @Nonnull NodeWriteTrx wtx) throws SirixException;
+	abstract void commit(final NodeWriteTrx wtx) throws SirixException;
 }

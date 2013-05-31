@@ -36,7 +36,6 @@ import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.TextFilter;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.Kind;
-import org.sirix.node.interfaces.Node;
 import org.sirix.utils.TypedValue;
 
 /**

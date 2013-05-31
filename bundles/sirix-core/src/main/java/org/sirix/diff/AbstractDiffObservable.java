@@ -58,7 +58,7 @@ abstract class AbstractDiffObservable implements DiffObservable {
 	}
 
 	@Override
-	public final void fireDiff(@Nonnull final DiffType pDiff,
+	public final void fireDiff(final DiffType pDiff,
 			@Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
 			@Nonnull final DiffDepth pDepth) {
 		for (final DiffObserver observer : mDiffObservers) {
@@ -74,12 +74,12 @@ abstract class AbstractDiffObservable implements DiffObservable {
 	}
 
 	@Override
-	public final void addObserver(@Nonnull final DiffObserver pObserver) {
+	public final void addObserver(final DiffObserver pObserver) {
 		mDiffObservers.add(pObserver);
 	}
 
 	@Override
-	public final void removeObserver(@Nonnull final DiffObserver pObserver) {
+	public final void removeObserver(final DiffObserver pObserver) {
 		mDiffObservers.remove(pObserver);
 	}
 }

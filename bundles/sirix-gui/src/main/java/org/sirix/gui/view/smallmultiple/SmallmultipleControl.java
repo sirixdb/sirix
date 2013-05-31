@@ -96,7 +96,7 @@ public class SmallmultipleControl extends AbstractSunburstControl {
    * @param pDb
    *          {@link ReadDB} reference
    */
-  private SmallmultipleControl(@Nonnull final Embedded pParent,
+  private SmallmultipleControl(final Embedded pParent,
     @Nonnull final Model<SunburstContainer, SunburstItem> pModel, @Nonnull final ReadDB pDB) {
     super(pParent, pModel, pDB);
     mSmallMultiplesGUI = (SmallmultipleGUI)mGUI;

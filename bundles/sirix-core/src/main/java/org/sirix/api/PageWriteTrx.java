@@ -39,7 +39,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws SirixIOException
 	 * 					if setting up the transaction log fails
 	 */
-	boolean setupIndexTransactionLog(@Nonnull IndexType indexType) throws SirixIOException;
+	boolean setupIndexTransactionLog(IndexType indexType) throws SirixIOException;
 
 	/**
 	 * Put a page into the cache.
@@ -49,7 +49,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @param page
 	 *          the page to put into the cache
 	 */
-	void putPageIntoCache(@Nonnull IndirectPageLogKey key, @Nonnull Page page);
+	void putPageIntoCache(IndirectPageLogKey key, @Nonnull Page page);
 
 	/**
 	 * Put a pageContainer into the key/value page cache.
@@ -63,7 +63,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @param pageContainer
 	 *          the pageContainer to put into the cache
 	 */
-	void putPageIntoKeyValueCache(@Nonnull PageKind pageKind,
+	void putPageIntoKeyValueCache(PageKind pageKind,
 			@Nonnegative long key, int index,
 			@Nonnull RecordPageContainer<UnorderedKeyValuePage> pageContainer);
 
@@ -89,7 +89,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code record} or {@code page} is {@code null}
 	 */
-	V createEntry(@Nonnull K key, @Nonnull V value, @Nonnull PageKind pageKind,
+	V createEntry(K key, @Nonnull V value, @Nonnull PageKind pageKind,
 			int index, @Nonnull Optional<S> keyValuePage) throws SirixIOException;
 
 	/**
@@ -134,7 +134,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code pageKind} or {@code keyValuePage} is {@code null}
 	 */
-	void removeEntry(@Nonnull K key, @Nonnull PageKind pageKind, int index,
+	void removeEntry(K key, @Nonnull PageKind pageKind, int index,
 			@Nonnull Optional<S> keyValuePage) throws SirixIOException;
 
 	/**
@@ -150,7 +150,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code name} or {@code kind} is {@code null}
 	 */
-	int createNameKey(@Nonnull String name, @Nonnull Kind kind)
+	int createNameKey(String name, @Nonnull Kind kind)
 			throws SirixIOException;
 
 	/**
@@ -162,7 +162,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code multipleWriteTrx} is {@code null}
 	 */
-	UberPage commit(@Nonnull MultipleWriteTrx multipleWriteTrx)
+	UberPage commit(MultipleWriteTrx multipleWriteTrx)
 			throws SirixException;
 
 	/**
@@ -190,7 +190,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code reference} is {@code null}
 	 */
-	void commit(@Nonnull PageReference reference) throws SirixException;
+	void commit(PageReference reference) throws SirixException;
 
 	/**
 	 * Determines if this page write trx must restore a previous failed trx.
@@ -201,7 +201,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code restore} is {@code null}
 	 */
-	void restore(@Nonnull Restore restore);
+	void restore(Restore restore);
 
 	/**
 	 * Get inlying {@link PageReadTrx}.

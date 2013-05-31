@@ -2,7 +2,6 @@ package org.sirix.node.immutable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -15,7 +14,6 @@ import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 import org.sirix.node.interfaces.immutable.ImmutableStructNode;
 import org.sirix.node.interfaces.immutable.ImmutableValueNode;
-import org.sirix.settings.Constants;
 
 import com.google.common.base.Optional;
 
@@ -35,7 +33,7 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
 	 * @param node
 	 *          {@link PINode} to wrap
 	 */
-	private ImmutablePI(final @Nonnull PINode node) {
+	private ImmutablePI(final PINode node) {
 		mNode = checkNotNull(node);
 	}
 
@@ -46,7 +44,7 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
 	 *          the mutable {@link PINode} to wrap
 	 * @return immutable processing instruction node instance
 	 */
-	public static ImmutablePI of(final @Nonnull PINode node) {
+	public static ImmutablePI of(final PINode node) {
 		return new ImmutablePI(node);
 	}
 
@@ -61,7 +59,7 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor pVisitor) {
+	public VisitResult acceptVisitor(final Visitor pVisitor) {
 		return pVisitor.visit(this);
 	}
 

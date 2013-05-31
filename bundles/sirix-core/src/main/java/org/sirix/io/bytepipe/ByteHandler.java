@@ -1,7 +1,5 @@
 package org.sirix.io.bytepipe;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.exception.SirixIOException;
 
 /**
@@ -22,7 +20,7 @@ public interface ByteHandler {
 	 * @throws SirixIOException
 	 *           if a byte handling exception occurs
 	 */
-	byte[] serialize(@Nonnull byte[] toSerialize) throws SirixIOException;
+	byte[] serialize(byte[] toSerialize) throws SirixIOException;
 
 	/**
 	 * Method to deserialize any byte-chunk.
@@ -33,7 +31,7 @@ public interface ByteHandler {
 	 * @throws SirixIOException
 	 *           if a byte handling exception occurs
 	 */
-	byte[] deserialize(@Nonnull byte[] toDeserialize) throws SirixIOException;
+	byte[] deserialize(byte[] toDeserialize) throws SirixIOException;
 
 	/**
 	 * Method to retrieve a new instance.

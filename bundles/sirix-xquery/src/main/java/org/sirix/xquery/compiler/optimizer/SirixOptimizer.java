@@ -15,8 +15,8 @@ import org.sirix.xquery.node.DBStore;
 
 public class SirixOptimizer extends TopDownOptimizer {
 
-	public SirixOptimizer(final @Nonnull Map<QNm, Str> options,
-			final @Nonnull DBStore store) {
+	public SirixOptimizer(final Map<QNm, Str> options,
+			final DBStore store) {
 		super(options);
 		// perform index matching as last step
 //		getStages().add(new Stage() {
@@ -33,7 +33,7 @@ public class SirixOptimizer extends TopDownOptimizer {
 	private static class IndexMatching implements Stage {
 		private final DBStore mStore;
 
-		public IndexMatching(final @Nonnull DBStore store) {
+		public IndexMatching(final DBStore store) {
 			mStore = store;
 		}
 

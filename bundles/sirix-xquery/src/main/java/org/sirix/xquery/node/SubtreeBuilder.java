@@ -63,10 +63,10 @@ public final class SubtreeBuilder extends AbstractShredder implements
 	 *           new reading transaction failed (might indicate that a few
 	 */
 	public SubtreeBuilder(
-			final @Nonnull DBCollection collection,
-			final @Nonnull NodeWriteTrx wtx,
-			final @Nonnull Insert insertPos,
-			final @Nonnull List<SubtreeListener<? super AbstractTemporalNode<DBNode>>> listeners)
+			final DBCollection collection,
+			final NodeWriteTrx wtx,
+			final Insert insertPos,
+			final List<SubtreeListener<? super AbstractTemporalNode<DBNode>>> listeners)
 			throws SirixException {
 		super(wtx, insertPos);
 		mCollection = checkNotNull(collection);

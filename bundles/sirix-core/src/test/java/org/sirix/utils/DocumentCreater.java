@@ -33,8 +33,6 @@ import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 
-import javax.annotation.Nonnull;
-import javax.xml.namespace.QName;
 import javax.xml.stream.XMLStreamException;
 
 import org.brackit.xquery.atomic.QNm;
@@ -174,7 +172,7 @@ public final class DocumentCreater {
 	 * @throws SirixException
 	 *           if anything weird happens
 	 */
-	public static void createCommentPI(final @Nonnull NodeWriteTrx wtx)
+	public static void createCommentPI(final NodeWriteTrx wtx)
 			throws SirixException {
 		assertNotNull(wtx);
 		assertTrue(wtx.moveToDocumentRoot().hasMoved());
@@ -220,7 +218,7 @@ public final class DocumentCreater {
 	 * @throws SirixException
 	 *           if anything weird happens
 	 */
-	public static void create(final @Nonnull NodeWriteTrx wtx)
+	public static void create(final NodeWriteTrx wtx)
 			throws SirixException {
 		assertNotNull(wtx);
 		assertTrue(wtx.moveToDocumentRoot().hasMoved());
@@ -262,7 +260,7 @@ public final class DocumentCreater {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public static void createVersioned(final @Nonnull NodeWriteTrx wtx)
+	public static void createVersioned(final NodeWriteTrx wtx)
 			throws SirixException {
 		assertNotNull(wtx);
 		create(wtx);
@@ -285,7 +283,7 @@ public final class DocumentCreater {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public static void createWithoutAttributes(final @Nonnull NodeWriteTrx wtx)
+	public static void createWithoutAttributes(final NodeWriteTrx wtx)
 			throws SirixException {
 		assertNotNull(wtx);
 		wtx.moveToDocumentRoot();
@@ -313,7 +311,7 @@ public final class DocumentCreater {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public static void createWithoutNamespace(final @Nonnull NodeWriteTrx wtx)
+	public static void createWithoutNamespace(final NodeWriteTrx wtx)
 			throws SirixException {
 		assertNotNull(wtx);
 		wtx.moveToDocumentRoot();

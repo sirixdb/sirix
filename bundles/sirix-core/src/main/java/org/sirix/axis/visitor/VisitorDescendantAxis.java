@@ -33,7 +33,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeCursor;
 import org.sirix.api.NodeReadTrx;
@@ -82,7 +81,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 	 *          the {@link NodeReadTrx} to iterate with
 	 * @return {@link Builder} instance
 	 */
-	public static Builder newBuilder(final @Nonnull NodeReadTrx rtx) {
+	public static Builder newBuilder(final NodeReadTrx rtx) {
 		return new Builder(rtx);
 	}
 
@@ -104,7 +103,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 		 * @param rtx
 		 *          Sirix {@link NodeCursor}
 		 */
-		public Builder(final @Nonnull NodeReadTrx rtx) {
+		public Builder(final NodeReadTrx rtx) {
 			mRtx = checkNotNull(rtx);
 		}
 
@@ -148,7 +147,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 	 * @param builder
 	 *          the builder to construct a new instance
 	 */
-	private VisitorDescendantAxis(final @Nonnull Builder builder) {
+	private VisitorDescendantAxis(final Builder builder) {
 		super(builder.mRtx, builder.mIncludeSelf);
 		mVisitor = builder.mVisitor;
 	}

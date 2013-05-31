@@ -32,8 +32,6 @@ import static org.testng.AssertJUnit.assertEquals;
 import java.io.File;
 import java.io.IOException;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.TestHelper;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -87,8 +85,8 @@ public class StorageTest {
 	 * @throws SirixIOException
 	 */
 	@Test(dataProvider = "instantiateStorages")
-	public void testFirstRef(final @Nonnull Class<Storage> pClass,
-			final @Nonnull Storage[] pStorages) throws SirixException {
+	public void testFirstRef(final Class<Storage> pClass,
+			final Storage[] pStorages) throws SirixException {
 		for (final Storage handler : pStorages) {
 			final PageReference pageRef1 = new PageReference();
 			final UberPage page1 = new UberPage();

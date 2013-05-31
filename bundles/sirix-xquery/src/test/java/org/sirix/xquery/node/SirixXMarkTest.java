@@ -30,12 +30,12 @@ public final class SirixXMarkTest extends XMarkTest {
 	}
 
 	@Override
-	protected XQuery xquery(final @Nonnull String query) throws QueryException {
+	protected XQuery xquery(final String query) throws QueryException {
 		return new XQuery(new SirixCompileChain(mStore), query);
 	}
 
 	@Override
-	protected Collection<?> createDoc(final @Nonnull DocumentParser parser)
+	protected Collection<?> createDoc(final DocumentParser parser)
 			throws DocumentException {
 		mStore.create("testCollection", parser);
 		return mStore.lookup("testCollection");

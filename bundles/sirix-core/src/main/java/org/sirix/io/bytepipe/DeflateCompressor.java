@@ -8,8 +8,6 @@ import java.util.zip.DataFormatException;
 import java.util.zip.Deflater;
 import java.util.zip.Inflater;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.exception.SirixIOException;
 
 /**
@@ -42,7 +40,7 @@ public class DeflateCompressor implements ByteHandler {
 	}
 
 	@Override
-	public byte[] serialize(final @Nonnull byte[] toSerialize)
+	public byte[] serialize(final byte[] toSerialize)
 			throws SirixIOException {
 		mCompressor.reset();
 		mOut.reset();
@@ -58,7 +56,7 @@ public class DeflateCompressor implements ByteHandler {
 	}
 
 	@Override
-	public byte[] deserialize(final @Nonnull byte[] toDeserialize)
+	public byte[] deserialize(final byte[] toDeserialize)
 			throws SirixIOException {
 		mDecompressor.reset();
 		mOut.reset();

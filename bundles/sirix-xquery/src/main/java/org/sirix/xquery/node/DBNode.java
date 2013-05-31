@@ -99,8 +99,8 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	 * @param collection
 	 *          {@link DBCollection} reference
 	 */
-	public DBNode(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull DBCollection collection) {
+	public DBNode(final NodeReadTrx rtx,
+			final DBCollection collection) {
 		mCollection = checkNotNull(collection);
 		mRtx = checkNotNull(rtx);
 		mIsWtx = mRtx instanceof NodeWriteTrx;
@@ -129,7 +129,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isSelfOf(final @Nonnull Node<?> other) {
+	public boolean isSelfOf(final Node<?> other) {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode node = (DBNode) other;
@@ -143,7 +143,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isParentOf(final @Nonnull Node<?> other) {
+	public boolean isParentOf(final Node<?> other) {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode node = (DBNode) other;
@@ -156,7 +156,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isChildOf(final @Nonnull Node<?> other) {
+	public boolean isChildOf(final Node<?> other) {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode node = (DBNode) other;
@@ -172,7 +172,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isDescendantOf(final @Nonnull Node<?> other) {
+	public boolean isDescendantOf(final Node<?> other) {
 		moveRtx();
 		boolean retVal = false;
 		if (other instanceof DBNode) {
@@ -207,7 +207,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isDescendantOrSelfOf(final @Nonnull Node<?> other) {
+	public boolean isDescendantOrSelfOf(final Node<?> other) {
 		moveRtx();
 		boolean retVal = false;
 		if (other instanceof DBNode) {
@@ -222,7 +222,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isAncestorOf(final @Nonnull Node<?> other) {
+	public boolean isAncestorOf(final Node<?> other) {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode node = (DBNode) other;
@@ -237,7 +237,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isAncestorOrSelfOf(final @Nonnull Node<?> other) {
+	public boolean isAncestorOrSelfOf(final Node<?> other) {
 		moveRtx();
 		boolean retVal = false;
 		if (other instanceof DBNode) {
@@ -256,7 +256,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isSiblingOf(final @Nonnull Node<?> other) {
+	public boolean isSiblingOf(final Node<?> other) {
 		moveRtx();
 		boolean retVal = false;
 		if (other instanceof DBNode) {
@@ -280,7 +280,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isPrecedingSiblingOf(final @Nonnull Node<?> other) {
+	public boolean isPrecedingSiblingOf(final Node<?> other) {
 		if (other instanceof DBNode) {
 			final DBNode node = (DBNode) other;
 			moveRtx();
@@ -302,7 +302,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isFollowingSiblingOf(final @Nonnull Node<?> other) {
+	public boolean isFollowingSiblingOf(final Node<?> other) {
 		if (other instanceof DBNode) {
 			final DBNode node = (DBNode) other;
 			moveRtx();
@@ -324,7 +324,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isPrecedingOf(final @Nonnull Node<?> other) {
+	public boolean isPrecedingOf(final Node<?> other) {
 		if (other instanceof DBNode) {
 			final DBNode node = (DBNode) other;
 			moveRtx();
@@ -346,7 +346,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isFollowingOf(final @Nonnull Node<?> other) {
+	public boolean isFollowingOf(final Node<?> other) {
 		if (other instanceof DBNode) {
 			final DBNode node = (DBNode) other;
 			moveRtx();
@@ -368,7 +368,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isAttributeOf(final @Nonnull Node<?> other) {
+	public boolean isAttributeOf(final Node<?> other) {
 		moveRtx();
 		boolean retVal = false;
 		if (other instanceof DBNode) {
@@ -387,7 +387,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public boolean isDocumentOf(final @Nonnull Node<?> other) {
+	public boolean isDocumentOf(final Node<?> other) {
 		moveRtx();
 		boolean retVal = false;
 		if (getKind() == Kind.DOCUMENT && other instanceof DBNode) {
@@ -684,7 +684,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public DBNode append(final @Nonnull Node<?> child)
+	public DBNode append(final Node<?> child)
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
@@ -719,7 +719,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public DBNode append(final @Nonnull SubtreeParser parser)
+	public DBNode append(final SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
@@ -820,7 +820,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public DBNode prepend(final @Nonnull SubtreeParser parser)
+	public DBNode prepend(final SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
@@ -991,7 +991,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public DBNode insertAfter(final @Nonnull SubtreeParser parser)
+	public DBNode insertAfter(final SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
@@ -1081,7 +1081,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public DBNode getAttribute(final @Nonnull QNm name) throws DocumentException {
+	public DBNode getAttribute(final QNm name) throws DocumentException {
 		moveRtx();
 		if (mRtx.isElement() && mRtx.moveToAttributeByName(name).hasMoved()) {
 			return new DBNode(mRtx, mCollection);
@@ -1090,7 +1090,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public DBNode replaceWith(final @Nonnull Node<?> node)
+	public DBNode replaceWith(final Node<?> node)
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
@@ -1119,7 +1119,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public DBNode replaceWith(final @Nonnull SubtreeParser parser)
+	public DBNode replaceWith(final SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
 		if (mIsWtx) {
 			moveRtx();
@@ -1135,7 +1135,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public DBNode replaceWith(final @Nonnull Kind kind, final @Nullable QNm name,
+	public DBNode replaceWith(final Kind kind, final @Nullable QNm name,
 			final @Nullable Atomic value) throws OperationNotSupportedException,
 			DocumentException {
 		if (mIsWtx) {
@@ -1257,7 +1257,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public void parse(final @Nonnull SubtreeHandler handler)
+	public void parse(final SubtreeHandler handler)
 			throws DocumentException {
 		moveRtx();
 		final SubtreeParser parser = new NavigationalSubtreeParser(this);
@@ -1266,7 +1266,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 
 	@Override
 	protected int cmpInternal(
-			final @Nonnull AbstractTemporalNode<DBNode> otherNode) {
+			final AbstractTemporalNode<DBNode> otherNode) {
 		moveRtx();
 
 		// Are they the same node?
@@ -1431,7 +1431,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	 *          node kind
 	 * @return category number
 	 */
-	private int nodeCategories(final @Nonnull Kind kind) {
+	private int nodeCategories(final Kind kind) {
 		switch (kind) {
 		case DOCUMENT:
 			return 0;

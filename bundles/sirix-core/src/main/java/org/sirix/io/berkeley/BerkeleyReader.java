@@ -87,8 +87,8 @@ public final class BerkeleyReader implements Reader {
 	 *           if {@code pDatabase}, {@code pTxn} or {@code pBinding} is
 	 *           {@code null}
 	 */
-	public BerkeleyReader(final @Nonnull Database database,
-			final @Nonnull Transaction trx, final @Nonnull ByteHandlePipeline byteHandler) {
+	public BerkeleyReader(final Database database,
+			final Transaction trx, final ByteHandlePipeline byteHandler) {
 		mTxn = checkNotNull(trx);
 		mDatabase = checkNotNull(database);
 		mByteHandler = byteHandler;
@@ -106,14 +106,14 @@ public final class BerkeleyReader implements Reader {
 	 * @throws DatabaseException
 	 *           if something weird happens
 	 */
-	public BerkeleyReader(@Nonnull final Environment env,
-			@Nonnull final Database database, final @Nonnull ByteHandlePipeline byteHandler)
+	public BerkeleyReader(final Environment env,
+			@Nonnull final Database database, final ByteHandlePipeline byteHandler)
 			throws DatabaseException {
 		this(database, env.beginTransaction(null, null), byteHandler);
 	}
 
 	@Override
-	public Page read(final long key, final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+	public Page read(final long key, final PageReadTrx pageReadTrx) throws SirixIOException {
 		mPageBinding = new PageBinding(mByteHandler, pageReadTrx);
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();

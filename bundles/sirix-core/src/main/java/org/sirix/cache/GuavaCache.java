@@ -56,8 +56,8 @@
 //	 * @param secondCache
 //	 *          second fallback cache
 //	 */
-//	public GuavaCache(final @Nonnull PageReadTrx pageReadTransaction,
-//			final @Nonnull Cache<Tuple, RecordPageContainer> secondCache) {
+//	public GuavaCache(final PageReadTrx pageReadTransaction,
+//			final Cache<Tuple, RecordPageContainer> secondCache) {
 //		checkNotNull(pageReadTransaction);
 //		mSecondCache = checkNotNull(secondCache);
 //
@@ -100,7 +100,7 @@
 //	 * @param pageReadTransaction
 //	 *          {@link PageReadTrx} implementation to read pages
 //	 */
-//	public GuavaCache(@Nonnull final PageReadTrx pageReadTransaction) {
+//	public GuavaCache(final PageReadTrx pageReadTransaction) {
 //		this(pageReadTransaction, new EmptyCache<Tuple, RecordPageContainer>());
 //	}
 //
@@ -111,7 +111,7 @@
 //	}
 //
 //	@Override
-//	public synchronized RecordPageContainer get(@Nonnull final Tuple key) {
+//	public synchronized RecordPageContainer get(final Tuple key) {
 //		try {
 //			if (key.getKey() < 0) {
 //				return RecordPageContainer.EMPTY_INSTANCE;
@@ -135,14 +135,14 @@
 //	}
 //
 //	@Override
-//	public void put(final @Nonnull Tuple key,
-//			final @Nonnull RecordPageContainer value) {
+//	public void put(final Tuple key,
+//			final RecordPageContainer value) {
 //		mCache.put(key, value);
 //	}
 //
 //	@Override
 //	public ImmutableMap<Tuple, RecordPageContainer> getAll(
-//			final @Nonnull Iterable<? extends Tuple> keys) {
+//			final Iterable<? extends Tuple> keys) {
 //		try {
 //			return mCache.getAll(keys);
 //		} catch (final ExecutionException e) {
@@ -157,12 +157,12 @@
 //	}
 //
 //	@Override
-//	public void putAll(final @Nonnull Map<Tuple, RecordPageContainer> map) {
+//	public void putAll(final Map<Tuple, RecordPageContainer> map) {
 //		mCache.putAll(map);
 //	}
 //
 //	@Override
-//	public void remove(final @Nonnull Tuple key) {
+//	public void remove(final Tuple key) {
 //		mCache.invalidate(key);
 //	}
 //

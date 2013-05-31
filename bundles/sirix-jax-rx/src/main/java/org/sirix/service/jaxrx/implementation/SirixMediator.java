@@ -70,7 +70,7 @@ public final class SirixMediator implements JaxRx {
 	 * @param storagePath
 	 *          where the data should be stored
 	 */
-	public SirixMediator(final @Nonnull File storagePath) {
+	public SirixMediator(final File storagePath) {
 		database = new DatabaseRepresentation(storagePath);
 		nodeIdResource = new NodeIdRepresentation(storagePath);
 	}

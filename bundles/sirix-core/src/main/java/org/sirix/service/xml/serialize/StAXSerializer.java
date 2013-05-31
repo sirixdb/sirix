@@ -35,7 +35,6 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventFactory;
 import javax.xml.stream.XMLEventReader;
@@ -140,7 +139,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 *          {@link NodeReadTrx} which is used to iterate over and generate
 	 *          StAX events
 	 */
-	public StAXSerializer(final @Nonnull NodeReadTrx rtx) {
+	public StAXSerializer(final NodeReadTrx rtx) {
 		this(rtx, true);
 	}
 
@@ -155,7 +154,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @param pCloseRtx
 	 *          Determines if rtx should be closed afterwards.
 	 */
-	public StAXSerializer(final @Nonnull NodeReadTrx pRtx, final boolean pCloseRtx) {
+	public StAXSerializer(final NodeReadTrx pRtx, final boolean pCloseRtx) {
 		mNextTag = false;
 		mAxis = new DescendantAxis(checkNotNull(pRtx), IncludeSelf.YES);
 		mCloseRtx = pCloseRtx;
@@ -173,7 +172,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @param rtx
 	 *          Sirix reading transaction {@link NodeReadTrx}
 	 */
-	private void emitEndTag(final @Nonnull NodeReadTrx rtx) {
+	private void emitEndTag(final NodeReadTrx rtx) {
 		final long nodeKey = rtx.getNodeKey();
 		final QNm qName = rtx.getName();
 		mEvent = mFac.createEndElement(
@@ -188,7 +187,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @param rtx
 	 *          Sirix reading transaction {@link NodeReadTrx}
 	 */
-	private void emitNode(final @Nonnull NodeReadTrx rtx) {
+	private void emitNode(final NodeReadTrx rtx) {
 		switch (rtx.getKind()) {
 		case DOCUMENT:
 			mEvent = mFac.createStartDocument();
@@ -403,7 +402,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @throws IOException
 	 *           if any I/O error occurred
 	 */
-	private void processNode(final @Nonnull Kind pNodeKind) throws IOException {
+	private void processNode(final Kind pNodeKind) throws IOException {
 		assert pNodeKind != null;
 		switch (pNodeKind) {
 		case ELEMENT:
@@ -427,7 +426,7 @@ public final class StAXSerializer implements XMLEventReader {
 	 * @throws IOException
 	 *           if any I/O error occurred
 	 */
-	private void emit(final @Nonnull NodeReadTrx rtx) throws IOException {
+	private void emit(final NodeReadTrx rtx) throws IOException {
 		assert rtx != null;
 		// Emit pending end elements.
 		if (mCloseElements) {
@@ -505,7 +504,7 @@ public final class StAXSerializer implements XMLEventReader {
 		 * @param rtx
 		 *          reference implementing the {@link NodeReadTrx} interface
 		 */
-		public AttributeIterator(final @Nonnull NodeReadTrx rtx) {
+		public AttributeIterator(final NodeReadTrx rtx) {
 			mRtx = checkNotNull(rtx);
 			mNodeKey = mRtx.getNodeKey();
 			mIndex = 0;
@@ -575,7 +574,7 @@ public final class StAXSerializer implements XMLEventReader {
 		 * @param rtx
 		 *          reference implementing the {@link NodeReadTrx} interface
 		 */
-		public NamespaceIterator(final @Nonnull NodeReadTrx rtx) {
+		public NamespaceIterator(final NodeReadTrx rtx) {
 			mRtx = checkNotNull(rtx);
 			mNodeKey = mRtx.getNodeKey();
 			mIndex = 0;

@@ -39,8 +39,8 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.DescendantAxis;
 import org.sirix.axis.IncludeSelf;
 import org.sirix.diff.DiffFactory.Builder;
-import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.diff.DiffFactory.DiffOptimized;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
 
@@ -296,8 +296,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 	 * @return {@code true}, if cursor moved, {@code false} otherwise, if no nodes
 	 *         follow in document order
 	 */
-	private boolean moveCursor(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull Revision revision, final @Nonnull Move move) {
+	private boolean moveCursor(final NodeReadTrx rtx,
+			final Revision revision, final Move move) {
 		assert rtx != null;
 		assert revision != null;
 
@@ -333,8 +333,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 		return moved;
 	}
 
-	private boolean moveToNext(final @Nonnull NodeReadTrx pRtx,
-			final @Nonnull Revision pRevision) {
+	private boolean moveToNext(final NodeReadTrx pRtx,
+			final Revision pRevision) {
 		boolean moved = false;
 		if (pRtx.hasFirstChild()) {
 			if (pRtx.getKind() != Kind.DOCUMENT && mDiffKind == DiffOptimized.HASHED
@@ -419,8 +419,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 	 *          determines if a diff should be fired
 	 * @return kind of difference
 	 */
-	DiffType diff(final @Nonnull NodeReadTrx pNewRtx,
-			final @Nonnull NodeReadTrx pOldRtx, final @Nonnull DepthCounter pDepth) {
+	DiffType diff(final NodeReadTrx pNewRtx,
+			final NodeReadTrx pOldRtx, final DepthCounter pDepth) {
 		assert pNewRtx != null;
 		assert pOldRtx != null;
 		assert pDepth != null;
@@ -460,8 +460,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 	 *          determines if a diff should be fired
 	 * @return kind of difference
 	 */
-	DiffType optimizedDiff(final @Nonnull NodeReadTrx pNewRtx,
-			final @Nonnull NodeReadTrx pOldRtx, final @Nonnull DepthCounter pDepth) {
+	DiffType optimizedDiff(final NodeReadTrx pNewRtx,
+			final NodeReadTrx pOldRtx, final DepthCounter pDepth) {
 		assert pNewRtx != null;
 		assert pOldRtx != null;
 		assert pDepth != null;
@@ -507,8 +507,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 	 *          transaction cursors
 	 * @return kind of diff
 	 */
-	private DiffType diffAlgorithm(final @Nonnull NodeReadTrx pNewRtx,
-			final @Nonnull NodeReadTrx pOldRtx, final @Nonnull DepthCounter pDepth) {
+	private DiffType diffAlgorithm(final NodeReadTrx pNewRtx,
+			final NodeReadTrx pOldRtx, final DepthCounter pDepth) {
 		assert pNewRtx != null;
 		assert pOldRtx != null;
 		assert pDepth != null;
@@ -571,7 +571,7 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 	 * @param diff
 	 *          kind of diff
 	 */
-	private void emitDiffs(final @Nonnull DiffType diff) {
+	private void emitDiffs(final DiffType diff) {
 		final Revision revision = diff == DiffType.DELETED ? Revision.OLD
 				: Revision.NEW;
 		final int depth = diff == DiffType.DELETED ? mDepth.getOldDepth() : mDepth
@@ -596,8 +596,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 	 *         s, {@code false
 
 	 */
-	boolean checkName(final @Nonnull NodeReadTrx newRtx,
-			final @Nonnull NodeReadTrx oldRtx) {
+	boolean checkName(final NodeReadTrx newRtx,
+			final NodeReadTrx oldRtx) {
 		boolean found = false;
 		if (newRtx.getKind() == oldRtx.getKind()) {
 			switch (newRtx.getKind()) {
@@ -627,8 +627,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 	 *          {@link NodeReadTrx} on old revision
 	 * @return true if nodes are "equal", otherwise false
 	 */
-	abstract boolean checkNodes(final @Nonnull NodeReadTrx newRtx,
-			final @Nonnull NodeReadTrx oldRtx);
+	abstract boolean checkNodes(final NodeReadTrx newRtx,
+			final NodeReadTrx oldRtx);
 
 	/**
 	 * Check for a replace of a node.
@@ -639,8 +639,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 	 *          second {@link NodeReadTrx} instance
 	 * @return true if node has been replaced, false otherwise
 	 */
-	boolean checkReplace(final @Nonnull NodeReadTrx newRtx,
-			final @Nonnull NodeReadTrx oldRtx) {
+	boolean checkReplace(final NodeReadTrx newRtx,
+			final NodeReadTrx oldRtx) {
 		boolean replaced = false;
 		if (newRtx.getNodeKey() != oldRtx.getNodeKey()) {
 			final long newKey = newRtx.getNodeKey();
@@ -748,8 +748,8 @@ abstract class AbstractDiff extends AbstractDiffObservable {
 	 * @param revision
 	 *          revision to iterate over
 	 */
-	private void adjustDepth(final @Nonnull NodeReadTrx rtx,
-			final @Nonnegative long startNodeKey, final @Nonnull Revision revision) {
+	private void adjustDepth(final NodeReadTrx rtx,
+			final @Nonnegative long startNodeKey, final Revision revision) {
 		assert rtx != null;
 		assert startNodeKey >= 0;
 		assert revision != null;

@@ -36,8 +36,8 @@ public class TemporalSirixStream implements Stream<AbstractTemporalNode<DBNode>>
 	 * @param collection
 	 *          {@link DBCollection} the nodes belong to
 	 */
-	public TemporalSirixStream(final @Nonnull AbstractTemporalAxis axis,
-			final @Nonnull DBCollection collection) {
+	public TemporalSirixStream(final AbstractTemporalAxis axis,
+			final DBCollection collection) {
 		mAxis = checkNotNull(axis);
 		mCollection = checkNotNull(collection);
 	}

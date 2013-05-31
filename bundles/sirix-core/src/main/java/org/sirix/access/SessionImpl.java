@@ -159,7 +159,7 @@ public final class SessionImpl implements Session {
 	 * @throws SirixException
 	 *           if Sirix encounters an exception
 	 */
-	SessionImpl(@Nonnull final DatabaseImpl database,
+	SessionImpl(final DatabaseImpl database,
 			@Nonnull final ResourceConfiguration resourceConf,
 			@Nonnull final SessionConfiguration sessionConf) throws SirixException {
 		mDatabase = checkNotNull(database);
@@ -307,7 +307,7 @@ public final class SessionImpl implements Session {
 	 */
 	PageWriteTrx<Long, Record, UnorderedKeyValuePage> createPageWriteTransaction(
 			final @Nonnegative long id, final @Nonnegative int representRevision,
-			final @Nonnegative int storeRevision, final @Nonnull Abort abort)
+			final @Nonnegative int storeRevision, final Abort abort)
 			throws SirixException {
 		checkArgument(id >= 0, "id must be >= 0!");
 		checkArgument(representRevision >= 0, "representRevision must be >= 0!");
@@ -489,8 +489,8 @@ public final class SessionImpl implements Session {
 	 * 
 	 */
 	protected synchronized void syncLogs(
-			final @Nonnull RecordPageContainer<UnorderedKeyValuePage> contToSync,
-			final @Nonnegative long transactionID, final @Nonnull PageKind pageKind)
+			final RecordPageContainer<UnorderedKeyValuePage> contToSync,
+			final @Nonnegative long transactionID, final PageKind pageKind)
 			throws SirixThreadedException {
 		final ExecutorService pool = Executors.newCachedThreadPool();
 		final Collection<Future<Void>> returnVals = new ArrayList<>();
@@ -565,9 +565,9 @@ public final class SessionImpl implements Session {
 		 *          page type
 		 */
 		LogSyncer(
-				final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pPageWriteTransaction,
-				final @Nonnull RecordPageContainer<UnorderedKeyValuePage> pNodePageCont,
-				final @Nonnull PageKind pPage) {
+				final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pPageWriteTransaction,
+				final RecordPageContainer<UnorderedKeyValuePage> pNodePageCont,
+				final PageKind pPage) {
 			mPageWriteTrx = checkNotNull(pPageWriteTransaction);
 			mCont = checkNotNull(pNodePageCont);
 			mPage = checkNotNull(pPage);
@@ -586,7 +586,7 @@ public final class SessionImpl implements Session {
 	 * @param page
 	 *          the new {@link UberPage}
 	 */
-	protected void setLastCommittedUberPage(final @Nonnull UberPage page) {
+	protected void setLastCommittedUberPage(final UberPage page) {
 		mLastCommittedUberPage.set(checkNotNull(page));
 	}
 

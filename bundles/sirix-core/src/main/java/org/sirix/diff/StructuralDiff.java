@@ -27,8 +27,6 @@
 
 package org.sirix.diff;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.exception.SirixException;
@@ -49,13 +47,13 @@ final class StructuralDiff extends AbstractDiff {
 	 *          {@link Builder} reference
 	 * @throws SirixException
 	 */
-	public StructuralDiff(final @Nonnull Builder builder) throws SirixException {
+	public StructuralDiff(final Builder builder) throws SirixException {
 		super(builder);
 	}
 
 	@Override
-	boolean checkNodes(final @Nonnull NodeReadTrx newRtx,
-			final @Nonnull NodeReadTrx oldRtx) {
+	boolean checkNodes(final NodeReadTrx newRtx,
+			final NodeReadTrx oldRtx) {
 		boolean found = false;
 		if (newRtx.getNodeKey() == oldRtx.getNodeKey()
 				&& newRtx.getParentKey() == oldRtx.getParentKey()

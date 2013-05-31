@@ -30,8 +30,6 @@ package org.sirix.access;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
@@ -94,7 +92,7 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testInsertHelper(final @Nonnull PathSummaryReader pSummary)
+	private void testInsertHelper(final PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
@@ -185,7 +183,7 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testDeleteHelper(final @Nonnull PathSummaryReader pSummary)
+	private void testDeleteHelper(final PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
@@ -267,7 +265,7 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testSetQNmFirstHelper(final @Nonnull PathSummaryReader pSummary)
+	private void testSetQNmFirstHelper(final PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
@@ -384,7 +382,7 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testSetQNmSecondHelper(final @Nonnull PathSummaryReader pSummary)
+	private void testSetQNmSecondHelper(final PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
@@ -480,7 +478,7 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testSetQNmThirdHelper(final @Nonnull PathSummaryReader pSummary)
+	private void testSetQNmThirdHelper(final PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
@@ -598,7 +596,7 @@ public class PathSummaryTest {
 		pathSummary.close();
 	}
 
-	private void testSetQNmFourthHelper(final @Nonnull PathSummaryReader pSummary)
+	private void testSetQNmFourthHelper(final PathSummaryReader pSummary)
 			throws SirixException {
 		final Axis axis = new DescendantAxis(pSummary);
 		PathSummaryReader summary = next(axis);
@@ -729,7 +727,7 @@ public class PathSummaryTest {
 	 *          the axis to use
 	 * @return the next path summary
 	 */
-	private PathSummaryReader next(final @Nonnull Axis axis) {
+	private PathSummaryReader next(final Axis axis) {
 		if (axis.hasNext()) {
 			axis.next();
 			return (PathSummaryReader) axis.getTrx();

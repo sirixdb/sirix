@@ -34,7 +34,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.cache.RecordPageContainer;
@@ -59,17 +58,17 @@ public enum Versioning {
 	FULL {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
-				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx) {
+				final List<T> pages, final @Nonnegative int revToRestore,
+				final PageReadTrx pageReadTrx) {
 			assert pages.size() == 1 : "Only one version of the page!";
 			return pages.get(0);
 		}
 
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
-				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx,
-				final @Nonnull PageReference reference) {
+				final List<T> pages, final @Nonnegative int revToRestore,
+				final PageReadTrx pageReadTrx,
+				final PageReference reference) {
 			assert pages.size() == 1;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
@@ -101,8 +100,8 @@ public enum Versioning {
 	DIFFERENTIAL {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
-				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx) {
+				final List<T> pages, final @Nonnegative int revToRestore,
+				final PageReadTrx pageReadTrx) {
 			assert pages.size() <= 2;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
@@ -149,9 +148,9 @@ public enum Versioning {
 
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
-				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx,
-				final @Nonnull PageReference reference) {
+				final List<T> pages, final @Nonnegative int revToRestore,
+				final PageReadTrx pageReadTrx,
+				final PageReference reference) {
 			assert pages.size() <= 2;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
@@ -240,8 +239,8 @@ public enum Versioning {
 	INCREMENTAL {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
-				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx) {
+				final List<T> pages, final @Nonnegative int revToRestore,
+				final PageReadTrx pageReadTrx) {
 			assert pages.size() <= revToRestore;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
@@ -287,9 +286,9 @@ public enum Versioning {
 
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
-				final @Nonnull List<T> pages, final int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx,
-				final @Nonnull PageReference reference) {
+				final List<T> pages, final int revToRestore,
+				final PageReadTrx pageReadTrx,
+				final PageReference reference) {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final int revision = pageReadTrx.getUberPage().getRevision();
@@ -370,8 +369,8 @@ public enum Versioning {
 	SLIDING_SNAPSHOT {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
-				final @Nonnull List<T> pages, final @Nonnegative int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx) {
+				final List<T> pages, final @Nonnegative int revToRestore,
+				final PageReadTrx pageReadTrx) {
 			assert pages.size() <= revToRestore;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
@@ -420,9 +419,9 @@ public enum Versioning {
 
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
-				final @Nonnull List<T> pages, final int revToRestore,
-				final @Nonnull PageReadTrx pageReadTrx,
-				final @Nonnull PageReference reference) {
+				final List<T> pages, final int revToRestore,
+				final PageReadTrx pageReadTrx,
+				final PageReference reference) {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final List<T> returnVal = new ArrayList<>(2);
@@ -491,7 +490,7 @@ public enum Versioning {
 		}
 
 		// Convert integer list to primitive int-array.
-		private int[] convertIntegers(final @Nonnull List<Integer> integers) {
+		private int[] convertIntegers(final List<Integer> integers) {
 			final int[] retVal = new int[integers.size()];
 			final Iterator<Integer> iterator = integers.iterator();
 			for (int i = 0; i < retVal.length; i++) {
@@ -513,8 +512,8 @@ public enum Versioning {
 	 * @return the complete {@link KeyValuePage}
 	 */
 	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> T combineRecordPages(
-			final @Nonnull List<T> pages, final @Nonnegative int revsToRestore,
-			final @Nonnull PageReadTrx pageReadTrx);
+			final List<T> pages, final @Nonnegative int revsToRestore,
+			final PageReadTrx pageReadTrx);
 
 	/**
 	 * Method to reconstruct a complete {@link KeyValuePage} for reading as well
@@ -528,9 +527,9 @@ public enum Versioning {
 	 *         {@link KeyValuePage} for reading and one for writing
 	 */
 	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
-			final @Nonnull List<T> pages, final @Nonnegative int revsToRestore,
-			final @Nonnull PageReadTrx pageReadTrx,
-			final @Nonnull PageReference reference);
+			final List<T> pages, final @Nonnegative int revsToRestore,
+			final PageReadTrx pageReadTrx,
+			final PageReference reference);
 
 	/**
 	 * Get all revision root page numbers which are needed to restore a

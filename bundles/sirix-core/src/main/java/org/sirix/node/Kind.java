@@ -38,7 +38,6 @@ import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -81,8 +80,8 @@ public enum Kind implements RecordPersistenter {
 	/** Node kind is element. */
 	ELEMENT((byte) 1, ElementNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID,
 					pageReadTrx);
@@ -115,9 +114,9 @@ public enum Kind implements RecordPersistenter {
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			final ElementNode node = (ElementNode) record;
 			final Node nextNode = (Node) nextRecord;
 			serializeDelegate(node.getNodeDelegate(), nextNode, sink, pageReadTrx);
@@ -139,8 +138,8 @@ public enum Kind implements RecordPersistenter {
 	/** Node kind is attribute. */
 	ATTRIBUTE((byte) 2, AttributeNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID,
 					pageReadTrx);
@@ -160,9 +159,9 @@ public enum Kind implements RecordPersistenter {
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			final AttributeNode node = (AttributeNode) record;
 			final Node nextNode = (Node) nextRecord;
 			serializeDelegate(node.getNodeDelegate(), nextNode, sink, pageReadTrx);
@@ -174,8 +173,8 @@ public enum Kind implements RecordPersistenter {
 	/** Node kind is namespace. */
 	NAMESPACE((byte) 13, NamespaceNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID,
 					pageReadTrx);
@@ -187,9 +186,9 @@ public enum Kind implements RecordPersistenter {
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			final NamespaceNode node = (NamespaceNode) record;
 			final Node nextNode = (Node) nextRecord;
 			serializeDelegate(node.getNodeDelegate(), nextNode, sink, pageReadTrx);
@@ -200,8 +199,8 @@ public enum Kind implements RecordPersistenter {
 	/** Node kind is text. */
 	TEXT((byte) 3, TextNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID,
 					pageReadTrx);
@@ -224,9 +223,9 @@ public enum Kind implements RecordPersistenter {
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			final TextNode node = (TextNode) record;
 			final Node nextNode = (Node) nextRecord;
 			serializeDelegate(node.getNodeDelegate(), nextNode, sink, pageReadTrx);
@@ -241,8 +240,8 @@ public enum Kind implements RecordPersistenter {
 	/** Node kind is processing instruction. */
 	PROCESSING_INSTRUCTION((byte) 7, PINode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID,
 					pageReadTrx);
@@ -265,9 +264,9 @@ public enum Kind implements RecordPersistenter {
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			final PINode node = (PINode) record;
 			final Node nextNode = (Node) nextRecord;
 			serializeDelegate(node.getNodeDelegate(), nextNode, sink, pageReadTrx);
@@ -280,8 +279,8 @@ public enum Kind implements RecordPersistenter {
 	/** Node kind is comment. */
 	COMMENT((byte) 8, CommentNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegate(source, recordID,
 					pageReadTrx);
@@ -304,9 +303,9 @@ public enum Kind implements RecordPersistenter {
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			final CommentNode node = (CommentNode) record;
 			final Node nextNode = (Node) nextRecord;
 			serializeDelegate(node.getNodeDelegate(), nextNode, sink, pageReadTrx);
@@ -322,8 +321,8 @@ public enum Kind implements RecordPersistenter {
 	// Virtualize document root node?
 	DOCUMENT((byte) 9, DocumentRootNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			final NodeDelegate nodeDel = new NodeDelegate(
 					Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
 					Fixed.NULL_NODE_KEY.getStandardProperty(), source.readLong(),
@@ -336,9 +335,9 @@ public enum Kind implements RecordPersistenter {
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput pSink,
-				final @Nonnull Record precord, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput pSink,
+				final Record precord, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			final DocumentRootNode node = (DocumentRootNode) precord;
 			pSink.writeLong(node.getHash());
 			putVarLong(pSink, node.getRevision());
@@ -351,15 +350,15 @@ public enum Kind implements RecordPersistenter {
 	/** Whitespace text. */
 	WHITESPACE((byte) 4, null) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 	},
@@ -367,17 +366,17 @@ public enum Kind implements RecordPersistenter {
 	/** Node kind is deleted node. */
 	DELETE((byte) 5, DeletedNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			final NodeDelegate delegate = new NodeDelegate(recordID, 0, 0, 0,
 					Optional.<SirixDeweyID> absent());
 			return new DeletedNode(delegate);
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			// DeletedNode node = (DeletedNode) record;
 			// putVarLong(sink, node.getNodeKey());
 		}
@@ -386,15 +385,15 @@ public enum Kind implements RecordPersistenter {
 	/** NullNode to support the Null Object pattern. */
 	NULL((byte) 6, NullNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput ink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput ink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 	},
@@ -402,16 +401,16 @@ public enum Kind implements RecordPersistenter {
 	/** Dumb node for testing. */
 	DUMB((byte) 20, DumbNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			// final long nodeKey = getVarLong(source);
 			return new DumbNode(recordID);
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			// putVarLong(sink, record.getNodeKey());
 		}
 	},
@@ -419,15 +418,15 @@ public enum Kind implements RecordPersistenter {
 	/** AtomicKind. */
 	ATOMIC((byte) 15, AtomicValue.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 	},
@@ -435,8 +434,8 @@ public enum Kind implements RecordPersistenter {
 	/** Node kind is path node. */
 	PATH((byte) 16, PathNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source,
 					recordID, pageReadTrx);
@@ -452,9 +451,9 @@ public enum Kind implements RecordPersistenter {
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			final PathNode node = (PathNode) record;
 			final Node nextNode = (Node) nextRecord;
 			serializeDelegate(node.getNodeDelegate(), nextNode, sink, pageReadTrx);
@@ -469,8 +468,8 @@ public enum Kind implements RecordPersistenter {
 	/** Node kind is an AVL node. */
 	AVL((byte) 17, AVLNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			final int valueSize = source.readInt();
 			final byte[] value = new byte[valueSize];
 			source.readFully(value, 0, valueSize);
@@ -500,9 +499,9 @@ public enum Kind implements RecordPersistenter {
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			@SuppressWarnings("unchecked")
 			final AVLNode<CASValue, NodeReferences> node = (AVLNode<CASValue, NodeReferences>) record;
 			final CASValue key = node.getKey();
@@ -542,15 +541,15 @@ public enum Kind implements RecordPersistenter {
 	/** Node includes a deweyID <=> nodeKey mapping. */
 	DEWEYIDMAPPING((byte) 23, DeweyIDMappingNode.class) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 	},
@@ -558,15 +557,15 @@ public enum Kind implements RecordPersistenter {
 	/** Node type not known. */
 	UNKNOWN((byte) 22, null) {
 		@Override
-		public Record deserialize(final @Nonnull ByteArrayDataInput source,
-				final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
-		public void serialize(final @Nonnull ByteArrayDataOutput sink,
-				final @Nonnull Record record, final @Nullable Record nextRecord,
-				final @Nonnull PageReadTrx pageReadTrx) {
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
 			throw new UnsupportedOperationException();
 		}
 	};
@@ -598,7 +597,7 @@ public enum Kind implements RecordPersistenter {
 	 * @param clazz
 	 *          class
 	 */
-	private Kind(final byte id, final @Nonnull Class<? extends Record> clazz) {
+	private Kind(final byte id, final Class<? extends Record> clazz) {
 		mId = id;
 		mClass = clazz;
 	}
@@ -639,7 +638,7 @@ public enum Kind implements RecordPersistenter {
 	 *          the class for the node
 	 * @return the related node
 	 */
-	public static Kind getKind(final @Nonnull Class<? extends Record> clazz) {
+	public static Kind getKind(final Class<? extends Record> clazz) {
 		return INSTANCEFORCLASS.get(clazz);
 	}
 
@@ -653,8 +652,8 @@ public enum Kind implements RecordPersistenter {
 	 * @return {@link NodeDelegate} instance
 	 */
 	private static final NodeDelegate deserializeNodeDelegateWithoutIDs(
-			final @Nonnull ByteArrayDataInput source,
-			final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+			final ByteArrayDataInput source,
+			final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 		final long nodeKey = recordID;
 		final long parentKey = nodeKey - getVarLong(source);
 		final long hash = source.readLong();
@@ -673,8 +672,8 @@ public enum Kind implements RecordPersistenter {
 	 * @return {@link NodeDelegate} instance
 	 */
 	private static final NodeDelegate deserializeNodeDelegate(
-			final @Nonnull ByteArrayDataInput source,
-			final @Nonnegative long recordID, final @Nonnull PageReadTrx pageReadTrx) {
+			final ByteArrayDataInput source,
+			final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
 		final long nodeKey = recordID;
 		final long parentKey = nodeKey - getVarLong(source);
 		final long hash = source.readLong();
@@ -703,9 +702,9 @@ public enum Kind implements RecordPersistenter {
 	 * @param {@link ResourceConfiguration} instance
 	 */
 	private static final void serializeDelegate(
-			final @Nonnull NodeDelegate nodeDel, final @Nonnull Node nextNode,
-			final @Nonnull ByteArrayDataOutput sink,
-			final @Nonnull PageReadTrx pageReadTrx) {
+			final NodeDelegate nodeDel, final Node nextNode,
+			final ByteArrayDataOutput sink,
+			final PageReadTrx pageReadTrx) {
 		putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getParentKey());
 		sink.writeLong(nodeDel.getHash());
 		putVarLong(sink, nodeDel.getRevision());
@@ -751,8 +750,8 @@ public enum Kind implements RecordPersistenter {
 	 * @param i
 	 *          the index from which to start the copy of the array
 	 */
-	private static void writeDeweyID(final @Nonnull ByteArrayDataOutput sink,
-			final @Nonnull byte[] deweyID, final @Nonnegative int i) {
+	private static void writeDeweyID(final ByteArrayDataOutput sink,
+			final byte[] deweyID, final @Nonnegative int i) {
 		sink.writeByte(deweyID.length - i - 1);
 		sink.write(Arrays.copyOfRange(deweyID, i, deweyID.length));
 	}
@@ -766,8 +765,8 @@ public enum Kind implements RecordPersistenter {
 	 *          to serialize to
 	 */
 	private static final void serializeStrucDelegate(
-			final @Nonnull StructNodeDelegate nodeDel,
-			final @Nonnull ByteArrayDataOutput sink) {
+			final StructNodeDelegate nodeDel,
+			final ByteArrayDataOutput sink) {
 		putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getRightSiblingKey());
 		putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getLeftSiblingKey());
 		putVarLong(sink, nodeDel.getNodeKey() - nodeDel.getFirstChildKey());
@@ -785,8 +784,8 @@ public enum Kind implements RecordPersistenter {
 	 * @return {@link StructNodeDelegate} instance
 	 */
 	private static final StructNodeDelegate deserializeStructDel(
-			final @Nonnull NodeDelegate nodeDel,
-			final @Nonnull ByteArrayDataInput source) {
+			final NodeDelegate nodeDel,
+			final ByteArrayDataInput source) {
 		final long currKey = nodeDel.getNodeKey();
 		final long rightSibl = currKey - getVarLong(source);
 		final long leftSibl = currKey - getVarLong(source);
@@ -807,8 +806,8 @@ public enum Kind implements RecordPersistenter {
 	 * @return {@link NameNodeDelegate} instance
 	 */
 	private static final NameNodeDelegate deserializeNameDelegate(
-			final @Nonnull NodeDelegate nodeDel,
-			final @Nonnull ByteArrayDataInput source) {
+			final NodeDelegate nodeDel,
+			final ByteArrayDataInput source) {
 		final int uriKey = source.readInt();
 		int prefixKey = source.readInt();
 		// prefixKey += uriKey;
@@ -827,8 +826,8 @@ public enum Kind implements RecordPersistenter {
 	 *          to serialize to
 	 */
 	private static final void serializeNameDelegate(
-			final @Nonnull NameNodeDelegate nameDel,
-			final @Nonnull ByteArrayDataOutput sink) {
+			final NameNodeDelegate nameDel,
+			final ByteArrayDataOutput sink) {
 		sink.writeInt(nameDel.getURIKey());
 		sink.writeInt(nameDel.getPrefixKey()); // - nameDel.getURIKey());
 		sink.writeInt(nameDel.getLocalNameKey());// - nameDel.getPrefixKey());
@@ -844,8 +843,8 @@ public enum Kind implements RecordPersistenter {
 	 *          to serialize to
 	 */
 	private static final void serializeValDelegate(
-			final @Nonnull ValNodeDelegate valueDel,
-			final @Nonnull ByteArrayDataOutput sink) {
+			final ValNodeDelegate valueDel,
+			final ByteArrayDataOutput sink) {
 		final boolean isCompressed = valueDel.isCompressed();
 		sink.writeByte(isCompressed ? (byte) 1 : (byte) 0);
 		final byte[] value = isCompressed ? valueDel.getCompressed() : valueDel
@@ -874,7 +873,7 @@ public enum Kind implements RecordPersistenter {
 		 * @param pHash
 		 *          to be set
 		 */
-		public DumbNode(final @Nonnull long nodeKey) {
+		public DumbNode(final long nodeKey) {
 			mNodeKey = nodeKey;
 		}
 

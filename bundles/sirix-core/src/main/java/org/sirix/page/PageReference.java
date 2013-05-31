@@ -27,7 +27,6 @@
 
 package org.sirix.page;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.cache.IndirectPageLogKey;
@@ -71,7 +70,7 @@ public final class PageReference {
 	 * @param reference
 	 *          {@link PageReference} to copy
 	 */
-	public PageReference(final @Nonnull PageReference reference) {
+	public PageReference(final PageReference reference) {
 		mLogKey = reference.mLogKey;
 		mPage = reference.mPage;
 		mKeyValuePageKey = reference.mKeyValuePageKey;
@@ -147,7 +146,7 @@ public final class PageReference {
 	 * @param logKey
 	 *          the {@link IndirectPageLogKey}
 	 */
-	public void setLogKey(final @Nonnull IndirectPageLogKey logKey) {
+	public void setLogKey(final IndirectPageLogKey logKey) {
 		mLogKey = logKey;
 	}
 

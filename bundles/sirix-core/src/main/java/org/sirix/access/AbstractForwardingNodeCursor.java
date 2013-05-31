@@ -1,7 +1,5 @@
 package org.sirix.access;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeCursor;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
@@ -26,7 +24,7 @@ public abstract class AbstractForwardingNodeCursor extends ForwardingObject impl
 	protected abstract NodeCursor delegate();
 	
 	@Override
-	public VisitResult acceptVisitor(@Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(Visitor visitor) {
 		return delegate().acceptVisitor(visitor);
 	}
 

@@ -24,6 +24,6 @@ public interface PathIndex<K extends Comparable<? super K>, V extends References
 			@Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			@Nonnull PathSummaryReader pathSummaryReader, @Nonnull IndexDef indexDef);
 
-	Iterator<Optional<V>> openIndex(@Nonnull PageReadTrx pageReadTrx,
+	Iterator<Optional<V>> openIndex(PageReadTrx pageReadTrx,
 			@Nonnull K key, @Nonnull IndexDef indexDef, @Nonnull SearchMode mode);
 }

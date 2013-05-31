@@ -40,8 +40,8 @@ public final class PageUtils {
 	 *          the page kind
 	 */
 	public static <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createTree(
-			@Nonnull PageReference reference, final @Nonnull PageKind pageKind,
-			final int index, final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
+			@Nonnull PageReference reference, final PageKind pageKind,
+			final int index, final PageWriteTrx<K, V, S> pageWriteTrx) {
 		Page page = null;
 
 		// Level page count exponent from the configuration.

@@ -29,8 +29,6 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
@@ -99,7 +97,7 @@ public final class UberPage extends AbstractForwardingPage {
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} reference
 	 */
-	protected UberPage(final @Nonnull ByteArrayDataInput in) {
+	protected UberPage(final ByteArrayDataInput in) {
 		mDelegate = new PageDelegate(1, in);
 		mRevisionCount = in.readInt();
 		mRevision = mRevisionCount == 0 ? 0 : mRevisionCount - 1;
@@ -115,7 +113,7 @@ public final class UberPage extends AbstractForwardingPage {
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} reference
 	 */
-	public UberPage(final @Nonnull UberPage commitedUberPage) {
+	public UberPage(final UberPage commitedUberPage) {
 		mDelegate = new PageDelegate(commitedUberPage);
 		if (commitedUberPage.isBootstrap()) {
 			mRevision = commitedUberPage.mRevision;
@@ -189,7 +187,7 @@ public final class UberPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+	public void serialize(final ByteArrayDataOutput out) {
 		mBootstrap = false;
 		mDelegate.serialize(checkNotNull(out));
 		out.writeInt(mRevisionCount);
@@ -224,7 +222,7 @@ public final class UberPage extends AbstractForwardingPage {
 	 *          {@link RevisionRootPage} instance
 	 */
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createRevisionTree(
-			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) {
+			final PageWriteTrx<K, V, S> pageWriteTrx) {
 		// Initialize revision tree to guarantee that there is a revision root page.
 		Page page = null;
 
@@ -247,7 +245,7 @@ public final class UberPage extends AbstractForwardingPage {
 	 *          page to lookup the exponent in the constant definition
 	 * @return page count exponent
 	 */
-	public int[] getPageCountExp(final @Nonnull PageKind pageKind) {
+	public int[] getPageCountExp(final PageKind pageKind) {
 		int[] inpLevelPageCountExp = new int[0];
 		switch (pageKind) {
 		case PATHSUMMARYPAGE:

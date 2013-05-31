@@ -32,7 +32,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
@@ -90,7 +89,7 @@ public final class Matching {
 	 * @param match
 	 *          the original {@link Matching} reference
 	 */
-	public Matching(final @Nonnull Matching match) {
+	public Matching(final Matching match) {
 		mMapping = new HashMap<>(match.mMapping);
 		mReverseMapping = new HashMap<>(match.mReverseMapping);
 		mIsInSubtree = new ConnectionMap<>(match.mIsInSubtree);
@@ -138,7 +137,7 @@ public final class Matching {
 	 *          {@link NodeReadTrx} reference
 	 */
 	private void updateSubtreeMap(final @Nonnegative long key,
-			final @Nonnull NodeReadTrx rtx) {
+			final NodeReadTrx rtx) {
 		assert key >= 0;
 		assert rtx != null;
 

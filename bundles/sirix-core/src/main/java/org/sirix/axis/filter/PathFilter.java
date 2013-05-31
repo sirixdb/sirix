@@ -4,8 +4,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Set;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -47,8 +45,8 @@ public final class PathFilter extends AbstractFilter {
 	 * @param paths
 	 *          paths to match
 	 */
-	public PathFilter(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull Set<Path<QNm>> paths) {
+	public PathFilter(final NodeReadTrx rtx,
+			final Set<Path<QNm>> paths) {
 		super(rtx);
 		mPaths = checkNotNull(paths);
 		mGenericPath = mPaths.isEmpty();

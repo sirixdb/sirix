@@ -44,7 +44,6 @@ import java.io.UnsupportedEncodingException;
 import java.util.concurrent.ConcurrentMap;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
@@ -119,10 +118,10 @@ public final class XMLSerializer extends AbstractSerializer {
 	 * @param revsions
 	 *          further revisions to serialize
 	 */
-	private XMLSerializer(final @Nonnull Session session,
+	private XMLSerializer(final Session session,
 			final @Nonnegative long nodeKey,
-			final @Nonnull XMLSerializerBuilder builder,
-			final @Nonnegative int revision, final @Nonnull int... revsions) {
+			final XMLSerializerBuilder builder,
+			final @Nonnegative int revision, final int... revsions) {
 		super(session, nodeKey, revision, revsions);
 		mOut = new BufferedOutputStream(builder.mStream, 4096);
 		mIndent = builder.mIndent;
@@ -139,7 +138,7 @@ public final class XMLSerializer extends AbstractSerializer {
 	 *          Sirix {@link NodeReadTrx}
 	 */
 	@Override
-	protected void emitStartElement(final @Nonnull NodeReadTrx rtx) {
+	protected void emitStartElement(final NodeReadTrx rtx) {
 		try {
 			switch (rtx.getKind()) {
 			case DOCUMENT:
@@ -248,7 +247,7 @@ public final class XMLSerializer extends AbstractSerializer {
 	 *          Sirix {@link NodeReadTrx}
 	 */
 	@Override
-	protected void emitEndElement(final @Nonnull NodeReadTrx rtx) {
+	protected void emitEndElement(final NodeReadTrx rtx) {
 		try {
 			indent();
 			mOut.write(CharsForSerializing.OPEN_SLASH.getBytes());
@@ -263,7 +262,7 @@ public final class XMLSerializer extends AbstractSerializer {
 	}
 
 	// Write a QName.
-	private void writeQName(final @Nonnull NodeReadTrx rtx) throws IOException {
+	private void writeQName(final NodeReadTrx rtx) throws IOException {
 		if (rtx.getPrefixKey() != -1) {
 			mOut.write(rtx.rawNameForKey(rtx.getPrefixKey()));
 			mOut.write(CharsForSerializing.COLON.getBytes());
@@ -359,7 +358,7 @@ public final class XMLSerializer extends AbstractSerializer {
 	 * @throws UnsupportedEncodingException
 	 *           if unsupport encoding
 	 */
-	protected void write(final @Nonnull String pString)
+	protected void write(final String pString)
 			throws UnsupportedEncodingException, IOException {
 		mOut.write(pString.getBytes(Constants.DEFAULT_ENCODING));
 	}
@@ -434,8 +433,8 @@ public final class XMLSerializer extends AbstractSerializer {
 	 * @param revisions
 	 *          revisions to serialize
 	 */
-	public static XMLSerializerBuilder newBuilder(final @Nonnull Session session,
-			final @Nonnull OutputStream stream, final int... revisions) {
+	public static XMLSerializerBuilder newBuilder(final Session session,
+			final OutputStream stream, final int... revisions) {
 		return new XMLSerializerBuilder(session, stream, revisions);
 	}
 
@@ -453,9 +452,9 @@ public final class XMLSerializer extends AbstractSerializer {
 	 * @param revisions
 	 *          revisions to serialize
 	 */
-	public static XMLSerializerBuilder newBuilder(final @Nonnull Session session,
-			final @Nonnegative long nodeKey, final @Nonnull OutputStream stream,
-			final @Nonnull XMLSerializerProperties properties, final int... revisions) {
+	public static XMLSerializerBuilder newBuilder(final Session session,
+			final @Nonnegative long nodeKey, final OutputStream stream,
+			final XMLSerializerProperties properties, final int... revisions) {
 		return new XMLSerializerBuilder(session, nodeKey, stream, properties,
 				revisions);
 	}
@@ -514,8 +513,8 @@ public final class XMLSerializer extends AbstractSerializer {
 		 * @param revisions
 		 *          revisions to serialize
 		 */
-		public XMLSerializerBuilder(final @Nonnull Session session,
-				final @Nonnull OutputStream stream, final int... revisions) {
+		public XMLSerializerBuilder(final Session session,
+				final OutputStream stream, final int... revisions) {
 			mNodeKey = 0;
 			mSession = checkNotNull(session);
 			mStream = checkNotNull(stream);
@@ -544,9 +543,9 @@ public final class XMLSerializer extends AbstractSerializer {
 		 * @param revisions
 		 *          revisions to serialize
 		 */
-		public XMLSerializerBuilder(final @Nonnull Session session,
-				final @Nonnegative long nodeKey, final @Nonnull OutputStream stream,
-				final @Nonnull XMLSerializerProperties properties,
+		public XMLSerializerBuilder(final Session session,
+				final @Nonnegative long nodeKey, final OutputStream stream,
+				final XMLSerializerProperties properties,
 				final int... revisions) {
 			checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
 			mSession = checkNotNull(session);

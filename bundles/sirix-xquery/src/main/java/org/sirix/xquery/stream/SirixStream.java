@@ -33,8 +33,8 @@ public class SirixStream implements Stream<DBNode> {
 	 * @param collection
 	 *          {@link DBCollection} the nodes belong to
 	 */
-	public SirixStream(final @Nonnull Axis axis,
-			final @Nonnull DBCollection collection) {
+	public SirixStream(final Axis axis,
+			final DBCollection collection) {
 		mAxis = checkNotNull(axis);
 		mCollection = checkNotNull(collection);
 	}

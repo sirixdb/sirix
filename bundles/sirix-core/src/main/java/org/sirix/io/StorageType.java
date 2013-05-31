@@ -28,8 +28,6 @@ package org.sirix.io;
 
 import java.io.RandomAccessFile;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
@@ -48,7 +46,7 @@ public enum StorageType {
 	/** In memory backend. */
 	IN_MEMORY {
 		@Override
-		public Storage getInstance(final @Nonnull ResourceConfiguration resourceConf)
+		public Storage getInstance(final ResourceConfiguration resourceConf)
 				throws SirixIOException {
 			return new RAMStorage(resourceConf);
 		}
@@ -57,7 +55,7 @@ public enum StorageType {
 	/** {@link RandomAccessFile} backend. */
 	FILE {
 		@Override
-		public Storage getInstance(final @Nonnull ResourceConfiguration resourceConf)
+		public Storage getInstance(final ResourceConfiguration resourceConf)
 				throws SirixIOException {
 			return new FileStorage(resourceConf);
 		}
@@ -66,7 +64,7 @@ public enum StorageType {
 	/** BerkeleyDB backend. */
 	BERKELEY_DB {
 		@Override
-		public Storage getInstance(final @Nonnull ResourceConfiguration resourceConf)
+		public Storage getInstance(final ResourceConfiguration resourceConf)
 				throws SirixIOException {
 			return new BerkeleyStorage(resourceConf);
 		}
@@ -83,7 +81,7 @@ public enum StorageType {
 	 *           if an IO-error occured
 	 */
 	public abstract Storage getInstance(
-			final @Nonnull ResourceConfiguration resourceConf)
+			final ResourceConfiguration resourceConf)
 			throws SirixIOException;
 
 	/**
@@ -99,7 +97,7 @@ public enum StorageType {
 	 *           if {@code pResourceConf} is {@code null}
 	 */
 	public static final Storage getStorage(
-			final @Nonnull ResourceConfiguration resourceConf)
+			final ResourceConfiguration resourceConf)
 			throws SirixIOException {
 		return resourceConf.mStorage.getInstance(resourceConf);
 	}

@@ -2,7 +2,6 @@ package org.sirix.node.immutable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResult;
@@ -32,7 +31,7 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode {
 	 * @param node
 	 *          {@link TextNode} to wrap
 	 */
-	private ImmutableText(final @Nonnull TextNode node) {
+	private ImmutableText(final TextNode node) {
 		mNode = checkNotNull(node);
 	}
 
@@ -43,7 +42,7 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode {
 	 *          the mutable {@link TextNode} to wrap
 	 * @return immutable text node instance
 	 */
-	public static ImmutableText of(final @Nonnull TextNode node) {
+	public static ImmutableText of(final TextNode node) {
 		return new ImmutableText(node);
 	}
 
@@ -58,7 +57,7 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode {
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(final Visitor visitor) {
 		return visitor.visit(this);
 	}
 

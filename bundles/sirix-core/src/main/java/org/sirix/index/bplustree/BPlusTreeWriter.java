@@ -14,8 +14,8 @@
 //	private final BPlusTreePageWriteTrx mPageWriteTrx;
 //	private final PageKind mKind;
 //
-//	private BPlusTreeWriter(final @Nonnull BPlusTreePageWriteTrx pageWriteTrx,
-//			final @Nonnull PageKind kind) {
+//	private BPlusTreeWriter(final BPlusTreePageWriteTrx pageWriteTrx,
+//			final PageKind kind) {
 //		mPageWriteTrx = pageWriteTrx;
 //		mKind = kind;
 //	}
@@ -30,7 +30,7 @@
 //	 * @return new tree instance
 //	 */
 //	public static <KE extends Comparable<? super KE>, VA> BPlusTreeWriter<KE, VA> getInstance(
-//			final @Nonnull BPlusTreePageWriteTrx pageWriteTrx, final @Nonnull PageKind kind) {
+//			final BPlusTreePageWriteTrx pageWriteTrx, final PageKind kind) {
 //		return new BPlusTreeWriter<KE, VA>(checkNotNull(pageWriteTrx), checkNotNull(kind));
 //	}
 //	

@@ -7,8 +7,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.exception.SirixIOException;
 
 /**
@@ -28,7 +26,7 @@ public final class ByteHandlePipeline implements ByteHandler {
 	 * @param pipeline
 	 *          pipeline to copy
 	 */
-	public ByteHandlePipeline(final @Nonnull ByteHandlePipeline pipeline) {
+	public ByteHandlePipeline(final ByteHandlePipeline pipeline) {
 		mParts = new ArrayList<>(pipeline.mParts.size());
 		for (final ByteHandler handler : pipeline.mParts) {
 			mParts.add(handler.getInstance());
@@ -42,7 +40,7 @@ public final class ByteHandlePipeline implements ByteHandler {
 	 * @param parts
 	 *          to be stored, Order is important!
 	 */
-	public ByteHandlePipeline(final @Nonnull ByteHandler... parts) {
+	public ByteHandlePipeline(final ByteHandler... parts) {
 		mParts = new ArrayList<>();
 		for (final ByteHandler part : parts) {
 			mParts.add(part);
@@ -50,7 +48,7 @@ public final class ByteHandlePipeline implements ByteHandler {
 	}
 
 	@Override
-	public byte[] serialize(final @Nonnull byte[] toSerialize)
+	public byte[] serialize(final byte[] toSerialize)
 			throws SirixIOException {
 		byte[] pipeData = toSerialize;
 		for (final ByteHandler part : mParts) {
@@ -60,7 +58,7 @@ public final class ByteHandlePipeline implements ByteHandler {
 	}
 
 	@Override
-	public byte[] deserialize(final @Nonnull byte[] toDeserialize)
+	public byte[] deserialize(final byte[] toDeserialize)
 			throws SirixIOException {
 		byte[] pipeData = toDeserialize;
 		for (int i = mParts.size() - 1; i >= 0; i--) {

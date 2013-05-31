@@ -1,7 +1,5 @@
 package org.sirix.axis.concurrent;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.xpath.EXPathError;
@@ -24,7 +22,7 @@ public final class Util {
 	 * @return the next result of the axis. If the axis has no next result, the
 	 *         null node key is returned.
 	 */
-	public static long getNext(final @Nonnull Axis axis) {
+	public static long getNext(final Axis axis) {
 		return (axis.hasNext()) ? axis.next() : Fixed.NULL_NODE_KEY
 				.getStandardProperty();
 	}

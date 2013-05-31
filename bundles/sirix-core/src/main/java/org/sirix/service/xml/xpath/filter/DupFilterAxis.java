@@ -32,9 +32,9 @@ import java.util.Set;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.axis.NestedAxis;
 import org.sirix.axis.filter.FilterAxis;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 
 /**

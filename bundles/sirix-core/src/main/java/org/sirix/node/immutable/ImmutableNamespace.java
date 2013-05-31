@@ -2,7 +2,6 @@ package org.sirix.node.immutable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -33,7 +32,7 @@ public class ImmutableNamespace implements ImmutableNameNode {
 	 * @param node
 	 *          {@link NamespaceNode} to wrap
 	 */
-	private ImmutableNamespace(final @Nonnull NamespaceNode node) {
+	private ImmutableNamespace(final NamespaceNode node) {
 		mNode = checkNotNull(node);
 	}
 
@@ -44,7 +43,7 @@ public class ImmutableNamespace implements ImmutableNameNode {
 	 *          the mutable {@link NamespaceNode} to wrap
 	 * @return immutable namespace node instance
 	 */
-	public static ImmutableNamespace of(final @Nonnull NamespaceNode node) {
+	public static ImmutableNamespace of(final NamespaceNode node) {
 		return new ImmutableNamespace(node);
 	}
 
@@ -59,7 +58,7 @@ public class ImmutableNamespace implements ImmutableNameNode {
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor pVisitor) {
+	public VisitResult acceptVisitor(final Visitor pVisitor) {
 		return pVisitor.visit(this);
 	}
 

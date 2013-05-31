@@ -2,8 +2,6 @@ package org.sirix.node;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NodeDelegate;
@@ -28,7 +26,7 @@ import org.sirix.node.delegates.NodeDelegate;
 		 * @param nodeDelegate
 		 *          node delegate
 		 */
-		public DeweyIDMappingNode(@Nonnull final NodeDelegate nodeDelegate) {
+		public DeweyIDMappingNode(final NodeDelegate nodeDelegate) {
 			mDelegate = checkNotNull(nodeDelegate);
 		}
 
@@ -38,7 +36,7 @@ import org.sirix.node.delegates.NodeDelegate;
 		}
 
 		@Override
-		public VisitResult acceptVisitor(@Nonnull Visitor visitor) {
+		public VisitResult acceptVisitor(Visitor visitor) {
 			throw new UnsupportedOperationException();
 		}
 

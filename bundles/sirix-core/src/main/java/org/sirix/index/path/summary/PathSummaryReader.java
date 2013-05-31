@@ -96,8 +96,8 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 * @param session
 	 *          {@link Session} reference
 	 */
-	private PathSummaryReader(final @Nonnull PageReadTrx pageReadTrx,
-			final @Nonnull Session session) {
+	private PathSummaryReader(final PageReadTrx pageReadTrx,
+			final Session session) {
 		mPathCache = new HashMap<>();
 		mPageReadTrx = pageReadTrx;
 		mClosed = false;
@@ -143,14 +143,14 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 * @return new path summary reader instance
 	 */
 	public static final PathSummaryReader getInstance(
-			final @Nonnull PageReadTrx pageReadTrx, final @Nonnull Session session) {
+			final PageReadTrx pageReadTrx, final Session session) {
 		return new PathSummaryReader(checkNotNull(pageReadTrx),
 				checkNotNull(session));
 	}
 
 	// package private, only used in writer to keep the mapping always up-to-date
 	void putMapping(final @Nonnegative long pathNodeKey,
-			final @Nonnull StructNode node) {
+			final StructNode node) {
 		mPathNodeMapping.put(pathNodeKey, node);
 	}
 
@@ -160,7 +160,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	// package private, only used in writer to keep the mapping always up-to-date
-	void putQNameMapping(final @Nonnull PathNode node, final @Nonnull QNm name) {
+	void putQNameMapping(final PathNode node, final QNm name) {
 		final Set<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<PathNode>()
 				: mQNmMapping.get(name);
 		pathNodes.add(node);
@@ -169,7 +169,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 
 	// package private, only used in writer to keep the mapping always up-to-date
 	void removeQNameMapping(final @Nonnegative PathNode node,
-			final @Nonnull QNm name) {
+			final QNm name) {
 		final Set<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<PathNode>()
 				: mQNmMapping.get(name);
 		if (pathNodes.size() == 1) {
@@ -191,8 +191,8 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 * @return a set with bits set for each matching path node (its
 	 *         {@code pathNodeKey})
 	 */
-	public BitSet matchDescendants(final @Nonnull QNm name,
-			final @Nonnegative long pathNodeKey, final @Nonnull IncludeSelf inclSelf) {
+	public BitSet matchDescendants(final QNm name,
+			final @Nonnegative long pathNodeKey, final IncludeSelf inclSelf) {
 		assertNotClosed();
 		final Set<PathNode> set = mQNmMapping.get(name);
 		if (set == null) {
@@ -217,7 +217,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 *          minimum level
 	 * @return a set with bits set for each matching path node
 	 */
-	public BitSet match(final @Nonnull QNm name, final @Nonnegative int minLevel) {
+	public BitSet match(final QNm name, final @Nonnegative int minLevel) {
 		assertNotClosed();
 		final Set<PathNode> set = mQNmMapping.get(name);
 		if (set == null) {
@@ -289,7 +289,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public Set<Long> getPCRsForPath(final @Nonnull Path<QNm> path)
+	public Set<Long> getPCRsForPath(final Path<QNm> path)
 			throws PathException {
 		Set<Long> pcrSet = mPathCache.get(path);
 
@@ -535,7 +535,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public int keyForName(final @Nonnull String pName) {
+	public int keyForName(final String pName) {
 		assertNotClosed();
 		return NamePageHash.generateHashForString(pName);
 	}
@@ -604,7 +604,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public int getNameCount(@Nonnull String name, @Nonnull Kind kind) {
+	public int getNameCount(String name, @Nonnull Kind kind) {
 		assertNotClosed();
 		return mPageReadTrx.getNameCount(NamePageHash.generateHashForString(name),
 				kind);
@@ -685,7 +685,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResultType acceptVisitor(final Visitor visitor) {
 		throw new UnsupportedOperationException();
 	}
 

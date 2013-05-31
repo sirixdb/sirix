@@ -43,8 +43,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnull;
 
-import org.sirix.diff.algorithm.fmse.utils.SubstitutionCost;
 import org.sirix.diff.algorithm.fmse.utils.SubCost01;
+import org.sirix.diff.algorithm.fmse.utils.SubstitutionCost;
 
 /**
  * Implements the levenstein distance function.
@@ -101,7 +101,7 @@ public final class Levenshtein {
 	 * @return the estimated time in milliseconds taken to perform the similarity
 	 *         measure
 	 */
-	public float getSimilarityTimingEstimated(@Nonnull final String pFirst,
+	public float getSimilarityTimingEstimated(final String pFirst,
 			@Nonnull final String pSecond) {
 		// timed millisecond times with string lengths from 1 + 50 each increment
 		// 0 0.31 1.12 2.4 4.41 6.77 11.28 14.5 24.33 31.29 43.6 51 54.5 67.67 68 78
@@ -130,7 +130,7 @@ public final class Levenshtein {
 	 * @throws NullPointerException
 	 *           if {@code pFirst} or {@code pSecond} is {@code null}
 	 */
-	public float getSimilarity(@Nonnull final String pFirst,
+	public float getSimilarity(final String pFirst,
 			@Nonnull final String pSecond) {
 		checkNotNull(pFirst);
 		checkNotNull(pSecond);
@@ -190,7 +190,7 @@ public final class Levenshtein {
 	 *          second string to compare
 	 * @return the levenstein distance between given strings
 	 */
-	private float getUnNormalisedSimilarity(@Nonnull final String s,
+	private float getUnNormalisedSimilarity(final String s,
 			@Nonnull final String t) {
 		assert s != null;
 		assert t != null;

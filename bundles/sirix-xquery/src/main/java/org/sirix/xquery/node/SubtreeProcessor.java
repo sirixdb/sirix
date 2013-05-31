@@ -135,7 +135,7 @@ public class SubtreeProcessor<E extends Node<E>> {
 	 * @throws DocumentException
 	 *           if anything went wrong
 	 */
-	public void notifyStartElement(final @Nonnull E node)
+	public void notifyStartElement(final E node)
 			throws DocumentException {
 		for (SubtreeListener<? super E> listener : mListeners) {
 			listener.startElement(node);
@@ -150,7 +150,7 @@ public class SubtreeProcessor<E extends Node<E>> {
 	 * @throws DocumentException
 	 *           if anything went wrong
 	 */
-	public void notifyEndElement(final @Nonnull E node) throws DocumentException {
+	public void notifyEndElement(final E node) throws DocumentException {
 		for (SubtreeListener<? super E> listener : mListeners) {
 			listener.endElement(node);
 		}
@@ -164,7 +164,7 @@ public class SubtreeProcessor<E extends Node<E>> {
 	 * @throws DocumentException
 	 *           if anything went wrong
 	 */
-	public void notifyAttribute(final @Nonnull E node) throws DocumentException {
+	public void notifyAttribute(final E node) throws DocumentException {
 		for (SubtreeListener<? super E> listener : mListeners) {
 			listener.attribute(node);
 		}
@@ -178,7 +178,7 @@ public class SubtreeProcessor<E extends Node<E>> {
 	 * @throws DocumentException
 	 *           if anything went wrong
 	 */
-	public void notifyText(final @Nonnull E node) throws DocumentException {
+	public void notifyText(final E node) throws DocumentException {
 		for (SubtreeListener<? super E> listener : mListeners) {
 			listener.text(node);
 		}
@@ -192,7 +192,7 @@ public class SubtreeProcessor<E extends Node<E>> {
 	 * @throws DocumentException
 	 *           if anything went wrong
 	 */
-	public void notifyComment(final @Nonnull E node) throws DocumentException {
+	public void notifyComment(final E node) throws DocumentException {
 		for (SubtreeListener<? super E> listener : mListeners) {
 			listener.comment(node);
 		}
@@ -206,7 +206,7 @@ public class SubtreeProcessor<E extends Node<E>> {
 	 * @throws DocumentException
 	 *           if anything went wrong
 	 */
-	public void notifyProcessingInstruction(final @Nonnull E node)
+	public void notifyProcessingInstruction(final E node)
 			throws DocumentException {
 		for (SubtreeListener<? super E> listener : mListeners) {
 			listener.processingInstruction(node);

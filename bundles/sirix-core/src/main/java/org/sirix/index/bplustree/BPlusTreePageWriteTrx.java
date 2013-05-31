@@ -73,8 +73,8 @@
 //	 * @throws SirixIOException
 //	 *           if an I/O error occured
 //	 */
-//	private BPlusTreePageWriteTrx(final @Nonnull PageReadTrx pageReadTrx,
-//			final @Nonnull BPlusPageType pageType) throws SirixIOException {
+//	private BPlusTreePageWriteTrx(final PageReadTrx pageReadTrx,
+//			final BPlusPageType pageType) throws SirixIOException {
 //		mPageReadTrx = pageReadTrx;
 //
 //		final Session session = mPageReadTrx.getSession();
@@ -113,15 +113,15 @@
 //	 *           if {@code pageWriteTrx} or {@code kind} is {@code null}, S
 //	 */
 //	public static <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> BPlusTreePageWriteTrx<K, V, S> getInstance(
-//			final @Nonnull PageReadTrx pageReadTrx,
-//			final @Nonnull BPlusPageType pageType) throws SirixIOException {
+//			final PageReadTrx pageReadTrx,
+//			final BPlusPageType pageType) throws SirixIOException {
 //		return new BPlusTreePageWriteTrx<K, V, S>(checkNotNull(pageReadTrx),
 //				checkNotNull(pageType));
 //	}
 //
 //	@Override
-//	public V createEntry(final @Nonnull K key, final @Nonnull V value,
-//			final @Nonnull PageKind pageKind, final @Nonnull Optional<S> keyValuePage)
+//	public V createEntry(final K key, final V value,
+//			final PageKind pageKind, final Optional<S> keyValuePage)
 //			throws SirixIOException {
 //		// Allocate record key and increment record count.
 //		long entryKey;
@@ -157,7 +157,7 @@
 //	 *           if an I/O error occurs
 //	 */
 //	private void prepareRecordPage(final @Nonnegative long recordPageKey,
-//			final @Nonnull PageKind pageKind, final @Nonnull S keyValuePage)
+//			final PageKind pageKind, final S keyValuePage)
 //			throws SirixIOException {
 //		assert recordPageKey >= 0;
 //		assert pageKind != null;
@@ -223,8 +223,8 @@
 //	 * @param pPage
 //	 *          the page type to determine the right subtree
 //	 */
-//	PageReference getPageReference(final @Nonnull RevisionRootPage revisionRoot,
-//			final @Nonnull PageKind pPage) throws SirixIOException {
+//	PageReference getPageReference(final RevisionRootPage revisionRoot,
+//			final PageKind pPage) throws SirixIOException {
 //		assert revisionRoot != null;
 //		PageReference ref = null;
 //		switch (pPage) {
@@ -262,7 +262,7 @@
 //
 //	@Override
 //	public V prepareEntryForModification(K key, PageKind page,
-//			final @Nonnull Optional<S> keyValuePage) throws SirixIOException {
+//			final Optional<S> keyValuePage) throws SirixIOException {
 //		// TODO Auto-generated method stub
 //		return null;
 //	}
@@ -270,7 +270,7 @@
 //
 //	@Override
 //	public void removeEntry(K key, PageKind pageKind,
-//			final @Nonnull Optional<S> keyValuePage) throws SirixIOException {
+//			final Optional<S> keyValuePage) throws SirixIOException {
 //		// TODO Auto-generated method stub
 //
 //	}

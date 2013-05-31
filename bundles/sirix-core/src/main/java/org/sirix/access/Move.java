@@ -2,8 +2,6 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeCursor;
 
 /**
@@ -28,7 +26,7 @@ public abstract class Move<T extends NodeCursor> {
 	/**
 	 * Returns a {@code Moved} instance containing the given non-null reference.
 	 */
-	public static <T extends NodeCursor> Moved<T> moved(final @Nonnull T moved) {
+	public static <T extends NodeCursor> Moved<T> moved(final T moved) {
 		return new Moved<T>(checkNotNull(moved));
 	}
 

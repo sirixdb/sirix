@@ -33,7 +33,6 @@ import java.io.File;
 import java.io.IOException;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.access.Databases;
@@ -48,7 +47,6 @@ import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
-import org.xml.sax.Attributes;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.DTDHandler;
 import org.xml.sax.EntityResolver;
@@ -93,15 +91,15 @@ public final class SAXSerializer extends AbstractSerializer implements
 	 * @param revisions
 	 *          further revisions to serialize
 	 */
-	public SAXSerializer(final @Nonnull Session session,
-			final @Nonnull ContentHandler handler, final @Nonnegative int revision,
+	public SAXSerializer(final Session session,
+			final ContentHandler handler, final @Nonnegative int revision,
 			final int... revisions) {
 		super(session, revision, revisions);
 		mContHandler = handler;
 	}
 
 	@Override
-	protected void emitStartElement(final @Nonnull NodeReadTrx rtx) {
+	protected void emitStartElement(final NodeReadTrx rtx) {
 		switch (rtx.getKind()) {
 		case DOCUMENT:
 			break;
@@ -124,7 +122,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 	}
 
 	@Override
-	protected void emitEndElement(final @Nonnull NodeReadTrx rtx) {
+	protected void emitEndElement(final NodeReadTrx rtx) {
 		final QNm qName = rtx.getName();
 		final String mURI = qName.getNamespaceURI();
 		try {
@@ -180,7 +178,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 	 * @param rtx
 	 *          {@link NodeReadTrx} implementation
 	 */
-	private void generateComment(final @Nonnull NodeReadTrx rtx) {
+	private void generateComment(final NodeReadTrx rtx) {
 		try {
 			final char[] content = rtx.getValue().toCharArray();
 			mContHandler.characters(content, 0, content.length);
@@ -195,7 +193,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 	 * @param rtx
 	 *          {@link NodeReadTrx} implementation
 	 */
-	private void generatePI(final @Nonnull NodeReadTrx rtx) {
+	private void generatePI(final NodeReadTrx rtx) {
 		try {
 			mContHandler.processingInstruction(rtx.getName().getLocalName(),
 					rtx.getValue());
@@ -210,7 +208,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 	 * @param rtx
 	 *          {@link NodeReadTrx} implementation
 	 */
-	private void generateElement(final @Nonnull NodeReadTrx rtx) {
+	private void generateElement(final NodeReadTrx rtx) {
 		final AttributesImpl atts = new AttributesImpl();
 		final long key = rtx.getNodeKey();
 
@@ -262,7 +260,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 	 * @param pRtx
 	 *          {@link NodeReadTrx} implementation
 	 */
-	private void generateText(final @Nonnull NodeReadTrx pRtx) {
+	private void generateText(final NodeReadTrx pRtx) {
 		try {
 			mContHandler.characters(XMLToken.escapeContent(pRtx.getValue())
 					.toCharArray(), 0, pRtx.getValue().length());
@@ -372,7 +370,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 
 	/* Implements XMLReader method. */
 	@Override
-	public void setContentHandler(final @Nonnull ContentHandler contentHandler) {
+	public void setContentHandler(final ContentHandler contentHandler) {
 		mContHandler = checkNotNull(contentHandler);
 	}
 

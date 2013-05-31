@@ -18,7 +18,7 @@ import com.google.common.base.Optional;
 
 public interface CASIndex<K extends Comparable<? super K>, V extends References> {
 
-		CASIndexBuilder createBuilder(@Nonnull NodeReadTrx rtx,
+		CASIndexBuilder createBuilder(NodeReadTrx rtx,
 				@Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 				@Nonnull PathSummaryReader pathSummaryReader, @Nonnull IndexDef indexDef);
 
@@ -26,5 +26,5 @@ public interface CASIndex<K extends Comparable<? super K>, V extends References>
 				@Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 				@Nonnull PathSummaryReader pathSummaryReader, @Nonnull IndexDef indexDef);
 
-		Iterator<Optional<V>> openIndex(@Nonnull PageReadTrx pageReadTrx, @Nonnull K key, @Nonnull IndexDef indexDef, @Nonnull SearchMode mode);
+		Iterator<Optional<V>> openIndex(PageReadTrx pageReadTrx, @Nonnull K key, @Nonnull IndexDef indexDef, @Nonnull SearchMode mode);
 }

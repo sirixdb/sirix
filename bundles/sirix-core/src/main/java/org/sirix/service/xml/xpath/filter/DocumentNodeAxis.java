@@ -27,8 +27,6 @@
 
 package org.sirix.service.xml.xpath.filter;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbstractAxis;
 import org.sirix.settings.Fixed;
@@ -50,7 +48,7 @@ public class DocumentNodeAxis extends AbstractAxis {
 	 * @param pRtx
 	 *          exclusive (immutable) transaction to iterate with
 	 */
-	public DocumentNodeAxis(@Nonnull final NodeReadTrx pRtx) {
+	public DocumentNodeAxis(final NodeReadTrx pRtx) {
 		super(pRtx);
 	}
 

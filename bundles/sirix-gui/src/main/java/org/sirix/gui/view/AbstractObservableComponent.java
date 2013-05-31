@@ -57,7 +57,7 @@ public abstract class AbstractObservableComponent {
    * @param pListener
    *          the listener to add
    */
-  public final synchronized void addPropertyChangeListener(@Nonnull final PropertyChangeListener pListener) {
+  public final synchronized void addPropertyChangeListener(final PropertyChangeListener pListener) {
     mPropertyChangeSupport.addPropertyChangeListener(pListener);
   }
 
@@ -67,7 +67,7 @@ public abstract class AbstractObservableComponent {
    * @param pListener
    *          the listener to remove
    */
-  public final synchronized void removePropertyChangeListener(@Nonnull final PropertyChangeListener pListener) {
+  public final synchronized void removePropertyChangeListener(final PropertyChangeListener pListener) {
     mPropertyChangeSupport.removePropertyChangeListener(pListener);
   }
 
@@ -81,7 +81,7 @@ public abstract class AbstractObservableComponent {
    * @param pNewValue
    *          new value
    */
-  public final synchronized void firePropertyChange(@Nonnull final String pPropertyName,
+  public final synchronized void firePropertyChange(final String pPropertyName,
     @Nullable final Object pOldValue, @Nonnull final Object pNewValue) {
     mPropertyChangeSupport.firePropertyChange(pPropertyName, pOldValue, pNewValue);
   }

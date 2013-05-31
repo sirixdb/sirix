@@ -117,7 +117,7 @@ public final class ReadDB implements AutoCloseable {
 	 * @throws SirixException
 	 *           if anything went wrong while opening a file
 	 */
-	public ReadDB(final @Nonnull File pFile, final @Nonnegative int pRevision,
+	public ReadDB(final File pFile, final @Nonnegative int pRevision,
 			final long pNodekeyToStart) throws SirixException {
 		checkNotNull(pFile);
 		checkArgument(pRevision >= -1, "pRevision must be >= -1!");

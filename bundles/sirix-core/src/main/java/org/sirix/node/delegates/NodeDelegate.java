@@ -27,7 +27,6 @@
 package org.sirix.node.delegates;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
@@ -91,7 +90,7 @@ public class NodeDelegate implements Node {
 	 */
 	public NodeDelegate(final @Nonnegative long nodeKey, final long parentKey,
 			final long hash, final @Nonnegative long revision,
-			final @Nonnull Optional<SirixDeweyID> deweyID) {
+			final Optional<SirixDeweyID> deweyID) {
 		assert nodeKey >= 0 : "nodeKey must be >= 0!";
 		assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
 		assert deweyID != null : "deweyID must not be null!";
@@ -135,7 +134,7 @@ public class NodeDelegate implements Node {
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(@Nonnull final Visitor pVisitor) {
+	public VisitResultType acceptVisitor(final Visitor pVisitor) {
 		return VisitResultType.CONTINUE;
 	}
 
@@ -192,7 +191,7 @@ public class NodeDelegate implements Node {
 	}
 
 	@Override
-	public void setDeweyID(final @Nonnull Optional<SirixDeweyID> id) {
+	public void setDeweyID(final Optional<SirixDeweyID> id) {
 		assert id != null : "id must be != null!";
 		mID = id;
 	}

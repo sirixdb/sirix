@@ -27,9 +27,6 @@
 
 package org.sirix.page;
 
-import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
-
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -62,7 +59,7 @@ public final class IndirectPage extends AbstractForwardingPage {
 	 * @param in
 	 *          input source
 	 */
-	protected IndirectPage(final @Nonnull ByteArrayDataInput in) {
+	protected IndirectPage(final ByteArrayDataInput in) {
 		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
 	}
 
@@ -72,7 +69,7 @@ public final class IndirectPage extends AbstractForwardingPage {
 	 * @param page
 	 *          {@link IndirectPage} to clone
 	 */
-	public IndirectPage(final @Nonnull IndirectPage page) {
+	public IndirectPage(final IndirectPage page) {
 		mDelegate = new PageDelegate(page);
 	}
 

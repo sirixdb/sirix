@@ -199,7 +199,7 @@ public interface NodeReadTrx extends NodeCursor {
 	 * @return {@link Moved} instance if the attribute node is selected,
 	 *         {@code NotMoved} instance otherwise
 	 */
-	Move<? extends NodeReadTrx> moveToAttributeByName(@Nonnull QNm name);
+	Move<? extends NodeReadTrx> moveToAttributeByName(QNm name);
 
 	/**
 	 * Move cursor to namespace declaration by its index.
@@ -252,7 +252,7 @@ public interface NodeReadTrx extends NodeCursor {
 	 *          name, i.e., local part, URI, or prefix
 	 * @return internal key assigned to given name
 	 */
-	int keyForName(@Nonnull String name);
+	int keyForName(String name);
 
 	/**
 	 * Get name for key. This is used for efficient key testing.
@@ -446,7 +446,7 @@ public interface NodeReadTrx extends NodeCursor {
 	 *          name to lookup
 	 * @return number of nodes with the same name and node kind
 	 */
-	int getNameCount(@Nonnull String name, @Nonnull Kind kind);
+	int getNameCount(String name, @Nonnull Kind kind);
 
 	/**
 	 * Get the type key of the node.

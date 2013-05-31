@@ -30,7 +30,6 @@ package org.sirix.page.delegates;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
@@ -85,7 +84,7 @@ public class PageDelegate implements Page {
 	 *          input stream to read from
 	 */
 	public PageDelegate(final @Nonnegative int referenceCount,
-			final @Nonnull ByteArrayDataInput in) {
+			final ByteArrayDataInput in) {
 		checkArgument(referenceCount >= 0);
 		mReferences = new PageReference[referenceCount];
 		mIsDirty = false;
@@ -103,7 +102,7 @@ public class PageDelegate implements Page {
 	 * @param revision
 	 *          revision number
 	 */
-	public PageDelegate(final @Nonnull Page commitedPage) {
+	public PageDelegate(final Page commitedPage) {
 		mReferences = commitedPage.getReferences();
 		mIsDirty = true;
 	}
@@ -132,7 +131,7 @@ public class PageDelegate implements Page {
 	 */
 	@Override
 	public final <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
-			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
+			final PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
 		for (final PageReference reference : mReferences) {
 			if (!(reference.getLogKey() == null && reference.getPage() == null && reference
 					.getKey() == Constants.NULL_ID)) {
@@ -148,7 +147,7 @@ public class PageDelegate implements Page {
 	 *          output stream
 	 */
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+	public void serialize(final ByteArrayDataOutput out) {
 		for (final PageReference reference : mReferences) {
 			out.writeLong(reference.getKey());
 		}

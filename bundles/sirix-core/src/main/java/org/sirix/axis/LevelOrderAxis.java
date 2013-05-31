@@ -33,7 +33,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
@@ -83,7 +82,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 	 *          the {@link NodeReadTrx} to iterate with
 	 * @return {@link Builder} instance
 	 */
-	public static Builder newBuilder(final @Nonnull NodeReadTrx rtx) {
+	public static Builder newBuilder(final NodeReadTrx rtx) {
 		return new Builder(rtx);
 	}
 
@@ -110,7 +109,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 		 * @param rtx
 		 *          Sirix {@link NodeReadTrx}
 		 */
-		public Builder(final @Nonnull NodeReadTrx rtx) {
+		public Builder(final NodeReadTrx rtx) {
 			mRtx = checkNotNull(rtx);
 		}
 
@@ -164,7 +163,7 @@ public final class LevelOrderAxis extends AbstractAxis {
 	 * @param builder
 	 *          the builder reference
 	 */
-	private LevelOrderAxis(final @Nonnull Builder builder) {
+	private LevelOrderAxis(final Builder builder) {
 		super(builder.mRtx, builder.mIncludeSelf);
 		mIncludeNodes = builder.mIncludeNodes;
 		mFilterLevel = builder.mFilterLevel;

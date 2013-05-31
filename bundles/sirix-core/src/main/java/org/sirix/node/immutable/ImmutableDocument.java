@@ -2,8 +2,6 @@ package org.sirix.node.immutable;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.DocumentRootNode;
@@ -31,7 +29,7 @@ public class ImmutableDocument implements ImmutableStructNode {
 	 * @param node
 	 *          mutable {@link DocumentRootNode}
 	 */
-	private ImmutableDocument(final @Nonnull DocumentRootNode node) {
+	private ImmutableDocument(final DocumentRootNode node) {
 		mNode = checkNotNull(node);
 	}
 
@@ -42,7 +40,7 @@ public class ImmutableDocument implements ImmutableStructNode {
 	 *          the mutable {@link DocumentRootNode} to wrap
 	 * @return immutable document root node instance
 	 */
-	public static ImmutableDocument of(final @Nonnull DocumentRootNode node) {
+	public static ImmutableDocument of(final DocumentRootNode node) {
 		return new ImmutableDocument(node);
 	}
 
@@ -57,7 +55,7 @@ public class ImmutableDocument implements ImmutableStructNode {
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(final Visitor visitor) {
 		return visitor.visit(this);
 	}
 	

@@ -8,7 +8,6 @@ import java.security.InvalidKeyException;
 import java.security.Key;
 import java.security.NoSuchAlgorithmException;
 
-import javax.annotation.Nonnull;
 import javax.crypto.Cipher;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.SecretKeySpec;
@@ -57,7 +56,7 @@ public class Encryptor implements ByteHandler {
 	}
 
 	@Override
-	public byte[] serialize(@Nonnull final byte[] toSerialize)
+	public byte[] serialize(final byte[] toSerialize)
 			throws SirixIOException {
 		try {
 			mCipher.init(Cipher.ENCRYPT_MODE, mKey);
@@ -74,7 +73,7 @@ public class Encryptor implements ByteHandler {
 	}
 
 	@Override
-	public byte[] deserialize(@Nonnull final byte[] toDeserialize)
+	public byte[] deserialize(final byte[] toDeserialize)
 			throws SirixIOException {
 		try {
 			mCipher.init(Cipher.DECRYPT_MODE, mKey);

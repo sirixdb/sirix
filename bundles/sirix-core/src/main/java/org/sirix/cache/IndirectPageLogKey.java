@@ -1,7 +1,6 @@
 package org.sirix.cache;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.page.PageKind;
@@ -20,7 +19,7 @@ public final class IndirectPageLogKey {
 	private PageKind mPageKind;
 	private int mIndex;
 
-	public IndirectPageLogKey(final @Nonnull PageKind pageKind, final int index,
+	public IndirectPageLogKey(final PageKind pageKind, final int index,
 			final int level, final @Nonnegative int offset) {
 		assert level >= -1;
 		assert offset >= 0;

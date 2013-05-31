@@ -30,14 +30,13 @@ package org.sirix.api;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
+import org.sirix.access.IndexController;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
-import org.sirix.access.IndexController;
 
 /**
  * <h1>Session</h1>
@@ -161,7 +160,7 @@ public interface Session extends AutoCloseable {
 	 * @return {@link NodeWriteTrx} instance
 	 */
 	NodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes,
-			final @Nonnull TimeUnit timeUnit, final int maxTime)
+			final TimeUnit timeUnit, final int maxTime)
 			throws SirixException;
 
 	/**

@@ -27,8 +27,6 @@
 
 package org.sirix.diff;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
 import org.sirix.exception.SirixException;
@@ -50,13 +48,13 @@ final class FullDiff extends AbstractDiff {
 	 * @throws SirixException
 	 *           if anything goes wrong while setting up sirix transactions
 	 */
-	FullDiff(final @Nonnull Builder builder) throws SirixException {
+	FullDiff(final Builder builder) throws SirixException {
 		super(builder);
 	}
 
 	@Override
-	boolean checkNodes(final @Nonnull NodeReadTrx firstRtx,
-			final @Nonnull NodeReadTrx secondRtx) {
+	boolean checkNodes(final NodeReadTrx firstRtx,
+			final NodeReadTrx secondRtx) {
 		assert firstRtx != null;
 		assert secondRtx != null;
 

@@ -15,8 +15,8 @@ public class IndexBuilder {
 	private final NodeReadTrx mRtx;
 	private final Set<Visitor> mBuilders;
 
-	public IndexBuilder(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull Set<Visitor> builders) {
+	public IndexBuilder(final NodeReadTrx rtx,
+			final Set<Visitor> builders) {
 		mRtx = checkNotNull(rtx);
 		mBuilders = checkNotNull(builders);
 	}

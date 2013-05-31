@@ -29,8 +29,6 @@ package org.sirix.io.file;
 
 import java.io.File;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -64,7 +62,7 @@ public final class FileStorage implements Storage {
 	 * @param byteHandler
 	 *          byte handler pipeline
 	 */
-	public FileStorage(final @Nonnull ResourceConfiguration resourceConfig) {
+	public FileStorage(final ResourceConfiguration resourceConfig) {
 		assert resourceConfig != null : "resourceConfig must not be null!";
 		mFile = resourceConfig.mPath;
 		mByteHandler = resourceConfig.mByteHandler;

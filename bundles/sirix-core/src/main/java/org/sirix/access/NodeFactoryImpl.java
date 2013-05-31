@@ -56,7 +56,7 @@ public class NodeFactoryImpl implements NodeFactory {
 	 *           if an I/O exception occured due to name key creation
 	 */
 	public NodeFactoryImpl(
-			final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx)
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx)
 			throws SirixIOException {
 		mPageWriteTrx = checkNotNull(pageWriteTrx);
 		mPageWriteTrx.createNameKey("xs:untyped", Kind.ATTRIBUTE);
@@ -102,7 +102,7 @@ public class NodeFactoryImpl implements NodeFactory {
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
 			final long hash, @Nonnull final QNm name,
 			final @Nonnegative long pathNodeKey,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
+			final Optional<SirixDeweyID> id) throws SirixIOException {
 		final int uriKey = name.getNamespaceURI() != null
 				&& !name.getNamespaceURI().isEmpty() ? mPageWriteTrx.createNameKey(
 				name.getNamespaceURI(), Kind.NAMESPACE) : -1;
@@ -133,7 +133,7 @@ public class NodeFactoryImpl implements NodeFactory {
 	public TextNode createTextNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
 			@Nonnull final byte[] value, final boolean isCompressed,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
+			final Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
@@ -155,7 +155,7 @@ public class NodeFactoryImpl implements NodeFactory {
 	public AttributeNode createAttributeNode(final @Nonnegative long parentKey,
 			@Nonnull final QNm name, @Nonnull final byte[] value,
 			final @Nonnegative long pathNodeKey,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
+			final Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final int uriKey = mPageWriteTrx.createNameKey(name.getNamespaceURI(),
 				Kind.NAMESPACE);
@@ -181,7 +181,7 @@ public class NodeFactoryImpl implements NodeFactory {
 	public NamespaceNode createNamespaceNode(final @Nonnegative long parentKey,
 			final int uriKey, final int prefixKey,
 			final @Nonnegative long pathNodeKey,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
+			final Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
@@ -197,9 +197,9 @@ public class NodeFactoryImpl implements NodeFactory {
 	@Override
 	public PINode createPINode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final @Nonnull QNm target, final @Nonnull byte[] content,
+			final QNm target, final byte[] content,
 			final boolean isCompressed, final @Nonnegative long pathNodeKey,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
+			final Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 
 		final int prefixKey = target.getPrefix() != null
@@ -227,8 +227,8 @@ public class NodeFactoryImpl implements NodeFactory {
 	@Override
 	public CommentNode createCommentNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final @Nonnull byte[] value, final boolean isCompressed,
-			final @Nonnull Optional<SirixDeweyID> id) throws SirixIOException {
+			final byte[] value, final boolean isCompressed,
+			final Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,

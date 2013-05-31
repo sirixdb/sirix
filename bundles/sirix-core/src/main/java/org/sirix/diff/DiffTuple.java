@@ -34,7 +34,6 @@ import java.io.Serializable;
 import java.util.Map;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.diff.DiffFactory.DiffType;
 
@@ -106,7 +105,7 @@ public final class DiffTuple implements Serializable {
 	 * @param diffType
 	 *          kind of diff
 	 */
-	public DiffTuple setDiff(final @Nonnull DiffType diffType) {
+	public DiffTuple setDiff(final DiffType diffType) {
 		mDiff = checkNotNull(diffType);
 		return this;
 	}

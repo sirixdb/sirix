@@ -27,7 +27,6 @@
 package org.sirix.node.delegates;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
@@ -90,7 +89,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 	 * @param pSiblingPos
 	 *          sibling position
 	 */
-	public StructNodeDelegate(final @Nonnull NodeDelegate del,
+	public StructNodeDelegate(final NodeDelegate del,
 			final long firstChild, final long rightSib, final long leftSib,
 			final @Nonnegative long childCount,
 			final @Nonnegative long descendantCount) {
@@ -171,7 +170,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(final @Nonnull Visitor pVisitor) {
+	public VisitResultType acceptVisitor(final Visitor pVisitor) {
 		return mDelegate.acceptVisitor(pVisitor);
 	}
 

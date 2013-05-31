@@ -100,7 +100,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public int keyForName(@Nonnull String name) {
+	public int keyForName(String name) {
 		return delegate().keyForName(name);
 	}
 
@@ -117,7 +117,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 
 	@Override
 	public Move<? extends NodeReadTrx> moveToAttributeByName(
-			final @Nonnull QNm name) {
+			final QNm name) {
 		return delegate().moveToAttributeByName(name);
 	}
 
@@ -187,7 +187,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public int getNameCount(@Nonnull String name, @Nonnull Kind kind) {
+	public int getNameCount(String name, @Nonnull Kind kind) {
 		return delegate().getNameCount(name, kind);
 	}
 	
@@ -312,7 +312,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(Visitor visitor) {
 		return delegate().acceptVisitor(visitor);
 	}
 

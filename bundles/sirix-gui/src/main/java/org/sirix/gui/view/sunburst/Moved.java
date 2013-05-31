@@ -44,14 +44,14 @@ public enum Moved {
   /** Start of traversal or cursor moved to a right sibling of a node. */
   STARTRIGHTSIBL {
     @Override
-    public void processMove(@Nonnull final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+    public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
       @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
       @Nonnull final Deque<Integer> pDescendantsStack) {
       // Do nothing.
     }
 
     @Override
-    public void processCompareMove(@Nonnull final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+    public void processCompareMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
       @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendants,
       @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack) {
       // Do nothing.
@@ -61,7 +61,7 @@ public enum Moved {
   /** Next node is a child of the current node. */
   CHILD {
     @Override
-    public void processMove(@Nonnull final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+    public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
       @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
       @Nonnull final Deque<Integer> pDescendantsStack) {
       assert !pAngleStack.isEmpty();
@@ -75,7 +75,7 @@ public enum Moved {
     }
 
     @Override
-    public void processCompareMove(@Nonnull final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+    public void processCompareMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
       @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendantsStack,
       @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack) {
       assert !pAngleStack.isEmpty();
@@ -94,7 +94,7 @@ public enum Moved {
   /** Next node is the rightsibling of the first anchestor node which has one. */
   ANCHESTSIBL {
     @Override
-    public void processMove(@Nonnull final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+    public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
       @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
       @Nonnull final Deque<Integer> pDescendantsStack) {
       assert !pAngleStack.isEmpty();
@@ -114,7 +114,7 @@ public enum Moved {
     }
 
     @Override
-    public void processCompareMove(@Nonnull final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+    public void processCompareMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
       @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendantsStack,
       @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack) {
       assert !pAngleStack.isEmpty();
@@ -154,7 +154,7 @@ public enum Moved {
    * @param pDescendantsStack
    *          Deque for descendants
    */
-  public abstract void processMove(@Nonnull final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+  public abstract void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
     @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
     @Nonnull final Deque<Integer> pDescendantsStack);
 
@@ -176,7 +176,7 @@ public enum Moved {
    * @param pModificationStack
    *          Deque for modifications
    */
-  public abstract void processCompareMove(@Nonnull final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+  public abstract void processCompareMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
     @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendantsStack,
     @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack);
 }

@@ -163,8 +163,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * @throws AbsTTException
 	 *           if an error occurs
 	 */
-	PageWriteTrxImpl(final @Nonnull SessionImpl session,
-			final @Nonnull UberPage uberPage, final @Nonnull Writer writer,
+	PageWriteTrxImpl(final SessionImpl session,
+			final UberPage uberPage, final Writer writer,
 			final @Nonnegative long id, final @Nonnegative int representRev,
 			final @Nonnegative int lastStoredRev,
 			final @Nonnegative int lastCommitedRev) throws SirixException {
@@ -242,14 +242,14 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public void restore(final @Nonnull Restore restore) {
+	public void restore(final Restore restore) {
 		mRestore = checkNotNull(restore);
 	}
 
 	@Override
 	public Record prepareEntryForModification(final @Nonnegative Long recordKey,
-			final @Nonnull PageKind pageKind, final int index,
-			final @Nonnull Optional<UnorderedKeyValuePage> keyValuePage)
+			final PageKind pageKind, final int index,
+			final Optional<UnorderedKeyValuePage> keyValuePage)
 			throws SirixIOException {
 		mPageRtx.assertNotClosed();
 		checkNotNull(recordKey);
@@ -274,10 +274,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public Record createEntry(final @Nonnull Long key,
-			final @Nonnull Record record, final @Nonnull PageKind pageKind,
+	public Record createEntry(final Long key,
+			final Record record, final PageKind pageKind,
 			final int index,
-			final @Nonnull Optional<UnorderedKeyValuePage> keyValuePage)
+			final Optional<UnorderedKeyValuePage> keyValuePage)
 			throws SirixIOException {
 		mPageRtx.assertNotClosed();
 		// Allocate record key and increment record count.
@@ -314,9 +314,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public void removeEntry(@Nonnull final Long recordKey,
+	public void removeEntry(final Long recordKey,
 			@Nonnull final PageKind pageKind, final int index,
-			final @Nonnull Optional<UnorderedKeyValuePage> keyValuePage)
+			final Optional<UnorderedKeyValuePage> keyValuePage)
 			throws SirixIOException {
 		mPageRtx.assertNotClosed();
 		final long nodePageKey = mPageRtx.pageKey(recordKey);
@@ -336,7 +336,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	@Override
 	public Optional<Record> getRecord(final @Nonnegative long recordKey,
-			final @Nonnull PageKind pageKind, final @Nonnegative int index)
+			final PageKind pageKind, final @Nonnegative int index)
 			throws SirixIOException {
 		mPageRtx.assertNotClosed();
 		checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -431,7 +431,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	// * @param nodePageKey
 	// * the node page key
 	// */
-	// private void removePageContainer(final @Nonnull PageKind page,
+	// private void removePageContainer(final PageKind page,
 	// final @Nonnegative long nodePageKey) {
 	// switch (page) {
 	// case NODEPAGE:
@@ -448,7 +448,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	// }
 
 	@Override
-	public String getName(final int nameKey, final @Nonnull Kind nodeKind) {
+	public String getName(final int nameKey, final Kind nodeKind) {
 		mPageRtx.assertNotClosed();
 		final NamePage currentNamePage = (NamePage) mNewRoot.getNamePageReference()
 				.getPage();
@@ -461,7 +461,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	@Override
 	public int createNameKey(final @Nullable String name,
-			final @Nonnull Kind nodeKind) throws SirixIOException {
+			final Kind nodeKind) throws SirixIOException {
 		mPageRtx.assertNotClosed();
 		checkNotNull(nodeKind);
 		final String string = (name == null ? "" : name);
@@ -593,7 +593,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public UberPage commit(final @Nonnull MultipleWriteTrx multipleWriteTrx)
+	public UberPage commit(final MultipleWriteTrx multipleWriteTrx)
 			throws SirixException {
 		mPageRtx.assertNotClosed();
 		mPageRtx.mSession.mCommitLock.lock();
@@ -727,7 +727,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 *           if an I/O error occurs
 	 */
 	private IndirectPage prepareIndirectPage(
-			final @Nonnull PageReference reference) throws SirixIOException {
+			final PageReference reference) throws SirixIOException {
 		final IndirectPageLogKey logKey = reference.getLogKey();
 		IndirectPage page = (IndirectPage) mPageLog.get(logKey);
 		if (page == null) {
@@ -756,7 +756,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 */
 	private RecordPageContainer<UnorderedKeyValuePage> prepareRecordPage(
 			final @Nonnegative long recordPageKey, final int index,
-			final @Nonnull PageKind pageKind) throws SirixIOException {
+			final PageKind pageKind) throws SirixIOException {
 		assert recordPageKey >= 0;
 		assert pageKind != null;
 		RecordPageContainer<UnorderedKeyValuePage> cont = getUnorderedRecordPageContainer(
@@ -855,8 +855,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 *           if an I/O error occured
 	 */
 	private PageReference prepareLeafOfTree(
-			final @Nonnull PageReference startReference, final @Nonnegative long key,
-			final int index, final @Nonnull PageKind pageKind)
+			final PageReference startReference, final @Nonnegative long key,
+			final int index, final PageKind pageKind)
 			throws SirixIOException {
 		// Initial state pointing to the indirect nodePageReference of level 0.
 		PageReference reference = startReference;
@@ -910,7 +910,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 */
 	private RecordPageContainer<UnorderedKeyValuePage> dereferenceRecordPageForModification(
 			final @Nonnegative long recordPageKey, final int index,
-			final @Nonnull PageKind pageKind, final @Nonnull PageReference reference)
+			final PageKind pageKind, final PageReference reference)
 			throws SirixIOException {
 		try {
 			final List<UnorderedKeyValuePage> revs = mPageRtx
@@ -941,7 +941,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	@Override
 	public void updateDataContainer(
 			@Nonnull RecordPageContainer<UnorderedKeyValuePage> container,
-			final @Nonnull PageKind page) {
+			final PageKind page) {
 		// final long nodePageKey = container.getComplete().getPageKey();
 		// switch (page) {
 		// case PATHSUMMARYPAGE:
@@ -984,14 +984,14 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 	@Override
 	public void putPageIntoCache(final IndirectPageLogKey key,
-			final @Nonnull Page page) {
+			final Page page) {
 		mPageLog.put(checkNotNull(key), checkNotNull(page));
 	}
 
 	@Override
-	public void putPageIntoKeyValueCache(final @Nonnull PageKind pageKind,
+	public void putPageIntoKeyValueCache(final PageKind pageKind,
 			final @Nonnegative long recordPageKey, final int index,
-			final @Nonnull RecordPageContainer<UnorderedKeyValuePage> pageContainer) {
+			final RecordPageContainer<UnorderedKeyValuePage> pageContainer) {
 		checkNotNull(pageKind);
 		checkArgument(recordPageKey >= 0, "key must be >= 0!");
 		checkNotNull(pageContainer);

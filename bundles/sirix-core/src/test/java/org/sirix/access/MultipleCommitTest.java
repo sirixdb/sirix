@@ -28,7 +28,6 @@
 package org.sirix.access;
 
 import static org.junit.Assert.assertEquals;
-import junit.framework.Assert;
 
 import org.brackit.xquery.atomic.QNm;
 import org.junit.After;

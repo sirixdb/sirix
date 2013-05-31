@@ -1,7 +1,6 @@
 package org.sirix.node;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -52,10 +51,10 @@ public final class PINode extends AbstractStructForwardingNode implements
 	 *          {@link ValNodeDelegate} to be set
 	 * 
 	 */
-	public PINode(final @Nonnull StructNodeDelegate structDel,
-			final @Nonnull NameNodeDelegate nameDel,
-			final @Nonnull ValNodeDelegate valDel,
-			final @Nonnull PageReadTrx pageReadTrx) {
+	public PINode(final StructNodeDelegate structDel,
+			final NameNodeDelegate nameDel,
+			final ValNodeDelegate valDel,
+			final PageReadTrx pageReadTrx) {
 		assert structDel != null : "structDel must not be null!";
 		mStructDel = structDel;
 		assert nameDel != null : "nameDel must not be null!";
@@ -72,7 +71,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(final Visitor visitor) {
 		return visitor.visit(ImmutablePI.of(this));
 	}
 
@@ -118,7 +117,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 	}
 
 	@Override
-	public void setValue(final @Nonnull byte[] value) {
+	public void setValue(final byte[] value) {
 		mValDel.setValue(value);
 	}
 

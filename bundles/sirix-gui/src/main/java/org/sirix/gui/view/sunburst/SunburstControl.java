@@ -386,7 +386,7 @@ public final class SunburstControl extends AbstractSunburstControl {
    * @param pIndex
    *          index of the new root item
    */
-  private void refreshed(@Nonnull final SunburstContainer pContainer, @Nonnegative final int pIndex) {
+  private void refreshed(final SunburstContainer pContainer, @Nonnegative final int pIndex) {
     assert pContainer != null;
     assert pIndex >= 0;
     if (mRefresh || pContainer.getPruning() == Pruning.ITEMSIZE
@@ -506,7 +506,7 @@ public final class SunburstControl extends AbstractSunburstControl {
    * @param pDB
    *          {@link ReadDB} instance
    */
-  public void refreshUpdate(@Nonnull final ReadDB pDB) {
+  public void refreshUpdate(final ReadDB pDB) {
     mDb = checkNotNull(pDB);
     mSunburstGUI.mDone = false;
     mSunburstGUI.mUseDiffView = ViewType.NODIFF;

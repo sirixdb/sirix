@@ -27,8 +27,6 @@
 
 package org.sirix.axis.concurrent;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbstractAxis;
@@ -73,8 +71,8 @@ public final class ConcurrentExceptAxis extends AbstractAxis {
 	 *           if {@code rtx}, {@code operand1} or {@code operand2} is
 	 *           {@code null}
 	 */
-	public ConcurrentExceptAxis(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull Axis operand1, final @Nonnull Axis operand2) {
+	public ConcurrentExceptAxis(final NodeReadTrx rtx,
+			final Axis operand1, final Axis operand2) {
 		super(rtx);
 		mOp1 = new ConcurrentAxis(rtx, operand1);
 		mOp2 = new ConcurrentAxis(rtx, operand2);

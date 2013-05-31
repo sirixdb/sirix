@@ -255,7 +255,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 	 * @param pContainer
 	 *          {@link SunburstContainer} reference
 	 */
-	public TraverseCompareTree(@Nonnull final SunburstContainer pContainer) {
+	public TraverseCompareTree(final SunburstContainer pContainer) {
 		checkNotNull(pContainer);
 		checkArgument(pContainer.getRevision() >= 0);
 		checkArgument(pContainer.getOldStartKey() >= 0);
@@ -461,7 +461,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 	}
 
 	@Override
-	public void diffListener(@Nonnull final DiffType pDiff,
+	public void diffListener(final DiffType pDiff,
 			@Nonnull final long pNewNodeKey, @Nonnull final long pOldNodeKey,
 			@Nonnull final DiffDepth pDepth) {
 		LOGWRAPPER.debug("kind of diff: " + pDiff);
@@ -527,7 +527,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 	 *          {@link DiffTuple} instance
 	 * @return the {@code depth} of the node
 	 */
-	private int getDepth(@Nonnull final DiffTuple pDiffCont) {
+	private int getDepth(final DiffTuple pDiffCont) {
 		int depth;
 		final DiffType diff = pDiffCont.getDiff();
 		if (diff == DiffType.DELETED || diff == DiffType.MOVEDFROM
@@ -575,7 +575,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 		 * @param pOldSize
 		 *          size of the database map
 		 */
-		public PopulateDatabase(@Nonnull final DiffDatabase pDatabase,
+		public PopulateDatabase(final DiffDatabase pDatabase,
 				@Nonnull final Map<Integer, DiffTuple> pValue, final int pOldSize) {
 			checkNotNull(pDatabase);
 			checkNotNull(pValue);
@@ -625,7 +625,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 	}
 
 	@Override
-	public float createSunburstItem(@Nonnull final Item pItem,
+	public float createSunburstItem(final Item pItem,
 			@Nonnegative final int pDepth, @Nonnegative final int pIndex) {
 		checkNotNull(pItem);
 		checkArgument(pDepth >= 0, "pDepth must be positive!");
@@ -816,7 +816,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 	 * @param pBuilder
 	 *          {@link SunburstItem.Builder} reference
 	 */
-	private void updated(@Nonnull final DiffType pDiff,
+	private void updated(final DiffType pDiff,
 			@Nonnull final SunburstItem.Builder pBuilder) {
 		assert pBuilder != null;
 		if (pDiff == DiffType.UPDATED) {
@@ -834,7 +834,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 	}
 
 	@Override
-	public void descendants(@Nonnull final Optional<NodeReadTrx> pRtx)
+	public void descendants(final Optional<NodeReadTrx> pRtx)
 			throws InterruptedException, ExecutionException {
 		try {
 			final ExecutorService executor = Executors.newSingleThreadExecutor();

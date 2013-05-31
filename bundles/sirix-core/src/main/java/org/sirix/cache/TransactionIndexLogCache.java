@@ -31,7 +31,6 @@ import java.io.File;
 import java.util.Map;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.api.PageReadTrx;
@@ -73,9 +72,9 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public TransactionIndexLogCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull PageReadTrx pageReadTrx) throws SirixIOException {
+	public TransactionIndexLogCache(final File file,
+			final @Nonnegative int revision, final String logType,
+			final PageReadTrx pageReadTrx) throws SirixIOException {
 		mSecondCache = new BerkeleyIndexPersistenceCache<>(file, revision, logType,
 				pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
@@ -93,7 +92,7 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 
 	@Override
 	public ImmutableMap<IndexLogKey, RecordPageContainer<T>> getAll(
-			final @Nonnull Iterable<? extends IndexLogKey> pKeys) {
+			final Iterable<? extends IndexLogKey> pKeys) {
 		final ImmutableMap.Builder<IndexLogKey, RecordPageContainer<T>> builder = new ImmutableMap.Builder<>();
 		for (final IndexLogKey key : pKeys) {
 			if (mFirstCache.get(key) != null) {
@@ -109,7 +108,7 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public RecordPageContainer<T> get(final @Nonnull IndexLogKey key) {
+	public RecordPageContainer<T> get(final IndexLogKey key) {
 		@SuppressWarnings("unchecked")
 		RecordPageContainer<T> container = (RecordPageContainer<T>) RecordPageContainer.EMPTY_INSTANCE;
 		if (mFirstCache.get(key) != null) {
@@ -119,14 +118,14 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void put(final @Nonnull IndexLogKey key,
-			final @Nonnull RecordPageContainer<T> value) {
+	public void put(final IndexLogKey key,
+			final RecordPageContainer<T> value) {
 		mFirstCache.put(key, value);
 	}
 
 	@Override
 	public void putAll(
-			final @Nonnull Map<? extends IndexLogKey, ? extends RecordPageContainer<T>> map) {
+			final Map<? extends IndexLogKey, ? extends RecordPageContainer<T>> map) {
 		mFirstCache.putAll(map);
 	}
 
@@ -136,7 +135,7 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void remove(final @Nonnull IndexLogKey key) {
+	public void remove(final IndexLogKey key) {
 		mFirstCache.remove(key);
 		if (mSecondCache.get(key) != null) {
 			mSecondCache.remove(key);

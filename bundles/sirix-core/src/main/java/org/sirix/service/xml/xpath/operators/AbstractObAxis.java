@@ -31,9 +31,9 @@ import static org.sirix.service.xml.xpath.XPathAxis.XPATH_10_COMP;
 
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
-import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.exception.SirixXPathException;
 import org.sirix.node.interfaces.Node;
+import org.sirix.service.xml.xpath.AbstractAxis;
 import org.sirix.service.xml.xpath.AtomicValue;
 import org.sirix.service.xml.xpath.functions.Function;
 import org.sirix.service.xml.xpath.types.Type;

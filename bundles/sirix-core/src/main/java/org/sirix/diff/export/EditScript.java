@@ -32,8 +32,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import org.sirix.diff.DiffTuple;
 import org.sirix.diff.DiffFactory.DiffType;
+import org.sirix.diff.DiffTuple;
 
 /**
  * Builds an edit script.

@@ -27,8 +27,6 @@
 
 package org.sirix.axis.filter;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 import org.sirix.node.Kind;
 
@@ -47,7 +45,7 @@ public class NodeFilter extends AbstractFilter {
 	 * @param rtx
 	 *          transaction this filter is bound to
 	 */
-	public NodeFilter(final @Nonnull NodeReadTrx rtx) {
+	public NodeFilter(final NodeReadTrx rtx) {
 		super(rtx);
 	}
 

@@ -39,7 +39,7 @@ public final class SirixCompileChain extends CompileChain {
 	 * @param store
 	 *          the Sirix {@link DBStore}
 	 */
-	public SirixCompileChain(final @Nonnull DBStore store) {
+	public SirixCompileChain(final DBStore store) {
 		mStore = store;
 	}
 

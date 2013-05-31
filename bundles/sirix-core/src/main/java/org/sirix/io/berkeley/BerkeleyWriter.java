@@ -32,7 +32,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Objects;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
@@ -40,8 +39,8 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.Writer;
 import org.sirix.io.berkeley.binding.PageBinding;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
-import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.PageReference;
+import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.Page;
 
 import com.sleepycat.bind.tuple.TupleBinding;
@@ -88,8 +87,8 @@ public final class BerkeleyWriter implements Writer {
 	 * @throws SirixIOException
 	 *           if something odd happens@Nonnull
 	 */
-	public BerkeleyWriter(final @Nonnull Environment env,
-			final @Nonnull Database database, final @Nonnull ByteHandlePipeline byteHandler)
+	public BerkeleyWriter(final Environment env,
+			final Database database, final ByteHandlePipeline byteHandler)
 			throws SirixIOException {
 		try {
 			mTxn = env.beginTransaction(null, null);
@@ -114,7 +113,7 @@ public final class BerkeleyWriter implements Writer {
 	}
 
 	@Override
-	public void write(@Nonnull final PageReference pageReference)
+	public void write(final PageReference pageReference)
 			throws SirixIOException {
 		final Page page = pageReference.getPage();
 
@@ -186,7 +185,7 @@ public final class BerkeleyWriter implements Writer {
 	}
 
 	@Override
-	public void writeFirstReference(@Nonnull final PageReference pageReference)
+	public void writeFirstReference(final PageReference pageReference)
 			throws SirixIOException {
 		write(pageReference);
 
@@ -207,7 +206,7 @@ public final class BerkeleyWriter implements Writer {
 
 	@Override
 	public Page read(final long key,
-			final @Nonnull PageReadTrx pageReadTrx)
+			final PageReadTrx pageReadTrx)
 			throws SirixIOException {
 		return mReader.read(key, pageReadTrx);
 	}

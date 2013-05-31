@@ -27,8 +27,6 @@
 
 package org.sirix.axis.filter;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 import org.sirix.api.Filter;
 import org.sirix.axis.AbstractAxis;
@@ -58,8 +56,8 @@ public final class FilterAxis extends AbstractAxis {
 	 * @param axisTest
 	 *          tests to perform for each node found with axis
 	 */
-	public FilterAxis(final @Nonnull Axis axis,
-			final @Nonnull Filter firstAxisTest, final @Nonnull Filter... axisTest) {
+	public FilterAxis(final Axis axis,
+			final Filter firstAxisTest, final Filter... axisTest) {
 		super(axis.getTrx());
 		mAxis = axis;
 		final int length = axisTest.length == 0 ? 1 : axisTest.length + 1;

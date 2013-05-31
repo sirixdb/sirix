@@ -2,7 +2,6 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.NodeCursor;
@@ -28,7 +27,7 @@ public class Moved<T extends NodeCursor> extends Move<T> {
 	 * @param nodeCursor
 	 *          the cursor which has been moved
 	 */
-	public Moved(final @Nonnull T nodeCursor) {
+	public Moved(final T nodeCursor) {
 		mNodeCursor = checkNotNull(nodeCursor);
 	}
 

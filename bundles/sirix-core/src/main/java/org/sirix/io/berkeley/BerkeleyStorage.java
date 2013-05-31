@@ -31,8 +31,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
 import org.sirix.exception.SirixIOException;
@@ -99,7 +97,7 @@ public final class BerkeleyStorage implements Storage {
 	 * @throws NullPointerException
 	 *           if {@code pFile} is {@code null}
 	 */
-	public BerkeleyStorage(final @Nonnull ResourceConfiguration resourceConfig)
+	public BerkeleyStorage(final ResourceConfiguration resourceConfig)
 			throws SirixIOException {
 		final File repoFile = new File(checkNotNull(resourceConfig.mPath),
 				ResourceConfiguration.Paths.DATA.getFile().getName());

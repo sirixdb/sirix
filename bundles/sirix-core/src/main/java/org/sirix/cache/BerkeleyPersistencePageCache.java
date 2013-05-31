@@ -34,7 +34,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
@@ -111,9 +110,9 @@ public final class BerkeleyPersistencePageCache extends
 	 * @throws SirixIOException
 	 *           if an database open exception occurs
 	 */
-	public BerkeleyPersistencePageCache(final @Nonnull File file,
-			final @Nonnegative int revision, final @Nonnull String logType,
-			final @Nonnull PageReadTrx pageReadTrx)
+	public BerkeleyPersistencePageCache(final File file,
+			final @Nonnegative int revision, final String logType,
+			final PageReadTrx pageReadTrx)
 			throws SirixIOException {
 		super(checkNotNull(file), revision, logType);
 		try {
@@ -167,7 +166,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void putPersistent(final @Nonnull IndirectPageLogKey key, final @Nonnull Page page)
+	public void putPersistent(final IndirectPageLogKey key, final Page page)
 			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
@@ -186,7 +185,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public Page getPersistent(final @Nonnull IndirectPageLogKey key) throws SirixIOException {
+	public Page getPersistent(final IndirectPageLogKey key) throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
@@ -202,12 +201,12 @@ public final class BerkeleyPersistencePageCache extends
 
 	@Override
 	public ImmutableMap<IndirectPageLogKey, Page> getAll(
-			final @Nonnull Iterable<? extends IndirectPageLogKey> keys) {
+			final Iterable<? extends IndirectPageLogKey> keys) {
 		throw new UnsupportedOperationException();
 	}
 
 	@Override
-	public void putAll(final @Nonnull Map<? extends IndirectPageLogKey, ? extends Page> map) {
+	public void putAll(final Map<? extends IndirectPageLogKey, ? extends Page> map) {
 		for (final Entry<? extends IndirectPageLogKey, ? extends Page> entry : map.entrySet()) {
 			put(entry.getKey(), entry.getValue());
 		}
@@ -219,7 +218,7 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public void remove(final @Nonnull IndirectPageLogKey key) {
+	public void remove(final IndirectPageLogKey key) {
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
 		final OperationStatus status = mDatabase.delete(null, keyEntry);

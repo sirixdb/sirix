@@ -1,5 +1,7 @@
 package org.sirix.node.interfaces;
 
+import org.sirix.node.SirixDeweyID;
+
 /**
  * Combines some basic commonalities for different DeweyID representations (as
  * for instance the {@link SirixDeweyID} and the DeweyIDBuffer).

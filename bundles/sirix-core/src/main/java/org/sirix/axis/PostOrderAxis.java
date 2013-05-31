@@ -27,8 +27,6 @@
 
 package org.sirix.axis;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.NodeReadTrx;
 import org.sirix.settings.Fixed;
 
@@ -53,7 +51,7 @@ public final class PostOrderAxis extends AbstractAxis {
 	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public PostOrderAxis(final @Nonnull NodeReadTrx rtx) {
+	public PostOrderAxis(final NodeReadTrx rtx) {
 		super(rtx);
 	}
 
@@ -63,8 +61,8 @@ public final class PostOrderAxis extends AbstractAxis {
 	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public PostOrderAxis(final @Nonnull NodeReadTrx rtx,
-			final @Nonnull IncludeSelf includeSelf) {
+	public PostOrderAxis(final NodeReadTrx rtx,
+			final IncludeSelf includeSelf) {
 		super(rtx, includeSelf);
 	}
 

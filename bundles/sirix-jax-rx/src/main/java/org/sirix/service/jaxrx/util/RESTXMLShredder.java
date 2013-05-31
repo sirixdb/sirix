@@ -70,7 +70,7 @@ public final class RESTXMLShredder {
 	 *           if an XML stream exception occurred
 	 */
 	public static XMLEventReader createReader(
-			final @Nonnull InputStream inputStream) throws IOException,
+			final InputStream inputStream) throws IOException,
 			XMLStreamException {
 		final XMLInputFactory factory = XMLInputFactory.newInstance();
 		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);

@@ -4,8 +4,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.Set;
 
-import javax.annotation.Nonnull;
-
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.util.path.PathException;
@@ -42,8 +40,8 @@ final class PathIndexBuilder extends AbstractVisitor {
 
 	private final AVLTreeWriter<Long, NodeReferences> mAVLTreeWriter;
 
-	PathIndexBuilder(final @Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
-			final @Nonnull PathSummaryReader pathSummaryReader, final @Nonnull IndexDef indexDef) {
+	PathIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
 		mPathSummaryReader = checkNotNull(pathSummaryReader);
 		mPaths = checkNotNull(indexDef.getPaths());
 		assert indexDef.getType() == IndexType.PATH;
@@ -52,16 +50,16 @@ final class PathIndexBuilder extends AbstractVisitor {
 	}
 
 	@Override
-	public VisitResult visit(@Nonnull ImmutableElement node) {
+	public VisitResult visit(ImmutableElement node) {
 		return process(node);
 	}
 
 	@Override
-	public VisitResult visit(@Nonnull ImmutableAttribute node) {
+	public VisitResult visit(ImmutableAttribute node) {
 		return process(node);
 	}
 
-	private VisitResult process(final @Nonnull ImmutableNameNode node) {
+	private VisitResult process(final ImmutableNameNode node) {
 		try {
 			final long PCR = node.getPathNodeKey();
 			if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
@@ -80,8 +78,8 @@ final class PathIndexBuilder extends AbstractVisitor {
 
 	}
 
-	private void setNodeReferences(final @Nonnull ImmutableNode node,
-			final @Nonnull NodeReferences references, final @Nonnull long pathNodeKey)
+	private void setNodeReferences(final ImmutableNode node,
+			final NodeReferences references, final long pathNodeKey)
 			throws SirixIOException {
 		mAVLTreeWriter.index(pathNodeKey, references.addNodeKey(node.getNodeKey()),
 				MoveCursor.NO_MOVE);

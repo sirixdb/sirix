@@ -109,8 +109,8 @@ public final class DocumentWrapper implements DocumentInfo {
 	 * @throws SirixException
 	 *           if sirix encounters an error
 	 */
-	public DocumentWrapper(final @Nonnull Session session,
-			@Nonnegative final int revision, final @Nonnull Configuration config)
+	public DocumentWrapper(final Session session,
+			@Nonnegative final int revision, final Configuration config)
 			throws SirixException {
 		checkArgument(revision >= 0, "revision must be >= 0!");
 		mSession = checkNotNull(session);
@@ -130,8 +130,8 @@ public final class DocumentWrapper implements DocumentInfo {
 	 * @throws SirixException
 	 *           if Sirix encounters an error
 	 */
-	public DocumentWrapper(final @Nonnull Session session,
-			final @Nonnull Configuration config) throws SirixException {
+	public DocumentWrapper(final Session session,
+			final Configuration config) throws SirixException {
 		this(session, session.getLastRevisionNumber(), config);
 	}
 
@@ -221,7 +221,7 @@ public final class DocumentWrapper implements DocumentInfo {
 	 * @param baseURI
 	 *          usually the absolute path of the document
 	 */
-	void setBaseURI(final @Nonnull String baseURI) {
+	void setBaseURI(final String baseURI) {
 		mBaseURI = checkNotNull(baseURI);
 	}
 

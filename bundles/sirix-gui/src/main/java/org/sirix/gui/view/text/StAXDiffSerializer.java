@@ -142,7 +142,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	 *          {@link VisualItemAxis} which is used to iterate over and generate
 	 *          StAX events
 	 */
-	public StAXDiffSerializer(@Nonnull final DiffAxis pItems) {
+	public StAXDiffSerializer(final DiffAxis pItems) {
 		this(pItems, true);
 	}
 
@@ -157,7 +157,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	 * @param pCloseRtx
 	 *          Determines if rtx should be closed afterwards.
 	 */
-	public StAXDiffSerializer(@Nonnull final DiffAxis pItems,
+	public StAXDiffSerializer(final DiffAxis pItems,
 			final boolean pCloseRtx) {
 		mNextTag = false;
 		mAxis = checkNotNull(pItems);
@@ -405,7 +405,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	 * @throws IOException
 	 *           if any I/O error occurred
 	 */
-	private void processNode(@Nonnull final Kind pNodeKind) throws IOException {
+	private void processNode(final Kind pNodeKind) throws IOException {
 		assert pNodeKind != null;
 		switch (pNodeKind) {
 		case ELEMENT:
@@ -427,7 +427,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	 * @throws IOException
 	 *           if any I/O error occurred
 	 */
-	private void emit(@Nonnull final NodeReadTrx pRtx) throws IOException {
+	private void emit(final NodeReadTrx pRtx) throws IOException {
 		assert pRtx != null;
 		// Emit pending update elements.
 		if (!mUpdatedStack.isEmpty()) {

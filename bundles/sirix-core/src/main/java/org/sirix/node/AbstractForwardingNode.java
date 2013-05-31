@@ -91,7 +91,7 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
 	}
 	
 	@Override
-	public void setDeweyID(@Nonnull Optional<SirixDeweyID> id) {
+	public void setDeweyID(Optional<SirixDeweyID> id) {
 		delegate().setDeweyID(id);
 	}
 	

@@ -4,7 +4,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -51,7 +50,7 @@ public class FutureAxis extends AbstractTemporalAxis {
 	 * @param revision
 	 *          current revision
 	 */
-	public FutureAxis(final @Nonnull Session session,
+	public FutureAxis(final Session session,
 			final @Nonnegative long nodeKey, final @Nonnegative int revision) {
 		// Using telescope pattern instead of builder (only one optional parameter).
 		this(session, nodeKey, revision, IncludeSelf.NO);
@@ -69,9 +68,9 @@ public class FutureAxis extends AbstractTemporalAxis {
 	 * @param includeSelf
 	 * 					determines if current revision must be included or not
 	 */
-	public FutureAxis(final @Nonnull Session session,
+	public FutureAxis(final Session session,
 			final @Nonnegative long nodeKey, final @Nonnegative int revision,
-			final @Nonnull IncludeSelf includeSelf) {
+			final IncludeSelf includeSelf) {
 		mSession = checkNotNull(session);
 		mRevision = 0;
 		checkArgument(nodeKey > -1, "nodeKey must be >= 0!");

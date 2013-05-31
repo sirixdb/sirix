@@ -80,7 +80,7 @@ public final class FMSEImport {
 	 * @throws NullPointerException
 	 *           if {@code paramResNewRev} or {@code paramNewRev} is {@code null}
 	 */
-	private void shredder(@Nonnull final File pResNewRev,
+	private void shredder(final File pResNewRev,
 			@Nonnull final File pNewRev) throws SirixException, IOException,
 			XMLStreamException {
 		assert pResNewRev != null;
@@ -111,7 +111,7 @@ public final class FMSEImport {
 	 * @param pResNewRev
 	 *          {@link File} for new revision (XML resource)
 	 */
-	private void dataImport(@Nonnull final File pResOldRev,
+	private void dataImport(final File pResOldRev,
 			@Nonnull final File pResNewRev) {
 
 		try {

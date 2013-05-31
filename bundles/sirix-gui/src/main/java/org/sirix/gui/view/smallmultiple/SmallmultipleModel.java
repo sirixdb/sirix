@@ -100,7 +100,7 @@ public class SmallmultipleModel extends AbstractModel<SunburstContainer, Sunburs
    * @param pControl
    *          {@link SunburstControl} implementation
    */
-  public SmallmultipleModel(@Nonnull final PApplet pApplet, @Nonnull final ReadDB pDb) {
+  public SmallmultipleModel(final PApplet pApplet, @Nonnull final ReadDB pDb) {
     super(pApplet, pDb);
     mModel = new SunburstCompareModel(pApplet, pDb);
     mModel.addPropertyChangeListener(this);
@@ -122,12 +122,12 @@ public class SmallmultipleModel extends AbstractModel<SunburstContainer, Sunburs
   }
 
   @Override
-  public void update(@Nonnull final Container<SunburstContainer> pContainer) {
+  public void update(final Container<SunburstContainer> pContainer) {
     mModel.update(checkNotNull(pContainer));
   }
 
   @Override
-  public synchronized void traverseTree(@Nonnull final Container<SunburstContainer> pContainer) {
+  public synchronized void traverseTree(final Container<SunburstContainer> pContainer) {
     mContainer = (SunburstContainer)pContainer;
     mModel.traverseTree(checkNotNull(pContainer));
   }

@@ -59,12 +59,12 @@ public final class SirixTranslator extends TopDownTranslator {
 	 * @param options
 	 *          options map
 	 */
-	public SirixTranslator(final @Nonnull Map<QNm, Str> options) {
+	public SirixTranslator(final Map<QNm, Str> options) {
 		super(options);
 	}
 
 	@Override
-	protected Accessor axis(final @Nonnull AST node) throws QueryException {
+	protected Accessor axis(final AST node) throws QueryException {
 		if (!OPTIMIZE) {
 			return super.axis(node);
 		}
@@ -101,7 +101,7 @@ public final class SirixTranslator extends TopDownTranslator {
 		 * @param axis
 		 *          the axis to evaluate
 		 */
-		public DescOrSelf(final @Nonnull Axis axis) {
+		public DescOrSelf(final Axis axis) {
 			super(axis);
 			mSelf = axis == Axis.DESCENDANT_OR_SELF ? IncludeSelf.YES
 					: IncludeSelf.NO;
@@ -109,8 +109,8 @@ public final class SirixTranslator extends TopDownTranslator {
 		}
 
 		@Override
-		public Stream<? extends Node<?>> performStep(final @Nonnull Node<?> node,
-				final @Nonnull NodeType test) throws QueryException {
+		public Stream<? extends Node<?>> performStep(final Node<?> node,
+				final NodeType test) throws QueryException {
 			final DBNode dbNode = (DBNode) node;
 			try {
 				final long pcr = dbNode.getPCR();
@@ -253,7 +253,7 @@ public final class SirixTranslator extends TopDownTranslator {
 
 		// Get all names on the path up to level.
 		private Deque<QNm> getNames(final @Nonnegative int matchLevel,
-				final @Nonnegative int level, final @Nonnull PathSummaryReader reader) {
+				final @Nonnegative int level, final PathSummaryReader reader) {
 			// Match at a level below this level which is not a direct child.
 			final Deque<QNm> names = new ArrayDeque<>(matchLevel - level);
 			for (int i = matchLevel; i > level; i--) {
@@ -264,8 +264,8 @@ public final class SirixTranslator extends TopDownTranslator {
 		}
 
 		// Build the query.
-		private org.sirix.api.Axis buildQuery(final @Nonnull NodeReadTrx rtx,
-				final @Nonnull Deque<QNm> names) {
+		private org.sirix.api.Axis buildQuery(final NodeReadTrx rtx,
+				final Deque<QNm> names) {
 			org.sirix.api.Axis axis = new FilterAxis(new ChildAxis(rtx),
 					new ElementFilter(rtx), new NameFilter(rtx, names.pop()));
 			for (int i = 0, size = names.size(); i < size; i++) {

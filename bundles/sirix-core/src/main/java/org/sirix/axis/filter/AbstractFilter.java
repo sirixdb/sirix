@@ -29,7 +29,6 @@ package org.sirix.axis.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.Filter;
@@ -55,7 +54,7 @@ public abstract class AbstractFilter implements Filter, Predicate<Long> {
 	 * @param pRtx
 	 *          transaction to operate with
 	 */
-	protected AbstractFilter(final @Nonnull NodeReadTrx pRtx) {
+	protected AbstractFilter(final NodeReadTrx pRtx) {
 		mRtx = checkNotNull(pRtx);
 	}
 

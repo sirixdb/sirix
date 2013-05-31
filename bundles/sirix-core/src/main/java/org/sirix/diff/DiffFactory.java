@@ -33,7 +33,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 
 import org.sirix.access.HashKind;
 import org.sirix.api.Session;
@@ -102,7 +101,7 @@ public final class DiffFactory {
 		/** Full diff. */
 		FULL {
 			@Override
-			void invoke(final @Nonnull Builder builder) throws SirixException {
+			void invoke(final Builder builder) throws SirixException {
 				new FullDiff(builder).diffMovement();
 			}
 		},
@@ -113,7 +112,7 @@ public final class DiffFactory {
 		 */
 		STRUCTURAL {
 			@Override
-			void invoke(final @Nonnull Builder builder) throws SirixException {
+			void invoke(final Builder builder) throws SirixException {
 				new StructuralDiff(builder).diffMovement();
 			}
 		};
@@ -144,10 +143,10 @@ public final class DiffFactory {
 	 *          {@link Set} of observers
 	 * @return new {@link Builder} instance
 	 */
-	public static Builder builder(final @Nonnull Session session,
+	public static Builder builder(final Session session,
 			final @Nonnegative int newRev, final @Nonnegative int oldRev,
-			final @Nonnull DiffOptimized diffKind,
-			final @Nonnull Set<DiffObserver> observers) {
+			final DiffOptimized diffKind,
+			final Set<DiffObserver> observers) {
 		return new Builder(session, newRev, oldRev, diffKind, observers);
 	}
 
@@ -204,10 +203,10 @@ public final class DiffFactory {
 		 * @param observers
 		 *          {@link Set} of observers
 		 */
-		public Builder(final @Nonnull Session session,
+		public Builder(final Session session,
 				final @Nonnegative int newRev, final @Nonnegative int oldRev,
-				final @Nonnull DiffOptimized diffKind,
-				final @Nonnull Set<DiffObserver> observers) {
+				final DiffOptimized diffKind,
+				final Set<DiffObserver> observers) {
 			mSession = checkNotNull(session);
 			checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
 			mNewRev = newRev;
@@ -323,7 +322,7 @@ public final class DiffFactory {
 	 *          {@link Builder} reference
 	 * @throws SirixException
 	 */
-	public static synchronized void invokeFullDiff(final @Nonnull Builder builder)
+	public static synchronized void invokeFullDiff(final Builder builder)
 			throws SirixException {
 		DiffAlgorithm.FULL.invoke(builder);
 	}
@@ -336,7 +335,7 @@ public final class DiffFactory {
 	 * @throws SirixException
 	 */
 	public static synchronized void invokeStructuralDiff(
-			final @Nonnull Builder builder) throws SirixException {
+			final Builder builder) throws SirixException {
 		DiffAlgorithm.STRUCTURAL.invoke(builder);
 	}
 }

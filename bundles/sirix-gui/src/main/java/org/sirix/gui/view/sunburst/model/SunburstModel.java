@@ -115,12 +115,12 @@ public final class SunburstModel extends
 	 * @param pDb
 	 *          {@link ReadDB} reference
 	 */
-	public SunburstModel(@Nonnull final PApplet pApplet, @Nonnull final ReadDB pDb) {
+	public SunburstModel(final PApplet pApplet, @Nonnull final ReadDB pDb) {
 		super(pApplet, pDb);
 	}
 
 	@Override
-	public void update(@Nonnull final Container<SunburstContainer> pContainer) {
+	public void update(final Container<SunburstContainer> pContainer) {
 		mLastItems.push(new ArrayList<>(mItems));
 		mLastDepths.push(mLastMaxDepth);
 //		traverseTree(pContainer);
@@ -266,7 +266,7 @@ public final class SunburstModel extends
 		}
 
 		@Override
-		public float createSunburstItem(@Nonnull final Item pItem,
+		public float createSunburstItem(final Item pItem,
 				@Nonnegative final int pDepth, @Nonnegative final int pIndex) {
 			checkArgument(pDepth >= 0, "must be positive: %s", pDepth);
 			checkArgument(pIndex >= 0, "must be >= 0: %s", pIndex);
@@ -371,7 +371,7 @@ public final class SunburstModel extends
 		}
 
 		@Override
-		public void descendants(@Nonnull final Optional<NodeReadTrx> pRtx)
+		public void descendants(final Optional<NodeReadTrx> pRtx)
 				throws InterruptedException, ExecutionException {
 			checkNotNull(pRtx);
 

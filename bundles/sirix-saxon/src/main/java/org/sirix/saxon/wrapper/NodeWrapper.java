@@ -133,7 +133,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 	 *          start noeKey to move to
 	 * @throws SirixException
 	 */
-	NodeWrapper(final @Nonnull DocumentWrapper docWrapper,
+	NodeWrapper(final DocumentWrapper docWrapper,
 			final long nodeKeyToStart) throws SirixException {
 		mDocWrapper = checkNotNull(docWrapper);
 		checkArgument(nodeKeyToStart >= 0, "nodeKeyToStart must be >= 0!");
@@ -768,7 +768,7 @@ public final class NodeWrapper implements SiblingCountingNode {
 		 * @param axis
 		 *          Sirix {@link Axis}
 		 */
-		public SaxonEnumeration(final @Nonnull org.sirix.api.Axis axis) {
+		public SaxonEnumeration(final org.sirix.api.Axis axis) {
 			mAxis = checkNotNull(axis);
 		}
 

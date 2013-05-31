@@ -29,7 +29,6 @@
  */
 package org.sirix.node.interfaces;
 
-import javax.annotation.Nonnull;
 
 /**
  * Interface for nodes which incorporate values.
@@ -51,7 +50,7 @@ public interface ValueNode extends Node {
 	 * @param value
 	 *          the value to be set
 	 */
-	void setValue(@Nonnull byte[] value);
+	void setValue(byte[] value);
 	
 	String getValue();
 }

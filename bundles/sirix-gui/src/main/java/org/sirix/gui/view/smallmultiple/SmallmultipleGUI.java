@@ -400,7 +400,7 @@ public class SmallmultipleGUI extends AbstractSunburstGUI implements PropertyCha
      * @param pRevision
      *          current revision
      */
-    ImageStore(@Nonnull final PImage pBuffer, @Nonnegative final long pRevision, @Nonnegative final int pMaxDepth,
+    ImageStore(final PImage pBuffer, @Nonnegative final long pRevision, @Nonnegative final int pMaxDepth,
       @Nonnegative final int pOldMaxDepth) {
       assert pBuffer != null;
       assert pRevision >= 0;

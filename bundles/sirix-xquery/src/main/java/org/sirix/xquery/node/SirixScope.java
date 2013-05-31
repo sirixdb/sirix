@@ -29,7 +29,7 @@ public final class SirixScope implements Scope {
 	 * @param node
 	 *          database node
 	 */
-	public SirixScope(final @Nonnull DBNode node) {
+	public SirixScope(final DBNode node) {
 		// Assertion instead of checkNotNull(...) (part of internal API).
 		assert node != null;
 		mRtx = node.getTrx();
@@ -63,7 +63,7 @@ public final class SirixScope implements Scope {
 	}
 
 	@Override
-	public void addPrefix(final @Nonnull String prefix, final @Nonnull String uri)
+	public void addPrefix(final String prefix, final String uri)
 			throws DocumentException {
 		if (mRtx instanceof NodeWriteTrx) {
 			final NodeWriteTrx wtx = (NodeWriteTrx) mRtx;
@@ -105,7 +105,7 @@ public final class SirixScope implements Scope {
 	}
 
 	@Override
-	public void setDefaultNS(final @Nonnull String uri) throws DocumentException {
+	public void setDefaultNS(final String uri) throws DocumentException {
 		addPrefix("", uri);
 	}
 }

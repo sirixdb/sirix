@@ -41,7 +41,6 @@ import org.sirix.TestHelper;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.service.xml.shredder.Insert;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.utils.DocumentCreater;
 

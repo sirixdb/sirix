@@ -77,7 +77,7 @@ public class AtomicValue implements Node, ValueNode {
 	 * @param pType
 	 *          the item's type
 	 */
-	public AtomicValue(@Nonnull final byte[] pValue, final int pType) {
+	public AtomicValue(final byte[] pValue, final int pType) {
 		mValue = checkNotNull(pValue);
 		mType = pType;
 	}
@@ -115,7 +115,7 @@ public class AtomicValue implements Node, ValueNode {
 	 * @param pType
 	 *          the item's type
 	 */
-	public AtomicValue(@Nonnull final String pValue, @Nonnull final Type pType) {
+	public AtomicValue(final String pValue, @Nonnull final Type pType) {
 		mValue = TypedValue.getBytes(pValue);
 		mType = NamePageHash.generateHashForString(pType.getStringRepr());
 	}
@@ -254,7 +254,7 @@ public class AtomicValue implements Node, ValueNode {
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(@Nonnull final Visitor pVisitor) {
+	public VisitResultType acceptVisitor(final Visitor pVisitor) {
 		return VisitResultType.CONTINUE;
 	}
 
@@ -279,7 +279,7 @@ public class AtomicValue implements Node, ValueNode {
 	}
 
 	@Override
-	public void setValue(@Nonnull byte[] pVal) {
+	public void setValue(byte[] pVal) {
 		mValue = checkNotNull(pVal);
 	}
 
@@ -299,7 +299,7 @@ public class AtomicValue implements Node, ValueNode {
 	}
 
 	@Override
-	public void setDeweyID(@Nonnull Optional<SirixDeweyID> id) {
+	public void setDeweyID(Optional<SirixDeweyID> id) {
 		throw new UnsupportedOperationException();
 	}
 

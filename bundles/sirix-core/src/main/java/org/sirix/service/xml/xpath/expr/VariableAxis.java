@@ -61,7 +61,7 @@ public class VariableAxis extends AbstractAxis {
 	 * @param pInSeq
 	 *          sequence, the variable is bound to
 	 */
-	public VariableAxis(@Nonnull final NodeReadTrx pRtx,
+	public VariableAxis(final NodeReadTrx pRtx,
 			@Nonnull final Axis pInSeq) {
 		super(pRtx);
 		mBindingSeq = checkNotNull(pInSeq);
@@ -110,7 +110,7 @@ public class VariableAxis extends AbstractAxis {
 	 * @param mObserver
 	 *          axis that wants to be notified of any change of this axis
 	 */
-	public void addObserver(@Nonnull final VarRefExpr pObserver) {
+	public void addObserver(final VarRefExpr pObserver) {
 		mVarRefs.add(checkNotNull(pObserver));
 	}
 

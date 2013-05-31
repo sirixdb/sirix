@@ -8,7 +8,7 @@ public enum Path {
   /** It is a directory. */
   ISDIRECTORY {
     @Override
-    public StringBuilder append(final @Nonnull StringBuilder pQueryBuilder) {
+    public StringBuilder append(final StringBuilder pQueryBuilder) {
       pQueryBuilder.append("/dir");
       return pQueryBuilder;
     }
@@ -17,7 +17,7 @@ public enum Path {
   /** It is a file. */
   ISFILE {
     @Override
-    public StringBuilder append(final @Nonnull StringBuilder pQueryBuilder) {
+    public StringBuilder append(final StringBuilder pQueryBuilder) {
       pQueryBuilder.append("/file");
       return pQueryBuilder;
     }
@@ -30,5 +30,5 @@ public enum Path {
    *          the query builder
    * @return the query builder with an appended xpath valu
    */
-  public abstract StringBuilder append(final @Nonnull StringBuilder pQueryBuilder);
+  public abstract StringBuilder append(final StringBuilder pQueryBuilder);
 }

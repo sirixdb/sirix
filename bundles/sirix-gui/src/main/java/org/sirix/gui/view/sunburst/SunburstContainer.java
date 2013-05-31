@@ -281,7 +281,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	}
 
 	@Override
-	public SunburstContainer setPruning(@Nonnull final Pruning pPruning) {
+	public SunburstContainer setPruning(final Pruning pPruning) {
 		mPruning = checkNotNull(pPruning);
 		return this;
 	}
@@ -374,7 +374,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 *          determines method to compare trees
 	 * @return instance of this class
 	 */
-	public SunburstContainer setCompare(@Nonnull final ECompare paramCompare) {
+	public SunburstContainer setCompare(final ECompare paramCompare) {
 		mCompare = checkNotNull(paramCompare);
 		return this;
 	}
@@ -386,7 +386,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 *          determines diff of root node to compare
 	 * @return instance of this class
 	 */
-	public SunburstContainer setDiff(@Nonnull final DiffType paramDiff) {
+	public SunburstContainer setDiff(final DiffType paramDiff) {
 		mDiff = checkNotNull(paramDiff);
 		return this;
 	}

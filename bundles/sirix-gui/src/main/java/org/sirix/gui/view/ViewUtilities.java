@@ -78,7 +78,7 @@ public final class ViewUtilities {
    *          {@link QName} reference
    * @return the string representation
    */
-  public static String qNameToString(@Nonnull final QNm pQName) {
+  public static String qNameToString(final QNm pQName) {
     String retVal;
 
     if (pQName.getPrefix().isEmpty()) {
@@ -99,7 +99,7 @@ public final class ViewUtilities {
    * @throws SirixException
    *           if something went wrong while reading the newest revision
    */
-  public static ReadDB refreshResource(@Nonnull final ReadDB pDb) throws SirixException {
+  public static ReadDB refreshResource(final ReadDB pDb) throws SirixException {
     final File file = pDb.getDatabase().getDatabaseConfig().getFile();
     if (pDb != null) {
       pDb.close();
@@ -122,7 +122,7 @@ public final class ViewUtilities {
    * @param pControlP5
    *          {@link ControlP5} instance
    */
-  public static void drawGUI(@Nonnull final ControlP5 pControlP5) {
+  public static void drawGUI(final ControlP5 pControlP5) {
     pControlP5.show();
     pControlP5.draw();
   }
@@ -178,7 +178,7 @@ public final class ViewUtilities {
    * @param applet
    *          Processing {@link applet} reference
    */
-  public static void legend(@Nonnull final AbstractSunburstGUI pGUI,
+  public static void legend(final AbstractSunburstGUI pGUI,
     final Model<SunburstContainer, SunburstItem> pModel) {
     final PApplet applet = pGUI.getApplet();
     // applet.translate(0, 0);
@@ -228,7 +228,7 @@ public final class ViewUtilities {
    * @param pGUI
    *          GUI which provides a SunburstView and therefore extends {@link AbstractSunburstGUI}
    */
-  public static void color(@Nonnull final AbstractSunburstGUI pGUI) {
+  public static void color(final AbstractSunburstGUI pGUI) {
     final PApplet applet = pGUI.getApplet();
     if (pGUI.getBackgroundBrightness() > 40f) {
       applet.fill(0, 0, 0);
@@ -243,7 +243,7 @@ public final class ViewUtilities {
    * @param pGUI
    *          GUI which provides a SunburstView and therefore extends {@link AbstractSunburstGUI}
    */
-  public static void compareLegend(@Nonnull final AbstractSunburstGUI pGUI) {
+  public static void compareLegend(final AbstractSunburstGUI pGUI) {
     if (pGUI.getDotSize() > 0) {
       final PApplet applet = pGUI.getApplet();
       applet.textAlign(PConstants.LEFT, PConstants.TOP);
@@ -284,7 +284,7 @@ public final class ViewUtilities {
    * @throws IllegalArgumentException
    *           if the progress peter is invalid
    */
-  public static void processGlassPaneEvents(@Nonnull final GlassPaneListener pListener,
+  public static void processGlassPaneEvents(final GlassPaneListener pListener,
     @Nonnull final ProcessingView pView, @Nonnegative final int progress) {
     assert pView instanceof PApplet;
     if (pView == null || pListener == null) {

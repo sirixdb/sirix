@@ -3,7 +3,6 @@ package org.sirix.io.ram;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
@@ -48,7 +47,7 @@ public final class RAMStorage implements Storage {
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} reference
 	 */
-	public RAMStorage(final @Nonnull ResourceConfiguration resourceConfig) {
+	public RAMStorage(final ResourceConfiguration resourceConfig) {
 		mStorage = new ConcurrentHashMap<String, Map<Long, Page>>();
 		mHandler = resourceConfig.mByteHandler;
 		final String resource = resourceConfig.getResource().getName();
@@ -105,7 +104,7 @@ public final class RAMStorage implements Storage {
 		}
 
 		@Override
-		public void write(final @Nonnull PageReference pageReference)
+		public void write(final PageReference pageReference)
 				throws SirixIOException {
 			final Page page = pageReference.getPage();
 			pageReference.setKey(mPageKey);
@@ -113,7 +112,7 @@ public final class RAMStorage implements Storage {
 		}
 
 		@Override
-		public void writeFirstReference(final @Nonnull PageReference pageReference)
+		public void writeFirstReference(final PageReference pageReference)
 				throws SirixIOException {
 			final Page page = pageReference.getPage();
 			pageReference.setKey(-1);

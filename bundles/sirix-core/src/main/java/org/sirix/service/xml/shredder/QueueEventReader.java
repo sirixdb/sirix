@@ -32,7 +32,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.util.NoSuchElementException;
 import java.util.Queue;
 
-import javax.annotation.Nonnull;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamConstants;
@@ -62,7 +61,7 @@ public final class QueueEventReader implements XMLEventReader {
 	 * @param events
 	 *          List of XMLEvents.
 	 */
-	public QueueEventReader(final @Nonnull Queue<XMLEvent> events) {
+	public QueueEventReader(final Queue<XMLEvent> events) {
 		mEvents = checkNotNull(events);
 	}
 

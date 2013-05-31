@@ -2,7 +2,6 @@ package org.sirix.index.avltree;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.api.visitor.VisitResultType;
@@ -48,8 +47,8 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
 	 * @param pParent
 	 *          id of the parent node
 	 */
-	public AVLNode(final @Nonnull K key, final @Nonnull V value,
-			final @Nonnull NodeDelegate delegate) {
+	public AVLNode(final K key, final V value,
+			final NodeDelegate delegate) {
 		mKey = checkNotNull(key);
 		mValue = checkNotNull(value);
 		mNodeDelegate = checkNotNull(delegate);
@@ -121,7 +120,7 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
 	}
 
 	@Override
-	public VisitResultType acceptVisitor(final @Nonnull Visitor visitor) {
+	public VisitResultType acceptVisitor(final Visitor visitor) {
 		return VisitResultType.CONTINUE;
 	}
 
@@ -150,12 +149,12 @@ public class AVLNode<K extends Comparable<? super K>, V> extends
 	}
 
 	@Override
-	public void setKey(final @Nonnull K key) {
+	public void setKey(final K key) {
 		mKey = checkNotNull(key);
 	}
 
 	@Override
-	public void setValue(final @Nonnull V value) {
+	public void setValue(final V value) {
 		mValue = checkNotNull(value);
 	}
 }

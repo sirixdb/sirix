@@ -37,7 +37,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import javax.annotation.Nonnegative;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.sirix.access.conf.DatabaseConfiguration;
@@ -93,7 +92,7 @@ public final class DatabaseImpl implements Database {
 	 * @throws SirixException
 	 *           if something weird happens
 	 */
-	DatabaseImpl(final @Nonnull DatabaseConfiguration dbConfig)
+	DatabaseImpl(final DatabaseConfiguration dbConfig)
 			throws SirixException {
 		mDBConfig = checkNotNull(dbConfig);
 		mSessions = new ConcurrentHashMap<>();
@@ -106,7 +105,7 @@ public final class DatabaseImpl implements Database {
 
 	@Override
 	public synchronized boolean createResource(
-			final @Nonnull ResourceConfiguration resConfig) throws SirixIOException {
+			final ResourceConfiguration resConfig) throws SirixIOException {
 		boolean returnVal = true;
 		final File path = new File(new File(mDBConfig.getFile().getAbsoluteFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()),
@@ -168,7 +167,7 @@ public final class DatabaseImpl implements Database {
 	}
 
 	@Override
-	public synchronized Database truncateResource(final @Nonnull String name) {
+	public synchronized Database truncateResource(final String name) {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()), name);
 		// Check that database must be closed beforehand.
@@ -203,7 +202,7 @@ public final class DatabaseImpl implements Database {
 	}
 
 	@Override
-	public synchronized long getResourceID(final @Nonnull String name) {
+	public synchronized long getResourceID(final String name) {
 		return mResources.inverse().get(checkNotNull(name));
 	}
 
@@ -217,7 +216,7 @@ public final class DatabaseImpl implements Database {
 
 	@Override
 	public synchronized Session getSession(
-			final @Nonnull SessionConfiguration pSessionConf) throws SirixException {
+			final SessionConfiguration pSessionConf) throws SirixException {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				pSessionConf.getResource());
@@ -265,7 +264,7 @@ public final class DatabaseImpl implements Database {
 	}
 
 	@Override
-	public synchronized boolean existsResource(final @Nonnull String pResourceName) {
+	public synchronized boolean existsResource(final String pResourceName) {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()), pResourceName);
 		return resourceFile.exists()
@@ -298,7 +297,7 @@ public final class DatabaseImpl implements Database {
 	 *          {@link File} to be closed
 	 * @return {@code true} if close successful, {@code false} otherwise
 	 */
-	protected boolean removeSession(final @Nonnull File file) {
+	protected boolean removeSession(final File file) {
 		return mSessions.remove(file) == null ? false : true;
 	}
 

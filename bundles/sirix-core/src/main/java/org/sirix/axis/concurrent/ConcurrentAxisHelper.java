@@ -76,7 +76,7 @@ public class ConcurrentAxisHelper implements Runnable {
 	 * @param rtx
 	 *          Transaction to operate with.
 	 */
-	public ConcurrentAxisHelper(@Nonnull final Axis axis,
+	public ConcurrentAxisHelper(final Axis axis,
 			@Nonnull final BlockingQueue<Long> results) {
 		mAxis = checkNotNull(axis);
 		mResults = checkNotNull(results);

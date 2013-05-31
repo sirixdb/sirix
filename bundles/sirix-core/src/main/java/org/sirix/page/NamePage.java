@@ -91,7 +91,7 @@ public final class NamePage extends AbstractForwardingPage {
 	 * @param in
 	 *          input bytes to read from
 	 */
-	protected NamePage(final @Nonnull ByteArrayDataInput in) {
+	protected NamePage(final ByteArrayDataInput in) {
 		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
 		final int size = in.readInt();
 		mMaxNodeKeys = new HashMap<>(size);
@@ -111,7 +111,7 @@ public final class NamePage extends AbstractForwardingPage {
 	 *          name key identifying name
 	 * @return raw name of name key
 	 */
-	public byte[] getRawName(final int key, final @Nonnull Kind nodeKind) {
+	public byte[] getRawName(final int key, final Kind nodeKind) {
 		byte[] rawName = new byte[] {};
 		switch (nodeKind) {
 		case ELEMENT:
@@ -198,8 +198,8 @@ public final class NamePage extends AbstractForwardingPage {
 	 * @param pNodeKind
 	 *          kind of node
 	 */
-	public void setName(final int key, final @Nonnull String name,
-			final @Nonnull Kind pNodeKind) {
+	public void setName(final int key, final String name,
+			final Kind pNodeKind) {
 		switch (pNodeKind) {
 		case ELEMENT:
 			mElements.setName(key, name);
@@ -219,7 +219,7 @@ public final class NamePage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(final @Nonnull ByteArrayDataOutput out) {
+	public void serialize(final ByteArrayDataOutput out) {
 			super.serialize(out);
 			final int size = mMaxNodeKeys.size();
 			out.writeInt(size);
@@ -245,7 +245,7 @@ public final class NamePage extends AbstractForwardingPage {
 	 * @param key
 	 *          the key to remove
 	 */
-	public void removeName(final int key, final @Nonnull Kind nodeKind) {
+	public void removeName(final int key, final Kind nodeKind) {
 		switch (nodeKind) {
 		case ELEMENT:
 			mElements.removeName(key);
@@ -273,7 +273,7 @@ public final class NamePage extends AbstractForwardingPage {
 	 *          the index number
 	 */
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void createNameIndexTree(
-			final @Nonnull PageWriteTrx<K, V, S> pageWriteTrx, final int index) {
+			final PageWriteTrx<K, V, S> pageWriteTrx, final int index) {
 		final PageReference reference = getReference(index);
 		if (reference.getPage() == null && reference.getLogKey() == null
 				&& reference.getKey() == Constants.NULL_ID) {

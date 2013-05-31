@@ -1,6 +1,5 @@
 package org.sirix.index.path.summary;
 
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
@@ -33,7 +32,7 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	 * @param node
 	 *          the mutable path node
 	 */
-	public ImmutablePathNode(final @Nonnull PathNode node) {
+	public ImmutablePathNode(final PathNode node) {
 		mNode = node;
 	}
 	
@@ -44,7 +43,7 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	 *          the mutable {@link PathNode} to wrap
 	 * @return immutable path node instance
 	 */
-	public static ImmutableNode of(final @Nonnull PathNode node) {
+	public static ImmutableNode of(final PathNode node) {
 		return new ImmutablePathNode(node);
 	}
 
@@ -69,7 +68,7 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	}
 
 	@Override
-	public VisitResult acceptVisitor(@Nonnull Visitor visitor) {
+	public VisitResult acceptVisitor(Visitor visitor) {
 		return mNode.acceptVisitor(visitor);
 	}
 

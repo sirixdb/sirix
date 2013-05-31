@@ -42,7 +42,6 @@ import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
 import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixUsageException;
 import org.sirix.node.Kind;
 
 public class ReadTransactionTest {

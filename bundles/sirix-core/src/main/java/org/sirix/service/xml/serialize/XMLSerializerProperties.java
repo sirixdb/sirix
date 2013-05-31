@@ -35,8 +35,6 @@ import java.lang.reflect.Field;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -130,7 +128,7 @@ public final class XMLSerializerProperties {
 	 *          path to properties file
 	 * @return ConcurrentMap which holds property key/values.
 	 */
-	public ConcurrentMap<String, Object> readProps(final @Nonnull String filePath) {
+	public ConcurrentMap<String, Object> readProps(final String filePath) {
 		mFilePath = filePath;
 		if (!new File(mFilePath).exists()) {
 			throw new IllegalStateException("Properties file doesn't exist!");

@@ -29,8 +29,6 @@ package org.sirix.axis;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import javax.annotation.Nonnull;
-
 import org.sirix.api.Axis;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.settings.Fixed;
@@ -66,7 +64,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 	 * @param pChildAxis
 	 *          outer nested axis
 	 */
-	public NonStructuralWrapperAxis(final @Nonnull Axis parentAxis) {
+	public NonStructuralWrapperAxis(final Axis parentAxis) {
 		super(parentAxis.getTrx());
 		mParentAxis = checkNotNull(parentAxis);
 	}
@@ -111,7 +109,7 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
 	 * @return the node key of the non structural node, or the
 	 *         {@code NULL_NODE_KEY}
 	 */
-	private long nonStructural(final @Nonnull NodeReadTrx trx) {
+	private long nonStructural(final NodeReadTrx trx) {
 		if (trx.isNamespace()) {
 			trx.moveToParent();
 		}
