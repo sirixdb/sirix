@@ -1,5 +1,8 @@
 #Sirix - a versioned XML storage system
 
+## Developers
+First of all, I'm searching for interested open source developers which are eager to put forth the idea of a versioned, secure database system especially suitable, but not restricted to rooted trees (serialized form as XML/JSON). The idea is not only to support (and extend querying) as for instance via XQuery efficiently, but also to support other datamining tasks such as the comparison of hierarchical tree-structures.
+
 ## Introduction
 Do you have to handle irregular data without knowing the schema before storing the data? You currently store this data in a relational DBMS? Maybe a tree-structured (XML) storage system much better suits your needs as it does'nt require a predefined schema before even knowing the structure of the data which has to be persisted.
 Do you have to store a snapshot of this irregular data? Furthermore questions such as 
