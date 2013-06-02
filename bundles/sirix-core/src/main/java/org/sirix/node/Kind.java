@@ -810,9 +810,7 @@ public enum Kind implements RecordPersistenter {
 			final ByteArrayDataInput source) {
 		final int uriKey = source.readInt();
 		int prefixKey = source.readInt();
-		// prefixKey += uriKey;
 		int localNameKey = source.readInt();
-		// localNameKey += prefixKey;
 		return new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey,
 				getVarLong(source));
 	}
@@ -829,8 +827,8 @@ public enum Kind implements RecordPersistenter {
 			final NameNodeDelegate nameDel,
 			final ByteArrayDataOutput sink) {
 		sink.writeInt(nameDel.getURIKey());
-		sink.writeInt(nameDel.getPrefixKey()); // - nameDel.getURIKey());
-		sink.writeInt(nameDel.getLocalNameKey());// - nameDel.getPrefixKey());
+		sink.writeInt(nameDel.getPrefixKey());
+		sink.writeInt(nameDel.getLocalNameKey());
 		putVarLong(sink, nameDel.getPathNodeKey());
 	}
 
