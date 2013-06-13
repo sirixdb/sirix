@@ -166,11 +166,11 @@ As such my deepest gratitude to all the other students who worked on the project
 
 First of all:
 
-Marc Kramis for his first drafts,
-Sebastian Graf for his almost complete rewrite of Treetank,
-Patrick Lang (RESTful API),
-Lukas Lewandowski (RESTful API),
-Tina Scherer (XPath engine)
+- Marc Kramis for his first drafts,
+- Sebastian Graf for his almost complete rewrite of Treetank,
+- Patrick Lang (RESTful API),
+- Lukas Lewandowski (RESTful API),
+- Tina Scherer (XPath engine)
 
 and all the others who worked on the project.
 
