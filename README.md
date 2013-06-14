@@ -40,6 +40,43 @@ In contrast to some other approaches we also store path class records (PCR), tha
 
 Furthermore in stark contrast to all other approaches the authors are aware of moves are supported, which preserve node-identity and aren't simple combinations of insert/delete-subtree operations. Instead only local changes take place. However with the path summary and other index-structures enabled the operation is likewise costly.
 
+## Simple Example 
+Test if fragments are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
+<pre><code>
+(* Loading document: *)
+bit:load('mydoc.xml', '/tmp/sample8721713104854945959.xml')
+
+(* Query loaded document: *)
+INSERT NODES <a><b/>test</a> INTO doc('mydoc.xml')/log
+
+(* intermediate commit *)
+
+(* Query loaded document: *)
+doc('mydoc.xml', 2)/log/all-time::*
+(* First version: *)
+<log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low">
+  <src>192.168.203.49</src>
+  <msg>udic fyllwx abrjxa apvd</msg>
+</log>
+(* Second version: *)
+<log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low">
+  <src>192.168.203.49</src>
+  <msg>udic fyllwx abrjxa apvd</msg>
+  <a>
+    <b/>
+    test
+  </a>
+
+</log>
+
+(*Query loaded document (nodes, which are children of the log-element but did not exist in the past): *)
+doc('mydoc.xml', 2)/log/*[not(past::*)]
+<a>
+  <b/>
+  test
+</a>
+</pre></code>
+
 ## Documentation
 We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
 Please also have a look at and play with our sirix-example bundle which is available via maven.
