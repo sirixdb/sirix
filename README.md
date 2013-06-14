@@ -36,6 +36,8 @@ doc('mydoc.xml', 2)/log/*[not(past::*)]
 &lt;/a&gt;
 </pre></code>
 
+This should just serve as a simple example.
+
 ## Developers
 First of all, I'm searching for interested open source developers which are eager to put forth the idea of a versioned, secure database system especially suitable, but not restricted to rooted trees (serialized form as XML/JSON). The idea is not only to support (and extend querying) as for instance via XQuery efficiently, but also to support other datamining tasks such as the comparison of hierarchical tree-structures.
 
@@ -76,14 +78,14 @@ In contrast to some other approaches we also store path class records (PCR), tha
 
 Furthermore in stark contrast to all other approaches the authors are aware of moves are supported, which preserve node-identity and aren't simple combinations of insert/delete-subtree operations. Instead only local changes take place. However with the path summary and other index-structures enabled the operation is likewise costly.
 
-##Documentation
+## Documentation
 We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
 Please also have a look at and play with our sirix-example bundle which is available via maven.
 
-##Mailinglist
+## Mailinglist
 Any questions or even consider to contribute or use Sirix? Use https://groups.google.com/d/forum/sirix-users to ask questions. Any kind of question, may it be a API-question or enhancement proposal, questions regarding use-cases are welcome... Don't hesitate to ask questions or make suggestions for improvements. At the moment also API-related suggestions and critics are of utmost importance.
 
-##Maven artifacts
+## Maven artifacts
 At this stage of development please use the latest SNAPSHOT artifacts from https://oss.sonatype.org/content/repositories/snapshots/com/github/johanneslichtenberger/sirix/.
 Just add the following repository section to your POM file:
 <pre><code>&lt;repository&gt;
@@ -144,7 +146,7 @@ Saxon interface (use Saxon to query data):
 
 Other modules are currently not available (namely the GUI, the distributed package) due to dependencies to processing.org which isn't available from a maven repository and other dependencies.
 
-##Technical details and Features
+## Technical details and Features
 
 [![Build Status](https://travis-ci.org/JohannesLichtenberger/sirix.png)](https://travis-ci.org/JohannesLichtenberger/sirix)
 
@@ -210,12 +212,14 @@ First of all:
 
 and all the others who worked on the project.
 
-##License
+## License
 
 This work is released in the public domain under the BSD 3-clause license
 
-##Involved People
+## Involved People
 
 Sirix is maintained by:
 
 * Johannes Lichtenberger
+
+Your name might follow? ;-)
