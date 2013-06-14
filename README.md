@@ -74,7 +74,7 @@ doc('mydoc.xml', 2)/log/*[not(past::*)]
   &lt;b/&gt;
   test
 &lt;/a&gt;
-&lt;/pre>&lt;/code&gt;
+</pre></code>
 
 ## Documentation
 We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
