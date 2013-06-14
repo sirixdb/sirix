@@ -1,5 +1,41 @@
 #Sirix - a versioned XML storage system
 
+## Simple Example 
+Test if fragments are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
+<pre><code>
+(* Loading document: *)
+bit:load('mydoc.xml', '/tmp/sample8721713104854945959.xml')
+
+(* Query loaded document: *)
+INSERT NODES &lt;a&gt;&lt;b/&gt;test&lt;/a&gt; INTO doc('mydoc.xml')/log
+
+(* intermediate commit *)
+
+(* Query loaded document: *)
+doc('mydoc.xml', 2)/log/all-time::*
+(* First version: *)
+&lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
+  &lt;src&gt;192.168.203.49&lt;/src&gt;
+  &lt;msg&gt;udic fyllwx abrjxa apvd&lt;/msg&gt;
+&lt;/log&gt;
+(* Second version: *)
+&lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
+  &lt;src&gt;192.168.203.49&lt;/src&gt;
+  &lt;msg&gt;udic fyllwx abrjxa apvd&lt;/msg&gt;
+  &lt;a&gt;
+    &lt;b/&gt;
+    test
+  &lt;/a&gt;
+&lt;/log&gt;
+
+(*Query loaded document (nodes, which are children of the log-element but did not exist in the past): *)
+doc('mydoc.xml', 2)/log/*[not(past::*)]
+&lt;a&gt;
+  &lt;b/&gt;
+  test
+&lt;/a&gt;
+</pre></code>
+
 ## Developers
 First of all, I'm searching for interested open source developers which are eager to put forth the idea of a versioned, secure database system especially suitable, but not restricted to rooted trees (serialized form as XML/JSON). The idea is not only to support (and extend querying) as for instance via XQuery efficiently, but also to support other datamining tasks such as the comparison of hierarchical tree-structures.
 
@@ -40,43 +76,7 @@ In contrast to some other approaches we also store path class records (PCR), tha
 
 Furthermore in stark contrast to all other approaches the authors are aware of moves are supported, which preserve node-identity and aren't simple combinations of insert/delete-subtree operations. Instead only local changes take place. However with the path summary and other index-structures enabled the operation is likewise costly.
 
-## Simple Example 
-Test if fragments are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
-<pre><code>
-(* Loading document: *)
-bit:load('mydoc.xml', '/tmp/sample8721713104854945959.xml')
-
-(* Query loaded document: *)
-INSERT NODES &lt;a&gt;&lt;b/&gt;test&lt;/a&gt; INTO doc('mydoc.xml')/log
-
-(* intermediate commit *)
-
-(* Query loaded document: *)
-doc('mydoc.xml', 2)/log/all-time::*
-(* First version: *)
-&lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
-  &lt;src&gt;192.168.203.49&lt;/src&gt;
-  &lt;msg&gt;udic fyllwx abrjxa apvd&lt;/msg&gt;
-&lt;/log&gt;
-(* Second version: *)
-&lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
-  &lt;src&gt;192.168.203.49&lt;/src&gt;
-  &lt;msg&gt;udic fyllwx abrjxa apvd&lt;/msg&gt;
-  &lt;a&gt;
-    &lt;b/&gt;
-    test
-  &lt;/a&gt;
-&lt;/log&gt;
-
-(*Query loaded document (nodes, which are children of the log-element but did not exist in the past): *)
-doc('mydoc.xml', 2)/log/*[not(past::*)]
-&lt;a&gt;
-  &lt;b/&gt;
-  test
-&lt;/a&gt;
-</pre></code>
-
-## Documentation
+##Documentation
 We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
 Please also have a look at and play with our sirix-example bundle which is available via maven.
 
