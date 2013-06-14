@@ -12,7 +12,7 @@ INSERT NODES &lt;a&gt;&lt;b/&gt;test&lt;/a&gt; INTO doc('mydoc.xml')/log
 (* intermediate commit *)
 
 (* Query loaded document: *)
-doc('mydoc.xml', 2)/log/all-time::*
+doc('mydoc.xml')/log/all-time::*
 (* First version: *)
 &lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
   &lt;src&gt;192.168.203.49&lt;/src&gt;
@@ -28,7 +28,8 @@ doc('mydoc.xml', 2)/log/all-time::*
   &lt;/a&gt;
 &lt;/log&gt;
 
-(*Query loaded document (nodes, which are children of the log-element but did not exist in the past): *)
+(* Query loaded document (nodes, which are children of the log-element but did not exist in the past): *)
+(* The second revision is initially loaded *)
 doc('mydoc.xml', 2)/log/*[not(past::*)]
 &lt;a&gt;
   &lt;b/&gt;
