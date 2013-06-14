@@ -161,16 +161,18 @@ http://www.youtube.com/watch?v=l9CXXBkl5vI
 
 ##Further information
 
-Sirix is a relatively young fork of Treetank. The framework (Treetank) was presented at various conferences and acted as base for multiple publications and reports:
+Sirix was initially forked from Treetank (https://github.com/disy/treetank) due to the specialization on XML, which isn't the focus of Treetank anymore.
+As such my deepest gratitude to all the other students who worked on the project.
 
-* A legal and technical perspective on secure cloud Storage; DFN Forum'12: [PDF](http://nbn-resolving.de/urn:nbn:de:bsz:352-192389)
-* A Secure Cloud Gateway based upon XML and Web Services; ECOWS'11, PhD Symposium: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-154112)
-* Treetank, Designing a Versioned XML Storage; XMLPrague'11: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-opus-126912)
-* Rolling Boles, Optimal XML Structure Integrity for Updating Operations; WWW'11, Poster: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-126226)
-* Hecate, Managing Authorization with RESTful XML; WS-REST'11: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-126237)
-* Integrity Assurance for RESTful XML; WISM'10: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-opus-123507)
-* JAX-RX - Unified REST Access to XML Resources; TechReport'10: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-opus-120511)
-* Distributing XML with focus on parallel evaluation; DBISP2P'08: [PDF](http://kops.ub.uni-konstanz.de/handle/urn:nbn:de:bsz:352-opus-84487)
+First of all:
+
+- Marc Kramis for his first drafts,
+- Sebastian Graf for his almost complete rewrite of Treetank,
+- Patrick Lang (RESTful API),
+- Lukas Lewandowski (RESTful API),
+- Tina Scherer (XPath engine)
+
+and all the others who worked on the project.
 
 ##License
 
