@@ -1457,30 +1457,28 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	@Override
 	public DBNode getNext() {
 		moveRtx();
-		final AbstractTemporalAxis axis = new NextAxis(mRtx.getSession(), mNodeKey,
-				mRtx.getRevisionNumber());
+		final AbstractTemporalAxis axis = new NextAxis(mRtx);
 		return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
 	}
 
 	@Override
 	public DBNode getPrevious() {
 		moveRtx();
-		final AbstractTemporalAxis axis = new PreviousAxis(mRtx.getSession(),
-				mNodeKey, mRtx.getRevisionNumber());
+		final AbstractTemporalAxis axis = new PreviousAxis(mRtx);
 		return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
 	}
 
 	@Override
 	public DBNode getFirst() {
 		moveRtx();
-		final AbstractTemporalAxis axis = new FirstAxis(mRtx.getSession(), mNodeKey);
+		final AbstractTemporalAxis axis = new FirstAxis(mRtx);
 		return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
 	}
 
 	@Override
 	public DBNode getLast() {
 		moveRtx();
-		final AbstractTemporalAxis axis = new LastAxis(mRtx.getSession(), mNodeKey);
+		final AbstractTemporalAxis axis = new LastAxis(mRtx);
 		return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
 	}
 
@@ -1489,8 +1487,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 			final boolean includeSelf) {
 		moveRtx();
 		final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
-		return new TemporalSirixStream(new PastAxis(mRtx.getSession(), mNodeKey,
-				mRtx.getRevisionNumber(), include), mCollection);
+		return new TemporalSirixStream(new PastAxis(mRtx, include), mCollection);
 	}
 
 	@Override
@@ -1498,15 +1495,13 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 			final boolean includeSelf) {
 		moveRtx();
 		final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
-		return new TemporalSirixStream(new FutureAxis(mRtx.getSession(), mNodeKey,
-				mRtx.getRevisionNumber(), include), mCollection);
+		return new TemporalSirixStream(new FutureAxis(mRtx, include), mCollection);
 	}
 
 	@Override
 	public Stream<AbstractTemporalNode<DBNode>> getAllTime() {
 		moveRtx();
-		return new TemporalSirixStream(
-				new AllTimeAxis(mRtx.getSession(), mNodeKey), mCollection);
+		return new TemporalSirixStream(new AllTimeAxis(mRtx), mCollection);
 	}
 
 	@Override

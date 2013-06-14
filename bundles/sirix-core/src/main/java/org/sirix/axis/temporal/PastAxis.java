@@ -50,34 +50,24 @@ public class PastAxis extends AbstractTemporalAxis {
 	 * @param revision
 	 *          current revision
 	 */
-	public PastAxis(final Session session,
-			final @Nonnegative long nodeKey, final @Nonnegative int revision) {
+	public PastAxis(final NodeReadTrx rtx) {
 		// Using telescope pattern instead of builder (only one optional parameter.
-		this(session, nodeKey, revision, IncludeSelf.NO);
+		this(rtx, IncludeSelf.NO);
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param session
-	 *          {@link Sirix} session
-	 * @param nodeKey
-	 *          the key of the node to lookup in each revision
-	 * @param revision
-	 *          current revision
 	 * @param includeSelf
 	 * 					determines if current revision must be included or not
 	 */
-	public PastAxis(final Session session,
-			final @Nonnegative long nodeKey, final @Nonnegative int revision,
+	public PastAxis(final NodeReadTrx rtx,
 			final IncludeSelf includeSelf) {
-		mSession = checkNotNull(session);
+		mSession = checkNotNull(rtx.getSession());
 		mRevision = 0;
-		checkArgument(nodeKey > -1, "nodeKey must be >= 0!");
-		mNodeKey = nodeKey;
-		checkArgument(revision > -1, "revision must be >= 0!");
-		mRevision = checkNotNull(includeSelf) == IncludeSelf.YES ? revision
-				: revision - 1;
+		mNodeKey = rtx.getNodeKey();
+		mRevision = checkNotNull(includeSelf) == IncludeSelf.YES ? rtx.getRevisionNumber()
+				: rtx.getRevisionNumber() - 1;
 	}
 
 	@Override

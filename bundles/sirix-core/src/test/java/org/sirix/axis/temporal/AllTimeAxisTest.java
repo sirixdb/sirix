@@ -9,17 +9,24 @@ import org.sirix.Holder;
 import org.sirix.TestHelper;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.exception.SirixException;
-import org.sirix.settings.Fixed;
 import org.sirix.utils.DocumentCreater;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
 
-public class AllTimeAxisTest {
+/**
+ * Test {@link AllTimeAxis}.
+ * 
+ * @author Johannes Lichtenberger
+ *
+ */
+public final class AllTimeAxisTest {
 
+	/** Number of iterations. */
 	private static final int ITERATIONS = 5;
 
+	/** The {@link Holder} instance. */
 	private Holder holder;
 
 	@Before
@@ -49,7 +56,7 @@ public class AllTimeAxisTest {
 
 			@Override
 			protected Iterator<NodeReadTrx> newTargetIterator() {
-				return new AllTimeAxis(holder.getSession(), Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+				return new AllTimeAxis(holder.getRtx());
 			}
 		}.test();
 	}

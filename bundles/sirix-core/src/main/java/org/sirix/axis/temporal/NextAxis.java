@@ -48,14 +48,11 @@ public class NextAxis extends AbstractTemporalAxis {
 	 * @param revision
 	 *          current revision
 	 */
-	public NextAxis(final Session session,
-			final @Nonnegative long nodeKey, final @Nonnegative int revision) {
-		mSession = checkNotNull(session);
+	public NextAxis(final NodeReadTrx rtx) {
+		mSession = checkNotNull(rtx.getSession());
 		mRevision = 0;
-		checkArgument(nodeKey > -1, "nodeKey must be >= 0!");
-		mNodeKey = nodeKey;
-		checkArgument(revision > -1, "revision must be >= 0!");
-		mRevision = revision + 1;
+		mNodeKey = rtx.getNodeKey();
+		mRevision = rtx.getRevisionNumber() + 1;
 		mFirst = true;
 	}
 

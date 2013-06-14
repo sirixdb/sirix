@@ -43,11 +43,9 @@ public class LastAxis extends AbstractTemporalAxis {
 	 * @param nodeKey
 	 *          the key of the node to lookup in each revision
 	 */
-	public LastAxis(final Session session,
-			final @Nonnegative long nodeKey) {
-		mSession = checkNotNull(session);
-		checkArgument(nodeKey > -1, "nodeKey must be >= 0!");
-		mNodeKey = nodeKey;
+	public LastAxis(final NodeReadTrx rtx) {
+		mSession = checkNotNull(rtx.getSession());
+		mNodeKey = rtx.getNodeKey();
 		mFirst = true;
 	}
 

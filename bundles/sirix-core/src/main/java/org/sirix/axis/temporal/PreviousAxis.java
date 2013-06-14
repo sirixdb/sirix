@@ -41,21 +41,14 @@ public class PreviousAxis extends AbstractTemporalAxis {
 	/**
 	 * Constructor.
 	 * 
-	 * @param session
-	 *          {@link Sirix} session
-	 * @param nodeKey
-	 *          the key of the node to lookup in each revision
-	 * @param revision
-	 *          current revision
+	 * @param rtx
+	 * 				Sirix {@link NodeReadTrx}
 	 */
-	public PreviousAxis(final Session session,
-			final @Nonnegative long nodeKey, final @Nonnegative int revision) {
-		mSession = checkNotNull(session);
+	public PreviousAxis(final NodeReadTrx rtx) {
+		mSession = checkNotNull(rtx.getSession());
 		mRevision = 0;
-		checkArgument(nodeKey > -1, "nodeKey must be >= 0!");
-		mNodeKey = nodeKey;
-		checkArgument(revision > -1, "revision must be >= 0!");
-		mRevision = revision - 1;
+		mNodeKey = rtx.getNodeKey();
+		mRevision = rtx.getRevisionNumber() - 1;
 		mFirst = true;
 	}
 

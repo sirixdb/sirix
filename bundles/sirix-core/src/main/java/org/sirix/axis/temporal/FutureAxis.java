@@ -1,9 +1,6 @@
 package org.sirix.axis.temporal;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
-import javax.annotation.Nonnegative;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -43,41 +40,28 @@ public class FutureAxis extends AbstractTemporalAxis {
 	/**
 	 * Constructor.
 	 * 
-	 * @param session
-	 *          {@link Sirix} session
-	 * @param nodeKey
-	 *          the key of the node to lookup in each revision
-	 * @param revision
-	 *          current revision
+	 * @param rtx
+	 *          Sirix {@link NodeReadTrx}
 	 */
-	public FutureAxis(final Session session,
-			final @Nonnegative long nodeKey, final @Nonnegative int revision) {
+	public FutureAxis(final NodeReadTrx rtx) {
 		// Using telescope pattern instead of builder (only one optional parameter).
-		this(session, nodeKey, revision, IncludeSelf.NO);
+		this(rtx, IncludeSelf.NO);
 	}
 
 	/**
 	 * Constructor.
 	 * 
-	 * @param session
-	 *          {@link Sirix} session
-	 * @param nodeKey
-	 *          the key of the node to lookup in each revision
-	 * @param revision
-	 *          current revision
+	 * @param rtx
+	 *          Sirix {@link NodeReadTrx} session
 	 * @param includeSelf
 	 * 					determines if current revision must be included or not
 	 */
-	public FutureAxis(final Session session,
-			final @Nonnegative long nodeKey, final @Nonnegative int revision,
+	public FutureAxis(final NodeReadTrx rtx,
 			final IncludeSelf includeSelf) {
-		mSession = checkNotNull(session);
-		mRevision = 0;
-		checkArgument(nodeKey > -1, "nodeKey must be >= 0!");
-		mNodeKey = nodeKey;
-		checkArgument(revision > -1, "revision must be >= 0!");
-		mRevision = checkNotNull(includeSelf) == IncludeSelf.YES ? revision
-				: revision + 1;
+		mSession = checkNotNull(rtx.getSession());
+		mNodeKey = rtx.getNodeKey();
+		mRevision = checkNotNull(includeSelf) == IncludeSelf.YES ? rtx.getRevisionNumber()
+				: rtx.getRevisionNumber() + 1;
 	}
 
 	@Override

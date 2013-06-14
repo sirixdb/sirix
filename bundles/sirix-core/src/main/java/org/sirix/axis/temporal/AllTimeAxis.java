@@ -47,12 +47,10 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
 	 * @param nodeKey
 	 *          the key of the node to lookup in each revision
 	 */
-	public AllTimeAxis(final Session session,
-			final @Nonnegative long nodeKey) {
-		mSession = checkNotNull(session);
+	public AllTimeAxis(final NodeReadTrx rtx) {
+		mSession = checkNotNull(rtx.getSession());
 		mRevision = 1;
-		checkArgument(nodeKey > -1, "nodeKey must be >= 0!");
-		mNodeKey = nodeKey;
+		mNodeKey = rtx.getNodeKey();
 	}
 
 	@Override
