@@ -45,7 +45,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public long getMaxNodeKey() throws SirixIOException {
+	public long getMaxNodeKey() {
 		return delegate().getMaxNodeKey();
 	}
 
@@ -65,12 +65,12 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public int getRevisionNumber() throws SirixIOException {
+	public int getRevisionNumber() {
 		return delegate().getRevisionNumber();
 	}
 
 	@Override
-	public long getRevisionTimestamp() throws SirixIOException {
+	public long getRevisionTimestamp() {
 		return delegate().getRevisionTimestamp();
 	}
 

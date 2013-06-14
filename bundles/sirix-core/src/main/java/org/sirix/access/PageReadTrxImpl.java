@@ -869,7 +869,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public RevisionRootPage getActualRevisionRootPage() throws SirixIOException {
+	public RevisionRootPage getActualRevisionRootPage() {
 		assertNotClosed();
 		return mRootPage;
 	}

@@ -51,24 +51,29 @@ public abstract class AbstractFilter implements Filter, Predicate<Long> {
 	/**
 	 * Bind axis step to transaction.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          transaction to operate with
 	 */
-	protected AbstractFilter(final NodeReadTrx pRtx) {
-		mRtx = checkNotNull(pRtx);
+	protected AbstractFilter(final NodeReadTrx rtx) {
+		mRtx = checkNotNull(rtx);
 	}
 
 	@Override
 	public final NodeReadTrx getTrx() {
 		return mRtx;
 	}
-
+	
+	@Override
+	public void setTrx(NodeReadTrx rtx) {
+		mRtx = checkNotNull(rtx);
+	}
+	
 	@Override
 	public abstract boolean filter();
 
 	@Override
-	public boolean apply(final @Nullable Long pNodeKey) {
-		mRtx.moveTo(checkNotNull(pNodeKey));
+	public boolean apply(final @Nullable Long nodeKey) {
+		mRtx.moveTo(checkNotNull(nodeKey));
 		return filter();
 	}
 }

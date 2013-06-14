@@ -13,7 +13,6 @@ import org.brackit.xquery.node.parser.NavigationalSubtreeParser;
 import org.brackit.xquery.node.parser.SubtreeHandler;
 import org.brackit.xquery.node.parser.SubtreeListener;
 import org.brackit.xquery.node.parser.SubtreeParser;
-import org.brackit.xquery.node.stream.EmptyStream;
 import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Kind;
@@ -43,7 +42,6 @@ import org.sirix.axis.temporal.NextAxis;
 import org.sirix.axis.temporal.PastAxis;
 import org.sirix.axis.temporal.PreviousAxis;
 import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.service.xml.shredder.Insert;
 import org.sirix.settings.Fixed;
@@ -98,8 +96,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	 * @param collection
 	 *          {@link DBCollection} reference
 	 */
-	public DBNode(final NodeReadTrx rtx,
-			final DBCollection collection) {
+	public DBNode(final NodeReadTrx rtx, final DBCollection collection) {
 		mCollection = checkNotNull(collection);
 		mRtx = checkNotNull(rtx);
 		mIsWtx = mRtx instanceof NodeWriteTrx;
@@ -393,14 +390,10 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 			final DBNode node = (DBNode) other;
 			assert node.getNodeClassID() == this.getNodeClassID();
 			final NodeReadTrx rtx = node.getTrx();
-			try {
-				if (rtx.getRevisionNumber() == mRtx.getRevisionNumber()
-						&& rtx.getSession().getResourceConfig().getID() == mRtx
-								.getSession().getResourceConfig().getID()) {
-					retVal = true;
-				}
-			} catch (final SirixIOException e) {
-				LOGWRAPPER.error(e.getMessage(), e);
+			if (rtx.getRevisionNumber() == mRtx.getRevisionNumber()
+					&& rtx.getSession().getResourceConfig().getID() == mRtx.getSession()
+							.getResourceConfig().getID()) {
+				retVal = true;
 			}
 		}
 		return retVal;
@@ -1256,16 +1249,14 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	}
 
 	@Override
-	public void parse(final SubtreeHandler handler)
-			throws DocumentException {
+	public void parse(final SubtreeHandler handler) throws DocumentException {
 		moveRtx();
 		final SubtreeParser parser = new NavigationalSubtreeParser(this);
 		parser.parse(handler);
 	}
 
 	@Override
-	protected int cmpInternal(
-			final AbstractTemporalNode<DBNode> otherNode) {
+	protected int cmpInternal(final AbstractTemporalNode<DBNode> otherNode) {
 		moveRtx();
 
 		// Are they the same node?
@@ -1291,15 +1282,10 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		}
 
 		// Temporal extension.
-		try {
-			final Integer revision = mRtx.getRevisionNumber();
-			final Integer otherRevision = ((DBNode) otherNode).mRtx
-					.getRevisionNumber();
-			if (revision != otherRevision) {
-				return revision.compareTo(otherRevision);
-			}
-		} catch (final SirixIOException e) {
-			LOGWRAPPER.error(e.getMessage(), e);
+		final Integer revision = mRtx.getRevisionNumber();
+		final Integer otherRevision = ((DBNode) otherNode).mRtx.getRevisionNumber();
+		if (revision != otherRevision) {
+			return revision.compareTo(otherRevision);
 		}
 
 		if (mNodeKey == ((DBNode) otherNode).mNodeKey) {
@@ -1464,34 +1450,24 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	public Stream<? extends Node<?>> performStep(
 			final org.brackit.xquery.xdm.Axis axis, final NodeType test)
 			throws DocumentException {
-		
+
 		return null;
 	}
 
 	@Override
 	public DBNode getNext() {
 		moveRtx();
-		try {
-			final AbstractTemporalAxis axis = new NextAxis(mRtx.getSession(),
-					mNodeKey, mRtx.getRevisionNumber());
-			return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
-		} catch (final SirixIOException e) {
-			LOGWRAPPER.error(e.getMessage(), e);
-			return null;
-		}
+		final AbstractTemporalAxis axis = new NextAxis(mRtx.getSession(), mNodeKey,
+				mRtx.getRevisionNumber());
+		return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
 	}
 
 	@Override
 	public DBNode getPrevious() {
 		moveRtx();
-		try {
-			final AbstractTemporalAxis axis = new PreviousAxis(mRtx.getSession(),
-					mNodeKey, mRtx.getRevisionNumber());
-			return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
-		} catch (final SirixIOException e) {
-			LOGWRAPPER.error(e.getMessage(), e);
-			return null;
-		}
+		final AbstractTemporalAxis axis = new PreviousAxis(mRtx.getSession(),
+				mNodeKey, mRtx.getRevisionNumber());
+		return axis.hasNext() ? new DBNode(axis.getTrx(), mCollection) : null;
 	}
 
 	@Override
@@ -1512,30 +1488,18 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 	public Stream<AbstractTemporalNode<DBNode>> getEarlier(
 			final boolean includeSelf) {
 		moveRtx();
-		try {
-			final IncludeSelf include = includeSelf ? IncludeSelf.YES
-					: IncludeSelf.NO;
-			return new TemporalSirixStream(new PastAxis(mRtx.getSession(), mNodeKey,
-					mRtx.getRevisionNumber(), include), mCollection);
-		} catch (final SirixIOException e) {
-			LOGWRAPPER.error(e.getMessage(), e);
-			return new EmptyStream<AbstractTemporalNode<DBNode>>();
-		}
+		final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
+		return new TemporalSirixStream(new PastAxis(mRtx.getSession(), mNodeKey,
+				mRtx.getRevisionNumber(), include), mCollection);
 	}
 
 	@Override
 	public Stream<AbstractTemporalNode<DBNode>> getFuture(
 			final boolean includeSelf) {
 		moveRtx();
-		try {
-			final IncludeSelf include = includeSelf ? IncludeSelf.YES
-					: IncludeSelf.NO;
-			return new TemporalSirixStream(new FutureAxis(mRtx.getSession(),
-					mNodeKey, mRtx.getRevisionNumber(), include), mCollection);
-		} catch (final SirixIOException e) {
-			LOGWRAPPER.error(e.getMessage(), e);
-			return new EmptyStream<AbstractTemporalNode<DBNode>>();
-		}
+		final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
+		return new TemporalSirixStream(new FutureAxis(mRtx.getSession(), mNodeKey,
+				mRtx.getRevisionNumber(), include), mCollection);
 	}
 
 	@Override
@@ -1550,12 +1514,8 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode otherNode = (DBNode) other;
-			try {
-				return otherNode.getTrx().getRevisionNumber() - 1 == this.getTrx()
-						.getRevisionNumber();
-			} catch (final SirixIOException e) {
-				LOGWRAPPER.error(e.getMessage(), e);
-			}
+			return otherNode.getTrx().getRevisionNumber() - 1 == this.getTrx()
+					.getRevisionNumber();
 		}
 		return false;
 	}
@@ -1565,12 +1525,8 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode otherNode = (DBNode) other;
-			try {
-				return otherNode.getTrx().getRevisionNumber() + 1 == this.getTrx()
-						.getRevisionNumber();
-			} catch (final SirixIOException e) {
-				LOGWRAPPER.error(e.getMessage(), e);
-			}
+			return otherNode.getTrx().getRevisionNumber() + 1 == this.getTrx()
+					.getRevisionNumber();
 		}
 		return false;
 	}
@@ -1580,12 +1536,8 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode otherNode = (DBNode) other;
-			try {
-				return otherNode.getTrx().getRevisionNumber() > this.getTrx()
-						.getRevisionNumber();
-			} catch (final SirixIOException e) {
-				LOGWRAPPER.error(e.getMessage(), e);
-			}
+			return otherNode.getTrx().getRevisionNumber() > this.getTrx()
+					.getRevisionNumber();
 		}
 		return false;
 	}
@@ -1595,12 +1547,8 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode otherNode = (DBNode) other;
-			try {
-				return otherNode.getTrx().getRevisionNumber() - 1 >= this.getTrx()
-						.getRevisionNumber();
-			} catch (final SirixIOException e) {
-				LOGWRAPPER.error(e.getMessage(), e);
-			}
+			return otherNode.getTrx().getRevisionNumber() - 1 >= this.getTrx()
+					.getRevisionNumber();
 		}
 		return false;
 	}
@@ -1610,12 +1558,8 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode otherNode = (DBNode) other;
-			try {
-				return otherNode.getTrx().getRevisionNumber() < this.getTrx()
-						.getRevisionNumber();
-			} catch (final SirixIOException e) {
-				LOGWRAPPER.error(e.getMessage(), e);
-			}
+			return otherNode.getTrx().getRevisionNumber() < this.getTrx()
+					.getRevisionNumber();
 		}
 		return false;
 	}
@@ -1625,12 +1569,8 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode otherNode = (DBNode) other;
-			try {
-				return otherNode.getTrx().getRevisionNumber() <= this.getTrx()
-						.getRevisionNumber();
-			} catch (final SirixIOException e) {
-				LOGWRAPPER.error(e.getMessage(), e);
-			}
+			return otherNode.getTrx().getRevisionNumber() <= this.getTrx()
+					.getRevisionNumber();
 		}
 		return false;
 	}
@@ -1640,13 +1580,9 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode otherNode = (DBNode) other;
-			try {
-				final NodeReadTrx otherTrx = otherNode.getTrx();
-				return otherTrx.getSession().getLastRevisionNumber() == otherTrx
-						.getRevisionNumber();
-			} catch (final SirixIOException e) {
-				LOGWRAPPER.error(e.getMessage(), e);
-			}
+			final NodeReadTrx otherTrx = otherNode.getTrx();
+			return otherTrx.getSession().getLastRevisionNumber() == otherTrx
+					.getRevisionNumber();
 		}
 		return false;
 	}
@@ -1656,13 +1592,9 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		moveRtx();
 		if (other instanceof DBNode) {
 			final DBNode otherNode = (DBNode) other;
-			try {
-				final NodeReadTrx otherTrx = otherNode.getTrx();
-				// Revision 0 is just the bootstrap revision and not accessed over here.
-				return otherTrx.getRevisionNumber() == 1;
-			} catch (final SirixIOException e) {
-				LOGWRAPPER.error(e.getMessage(), e);
-			}
+			final NodeReadTrx otherTrx = otherNode.getTrx();
+			// Revision 0 is just the bootstrap revision and not accessed over here.
+			return otherTrx.getRevisionNumber() == 1;
 		}
 		return false;
 	}

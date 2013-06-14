@@ -65,11 +65,8 @@ public interface PageReadTrx extends AutoCloseable {
 	 * Current reference to actual revision-root page.
 	 * 
 	 * @return the current revision root page
-	 * 
-	 * @throws SirixIOException
-	 *           if something odd happens within the creation process
 	 */
-	RevisionRootPage getActualRevisionRootPage() throws SirixIOException;
+	RevisionRootPage getActualRevisionRootPage();
 
 	/**
 	 * Getting the name corresponding to the given key.

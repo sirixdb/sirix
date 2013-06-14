@@ -27,7 +27,7 @@ public final class SirixStream implements Stream<DBNode> {
 	 * Constructor.
 	 * 
 	 * @param axis
-	 *          Sirix {@link Axis}
+	 *          Sirix {@link SirixAxis}
 	 * @param collection
 	 *          {@link DBCollection} the nodes belong to
 	 */

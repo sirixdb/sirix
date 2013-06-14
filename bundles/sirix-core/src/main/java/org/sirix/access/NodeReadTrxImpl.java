@@ -172,13 +172,13 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 			throw new IllegalStateException("Node kind not known!");
 		}
 	}
-	
+
 	@Override
 	public ImmutableNameNode getNameNode() {
 		assertNotClosed();
 		return (ImmutableNameNode) mCurrentNode;
 	}
-	
+
 	@Override
 	public ImmutableValueNode getValueNode() {
 		assertNotClosed();
@@ -192,13 +192,13 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public int getRevisionNumber() throws SirixIOException {
+	public int getRevisionNumber() {
 		assertNotClosed();
 		return mPageReadTrx.getActualRevisionRootPage().getRevision();
 	}
 
 	@Override
-	public long getRevisionTimestamp() throws SirixIOException {
+	public long getRevisionTimestamp() {
 		assertNotClosed();
 		return mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp();
 	}
@@ -224,7 +224,8 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 					newNode = Optional.absent();
 				}
 			} else {
-				final Optional<? extends Record> node = mPageReadTrx.getRecord(nodeKey, PageKind.RECORDPAGE, -1);
+				final Optional<? extends Record> node = mPageReadTrx.getRecord(nodeKey,
+						PageKind.RECORDPAGE, -1);
 				newNode = node;
 			}
 		} catch (final SirixIOException e) {
@@ -321,7 +322,8 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		assertNotClosed();
 		String returnVal;
 		if (mCurrentNode instanceof ValueNode) {
-			returnVal = new String(((ValueNode) mCurrentNode).getRawValue(), Constants.DEFAULT_ENCODING);
+			returnVal = new String(((ValueNode) mCurrentNode).getRawValue(),
+					Constants.DEFAULT_ENCODING);
 		} else if (mCurrentNode.getKind() == Kind.NAMESPACE) {
 			returnVal = mPageReadTrx.getName(
 					((NamespaceNode) mCurrentNode).getURIKey(), Kind.NAMESPACE);
@@ -420,10 +422,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	@Override
 	public String toString() {
 		final ToStringHelper helper = Objects.toStringHelper(this);
-		try {
-			helper.add("Revision number", getRevisionNumber());
-		} catch (final SirixIOException e) {
-		}
+		helper.add("Revision number", getRevisionNumber());
 
 		if (mCurrentNode.getKind() == Kind.ATTRIBUTE
 				|| mCurrentNode.getKind() == Kind.ELEMENT) {
@@ -503,7 +502,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public final long getMaxNodeKey() throws SirixIOException {
+	public final long getMaxNodeKey() {
 		assertNotClosed();
 		return getPageTransaction().getActualRevisionRootPage().getMaxNodeKey();
 	}
@@ -537,8 +536,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToAttributeByName(
-			final QNm name) {
+	public Move<? extends NodeReadTrx> moveToAttributeByName(final QNm name) {
 		assertNotClosed();
 		if (mCurrentNode.getKind() == Kind.ELEMENT) {
 			final ElementNode element = ((ElementNode) mCurrentNode);
@@ -579,8 +577,7 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 	}
 
 	@Override
-	public final int getNameCount(final String name,
-			final Kind kind) {
+	public final int getNameCount(final String name, final Kind kind) {
 		assertNotClosed();
 		if (mCurrentNode instanceof NameNode) {
 			return mPageReadTrx.getNameCount(

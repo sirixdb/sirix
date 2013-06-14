@@ -459,19 +459,19 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	@Override
-	public int getRevisionNumber() throws SirixIOException {
+	public int getRevisionNumber() {
 		assertNotClosed();
 		return mPageReadTrx.getRevisionNumber();
 	}
 
 	@Override
-	public long getRevisionTimestamp() throws SirixIOException {
+	public long getRevisionTimestamp() {
 		assertNotClosed();
 		return mPageReadTrx.getActualRevisionRootPage().getRevisionTimestamp();
 	}
 
 	@Override
-	public long getMaxNodeKey() throws SirixIOException {
+	public long getMaxNodeKey() {
 		assertNotClosed();
 		return ((PathSummaryPage) mPageReadTrx.getActualRevisionRootPage()
 				.getPathSummaryPageReference().getPage()).getMaxNodeKey(0);

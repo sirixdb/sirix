@@ -23,7 +23,7 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
-		<groupId>com.github.johanneslichtenberger.sirix</groupId>
+		<groupId>com.github.sirixdb.sirix</groupId>
 		<artifactId>sirix-parent</artifactId>
 		<version>0.1.3-SNAPSHOT</version>
 		<relativePath>../../pom.xml</relativePath>
@@ -44,7 +44,7 @@
 
 	<dependencies>
 		<dependency>
-			<groupId>com.github.johanneslichtenberger.sirix</groupId>
+			<groupId>com.github.sirixdb.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
 			<version>0.1.2-SNAPSHOT</version>
 		</dependency>

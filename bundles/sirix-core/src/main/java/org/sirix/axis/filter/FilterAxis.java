@@ -45,7 +45,7 @@ public final class FilterAxis extends AbstractAxis {
 
 	/** Test to apply to axis. */
 	private final Filter[] mAxisFilter;
-
+	
 	/**
 	 * Constructor initializing internal state.
 	 * 
@@ -77,10 +77,10 @@ public final class FilterAxis extends AbstractAxis {
 	}
 
 	@Override
-	public void reset(final long pNodeKey) {
-		super.reset(pNodeKey);
+	public void reset(final long nodeKey) {
+		super.reset(nodeKey);
 		if (mAxis != null) {
-			mAxis.reset(pNodeKey);
+			mAxis.reset(nodeKey);
 		}
 	}
 

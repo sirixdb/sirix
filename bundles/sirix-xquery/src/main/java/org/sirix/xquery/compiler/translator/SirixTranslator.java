@@ -24,6 +24,7 @@ import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Stream;
 import org.brackit.xquery.xdm.type.NodeType;
 import org.sirix.api.NodeReadTrx;
+import org.sirix.axis.AbstractTemporalAxis;
 import org.sirix.axis.AncestorAxis;
 import org.sirix.axis.AttributeAxis;
 import org.sirix.axis.ChildAxis;
@@ -40,12 +41,21 @@ import org.sirix.axis.filter.ElementFilter;
 import org.sirix.axis.filter.FilterAxis;
 import org.sirix.axis.filter.NameFilter;
 import org.sirix.axis.filter.PIFilter;
+import org.sirix.axis.filter.TemporalFilterAxis;
 import org.sirix.axis.filter.TextFilter;
+import org.sirix.axis.temporal.AllTimeAxis;
+import org.sirix.axis.temporal.FirstAxis;
+import org.sirix.axis.temporal.FutureAxis;
+import org.sirix.axis.temporal.LastAxis;
+import org.sirix.axis.temporal.NextAxis;
+import org.sirix.axis.temporal.PastAxis;
+import org.sirix.axis.temporal.PreviousAxis;
 import org.sirix.exception.SirixException;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.service.xml.xpath.expr.UnionAxis;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.stream.SirixStream;
+import org.sirix.xquery.stream.TemporalSirixStream;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
@@ -106,11 +116,310 @@ public final class SirixTranslator extends TopDownTranslator {
 			return new FollowingSibling(Axis.FOLLOWING_SIBLING);
 		case XQ.PRECEDING_SIBLING:
 			return new PrecedingSibling(Axis.PRECEDING_SIBLING);
+		case XQ.FUTURE:
+			return new Future(Axis.FUTURE);
+		case XQ.FUTURE_OR_SELF:
+			return new Future(Axis.FUTURE_OR_SELF);
+		case XQ.PAST:
+			return new Past(Axis.PAST);
+		case XQ.PAST_OR_SELF:
+			return new Past(Axis.PAST_OR_SELF);
+		case XQ.PREVIOUS:
+			return new Previous(Axis.PREVIOUS);
+		case XQ.NEXT:
+			return new Next(Axis.NEXT);
+		case XQ.ALL_TIME:
+			return new AllTime(Axis.ALL_TIME);
+		case XQ.FIRST:
+			return new First(Axis.FIRST);
+		case XQ.LAST:
+			return new Last(Axis.LAST);
 		default:
 			return super.axis(node);
 		}
 	}
-	
+
+	/**
+	 * {@code first::} optimization.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	private class Last extends Accessor {
+		/**
+		 * Constructor.
+		 * 
+		 * @param axis
+		 *          the axis to evaluate
+		 */
+		public Last(final Axis axis) {
+			super(axis);
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(final Node<?> node,
+				final NodeType test) throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new LastAxis(rtx.getSession(),
+					rtx.getNodeKey());
+			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
+					rtx, axis), dbNode.getCollection());
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(Node<?> node)
+				throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new LastAxis(rtx.getSession(),
+					rtx.getNodeKey());
+			return new TemporalSirixStream(axis, dbNode.getCollection());
+		}
+	}
+
+	/**
+	 * {@code first::} optimization.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	private class First extends Accessor {
+		/**
+		 * Constructor.
+		 * 
+		 * @param axis
+		 *          the axis to evaluate
+		 */
+		public First(final Axis axis) {
+			super(axis);
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(final Node<?> node,
+				final NodeType test) throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new FirstAxis(rtx.getSession(),
+					rtx.getNodeKey());
+			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
+					rtx, axis), dbNode.getCollection());
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(Node<?> node)
+				throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new FirstAxis(rtx.getSession(),
+					rtx.getNodeKey());
+			return new TemporalSirixStream(axis, dbNode.getCollection());
+		}
+	}
+
+	/**
+	 * {@code next::} optimization.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	private class Next extends Accessor {
+		/**
+		 * Constructor.
+		 * 
+		 * @param axis
+		 *          the axis to evaluate
+		 */
+		public Next(final Axis axis) {
+			super(axis);
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(final Node<?> node,
+				final NodeType test) throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new NextAxis(rtx.getSession(),
+					rtx.getNodeKey(), rtx.getRevisionNumber());
+			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
+					rtx, axis), dbNode.getCollection());
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(Node<?> node)
+				throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new NextAxis(rtx.getSession(),
+					rtx.getNodeKey(), rtx.getRevisionNumber());
+			return new TemporalSirixStream(axis, dbNode.getCollection());
+		}
+	}
+
+	/**
+	 * {@code previous::} optimization.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	private class Previous extends Accessor {
+		/**
+		 * Constructor.
+		 * 
+		 * @param axis
+		 *          the axis to evaluate
+		 */
+		public Previous(final Axis axis) {
+			super(axis);
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(final Node<?> node,
+				final NodeType test) throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new PreviousAxis(rtx.getSession(),
+					rtx.getNodeKey(), rtx.getRevisionNumber());
+			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
+					rtx, axis), dbNode.getCollection());
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(Node<?> node)
+				throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new PreviousAxis(rtx.getSession(),
+					rtx.getNodeKey(), rtx.getRevisionNumber());
+			return new TemporalSirixStream(axis, dbNode.getCollection());
+		}
+	}
+
+	/**
+	 * {@code all-time::} optimization.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	private class AllTime extends Accessor {
+		/**
+		 * Constructor.
+		 * 
+		 * @param axis
+		 *          the axis to evaluate
+		 */
+		public AllTime(final Axis axis) {
+			super(axis);
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(final Node<?> node,
+				final NodeType test) throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new AllTimeAxis(rtx.getSession(),
+					rtx.getNodeKey());
+			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
+					rtx, axis), dbNode.getCollection());
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(Node<?> node)
+				throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new AllTimeAxis(rtx.getSession(),
+					rtx.getNodeKey());
+			return new TemporalSirixStream(axis, dbNode.getCollection());
+		}
+	}
+
+	/**
+	 * {@code past::} and {@code past-or-self::} optimization.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	private class Past extends Accessor {
+		/** Determine if self is included or not. */
+		private IncludeSelf mSelf;
+
+		/**
+		 * Constructor.
+		 * 
+		 * @param axis
+		 *          the axis to evaluate
+		 */
+		public Past(final Axis axis) {
+			super(axis);
+			mSelf = axis == Axis.PAST ? IncludeSelf.NO : IncludeSelf.YES;
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(final Node<?> node,
+				final NodeType test) throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new PastAxis(rtx.getSession(),
+					rtx.getNodeKey(), rtx.getRevisionNumber(), mSelf);
+			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
+					rtx, axis), dbNode.getCollection());
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(Node<?> node)
+				throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new PastAxis(rtx.getSession(),
+					rtx.getNodeKey(), rtx.getRevisionNumber(), mSelf);
+			return new TemporalSirixStream(axis, dbNode.getCollection());
+		}
+	}
+
+	/**
+	 * {@code future::} and {@code future-or-self::} optimization.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	private class Future extends Accessor {
+		/** Determine if self is included or not. */
+		private IncludeSelf mSelf;
+
+		/**
+		 * Constructor.
+		 * 
+		 * @param axis
+		 *          the axis to evaluate
+		 */
+		public Future(final Axis axis) {
+			super(axis);
+			mSelf = axis == Axis.FUTURE ? IncludeSelf.NO : IncludeSelf.YES;
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(final Node<?> node,
+				final NodeType test) throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new FutureAxis(rtx.getSession(),
+					rtx.getNodeKey(), rtx.getRevisionNumber(), mSelf);
+			return new TemporalSirixStream(SirixTranslator.this.getTemporalAxis(test,
+					rtx, axis), dbNode.getCollection());
+		}
+
+		@Override
+		public Stream<? extends Node<?>> performStep(Node<?> node)
+				throws QueryException {
+			final DBNode dbNode = (DBNode) node;
+			final NodeReadTrx rtx = dbNode.getTrx();
+			final AbstractTemporalAxis axis = new FutureAxis(rtx.getSession(),
+					rtx.getNodeKey(), rtx.getRevisionNumber(), mSelf);
+			return new TemporalSirixStream(axis, dbNode.getCollection());
+		}
+	}
+
 	/**
 	 * {@code preceding-sibling::} optimization.
 	 * 
@@ -146,7 +455,7 @@ public final class SirixTranslator extends TopDownTranslator {
 					dbNode.getCollection());
 		}
 	}
-	
+
 	/**
 	 * {@code following-sibling::} optimization.
 	 * 
@@ -214,11 +523,10 @@ public final class SirixTranslator extends TopDownTranslator {
 				throws QueryException {
 			final DBNode dbNode = (DBNode) node;
 			final NodeReadTrx rtx = dbNode.getTrx();
-			return new SirixStream(new FollowingAxis(rtx),
-					dbNode.getCollection());
+			return new SirixStream(new FollowingAxis(rtx), dbNode.getCollection());
 		}
 	}
-	
+
 	/**
 	 * {@code ancestor::} and {@code ancestor-or-self::} optimization.
 	 * 
@@ -607,6 +915,36 @@ public final class SirixTranslator extends TopDownTranslator {
 		}
 	}
 
+	private org.sirix.axis.AbstractTemporalAxis getTemporalAxis(
+			final NodeType test, final NodeReadTrx trx,
+			final org.sirix.axis.AbstractTemporalAxis innerAxis) {
+		TemporalFilterAxis axis = null;
+		switch (test.getNodeKind()) {
+		case COMMENT:
+			axis = new TemporalFilterAxis(innerAxis, new CommentFilter(trx));
+			break;
+		case PROCESSING_INSTRUCTION:
+			axis = new TemporalFilterAxis(innerAxis, new PIFilter(trx));
+			break;
+		case ELEMENT:
+			if (test.getQName() == null) {
+				axis = new TemporalFilterAxis(innerAxis, new ElementFilter(trx));
+			} else {
+				axis = new TemporalFilterAxis(innerAxis, new ElementFilter(trx),
+						new NameFilter(trx, test.getQName()));
+			}
+			break;
+		case TEXT:
+			axis = new TemporalFilterAxis(innerAxis, new TextFilter(trx));
+			break;
+		case NAMESPACE:
+		case ATTRIBUTE:
+		case DOCUMENT:
+			throw new AssertionError("May never happen!");
+		}
+		return axis;
+	}
+
 	private org.sirix.api.Axis getAxis(final NodeType test,
 			final NodeReadTrx trx, final org.sirix.api.Axis innerAxis) {
 		FilterAxis axis = null;
@@ -618,8 +956,12 @@ public final class SirixTranslator extends TopDownTranslator {
 			axis = new FilterAxis(innerAxis, new PIFilter(trx));
 			break;
 		case ELEMENT:
-			axis = new FilterAxis(innerAxis, new ElementFilter(trx), new NameFilter(
-					trx, test.getQName().toString()));
+			if (test.getQName() == null) {
+				axis = new FilterAxis(innerAxis, new ElementFilter(trx));
+			} else {
+				axis = new FilterAxis(innerAxis, new ElementFilter(trx),
+						new NameFilter(trx, test.getQName()));
+			}
 			break;
 		case TEXT:
 			axis = new FilterAxis(innerAxis, new TextFilter(trx));

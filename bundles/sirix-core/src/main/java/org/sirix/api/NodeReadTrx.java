@@ -155,28 +155,23 @@ public interface NodeReadTrx extends NodeCursor {
 	 * Get the revision number of this transaction.
 	 * 
 	 * @return immutable revision number of this IReadTransaction
-	 * @throws SirixIOException
-	 *           if can't get revision number
 	 */
-	int getRevisionNumber() throws SirixIOException;
+	int getRevisionNumber();
 
 	/**
 	 * UNIX-style timestamp of the commit of the revision.
 	 * 
 	 * @throws SirixIOException
 	 *           if can't get timestamp
-	 * @return timestamp of revision commit
 	 */
-	long getRevisionTimestamp() throws SirixIOException;
+	long getRevisionTimestamp();
 
 	/**
 	 * Getting the maximum nodekey available in this revision.
 	 * 
 	 * @return the maximum nodekey
-	 * @throws SirixIOException
-	 *           if can't get maxNodKey
 	 */
-	long getMaxNodeKey() throws SirixIOException;
+	long getMaxNodeKey();
 
 	// --- Node Selectors
 	// --------------------------------------------------------

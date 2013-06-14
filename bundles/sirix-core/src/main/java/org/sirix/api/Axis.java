@@ -8,11 +8,11 @@ import org.sirix.axis.IncludeSelf;
 import com.google.common.collect.PeekingIterator;
 
 /**
- * Interface for all axis, including temporal XPath axis.
+ * Interface for all axis, excluding temporal XPath axis.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface Axis extends PeekingIterator<Long>, Iterable<Long> {
+public interface Axis extends PeekingIterator<Long>, Iterable<Long>, SirixAxis {
 	/**
 	 * Get the transaction associated with the axis.
 	 * 

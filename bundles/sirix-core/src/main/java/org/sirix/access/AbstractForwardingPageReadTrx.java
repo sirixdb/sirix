@@ -97,7 +97,7 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public RevisionRootPage getActualRevisionRootPage() throws SirixIOException {
+	public RevisionRootPage getActualRevisionRootPage() {
 		return delegate().getActualRevisionRootPage();
 	}
 

@@ -90,10 +90,17 @@ public interface Filter {
 	boolean filter();
 
 	/**
-	 * Getting the transaction of this filter
+	 * Getting the transaction of this filter.
 	 * 
 	 * @return the transaction of this filter
 	 */
 	NodeReadTrx getTrx();
-
+	
+	/**
+	 * Setting the transaction of this filter.
+	 * 
+	 * @return the transaction of this filter
+	 */
+	void setTrx(NodeReadTrx rtx);
+	
 }
