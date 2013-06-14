@@ -47,35 +47,34 @@ Test if fragments are not present in the past. In this example they are appended
 bit:load('mydoc.xml', '/tmp/sample8721713104854945959.xml')
 
 (* Query loaded document: *)
-INSERT NODES <a><b/>test</a> INTO doc('mydoc.xml')/log
+INSERT NODES &lt;a&gt;&lt;b/&gt;test&lt;/a&gt; INTO doc('mydoc.xml')/log
 
 (* intermediate commit *)
 
 (* Query loaded document: *)
 doc('mydoc.xml', 2)/log/all-time::*
 (* First version: *)
-<log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low">
-  <src>192.168.203.49</src>
-  <msg>udic fyllwx abrjxa apvd</msg>
-</log>
+&lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
+  &lt;src&gt;192.168.203.49&lt;/src&gt;
+  &lt;msg&gt;udic fyllwx abrjxa apvd&lt;/msg&gt;
+&lt;/log&gt;
 (* Second version: *)
-<log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low">
-  <src>192.168.203.49</src>
-  <msg>udic fyllwx abrjxa apvd</msg>
-  <a>
-    <b/>
+&lt;log tstamp="Fri Jun 14 07:59:08 CEST 2013" severity="low"&gt;
+  &lt;src&gt;192.168.203.49&lt;/src&gt;
+  &lt;msg&gt;udic fyllwx abrjxa apvd&lt;/msg&gt;
+  &lt;a&gt;
+    &lt;b/&gt;
     test
-  </a>
-
-</log>
+  &lt;/a&gt;
+&lt;/log&gt;
 
 (*Query loaded document (nodes, which are children of the log-element but did not exist in the past): *)
 doc('mydoc.xml', 2)/log/*[not(past::*)]
-<a>
-  <b/>
+&lt;a&gt;
+  &lt;b/&gt;
   test
-</a>
-</pre></code>
+&lt;/a&gt;
+&lt;/pre>&lt;/code&gt;
 
 ## Documentation
 We are currently working on the documentation. You may find first drafts and snippets in the Wiki. Furthermore you are kindly invited to ask any question you might have (and you likely have many questions) in the mailinglist. 
