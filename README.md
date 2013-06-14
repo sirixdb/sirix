@@ -103,7 +103,7 @@ Maven artifacts are deployed to the central maven repository (however please use
 
 Core project:
 <pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
+  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-core&lt;/artifactId&gt;
   &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency&gt;
@@ -111,7 +111,7 @@ Core project:
 
 Examples:
 <pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
+  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-examples&lt;/artifactId&gt;
   &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency&gt;
@@ -119,7 +119,7 @@ Examples:
 
 JAX-RX interface (RESTful API):
 <pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
+  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-jax-rx&lt;/artifactId&gt;
   &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency&gt;
@@ -127,7 +127,7 @@ JAX-RX interface (RESTful API):
 
 Brackit(.org) interface (use Brackit to query data -- in the future should be preferable to Saxon (as we will include index rewriting rules... and it supports many build-in XQuery functions as well as the XQuery Update Facility), however as of now it is our very first (unstable) version):
 <pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
+  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-xquery&lt;/artifactId&gt;
   &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency>
@@ -135,7 +135,7 @@ Brackit(.org) interface (use Brackit to query data -- in the future should be pr
 
 Saxon interface (use Saxon to query data):
 <pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.johanneslichtenberger.sirix&lt;/groupId&gt;
+  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-saxon&lt;/artifactId&gt;
   &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency>
