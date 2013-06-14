@@ -2,8 +2,7 @@
 
 ## Simple Example 
 Test if fragments are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
-<pre><code>
-(* Loading document: *)
+<pre><code>(* Loading document: *)
 bit:load('mydoc.xml', '/tmp/sample8721713104854945959.xml')
 
 (* Query loaded document: *)
