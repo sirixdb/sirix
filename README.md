@@ -5,7 +5,7 @@ Test if fragments are not present in the past. In this example they are appended
 <pre><code>(* Loading document: *)
 bit:load('mydoc.xml', '/tmp/sample8721713104854945959.xml')
 
-(* Query loaded document: *)
+(* Update loaded document: *)
 INSERT NODES &lt;a&gt;&lt;b/&gt;test&lt;/a&gt; INTO doc('mydoc.xml')/log
 
 (* intermediate commit *)
