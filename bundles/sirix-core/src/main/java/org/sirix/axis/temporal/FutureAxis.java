@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger
  * 
  */
-public class FutureAxis extends AbstractTemporalAxis {
+public final class FutureAxis extends AbstractTemporalAxis {
 
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
@@ -52,7 +52,7 @@ public class FutureAxis extends AbstractTemporalAxis {
 	 * Constructor.
 	 * 
 	 * @param rtx
-	 *          Sirix {@link NodeReadTrx} session
+	 *          Sirix {@link NodeReadTrx}
 	 * @param includeSelf
 	 * 					determines if current revision must be included or not
 	 */

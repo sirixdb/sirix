@@ -62,7 +62,7 @@ final class PathIndexBuilder extends AbstractVisitor {
 	private VisitResult process(final ImmutableNameNode node) {
 		try {
 			final long PCR = node.getPathNodeKey();
-			if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
+			if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR) || mPaths.isEmpty()) {
 				final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(PCR,
 						SearchMode.EQUAL);
 				if (textReferences.isPresent()) {

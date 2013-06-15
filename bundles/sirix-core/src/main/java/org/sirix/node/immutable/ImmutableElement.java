@@ -30,22 +30,22 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode 
 	/**
 	 * Private constructor.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          mutable {@link ElementNode}
 	 */
-	private ImmutableElement(final ElementNode pNode) {
-		mNode = checkNotNull(pNode);
+	private ImmutableElement(final ElementNode node) {
+		mNode = checkNotNull(node);
 	}
 
 	/**
 	 * Get an immutable element node instance.
 	 * 
-	 * @param pNode
+	 * @param node
 	 *          the mutable {@link ElementNode} to wrap
 	 * @return immutable element instance
 	 */
-	public static ImmutableElement of(final ElementNode pNode) {
-		return new ImmutableElement(pNode);
+	public static ImmutableElement of(final ElementNode node) {
+		return new ImmutableElement(node);
 	}
 
 	@Override

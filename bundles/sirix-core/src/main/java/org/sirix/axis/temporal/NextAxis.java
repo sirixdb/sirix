@@ -1,9 +1,6 @@
 package org.sirix.axis.temporal;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
-import javax.annotation.Nonnegative;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -18,7 +15,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger
  * 
  */
-public class NextAxis extends AbstractTemporalAxis {
+public final class NextAxis extends AbstractTemporalAxis {
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
 			LoggerFactory.getLogger(NextAxis.class));
@@ -41,12 +38,8 @@ public class NextAxis extends AbstractTemporalAxis {
 	/**
 	 * Constructor.
 	 * 
-	 * @param session
-	 *          {@link Sirix} session
-	 * @param nodeKey
-	 *          the key of the node to lookup in each revision
-	 * @param revision
-	 *          current revision
+	 * @param rtx
+	 *          Sirix {@link NodeReadTrx}
 	 */
 	public NextAxis(final NodeReadTrx rtx) {
 		mSession = checkNotNull(rtx.getSession());

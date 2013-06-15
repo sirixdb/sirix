@@ -200,10 +200,10 @@ public class DBStore implements Store, AutoCloseable {
 			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
 			database.createResource(ResourceConfiguration
-					.newBuilder("shredded", dbConf).useDeweyIDs()
+					.newBuilder("resource1", dbConf).useDeweyIDs()
 					.storageType(mStorageType).build());
 			final Session session = database
-					.getSession(new SessionConfiguration.Builder("shredded").build());
+					.getSession(new SessionConfiguration.Builder("resource1").build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 
 			final DBCollection collection = new DBCollection(name, database,
@@ -225,8 +225,8 @@ public class DBStore implements Store, AutoCloseable {
 
 	@Override
 	public Collection<?> create(final String name,
-			final @Nullable Stream<SubtreeParser> pParsers) throws DocumentException {
-		if (pParsers != null) {
+			final @Nullable Stream<SubtreeParser> parsers) throws DocumentException {
+		if (parsers != null) {
 			final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 					mLocation, name));
 			try {
@@ -239,9 +239,9 @@ public class DBStore implements Store, AutoCloseable {
 				try {
 					SubtreeParser parser = null;
 					int i = 0;
-					while ((parser = pParsers.next()) != null) {
+					while ((parser = parsers.next()) != null) {
 						final SubtreeParser nextParser = parser;
-						final String resource = new StringBuilder("shredded").append(
+						final String resource = new StringBuilder("resource").append(
 								String.valueOf(i)).toString();
 						pool.submit(new Callable<Void>() {
 							@Override
@@ -269,7 +269,7 @@ public class DBStore implements Store, AutoCloseable {
 						i++;
 					}
 				} finally {
-					pParsers.close();
+					parsers.close();
 				}
 				pool.shutdown();
 				pool.awaitTermination(5, TimeUnit.MINUTES);
@@ -292,7 +292,7 @@ public class DBStore implements Store, AutoCloseable {
 				throw new DocumentException(e.getCause());
 			}
 		}
-		throw new DocumentException();
+		throw new DocumentException("No collection with the specified name found!");
 	}
 
 	@Override

@@ -1,9 +1,6 @@
 package org.sirix.axis.temporal;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
-import javax.annotation.Nonnegative;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -42,10 +39,8 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
 	/**
 	 * Constructor.
 	 * 
-	 * @param session
-	 *          {@link Sirix} session
-	 * @param nodeKey
-	 *          the key of the node to lookup in each revision
+	 * @param rtx
+	 *          Sirix {@link NodeReadTrx}
 	 */
 	public AllTimeAxis(final NodeReadTrx rtx) {
 		mSession = checkNotNull(rtx.getSession());

@@ -228,16 +228,16 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 		switch (mAVLTreeReader.mPageKind) {
 		case PATHPAGE:
 			return mPageWriteTrx.getPathPage(root).getMaxNodeKey(
-					mAVLTreeReader.mIndex);
+					mAVLTreeReader.mIndex) + 1;
 		case CASPAGE:
 			return mPageWriteTrx.getCASPage(root)
-					.getMaxNodeKey(mAVLTreeReader.mIndex);
+					.getMaxNodeKey(mAVLTreeReader.mIndex) + 1;
 		case NAMEPAGE:
 			return mPageWriteTrx.getNamePage(root).getMaxNodeKey(
-					mAVLTreeReader.mIndex);
+					mAVLTreeReader.mIndex) + 1;
 		case PATHSUMMARYPAGE:
 			return mPageWriteTrx.getPathSummaryPage(root).getMaxNodeKey(
-					mAVLTreeReader.mIndex);
+					mAVLTreeReader.mIndex) + 1;
 		default:
 			throw new IllegalStateException();
 		}

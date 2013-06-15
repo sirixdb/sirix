@@ -1,15 +1,23 @@
 package org.sirix.xquery.function.sdb;
 
+import static org.sirix.xquery.function.sdb.index.CreatePathIndex.CREATE_PATH_INDEX;
+
 import org.brackit.xquery.atomic.QNm;
+import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
+import org.brackit.xquery.xdm.Signature;
+import org.brackit.xquery.xdm.type.AtomicType;
+import org.brackit.xquery.xdm.type.Cardinality;
+import org.brackit.xquery.xdm.type.SequenceType;
+import org.sirix.xquery.function.sdb.index.CreatePathIndex;
 
-public class SDBFun {
-	public static final String SDB_PREFIX = "sirix";
+public final class SDBFun {
+	public static final String SDB_PREFIX = "sdb";
 
-	public static final String SDB_NSURI = "https://github.com/JohannesLichtenberger/sirix";
+	public static final String SDB_NSURI = "https://github.com/sirixdb/sirix";
 
-	public static final QNm ERR_INVALID_ARGUMENT = new QNm(SDB_NSURI,
-			SDB_PREFIX, "SIRIXDBF0001");
+	public static final QNm ERR_INVALID_ARGUMENT = new QNm(SDB_NSURI, SDB_PREFIX,
+			"SIRIXDBF0001");
 
 	public static final QNm ERR_INDEX_NOT_FOUND = null;
 
@@ -22,5 +30,12 @@ public class SDBFun {
 
 	static {
 		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
+		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
+				SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
+						AtomicType.STR, Cardinality.ZeroOrMany))));
+		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
+				SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+				new SequenceType(AtomicType.STR, Cardinality.One))));
 	}
 }

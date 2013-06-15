@@ -1,9 +1,6 @@
 package org.sirix.axis.temporal;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-
-import javax.annotation.Nonnegative;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.Session;
@@ -22,7 +19,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger
  * 
  */
-public class PastAxis extends AbstractTemporalAxis {
+public final class PastAxis extends AbstractTemporalAxis {
 
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
@@ -43,12 +40,8 @@ public class PastAxis extends AbstractTemporalAxis {
 	/**
 	 * Constructor.
 	 * 
-	 * @param session
-	 *          {@link Sirix} session
-	 * @param nodeKey
-	 *          the key of the node to lookup in each revision
-	 * @param revision
-	 *          current revision
+	 * @param rtx
+	 *          Sirix {@link NodeReadTrx}
 	 */
 	public PastAxis(final NodeReadTrx rtx) {
 		// Using telescope pattern instead of builder (only one optional parameter.

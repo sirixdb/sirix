@@ -31,9 +31,9 @@ import com.google.common.collect.ImmutableSet;
  * newly created index as an XML fragment. Supported signatures are:</br>
  * <ul>
  * <li>
- * <code>bdb:create-path-index($coll as xs:string, $doc as xs:string, $paths as xs:string*) as 
+ * <code>sdb:create-path-index($coll as xs:string, $doc as xs:string, $paths as xs:string*) as 
  * node()</code></li>
- * <li><code>bdb:create-path-index($coll as xs:string, $doc as xs:string) as node()</code></li>
+ * <li><code>sdb:create-path-index($coll as xs:string, $doc as xs:string) as node()</code></li>
  * </ul>
  * 
  * @author Max Bechtold
@@ -64,9 +64,12 @@ public final class CreatePathIndex extends AbstractFunction {
 		IndexController controller = null;
 		final Iter docs = col.iterate();
 		DBNode doc = (DBNode) docs.next();
+		
+		final String expResName = ((Str) args[1]).stringValue();
+		
 		try {
 			while (doc != null) {
-				if (doc.getName().getLocalName().equals(((Str) args[1]).stringValue())) {
+				if (doc.getTrx().getSession().getResourceConfig().getResource().getName().equals(expResName)) {
 					controller = doc.getTrx().getSession().getIndexController();
 					break;
 				}
@@ -75,6 +78,10 @@ public final class CreatePathIndex extends AbstractFunction {
 		} finally {
 		 	docs.close();
 		} 
+		
+		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
+			throw new QueryException(new QNm("Collection must be updatable!"));
+		}
 		
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
