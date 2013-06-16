@@ -1,4 +1,4 @@
-package org.sirix.xquery.function.sdb.index;
+package org.sirix.xquery.function.sdb.index.create;
 
 import java.util.HashSet;
 import java.util.Set;

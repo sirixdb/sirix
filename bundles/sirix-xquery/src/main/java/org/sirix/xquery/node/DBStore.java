@@ -40,7 +40,7 @@ import org.sirix.service.xml.shredder.Insert;
  * @author Johannes Lichtenberger
  * 
  */
-public class DBStore implements Store, AutoCloseable {
+public final class DBStore implements Store, AutoCloseable {
 
 	/** User home directory. */
 	private static final String USER_HOME = System.getProperty("user.home");
@@ -155,8 +155,7 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> lookup(final String name)
-			throws DocumentException {
+	public Collection<?> lookup(final String name) throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, name));
 		if (Databases.existsDatabase(dbConf)) {
@@ -172,8 +171,7 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final String name)
-			throws DocumentException {
+	public Collection<?> create(final String name) throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, name));
 		try {
@@ -190,8 +188,8 @@ public class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final String name,
-			final SubtreeParser parser) throws DocumentException {
+	public Collection<?> create(final String name, final SubtreeParser parser)
+			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
 				mLocation, name));
 		try {
@@ -200,8 +198,10 @@ public class DBStore implements Store, AutoCloseable {
 			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
 			database.createResource(ResourceConfiguration
-					.newBuilder("resource1", dbConf).useDeweyIDs()
-					.storageType(mStorageType).build());
+					.newBuilder(
+							new StringBuilder(3).append("resource")
+									.append(database.listResources().length + 1).toString(),
+							dbConf).useDeweyIDs().storageType(mStorageType).build());
 			final Session session = database
 					.getSession(new SessionConfiguration.Builder("resource1").build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
@@ -236,9 +236,9 @@ public class DBStore implements Store, AutoCloseable {
 				mDatabases.add(database);
 				final ExecutorService pool = Executors.newFixedThreadPool(Runtime
 						.getRuntime().availableProcessors());
+				int i = database.listResources().length + 1;
 				try {
 					SubtreeParser parser = null;
-					int i = 0;
 					while ((parser = parsers.next()) != null) {
 						final SubtreeParser nextParser = parser;
 						final String resource = new StringBuilder("resource").append(

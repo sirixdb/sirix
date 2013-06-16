@@ -10,6 +10,7 @@ import java.util.Random;
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.xdm.Sequence;
 import org.sirix.access.Databases;
 import org.sirix.api.Database;
 import org.sirix.exception.SirixException;
@@ -187,16 +188,17 @@ public final class XQueryUsage {
 			IOException {
 		// Prepare sample document.
 		File tmpDir = new File(System.getProperty("java.io.tmpdir"));
-		File doc = generateSampleDoc(tmpDir, "sample");
-		doc.deleteOnExit();
 
 		// Initialize query context and store.
 		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
 			final QueryContext ctx = new QueryContext(store);
+			
+			File doc1 = generateSampleDoc(tmpDir, "sample1");
+			doc1.deleteOnExit();
 
 			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
-			final String xq1 = String.format("bit:load('mydoc.xml', '%s')", doc);
+			final String xq1 = String.format("bit:load('mydocs.col', '%s')", doc1);
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
 
@@ -204,18 +206,36 @@ public final class XQueryUsage {
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq2 = "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
+			final String xq2 = "insert nodes <a><b/>test</a> into doc('mydocs.col')/log";
 			System.out.println(xq2);
 			final XQuery q = new XQuery(xq2);
 			q.serialize(ctx2, System.out);
 			store.commitAll();
 			System.out.println();
+			
+			File doc2 = generateSampleDoc(tmpDir, "sample2");
+			doc2.deleteOnExit();
+			
+			// Use XQuery to load sample document into store.
+			System.out.println("Loading document:");
+			final String xq3 = String.format("bit:load('mydocs.col', '%s', false())", doc2);
+			System.out.println(xq3);
+			new XQuery(xq3).evaluate(ctx);
+		}
+		
+		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+			final QueryContext ctx3 = new QueryContext(store);
+			System.out.println();
+			System.out.println("Query loaded document:");
+			Sequence result = new XQuery(new SirixCompileChain(store),
+					"collection('mydoc.xml/resource1')").execute(ctx3);
+//					"sdb:create-path-index('mydoc.xml/resource1)").execute(ctx3);
 		}
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq3 = "doc('mydoc.xml', 1)/log/all-time::*/*";
+			final String xq3 = "doc('mydoc.xml', 2)/log/all-time::*";
 			System.out.println(xq3);
 			XQuery q = new XQuery(new SirixCompileChain(store), xq3);
 			q.prettyPrint();

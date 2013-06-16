@@ -1,6 +1,6 @@
 package org.sirix.xquery.function.sdb;
 
-import static org.sirix.xquery.function.sdb.index.CreatePathIndex.CREATE_PATH_INDEX;
+import static org.sirix.xquery.function.sdb.index.create.CreatePathIndex.CREATE_PATH_INDEX;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
@@ -9,7 +9,7 @@ import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
-import org.sirix.xquery.function.sdb.index.CreatePathIndex;
+import org.sirix.xquery.function.sdb.index.create.CreatePathIndex;
 
 public final class SDBFun {
 	public static final String SDB_PREFIX = "sdb";

@@ -1,5 +1,6 @@
 package org.sirix.xquery.node;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.ArrayList;
@@ -70,8 +71,8 @@ public class DBCollection extends
 	 * @param database
 	 *          Sirix {@link Database} reference
 	 */
-	public DBCollection(final String name,
-			final Database database, final Updating updating) {
+	public DBCollection(final String name, final Database database,
+			final Updating updating) {
 		super(checkNotNull(name));
 		mDatabase = checkNotNull(database);
 		mUpdating = checkNotNull(updating);
@@ -170,9 +171,11 @@ public class DBCollection extends
 	public AbstractTemporalNode<DBNode> add(SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
 		try {
-			final String resource = "collection" + mResources++;
-			mDatabase.createResource(ResourceConfiguration.newBuilder(resource,
-					mDatabase.getDatabaseConfig()).useDeweyIDs().build());
+			final String resource = new StringBuilder(2).append("resource")
+					.append(mDatabase.listResources().length + 1).toString();
+			mDatabase.createResource(ResourceConfiguration
+					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs()
+					.build());
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.newBuilder(resource).build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
