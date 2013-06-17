@@ -1,11 +1,17 @@
 package org.sirix.axis.filter;
 
-import org.sirix.api.Axis;
 import org.sirix.api.Filter;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.axis.AbstractTemporalAxis;
 
+/**
+ * Filter for temporal axis.
+ * 
+ * @author Johannes Lichtenberger
+ *
+ */
 public final class TemporalFilterAxis extends AbstractTemporalAxis {
+	
 	/** Axis to test. */
 	private final AbstractTemporalAxis mAxis;
 

@@ -179,7 +179,7 @@ public final class IndexController {
 		}
 		
 		// Build the indexes.
-		new IndexBuilder(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx)).build();
+		IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
 
 		// Create index listeners for upcoming changes.
 		return createIndexListeners(indexDefs, nodeWriteTrx);

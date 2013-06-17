@@ -12,7 +12,6 @@ import org.sirix.api.Session;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixException;
-import org.sirix.exception.SirixIOException;
 import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;

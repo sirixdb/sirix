@@ -53,6 +53,7 @@ import org.sirix.cache.RecordPageContainer;
 import org.sirix.cache.SynchronizedIndexTransactionLogCache;
 import org.sirix.cache.SynchronizedTransactionLogCache;
 import org.sirix.cache.SynchronizedTransactionLogPageCache;
+import org.sirix.cache.TransactionIndexLogCache;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexType;
@@ -177,21 +178,21 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mNodeLog = new SynchronizedTransactionLogCache<>(
 				session.mResourceConfig.mPath, revision, "node", this);
 		if (mUsePathSummary) {
-			mPathSummaryLog = new SynchronizedIndexTransactionLogCache<>(
+			mPathSummaryLog = new TransactionIndexLogCache<>(
 					session.mResourceConfig.mPath, revision, "pathSummary", this);
 		} else {
 			mPathSummaryLog = null;
 		}
 		if (mIndexController.containsIndex(IndexType.PATH)) {
-			mPathLog = new SynchronizedIndexTransactionLogCache<>(
+			mPathLog = new TransactionIndexLogCache<>(
 					session.mResourceConfig.mPath, revision, "path", this);
 		}
 		if (mIndexController.containsIndex(IndexType.CAS)) {
-			mCASLog = new SynchronizedIndexTransactionLogCache<>(
+			mCASLog = new TransactionIndexLogCache<>(
 					session.mResourceConfig.mPath, revision, "cas", this);
 		}
 		if (mIndexController.containsIndex(IndexType.NAME)) {
-			mNameLog = new SynchronizedIndexTransactionLogCache<>(
+			mNameLog = new TransactionIndexLogCache<>(
 					session.mResourceConfig.mPath, revision, "name", this);
 		}
 
