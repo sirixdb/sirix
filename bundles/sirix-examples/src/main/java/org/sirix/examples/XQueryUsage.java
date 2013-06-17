@@ -223,14 +223,14 @@ public final class XQueryUsage {
 			new XQuery(xq3).evaluate(ctx);
 		}
 		
-		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
-			final QueryContext ctx3 = new QueryContext(store);
-			System.out.println();
-			System.out.println("Query loaded document:");
-			Sequence result = new XQuery(new SirixCompileChain(store),
-					"collection('mydoc.xml/resource1')").execute(ctx3);
-//					"sdb:create-path-index('mydoc.xml/resource1)").execute(ctx3);
-		}
+//		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+//			final QueryContext ctx3 = new QueryContext(store);
+//			System.out.println();
+//			System.out.println("Query loaded document:");
+//			Sequence result = new XQuery(new SirixCompileChain(store),
+//					"collection('mydoc.xml/resource1')").execute(ctx3);
+////					"sdb:create-path-index('mydoc.xml/resource1)").execute(ctx3);
+//		}
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
