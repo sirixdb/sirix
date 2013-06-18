@@ -239,9 +239,7 @@ public abstract class AbstractAxis implements Axis {
 
 		// Move to next.
 		if (mKey >= 0) {
-			if (mRtx.hasNode(mKey)) {
-				mRtx.moveTo(mKey);
-			} else {
+			if (!mRtx.moveTo(mKey).hasMoved()) {
 				throw new IllegalStateException("Failed to move to nodeKey: " + mKey);
 			}
 		} else {
