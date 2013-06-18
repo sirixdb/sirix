@@ -30,20 +30,20 @@
 
 <assembly xmlns:p="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/assembly-1.0.0.xsd ">
-	<!-- Name des jars...in dem Fall bla-jar-with-dependencies.jar -->
+	<!-- Name of the JAR (sirix-jar-with-dependencies.jar) -->
 	<id>jar-with-dependencies</id>
 	<formats>
 		<format>jar</format>
 	</formats>
 	<includeBaseDirectory>false</includeBaseDirectory>
-	<!-- sollen drittjars mit reinfliessen? -->
+	<!-- 3rd party jars? -->
 	<dependencySets>
     	<dependencySet>
       		<unpack>true</unpack>
       		<scope>runtime</scope>
     	</dependencySet>
   	</dependencySets>
-  	<!--  das sind die Filterregeln..neben includes gibts auch noch excludes -->
+  	<!--  Filter rules... beside includes, also excludes exist -->
   	<fileSets>
   		<fileSet>
       		<includes>
