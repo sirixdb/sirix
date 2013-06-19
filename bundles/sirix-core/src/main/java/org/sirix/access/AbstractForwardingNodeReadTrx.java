@@ -8,6 +8,7 @@ import javax.annotation.Nonnull;
 import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.ItemList;
 import org.sirix.api.NodeReadTrx;
+import org.sirix.api.PageReadTrx;
 import org.sirix.api.Session;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
@@ -56,6 +57,11 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	@Override
 	public String getNamespaceURI() {
 		return delegate().getNamespaceURI();
+	}
+	
+	@Override
+	public PageReadTrx getPageTrx() {
+		return delegate().getPageTrx();
 	}
 
 	@Override

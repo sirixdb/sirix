@@ -132,6 +132,11 @@ public final class PathSummaryReader implements NodeReadTrx {
 			}
 		}
 	}
+	
+	@Override
+	public PageReadTrx getPageTrx() {
+		return mPageReadTrx;
+	}
 
 	/**
 	 * Get a new path summary reader instance.

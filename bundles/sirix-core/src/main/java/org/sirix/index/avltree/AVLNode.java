@@ -19,7 +19,7 @@ import com.google.common.base.Objects;
  * 
  * @author Johannes Lichtenberger
  */
-public class AVLNode<K extends Comparable<? super K>, V> extends
+public final class AVLNode<K extends Comparable<? super K>, V> extends
 		AbstractForwardingNode implements MutableAVLNode<K, V> {
 	/** Key token. */
 	private K mKey;

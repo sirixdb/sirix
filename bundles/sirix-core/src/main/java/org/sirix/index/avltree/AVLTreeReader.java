@@ -212,6 +212,82 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		}
 		return Optional.absent();
 	}
+	
+	/**
+	 * Iterator supporting different search modes.
+	 * 
+	 * @author Johannes Lichtenberger
+	 * 
+	 */
+	public final class AVLNodeIterator extends AbstractIterator<AVLNode<K, V>> {
+
+		/** The key to search. */
+		private final K mKey;
+
+		/** Determines if it's the first call. */
+		private boolean mFirst;
+
+		/** All AVLNode keys which are part of the result sequence. */
+		private final Deque<Long> mKeys;
+
+		/** Search mode. */
+		private final SearchMode mMode;
+
+		/**
+		 * Constructor.
+		 * 
+		 * @param key
+		 *          the key to search for
+		 * @param mode
+		 *          the search mode
+		 */
+		public AVLNodeIterator(final K key, final SearchMode mode) {
+			mKey = checkNotNull(key);
+			mFirst = true;
+			mKeys = new ArrayDeque<>();
+			mMode = checkNotNull(mode);
+		}
+
+		@Override
+		protected AVLNode<K, V> computeNext() {
+			if (!mFirst && mMode == SearchMode.EQUAL) {
+				return endOfData();
+			}
+			if (!mFirst) {
+				if (!mKeys.isEmpty()) {
+					// Subsequent results.
+					final AVLNode<K, V> node = moveTo(mKeys.pop()).get().getAVLNode();
+					stackOperation(node);
+					return node;
+				}
+				return endOfData();
+			}
+
+			// First search.
+			final Optional<V> result = get(mKey, mMode);
+			mFirst = false;
+			if (result.isPresent()) {
+				final AVLNode<K, V> node = getAVLNode();
+				if (mMode != SearchMode.EQUAL) {
+					stackOperation(node);
+				}
+				return node;
+			}
+			return endOfData();
+		}
+		
+		private void stackOperation(final AVLNode<K, V> node) {
+			if (node.hasRightChild()) {
+				final AVLNode<K, V> right = moveToLastChild().get().getAVLNode();
+				mKeys.push(right.getNodeKey());
+			}
+			moveTo(node.getNodeKey());
+			if (node.hasLeftChild()) {
+				final AVLNode<K, V> left = moveToFirstChild().get().getAVLNode();
+				mKeys.push(left.getNodeKey());
+			}
+		}
+	}
 
 	/**
 	 * Iterator supporting different search modes.
@@ -219,7 +295,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	 * @author Johannes Lichtenberger
 	 * 
 	 */
-	public final class AVLIterator extends AbstractIterator<Optional<V>> {
+	public final class AVLIterator extends AbstractIterator<V> {
 
 		/** The key to search. */
 		private final K mKey;
@@ -249,7 +325,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		}
 
 		@Override
-		protected Optional<V> computeNext() {
+		protected V computeNext() {
 			if (!mFirst && mMode == SearchMode.EQUAL) {
 				return endOfData();
 			}
@@ -257,16 +333,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 				if (!mKeys.isEmpty()) {
 					// Subsequent results.
 					final AVLNode<K, V> node = moveTo(mKeys.pop()).get().getAVLNode();
-					if (node.hasRightChild()) {
-						final AVLNode<K, V> right = moveToLastChild().get().getAVLNode();
-						mKeys.push(right.getNodeKey());
-					}
-					if (node.hasLeftChild()) {
-						final AVLNode<K, V> left = moveToFirstChild().get().getAVLNode();
-						mKeys.push(left.getNodeKey());
-					}
-
-					return Optional.of(node.getValue());
+					stackOperation(node);
+					return node.getValue();
 				}
 				return endOfData();
 			}
@@ -275,10 +343,25 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 			final Optional<V> result = get(mKey, mMode);
 			mFirst = false;
 			if (result.isPresent()) {
-				mKeys.push(getAVLNode().getNodeKey());
-				return result;
+				final AVLNode<K, V> node = getAVLNode();
+				if (mMode != SearchMode.EQUAL) {
+					stackOperation(node);
+				}
+				return result.get();
 			}
 			return endOfData();
+		}
+		
+		private void stackOperation(final AVLNode<K, V> node) {
+			if (node.hasRightChild()) {
+				final AVLNode<K, V> right = moveToLastChild().get().getAVLNode();
+				mKeys.push(right.getNodeKey());
+			}
+			moveTo(node.getNodeKey());
+			if (node.hasLeftChild()) {
+				final AVLNode<K, V> left = moveToFirstChild().get().getAVLNode();
+				mKeys.push(left.getNodeKey());
+			}
 		}
 	}
 

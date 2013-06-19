@@ -1058,4 +1058,9 @@ public final class NodeReadTrxImpl implements NodeReadTrx {
 		}
 		return Optional.<SirixDeweyID> absent();
 	}
+
+	@Override
+	public PageReadTrx getPageTrx() {
+		return mPageReadTrx;
+	}
 }

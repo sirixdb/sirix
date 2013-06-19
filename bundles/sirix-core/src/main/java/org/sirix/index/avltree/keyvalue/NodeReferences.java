@@ -18,7 +18,7 @@ import com.google.common.base.Objects.ToStringHelper;
  * @author Johannes Lichtenberger
  * 
  */
-public class NodeReferences implements References {
+public final class NodeReferences implements References {
 	/** A {@link Set} of node-keys. */
 	private final Set<Long> mNodeKeys;
 

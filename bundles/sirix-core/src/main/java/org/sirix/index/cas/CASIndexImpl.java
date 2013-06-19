@@ -15,8 +15,6 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 
-import com.google.common.base.Optional;
-
 public final class CASIndexImpl<K extends Comparable<? super K>, V extends References> implements CASIndex<K, V> {
 
 	@Override
@@ -34,7 +32,7 @@ public final class CASIndexImpl<K extends Comparable<? super K>, V extends Refer
 	}
 
 	@Override
-	public Iterator<Optional<V>> openIndex(PageReadTrx pageReadTrx,
+	public Iterator<V> openIndex(PageReadTrx pageReadTrx,
 			@Nonnull K key, @Nonnull IndexDef indexDef, @Nonnull SearchMode mode) {
 		final AVLTreeReader<K, V> reader = AVLTreeReader.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
 		return reader.new AVLIterator(key, mode);
