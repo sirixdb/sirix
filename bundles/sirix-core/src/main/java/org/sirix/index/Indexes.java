@@ -49,7 +49,7 @@ public final class Indexes implements Materializable {
 	@Override
 	public synchronized void init(final Node<?> root) throws DocumentException {
 		final QNm name = root.getName();
-		if (!name.equals(INDEXES_TAG)) {
+		if (!INDEXES_TAG.equals(name)) {
 			throw new DocumentException("Expected tag '%s' but found '%s'",
 					INDEXES_TAG, name);
 		}

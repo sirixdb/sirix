@@ -117,8 +117,9 @@ public final class IndexController {
 	 */
 	public void serialize(final OutputStream out) throws SirixException {
 		try {
-			new SubtreePrinter(new PrintStream(checkNotNull(out))).print(mIndexes
-					.materialize());
+			final SubtreePrinter serializer = new SubtreePrinter(new PrintStream(checkNotNull(out)));
+			serializer.print(mIndexes.materialize());
+			serializer.end();
 		} catch (final DocumentException e) {
 			throw new SirixException(e);
 		}

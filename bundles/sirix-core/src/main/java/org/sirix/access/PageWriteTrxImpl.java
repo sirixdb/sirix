@@ -228,18 +228,6 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 		mPageLog.put(new IndirectPageLogKey(PageKind.NAMEPAGE, -1, -1, 0),
 				mPageRtx.getNamePage(revisionRoot));
-
-		// Deserialize index definitions.
-		final File indexes = new File(mPageRtx.mResourceConfig.mPath,
-				ResourceConfiguration.Paths.INDEXES.getFile().getPath());
-		if (indexes.length() != 0) {
-			try (final InputStream in = new FileInputStream(indexes)) {
-				mIndexController.deserialize(in);
-			} catch (IOException e) {
-				throw new SirixIOException("Index definitions couldn't be serialized!",
-						e);
-			}
-		}
 	}
 
 	@Override

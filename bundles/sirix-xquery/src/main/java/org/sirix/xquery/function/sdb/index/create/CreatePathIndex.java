@@ -89,7 +89,7 @@ public final class CreatePathIndex extends AbstractFunction {
 		
 		final Set<Path<QNm>> paths = new HashSet<>();
 		if (args.length > 2 && args[2] != null) {
-			final Iter it = args[1].iterate();
+			final Iter it = args[2].iterate();
 			Item next = it.next();
 			while (next != null) {
 				paths.add(Path.parse(((Str) next).stringValue()));

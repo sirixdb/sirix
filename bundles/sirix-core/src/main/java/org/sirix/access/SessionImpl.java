@@ -31,6 +31,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
@@ -50,6 +53,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
+import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
@@ -170,6 +174,18 @@ public final class SessionImpl implements Session {
 		mNodePageTrxMap = new ConcurrentHashMap<>();
 		mSyncTransactionsReturns = new ConcurrentHashMap<>();
 		mIndexController = sessionConf.getIndexController();
+		
+		// Deserialize index definitions.
+		final File indexes = new File(resourceConf.mPath,
+				ResourceConfiguration.Paths.INDEXES.getFile().getPath());
+		if (indexes.length() != 0) {
+			try (final InputStream in = new FileInputStream(indexes)) {
+				mIndexController.getIndexes().init(mIndexController.deserialize(in).getFirstChild());
+			} catch (IOException | DocumentException e) {
+				throw new SirixIOException("Index definitions couldn't be serialized!",
+						e);
+			}
+		}
 
 		mNodeTrxIDCounter = new AtomicLong();
 		mPageTrxIDCounter = new AtomicLong();

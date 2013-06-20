@@ -80,6 +80,6 @@ public final class PathFilter {
 			}
 		}
 
-		return (mPCRFilter.contains(pcr));
+		return mPCRFilter.contains(pcr);
 	}
 }

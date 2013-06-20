@@ -310,6 +310,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 		final long nodeKey = mCurrentNode.getNodeKey();
 		moveToDocumentRoot();
 		for (final Axis axis = new DescendantAxis(this); axis.hasNext();) {
+			axis.next();
 			final PathNode node = this.getPathNode();
 
 			if (node == null) {

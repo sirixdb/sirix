@@ -110,6 +110,7 @@ public final class IndexDef implements Materializable {
 				tmp.closeElement();
 			}
 		}
+		
 		if (!mExcluded.isEmpty()) {
 			tmp.openElement(EXCLUDING_TAG);
 
