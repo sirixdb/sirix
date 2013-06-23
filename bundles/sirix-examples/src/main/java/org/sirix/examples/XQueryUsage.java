@@ -4,18 +4,29 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.Random;
 
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
+import org.brackit.xquery.Tuple;
 import org.brackit.xquery.XQuery;
+import org.brackit.xquery.sequence.SortedNodeSequence;
+import org.brackit.xquery.util.path.Path;
+import org.brackit.xquery.xdm.Item;
+import org.brackit.xquery.xdm.Iter;
+import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Sequence;
 import org.sirix.access.Databases;
 import org.sirix.api.Database;
 import org.sirix.exception.SirixException;
+import org.sirix.index.IndexDef;
 import org.sirix.xquery.SirixCompileChain;
+import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.node.DBStore;
+
+import com.google.common.base.Optional;
 
 /**
  * A few examples (some taken from the official brackit examples). Usually you
@@ -46,12 +57,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-//			loadDocumentAndQuery();
-//			System.out.println();
-//			loadDocumentAndUpdate();
-//			System.out.println();
-//			loadCollectionAndQuery();
-//			System.out.println();
+			 loadDocumentAndQuery();
+			 System.out.println();
+			 loadDocumentAndUpdate();
+			 System.out.println();
+			 loadCollectionAndQuery();
+			 System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -192,7 +203,7 @@ public final class XQueryUsage {
 		// Initialize query context and store.
 		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
 			final QueryContext ctx = new QueryContext(store);
-			
+
 			File doc1 = generateSampleDoc(tmpDir, "sample1");
 			doc1.deleteOnExit();
 
@@ -212,38 +223,66 @@ public final class XQueryUsage {
 			q.serialize(ctx2, System.out);
 			store.commitAll();
 			System.out.println();
-			
-			File doc2 = generateSampleDoc(tmpDir, "sample2");
-			doc2.deleteOnExit();
-			
-			// Use XQuery to load sample document into store.
-			System.out.println("Loading document:");
-			final String xq3 = String.format("bit:load('mydocs.col', '%s', false())", doc2);
-			System.out.println(xq3);
-			new XQuery(xq3).evaluate(ctx);
 		}
-		
-//		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
-//			final QueryContext ctx3 = new QueryContext(store);
-//			System.out.println();
-//			System.out.println("Query loaded document:");
-//			Sequence result = new XQuery(new SirixCompileChain(store),
-//					"collection('mydoc.xml/resource1')").execute(ctx3);
-////					"sdb:create-path-index('mydoc.xml/resource1)").execute(ctx3);
-//		}
-		try (final DBStore store = DBStore.newBuilder().build()) {
+
+		// Create and commit path index on all elements.
+		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
+			System.out.println("Create path index for all elements:");
+			new XQuery(new SirixCompileChain(store),
+					"sdb:create-path-index('mydocs.col', 'resource1', '//*')")
+					.execute(ctx3);
+			store.commitAll();
+			System.out.println("Path index creation done.");
+		}
+
+		// Query path index for "a-elements"
+		try (final DBStore store = DBStore.newBuilder().build()) {
+			System.out.println("");
+			System.out.println("Find path index for all elements which are children of the log-element.");
+			final QueryContext ctx3 = new QueryContext(store);
+			final DBNode node = (DBNode) new XQuery(new SirixCompileChain(store),
+					"doc('mydocs.col')").execute(ctx3);
+			final Optional<IndexDef> index = node.getTrx().getSession()
+					.getIndexController().getIndexes().findPathIndex(Path.parse("//log/*"));
+			System.out.println(index);
+			final String query = "sdb:scan-path-index('mydocs.col', 'resource1', " + index.get().getID() + ", '//log/*')";
+			final Sequence seq = new XQuery(new SirixCompileChain(store), query).execute(ctx3);
+//			final Iter iter = seq.iterate();
+//			for (Item item = iter.next(); item != null; item = iter.next()) {
+//				System.out.println(item);
+//			}
+			final Comparator<Tuple> comparator = new Comparator<Tuple>() {
+				@Override
+				public int compare(Tuple o1, Tuple o2) {
+					return ((Node<?>) o1).cmp((Node<?>) o2);
+				}
+			};
+			final Sequence sortedSeq = new SortedNodeSequence(comparator, seq,
+					true);
+			final Iter sortedIter = sortedSeq.iterate();
+			
+			System.out.println("Sorted index entries in document order: ");
+			for (Item item = sortedIter.next(); item != null; item = sortedIter.next()) {
+				System.out.println(item);
+			}
+		}
+		
+		try (final DBStore store = DBStore.newBuilder().build()) {
+			final QueryContext ctx = new QueryContext(store);		
+			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq3 = "doc('mydoc.xml', 2)/log/all-time::*";
+			final String xq3 = "doc('mydocs.col', 2)/log/all-time::*";
 			System.out.println(xq3);
 			XQuery q = new XQuery(new SirixCompileChain(store), xq3);
 			q.prettyPrint();
-			q.serialize(ctx3, System.out);
+			q.serialize(ctx, System.out);
 
-			// Serialize first version to XML ($user.home$/sirix-data/output-revision-1.xml).
+			// Serialize first version to XML
+			// ($user.home$/sirix-data/output-revision-1.xml).
 			final QueryContext ctx4 = new QueryContext(store);
-			final String xq4 = "bit:serialize(doc('mydoc.xml', 1))";
+			final String xq4 = "bit:serialize(doc('mydocs.col', 1))";
 			q = new XQuery(xq4);
 			try (final PrintStream out = new PrintStream(new FileOutputStream(
 					new File(new StringBuilder(LOCATION.getAbsolutePath())
@@ -252,9 +291,10 @@ public final class XQueryUsage {
 				q.prettyPrint().serialize(ctx4, out);
 			}
 			System.out.println();
-			// Serialize second version to XML ($user.home$/sirix-data/output-revision-1.xml).
+			// Serialize second version to XML
+			// ($user.home$/sirix-data/output-revision-1.xml).
 			final QueryContext ctx5 = new QueryContext(store);
-			final String xq5 = "bit:serialize(doc('mydoc.xml', 2))";
+			final String xq5 = "bit:serialize(doc('mydocs.col', 2))";
 			q = new XQuery(xq5);
 			try (final PrintStream out = new PrintStream(new FileOutputStream(
 					new File(new StringBuilder(LOCATION.getAbsolutePath())
