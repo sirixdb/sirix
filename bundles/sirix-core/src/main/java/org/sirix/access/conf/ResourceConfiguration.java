@@ -85,7 +85,7 @@ public final class ResourceConfiguration {
 		CONFIG_BINARY(new File("ressetting.obj"), false),
 
 		/** File to store index definitions. */
-		INDEXES(new File("indexes.xml"), false);
+		INDEXES(new File("indexes"), false);
 
 		/** Location of the file. */
 		private final File mFile;

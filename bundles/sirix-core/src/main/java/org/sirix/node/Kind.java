@@ -465,8 +465,8 @@ public enum Kind implements RecordPersistenter {
 		};
 	},
 
-	/** Node kind is an AVL node. */
-	AVL((byte) 17, AVLNode.class) {
+	/** Node kind is a CAS-AVL node. */
+	CASAVL((byte) 17, AVLNode.class) {
 		@Override
 		public Record deserialize(final ByteArrayDataInput source,
 				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
@@ -536,6 +536,52 @@ public enum Kind implements RecordPersistenter {
 			}
 			throw new IllegalStateException("Unknown content type type: " + name);
 		}
+	},
+	
+	/** Node kind is a PATH-AVL node. */
+	PATHAVL((byte) 18, AVLNode.class) {
+		@Override
+		public Record deserialize(final ByteArrayDataInput source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx) {
+			final long key = getVarLong(source);
+			final int keySize = source.readInt();
+			final Set<Long> nodeKeys = new HashSet<>(keySize);
+			for (int i = 0; i < keySize; i++) {
+				nodeKeys.add(source.readLong());
+			}
+			// Node delegate.
+			final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source,
+					recordID, pageReadTrx);
+			final long leftChild = getVarLong(source);
+			final long rightChild = getVarLong(source);
+			final boolean isChanged = source.readBoolean();
+			final AVLNode<Long, NodeReferences> node = new AVLNode<>(
+					key, new NodeReferences(nodeKeys), nodeDel);
+			node.setLeftChildKey(leftChild);
+			node.setRightChildKey(rightChild);
+			node.setChanged(isChanged);
+			return node;
+		}
+
+		@Override
+		public void serialize(final ByteArrayDataOutput sink,
+				final Record record, final @Nullable Record nextRecord,
+				final PageReadTrx pageReadTrx) {
+			@SuppressWarnings("unchecked")
+			final AVLNode<Long, NodeReferences> node = (AVLNode<Long, NodeReferences>) record;
+			putVarLong(sink, node.getKey().longValue());
+			final NodeReferences value = node.getValue();
+			final Set<Long> nodeKeys = value.getNodeKeys();
+			sink.writeInt(nodeKeys.size());
+			for (final long nodeKey : nodeKeys) {
+				sink.writeLong(nodeKey);
+			}
+			final Node nextNode = (Node) nextRecord;
+			serializeDelegate(node.getNodeDelegate(), nextNode, sink, pageReadTrx);
+			putVarLong(sink, node.getLeftChildKey());
+			putVarLong(sink, node.getRightChildKey());
+			sink.writeBoolean(node.isChanged());
+		};
 	},
 
 	/** Node includes a deweyID <=> nodeKey mapping. */

@@ -10,6 +10,7 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.sdb.index.create.CreatePathIndex;
+import org.sirix.xquery.function.sdb.index.scan.ScanPathIndex;
 
 public final class SDBFun {
 	public static final String SDB_PREFIX = "sdb";
@@ -37,5 +38,6 @@ public final class SDBFun {
 		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
 				SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
 				new SequenceType(AtomicType.STR, Cardinality.One))));
+		Functions.predefine(new ScanPathIndex());
 	}
 }

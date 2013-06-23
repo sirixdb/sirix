@@ -98,8 +98,8 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	}
 
 	@Override
-	public VisitResult acceptVisitor(final Visitor pVisitor) {
-		return pVisitor.visit(ImmutableAttribute.of(this));
+	public VisitResult acceptVisitor(final Visitor visitor) {
+		return visitor.visit(ImmutableAttribute.of(this));
 	}
 
 	@Override

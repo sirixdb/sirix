@@ -34,7 +34,8 @@ import com.google.common.base.Optional;
 import com.google.common.collect.AbstractIterator;
 
 /**
- * Simple AVLTreeReader (balanced binary search-tree -- based on BaseX(.org) version).
+ * Simple AVLTreeReader (balanced binary search-tree -- based on BaseX(.org)
+ * version).
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -82,11 +83,10 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	 * @param type
 	 *          kind of index
 	 * @param index
-	 * 					the index number
+	 *          the index number
 	 */
-	private AVLTreeReader(
-			final PageReadTrx pageReadTrx,
-			final IndexType type, final int index) {
+	private AVLTreeReader(final PageReadTrx pageReadTrx, final IndexType type,
+			final int index) {
 		mPageReadTrx = checkNotNull(pageReadTrx);
 		switch (type) {
 		case PATH:
@@ -129,8 +129,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	 * @return new tree instance
 	 */
 	public static <K extends Comparable<? super K>, V extends References> AVLTreeReader<K, V> getInstance(
-			final PageReadTrx pageReadTrx,
-			final IndexType type, final @Nonnegative int index) {
+			final PageReadTrx pageReadTrx, final IndexType type,
+			final @Nonnegative int index) {
 		return new AVLTreeReader<K, V>(pageReadTrx, type, index);
 	}
 
@@ -172,7 +172,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	 * @return {@link AVLNode} instance
 	 */
 	AVLNode<K, V> getAVLNode() {
-		if (mCurrentNode.getKind() == Kind.AVL) {
+		if (mCurrentNode.getKind() != Kind.DOCUMENT) {
 			@SuppressWarnings("unchecked")
 			final AVLNode<K, V> node = (AVLNode<K, V>) mCurrentNode;
 			return node;
@@ -212,7 +212,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		}
 		return Optional.absent();
 	}
-	
+
 	/**
 	 * Iterator supporting different search modes.
 	 * 
@@ -222,7 +222,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	public final class AVLNodeIterator extends AbstractIterator<AVLNode<K, V>> {
 
 		/** The key to search. */
-		private final K mKey;
+		private final Optional<K> mKey;
 
 		/** Determines if it's the first call. */
 		private boolean mFirst;
@@ -241,7 +241,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		 * @param mode
 		 *          the search mode
 		 */
-		public AVLNodeIterator(final K key, final SearchMode mode) {
+		public AVLNodeIterator(final Optional<K> key, final SearchMode mode) {
 			mKey = checkNotNull(key);
 			mFirst = true;
 			mKeys = new ArrayDeque<>();
@@ -264,18 +264,27 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 			}
 
 			// First search.
-			final Optional<V> result = get(mKey, mMode);
 			mFirst = false;
-			if (result.isPresent()) {
-				final AVLNode<K, V> node = getAVLNode();
-				if (mMode != SearchMode.EQUAL) {
-					stackOperation(node);
+			if (mKey.isPresent()) {
+				final Optional<V> result = get(mKey.get(), mMode);
+				if (result.isPresent()) {
+					final AVLNode<K, V> node = getAVLNode();
+					if (mMode != SearchMode.EQUAL) {
+						stackOperation(node);
+					}
+					return node;
 				}
-				return node;
+			} else {
+				moveToDocumentRoot();
+				if (moveToFirstChild().hasMoved()) {
+					final AVLNode<K, V> node = getAVLNode();
+					stackOperation(node);
+					return node;
+				}
 			}
 			return endOfData();
 		}
-		
+
 		private void stackOperation(final AVLNode<K, V> node) {
 			if (node.hasRightChild()) {
 				final AVLNode<K, V> right = moveToLastChild().get().getAVLNode();
@@ -351,7 +360,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 			}
 			return endOfData();
 		}
-		
+
 		private void stackOperation(final AVLNode<K, V> node) {
 			if (node.hasRightChild()) {
 				final AVLNode<K, V> right = moveToLastChild().get().getAVLNode();
@@ -552,12 +561,12 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 
 	@Override
 	public Kind getFirstChildKind() {
-		return Kind.AVL;
+		return Kind.CASAVL;
 	}
 
 	@Override
 	public Kind getLastChildKind() {
-		return Kind.AVL;
+		return Kind.CASAVL;
 	}
 
 	@Override
@@ -567,7 +576,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 					.getStandardProperty()) {
 				return Kind.DOCUMENT;
 			} else {
-				return Kind.AVL;
+				return Kind.CASAVL;
 			}
 		}
 		return Kind.UNKNOWN;
@@ -575,7 +584,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 
 	@Override
 	public Kind getKind() {
-		return Kind.AVL;
+		return Kind.CASAVL;
 	}
 
 	@Override

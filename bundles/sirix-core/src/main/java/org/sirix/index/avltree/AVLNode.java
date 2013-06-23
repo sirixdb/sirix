@@ -56,7 +56,10 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 
 	@Override
 	public Kind getKind() {
-		return Kind.AVL;
+		if (mKey instanceof Long) {
+			return Kind.PATHAVL;
+		}
+		return Kind.CASAVL;
 	}
 
 	@Override

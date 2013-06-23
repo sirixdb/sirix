@@ -92,8 +92,7 @@ public final class DatabaseImpl implements Database {
 	 * @throws SirixException
 	 *           if something weird happens
 	 */
-	DatabaseImpl(final DatabaseConfiguration dbConfig)
-			throws SirixException {
+	DatabaseImpl(final DatabaseConfiguration dbConfig) throws SirixException {
 		mDBConfig = checkNotNull(dbConfig);
 		mSessions = new ConcurrentHashMap<>();
 		mResources = Maps.synchronizedBiMap(HashBiMap.<Long, String> create());
@@ -124,7 +123,9 @@ public final class DatabaseImpl implements Database {
 						returnVal = toCreate.mkdir();
 					} else {
 						try {
-							returnVal = toCreate.createNewFile();
+							returnVal = ResourceConfiguration.Paths.INDEXES.getFile()
+									.getName().equals(paths.getFile().getName()) ? true
+									: toCreate.createNewFile();
 						} catch (final IOException e) {
 							Files.recursiveRemove(path.toPath());
 							throw new SirixIOException(e);
@@ -156,7 +157,7 @@ public final class DatabaseImpl implements Database {
 					returnVal = false;
 				}
 			}
-			
+
 			if (!returnVal) {
 				// If something was not correct, delete the partly created substructure.
 				Files.recursiveRemove(resConfig.mPath.toPath());
@@ -215,8 +216,8 @@ public final class DatabaseImpl implements Database {
 	// //////////////////////////////////////////////////////////
 
 	@Override
-	public synchronized Session getSession(
-			final SessionConfiguration pSessionConf) throws SirixException {
+	public synchronized Session getSession(final SessionConfiguration pSessionConf)
+			throws SirixException {
 		final File resourceFile = new File(new File(mDBConfig.getFile(),
 				DatabaseConfiguration.Paths.DATA.getFile().getName()),
 				pSessionConf.getResource());

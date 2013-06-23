@@ -2,6 +2,9 @@ package org.sirix.access;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
@@ -19,10 +22,12 @@ import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.util.serialize.SubtreePrinter;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Node;
+import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
+import org.sirix.api.Session;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
@@ -43,6 +48,8 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UnorderedKeyValuePage;
+
+import com.google.common.base.Optional;
 
 /**
  * Index controller, used to control the handling of indexes.
@@ -75,6 +82,9 @@ public final class IndexController {
 
 	/**
 	 * Constructor.
+	 * 
+	 * @param session
+	 *          the {@link Session} this {@link IndexController} is bound to
 	 */
 	public IndexController() {
 		mIndexes = new Indexes();
@@ -91,8 +101,41 @@ public final class IndexController {
 	 * @return {@code true} if an index of the specified type exists,
 	 *         {@code false} otherwise
 	 */
-	public boolean containsIndex(IndexType type) {
+	public boolean containsIndex(final IndexType type) {
 		for (final IndexDef indexDef : mIndexes.getIndexDefs()) {
+			if (indexDef.getType() == type) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Determines if an index of the specified type is available.
+	 * 
+	 * @param type
+	 *          type of index to lookup
+	 * @param session
+	 *          the {@link Session} this index controller is bound to
+	 * @return {@code true} if an index of the specified type exists,
+	 *         {@code false} otherwise
+	 * @throws SirixIOException
+	 *           if an I/O exception occurs while deserializing the index
+	 *           configuration for the specified {@code revision}
+	 */
+	public boolean containsIndex(final IndexType type, final Session session,
+			final int revision) throws SirixIOException {
+		final Indexes indexes = new Indexes();
+		final File indexesFile = new File(session.getResourceConfig().mPath,
+				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision
+						+ ".xml");
+		if (indexesFile.length() != 0) {
+			try (final InputStream in = new FileInputStream(indexesFile)) {
+				indexes.init(deserialize(in).getFirstChild());
+			} catch (IOException | DocumentException | SirixException e) {
+				throw new SirixIOException(
+						"Index definitions couldn't be deserialized!", e);
+			}
+		}
+		for (final IndexDef indexDef : indexes.getIndexDefs()) {
 			if (indexDef.getType() == type) return true;
 		}
 		return false;
@@ -117,7 +160,8 @@ public final class IndexController {
 	 */
 	public void serialize(final OutputStream out) throws SirixException {
 		try {
-			final SubtreePrinter serializer = new SubtreePrinter(new PrintStream(checkNotNull(out)));
+			final SubtreePrinter serializer = new SubtreePrinter(new PrintStream(
+					checkNotNull(out)));
 			serializer.print(mIndexes.materialize());
 			serializer.end();
 		} catch (final DocumentException e) {
@@ -307,7 +351,7 @@ public final class IndexController {
 					"This document does not support path indexes.");
 		}
 
-		return mPathIndex.openIndex(pageRtx, 0l, indexDef, mode, filter);
+		return mPathIndex.openIndex(pageRtx, Optional.<Long>absent(), indexDef, mode, filter);
 	}
 
 }

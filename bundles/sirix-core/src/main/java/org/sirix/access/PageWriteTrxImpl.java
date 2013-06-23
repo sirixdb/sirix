@@ -31,10 +31,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -589,6 +587,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mMultipleWriteTrx = checkNotNull(multipleWriteTrx);
 
 		final File commitFile = mPageRtx.mSession.commitFile(getRevisionNumber());
+		commitFile.deleteOnExit();
 		// Issues with windows that it's not created in the first
 		// time?
 		while (!commitFile.exists()) {
@@ -621,6 +620,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		final PageReference uberPageReference = new PageReference();
 		final UberPage uberPage = getUberPage();
 		uberPageReference.setPage(uberPage);
+		final int revision = uberPage.getRevisionNumber();
 
 		// Recursively write indirectly referenced pages.
 		uberPage.commit(this);
@@ -632,7 +632,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mPageRtx.mSession.waitForFinishedSync(mTransactionID);
 
 		final File indexes = new File(mPageRtx.mResourceConfig.mPath,
-				ResourceConfiguration.Paths.INDEXES.getFile().getPath());
+				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision + ".xml");
 		try (final OutputStream out = new FileOutputStream(indexes)) {
 			mIndexController.serialize(out);
 		} catch (IOException e) {

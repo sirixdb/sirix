@@ -13,6 +13,8 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 
+import com.google.common.base.Optional;
+
 public interface PathIndex<K extends Comparable<? super K>, V extends References> {
 	PathIndexBuilder createBuilder(
 			@Nonnull PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
@@ -23,5 +25,5 @@ public interface PathIndex<K extends Comparable<? super K>, V extends References
 			@Nonnull PathSummaryReader pathSummaryReader, @Nonnull IndexDef indexDef);
 
 	Iterator<V> openIndex(final PageReadTrx pageRtx ,
-			@Nonnull Long key, @Nonnull IndexDef indexDef, @Nonnull SearchMode mode, final PathFilter filter);
+			@Nonnull Optional<Long> key, @Nonnull IndexDef indexDef, @Nonnull SearchMode mode, final PathFilter filter);
 }

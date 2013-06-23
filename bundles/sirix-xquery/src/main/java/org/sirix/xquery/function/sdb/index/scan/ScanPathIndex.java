@@ -82,10 +82,6 @@ public final class ScanPathIndex extends AbstractFunction {
 			docs.close();
 		}
 
-		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
-			throw new QueryException(new QNm("Collection must be updatable!"));
-		}
-
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "
 					+ ((Str) args[1]).stringValue()));
@@ -104,7 +100,7 @@ public final class ScanPathIndex extends AbstractFunction {
 					idx, collection, document);
 		}
 		final String paths = FunUtil
-				.getString(args, 2, "$paths", null, null, false);
+				.getString(args, 3, "$paths", null, null, false);
 		final PathFilter filter = (paths != null) ? controller.createPathFilter(
 				paths.split(";"), doc.getTrx()) : null;
 

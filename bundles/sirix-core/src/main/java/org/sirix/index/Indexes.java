@@ -67,7 +67,7 @@ public final class Indexes implements Materializable {
 							IndexDef.INDEX_TAG, childName);
 				}
 
-				IndexDef indexDefinition = new IndexDef();
+				final IndexDef indexDefinition = new IndexDef();
 				indexDefinition.init(child);
 				mIndexes.add(indexDefinition);
 			}

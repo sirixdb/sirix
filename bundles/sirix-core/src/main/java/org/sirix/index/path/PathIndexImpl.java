@@ -13,6 +13,8 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
 
+import com.google.common.base.Optional;
+
 public final class PathIndexImpl implements PathIndex<Long, NodeReferences> {
 
 	@Override
@@ -30,7 +32,7 @@ public final class PathIndexImpl implements PathIndex<Long, NodeReferences> {
 	}
 
 	@Override
-	public Iterator<NodeReferences> openIndex(final PageReadTrx pageRtx, final Long key,
+	public Iterator<NodeReferences> openIndex(final PageReadTrx pageRtx, final Optional<Long> key,
 			final IndexDef indexDef, final SearchMode mode, final PathFilter filter) {
 		final AVLTreeReader<Long, NodeReferences> reader = AVLTreeReader
 				.getInstance(pageRtx, indexDef.getType(), indexDef.getID());

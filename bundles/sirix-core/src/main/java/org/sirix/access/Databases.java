@@ -20,7 +20,7 @@ import org.sirix.utils.Files;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class Databases {
+public final class Databases {
 
 	/** Central repository of all running databases. */
 	private static final ConcurrentMap<File, Database> DATABASEMAP = new ConcurrentHashMap<>();
