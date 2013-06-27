@@ -7,6 +7,7 @@ import javax.annotation.Nullable;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.index.avltree.interfaces.MutableAVLNode;
+import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.node.AbstractForwardingNode;
 import org.sirix.node.Kind;
 import org.sirix.node.delegates.NodeDelegate;
@@ -59,7 +60,10 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 		if (mKey instanceof Long) {
 			return Kind.PATHAVL;
 		}
-		return Kind.CASAVL;
+		if (mKey instanceof CASValue) {
+			return Kind.CASAVL;
+		}
+		return Kind.UNKNOWN;
 	}
 
 	@Override

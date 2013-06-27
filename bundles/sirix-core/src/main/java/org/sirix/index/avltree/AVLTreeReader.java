@@ -299,82 +299,6 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	}
 
 	/**
-	 * Iterator supporting different search modes.
-	 * 
-	 * @author Johannes Lichtenberger
-	 * 
-	 */
-	public final class AVLIterator extends AbstractIterator<V> {
-
-		/** The key to search. */
-		private final K mKey;
-
-		/** Determines if it's the first call. */
-		private boolean mFirst;
-
-		/** All AVLNode keys which are part of the result sequence. */
-		private final Deque<Long> mKeys;
-
-		/** Search mode. */
-		private final SearchMode mMode;
-
-		/**
-		 * Constructor.
-		 * 
-		 * @param key
-		 *          the key to search for
-		 * @param mode
-		 *          the search mode
-		 */
-		public AVLIterator(final K key, final SearchMode mode) {
-			mKey = checkNotNull(key);
-			mFirst = true;
-			mKeys = new ArrayDeque<>();
-			mMode = checkNotNull(mode);
-		}
-
-		@Override
-		protected V computeNext() {
-			if (!mFirst && mMode == SearchMode.EQUAL) {
-				return endOfData();
-			}
-			if (!mFirst) {
-				if (!mKeys.isEmpty()) {
-					// Subsequent results.
-					final AVLNode<K, V> node = moveTo(mKeys.pop()).get().getAVLNode();
-					stackOperation(node);
-					return node.getValue();
-				}
-				return endOfData();
-			}
-
-			// First search.
-			final Optional<V> result = get(mKey, mMode);
-			mFirst = false;
-			if (result.isPresent()) {
-				final AVLNode<K, V> node = getAVLNode();
-				if (mMode != SearchMode.EQUAL) {
-					stackOperation(node);
-				}
-				return result.get();
-			}
-			return endOfData();
-		}
-
-		private void stackOperation(final AVLNode<K, V> node) {
-			if (node.hasRightChild()) {
-				final AVLNode<K, V> right = moveToLastChild().get().getAVLNode();
-				mKeys.push(right.getNodeKey());
-			}
-			moveTo(node.getNodeKey());
-			if (node.hasLeftChild()) {
-				final AVLNode<K, V> left = moveToFirstChild().get().getAVLNode();
-				mKeys.push(left.getNodeKey());
-			}
-		}
-	}
-
-	/**
 	 * Returns the number of index entries.
 	 * 
 	 * @return number of index entries
@@ -531,7 +455,25 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 
 	@Override
 	public Move<? extends NodeCursor> moveToNext() {
-		return moveToLastChild();
+		if (mCurrentNode instanceof AVLNode) {
+			@SuppressWarnings("unchecked")
+			AVLNode<K, V> node = (AVLNode<K, V>) mCurrentNode;
+			if (node.hasLeftChild()) {
+				moveToFirstChild();
+			} else if (node.hasRightChild()) {
+				moveToLastChild();
+			} else {
+				while (moveToParent().get().getNode() instanceof AVLNode && !hasLastChild()) {
+				}
+				
+				if (getNode() instanceof AVLNode) {
+					return Move.moved(moveToLastChild().get());
+				} else {
+					return Move.notMoved();
+				}
+			}
+		}
+		return Move.moved(moveToFirstChild().get());
 	}
 
 	@Override
@@ -561,12 +503,16 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 
 	@Override
 	public Kind getFirstChildKind() {
-		return Kind.CASAVL;
+		final Kind firstChildKind = moveToFirstChild().get().getKind();
+		moveToParent();
+		return firstChildKind;
 	}
 
 	@Override
 	public Kind getLastChildKind() {
-		return Kind.CASAVL;
+		final Kind lastChildKind = moveToLastChild().get().getKind();
+		moveToParent();
+		return lastChildKind;
 	}
 
 	@Override
@@ -576,7 +522,10 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 					.getStandardProperty()) {
 				return Kind.DOCUMENT;
 			} else {
-				return Kind.CASAVL;
+				final long nodeKey = mCurrentNode.getNodeKey();
+				final Kind parentKind = moveToParent().get().getKind();
+				moveTo(nodeKey);
+				return parentKind;
 			}
 		}
 		return Kind.UNKNOWN;
@@ -584,7 +533,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 
 	@Override
 	public Kind getKind() {
-		return Kind.CASAVL;
+		return mCurrentNode.getKind();
 	}
 
 	@Override

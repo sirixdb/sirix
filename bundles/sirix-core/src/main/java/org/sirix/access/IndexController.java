@@ -75,10 +75,10 @@ public final class IndexController {
 	private final Set<ChangeListener> mListeners;
 
 	/** The {@link PathIndex} implementation used to provide path indexes. */
-	private final PathIndexImpl mPathIndex;
+	private final PathIndex<Long, NodeReferences> mPathIndex;
 
 	/** The {@link CASIndex} implementation used to provide path indexes. */
-	private final CASIndexImpl<CASValue, NodeReferences> mCASIndex;
+	private final CASIndex<CASValue, NodeReferences> mCASIndex;
 
 	/**
 	 * Constructor.
@@ -90,7 +90,7 @@ public final class IndexController {
 		mIndexes = new Indexes();
 		mListeners = new HashSet<>();
 		mPathIndex = new PathIndexImpl();
-		mCASIndex = new CASIndexImpl<CASValue, NodeReferences>();
+		mCASIndex = new CASIndexImpl();
 	}
 
 	/**
@@ -352,6 +352,16 @@ public final class IndexController {
 		}
 
 		return mPathIndex.openIndex(pageRtx, Optional.<Long>absent(), indexDef, mode, filter);
+	}
+	
+	public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx,
+			final IndexDef indexDef, final PathFilter filter, final SearchMode mode) {
+		if (mCASIndex == null) {
+			throw new IllegalStateException(
+					"This document does not support path indexes.");
+		}
+
+		return mCASIndex.openIndex(pageRtx, Optional.<CASValue>absent(), indexDef, mode, filter);
 	}
 
 }
