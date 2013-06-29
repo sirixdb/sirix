@@ -33,7 +33,7 @@ public final class SDBFun {
 
 	static {
 		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
-		
+
 		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
 				SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
 				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
@@ -42,18 +42,18 @@ public final class SDBFun {
 				SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
 				new SequenceType(AtomicType.STR, Cardinality.One))));
 		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
-				SequenceType.NODE, new SequenceType(AtomicType.STR,
-						Cardinality.One), new SequenceType(AtomicType.STR,
-						Cardinality.ZeroOrOne), new SequenceType(
+				SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
+						AtomicType.STR, Cardinality.ZeroOrOne), new SequenceType(
 						AtomicType.STR, Cardinality.ZeroOrMany))));
 		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
-				SequenceType.NODE, new SequenceType(AtomicType.STR,
-						Cardinality.One), new SequenceType(AtomicType.STR,
-						Cardinality.ZeroOrOne))));
+				SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
+						AtomicType.STR, Cardinality.ZeroOrOne))));
 		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
-				SequenceType.NODE, new SequenceType(AtomicType.STR,
-						Cardinality.One))));
-		
+				SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
+				new SequenceType(AtomicType.STR, Cardinality.One))));
+
 		Functions.predefine(new ScanPathIndex());
 	}
 }

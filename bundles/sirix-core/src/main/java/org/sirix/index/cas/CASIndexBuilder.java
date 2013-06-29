@@ -22,7 +22,8 @@ import org.sirix.index.avltree.AVLTreeWriter;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
-import org.sirix.node.immutable.ImmutableElement;
+import org.sirix.node.Kind;
+import org.sirix.node.immutable.ImmutableAttribute;
 import org.sirix.node.immutable.ImmutableText;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
@@ -44,20 +45,15 @@ final class CASIndexBuilder extends AbstractVisitor {
 	private final AVLTreeWriter<CASValue, NodeReferences> mAVLTreeWriter;
 	private final Type mType;
 
-	CASIndexBuilder(
-			final NodeReadTrx rtx,
+	CASIndexBuilder(final NodeReadTrx rtx,
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDefinition) {
 		mRtx = checkNotNull(rtx);
 		mPathSummaryReader = checkNotNull(pathSummaryReader);
 		mPaths = checkNotNull(indexDefinition.getPaths());
-		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx, indexDefinition.getType(), indexDefinition.getID());
+		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx,
+				indexDefinition.getType(), indexDefinition.getID());
 		mType = checkNotNull(indexDefinition.getContentType());
-	}
-
-	@Override
-	public VisitResult visit(ImmutableElement node) {
-		return process(node);
 	}
 
 	@Override
@@ -65,11 +61,18 @@ final class CASIndexBuilder extends AbstractVisitor {
 		return process(node);
 	}
 
+	@Override
+	public VisitResult visit(ImmutableAttribute node) {
+		return process(node);
+	}
+
 	private VisitResult process(final ImmutableNode node) {
 		try {
-			mRtx.moveTo(node.getParentKey());
-			// Must be a name node in any case.
-			final long PCR = mRtx.getNameNode().getPathNodeKey();
+			if (node.getKind() == Kind.TEXT) {
+				mRtx.moveTo(node.getParentKey());
+			}
+			final long PCR = mRtx.isDocumentRoot() ? 0 : mRtx.getNameNode()
+					.getPathNodeKey();
 			if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
 				final CASValue value = new CASValue(new Str(
 						((ImmutableValueNode) node).getValue()), mType, PCR);

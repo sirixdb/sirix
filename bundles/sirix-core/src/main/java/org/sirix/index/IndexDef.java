@@ -63,28 +63,31 @@ public final class IndexDef implements Materializable {
 	/**
 	 * Name index.
 	 */
-	IndexDef(final Set<QNm> included, final Set<QNm> excluded) {
+	IndexDef(final Set<QNm> included, final Set<QNm> excluded, final int indexDefNo) {
 		mType = IndexType.NAME;
 		mIncluded.addAll(included);
 		mExcluded.addAll(excluded);
+		mID = indexDefNo;
 	}
 
 	/**
 	 * Path index.
 	 */
-	IndexDef(final Set<Path<QNm>> paths) {
+	IndexDef(final Set<Path<QNm>> paths, final int indexDefNo) {
 		mType = IndexType.PATH;
 		mPaths.addAll(paths);
+		mID = indexDefNo;
 	}
 
 	/**
 	 * CAS index.
 	 */
-	IndexDef(final Type contentType, final Set<Path<QNm>> paths, boolean unique) {
+	IndexDef(final Type contentType, final Set<Path<QNm>> paths, boolean unique, final int indexDefNo) {
 		mType = IndexType.CAS;
 		mContentType = checkNotNull(contentType);
 		mPaths.addAll(paths);
 		mUnique = unique;
+		mID = indexDefNo;
 	}
 
 	@Override
@@ -277,14 +280,14 @@ public final class IndexDef implements Materializable {
 	
 	@Override
 	public int hashCode() {
-		return Objects.hashCode(mID);
+		return Objects.hashCode(mID, mType);
 	}
 	
 	@Override
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof IndexDef) {
 			final IndexDef other = (IndexDef) obj;
-			return mID == other.mID;
+			return mID == other.mID && mType == other.mType;
 		}
 		return false;
 	}

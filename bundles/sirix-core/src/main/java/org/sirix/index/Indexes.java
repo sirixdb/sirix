@@ -62,8 +62,7 @@ public final class Indexes implements Materializable {
 				QNm childName = child.getName();
 
 				if (!childName.equals(IndexDef.INDEX_TAG)) {
-					throw new DocumentException(
-							"Expected tag '%s' but found '%s'",
+					throw new DocumentException("Expected tag '%s' but found '%s'",
 							IndexDef.INDEX_TAG, childName);
 				}
 
@@ -103,7 +102,8 @@ public final class Indexes implements Materializable {
 		}
 	}
 
-	public Optional<IndexDef> findPathIndex(final Path<QNm> path) throws DocumentException {
+	public Optional<IndexDef> findPathIndex(final Path<QNm> path)
+			throws DocumentException {
 		checkNotNull(path);
 		try {
 			for (final IndexDef index : mIndexes) {
@@ -111,7 +111,7 @@ public final class Indexes implements Materializable {
 					if (index.getPaths().isEmpty()) {
 						return Optional.of(index);
 					}
-					
+
 					for (final Path<QNm> indexedPath : index.getPaths()) {
 						if (indexedPath.matches(path)) {
 							return Optional.of(index);
@@ -125,7 +125,8 @@ public final class Indexes implements Materializable {
 		}
 	}
 
-	public Optional<IndexDef> findCASIndex(final Path<QNm> path) throws DocumentException {
+	public Optional<IndexDef> findCASIndex(final Path<QNm> path)
+			throws DocumentException {
 		checkNotNull(path);
 		try {
 			for (final IndexDef index : mIndexes) {
@@ -133,7 +134,7 @@ public final class Indexes implements Materializable {
 					if (index.getPaths().isEmpty()) {
 						return Optional.of(index);
 					}
-					
+
 					for (final Path<QNm> indexedPath : index.getPaths()) {
 						if (indexedPath.matches(path)) {
 							return Optional.of(index);
@@ -147,7 +148,8 @@ public final class Indexes implements Materializable {
 		}
 	}
 
-	public Optional<IndexDef> findNameIndex(final QNm... names) throws DocumentException {
+	public Optional<IndexDef> findNameIndex(final QNm... names)
+			throws DocumentException {
 		out: for (final IndexDef index : mIndexes) {
 			if (index.isNameIndex()) {
 				final Set<QNm> incl = index.getIncluded();
@@ -156,10 +158,10 @@ public final class Indexes implements Materializable {
 					// Require generic name index
 					return Optional.of(index);
 				}
-				
+
 				for (final QNm name : names) {
-					if (!incl.isEmpty() && !incl.contains(name) 
-							|| !excl.isEmpty() && excl.contains(name)) {
+					if (!incl.isEmpty() && !incl.contains(name) || !excl.isEmpty()
+							&& excl.contains(name)) {
 						continue out;
 					}
 				}
@@ -167,5 +169,16 @@ public final class Indexes implements Materializable {
 			}
 		}
 		return Optional.absent();
+	}
+
+	public int getNrOfIndexDefsWithType(final IndexType cas) {
+		checkNotNull(cas);
+		int nr = 0;
+		for (final IndexDef index : mIndexes) {
+			if (index.getType() == cas) {
+				nr++;
+			}
+		}
+		return nr;
 	}
 }

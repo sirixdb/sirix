@@ -510,7 +510,7 @@ public enum Kind implements RecordPersistenter {
 			sink.write(textValue);
 			final byte[] type = key.getType().toString()
 					.getBytes(Constants.DEFAULT_ENCODING);
-			sink.write(type.length);
+			sink.writeInt(type.length);
 			sink.write(type);
 			final NodeReferences value = node.getValue();
 			final Set<Long> nodeKeys = value.getNodeKeys();
