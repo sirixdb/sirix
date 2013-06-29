@@ -57,12 +57,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-			 loadDocumentAndQuery();
-			 System.out.println();
-			 loadDocumentAndUpdate();
-			 System.out.println();
-			 loadCollectionAndQuery();
-			 System.out.println();
+//			loadDocumentAndQuery();
+//			System.out.println();
+//			loadDocumentAndUpdate();
+//			System.out.println();
+//			loadCollectionAndQuery();
+//			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -229,7 +229,19 @@ public final class XQueryUsage {
 		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
-			System.out.println("Create path index for all elements:");
+			System.out.println("Create cas index for all attributes:");
+			new XQuery(new SirixCompileChain(store),
+					"sdb:create-cas-index('mydocs.col', 'resource1', 'xs:string', '//@*')")
+					.execute(ctx3);
+			store.commitAll();
+			System.out.println("CAS index creation done.");
+		}
+		
+		// Create and commit path index on all elements.
+		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+			final QueryContext ctx3 = new QueryContext(store);
+			System.out.println();
+			System.out.println("Create path index for all elements (all paths):");
 			new XQuery(new SirixCompileChain(store),
 					"sdb:create-path-index('mydocs.col', 'resource1', '//*')")
 					.execute(ctx3);
@@ -240,37 +252,41 @@ public final class XQueryUsage {
 		// Query path index for "a-elements"
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			System.out.println("");
-			System.out.println("Find path index for all elements which are children of the log-element.");
+			System.out
+					.println("Find path index for all elements which are children of the log-element.");
 			final QueryContext ctx3 = new QueryContext(store);
 			final DBNode node = (DBNode) new XQuery(new SirixCompileChain(store),
 					"doc('mydocs.col')").execute(ctx3);
 			final Optional<IndexDef> index = node.getTrx().getSession()
-					.getIndexController().getIndexes().findPathIndex(Path.parse("//log/*"));
+					.getIndexController().getIndexes()
+					.findPathIndex(Path.parse("//log/*"));
 			System.out.println(index);
-			final String query = "sdb:scan-path-index('mydocs.col', 'resource1', " + index.get().getID() + ", '//log/*')";
-			final Sequence seq = new XQuery(new SirixCompileChain(store), query).execute(ctx3);
-//			final Iter iter = seq.iterate();
-//			for (Item item = iter.next(); item != null; item = iter.next()) {
-//				System.out.println(item);
-//			}
+			final String query = "sdb:scan-path-index('mydocs.col', 'resource1', "
+					+ index.get().getID() + ", '//log/*')";
+			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
+					.execute(ctx3);
+			// final Iter iter = seq.iterate();
+			// for (Item item = iter.next(); item != null; item = iter.next()) {
+			// System.out.println(item);
+			// }
 			final Comparator<Tuple> comparator = new Comparator<Tuple>() {
 				@Override
 				public int compare(Tuple o1, Tuple o2) {
 					return ((Node<?>) o1).cmp((Node<?>) o2);
 				}
 			};
-			final Sequence sortedSeq = new SortedNodeSequence(comparator, seq,
-					true);
+			final Sequence sortedSeq = new SortedNodeSequence(comparator, seq, true);
 			final Iter sortedIter = sortedSeq.iterate();
-			
+
 			System.out.println("Sorted index entries in document order: ");
-			for (Item item = sortedIter.next(); item != null; item = sortedIter.next()) {
+			for (Item item = sortedIter.next(); item != null; item = sortedIter
+					.next()) {
 				System.out.println(item);
 			}
 		}
-		
+
 		try (final DBStore store = DBStore.newBuilder().build()) {
-			final QueryContext ctx = new QueryContext(store);		
+			final QueryContext ctx = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
 			final String xq3 = "doc('mydocs.col', 2)/log/all-time::*";

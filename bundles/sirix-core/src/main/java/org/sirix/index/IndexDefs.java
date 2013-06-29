@@ -1,6 +1,5 @@
 package org.sirix.index;
 
-import java.util.HashSet;
 import java.util.Set;
 
 import org.brackit.xquery.atomic.QNm;
@@ -8,6 +7,7 @@ import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Type;
 
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableSet;
 
 /**
  * {@link IndexDef} factory.
@@ -36,37 +36,37 @@ public final class IndexDefs {
 	 * @return a new {@link IndexDef} instance
 	 */
 	public static IndexDef createCASIdxDef(final boolean unique,
-			final Optional<Type> optType, final Set<Path<QNm>> paths) {
+			final Optional<Type> optType, final Set<Path<QNm>> paths,
+			final int indexDefNo) {
 		final Type type = optType.isPresent() ? optType.get() : Type.STR;
-		return new IndexDef(type, paths, unique);
+		return new IndexDef(type, paths, unique, indexDefNo);
 	}
 
 	/**
 	 * Create a path {@link IndexDef}.
+	 * 
 	 * @param paths
-	 * 					the paths to index
+	 *          the paths to index
 	 * @return a new path {@link IndexDef} instance
 	 */
-	public static IndexDef createPathIdxDef(Set<Path<QNm>> paths) {
-		return new IndexDef(paths);
+	public static IndexDef createPathIdxDef(final Set<Path<QNm>> paths,
+			final int indexDefNo) {
+		return new IndexDef(paths, indexDefNo);
 	}
 
-	public static IndexDef createNameIdxDef() {
-		final Set<QNm> excluded = new HashSet<>();
-		final Set<QNm> included = new HashSet<>();
-		return new IndexDef(included, excluded);
+	public static IndexDef createNameIdxDef(final int indexDefNo) {
+		return new IndexDef(ImmutableSet.<QNm> of(), ImmutableSet.<QNm> of(),
+				indexDefNo);
 	}
 
-	public static IndexDef createFilteredNameIdxDef(
-			final Set<QNm> excluded) {
-		final Set<QNm> included = new HashSet<QNm>();
-		return new IndexDef(included, excluded);
+	public static IndexDef createFilteredNameIdxDef(final Set<QNm> excluded,
+			final int indexDefNo) {
+		return new IndexDef(ImmutableSet.<QNm> of(), excluded, indexDefNo);
 	}
 
-	public static IndexDef createSelectiveNameIdxDef(
-			final Set<QNm> included) {
-		final HashSet<QNm> excluded = new HashSet<QNm>();
-		return new IndexDef(included, excluded);
+	public static IndexDef createSelectiveNameIdxDef(final Set<QNm> included,
+			final int indexDefNo) {
+		return new IndexDef(included, ImmutableSet.<QNm> of(), indexDefNo);
 	}
 
 }

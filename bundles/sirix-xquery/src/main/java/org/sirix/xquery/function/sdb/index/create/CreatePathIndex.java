@@ -19,6 +19,7 @@ import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
+import org.sirix.index.IndexType;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
@@ -33,17 +34,29 @@ import com.google.common.collect.ImmutableSet;
  * <li>
  * <code>sdb:create-path-index($coll as xs:string, $doc as xs:string, $paths as xs:string*) as 
  * node()</code></li>
- * <li><code>sdb:create-path-index($coll as xs:string, $doc as xs:string) as node()</code></li>
+ * <li>
+ * <code>sdb:create-path-index($coll as xs:string, $doc as xs:string) as node()</code>
+ * </li>
  * </ul>
  * 
  * @author Max Bechtold
+ * @author Johannes Lichtenberger
  * 
  */
 public final class CreatePathIndex extends AbstractFunction {
 
+	/** Path index function name. */
 	public final static QNm CREATE_PATH_INDEX = new QNm(SDBFun.SDB_NSURI,
 			SDBFun.SDB_PREFIX, "create-path-index");
 
+	/**
+	 * Constructor.
+	 * 
+	 * @param name
+	 *          the name of the function
+	 * @param signature
+	 *          the signature of the function
+	 */
 	public CreatePathIndex(QNm name, Signature signature) {
 		super(name, signature, true);
 	}
@@ -56,37 +69,39 @@ public final class CreatePathIndex extends AbstractFunction {
 		}
 		final DBCollection col = (DBCollection) ctx.getStore().lookup(
 				((Str) args[0]).stringValue());
-		
+
 		if (col == null) {
 			throw new QueryException(new QNm("No valid arguments specified!"));
 		}
-		
+
 		IndexController controller = null;
 		final Iter docs = col.iterate();
 		DBNode doc = (DBNode) docs.next();
-		
+
 		final String expResName = ((Str) args[1]).stringValue();
-		
+
 		try {
 			while (doc != null) {
-				if (doc.getTrx().getSession().getResourceConfig().getResource().getName().equals(expResName)) {
+				if (doc.getTrx().getSession().getResourceConfig().getResource()
+						.getName().equals(expResName)) {
 					controller = doc.getTrx().getSession().getIndexController();
 					break;
 				}
 				doc = (DBNode) docs.next();
 			}
 		} finally {
-		 	docs.close();
-		} 
-		
+			docs.close();
+		}
+
 		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
 			throw new QueryException(new QNm("Collection must be updatable!"));
 		}
-		
+
 		if (controller == null) {
-			throw new QueryException(new QNm("Document not found: " + ((Str) args[1]).stringValue()));
+			throw new QueryException(new QNm("Document not found: "
+					+ ((Str) args[1]).stringValue()));
 		}
-		
+
 		final Set<Path<QNm>> paths = new HashSet<>();
 		if (args.length > 2 && args[2] != null) {
 			final Iter it = args[2].iterate();
@@ -97,9 +112,11 @@ public final class CreatePathIndex extends AbstractFunction {
 			}
 		}
 
-		final IndexDef idxDef = IndexDefs.createPathIdxDef(paths);
+		final IndexDef idxDef = IndexDefs.createPathIdxDef(paths, controller
+				.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH));
 		try {
-			controller.createIndexes(ImmutableSet.of(idxDef), (NodeWriteTrx) doc.getTrx());
+			controller.createIndexes(ImmutableSet.of(idxDef),
+					(NodeWriteTrx) doc.getTrx());
 		} catch (final SirixIOException e) {
 			throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
 		}
