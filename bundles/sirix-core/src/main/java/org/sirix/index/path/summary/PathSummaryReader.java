@@ -321,7 +321,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 				continue;
 			}
 
-			if (isAttributePattern ^ (node.getKind() == Kind.ATTRIBUTE)) {
+			if (isAttributePattern ^ (node.getPathKind() == Kind.ATTRIBUTE)) {
 				continue;
 			}
 

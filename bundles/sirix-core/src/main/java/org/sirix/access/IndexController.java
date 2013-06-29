@@ -265,6 +265,7 @@ public final class IndexController {
 				indexBuilders.add(createCASIndexBuilder(nodeWriteTrx,
 						nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
 						indexDef));
+				break;
 			case NAME:
 				// TODO:
 				break;
