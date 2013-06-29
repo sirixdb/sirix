@@ -91,7 +91,7 @@ public final class ScanPathIndex extends AbstractFunction {
 					+ ((Str) args[1]).stringValue()));
 		}
 
-		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx);
+		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx, IndexType.PATH);
 
 		if (indexDef == null) {
 			throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,

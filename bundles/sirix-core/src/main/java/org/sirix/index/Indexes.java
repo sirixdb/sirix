@@ -36,10 +36,10 @@ public final class Indexes implements Materializable {
 		return new HashSet<>(mIndexes);
 	}
 
-	public synchronized IndexDef getIndexDef(final @Nonnegative int indexNo) {
+	public synchronized IndexDef getIndexDef(final @Nonnegative int indexNo, final IndexType type) {
 		checkArgument(indexNo >= 0, "indexNo must be >= 0!");
 		for (final IndexDef sid : mIndexes) {
-			if (sid.getID() == indexNo) {
+			if (sid.getID() == indexNo && sid.getType() == type) {
 				return sid;
 			}
 		}
