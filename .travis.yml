@@ -7,7 +7,6 @@ branches:
     - master
 notifications:
   email:
-    on_success: always
     on_failure: always
     recipients:
       - lichtenberger.johannes@gmail.com
