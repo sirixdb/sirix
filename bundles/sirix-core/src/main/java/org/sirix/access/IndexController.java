@@ -345,13 +345,13 @@ public final class IndexController {
 	}
 
 	public Iterator<NodeReferences> openPathIndex(final PageReadTrx pageRtx,
-			final IndexDef indexDef, final PathFilter filter, final SearchMode mode) {
+			final IndexDef indexDef, final PathFilter filter) {
 		if (mPathIndex == null) {
 			throw new IllegalStateException(
 					"This document does not support path indexes.");
 		}
 
-		return mPathIndex.openIndex(pageRtx, Optional.<Long>absent(), indexDef, mode, filter);
+		return mPathIndex.openIndex(pageRtx, indexDef, filter);
 	}
 	
 	public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx,

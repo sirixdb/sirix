@@ -19,10 +19,8 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.IndexController;
-import org.sirix.api.NodeWriteTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
-import org.sirix.index.SearchMode;
 import org.sirix.index.path.PathFilter;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
@@ -31,17 +29,23 @@ import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.stream.SirixNodeKeyStream;
 
 /**
+ * Scan the path index.
  * 
  * @author Sebastian Baechle
+ * @author Johannes Lichtenberger
  * 
  */
 @FunctionAnnotation(description = "Scans the given path index for matching nodes.", parameters = {
 		"$collection", "$document", "$idx-no", "$paths" })
 public final class ScanPathIndex extends AbstractFunction {
 
+	/** Default function name. */
 	public final static QNm DEFAULT_NAME = new QNm(SDBFun.SDB_NSURI,
 			SDBFun.SDB_PREFIX, "scan-path-index");
 
+	/**
+	 * Constructor.
+	 */
 	public ScanPathIndex() {
 		super(DEFAULT_NAME, new Signature(new SequenceType(AnyNodeType.ANY_NODE,
 				Cardinality.ZeroOrMany), new SequenceType(AtomicType.STR,
@@ -116,8 +120,9 @@ public final class ScanPathIndex extends AbstractFunction {
 					@Override
 					public Item next() throws QueryException {
 						if (s == null) {
-							s = new SirixNodeKeyStream(ic.openPathIndex(node.getTrx().getPageTrx(), indexDef, filter,
-									SearchMode.GREATER_OR_EQUAL), node.getCollection(), node.getTrx());
+							s = new SirixNodeKeyStream(ic.openPathIndex(node.getTrx()
+									.getPageTrx(), indexDef, filter), node.getCollection(),
+									node.getTrx());
 						}
 						return (Item) s.next();
 					}

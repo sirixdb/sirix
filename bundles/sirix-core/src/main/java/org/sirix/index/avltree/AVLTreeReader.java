@@ -221,38 +221,22 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	 */
 	public final class AVLNodeIterator extends AbstractIterator<AVLNode<K, V>> {
 
-		/** The key to search. */
-		private final Optional<K> mKey;
-
 		/** Determines if it's the first call. */
 		private boolean mFirst;
 
 		/** All AVLNode keys which are part of the result sequence. */
 		private final Deque<Long> mKeys;
 
-		/** Search mode. */
-		private final SearchMode mMode;
-
 		/**
 		 * Constructor.
-		 * 
-		 * @param key
-		 *          the key to search for
-		 * @param mode
-		 *          the search mode
 		 */
-		public AVLNodeIterator(final Optional<K> key, final SearchMode mode) {
-			mKey = checkNotNull(key);
+		public AVLNodeIterator() {
 			mFirst = true;
 			mKeys = new ArrayDeque<>();
-			mMode = checkNotNull(mode);
 		}
 
 		@Override
 		protected AVLNode<K, V> computeNext() {
-			if (!mFirst && mMode == SearchMode.EQUAL) {
-				return endOfData();
-			}
 			if (!mFirst) {
 				if (!mKeys.isEmpty()) {
 					// Subsequent results.
@@ -265,22 +249,11 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 
 			// First search.
 			mFirst = false;
-			if (mKey.isPresent()) {
-				final Optional<V> result = get(mKey.get(), mMode);
-				if (result.isPresent()) {
-					final AVLNode<K, V> node = getAVLNode();
-					if (mMode != SearchMode.EQUAL) {
-						stackOperation(node);
-					}
-					return node;
-				}
-			} else {
-				moveToDocumentRoot();
-				if (moveToFirstChild().hasMoved()) {
-					final AVLNode<K, V> node = getAVLNode();
-					stackOperation(node);
-					return node;
-				}
+			moveToDocumentRoot();
+			if (moveToFirstChild().hasMoved()) {
+				final AVLNode<K, V> node = getAVLNode();
+				stackOperation(node);
+				return node;
 			}
 			return endOfData();
 		}
@@ -463,9 +436,10 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 			} else if (node.hasRightChild()) {
 				moveToLastChild();
 			} else {
-				while (moveToParent().get().getNode() instanceof AVLNode && !hasLastChild()) {
+				while (moveToParent().get().getNode() instanceof AVLNode
+						&& !hasLastChild()) {
 				}
-				
+
 				if (getNode() instanceof AVLNode) {
 					return Move.moved(moveToLastChild().get());
 				} else {

@@ -39,8 +39,7 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 			Optional<CASValue> key, IndexDef indexDef, SearchMode mode, PathFilter filter) {
 		final AVLTreeReader<CASValue, NodeReferences> reader = AVLTreeReader.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
 
-		final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(
-				key, mode);
+		final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator();
 		
 		return null;
 	}
