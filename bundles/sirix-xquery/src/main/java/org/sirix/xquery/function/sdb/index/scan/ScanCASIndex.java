@@ -2,8 +2,10 @@ package org.sirix.xquery.function.sdb.index.scan;
 
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
+import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.expr.Cast;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.sequence.BaseIter;
@@ -14,6 +16,7 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
@@ -21,7 +24,8 @@ import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.IndexController;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
-import org.sirix.index.path.PathFilter;
+import org.sirix.index.SearchMode;
+import org.sirix.index.cas.CASFilter;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBCollection;
@@ -29,29 +33,27 @@ import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.stream.SirixNodeKeyStream;
 
 /**
- * Scan the path index.
  * 
  * @author Sebastian Baechle
- * @author Johannes Lichtenberger
  * 
  */
-@FunctionAnnotation(description = "Scans the given path index for matching nodes.", parameters = {
-		"$collection", "$document", "$idx-no", "$paths" })
-public final class ScanPathIndex extends AbstractFunction {
+@FunctionAnnotation(description = "Scans the given CAS index for matching nodes.", parameters = {
+		"$collection", "$document", "$idx-no", "$key", "$include-self",
+		"$search-mode", "$paths" })
+public final class ScanCASIndex extends AbstractFunction {
 
-	/** Default function name. */
 	public final static QNm DEFAULT_NAME = new QNm(SDBFun.SDB_NSURI,
-			SDBFun.SDB_PREFIX, "scan-path-index");
+			SDBFun.SDB_PREFIX, "scan-cas-index");
 
-	/**
-	 * Constructor.
-	 */
-	public ScanPathIndex() {
+	public ScanCASIndex() {
 		super(DEFAULT_NAME, 
 				new Signature(
 				new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany), 
-				new SequenceType(AtomicType.STR, Cardinality.One), 
 				new SequenceType(AtomicType.STR, Cardinality.One),
+				new SequenceType(AtomicType.STR, Cardinality.One),
+				new SequenceType(AtomicType.INR, Cardinality.One), 
+				new SequenceType(AtomicType.ANA, Cardinality.One), 
+				new SequenceType(AtomicType.BOOL, Cardinality.One),
 				new SequenceType(AtomicType.INR, Cardinality.One), 
 				new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)), true);
 	}
@@ -93,22 +95,55 @@ public final class ScanPathIndex extends AbstractFunction {
 					+ ((Str) args[1]).stringValue()));
 		}
 
-		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx, IndexType.PATH);
+		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx,
+				IndexType.CAS);
 
 		if (indexDef == null) {
 			throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
 					"Index no %s for collection %s and document %s not found.", idx,
 					collection, document);
 		}
-		if (indexDef.getType() != IndexType.PATH) {
+		if (indexDef.getType() != IndexType.CAS) {
 			throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
 					"Index no %s for collection %s and document %s is not a path index.",
 					idx, collection, document);
 		}
+
+		final Type keyType = indexDef.getContentType();
+		final Atomic key = Cast.cast(sctx, (Atomic) args[3], keyType, true);
+		final boolean inc = FunUtil.getBoolean(args, 4, "$include-low-key", true,
+				true);
+		final int[] searchModes = new int[] { -2, -1, 0, 1, 2 };
+		final int searchMode = FunUtil.getInt(args, 5, "$search-mode", 0,
+				searchModes, true);
+
+		final SearchMode mode;
+		switch (searchMode) {
+		case -2:
+			mode = SearchMode.LESS;
+			break;
+		case -1:
+			mode = SearchMode.LESS_OR_EQUAL;
+			break;
+		case 0:
+			mode = SearchMode.EQUAL;
+			break;
+		case 1:
+			mode = SearchMode.GREATER;
+			break;
+		case 2:
+			mode = SearchMode.GREATER_OR_EQUAL;
+			break;
+		default:
+			// May never happen.
+			mode = SearchMode.EQUAL;
+		}
+
 		final String paths = FunUtil
-				.getString(args, 3, "$paths", null, null, false);
-		final PathFilter filter = (paths != null) ? controller.createPathFilter(
-				paths.split(";"), doc.getTrx()) : null;
+				.getString(args, 6, "$paths", null, null, false);
+		final CASFilter filter = (paths != null) ? controller.createCASFilter(
+				paths.split(";"), doc.getTrx(), key, mode) : controller
+				.createCASFilter(new String[] {}, doc.getTrx(), key, mode);
 
 		final IndexController ic = controller;
 		final DBNode node = doc;
@@ -122,9 +157,9 @@ public final class ScanPathIndex extends AbstractFunction {
 					@Override
 					public Item next() throws QueryException {
 						if (s == null) {
-							s = new SirixNodeKeyStream(ic.openPathIndex(node.getTrx()
-									.getPageTrx(), indexDef, filter), node.getCollection(),
-									node.getTrx());
+							s = new SirixNodeKeyStream(ic.openCASIndex(node.getTrx()
+									.getPageTrx(), indexDef, mode, filter, key, inc),
+									node.getCollection(), node.getTrx());
 						}
 						return (Item) s.next();
 					}

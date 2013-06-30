@@ -10,7 +10,9 @@ import org.brackit.xquery.util.path.PathException;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.index.Filter;
 import org.sirix.index.avltree.AVLNode;
+import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.utils.LogWrapper;
@@ -22,7 +24,7 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class PathFilter {
+public final class PathFilter implements Filter {
 
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
@@ -40,6 +42,7 @@ public final class PathFilter {
 	/** Set of PCRs to filter. */
 	private Set<Long> mPCRFilter;
 
+	/** Sirix {@link NodeReadTrx}. */
 	private final NodeReadTrx mRtx;
 
 	/**
@@ -63,12 +66,22 @@ public final class PathFilter {
 	 *          node to filter
 	 * @return {@code true} if the node has been filtered, {@code false} otherwise
 	 */
-	public boolean filter(final AVLNode<Long, NodeReferences> node) {
+	@Override
+	public <K extends Comparable<? super K>> boolean filter(final AVLNode<K, NodeReferences> node) {
 		if (mGenericPath) {
 			return true;
 		}
 
-		final long pcr = node.getKey();
+		final K key = node.getKey();
+		
+		long pcr = 0;
+		if (key instanceof Long)
+			pcr = (Long) key;
+		else if (key instanceof CASValue)
+			pcr = ((CASValue) key).getPathNodeKey();
+		else
+			throw new IllegalStateException();
+		
 		if (pcr > mMaxKnownPCR) {
 			try (final PathSummaryReader reader = mRtx instanceof NodeWriteTrx ? ((NodeWriteTrx) mRtx)
 					.getPathSummary() : mRtx.getSession().openPathSummary(

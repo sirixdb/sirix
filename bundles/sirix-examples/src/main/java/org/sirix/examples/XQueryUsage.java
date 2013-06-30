@@ -248,6 +248,42 @@ public final class XQueryUsage {
 			store.commitAll();
 			System.out.println("Path index creation done.");
 		}
+		
+		// Query CAS index.
+		try (final DBStore store = DBStore.newBuilder().build()) {
+			System.out.println("");
+			System.out
+					.println("Find CAS index for all attribute values.");
+			final QueryContext ctx3 = new QueryContext(store);
+			final DBNode node = (DBNode) new XQuery(new SirixCompileChain(store),
+					"doc('mydocs.col')").execute(ctx3);
+			final Optional<IndexDef> index = node.getTrx().getSession()
+					.getIndexController().getIndexes()
+					.findCASIndex(Path.parse("//@*"));
+			System.out.println(index);
+			final String query = "sdb:scan-cas-index('mydocs.col', 'resource1', "
+					+ index.get().getID() + ", 'bar', true(), 0, ())";
+			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
+					.execute(ctx3);
+			// final Iter iter = seq.iterate();
+			// for (Item item = iter.next(); item != null; item = iter.next()) {
+			// System.out.println(item);
+			// }
+			final Comparator<Tuple> comparator = new Comparator<Tuple>() {
+				@Override
+				public int compare(Tuple o1, Tuple o2) {
+					return ((Node<?>) o1).cmp((Node<?>) o2);
+				}
+			};
+			final Sequence sortedSeq = new SortedNodeSequence(comparator, seq, true);
+			final Iter sortedIter = sortedSeq.iterate();
+
+			System.out.println("Sorted index entries in document order: ");
+			for (Item item = sortedIter.next(); item != null; item = sortedIter
+					.next()) {
+				System.out.println(item);
+			}
+		}
 
 		// Query path index for "a-elements"
 		try (final DBStore store = DBStore.newBuilder().build()) {
@@ -262,7 +298,7 @@ public final class XQueryUsage {
 					.findPathIndex(Path.parse("//log/*"));
 			System.out.println(index);
 			final String query = "sdb:scan-path-index('mydocs.col', 'resource1', "
-					+ index.get().getID() + ", '//log/*')";
+					+ index.get().getID() + ", ())";
 			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
 					.execute(ctx3);
 			// final Iter iter = seq.iterate();
@@ -361,7 +397,7 @@ public final class XQueryUsage {
 		}
 		final String msg = new String(bytes);
 		out.print("<?xml version='1.0'?>");
-		out.print(String.format("<log tstamp='%s' severity='%s'>", tst, sev));
+		out.print(String.format("<log tstamp='%s' severity='%s' foo='bar'>", tst, sev));
 		out.print(String.format("<src>%s</src>", src));
 		out.print(String.format("<msg>%s</msg>", msg));
 		out.print("</log>");

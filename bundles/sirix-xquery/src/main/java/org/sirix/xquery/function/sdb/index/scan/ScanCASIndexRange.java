@@ -2,8 +2,10 @@ package org.sirix.xquery.function.sdb.index.scan;
 
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
+import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
+import org.brackit.xquery.expr.Cast;
 import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.sequence.BaseIter;
@@ -14,6 +16,7 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.Type;
 import org.brackit.xquery.xdm.type.AnyNodeType;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
@@ -21,6 +24,7 @@ import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.IndexController;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
+import org.sirix.index.SearchMode;
 import org.sirix.index.path.PathFilter;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
@@ -29,31 +33,28 @@ import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.stream.SirixNodeKeyStream;
 
 /**
- * Scan the path index.
  * 
  * @author Sebastian Baechle
- * @author Johannes Lichtenberger
  * 
  */
-@FunctionAnnotation(description = "Scans the given path index for matching nodes.", parameters = {
-		"$collection", "$document", "$idx-no", "$paths" })
-public final class ScanPathIndex extends AbstractFunction {
+@FunctionAnnotation(description = "Scans the given CAS index for matching nodes.", parameters = {
+		"$coll", "$document", "$idx-no", "$low-key", "$high-key",
+		"$include-low-key", "$include-high-key", "$paths" })
+public final class ScanCASIndexRange extends AbstractFunction {
 
-	/** Default function name. */
 	public final static QNm DEFAULT_NAME = new QNm(SDBFun.SDB_NSURI,
-			SDBFun.SDB_PREFIX, "scan-path-index");
+			SDBFun.SDB_PREFIX, "scan-cas-index-range");
 
-	/**
-	 * Constructor.
-	 */
-	public ScanPathIndex() {
-		super(DEFAULT_NAME, 
-				new Signature(
-				new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany), 
-				new SequenceType(AtomicType.STR, Cardinality.One), 
-				new SequenceType(AtomicType.STR, Cardinality.One),
-				new SequenceType(AtomicType.INR, Cardinality.One), 
-				new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)), true);
+	public ScanCASIndexRange() {
+		super(DEFAULT_NAME, new Signature(new SequenceType(AnyNodeType.ANY_NODE,
+				Cardinality.ZeroOrMany), new SequenceType(AtomicType.STR,
+				Cardinality.One), new SequenceType(AtomicType.INR, Cardinality.One),
+				new SequenceType(AtomicType.INR, Cardinality.One), new SequenceType(
+						AtomicType.ANA, Cardinality.One), new SequenceType(AtomicType.ANA,
+						Cardinality.One),
+				new SequenceType(AtomicType.BOOL, Cardinality.One), new SequenceType(
+						AtomicType.BOOL, Cardinality.One), new SequenceType(AtomicType.STR,
+						Cardinality.ZeroOrOne)), true);
 	}
 
 	@Override
@@ -93,7 +94,8 @@ public final class ScanPathIndex extends AbstractFunction {
 					+ ((Str) args[1]).stringValue()));
 		}
 
-		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx, IndexType.PATH);
+		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx,
+				IndexType.PATH);
 
 		if (indexDef == null) {
 			throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
@@ -105,8 +107,15 @@ public final class ScanPathIndex extends AbstractFunction {
 					"Index no %s for collection %s and document %s is not a path index.",
 					idx, collection, document);
 		}
-		final String paths = FunUtil
-				.getString(args, 3, "$paths", null, null, false);
+
+		final Type keyType = indexDef.getContentType();
+		final Atomic low = Cast.cast(sctx, (Atomic) args[2], keyType, true);
+		final Atomic high = Cast.cast(sctx, (Atomic) args[3], keyType, true);
+		final boolean incLow = FunUtil.getBoolean(args, 4, "$include-low-key",
+				true, true);
+		final boolean incMax = FunUtil.getBoolean(args, 5, "$include-high-key",
+				true, true);
+		final String paths = FunUtil.getString(args, 6, "$paths", null, null, false);
 		final PathFilter filter = (paths != null) ? controller.createPathFilter(
 				paths.split(";"), doc.getTrx()) : null;
 
@@ -122,9 +131,10 @@ public final class ScanPathIndex extends AbstractFunction {
 					@Override
 					public Item next() throws QueryException {
 						if (s == null) {
-							s = new SirixNodeKeyStream(ic.openPathIndex(node.getTrx()
-									.getPageTrx(), indexDef, filter), node.getCollection(),
-									node.getTrx());
+//							s = new SirixNodeKeyStream(ic.openCASIndex(node.getTrx()
+//									.getPageTrx(), indexDef, SearchMode.LESS_OR_EQUAL, filter,
+//									low, high, incLow, incMax), node.getCollection(),
+//									node.getTrx());
 						}
 						return (Item) s.next();
 					}
