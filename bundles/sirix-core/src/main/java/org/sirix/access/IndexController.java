@@ -14,6 +14,7 @@ import java.util.Set;
 
 import javax.annotation.Nonnull;
 
+import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.node.d2linked.D2NodeBuilder;
 import org.brackit.xquery.node.parser.DocumentParser;
@@ -39,6 +40,7 @@ import org.sirix.index.Indexes;
 import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
+import org.sirix.index.cas.CASFilter;
 import org.sirix.index.cas.CASIndex;
 import org.sirix.index.cas.CASIndexImpl;
 import org.sirix.index.path.PathFilter;
@@ -48,8 +50,6 @@ import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.immutable.ImmutableNode;
 import org.sirix.page.UnorderedKeyValuePage;
-
-import com.google.common.base.Optional;
 
 /**
  * Index controller, used to control the handling of indexes.
@@ -339,10 +339,21 @@ public final class IndexController {
 
 	public PathFilter createPathFilter(final String[] queryString,
 			final NodeReadTrx rtx) throws PathException {
-		final Set<Path<QNm>> paths = new HashSet<Path<QNm>>(queryString.length);
+		final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
 		for (final String path : queryString)
 			paths.add(Path.parse(path));
 		return new PathFilter(rtx, paths);
+	}
+
+	public CASFilter createCASFilter(final String[] queryString,
+			final NodeReadTrx rtx, final Atomic key, final SearchMode mode)
+			throws PathException {
+		final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
+		if (queryString.length > 0) {
+			for (final String path : queryString)
+				paths.add(Path.parse(path));
+		}
+		return new CASFilter(rtx, paths, key, mode);
 	}
 
 	public Iterator<NodeReferences> openPathIndex(final PageReadTrx pageRtx,
@@ -354,15 +365,30 @@ public final class IndexController {
 
 		return mPathIndex.openIndex(pageRtx, indexDef, filter);
 	}
-	
+
 	public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx,
-			final IndexDef indexDef, final PathFilter filter, final SearchMode mode) {
+			final IndexDef indexDef, final SearchMode mode, final CASFilter filter,
+			Atomic key, boolean inc) {
 		if (mCASIndex == null) {
 			throw new IllegalStateException(
 					"This document does not support path indexes.");
 		}
 
-		return mCASIndex.openIndex(pageRtx, Optional.<CASValue>absent(), indexDef, mode, filter);
+		return mCASIndex.openIndex(pageRtx, indexDef, mode, filter, key, inc);
+	}
+
+	public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx,
+			final IndexDef indexDef, final SearchMode mode, final CASFilter filter,
+			Atomic low, Atomic max, boolean incLow, boolean incMax) {
+		if (mCASIndex == null) {
+			throw new IllegalStateException(
+					"This document does not support path indexes.");
+		}
+
+		return null;
+
+		// return mCASIndex.openIndex(pageRtx, indexDef, mode, filter, low, max,
+		// incLow, incMax);
 	}
 
 }

@@ -70,6 +70,10 @@ public final class CASValue implements Comparable<CASValue> {
 		}
 		return retVal;
 	}
+	
+	public Atomic getAtomicValue() {
+		return mValue;
+	}
 
 	@Override
 	public int compareTo(final @Nullable CASValue other) {
