@@ -76,6 +76,7 @@ import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
+import org.sirix.settings.Fixed;
 import org.sirix.settings.Versioning;
 
 import com.google.common.base.Objects;
@@ -421,12 +422,15 @@ final class PageReadTrxImpl implements PageReadTrx {
 	}
 
 	@Override
-	public Optional<Record> getRecord(final @Nonnegative long nodeKey,
+	public Optional<Record> getRecord(final long nodeKey,
 			final PageKind pageKind, final @Nonnegative int index)
 			throws SirixIOException {
-		checkArgument(nodeKey >= 0);
 		checkNotNull(pageKind);
 		assertNotClosed();
+		
+		if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+			return Optional.<Record> absent();
+		}
 
 		final long recordPageKey = pageKey(nodeKey);
 
