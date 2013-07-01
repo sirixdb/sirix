@@ -57,12 +57,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-//			loadDocumentAndQuery();
-//			System.out.println();
-//			loadDocumentAndUpdate();
-//			System.out.println();
-//			loadCollectionAndQuery();
-//			System.out.println();
+			loadDocumentAndQuery();
+			System.out.println();
+			loadDocumentAndUpdate();
+			System.out.println();
+			loadCollectionAndQuery();
+			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -225,18 +225,22 @@ public final class XQueryUsage {
 			System.out.println();
 		}
 
-		// Create and commit path index on all elements.
+		// Create and commit CAS indexes on all attribute- and text-nodes.
 		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Create cas index for all attributes:");
-			new XQuery(new SirixCompileChain(store),
-					"sdb:create-cas-index('mydocs.col', 'resource1', 'xs:string', '//@*')")
+			final Sequence seq = new XQuery(
+					new SirixCompileChain(store),
+					"let $doc := sdb:create-cas-index('mydocs.col', 'resource1', 'xs:string', '//@*') " +
+					"return sdb:create-cas-index-from-doc($doc, 'xs:string', '//*')")
 					.execute(ctx3);
+			final Item item = seq.evaluateToItem(ctx3, seq);
+			System.out.println(item);
 			store.commitAll();
 			System.out.println("CAS index creation done.");
 		}
-		
+
 		// Create and commit path index on all elements.
 		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
@@ -248,18 +252,16 @@ public final class XQueryUsage {
 			store.commitAll();
 			System.out.println("Path index creation done.");
 		}
-		
+
 		// Query CAS index.
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			System.out.println("");
-			System.out
-					.println("Find CAS index for all attribute values.");
+			System.out.println("Find CAS index for all attribute values.");
 			final QueryContext ctx3 = new QueryContext(store);
 			final DBNode node = (DBNode) new XQuery(new SirixCompileChain(store),
 					"doc('mydocs.col')").execute(ctx3);
 			final Optional<IndexDef> index = node.getTrx().getSession()
-					.getIndexController().getIndexes()
-					.findCASIndex(Path.parse("//@*"));
+					.getIndexController().getIndexes().findCASIndex(Path.parse("//@*"));
 			System.out.println(index);
 			final String query = "sdb:scan-cas-index('mydocs.col', 'resource1', "
 					+ index.get().getID() + ", 'bar', true(), 0, ())";
@@ -397,7 +399,8 @@ public final class XQueryUsage {
 		}
 		final String msg = new String(bytes);
 		out.print("<?xml version='1.0'?>");
-		out.print(String.format("<log tstamp='%s' severity='%s' foo='bar'>", tst, sev));
+		out.print(String.format("<log tstamp='%s' severity='%s' foo='bar'>", tst,
+				sev));
 		out.print(String.format("<src>%s</src>", src));
 		out.print(String.format("<msg>%s</msg>", msg));
 		out.print("</log>");

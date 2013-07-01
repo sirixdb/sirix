@@ -73,7 +73,7 @@ final class CASIndexBuilder extends AbstractVisitor {
 			}
 			final long PCR = mRtx.isDocumentRoot() ? 0 : mRtx.getNameNode()
 					.getPathNodeKey();
-			if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
+			if (mPaths.isEmpty() || mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
 				final CASValue value = new CASValue(new Str(
 						((ImmutableValueNode) node).getValue()), mType, PCR);
 				final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(

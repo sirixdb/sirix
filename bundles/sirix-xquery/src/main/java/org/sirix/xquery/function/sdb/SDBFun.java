@@ -1,6 +1,7 @@
 package org.sirix.xquery.function.sdb;
 
 import static org.sirix.xquery.function.sdb.index.create.CreateCASIndex.CREATE_CAS_INDEX;
+import static org.sirix.xquery.function.sdb.index.create.CreateCASIndexFromDoc.CREATE_CAS_INDEX_FROM_DOC;
 import static org.sirix.xquery.function.sdb.index.create.CreatePathIndex.CREATE_PATH_INDEX;
 
 import org.brackit.xquery.atomic.QNm;
@@ -11,6 +12,7 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.sdb.index.create.CreateCASIndex;
+import org.sirix.xquery.function.sdb.index.create.CreateCASIndexFromDoc;
 import org.sirix.xquery.function.sdb.index.create.CreatePathIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanCASIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanPathIndex;
@@ -42,6 +44,15 @@ public final class SDBFun {
 		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
 				SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
 				new SequenceType(AtomicType.STR, Cardinality.One))));
+		Functions.predefine(new CreateCASIndexFromDoc(CREATE_CAS_INDEX_FROM_DOC,
+				new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(
+						AtomicType.STR, Cardinality.ZeroOrOne), new SequenceType(
+						AtomicType.STR, Cardinality.ZeroOrMany))));
+		Functions.predefine(new CreateCASIndexFromDoc(CREATE_CAS_INDEX_FROM_DOC, new Signature(
+				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,
+						Cardinality.ZeroOrOne))));
+		Functions.predefine(new CreateCASIndexFromDoc(CREATE_CAS_INDEX_FROM_DOC, new Signature(
+				SequenceType.NODE, SequenceType.NODE)));
 		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
 				SequenceType.NODE, new SequenceType(AtomicType.STR, Cardinality.One),
 				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
