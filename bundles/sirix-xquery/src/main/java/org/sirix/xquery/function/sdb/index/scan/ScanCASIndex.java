@@ -22,7 +22,6 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.IndexController;
-import org.sirix.api.NodeWriteTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;

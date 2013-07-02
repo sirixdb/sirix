@@ -12,7 +12,6 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.sdb.index.create.CreateCASIndex;
-import org.sirix.xquery.function.sdb.index.create.CreateCASIndex;
 import org.sirix.xquery.function.sdb.index.create.CreatePathIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanCASIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanPathIndex;

@@ -8,11 +8,8 @@ import org.brackit.xquery.function.AbstractFunction;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
-import org.sirix.access.IndexController;
-import org.sirix.api.NodeWriteTrx;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.node.DBCollection;
-import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
