@@ -24,13 +24,11 @@ import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.IndexController;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
-import org.sirix.index.SearchMode;
 import org.sirix.index.path.PathFilter;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
-import org.sirix.xquery.stream.SirixNodeKeyStream;
 
 /**
  * 
