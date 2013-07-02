@@ -67,7 +67,7 @@ public final class FutureAxis extends AbstractTemporalAxis {
 	@Override
 	protected NodeReadTrx computeNext() {
 		// != a little bit faster?
-		if (mRevision <= mSession.getLastRevisionNumber()) {
+		if (mRevision <= mSession.getMostRecentRevisionNumber()) {
 			try {
 				mRtx = mSession.beginNodeReadTrx(mRevision++);
 			} catch (final SirixException e) {

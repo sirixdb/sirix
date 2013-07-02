@@ -233,11 +233,11 @@ public interface Session extends AutoCloseable {
 	ResourceConfiguration getResourceConfig();
 
 	/**
-	 * Get the latest commited revision number.
+	 * Get the most recently commited revision number.
 	 * 
-	 * @return latest commited revision number
+	 * @return most recently commited revision number
 	 */
-	int getLastRevisionNumber();
+	int getMostRecentRevisionNumber();
 
 	/**
 	 * Get available number of {@link NodeReadTrx}s.

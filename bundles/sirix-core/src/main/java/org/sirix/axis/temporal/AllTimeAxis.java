@@ -50,7 +50,7 @@ public final class AllTimeAxis extends AbstractTemporalAxis {
 
 	@Override
 	protected NodeReadTrx computeNext() {
-		if (mRevision <= mSession.getLastRevisionNumber()) {
+		if (mRevision <= mSession.getMostRecentRevisionNumber()) {
 			try {
 				mRtx = mSession.beginNodeReadTrx(mRevision++);
 			} catch (final SirixException e) {

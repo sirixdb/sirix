@@ -21,7 +21,6 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.IndexDefs;
 import org.sirix.index.IndexType;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
 
 import com.google.common.collect.ImmutableSet;
@@ -32,10 +31,10 @@ import com.google.common.collect.ImmutableSet;
  * newly created index as an XML fragment. Supported signatures are:</br>
  * <ul>
  * <li>
- * <code>sdb:create-path-index($coll as xs:string, $doc as xs:string, $paths as xs:string*) as 
+ * <code>sdb:create-path-index($doc as node(), $paths as xs:string*) as 
  * node()</code></li>
  * <li>
- * <code>sdb:create-path-index($coll as xs:string, $doc as xs:string) as node()</code>
+ * <code>sdb:create-path-index($doc as node()) as node()</code>
  * </li>
  * </ul>
  * 
@@ -67,31 +66,9 @@ public final class CreatePathIndex extends AbstractFunction {
 		if (args.length != 2 && args.length != 3) {
 			throw new QueryException(new QNm("No valid arguments specified!"));
 		}
-		final DBCollection col = (DBCollection) ctx.getStore().lookup(
-				((Str) args[0]).stringValue());
-
-		if (col == null) {
-			throw new QueryException(new QNm("No valid arguments specified!"));
-		}
-
-		IndexController controller = null;
-		final Iter docs = col.iterate();
-		DBNode doc = (DBNode) docs.next();
-
-		final String expResName = ((Str) args[1]).stringValue();
-
-		try {
-			while (doc != null) {
-				if (doc.getTrx().getSession().getResourceConfig().getResource()
-						.getName().equals(expResName)) {
-					controller = doc.getTrx().getSession().getIndexController();
-					break;
-				}
-				doc = (DBNode) docs.next();
-			}
-		} finally {
-			docs.close();
-		}
+		
+		final DBNode doc = ((DBNode) args[0]);
+		final IndexController controller = doc.getTrx().getSession().getIndexController();
 
 		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
 			throw new QueryException(new QNm("Collection must be updatable!"));
@@ -100,6 +77,10 @@ public final class CreatePathIndex extends AbstractFunction {
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "
 					+ ((Str) args[1]).stringValue()));
+		}
+
+		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
+			throw new QueryException(new QNm("Collection must be updatable!"));
 		}
 
 		final Set<Path<QNm>> paths = new HashSet<>();

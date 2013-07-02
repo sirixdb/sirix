@@ -1,6 +1,5 @@
 package org.sirix.xquery.node;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.util.ArrayList;
@@ -20,6 +19,7 @@ import org.brackit.xquery.xdm.AbstractTemporalNode;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.OperationNotSupportedException;
 import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.TemporalCollection;
 import org.sirix.access.Databases;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
@@ -41,8 +41,8 @@ import org.slf4j.LoggerFactory;
  * @author Johannes Lichtenberger
  * 
  */
-public class DBCollection extends
-		AbstractCollection<AbstractTemporalNode<DBNode>> implements AutoCloseable {
+public final class DBCollection extends
+		AbstractCollection<AbstractTemporalNode<DBNode>> implements TemporalCollection<AbstractTemporalNode<DBNode>>, AutoCloseable {
 
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
@@ -59,9 +59,6 @@ public class DBCollection extends
 
 	/** Unique ID. */
 	private final int mID;
-
-	/** Unique ID for added resources. */
-	private int mResources;
 
 	/**
 	 * Constructor.
@@ -119,22 +116,21 @@ public class DBCollection extends
 	}
 
 	@Override
-	public AbstractTemporalNode<DBNode> getDocument(
+	public DBNode getDocument(
 			final @Nonnegative int revision) throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		if (resources.length > 1) {
 			throw new DocumentException("More than one document stored!");
 		}
 		try {
-
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.newBuilder(resources[0]).build());
-			final int version = revision == -1 ? session.getLastRevisionNumber()
+			final int version = revision == -1 ? session.getMostRecentRevisionNumber()
 					: revision;
 			final NodeReadTrx rtx = mUpdating == Updating.YES ? session
 					.beginNodeWriteTrx() : session.beginNodeReadTrx(version);
 			if (mUpdating == Updating.YES
-					&& version < session.getLastRevisionNumber()) {
+					&& version < session.getMostRecentRevisionNumber()) {
 				((NodeWriteTrx) rtx).revertTo(version);
 			}
 			return new DBNode(rtx, this);
@@ -143,32 +139,8 @@ public class DBCollection extends
 		}
 	}
 
-	/**
-	 * Retrieves the document node of the latest version of all documents stored
-	 * in this collection.
-	 */
 	@Override
-	public Stream<? extends AbstractTemporalNode<DBNode>> getDocuments()
-			throws DocumentException {
-		final String[] resources = mDatabase.listResources();
-		final List<DBNode> documents = new ArrayList<>(resources.length);
-		for (final String resource : resources) {
-			try {
-				final Session session = mDatabase.getSession(SessionConfiguration
-						.newBuilder(resource).build());
-				final NodeReadTrx rtx = mUpdating == Updating.YES ? session
-						.beginNodeWriteTrx() : session.beginNodeReadTrx();
-				documents.add(new DBNode(rtx, this));
-			} catch (final SirixException e) {
-				throw new DocumentException(e.getCause());
-			}
-		}
-		return new ArrayStream<DBNode>(documents.toArray(new DBNode[documents
-				.size()]));
-	}
-
-	@Override
-	public AbstractTemporalNode<DBNode> add(SubtreeParser parser)
+	public DBNode add(SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
 		try {
 			final String resource = new StringBuilder(2).append("resource")
@@ -208,5 +180,55 @@ public class DBCollection extends
 	@Override
 	public long getDocumentCount() {
 		return mDatabase.listResources().length;
+	}
+
+	@Override
+	public DBNode getDocument() throws DocumentException {
+		return getDocument(-1);
+	}
+
+	@Override
+	public Stream<DBNode> getDocuments()
+			throws DocumentException {
+		final String[] resources = mDatabase.listResources();
+		final List<DBNode> documents = new ArrayList<>(resources.length);
+		for (final String resource : resources) {
+			try {
+				final Session session = mDatabase.getSession(SessionConfiguration
+						.newBuilder(resource).build());
+				final NodeReadTrx rtx = mUpdating == Updating.YES ? session
+						.beginNodeWriteTrx() : session.beginNodeReadTrx();
+				documents.add(new DBNode(rtx, this));
+			} catch (final SirixException e) {
+				throw new DocumentException(e.getCause());
+			}
+		}
+		return new ArrayStream<DBNode>(documents.toArray(new DBNode[documents
+				.size()]));
+	}
+
+	@Override
+	public DBNode getDocument(int revision, String name)
+			throws DocumentException {
+		try {
+			final Session session = mDatabase.getSession(SessionConfiguration
+					.newBuilder(name).build());
+			final int version = revision == -1 ? session.getMostRecentRevisionNumber()
+					: revision;
+			final NodeReadTrx rtx = mUpdating == Updating.YES ? session
+					.beginNodeWriteTrx() : session.beginNodeReadTrx(version);
+			if (mUpdating == Updating.YES
+					&& version < session.getMostRecentRevisionNumber()) {
+				((NodeWriteTrx) rtx).revertTo(version);
+			}
+			return new DBNode(rtx, this);
+		} catch (final SirixException e) {
+			throw new DocumentException(e.getCause());
+		}
+	}
+
+	@Override
+	public DBNode getDocument(String name) throws DocumentException {
+		return getDocument(-1, name);
 	}
 }

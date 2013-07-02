@@ -60,7 +60,7 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger
  * 
  */
-public class DBNode extends AbstractTemporalNode<DBNode> {
+public final class DBNode extends AbstractTemporalNode<DBNode> {
 
 	/** {@link LogWrapper} reference. */
 	private static final LogWrapper LOGWRAPPER = new LogWrapper(
@@ -1576,7 +1576,7 @@ public class DBNode extends AbstractTemporalNode<DBNode> {
 		if (other instanceof DBNode) {
 			final DBNode otherNode = (DBNode) other;
 			final NodeReadTrx otherTrx = otherNode.getTrx();
-			return otherTrx.getSession().getLastRevisionNumber() == otherTrx
+			return otherTrx.getSession().getMostRecentRevisionNumber() == otherTrx
 					.getRevisionNumber();
 		}
 		return false;
