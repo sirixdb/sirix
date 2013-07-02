@@ -289,7 +289,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 				.getSession(new SessionConfiguration.Builder("shredded").build())) {
 			final DefaultHandler defHandler = new DefaultHandler();
 			final SAXSerializer serializer = new SAXSerializer(session, defHandler,
-					session.getLastRevisionNumber());
+					session.getMostRecentRevisionNumber());
 			serializer.call();
 		}
 	}

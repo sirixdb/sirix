@@ -519,7 +519,7 @@ public final class XMLSerializer extends AbstractSerializer {
 			mSession = checkNotNull(session);
 			mStream = checkNotNull(stream);
 			if (revisions == null || revisions.length == 0) {
-				mVersion = mSession.getLastRevisionNumber();
+				mVersion = mSession.getMostRecentRevisionNumber();
 			} else {
 				mVersion = revisions[0];
 				mVersions = new int[revisions.length - 1];
@@ -552,7 +552,7 @@ public final class XMLSerializer extends AbstractSerializer {
 			mNodeKey = nodeKey;
 			mStream = checkNotNull(stream);
 			if (revisions == null || revisions.length == 0) {
-				mVersion = mSession.getLastRevisionNumber();
+				mVersion = mSession.getMostRecentRevisionNumber();
 			} else {
 				mVersion = revisions[0];
 				mVersions = new int[revisions.length - 1];

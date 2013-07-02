@@ -57,12 +57,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-			loadDocumentAndQuery();
-			System.out.println();
-			loadDocumentAndUpdate();
-			System.out.println();
-			loadCollectionAndQuery();
-			System.out.println();
+			// loadDocumentAndQuery();
+			// System.out.println();
+			// loadDocumentAndUpdate();
+			// System.out.println();
+			// loadCollectionAndQuery();
+			// System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -232,8 +232,9 @@ public final class XQueryUsage {
 			System.out.println("Create cas index for all attributes:");
 			final Sequence seq = new XQuery(
 					new SirixCompileChain(store),
-					"let $doc := sdb:create-cas-index('mydocs.col', 'resource1', 'xs:string', '//@*') " +
-					"return sdb:create-cas-index-from-doc($doc, 'xs:string', '//*')")
+					"let $doc := sdb:doc('mydocs.col', 'resource1') "
+							+ "let $stats := sdb:create-cas-index($doc, 'xs:string', '//@*') "
+							+ "return sdb:create-cas-index($doc, 'xs:string', '//*')")
 					.execute(ctx3);
 			final Item item = seq.evaluateToItem(ctx3, seq);
 			System.out.println(item);
@@ -247,8 +248,7 @@ public final class XQueryUsage {
 			System.out.println();
 			System.out.println("Create path index for all elements (all paths):");
 			new XQuery(new SirixCompileChain(store),
-					"sdb:create-path-index('mydocs.col', 'resource1', '//*')")
-					.execute(ctx3);
+							"sdb:create-path-index(sdb:doc('mydocs.col', 'resource1'), '//*')").execute(ctx3);
 			store.commitAll();
 			System.out.println("Path index creation done.");
 		}
@@ -263,7 +263,7 @@ public final class XQueryUsage {
 			final Optional<IndexDef> index = node.getTrx().getSession()
 					.getIndexController().getIndexes().findCASIndex(Path.parse("//@*"));
 			System.out.println(index);
-			final String query = "sdb:scan-cas-index('mydocs.col', 'resource1', "
+			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-cas-index($doc, "
 					+ index.get().getID() + ", 'bar', true(), 0, ())";
 			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
 					.execute(ctx3);
@@ -299,8 +299,8 @@ public final class XQueryUsage {
 					.getIndexController().getIndexes()
 					.findPathIndex(Path.parse("//log/*"));
 			System.out.println(index);
-			final String query = "sdb:scan-path-index('mydocs.col', 'resource1', "
-					+ index.get().getID() + ", ())";
+			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') "
+					+ "return sdb:scan-path-index($doc, " + index.get().getID() + ", ())";
 			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
 					.execute(ctx3);
 			// final Iter iter = seq.iterate();

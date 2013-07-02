@@ -568,9 +568,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 	final RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey)
 			throws SirixIOException {
 		checkArgument(
-				revisionKey >= 0 && revisionKey <= mSession.getLastRevisionNumber(),
+				revisionKey >= 0 && revisionKey <= mSession.getMostRecentRevisionNumber(),
 				"%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
-				mSession.getLastRevisionNumber());
+				mSession.getMostRecentRevisionNumber());
 
 		// The indirect page reference either fails horribly or returns a non null
 		// instance.

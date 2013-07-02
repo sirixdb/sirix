@@ -24,7 +24,6 @@ import org.sirix.index.IndexType;
 import org.sirix.index.path.PathFilter;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.stream.SirixNodeKeyStream;
 
@@ -36,7 +35,7 @@ import org.sirix.xquery.stream.SirixNodeKeyStream;
  * 
  */
 @FunctionAnnotation(description = "Scans the given path index for matching nodes.", parameters = {
-		"$collection", "$document", "$idx-no", "$paths" })
+		"$doc", "$idx-no", "$paths" })
 public final class ScanPathIndex extends AbstractFunction {
 
 	/** Default function name. */
@@ -47,66 +46,42 @@ public final class ScanPathIndex extends AbstractFunction {
 	 * Constructor.
 	 */
 	public ScanPathIndex() {
-		super(DEFAULT_NAME, 
-				new Signature(
-				new SequenceType(AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany), 
-				new SequenceType(AtomicType.STR, Cardinality.One), 
-				new SequenceType(AtomicType.STR, Cardinality.One),
-				new SequenceType(AtomicType.INR, Cardinality.One), 
-				new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)), true);
+		super(DEFAULT_NAME, new Signature(new SequenceType(AnyNodeType.ANY_NODE,
+				Cardinality.ZeroOrMany), SequenceType.NODE, new SequenceType(
+				AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.STR,
+				Cardinality.ZeroOrOne)), true);
 	}
 
 	@Override
 	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
 			throws QueryException {
-		final String collection = FunUtil.getString(args, 0, "$collection", null,
-				null, true);
-		final String document = FunUtil.getString(args, 1, "$document", null, null,
-				true);
-		final int idx = FunUtil.getInt(args, 2, "$idx-no", -1, null, true);
-
-		final DBCollection col = (DBCollection) ctx.getStore().lookup(collection);
-
-		if (col == null) {
-			throw new QueryException(new QNm("No valid arguments specified!"));
-		}
-
-		IndexController controller = null;
-		final Iter docs = col.iterate();
-		DBNode doc = (DBNode) docs.next();
-
-		try {
-			while (doc != null) {
-				if (doc.getTrx().getSession().getResourceConfig().getResource()
-						.getName().equals(document)) {
-					controller = doc.getTrx().getSession().getIndexController();
-					break;
-				}
-				doc = (DBNode) docs.next();
-			}
-		} finally {
-			docs.close();
-		}
+		final DBNode doc = ((DBNode) args[0]);
+		final IndexController controller = doc.getTrx().getSession()
+				.getIndexController();
 
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "
 					+ ((Str) args[1]).stringValue()));
 		}
 
-		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx, IndexType.PATH);
+		final int idx = FunUtil.getInt(args, 1, "$idx-no", -1, null, true);
+		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx,
+				IndexType.PATH);
 
 		if (indexDef == null) {
 			throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
-					"Index no %s for collection %s and document %s not found.", idx,
-					collection, document);
+					"Index no %s for collection %s and document %s not found.", idx, doc
+							.getCollection().getName(), doc.getTrx().getSession()
+							.getResourceConfig().getResource().getName());
 		}
 		if (indexDef.getType() != IndexType.PATH) {
 			throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
 					"Index no %s for collection %s and document %s is not a path index.",
-					idx, collection, document);
+					idx, doc.getCollection().getName(), doc.getTrx().getSession()
+							.getResourceConfig().getResource().getName());
 		}
 		final String paths = FunUtil
-				.getString(args, 3, "$paths", null, null, false);
+				.getString(args, 2, "$paths", null, null, false);
 		final PathFilter filter = (paths != null) ? controller.createPathFilter(
 				paths.split(";"), doc.getTrx()) : null;
 

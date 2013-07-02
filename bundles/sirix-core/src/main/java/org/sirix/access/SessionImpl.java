@@ -596,7 +596,7 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public int getLastRevisionNumber() {
+	public int getMostRecentRevisionNumber() {
 		return mLastCommittedUberPage.get().getRevisionNumber();
 	}
 

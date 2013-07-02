@@ -135,7 +135,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
 
 		final int nrOfRevisions = mRevisions.length;
 		final int length = (nrOfRevisions == 1 && mRevisions[0] < 0) ? (int) mSession
-				.getLastRevisionNumber() : nrOfRevisions;
+				.getMostRecentRevisionNumber() : nrOfRevisions;
 		if (length > 1) {
 			emitStartManualRootElement();
 		}

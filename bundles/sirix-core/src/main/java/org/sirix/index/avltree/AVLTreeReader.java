@@ -363,11 +363,11 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 	@Override
 	public Move<AVLTreeReader<K, V>> moveTo(final long nodeKey) {
 		assertNotClosed();
-		
+
 		if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 			return Move.notMoved();
 		}
-
+		
 		// Remember old node and fetch new one.
 		final Node oldNode = mCurrentNode;
 		Optional<? extends Node> newNode;

@@ -49,7 +49,7 @@ public final class LastAxis extends AbstractTemporalAxis {
 		if (mFirst) {
 			mFirst = false;
 			try {
-				mRtx = mSession.beginNodeReadTrx(mSession.getLastRevisionNumber());
+				mRtx = mSession.beginNodeReadTrx(mSession.getMostRecentRevisionNumber());
 			} catch (final SirixException e) {
 				LOGGER.error(e.getMessage(), e);
 			}
