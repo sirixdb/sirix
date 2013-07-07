@@ -1,5 +1,6 @@
 package org.sirix.xquery.function.sdb;
 
+import static org.sirix.xquery.function.sdb.GetMostRecentRevision.MOST_RECENT_REVISION;
 import static org.sirix.xquery.function.sdb.Doc.DOC;
 import static org.sirix.xquery.function.sdb.index.create.CreateCASIndex.CREATE_CAS_INDEX;
 import static org.sirix.xquery.function.sdb.index.create.CreatePathIndex.CREATE_PATH_INDEX;
@@ -44,24 +45,28 @@ public final class SDBFun {
 		Functions.predefine(new Doc(DOC, new Signature(SequenceType.NODE,
 				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
 						AtomicType.STR, Cardinality.One))));
-		
+
+		// get-most-recent-rev
+		Functions.predefine(new GetMostRecentRevision(MOST_RECENT_REVISION,
+				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+
 		// create-path-index
 		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
-				SequenceType.NODE, SequenceType.NODE, new SequenceType(
-						AtomicType.STR, Cardinality.ZeroOrMany))));
+				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,
+						Cardinality.ZeroOrMany))));
 		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
 				SequenceType.NODE, SequenceType.NODE)));
-		
+
 		// create-cas-index
-		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX,
-				new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(
-						AtomicType.STR, Cardinality.ZeroOrOne), new SequenceType(
-						AtomicType.STR, Cardinality.ZeroOrMany))));
-		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX,
-				new Signature(SequenceType.NODE, SequenceType.NODE, new SequenceType(
-						AtomicType.STR, Cardinality.ZeroOrOne))));
-		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX,
-				new Signature(SequenceType.NODE, SequenceType.NODE)));
+		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
+				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,
+						Cardinality.ZeroOrOne), new SequenceType(AtomicType.STR,
+						Cardinality.ZeroOrMany))));
+		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
+				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,
+						Cardinality.ZeroOrOne))));
+		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
+				SequenceType.NODE, SequenceType.NODE)));
 
 		Functions.predefine(new ScanPathIndex());
 		Functions.predefine(new ScanCASIndex());

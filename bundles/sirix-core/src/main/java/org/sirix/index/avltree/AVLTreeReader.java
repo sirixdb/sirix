@@ -1,5 +1,6 @@
 package org.sirix.index.avltree;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.PrintStream;
@@ -227,12 +228,22 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		/** All AVLNode keys which are part of the result sequence. */
 		private final Deque<Long> mKeys;
 
+		/** Start node key. */
+		private final long mKey;
+
 		/**
 		 * Constructor.
+		 * 
+		 * @param nodeKey
+		 *          node key to start from, root node of AVLTree is selected if
+		 *          {@code Fixed.DOCUMENT_NODE_KEY.getStandardProperty} is
+		 *          specified.
 		 */
-		public AVLNodeIterator() {
+		public AVLNodeIterator(final long nodeKey) {
 			mFirst = true;
 			mKeys = new ArrayDeque<>();
+			checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
+			mKey = nodeKey;
 		}
 
 		@Override
@@ -249,8 +260,11 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 
 			// First search.
 			mFirst = false;
-			moveToDocumentRoot();
-			if (moveToFirstChild().hasMoved()) {
+			boolean moved = moveTo(mKey).hasMoved();
+			if (mKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+				moved = moveToFirstChild().hasMoved();
+			}
+			if (moved) {
 				final AVLNode<K, V> node = getAVLNode();
 				stackOperation(node);
 				return node;
@@ -270,6 +284,80 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 			}
 		}
 	}
+
+	// /**
+	// * Iterator supporting different search modes.
+	// *
+	// * @author Johannes Lichtenberger
+	// *
+	// */
+	// public final class AVLNodeSearchIterator extends
+	// AbstractIterator<AVLNode<K, V>> {
+	//
+	// /** The key to search. */
+	// private final K mKey;
+	//
+	// /** Determines if it's the first call. */
+	// private boolean mFirst;
+	//
+	// /** All AVLNode keys which are part of the result sequence. */
+	// private final Deque<Long> mKeys;
+	//
+	// /** Search mode. */
+	// private final SearchMode mMode;
+	//
+	// /**
+	// * Constructor.
+	// *
+	// * @param key
+	// * the key to search for
+	// * @param mode
+	// * the search mode
+	// */
+	// public AVLNodeSearchIterator(final K key, final SearchMode mode) {
+	// mKey = checkNotNull(key);
+	// mFirst = true;
+	// mKeys = new ArrayDeque<>();
+	// mMode = checkNotNull(mode);
+	// }
+	//
+	// @Override
+	// protected AVLNode<K, V> computeNext() {
+	// if (!mFirst) {
+	// if (!mKeys.isEmpty()) {
+	// // Subsequent results.
+	// final AVLNode<K, V> node = moveTo(mKeys.pop()).get().getAVLNode();
+	// stackOperation(node);
+	// if (mMode.compare(mKey, node.getKey()) == 0) {
+	// return node;
+	// }
+	// }
+	// return endOfData();
+	// }
+	//
+	// // First search.
+	// mFirst = false;
+	// final Optional<V> result = get(mKey, mMode);
+	// if (result.isPresent()) {
+	// final AVLNode<K, V> node = getAVLNode();
+	// stackOperation(node);
+	// return node;
+	// }
+	// return endOfData();
+	// }
+	//
+	// private void stackOperation(final AVLNode<K, V> node) {
+	// if (node.hasRightChild()) {
+	// final AVLNode<K, V> right = moveToLastChild().get().getAVLNode();
+	// mKeys.push(right.getNodeKey());
+	// }
+	// moveTo(node.getNodeKey());
+	// if (node.hasLeftChild()) {
+	// final AVLNode<K, V> left = moveToFirstChild().get().getAVLNode();
+	// mKeys.push(left.getNodeKey());
+	// }
+	// }
+	// }
 
 	/**
 	 * Returns the number of index entries.
@@ -367,7 +455,7 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 		if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 			return Move.notMoved();
 		}
-		
+
 		// Remember old node and fetch new one.
 		final Node oldNode = mCurrentNode;
 		Optional<? extends Node> newNode;
