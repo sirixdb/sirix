@@ -36,6 +36,8 @@ doc('mydoc.xml', 2)/log/*[not(past::*)]
 &lt;/a&gt;
 </code></pre>
 
+Further use cases, development news and other stuff related to Sirix: http://sirixdb.tumblr.com
+
 ## Developers
 First of all, I'm searching for interested open source developers which are eager to put forth the idea of a versioned, secure database system especially suitable, but not restricted to rooted trees (serialized form as XML/JSON). The idea is not only to support (and extend querying) as for instance via XQuery efficiently, but also to support other datamining tasks such as the comparison of hierarchical tree-structures.
 
