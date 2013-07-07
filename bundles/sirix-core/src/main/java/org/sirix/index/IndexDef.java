@@ -92,7 +92,7 @@ public final class IndexDef implements Materializable {
 
 	@Override
 	public Node<?> materialize() throws DocumentException {
-		FragmentHelper tmp = new FragmentHelper();
+		final FragmentHelper tmp = new FragmentHelper();
 
 		tmp.openElement(INDEX_TAG);
 		tmp.attribute(TYPE_ATTRIBUTE, new Una(mType.toString()));

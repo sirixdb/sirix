@@ -14,6 +14,7 @@ import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.settings.Fixed;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -39,10 +40,11 @@ public final class PathIndexImpl implements PathIndex<Long, NodeReferences> {
 		final AVLTreeReader<Long, NodeReferences> reader = AVLTreeReader
 				.getInstance(pageRtx, indexDef.getType(), indexDef.getID());
 
-		final Iterator<AVLNode<Long, NodeReferences>> iter = reader.new AVLNodeIterator();
-		final Set<Filter> setFilter = filter == null ? ImmutableSet.<Filter>of()
-				: ImmutableSet.<Filter>of(filter);
-		
+		final Iterator<AVLNode<Long, NodeReferences>> iter = reader.new AVLNodeIterator(
+				Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+		final Set<Filter> setFilter = filter == null ? ImmutableSet.<Filter> of()
+				: ImmutableSet.<Filter> of(filter);
+
 		return new IndexFilterAxis<Long>(iter, setFilter);
 	}
 

@@ -16,6 +16,7 @@ import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.summary.PathSummaryReader;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
+import org.sirix.settings.Fixed;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -42,11 +43,12 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 		final AVLTreeReader<CASValue, NodeReferences> reader = AVLTreeReader
 				.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
 
-		final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator();
+		final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(
+				Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 
 		return null;
 	}
-	
+
 	@Override
 	public Iterator<NodeReferences> openIndex(PageReadTrx pageReadTrx,
 			IndexDef indexDef, SearchMode mode, CASFilter filter, Atomic key,
@@ -54,7 +56,8 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 		final AVLTreeReader<CASValue, NodeReferences> reader = AVLTreeReader
 				.getInstance(pageReadTrx, indexDef.getType(), indexDef.getID());
 
-		final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator();
+		final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(
+				Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 
 		return new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter));
 	}
