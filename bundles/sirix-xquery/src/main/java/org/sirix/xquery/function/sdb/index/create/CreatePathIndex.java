@@ -15,6 +15,7 @@ import org.brackit.xquery.xdm.Iter;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.access.IndexController;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
@@ -34,8 +35,7 @@ import com.google.common.collect.ImmutableSet;
  * <code>sdb:create-path-index($doc as node(), $paths as xs:string*) as 
  * node()</code></li>
  * <li>
- * <code>sdb:create-path-index($doc as node()) as node()</code>
- * </li>
+ * <code>sdb:create-path-index($doc as node()) as node()</code></li>
  * </ul>
  * 
  * @author Max Bechtold
@@ -66,9 +66,11 @@ public final class CreatePathIndex extends AbstractFunction {
 		if (args.length != 2 && args.length != 3) {
 			throw new QueryException(new QNm("No valid arguments specified!"));
 		}
-		
+
 		final DBNode doc = ((DBNode) args[0]);
-		final IndexController controller = doc.getTrx().getSession().getIndexController();
+		final NodeReadTrx rtx = doc.getTrx();
+		final IndexController controller = rtx.getSession().getIndexController(
+				rtx.getRevisionNumber() - 1);
 
 		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
 			throw new QueryException(new QNm("Collection must be updatable!"));

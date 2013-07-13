@@ -17,6 +17,7 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.access.IndexController;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.index.IndexDef;
@@ -72,8 +73,10 @@ public final class CreateCASIndex extends AbstractFunction {
 		}
 
 		final DBNode doc = ((DBNode) args[0]);
-		final IndexController controller = doc.getTrx().getSession().getIndexController();
-
+		final NodeReadTrx rtx = doc.getTrx();
+		final IndexController controller = rtx.getSession().getIndexController(
+				rtx.getRevisionNumber() - 1);
+		
 		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
 			throw new QueryException(new QNm("Collection must be updatable!"));
 		}

@@ -203,23 +203,28 @@ final class PageReadTrxImpl implements PageReadTrx {
 	 */
 	PageReadTrxImpl(final SessionImpl session, final UberPage uberPage,
 			final @Nonnegative int revision, final Reader reader,
-			final Optional<PageWriteTrxImpl> pageWriteTrx) throws SirixIOException {
+			final Optional<PageWriteTrxImpl> pageWriteTrx,
+			final Optional<IndexController> indexController) throws SirixIOException {
 		checkArgument(revision >= 0, "Revision must be >= 0!");
 		mPageWriteTrx = checkNotNull(pageWriteTrx);
 		mBuildPathSummary = session.mResourceConfig.mPathSummary;
 		mResourceConfig = session.mResourceConfig;
-		mIndexController = session.getIndexController();
-		
-		// Deserialize index definitions.
-		final File indexes = new File(session.mResourceConfig.mPath,
-				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision + ".xml");
-		if (indexes.exists()) {
-			try (final InputStream in = new FileInputStream(indexes)) {
-				mIndexController.getIndexes().init(
-						session.getIndexController().deserialize(in).getFirstChild());
-			} catch (IOException | DocumentException | SirixException e) {
-				throw new SirixIOException(
-						"Index definitions couldn't be deserialized!", e);
+		mIndexController = indexController.isPresent() ? indexController.get()
+				: session.getIndexController(revision);
+
+		if (!indexController.isPresent()) {
+			// Deserialize index definitions.
+			final File indexes = new File(session.mResourceConfig.mPath,
+					ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision
+							+ ".xml");
+			if (indexes.exists()) {
+				try (final InputStream in = new FileInputStream(indexes)) {
+					mIndexController.getIndexes().init(
+							mIndexController.deserialize(in).getFirstChild());
+				} catch (IOException | DocumentException | SirixException e) {
+					throw new SirixIOException(
+							"Index definitions couldn't be deserialized!", e);
+				}
 			}
 		}
 
@@ -427,7 +432,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 			throws SirixIOException {
 		checkNotNull(pageKind);
 		assertNotClosed();
-		
+
 		if (nodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
 			return Optional.<Record> absent();
 		}
@@ -568,7 +573,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 	final RevisionRootPage loadRevRoot(final @Nonnegative int revisionKey)
 			throws SirixIOException {
 		checkArgument(
-				revisionKey >= 0 && revisionKey <= mSession.getMostRecentRevisionNumber(),
+				revisionKey >= 0
+						&& revisionKey <= mSession.getMostRecentRevisionNumber(),
 				"%s must be >= 0 and <= last stored revision (%s)!", revisionKey,
 				mSession.getMostRecentRevisionNumber());
 

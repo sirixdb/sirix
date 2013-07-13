@@ -31,8 +31,10 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -41,6 +43,7 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import org.brackit.xquery.xdm.DocumentException;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
@@ -162,14 +165,28 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * @throws AbsTTException
 	 *           if an error occurs
 	 */
-	PageWriteTrxImpl(final SessionImpl session,
-			final UberPage uberPage, final Writer writer,
-			final @Nonnegative long id, final @Nonnegative int representRev,
+	PageWriteTrxImpl(final SessionImpl session, final UberPage uberPage,
+			final Writer writer, final @Nonnegative long id,
+			final @Nonnegative int representRev,
 			final @Nonnegative int lastStoredRev,
 			final @Nonnegative int lastCommitedRev) throws SirixException {
 		final int revision = uberPage.isBootstrap() ? 0 : lastStoredRev + 1;
 		mUsePathSummary = session.mResourceConfig.mPathSummary;
-		mIndexController = session.getIndexController();
+		mIndexController = session.getIndexController(representRev);
+
+		// Deserialize index definitions.
+		final File indexes = new File(session.mResourceConfig.mPath,
+				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + lastStoredRev
+						+ ".xml");
+		if (indexes.exists()) {
+			try (final InputStream in = new FileInputStream(indexes)) {
+				mIndexController.getIndexes().init(
+						mIndexController.deserialize(in).getFirstChild());
+			} catch (IOException | DocumentException | SirixException e) {
+				throw new SirixIOException(
+						"Index definitions couldn't be deserialized!", e);
+			}
+		}
 
 		mPageLog = new SynchronizedTransactionLogPageCache(
 				session.mResourceConfig.mPath, revision, "page", this);
@@ -182,16 +199,16 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			mPathSummaryLog = null;
 		}
 		if (mIndexController.containsIndex(IndexType.PATH)) {
-			mPathLog = new TransactionIndexLogCache<>(
-					session.mResourceConfig.mPath, revision, "path", this);
+			mPathLog = new TransactionIndexLogCache<>(session.mResourceConfig.mPath,
+					revision, "path", this);
 		}
 		if (mIndexController.containsIndex(IndexType.CAS)) {
-			mCASLog = new TransactionIndexLogCache<>(
-					session.mResourceConfig.mPath, revision, "cas", this);
+			mCASLog = new TransactionIndexLogCache<>(session.mResourceConfig.mPath,
+					revision, "cas", this);
 		}
 		if (mIndexController.containsIndex(IndexType.NAME)) {
-			mNameLog = new TransactionIndexLogCache<>(
-					session.mResourceConfig.mPath, revision, "name", this);
+			mNameLog = new TransactionIndexLogCache<>(session.mResourceConfig.mPath,
+					revision, "name", this);
 		}
 
 		// Create revision tree if needed.
@@ -201,8 +218,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 
 		// Page read trx.
 		mPageRtx = new PageReadTrxImpl(session, uberPage, representRev, writer,
-				uberPage.isBootstrap() ? Optional.of(this)
-						: Optional.<PageWriteTrxImpl> absent());
+				uberPage.isBootstrap() ? Optional.of(this) : Optional
+						.<PageWriteTrxImpl> absent(),
+				Optional.of(mIndexController));
 
 		mPageWriter = writer;
 		mTransactionID = id;
@@ -261,9 +279,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public Record createEntry(final Long key,
-			final Record record, final PageKind pageKind,
-			final int index,
+	public Record createEntry(final Long key, final Record record,
+			final PageKind pageKind, final int index,
 			final Optional<UnorderedKeyValuePage> keyValuePage)
 			throws SirixIOException {
 		mPageRtx.assertNotClosed();
@@ -447,8 +464,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public int createNameKey(final @Nullable String name,
-			final Kind nodeKind) throws SirixIOException {
+	public int createNameKey(final @Nullable String name, final Kind nodeKind)
+			throws SirixIOException {
 		mPageRtx.assertNotClosed();
 		checkNotNull(nodeKind);
 		final String string = (name == null ? "" : name);
@@ -632,7 +649,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		mPageRtx.mSession.waitForFinishedSync(mTransactionID);
 
 		final File indexes = new File(mPageRtx.mResourceConfig.mPath,
-				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision + ".xml");
+				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision
+						+ ".xml");
 		try (final OutputStream out = new FileOutputStream(indexes)) {
 			mIndexController.serialize(out);
 		} catch (IOException e) {
@@ -715,8 +733,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	private IndirectPage prepareIndirectPage(
-			final PageReference reference) throws SirixIOException {
+	private IndirectPage prepareIndirectPage(final PageReference reference)
+			throws SirixIOException {
 		final IndirectPageLogKey logKey = reference.getLogKey();
 		IndirectPage page = (IndirectPage) mPageLog.get(logKey);
 		if (page == null) {
@@ -843,9 +861,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	 * @throws SirixIOException
 	 *           if an I/O error occured
 	 */
-	private PageReference prepareLeafOfTree(
-			final PageReference startReference, final @Nonnegative long key,
-			final int index, final PageKind pageKind)
+	private PageReference prepareLeafOfTree(final PageReference startReference,
+			final @Nonnegative long key, final int index, final PageKind pageKind)
 			throws SirixIOException {
 		// Initial state pointing to the indirect nodePageReference of level 0.
 		PageReference reference = startReference;
@@ -972,8 +989,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	}
 
 	@Override
-	public void putPageIntoCache(final IndirectPageLogKey key,
-			final Page page) {
+	public void putPageIntoCache(final IndirectPageLogKey key, final Page page) {
 		mPageLog.put(checkNotNull(key), checkNotNull(page));
 	}
 

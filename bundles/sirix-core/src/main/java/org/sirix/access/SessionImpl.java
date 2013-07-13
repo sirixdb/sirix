@@ -33,6 +33,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
@@ -129,9 +130,9 @@ public final class SessionImpl implements Session {
 
 	/** Atomic counter for concurrent generation of page transaction id. */
 	private final AtomicLong mPageTrxIDCounter;
-	
-	/** {@link IndexController} used for this session. */
-	private final IndexController mIndexController;
+
+	/** {@link IndexController}s used for this session. */
+	private final Map<Integer, IndexController> mIndexControllers;
 
 	/** Determines if session was closed. */
 	private volatile boolean mClosed;
@@ -169,7 +170,7 @@ public final class SessionImpl implements Session {
 		mPageTrxMap = new ConcurrentHashMap<>();
 		mNodePageTrxMap = new ConcurrentHashMap<>();
 		mSyncTransactionsReturns = new ConcurrentHashMap<>();
-		mIndexController = sessionConf.getIndexController();
+		mIndexControllers = new HashMap<>();
 
 		mNodeTrxIDCounter = new AtomicLong();
 		mPageTrxIDCounter = new AtomicLong();
@@ -221,7 +222,8 @@ public final class SessionImpl implements Session {
 		final NodeReadTrx rtx = new NodeReadTrxImpl(this,
 				mNodeTrxIDCounter.incrementAndGet(), new PageReadTrxImpl(this,
 						mLastCommittedUberPage.get(), revisionKey, mFac.getReader(),
-						Optional.<PageWriteTrxImpl> absent()));
+						Optional.<PageWriteTrxImpl> absent(),
+						Optional.<IndexController> absent()));
 
 		// Remember transaction for debugging and safe close.
 		if (mNodeTrxMap.put(rtx.getTransactionID(), rtx) != null) {
@@ -318,8 +320,8 @@ public final class SessionImpl implements Session {
 		final UberPage lastCommitedUberPage = mLastCommittedUberPage.get();
 		return new PageWriteTrxImpl(this, abort == Abort.YES
 				&& lastCommitedUberPage.isBootstrap() ? new UberPage() : new UberPage(
-				lastCommitedUberPage), writer, id,
-				representRevision, storeRevision, lastCommitedRev);
+				lastCommitedUberPage), writer, id, representRevision, storeRevision,
+				lastCommitedRev);
 	}
 
 	@Override
@@ -607,7 +609,8 @@ public final class SessionImpl implements Session {
 
 		return PathSummaryReader.getInstance(
 				new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision, mFac
-						.getReader(), Optional.<PageWriteTrxImpl> absent()), this);
+						.getReader(), Optional.<PageWriteTrxImpl> absent(), Optional
+						.<IndexController> absent()), this);
 	}
 
 	@Override
@@ -624,7 +627,8 @@ public final class SessionImpl implements Session {
 	public synchronized PageReadTrx beginPageReadTrx(
 			final @Nonnegative int revision) throws SirixException {
 		return new PageReadTrxImpl(this, mLastCommittedUberPage.get(), revision,
-				mFac.getReader(), Optional.<PageWriteTrxImpl> absent());
+				mFac.getReader(), Optional.<PageWriteTrxImpl> absent(),
+				Optional.<IndexController> absent());
 	}
 
 	@Override
@@ -668,7 +672,12 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public synchronized IndexController getIndexController() {
-		return mIndexController;
+	public synchronized IndexController getIndexController(int revision) {
+		IndexController controller = mIndexControllers.get(revision);
+		if (controller == null) {
+			controller = new IndexController();
+			mIndexControllers.put(revision, controller);
+		}
+		return controller;
 	}
 }

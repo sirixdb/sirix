@@ -22,6 +22,7 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.IndexController;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.path.PathFilter;
@@ -76,9 +77,11 @@ public final class ScanCASIndexRange extends AbstractFunction {
 
 		try {
 			while (doc != null) {
-				if (doc.getTrx().getSession().getResourceConfig().getResource()
-						.getName().equals(document)) {
-					controller = doc.getTrx().getSession().getIndexController();
+				final NodeReadTrx rtx = doc.getTrx();
+				if (rtx.getSession().getResourceConfig().getResource().getName()
+						.equals(document)) {
+					controller = rtx.getSession().getIndexController(
+							rtx.getRevisionNumber());
 					break;
 				}
 				doc = (DBNode) docs.next();
@@ -113,7 +116,8 @@ public final class ScanCASIndexRange extends AbstractFunction {
 				true, true);
 		final boolean incMax = FunUtil.getBoolean(args, 5, "$include-high-key",
 				true, true);
-		final String paths = FunUtil.getString(args, 6, "$paths", null, null, false);
+		final String paths = FunUtil
+				.getString(args, 6, "$paths", null, null, false);
 		final PathFilter filter = (paths != null) ? controller.createPathFilter(
 				paths.split(";"), doc.getTrx()) : null;
 
@@ -129,10 +133,10 @@ public final class ScanCASIndexRange extends AbstractFunction {
 					@Override
 					public Item next() throws QueryException {
 						if (s == null) {
-//							s = new SirixNodeKeyStream(ic.openCASIndex(node.getTrx()
-//									.getPageTrx(), indexDef, SearchMode.LESS_OR_EQUAL, filter,
-//									low, high, incLow, incMax), node.getCollection(),
-//									node.getTrx());
+							// s = new SirixNodeKeyStream(ic.openCASIndex(node.getTrx()
+							// .getPageTrx(), indexDef, SearchMode.LESS_OR_EQUAL, filter,
+							// low, high, incLow, incMax), node.getCollection(),
+							// node.getTrx());
 						}
 						return (Item) s.next();
 					}

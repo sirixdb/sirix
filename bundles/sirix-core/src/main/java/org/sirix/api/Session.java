@@ -258,5 +258,5 @@ public interface Session extends AutoCloseable {
 	 * 
 	 * @return the {@link IndexController} instance
 	 */
-	IndexController getIndexController();
+	IndexController getIndexController(int revision);
 }
