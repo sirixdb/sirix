@@ -208,7 +208,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 		}
 
 		mNodeRtx = new NodeReadTrxImpl(session, transactionID, pageWriteTrx);
-		mIndexController = session.getIndexController();
+		mIndexController = session.getIndexController(pageWriteTrx.getRevisionNumber());
 		mBuildPathSummary = session.mResourceConfig.mPathSummary;
 
 		// Only auto commit by node modifications if it is more then 0.

@@ -98,9 +98,6 @@ public final class SessionConfiguration {
 	 */
 	private final boolean mDumpLogs;
 
-	/** The {@link IndexController} used in this session. */
-	private final IndexController mIndexController;
-
 	/**
 	 * Convenience constructor using the standard settings.
 	 * 
@@ -115,7 +112,6 @@ public final class SessionConfiguration {
 		mUser = builder.mUser;
 		mResource = builder.mResource;
 		mDumpLogs = builder.mDumpLogs;
-		mIndexController = builder.mIndexController;
 	}
 
 	@Override
@@ -152,15 +148,6 @@ public final class SessionConfiguration {
 	 */
 	public String getResource() {
 		return mResource;
-	}
-
-	/**
-	 * Get the {@link IndexController}.
-	 * 
-	 * @return the {@link IndexController} instance
-	 */
-	public IndexController getIndexController() {
-		return mIndexController;
 	}
 
 	/**
@@ -211,8 +198,6 @@ public final class SessionConfiguration {
 		/** Resource for the this session. */
 		private final String mResource;
 
-		private final IndexController mIndexController;
-
 		private Key mKey;
 
 		/**
@@ -223,7 +208,6 @@ public final class SessionConfiguration {
 		 */
 		public Builder(final String resource) {
 			mResource = checkNotNull(resource);
-			mIndexController = new IndexController();
 		}
 
 		/**

@@ -57,12 +57,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-			// loadDocumentAndQuery();
-			// System.out.println();
-			// loadDocumentAndUpdate();
-			// System.out.println();
-			// loadCollectionAndQuery();
-			// System.out.println();
+			loadDocumentAndQuery();
+			System.out.println();
+			loadDocumentAndUpdate();
+			System.out.println();
+			loadCollectionAndQuery();
+			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -261,7 +261,7 @@ public final class XQueryUsage {
 			final DBNode node = (DBNode) new XQuery(new SirixCompileChain(store),
 					"doc('mydocs.col')").execute(ctx3);
 			final Optional<IndexDef> index = node.getTrx().getSession()
-					.getIndexController().getIndexes().findCASIndex(Path.parse("//@*"));
+					.getIndexController(node.getTrx().getRevisionNumber()).getIndexes().findCASIndex(Path.parse("//@*"));
 			System.out.println(index);
 			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-cas-index($doc, "
 					+ index.get().getID() + ", 'bar', true(), 0, ())";
@@ -296,7 +296,7 @@ public final class XQueryUsage {
 			final DBNode node = (DBNode) new XQuery(new SirixCompileChain(store),
 					"doc('mydocs.col')").execute(ctx3);
 			final Optional<IndexDef> index = node.getTrx().getSession()
-					.getIndexController().getIndexes()
+					.getIndexController(node.getTrx().getRevisionNumber()).getIndexes()
 					.findPathIndex(Path.parse("//log/*"));
 			System.out.println(index);
 			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') "

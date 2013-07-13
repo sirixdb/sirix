@@ -22,6 +22,7 @@ import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.access.IndexController;
+import org.sirix.api.NodeReadTrx;
 import org.sirix.index.IndexDef;
 import org.sirix.index.IndexType;
 import org.sirix.index.SearchMode;
@@ -55,10 +56,11 @@ public final class ScanCASIndex extends AbstractFunction {
 	@Override
 	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
 			throws QueryException {
-		final DBNode doc = ((DBNode) args[0]);
-		final IndexController controller = doc.getTrx().getSession()
-				.getIndexController();
-
+		final DBNode doc = (DBNode) args[0];
+		final NodeReadTrx rtx = doc.getTrx();
+		final IndexController controller = rtx.getSession().getIndexController(
+				rtx.getRevisionNumber());
+		
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "
 					+ ((Str) args[1]).stringValue()));
