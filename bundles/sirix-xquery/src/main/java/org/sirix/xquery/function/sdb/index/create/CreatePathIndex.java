@@ -69,7 +69,7 @@ public final class CreatePathIndex extends AbstractFunction {
 
 		final DBNode doc = ((DBNode) args[0]);
 		final NodeReadTrx rtx = doc.getTrx();
-		final IndexController controller = rtx.getSession().getIndexController(
+		final IndexController controller = rtx.getSession().getWtxIndexController(
 				rtx.getRevisionNumber() - 1);
 
 		if (!(doc.getTrx() instanceof NodeWriteTrx)) {

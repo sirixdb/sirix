@@ -172,7 +172,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			final @Nonnegative int lastCommitedRev) throws SirixException {
 		final int revision = uberPage.isBootstrap() ? 0 : lastStoredRev + 1;
 		mUsePathSummary = session.mResourceConfig.mPathSummary;
-		mIndexController = session.getIndexController(representRev);
+		mIndexController = session.getWtxIndexController(representRev);
 
 		// Deserialize index definitions.
 		final File indexes = new File(session.mResourceConfig.mPath,

@@ -58,7 +58,7 @@ public final class FindCASIndex extends AbstractFunction {
 		final DBNode doc = (DBNode) args[0];
 		final NodeReadTrx rtx = doc.getTrx();
 		final IndexController controller = rtx.getSession()
-				.getIndexController(rtx.getRevisionNumber());
+				.getRtxIndexController(rtx.getRevisionNumber());
 
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "

@@ -210,7 +210,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 		mBuildPathSummary = session.mResourceConfig.mPathSummary;
 		mResourceConfig = session.mResourceConfig;
 		mIndexController = indexController.isPresent() ? indexController.get()
-				: session.getIndexController(revision);
+				: session.getRtxIndexController(revision);
 
 		if (!indexController.isPresent()) {
 			// Deserialize index definitions.
