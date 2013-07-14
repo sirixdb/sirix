@@ -132,7 +132,10 @@ public final class SessionImpl implements Session {
 	private final AtomicLong mPageTrxIDCounter;
 
 	/** {@link IndexController}s used for this session. */
-	private final Map<Integer, IndexController> mIndexControllers;
+	private final Map<Integer, IndexController> mRtxIndexControllers;
+	
+	/** {@link IndexController}s used for this session. */
+	private final Map<Integer, IndexController> mWtxIndexControllers;
 
 	/** Determines if session was closed. */
 	private volatile boolean mClosed;
@@ -170,7 +173,8 @@ public final class SessionImpl implements Session {
 		mPageTrxMap = new ConcurrentHashMap<>();
 		mNodePageTrxMap = new ConcurrentHashMap<>();
 		mSyncTransactionsReturns = new ConcurrentHashMap<>();
-		mIndexControllers = new HashMap<>();
+		mRtxIndexControllers = new HashMap<>();
+		mWtxIndexControllers = new HashMap<>();
 
 		mNodeTrxIDCounter = new AtomicLong();
 		mPageTrxIDCounter = new AtomicLong();
@@ -672,11 +676,21 @@ public final class SessionImpl implements Session {
 	}
 
 	@Override
-	public synchronized IndexController getIndexController(int revision) {
-		IndexController controller = mIndexControllers.get(revision);
+	public synchronized IndexController getRtxIndexController(int revision) {
+		IndexController controller = mRtxIndexControllers.get(revision);
 		if (controller == null) {
 			controller = new IndexController();
-			mIndexControllers.put(revision, controller);
+			mRtxIndexControllers.put(revision, controller);
+		}
+		return controller;
+	}
+	
+	@Override
+	public synchronized IndexController getWtxIndexController(int revision) {
+		IndexController controller = mWtxIndexControllers.get(revision);
+		if (controller == null) {
+			controller = new IndexController();
+			mWtxIndexControllers.put(revision, controller);
 		}
 		return controller;
 	}

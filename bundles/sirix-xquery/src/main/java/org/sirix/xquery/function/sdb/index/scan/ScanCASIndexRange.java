@@ -80,7 +80,7 @@ public final class ScanCASIndexRange extends AbstractFunction {
 				final NodeReadTrx rtx = doc.getTrx();
 				if (rtx.getSession().getResourceConfig().getResource().getName()
 						.equals(document)) {
-					controller = rtx.getSession().getIndexController(
+					controller = rtx.getSession().getRtxIndexController(
 							rtx.getRevisionNumber());
 					break;
 				}
