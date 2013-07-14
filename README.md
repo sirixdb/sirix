@@ -148,7 +148,7 @@ Other modules are currently not available (namely the GUI, the distributed packa
 
 ## Technical details and Features
 
-[![Build Status](https://travis-ci.org/JohannesLichtenberger/sirix.png)](https://travis-ci.org/JohannesLichtenberger/sirix)
+[![Build Status](https://travis-ci.org/sirixdb/sirix.png)](https://travis-ci.org/sirixdb/sirix)
 
 The architecture supports the well known ACID-properties (durability currently isn't guaranted if the transaction crashes) and Snapshot Isolation through MVCC which in turn supports N-reading transactions in parallel to currently 1-write transaction without any locking. Supporting N-write transactions is in the works as well as the current work on indexes to support a Brackit binding which in turn supports XQuery and the XQuery Update Facility. The CoW-approach used for providing Snapshot Isolation through MVCC is especially well suited for flash-disks (sequential writes and random reads). We support several well known versioning strategies (incremental, differential, full).
 
