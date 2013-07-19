@@ -34,6 +34,8 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.StorageType;
 import org.sirix.service.xml.shredder.Insert;
 
+import com.google.common.base.Optional;
+
 /**
  * Database storage.
  * 
@@ -188,25 +190,31 @@ public final class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final String name, final SubtreeParser parser)
+	public Collection<?> create(final String collName, final SubtreeParser parser)
+			throws DocumentException {
+		return create(collName, Optional.<String> absent(), parser);
+	}
+
+	public Collection<?> create(final String collName,
+			final Optional<String> optResName, final SubtreeParser parser)
 			throws DocumentException {
 		final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
-				mLocation, name));
+				mLocation, collName));
 		try {
 			Databases.truncateDatabase(dbConf);
 			Databases.createDatabase(dbConf);
 			final Database database = Databases.openDatabase(dbConf.getFile());
 			mDatabases.add(database);
-			database.createResource(ResourceConfiguration
-					.newBuilder(
-							new StringBuilder(3).append("resource")
-									.append(database.listResources().length + 1).toString(),
-							dbConf).useDeweyIDs().storageType(mStorageType).build());
+			final String resName = optResName.isPresent() ? optResName.get()
+					: new StringBuilder(3).append("resource")
+							.append(database.listResources().length + 1).toString();
+			database.createResource(ResourceConfiguration.newBuilder(resName, dbConf)
+					.useDeweyIDs().storageType(mStorageType).build());
 			final Session session = database
-					.getSession(new SessionConfiguration.Builder("resource1").build());
+					.getSession(new SessionConfiguration.Builder(resName).build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
 
-			final DBCollection collection = new DBCollection(name, database,
+			final DBCollection collection = new DBCollection(collName, database,
 					mUpdating);
 			parser
 					.parse(new SubtreeBuilder(
@@ -224,11 +232,11 @@ public final class DBStore implements Store, AutoCloseable {
 	}
 
 	@Override
-	public Collection<?> create(final String name,
+	public Collection<?> create(final String collName,
 			final @Nullable Stream<SubtreeParser> parsers) throws DocumentException {
 		if (parsers != null) {
 			final DatabaseConfiguration dbConf = new DatabaseConfiguration(new File(
-					mLocation, name));
+					mLocation, collName));
 			try {
 				Databases.truncateDatabase(dbConf);
 				Databases.createDatabase(dbConf);
@@ -253,7 +261,7 @@ public final class DBStore implements Store, AutoCloseable {
 										.getSession(new SessionConfiguration.Builder(resource)
 												.build());
 								final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-								final DBCollection collection = new DBCollection(name,
+								final DBCollection collection = new DBCollection(collName,
 										database, mUpdating);
 								nextParser.parse(new SubtreeBuilder(
 										collection,
@@ -273,7 +281,7 @@ public final class DBStore implements Store, AutoCloseable {
 				}
 				pool.shutdown();
 				pool.awaitTermination(5, TimeUnit.MINUTES);
-				return new DBCollection(name, database, mUpdating);
+				return new DBCollection(collName, database, mUpdating);
 			} catch (final SirixException | InterruptedException e) {
 				throw new DocumentException(e.getCause());
 			}

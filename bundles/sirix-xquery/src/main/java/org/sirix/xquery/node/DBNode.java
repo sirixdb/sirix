@@ -1361,8 +1361,8 @@ public final class DBNode extends AbstractTemporalNode<DBNode> {
 				depth2++;
 				p2 = (DBNode) p2.getParent();
 			}
+			
 			// Move up one branch of the tree so we have two nodes on the same level.
-
 			p1 = this;
 			while (depth1 > depth2) {
 				p1 = (DBNode) p1.getParent();

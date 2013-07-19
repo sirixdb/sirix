@@ -57,12 +57,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-			loadDocumentAndQuery();
-			System.out.println();
-			loadDocumentAndUpdate();
-			System.out.println();
-			loadCollectionAndQuery();
-			System.out.println();
+//			loadDocumentAndQuery();
+//			System.out.println();
+//			loadDocumentAndUpdate();
+//			System.out.println();
+//			loadCollectionAndQuery();
+//			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -357,6 +357,19 @@ public final class XQueryUsage {
 				q.prettyPrint().serialize(ctx5, out);
 			}
 			System.out.println();
+		}
+		
+		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+			final File doc = new File(new StringBuilder("src").append(File.separator)
+					.append("main").append(File.separator).append("resources")
+					.append(File.separator).append("test.xml").toString());
+			
+			final QueryContext ctx = new QueryContext(store);
+			System.out.println();
+			final String xq3 = String.format("sdb:load('mycoll.col', 'mydoc.xml', '%s')", doc);
+			System.out.println(xq3);
+			final XQuery q = new XQuery(new SirixCompileChain(store), xq3);
+			q.execute(ctx);
 		}
 	}
 
