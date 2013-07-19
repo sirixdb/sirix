@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.Nonnegative;
+import javax.xml.stream.XMLEventReader;
 
 import org.brackit.xquery.node.AbstractCollection;
 import org.brackit.xquery.node.parser.CollectionParser;
@@ -139,6 +140,38 @@ public final class DBCollection extends
 		}
 	}
 
+	public DBNode add(final String resName, SubtreeParser parser)
+			throws OperationNotSupportedException, DocumentException {
+		try {
+			final String resource = new StringBuilder(2).append("resource")
+					.append(mDatabase.listResources().length + 1).toString();
+			mDatabase.createResource(ResourceConfiguration
+					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs()
+					.build());
+			final Session session = mDatabase.getSession(SessionConfiguration
+					.newBuilder(resource).build());
+			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+
+			final SubtreeHandler handler = new SubtreeBuilder(
+					this,
+					wtx,
+					Insert.ASFIRSTCHILD,
+					Collections
+							.<SubtreeListener<? super AbstractTemporalNode<DBNode>>> emptyList());
+
+			// Make sure the CollectionParser is used.
+			if (!(parser instanceof CollectionParser)) {
+				parser = new CollectionParser(parser);
+			}
+
+			parser.parse(handler);
+			return new DBNode(wtx, this);
+		} catch (final SirixException e) {
+			LOGGER.error(e.getMessage(), e);
+			return null;
+		}
+	}
+	
 	@Override
 	public DBNode add(SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
@@ -165,6 +198,24 @@ public final class DBCollection extends
 			}
 
 			parser.parse(handler);
+			return new DBNode(wtx, this);
+		} catch (final SirixException e) {
+			LOGGER.error(e.getMessage(), e);
+			return null;
+		}
+	}
+	
+	public DBNode add(final String resource, final XMLEventReader reader)
+			throws OperationNotSupportedException, DocumentException {
+		try {
+			mDatabase.createResource(ResourceConfiguration
+					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs()
+					.build());
+			final Session session = mDatabase.getSession(SessionConfiguration
+					.newBuilder(resource).build());
+			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			wtx.insertSubtreeAsFirstChild(reader);
+			wtx.moveToDocumentRoot();
 			return new DBNode(wtx, this);
 		} catch (final SirixException e) {
 			LOGGER.error(e.getMessage(), e);

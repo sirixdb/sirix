@@ -1,7 +1,9 @@
 package org.sirix.xquery.function.sdb;
 
-import static org.sirix.xquery.function.sdb.GetMostRecentRevision.MOST_RECENT_REVISION;
 import static org.sirix.xquery.function.sdb.Doc.DOC;
+import static org.sirix.xquery.function.sdb.GetMostRecentRevision.MOST_RECENT_REVISION;
+import static org.sirix.xquery.function.sdb.Load.LOAD;
+import static org.sirix.xquery.function.sdb.Store.STORE;
 import static org.sirix.xquery.function.sdb.index.create.CreateCASIndex.CREATE_CAS_INDEX;
 import static org.sirix.xquery.function.sdb.index.create.CreatePathIndex.CREATE_PATH_INDEX;
 
@@ -25,7 +27,8 @@ public final class SDBFun {
 	public static final QNm ERR_INVALID_ARGUMENT = new QNm(SDB_NSURI, SDB_PREFIX,
 			"SIRIXDBF0001");
 
-	public static final QNm ERR_INDEX_NOT_FOUND = null;
+	public static final QNm ERR_INDEX_NOT_FOUND = new QNm(SDB_NSURI, SDB_PREFIX,
+			"SIRIXDBF0002");
 
 	public static final QNm ERR_INVALID_INDEX_TYPE = null;
 
@@ -37,6 +40,18 @@ public final class SDBFun {
 	static {
 		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
 
+		// store
+		Functions.predefine(new Store(false));
+		Functions.predefine(new Store(true));
+		Functions.predefine(new Store(STORE, false));
+		Functions.predefine(new Store(STORE, true));
+		
+		// load
+		Functions.predefine(new Load(false));
+		Functions.predefine(new Load(true));
+		Functions.predefine(new Load(LOAD, false));
+		Functions.predefine(new Load(LOAD, true));
+		
 		// doc
 		Functions.predefine(new Doc(DOC, new Signature(SequenceType.NODE,
 				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
