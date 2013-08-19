@@ -56,7 +56,7 @@ Do you have to store a snapshot of this irregular data? Furthermore questions su
 Sirix might be a good fit if you have to answer any of these questions as it stores data efficiently and effectively. 
 Furthermore Sirix handles the import of differences between a Sirix-resource and a new version thereof in the form of 
 an XML-document (soon JSON as well). Thus, an algorithm takes care of determining the differences and transforms 
-the stored resource into a new snapshot/revision/version, which is the same as the as the new XML document once 
+the stored resource into a new snapshot/revision/version, which is the same as the new XML document once 
 the newest revision is serialized (despite whitespace). Despite this, we also support the import of a series of snapshots of
 temporal data, whereas the detection of the differences is completely up to Sirix. Specifying unique node-IDs to match pairs
 of nodes is not required. 
