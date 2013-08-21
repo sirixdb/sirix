@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.URI;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Random;
@@ -209,7 +210,8 @@ public final class XQueryUsage {
 
 			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
-			final String xq1 = String.format("bit:load('mydocs.col', '%s')", doc1);
+			URI uriDoc1 = doc.toURI();
+			final String xq1 = String.format("bit:load('mydocs.col', '%s')", uriDoc1.toString());
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
 
