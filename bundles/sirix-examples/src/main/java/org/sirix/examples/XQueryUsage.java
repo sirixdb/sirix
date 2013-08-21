@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.URI;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Random;
@@ -88,7 +89,8 @@ public final class XQueryUsage {
 
 		// Use XQuery to load sample document into store.
 		System.out.println("Loading document:");
-		String xq1 = String.format("bit:load('mydoc.xml', '%s')", doc);
+		URI docUri = doc.toURI();
+		String xq1 = String.format("bit:load('mydoc.xml', '%s')", docUri.toString());
 		System.out.println(xq1);
 		new XQuery(xq1).evaluate(ctx);
 
@@ -125,7 +127,8 @@ public final class XQueryUsage {
 
 			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
-			final String xq1 = String.format("bit:load('mydoc.xml', '%s')", doc);
+			URI docUri = doc.toURI();
+			final String xq1 = String.format("bit:load('mydoc.xml', '%s')", docUri.toString());
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
 
@@ -164,8 +167,9 @@ public final class XQueryUsage {
 
 			// Use XQuery to load all sample documents into store.
 			System.out.println("Load collection from files:");
+			URI dirUri = dir.toURI();
 			final String xq1 = String.format(
-					"bit:load('mydocs.col', io:ls('%s', '\\.xml$'))", dir);
+					"bit:load('mydocs.col', io:ls('%s', '\\.xml$'))", dirUri.toString());
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
 
@@ -186,7 +190,7 @@ public final class XQueryUsage {
 			// Use XQuery to load all sample documents once more into store.
 			System.out.println("Load collection from files:");
 			final String xq3 = String.format(
-					"bit:load('mydocs.col', io:ls('%s', '\\.xml$'), fn:false())", dir);
+					"bit:load('mydocs.col', io:ls('%s', '\\.xml$'), fn:false())", dirUri.toString());
 			System.out.println(xq3);
 			new XQuery(xq3).evaluate(ctx);
 		}
@@ -209,7 +213,8 @@ public final class XQueryUsage {
 
 			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
-			final String xq1 = String.format("bit:load('mydocs.col', '%s')", doc1);
+			URI doc1Uri = doc1.toURI();
+			final String xq1 = String.format("bit:load('mydocs.col', '%s')", doc1Uri.toString());
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
 
@@ -366,7 +371,8 @@ public final class XQueryUsage {
 			
 			final QueryContext ctx = new QueryContext(store);
 			System.out.println();
-			final String xq3 = String.format("sdb:load('mycoll.col', 'mydoc.xml', '%s')", doc);
+			URI docUri = doc.toURI();
+			final String xq3 = String.format("sdb:load('mycoll.col', 'mydoc.xml', '%s')", docUri.toString());
 			System.out.println(xq3);
 			final XQuery q = new XQuery(new SirixCompileChain(store), xq3);
 			q.execute(ctx);
