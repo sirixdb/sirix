@@ -301,7 +301,7 @@ public class SmallmultipleGUI extends AbstractSunburstGUI implements PropertyCha
         update(EResetZoomer.YES);
         mImage = new ImageStore(mBuffer, mSelectedRev, mDepthMax, mOldDepthMax);
         mBufferedImages.add(mImage);
-        final long revDiff = mDb.getSession().getLastRevisionNumber() - mDb.getRevisionNumber();
+        final long revDiff = mDb.getSession().getMostRecentRevisionNumber() - mDb.getRevisionNumber();
         mRevisions = revDiff > 4 ? 4 : revDiff;
         if (mBufferedImages.size() == mRevisions) {
           Collections.sort(mBufferedImages, mImage);

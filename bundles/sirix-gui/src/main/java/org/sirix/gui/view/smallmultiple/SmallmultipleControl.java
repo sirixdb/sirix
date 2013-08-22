@@ -213,7 +213,7 @@ public class SmallmultipleControl extends AbstractSunburstControl {
    * @return last revision
    */
   private int getLastRevision() {
-    return mDb.getSession().getLastRevisionNumber();
+    return mDb.getSession().getMostRecentRevisionNumber();
   }
 
   /**

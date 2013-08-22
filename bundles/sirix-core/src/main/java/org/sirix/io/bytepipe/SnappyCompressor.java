@@ -1,9 +1,11 @@
 package org.sirix.io.bytepipe;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
-import org.sirix.exception.SirixIOException;
-import org.xerial.snappy.Snappy;
+import org.xerial.snappy.SnappyInputStream;
+import org.xerial.snappy.SnappyOutputStream;
 
 /**
  * Snappy compression/decompression.
@@ -11,30 +13,18 @@ import org.xerial.snappy.Snappy;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public class SnappyCompressor implements ByteHandler {
+public final class SnappyCompressor implements ByteHandler {
 
 	@Override
-	public byte[] serialize(final byte[] toSerialize)
-			throws SirixIOException {
-		byte[] compressed;
-		try {
-			compressed = Snappy.compress(toSerialize);
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-		return compressed;
+	public OutputStream serialize(final OutputStream toSerialize)
+			throws IOException {
+		return new SnappyOutputStream(toSerialize);
 	}
 
 	@Override
-	public byte[] deserialize(final byte[] toDeserialize)
-			throws SirixIOException {
-		byte[] uncompressed;
-		try {
-			uncompressed = Snappy.uncompress(toDeserialize);
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
-		return uncompressed;
+	public InputStream deserialize(final InputStream toDeserialize)
+			throws IOException {
+		return new SnappyInputStream(toDeserialize);
 	}
 
 	@Override

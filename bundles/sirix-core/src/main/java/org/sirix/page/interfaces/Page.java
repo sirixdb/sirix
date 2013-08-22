@@ -26,6 +26,9 @@
  */
 package org.sirix.page.interfaces;
 
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
@@ -33,8 +36,6 @@ import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.PageReference;
-
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Page interface all pages have to implement.
@@ -49,9 +50,11 @@ public interface Page {
 	 * Serialize a page
 	 * 
 	 * @param out
-	 *          {@link ByteArrayDataOutput} reference to serialize to
+	 *          {@link DataOutputStream} reference to serialize to
+	 * @throws IOException
+	 * 					if serialization fails
 	 */
-	void serialize(final ByteArrayDataOutput out);
+	void serialize(final DataOutputStream out) throws IOException;
 
 	/**
 	 * Get all page references.

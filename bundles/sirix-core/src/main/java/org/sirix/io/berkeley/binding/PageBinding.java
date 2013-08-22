@@ -27,8 +27,11 @@
 
 package org.sirix.io.berkeley.binding;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import org.sirix.api.PageReadTrx;
-import org.sirix.exception.SirixIOException;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.delegates.PageDelegate;
@@ -36,8 +39,6 @@ import org.sirix.page.interfaces.Page;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
@@ -71,7 +72,7 @@ public final class PageBinding extends TupleBinding<Page> {
 		mByteHandler = new ByteHandlePipeline(pageBinding.mByteHandler);
 		mPageReadTrx = pageBinding.mPageReadTrx;
 	}
-	
+
 	/**
 	 * Constructor.
 	 * 
@@ -89,7 +90,7 @@ public final class PageBinding extends TupleBinding<Page> {
 	 * @param byteHandler
 	 *          byte handler pipleine
 	 * @param pageReadTrx
-	 * 					page reading transaction
+	 *          page reading transaction
 	 */
 	public PageBinding(final ByteHandlePipeline byteHandler,
 			final PageReadTrx pageReadTrx) {
@@ -100,23 +101,23 @@ public final class PageBinding extends TupleBinding<Page> {
 
 	@Override
 	public Page entryToObject(final TupleInput input) {
-		byte[] deserialized = new byte[0];
 		try {
-			deserialized = mByteHandler.deserialize(input.getBufferBytes());
-		} catch (final SirixIOException e) {
+			return PagePersistenter.deserializePage(
+					new DataInputStream(mByteHandler.deserialize(input)), mPageReadTrx);
+		} catch (final IOException e) {
 			LOGGER.error(e.getMessage(), e);
+			return null;
 		}
-		return PagePersistenter.deserializePage(
-				ByteStreams.newDataInput(deserialized), mPageReadTrx);
-	}
+	}	
 
 	@Override
 	public void objectToEntry(final Page page, final TupleOutput output) {
-		final ByteArrayDataOutput outputData = ByteStreams.newDataOutput();
-		PagePersistenter.serializePage(outputData, page);
 		try {
-			output.write(mByteHandler.serialize(outputData.toByteArray()));
-		} catch (final SirixIOException e) {
+			final DataOutputStream outputData = new DataOutputStream(output);
+			PagePersistenter.serializePage(outputData, page);
+			mByteHandler.serialize(outputData);
+			output.close();
+		} catch (final IOException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
 	}

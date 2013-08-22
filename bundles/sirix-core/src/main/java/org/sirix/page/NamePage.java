@@ -27,6 +27,9 @@
 
 package org.sirix.page;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -43,8 +46,6 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * <h1>NamePage</h1>
@@ -91,7 +92,7 @@ public final class NamePage extends AbstractForwardingPage {
 	 * @param in
 	 *          input bytes to read from
 	 */
-	protected NamePage(final ByteArrayDataInput in) {
+	protected NamePage(final DataInputStream in) throws IOException {
 		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
 		final int size = in.readInt();
 		mMaxNodeKeys = new HashMap<>(size);
@@ -219,7 +220,7 @@ public final class NamePage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(final ByteArrayDataOutput out) {
+	public void serialize(DataOutputStream out) throws IOException {
 			super.serialize(out);
 			final int size = mMaxNodeKeys.size();
 			out.writeInt(size);

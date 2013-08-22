@@ -1,5 +1,9 @@
 package org.sirix.node;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 
@@ -14,7 +18,7 @@ public final class Utils {
 	 *          long value
 	 */
 	public static final void putVarLong(
-			final ByteArrayDataOutput output, long value) {
+			final DataOutputStream output, long value) throws IOException {
 		while ((value & ~0x7F) != 0) {
 			output.write(((byte) ((value & 0x7f) | 0x80)));
 			value >>>= 7;
@@ -29,7 +33,7 @@ public final class Utils {
 	 *          {@link ByteArrayDataInput} reference
 	 * @return long value
 	 */
-	public static final long getVarLong(final ByteArrayDataInput input) {
+	public static final long getVarLong(final DataInputStream input) throws IOException {
 		byte singleByte = input.readByte();
 		long value = singleByte & 0x7F;
 		for (int shift = 7; (singleByte & 0x80) != 0; shift += 7) {

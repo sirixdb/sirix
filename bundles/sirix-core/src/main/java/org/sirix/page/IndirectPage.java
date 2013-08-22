@@ -27,11 +27,12 @@
 
 package org.sirix.page;
 
+import java.io.DataInputStream;
+import java.io.IOException;
+
 import org.sirix.page.delegates.PageDelegate;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
-
-import com.google.common.io.ByteArrayDataInput;
 
 /**
  * <h1>IndirectPage</h1>
@@ -59,7 +60,7 @@ public final class IndirectPage extends AbstractForwardingPage {
 	 * @param in
 	 *          input source
 	 */
-	protected IndirectPage(final ByteArrayDataInput in) {
+	protected IndirectPage(final DataInputStream in) throws IOException {
 		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
 	}
 

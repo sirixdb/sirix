@@ -27,16 +27,21 @@
 
 package org.sirix.cache;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+
 import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.interfaces.Page;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
@@ -44,8 +49,10 @@ import com.sleepycat.bind.tuple.TupleOutput;
 /**
  * Binding for {@link RecordPageContainer} reference.
  */
-public class PageBinding extends TupleBinding<Page> {
+public final class PageBinding extends TupleBinding<Page> {
 
+	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(PageBinding.class));
+	
 	/** {@link ResourceConfiguration} instance. */
 	private final PageReadTrx mPageReadTrx;
 
@@ -65,19 +72,27 @@ public class PageBinding extends TupleBinding<Page> {
 		if (input == null) {
 			return null;
 		}
-		final ByteArrayDataInput source = ByteStreams.newDataInput(input
-				.getBufferBytes());
-		return PagePersistenter.deserializePage(source, mPageReadTrx);
+		try {
+			return PagePersistenter.deserializePage(new DataInputStream(input),
+					mPageReadTrx);
+		} catch (final IOException e) {
+			LOGGER.error(e.getMessage(), e);
+			return null;
+		}
 	}
 
 	@Override
 	public void objectToEntry(final @Nullable Page page,
 			final @Nullable TupleOutput output) {
 		if (page != null && output != null) {
-			final ByteArrayDataOutput target = ByteStreams.newDataOutput();
+			final OutputStream target = new ByteArrayOutputStream();
 			final byte[] bytes = output.getBufferBytes();
-			target.write(bytes, 0, bytes.length);
-			page.serialize(target);
+			try {
+				target.write(bytes, 0, bytes.length);
+				page.serialize(new DataOutputStream(target));
+			} catch (final IOException e) {
+				LOGGER.error(e.getMessage(), e);
+			}
 		}
 	}
 }

@@ -30,6 +30,12 @@ package org.sirix.node;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,9 +49,6 @@ import org.sirix.node.delegates.ValNodeDelegate;
 import org.sirix.utils.NamePageHash;
 
 import com.google.common.base.Optional;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 
 /**
  * Attribute node test.
@@ -73,7 +76,7 @@ public class AttributeNodeTest {
 	}
 
 	@Test
-	public void testAttributeNode() {
+	public void testAttributeNode() throws IOException {
 		final byte[] value = { (byte) 17, (byte) 18 };
 
 		final NodeDelegate del = new NodeDelegate(99, 13, 0, 0,
@@ -87,10 +90,10 @@ public class AttributeNodeTest {
 		check(node);
 
 		// Serialize and deserialize node.
-		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node.getKind().serialize(out, node, null, mPageReadTrx);
-		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(in, node.getNodeKey(), 
+		final ByteArrayOutputStream out = new ByteArrayOutputStream();
+		node.getKind().serialize(new DataOutputStream(out), node, null, mPageReadTrx);
+		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+		final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(new DataInputStream(in), node.getNodeKey(), 
 				mPageReadTrx);
 		check(node2);
 	}

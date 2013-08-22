@@ -28,6 +28,9 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import javax.annotation.Nonnegative;
 
 import org.sirix.api.PageWriteTrx;
@@ -37,7 +40,6 @@ import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 
 import com.google.common.collect.ForwardingObject;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Forwarding the implementation of all methods in the {@link Page} interface to
@@ -73,7 +75,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
 	}
 
 	@Override
-	public void serialize(final ByteArrayDataOutput out) {
+	public void serialize(final DataOutputStream out) throws IOException {
 		delegate().serialize(checkNotNull(out));
 	}
 

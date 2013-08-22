@@ -56,7 +56,7 @@ import com.google.common.io.ByteStreams;
 /**
  * Node page test.
  */
-public class NodePageTest {
+public final class NodePageTest {
 
 	/** {@link Holder} instance. */
 	private Holder mHolder;

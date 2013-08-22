@@ -2,6 +2,9 @@ package org.sirix.index.name;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -9,8 +12,6 @@ import java.util.Map.Entry;
 import org.sirix.settings.Constants;
 
 import com.google.common.collect.HashBiMap;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Names index structure.
@@ -40,7 +41,7 @@ public final class Names {
 	 * @param in
 	 *          the persistent storage
 	 */
-	private Names(final ByteArrayDataInput in) {
+	private Names(final DataInputStream in) throws IOException {
 		final int mapSize = in.readInt();
 		mNameMap = HashBiMap.create(mapSize);
 		mCountNameMapping = new HashMap<>(mapSize);
@@ -62,7 +63,7 @@ public final class Names {
 	 * @param out
 	 *          the persistent storage
 	 */
-	public void serialize(final ByteArrayDataOutput out) {
+	public void serialize(final DataOutputStream out) throws IOException {
 		out.writeInt(mNameMap.size());
 		for (final Entry<Integer, byte[]> entry : mNameMap.entrySet()) {
 			out.writeInt(entry.getKey());
@@ -179,7 +180,7 @@ public final class Names {
 	 *          input source, the persistent storage
 	 * @return cloned index
 	 */
-	public static Names clone(final ByteArrayDataInput in) {
+	public static Names clone(final DataInputStream in) throws IOException {
 		return new Names(in);
 	}
 }

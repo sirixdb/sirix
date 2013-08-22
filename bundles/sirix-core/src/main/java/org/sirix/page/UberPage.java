@@ -29,6 +29,10 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
@@ -40,8 +44,6 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * <h1>UberPage</h1>
@@ -97,7 +99,7 @@ public final class UberPage extends AbstractForwardingPage {
 	 * @param resourceConfig
 	 *          {@link ResourceConfiguration} reference
 	 */
-	protected UberPage(final ByteArrayDataInput in) {
+	protected UberPage(final DataInputStream in) throws IOException {
 		mDelegate = new PageDelegate(1, in);
 		mRevisionCount = in.readInt();
 		mRevision = mRevisionCount == 0 ? 0 : mRevisionCount - 1;
@@ -187,7 +189,7 @@ public final class UberPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(final ByteArrayDataOutput out) {
+	public void serialize(DataOutputStream out) throws IOException {
 		mBootstrap = false;
 		mDelegate.serialize(checkNotNull(out));
 		out.writeInt(mRevisionCount);

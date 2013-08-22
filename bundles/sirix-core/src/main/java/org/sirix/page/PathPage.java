@@ -26,6 +26,9 @@ package org.sirix.page;
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -38,8 +41,6 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Page to hold references to a value summary.
@@ -79,8 +80,10 @@ public final class PathPage extends AbstractForwardingPage {
 	 * 
 	 * @param in
 	 *          input bytes to read from
+	 * @throws IOException
+	 *           if the page couldn't be deserialized
 	 */
-	protected PathPage(final ByteArrayDataInput in) {
+	protected PathPage(final DataInputStream in) throws IOException {
 		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
 		final int size = in.readInt();
 		mMaxNodeKeys = new HashMap<>(size);
@@ -128,7 +131,7 @@ public final class PathPage extends AbstractForwardingPage {
 	}
 	
 	@Override
-	public void serialize(ByteArrayDataOutput out) {
+	public void serialize(DataOutputStream out) throws IOException {
 		super.serialize(out);
 		final int size = mMaxNodeKeys.size();
 		out.writeInt(size);

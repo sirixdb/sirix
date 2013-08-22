@@ -3,12 +3,11 @@
  */
 package org.sirix.io.bytepipe;
 
-import java.io.ByteArrayOutputStream;
-import java.util.zip.DataFormatException;
-import java.util.zip.Deflater;
-import java.util.zip.Inflater;
-
-import org.sirix.exception.SirixIOException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.zip.DeflaterOutputStream;
+import java.util.zip.InflaterInputStream;
 
 /**
  * Decorator to zip any data.
@@ -16,62 +15,18 @@ import org.sirix.exception.SirixIOException;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class DeflateCompressor implements ByteHandler {
+public final class DeflateCompressor implements ByteHandler {
 
-	/** {@link Deflater} instance. */
-	private final Deflater mCompressor;
-
-	/** {@link Inflater} instance. */
-	private final Inflater mDecompressor;
-
-	private final byte[] mTmp;
-
-	/** {@link ByteArrayOutputStream} instance. */
-	private final ByteArrayOutputStream mOut;
-
-	/**
-	 * Constructor.
-	 */
-	public DeflateCompressor() {
-		mCompressor = new Deflater();
-		mDecompressor = new Inflater();
-		mTmp = new byte[32767];
-		mOut = new ByteArrayOutputStream();
+	@Override
+	public OutputStream serialize(final OutputStream toSerialize)
+			throws IOException {
+		return new DeflaterOutputStream(toSerialize);
 	}
 
 	@Override
-	public byte[] serialize(final byte[] toSerialize)
-			throws SirixIOException {
-		mCompressor.reset();
-		mOut.reset();
-		mCompressor.setInput(toSerialize);
-		mCompressor.finish();
-		int count;
-		while (!mCompressor.finished()) {
-			count = mCompressor.deflate(mTmp);
-			mOut.write(mTmp, 0, count);
-		}
-		final byte[] result = mOut.toByteArray();
-		return result;
-	}
-
-	@Override
-	public byte[] deserialize(final byte[] toDeserialize)
-			throws SirixIOException {
-		mDecompressor.reset();
-		mOut.reset();
-		mDecompressor.setInput(toDeserialize);
-		int count;
-		while (!mDecompressor.finished()) {
-			try {
-				count = mDecompressor.inflate(mTmp);
-			} catch (final DataFormatException e) {
-				throw new SirixIOException(e);
-			}
-			mOut.write(mTmp, 0, count);
-		}
-		final byte[] result = mOut.toByteArray();
-		return result;
+	public InputStream deserialize(final InputStream toDeserialize)
+			throws IOException {
+		return new InflaterInputStream(toDeserialize);
 	}
 
 	@Override

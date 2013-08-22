@@ -27,15 +27,19 @@
 
 package org.sirix.cache;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import javax.annotation.Nullable;
 
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.UnorderedKeyValuePage;
 import org.sirix.page.interfaces.KeyValuePage;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleOutput;
 
 /**
@@ -61,6 +65,9 @@ import com.sleepycat.bind.tuple.TupleOutput;
  */
 public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
+	/** Logger. */
+	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(RecordPageContainer.class));
+	
 	/**
 	 * {@link UnorderedKeyValuePage} reference, which references the complete
 	 * key/value page.
@@ -149,9 +156,14 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 *          for serialization
 	 */
 	public void serialize(final TupleOutput out) {
-		final ByteArrayDataOutput sink = ByteStreams.newDataOutput();
-		PagePersistenter.serializePage(sink, mComplete);
-		PagePersistenter.serializePage(sink, mModified);
+		final ByteArrayOutputStream sink = new ByteArrayOutputStream();
+		final DataOutputStream dataOut = new DataOutputStream(sink);
+		try {
+			PagePersistenter.serializePage(dataOut, mComplete);
+			PagePersistenter.serializePage(dataOut, mModified);
+		} catch (final IOException e) {
+			LOGGER.error(e.getMessage(), e);
+		}
 		out.write(sink.toByteArray());
 	}
 
