@@ -95,12 +95,12 @@
 
 	<dependencies>
 		<dependency>
-			<groupId>com.github.johanneslichtenberger.sirix</groupId>
+			<groupId>com.github.sirixdb.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
 			<version>0.1.2-SNAPSHOT</version>
 		</dependency>
 		<dependency>
-			<groupId>com.github.johanneslichtenberger.sirix</groupId>
+			<groupId>com.github.sirixdb.sirix</groupId>
 			<artifactId>sirix-core</artifactId>
 			<version>0.1.2-SNAPSHOT</version>
 			<type>test-jar</type>

@@ -27,15 +27,19 @@
 
 package org.sirix.cache;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
+
 import javax.annotation.Nullable;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.interfaces.KeyValuePage;
+import org.sirix.utils.LogWrapper;
+import org.slf4j.LoggerFactory;
 
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
@@ -43,8 +47,12 @@ import com.sleepycat.bind.tuple.TupleOutput;
 /**
  * Binding for {@link RecordPageContainer} reference.
  */
-public class PageContainerBinding<T extends KeyValuePage<?, ?>> extends
+public final class PageContainerBinding<T extends KeyValuePage<?, ?>> extends
 		TupleBinding<RecordPageContainer<T>> {
+
+	/** Logger. */
+	private static final LogWrapper LOGGER = new LogWrapper(
+			LoggerFactory.getLogger(PageContainerBinding.class));
 
 	/** {@link ResourceConfiguration} instance. */
 	private final PageReadTrx mPageReadTrx;
@@ -60,24 +68,29 @@ public class PageContainerBinding<T extends KeyValuePage<?, ?>> extends
 		mPageReadTrx = pageReadTrx;
 	}
 
-
 	@Override
-	public RecordPageContainer<T> entryToObject(
-			final @Nullable TupleInput input) {
+	public RecordPageContainer<T> entryToObject(final @Nullable TupleInput input) {
 		if (input == null) {
 			@SuppressWarnings("unchecked")
 			final RecordPageContainer<T> emptyInstance = (RecordPageContainer<T>) RecordPageContainer.EMPTY_INSTANCE;
 			return emptyInstance;
 		}
-		final ByteArrayDataInput source = ByteStreams.newDataInput(input
-				.getBufferBytes());
-		@SuppressWarnings("unchecked")
-		final T current = (T) PagePersistenter
-				.deserializePage(source, mPageReadTrx);
-		@SuppressWarnings("unchecked")
-		final T modified = (T) PagePersistenter
-				.deserializePage(source, mPageReadTrx);
-		return new RecordPageContainer<T>(current, modified);
+		final DataInputStream source = new DataInputStream(
+				new ByteArrayInputStream(input.getBufferBytes()));
+		try {
+			@SuppressWarnings("unchecked")
+			final T current = (T) PagePersistenter.deserializePage(source,
+					mPageReadTrx);
+			@SuppressWarnings("unchecked")
+			final T modified = (T) PagePersistenter.deserializePage(source,
+					mPageReadTrx);
+			return new RecordPageContainer<T>(current, modified);
+		} catch (final IOException e) {
+			LOGGER.error(e.getMessage(), e);
+			@SuppressWarnings("unchecked")
+			final RecordPageContainer<T> emptyInstance = (RecordPageContainer<T>) RecordPageContainer.EMPTY_INSTANCE;
+			return emptyInstance;
+		}
 	}
 
 	@Override

@@ -29,6 +29,10 @@ package org.sirix.page.delegates;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import javax.annotation.Nonnegative;
 
 import org.sirix.api.PageWriteTrx;
@@ -40,8 +44,6 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * <h1>PageDelegate</h1>
@@ -82,9 +84,11 @@ public class PageDelegate implements Page {
 	 *          number of references of page
 	 * @param in
 	 *          input stream to read from
+	 * @throws IOException
+	 *           if the delegate couldn't be deserialized
 	 */
 	public PageDelegate(final @Nonnegative int referenceCount,
-			final ByteArrayDataInput in) {
+			final DataInputStream in) throws IOException {
 		checkArgument(referenceCount >= 0);
 		mReferences = new PageReference[referenceCount];
 		mIsDirty = false;
@@ -147,7 +151,7 @@ public class PageDelegate implements Page {
 	 *          output stream
 	 */
 	@Override
-	public void serialize(final ByteArrayDataOutput out) {
+	public void serialize(final DataOutputStream out) throws IOException {
 		for (final PageReference reference : mReferences) {
 			out.writeLong(reference.getKey());
 		}

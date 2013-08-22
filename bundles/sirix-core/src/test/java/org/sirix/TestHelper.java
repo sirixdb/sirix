@@ -321,8 +321,8 @@ public final class TestHelper {
 	 * @return the random bytes
 	 */
 	public static final @Nonnull
-	byte[] generateRandomBytes(final int pSize) {
-		final byte[] returnVal = new byte[pSize];
+	byte[] generateRandomBytes(final int size) {
+		final byte[] returnVal = new byte[size];
 		random.nextBytes(returnVal);
 		return returnVal;
 	}

@@ -29,6 +29,12 @@ package org.sirix.page;
 import static org.sirix.node.Utils.getVarLong;
 import static org.sirix.node.Utils.putVarLong;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -55,9 +61,6 @@ import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.base.Optional;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 
 /**
  * <h1>UnorderedKeyValuePage</h1>
@@ -114,8 +117,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 *          the page reading transaction
 	 */
 	public UnorderedKeyValuePage(final @Nonnegative long recordPageKey,
-			final PageKind pageKind,
-			final Optional<PageReference> previousPageRef,
+			final PageKind pageKind, final Optional<PageReference> previousPageRef,
 			final PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
@@ -140,8 +142,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 * @param pageReadTrx
 	 *          {@link PageReadTrx} implementation
 	 */
-	protected UnorderedKeyValuePage(final ByteArrayDataInput in,
-			final PageReadTrx pageReadTrx) {
+	protected UnorderedKeyValuePage(final DataInputStream in,
+			final PageReadTrx pageReadTrx) throws IOException {
 		mRecordPageKey = getVarLong(in);
 		mPersistenter = pageReadTrx.getSession().getResourceConfig().mPersistenter;
 		mPageReadTrx = pageReadTrx;
@@ -153,8 +155,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			final int dataSize = in.readInt();
 			final byte[] data = new byte[dataSize];
 			in.readFully(data);
-			final Record record = mPersistenter.deserialize(ByteStreams.newDataInput(data), key,
-					mPageReadTrx);
+			final Record record = mPersistenter.deserialize(new DataInputStream(
+					new ByteArrayInputStream(data)), key, mPageReadTrx);
 			mRecords.put(key, record);
 		}
 		final int overlongEntrySize = in.readInt();
@@ -199,8 +201,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			} catch (final SirixIOException e) {
 				return null;
 			}
-			record = mPersistenter.deserialize(ByteStreams.newDataInput(data), key,
-					mPageReadTrx);
+			final InputStream in = new ByteArrayInputStream(data);
+			try {
+				record = mPersistenter.deserialize(new DataInputStream(in), key,
+						mPageReadTrx);
+			} catch (final IOException e) {
+				return null;
+			}
 			mRecords.put(key, record);
 		}
 		return record;
@@ -214,7 +221,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public void serialize(final ByteArrayDataOutput out) {
+	public void serialize(DataOutputStream out) throws IOException {
 		if (!mAddedReferences) {
 			addReferences();
 		}
@@ -288,7 +295,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	public <K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
 			PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException {
 		if (!mAddedReferences) {
-			addReferences();
+			try {
+				addReferences();
+			} catch (final IOException e) {
+				throw new SirixIOException(e);
+			}
 		}
 
 		for (final PageReference reference : mReferences.values()) {
@@ -300,7 +311,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	// Add references to OverflowPages.
-	private void addReferences() {
+	private void addReferences() throws IOException {
 		final PeekingIterator<Entry<Long, Record>> it = Iterators
 				.peekingIterator(mRecords.entrySet().iterator());
 		while (it.hasNext()) {
@@ -308,7 +319,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			final Record record = entry.getValue();
 			final long recordID = record.getNodeKey();
 			if (mSlots.get(recordID) == null) {
-				final ByteArrayDataOutput output = ByteStreams.newDataOutput();
+				final ByteArrayOutputStream output = new ByteArrayOutputStream();
 				Entry<Long, Record> nextEntry = null;
 				try {
 					nextEntry = it.peek();
@@ -316,7 +327,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 				}
 				final Record nextRecord = nextEntry == null ? null : nextEntry
 						.getValue();
-				mPersistenter.serialize(output, record, nextRecord, mPageReadTrx);
+				mPersistenter.serialize(new DataOutputStream(output), record,
+						nextRecord, mPageReadTrx);
 				final byte[] data = output.toByteArray();
 				if (data.length > PageConstants.MAX_RECORD_SIZE) {
 					final PageReference reference = new PageReference();
@@ -377,8 +389,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public void setPageReference(final Long key,
-			final PageReference reference) {
+	public void setPageReference(final Long key, final PageReference reference) {
 		assert key != null;
 		mReferences.put(key, reference);
 	}

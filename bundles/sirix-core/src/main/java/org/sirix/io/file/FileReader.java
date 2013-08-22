@@ -29,6 +29,8 @@ package org.sirix.io.file;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -44,9 +46,6 @@ import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
-
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteStreams;
 
 /**
  * File Reader. Used for {@link PageReadTrx} to provide read only access on a
@@ -107,8 +106,8 @@ public final class FileReader implements Reader {
 			mFile.read(page);
 
 			// Perform byte operations.
-			final ByteArrayDataInput input = ByteStreams.newDataInput(mByteHandler
-					.deserialize(page));
+			final DataInputStream input = new DataInputStream(mByteHandler
+					.deserialize(new ByteArrayInputStream(page)));
 
 			// Return reader required to instantiate and deserialize page.
 			return PagePersistenter.deserializePage(input, pageReadTrx);

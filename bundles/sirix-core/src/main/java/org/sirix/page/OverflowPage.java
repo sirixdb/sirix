@@ -1,13 +1,14 @@
 package org.sirix.page;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
-
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * OverflowPage used to store records which are longer than a predefined
@@ -40,7 +41,7 @@ public final class OverflowPage implements Page {
 		mData = data;
 	}
 	
-	public OverflowPage(final ByteArrayDataInput in) {
+	public OverflowPage(final DataInputStream in) throws IOException {
 		mData = new byte[in.readInt()];
 		in.readFully(mData);
 	}
@@ -72,7 +73,7 @@ public final class OverflowPage implements Page {
 	}
 
 	@Override
-	public void serialize(final ByteArrayDataOutput out) {
+	public void serialize(final DataOutputStream out) throws IOException {
 		out.writeInt(mData.length);
 		out.write(mData);
 	}

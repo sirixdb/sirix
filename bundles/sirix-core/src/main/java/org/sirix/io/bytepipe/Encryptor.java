@@ -3,13 +3,15 @@
  */
 package org.sirix.io.bytepipe;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.security.GeneralSecurityException;
-import java.security.InvalidKeyException;
 import java.security.Key;
-import java.security.NoSuchAlgorithmException;
 
 import javax.crypto.Cipher;
-import javax.crypto.NoSuchPaddingException;
+import javax.crypto.CipherInputStream;
+import javax.crypto.CipherOutputStream;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.sirix.exception.SirixIOException;
@@ -20,16 +22,10 @@ import org.sirix.exception.SirixIOException;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class Encryptor implements ByteHandler {
+public final class Encryptor implements ByteHandler {
 
 	/** Algorithm to use. */
 	private static final String ALGORITHM = "AES";
-
-	/** Iterations. */
-	private static final int ITERATIONS = 2;
-
-	/** Cipher to perform encryption and decryption operations. */
-	private final Cipher mCipher;
 
 	/** Key for access data. */
 	private final Key mKey;
@@ -45,50 +41,30 @@ public class Encryptor implements ByteHandler {
 	 *           if an I/O error occurs
 	 */
 	public Encryptor() {
+		mKey = new SecretKeySpec(KEYVALUE, ALGORITHM);
+	}
+
+	@Override
+	public OutputStream serialize(final OutputStream toSerialize)
+			throws IOException {
 		try {
-			mCipher = Cipher.getInstance(ALGORITHM);
-			mKey = new SecretKeySpec(KEYVALUE, "AES");
-		} catch (final NoSuchAlgorithmException e) {
-			throw new IllegalStateException(e);
-		} catch (final NoSuchPaddingException e) {
-			throw new IllegalStateException(e);
+			final Cipher cipher = Cipher.getInstance(ALGORITHM);
+			cipher.init(Cipher.ENCRYPT_MODE, mKey);
+			return new CipherOutputStream(toSerialize, cipher);
+		} catch (final GeneralSecurityException e) {
+			throw new IOException(e);
 		}
 	}
 
 	@Override
-	public byte[] serialize(final byte[] toSerialize)
-			throws SirixIOException {
+	public InputStream deserialize(final InputStream toDeserialize)
+			throws IOException {
 		try {
-			mCipher.init(Cipher.ENCRYPT_MODE, mKey);
-
-			byte[] toEncrypt = toSerialize;
-			for (int i = 0; i < ITERATIONS; i++) {
-				byte[] encValue = mCipher.doFinal(toEncrypt);
-				toEncrypt = encValue;
-			}
-			return toEncrypt;
+			final Cipher cipher = Cipher.getInstance(ALGORITHM);
+			cipher.init(Cipher.DECRYPT_MODE, mKey);
+			return new CipherInputStream(toDeserialize, cipher);
 		} catch (final GeneralSecurityException e) {
-			throw new SirixIOException(e);
-		}
-	}
-
-	@Override
-	public byte[] deserialize(final byte[] toDeserialize)
-			throws SirixIOException {
-		try {
-			mCipher.init(Cipher.DECRYPT_MODE, mKey);
-
-			byte[] toDecrypt = toDeserialize;
-			for (int i = 0; i < ITERATIONS; i++) {
-				byte[] decValue = mCipher.doFinal(toDecrypt);
-				toDecrypt = decValue;
-			}
-			return toDecrypt;
-
-		} catch (final InvalidKeyException e) {
-			throw new SirixIOException(e);
-		} catch (final GeneralSecurityException e) {
-			throw new SirixIOException(e);
+			throw new IOException(e);
 		}
 	}
 

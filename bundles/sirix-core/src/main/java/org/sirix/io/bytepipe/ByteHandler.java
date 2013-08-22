@@ -1,6 +1,8 @@
 package org.sirix.io.bytepipe;
 
-import org.sirix.exception.SirixIOException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 /**
  * Interface for the decorator, representing any byte representation to be
@@ -17,10 +19,10 @@ public interface ByteHandler {
 	 * @param toSerialize
 	 *          byte to be serialized
 	 * @return result of the serialization
-	 * @throws SirixIOException
+	 * @throws IOException
 	 *           if a byte handling exception occurs
 	 */
-	byte[] serialize(byte[] toSerialize) throws SirixIOException;
+	OutputStream serialize(OutputStream pToSerialize) throws IOException;
 
 	/**
 	 * Method to deserialize any byte-chunk.
@@ -28,10 +30,10 @@ public interface ByteHandler {
 	 * @param toDeserialize
 	 *          to deserialize
 	 * @return result of the deserialization
-	 * @throws SirixIOException
+	 * @throws IOException
 	 *           if a byte handling exception occurs
 	 */
-	byte[] deserialize(byte[] toDeserialize) throws SirixIOException;
+	InputStream deserialize(InputStream toDeserialize) throws IOException;
 
 	/**
 	 * Method to retrieve a new instance.

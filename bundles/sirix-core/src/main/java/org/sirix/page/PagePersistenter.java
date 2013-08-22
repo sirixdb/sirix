@@ -27,13 +27,14 @@
 
 package org.sirix.page;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.page.interfaces.Page;
-
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Persists pages on secondary storage.
@@ -52,10 +53,12 @@ public final class PagePersistenter {
 	 *          instance of class, which implements the {@link PageReadTrx}
 	 *          interface
 	 * @return {@link Page} instance
+	 * @throws IOException
+	 *           if an exception during deserialization of a page occurs
 	 */
 	public static @Nonnull
-	Page deserializePage(final ByteArrayDataInput source,
-			final PageReadTrx pageReadTrx) {
+	Page deserializePage(final DataInputStream source,
+			final PageReadTrx pageReadTrx) throws IOException {
 		return PageKind.getKind(source.readByte()).deserializePage(source,
 				pageReadTrx);
 	}
@@ -67,9 +70,11 @@ public final class PagePersistenter {
 	 *          output sink
 	 * @param page
 	 *          the {@link Page} to serialize
+	 * @throws IOException
+	 *           if an exception during serialization of a page occurs
 	 */
-	public static void serializePage(final ByteArrayDataOutput sink,
-			final Page page) {
+	public static void serializePage(final DataOutputStream sink,
+			final Page page) throws IOException {
 		PageKind.getKind(page.getClass()).serializePage(sink, page);
 	}
 

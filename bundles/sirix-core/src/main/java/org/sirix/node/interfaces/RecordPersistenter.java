@@ -1,5 +1,9 @@
 package org.sirix.node.interfaces;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
@@ -27,10 +31,12 @@ public interface RecordPersistenter {
 	 * @return a {@link Node} instance
 	 * @throws NullPointerException
 	 *           if one of the parameters is {@code null}
+	 * @throws IOException
+	 * 					 if an I/O error occurs during deserialization
 	 */
 	@Nonnull
-	Record deserialize(ByteArrayDataInput source, @Nonnegative long recordID, 
-			@Nonnull PageReadTrx pageReadTrx);
+	Record deserialize(DataInputStream source, @Nonnegative long recordID, 
+			@Nonnull PageReadTrx pageReadTrx) throws IOException;
 
 	/**
 	 * Serialize a record from a {@link ByteArrayDataOutput} instance.
@@ -46,7 +52,9 @@ public interface RecordPersistenter {
 	 *          {@link PageReadTrx} instance
 	 * @throws NullPointerException
 	 *           if one of the parameters is {@code null}
+	 * @throws IOException
+	 * 					 if an I/O error occurs during serialization
 	 */
-	void serialize(ByteArrayDataOutput sink, @Nonnull Record record,
-			@Nonnull Record previousRecord, @Nonnull PageReadTrx pageReadTrx);
+	void serialize(DataOutputStream sink, @Nonnull Record record,
+			@Nonnull Record previousRecord, @Nonnull PageReadTrx pageReadTrx) throws IOException;
 }

@@ -1,5 +1,7 @@
 package org.sirix.index.bplustree;
 
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -103,7 +105,8 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	 */
 	protected BPlusInnerNodePage(final ByteArrayDataInput in,
 			final PageReadTrx pageReadTrx) {
-		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
+		mDelegate = null;
+//		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mRecords = new TreeMap<>();
@@ -132,7 +135,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	}
 
 	@Override
-	public void serialize(final ByteArrayDataOutput out) {
+	public void serialize(final DataOutputStream out) throws IOException {
 		super.serialize(out);
 		out.writeLong(mRecordPageKey);
 		out.writeInt(mRecords.size());
@@ -147,7 +150,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	}
 
 	private void serializePointer(final Optional<PageReference> page,
-			final ByteArrayDataOutput out) {
+			final DataOutputStream out) throws IOException {
 		if (page.isPresent()) {
 			out.writeBoolean(page.get().getKey() == org.sirix.settings.Constants.NULL_ID ? false
 					: true);

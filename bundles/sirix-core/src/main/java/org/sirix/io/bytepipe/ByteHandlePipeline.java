@@ -3,11 +3,12 @@
  */
 package org.sirix.io.bytepipe;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
-import org.sirix.exception.SirixIOException;
 
 /**
  * Pipeline to handle Bytes before stored in the backends.
@@ -48,9 +49,9 @@ public final class ByteHandlePipeline implements ByteHandler {
 	}
 
 	@Override
-	public byte[] serialize(final byte[] toSerialize)
-			throws SirixIOException {
-		byte[] pipeData = toSerialize;
+	public OutputStream serialize(final OutputStream toSerialize)
+			throws IOException {
+		OutputStream pipeData = toSerialize;
 		for (final ByteHandler part : mParts) {
 			pipeData = part.serialize(pipeData);
 		}
@@ -58,11 +59,11 @@ public final class ByteHandlePipeline implements ByteHandler {
 	}
 
 	@Override
-	public byte[] deserialize(final byte[] toDeserialize)
-			throws SirixIOException {
-		byte[] pipeData = toDeserialize;
-		for (int i = mParts.size() - 1; i >= 0; i--) {
-			pipeData = mParts.get(i).deserialize(pipeData);
+	public InputStream deserialize(final InputStream toDeserialize)
+			throws IOException {
+		InputStream pipeData = toDeserialize;
+		for (final ByteHandler part : mParts) {
+			pipeData = part.deserialize(pipeData);
 		}
 		return pipeData;
 	}

@@ -29,6 +29,10 @@ package org.sirix.page;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
@@ -42,8 +46,6 @@ import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
 
 import com.google.common.base.Objects;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * <h1>RevisionRootPage</h1>
@@ -102,7 +104,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 * @param in
 	 *          input stream
 	 */
-	protected RevisionRootPage(final ByteArrayDataInput in) {
+	protected RevisionRootPage(final DataInputStream in) throws IOException {
 		mDelegate = new PageDelegate(5, in);
 		mRevision = in.readInt();
 		mMaxNodeKey = in.readLong();
@@ -220,7 +222,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(final ByteArrayDataOutput out) {
+	public void serialize(DataOutputStream out) throws IOException {
 		mRevisionTimestamp = System.currentTimeMillis();
 		mDelegate.serialize(checkNotNull(out));
 		out.writeInt(mRevision);

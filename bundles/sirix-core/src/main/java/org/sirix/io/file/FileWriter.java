@@ -27,9 +27,13 @@
 
 package org.sirix.io.file;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 
@@ -41,7 +45,6 @@ import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
 
-import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
 
 /**
@@ -90,16 +93,20 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 	@Override
 	public void write(final PageReference pageReference)
 			throws SirixIOException {
-		// Serialise page.
-		final Page page = pageReference.getPage();
-		assert page != null;
-		final ByteArrayDataOutput output = ByteStreams.newDataOutput();
-		PagePersistenter.serializePage(output, page);
-
 		// Perform byte operations.
 		try {
-			final byte[] serializedPage = mReader.mByteHandler.serialize(output
-					.toByteArray());
+			// Serialize page.
+			final Page page = pageReference.getPage();
+			assert page != null;
+			final ByteArrayOutputStream output = new ByteArrayOutputStream();
+			
+			PagePersistenter.serializePage(new DataOutputStream(output), page);
+
+			final OutputStream out = mReader.mByteHandler.serialize(output);
+			
+			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), out);
+			
+			final byte[] serializedPage = output.toByteArray();
 
 			final byte[] writtenPage = new byte[serializedPage.length
 					+ FileReader.OTHER_BEACON];
