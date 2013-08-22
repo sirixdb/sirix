@@ -131,7 +131,7 @@ public final class DocumentWrapper implements DocumentInfo {
 	 */
 	public DocumentWrapper(final Session session,
 			final Configuration config) throws SirixException {
-		this(session, session.getLastRevisionNumber(), config);
+		this(session, session.getMostRecentRevisionNumber(), config);
 	}
 
 	@Override
