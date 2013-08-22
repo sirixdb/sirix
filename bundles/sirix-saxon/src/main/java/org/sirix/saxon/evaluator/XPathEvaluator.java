@@ -92,7 +92,7 @@ public final class XPathEvaluator implements Callable<XPathSelector> {
 				final Session session) {
 			mExpression = checkNotNull(expression);
 			mSession = checkNotNull(session);
-			mRevision = session.getLastRevisionNumber();
+			mRevision = session.getMostRecentRevisionNumber();
 		}
 
 		/**
