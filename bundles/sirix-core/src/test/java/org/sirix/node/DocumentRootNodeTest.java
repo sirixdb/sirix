@@ -29,6 +29,12 @@ package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,9 +47,6 @@ import org.sirix.node.delegates.StructNodeDelegate;
 import org.sirix.settings.Fixed;
 
 import com.google.common.base.Optional;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 
 /**
  * Document root node test.
@@ -71,7 +74,7 @@ public class DocumentRootNodeTest {
 	}
 	
 	@Test
-	public void testDocumentRootNode() {
+	public void testDocumentRootNode() throws IOException {
 
 		// Create empty node.
 		final NodeDelegate nodeDel = new NodeDelegate(
@@ -87,13 +90,12 @@ public class DocumentRootNodeTest {
 		check(node);
 
 		// Serialize and deserialize node.
-		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node.getKind().serialize(out, node, null, mPageReadTrx);
-		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT
-				.deserialize(in, node.getNodeKey(), mPageReadTrx);
+		final ByteArrayOutputStream out = new ByteArrayOutputStream();
+		node.getKind().serialize(new DataOutputStream(out), node, null, mPageReadTrx);
+		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT.deserialize(new DataInputStream(in), node.getNodeKey(), 
+				mPageReadTrx);
 		check(node2);
-
 	}
 
 	private final static void check(final DocumentRootNode node) {

@@ -5,6 +5,11 @@ package org.sirix.page;
 
 import static org.testng.AssertJUnit.assertTrue;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.Arrays;
 
 import org.sirix.Holder;
@@ -65,20 +70,20 @@ public class PageTest {
 	 *          page as class
 	 * @param handlers
 	 *          different pages
+	 * @throws IOException 
 	 */
 	@Test(dataProvider = "instantiatePages")
 	public void testByteRepresentation(final Class<Page> clazz,
-			final Page[] handlers) {
+			final Page[] handlers) throws IOException {
 		for (final Page handler : handlers) {
-			final ByteArrayDataOutput output = ByteStreams.newDataOutput();
-			handler.serialize(output);
-			final byte[] pageBytes = output.toByteArray();
-			final ByteArrayDataInput input = ByteStreams.newDataInput(pageBytes);
+			final ByteArrayOutputStream out = new ByteArrayOutputStream();
+			handler.serialize(new DataOutputStream(out));
+			final byte[] pageBytes = out.toByteArray();
 
-			final ByteArrayDataOutput serializedOutput = ByteStreams.newDataOutput();
+			final ByteArrayOutputStream serializedOutput = new ByteArrayOutputStream();
 			final Page serializedPage = PageKind.getKind(handler.getClass())
-					.deserializePage(input, mPageReadTrx);
-			serializedPage.serialize(serializedOutput);
+					.deserializePage(new DataInputStream(new ByteArrayInputStream(pageBytes)), mPageReadTrx);
+			serializedPage.serialize(new DataOutputStream(serializedOutput));
 			assertTrue(new StringBuilder("Check for ").append(handler.getClass())
 					.append(" failed.").toString(),
 					Arrays.equals(pageBytes, serializedOutput.toByteArray()));
