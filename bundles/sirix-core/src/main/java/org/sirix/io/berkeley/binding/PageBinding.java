@@ -27,6 +27,7 @@
 
 package org.sirix.io.berkeley.binding;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -39,6 +40,7 @@ import org.sirix.page.interfaces.Page;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.io.ByteStreams;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.bind.tuple.TupleInput;
 import com.sleepycat.bind.tuple.TupleOutput;
@@ -113,10 +115,10 @@ public final class PageBinding extends TupleBinding<Page> {
 	@Override
 	public void objectToEntry(final Page page, final TupleOutput output) {
 		try {
-			final DataOutputStream outputData = new DataOutputStream(output);
-			PagePersistenter.serializePage(outputData, page);
-			mByteHandler.serialize(outputData);
-			output.close();
+			final DataOutputStream dataOutput = new DataOutputStream(mByteHandler.serialize(output));
+			PagePersistenter.serializePage(dataOutput, page);
+			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
+			dataOutput.close();
 		} catch (final IOException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
