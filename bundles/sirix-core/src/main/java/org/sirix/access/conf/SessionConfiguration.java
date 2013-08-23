@@ -33,7 +33,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 
-import org.sirix.access.IndexController;
 import org.sirix.api.Database;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.NodeWriteTrx;
