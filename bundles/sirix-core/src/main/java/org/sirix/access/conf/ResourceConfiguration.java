@@ -137,12 +137,14 @@ public final class ResourceConfiguration {
 		public static int compareStructure(final File file) {
 			int existing = 0;
 			for (final Paths paths : values()) {
+				if (paths == Paths.INDEXES)
+					continue;
 				final File currentFile = new File(file, paths.getFile().getName());
 				if (currentFile.exists()) {
 					existing++;
 				}
 			}
-			return existing - values().length;
+			return existing - values().length + 1;
 		}
 	}
 
