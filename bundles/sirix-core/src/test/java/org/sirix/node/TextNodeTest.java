@@ -29,6 +29,12 @@ package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,9 +49,6 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.NamePageHash;
 
 import com.google.common.base.Optional;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 
 /**
  * Text node test.
@@ -73,7 +76,7 @@ public class TextNodeTest {
 	}
 
 	@Test
-	public void testTextRootNode() {
+	public void testTextRootNode() throws IOException {
 		// Create empty node.
 		final byte[] value = { (byte) 17, (byte) 18 };
 		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0,
@@ -85,11 +88,11 @@ public class TextNodeTest {
 		check(node);
 
 		// Serialize and deserialize node.
-		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node.getKind().serialize(out, node, null, mPageReadTrx);
-		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(in,
-				node.getNodeKey(), mPageReadTrx);
+		final ByteArrayOutputStream out = new ByteArrayOutputStream();
+		node.getKind().serialize(new DataOutputStream(out), node, null, mPageReadTrx);
+		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(new DataInputStream(in), node.getNodeKey(), 
+				mPageReadTrx);
 		check(node2);
 	}
 

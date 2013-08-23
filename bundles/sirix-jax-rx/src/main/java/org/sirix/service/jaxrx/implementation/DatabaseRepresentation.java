@@ -402,7 +402,7 @@ public class DatabaseRepresentation {
 			try {
 				session = database.getSession(new SessionConfiguration.Builder(
 						resourceName).build());
-				lastRevision = session.getLastRevisionNumber();
+				lastRevision = session.getMostRecentRevisionNumber();
 			} catch (final Exception globExcep) {
 				throw new JaxRxException(globExcep);
 			} finally {

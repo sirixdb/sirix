@@ -30,6 +30,11 @@ package org.sirix.page;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 
 import org.junit.After;
@@ -49,9 +54,6 @@ import org.sirix.utils.NamePageHash;
 
 import com.google.common.base.Optional;
 import com.google.common.collect.HashBiMap;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 
 /**
  * Node page test.
@@ -80,7 +82,7 @@ public final class NodePageTest {
 	}
 
 	@Test
-	public void testSerializeDeserialize() {
+	public void testSerializeDeserialize() throws IOException {
 		final UnorderedKeyValuePage page1 = new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE, Optional.<PageReference> absent(), mPageReadTrx);
 		assertEquals(0L, page1.getPageKey());
 
@@ -99,10 +101,11 @@ public final class NodePageTest {
 		assertEquals(0L, node1.getNodeKey());
 		page1.setEntry(node1.getNodeKey(), node1);
 
-		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		PagePersistenter.serializePage(out, page1);
-		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) PagePersistenter.deserializePage(in,
+		final ByteArrayOutputStream out = new ByteArrayOutputStream();
+		final DataOutputStream dataOut = new DataOutputStream(out);
+		PagePersistenter.serializePage(dataOut, page1);
+		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+		final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) PagePersistenter.deserializePage(new DataInputStream(in),
 				mPageReadTrx);
 		// assertEquals(position, out.position());
 		final ElementNode element = (ElementNode) page2.getValue(0l);

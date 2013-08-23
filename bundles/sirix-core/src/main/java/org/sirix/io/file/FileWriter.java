@@ -99,12 +99,13 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 			final Page page = pageReference.getPage();
 			assert page != null;
 			final ByteArrayOutputStream output = new ByteArrayOutputStream();
-			
-			PagePersistenter.serializePage(new DataOutputStream(output), page);
+			final DataOutputStream dataOutput = new DataOutputStream(mReader.mByteHandler.serialize(output));
+			PagePersistenter.serializePage(dataOutput, page);
 
-			final OutputStream out = mReader.mByteHandler.serialize(output);
+			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
 			
-			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), out);
+			output.close();
+			dataOutput.close();
 			
 			final byte[] serializedPage = output.toByteArray();
 

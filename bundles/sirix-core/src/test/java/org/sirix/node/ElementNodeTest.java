@@ -30,6 +30,11 @@ package org.sirix.node;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 
 import org.junit.After;
@@ -46,9 +51,6 @@ import org.sirix.utils.NamePageHash;
 
 import com.google.common.base.Optional;
 import com.google.common.collect.HashBiMap;
-import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
-import com.google.common.io.ByteStreams;
 
 /**
  * Element node test.
@@ -76,7 +78,7 @@ public class ElementNodeTest {
 	}
 
 	@Test
-	public void testElementNode() {
+	public void testElementNode() throws IOException {
 		final NodeDelegate del = new NodeDelegate(13, 14, 0, 0,
 				Optional.of(SirixDeweyID.newRootID()));
 		final StructNodeDelegate strucDel = new StructNodeDelegate(del, 12l, 17l,
@@ -95,11 +97,11 @@ public class ElementNodeTest {
 		check(node);
 
 		// Serialize and deserialize node.
-		final ByteArrayDataOutput out = ByteStreams.newDataOutput();
-		node.getKind().serialize(out, node, null, mPageReadTrx);
-		final ByteArrayDataInput in = ByteStreams.newDataInput(out.toByteArray());
-		final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(in,
-				node.getNodeKey(), mPageReadTrx);
+		final ByteArrayOutputStream out = new ByteArrayOutputStream();
+		node.getKind().serialize(new DataOutputStream(out), node, null, mPageReadTrx);
+		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+		final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(new DataInputStream(in), node.getNodeKey(), 
+				mPageReadTrx);
 		check(node2);
 	}
 
