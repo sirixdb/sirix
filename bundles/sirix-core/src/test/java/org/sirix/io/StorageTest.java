@@ -85,9 +85,9 @@ public class StorageTest {
 	 * @throws SirixIOException
 	 */
 	@Test(dataProvider = "instantiateStorages")
-	public void testFirstRef(final Class<Storage> pClass,
-			final Storage[] pStorages) throws SirixException {
-		for (final Storage handler : pStorages) {
+	public void testFirstRef(final Class<Storage> clazz,
+			final Storage[] storages) throws SirixException {
+		for (final Storage handler : storages) {
 			final PageReference pageRef1 = new PageReference();
 			final UberPage page1 = new UberPage();
 			pageRef1.setPage(page1);
