@@ -58,12 +58,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-//			loadDocumentAndQuery();
-//			System.out.println();
-//			loadDocumentAndUpdate();
-//			System.out.println();
-//			loadCollectionAndQuery();
-//			System.out.println();
+			loadDocumentAndQuery();
+			System.out.println();
+			loadDocumentAndUpdate();
+			System.out.println();
+			loadCollectionAndQuery();
+			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -234,7 +234,7 @@ public final class XQueryUsage {
 		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
-			System.out.println("Create cas index for all attributes:");
+			System.out.println("Create a cas index for all elements and another one for attributes:");
 			final Sequence seq = new XQuery(
 					new SirixCompileChain(store),
 					"let $doc := sdb:doc('mydocs.col', 'resource1') "
@@ -305,7 +305,7 @@ public final class XQueryUsage {
 					.findPathIndex(Path.parse("//log/*"));
 			System.out.println(index);
 			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') "
-					+ "return sdb:scan-path-index($doc, " + index.get().getID() + ", ())";
+					+ "return sdb:scan-path-index($doc, " + index.get().getID() + ", '//log/*')";
 			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
 					.execute(ctx3);
 			// final Iter iter = seq.iterate();
@@ -332,7 +332,7 @@ public final class XQueryUsage {
 			final QueryContext ctx = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq3 = "doc('mydocs.col', 2)/log/all-time::*";
+			final String xq3 = "doc('mydocs.col')/log/all-time::*";
 			System.out.println(xq3);
 			XQuery q = new XQuery(new SirixCompileChain(store), xq3);
 			q.prettyPrint();
