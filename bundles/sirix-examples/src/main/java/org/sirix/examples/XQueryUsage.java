@@ -292,11 +292,11 @@ public final class XQueryUsage {
 			}
 		}
 
-		// Query path index for "a-elements"
+		// Query path index which are children of the log-element (only elements).
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			System.out.println("");
 			System.out
-					.println("Find path index for all elements which are children of the log-element.");
+					.println("Find path index for all elements which are children of the log-element (only elements).");
 			final QueryContext ctx3 = new QueryContext(store);
 			final DBNode node = (DBNode) new XQuery(new SirixCompileChain(store),
 					"doc('mydocs.col')").execute(ctx3);
@@ -304,6 +304,7 @@ public final class XQueryUsage {
 					.getRtxIndexController(node.getTrx().getRevisionNumber()).getIndexes()
 					.findPathIndex(Path.parse("//log/*"));
 			System.out.println(index);
+			// last param '()' queries whole index.
 			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') "
 					+ "return sdb:scan-path-index($doc, " + index.get().getID() + ", '//log/*')";
 			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
