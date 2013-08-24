@@ -4,6 +4,8 @@ import static org.sirix.xquery.function.sdb.Doc.DOC;
 import static org.sirix.xquery.function.sdb.GetMostRecentRevision.MOST_RECENT_REVISION;
 import static org.sirix.xquery.function.sdb.Load.LOAD;
 import static org.sirix.xquery.function.sdb.Store.STORE;
+import static org.sirix.xquery.function.sdb.index.FindCASIndex.FIND_CAS_INDEX;
+import static org.sirix.xquery.function.sdb.index.FindPathIndex.FIND_PATH_INDEX;
 import static org.sirix.xquery.function.sdb.index.create.CreateCASIndex.CREATE_CAS_INDEX;
 import static org.sirix.xquery.function.sdb.index.create.CreatePathIndex.CREATE_PATH_INDEX;
 
@@ -14,6 +16,8 @@ import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
+import org.sirix.xquery.function.sdb.index.FindCASIndex;
+import org.sirix.xquery.function.sdb.index.FindPathIndex;
 import org.sirix.xquery.function.sdb.index.create.CreateCASIndex;
 import org.sirix.xquery.function.sdb.index.create.CreatePathIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanCASIndex;
@@ -61,6 +65,12 @@ public final class SDBFun {
 				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
 						AtomicType.STR, Cardinality.One))));
 
+		// find-path-index
+		Functions.predefine(new FindPathIndex(FIND_PATH_INDEX, new Signature(SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
+		
+		// find-cas-indec
+		Functions.predefine(new FindCASIndex(FIND_CAS_INDEX, new Signature(SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
+		
 		// get-most-recent-rev
 		Functions.predefine(new GetMostRecentRevision(MOST_RECENT_REVISION,
 				new Signature(SequenceType.INTEGER, SequenceType.NODE)));

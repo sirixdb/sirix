@@ -58,12 +58,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-			loadDocumentAndQuery();
-			System.out.println();
-			loadDocumentAndUpdate();
-			System.out.println();
-			loadCollectionAndQuery();
-			System.out.println();
+//			loadDocumentAndQuery();
+//			System.out.println();
+//			loadDocumentAndUpdate();
+//			System.out.println();
+//			loadCollectionAndQuery();
+//			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -167,9 +167,8 @@ public final class XQueryUsage {
 
 			// Use XQuery to load all sample documents into store.
 			System.out.println("Load collection from files:");
-			URI dirUri = dir.toURI();
 			final String xq1 = String.format(
-					"bit:load('mydocs.col', io:ls('%s', '\\.xml$'))", dirUri.toString());
+					"bit:load('mydocs.col', io:ls('%s', '\\.xml$'))", dir);
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
 
@@ -190,7 +189,7 @@ public final class XQueryUsage {
 			// Use XQuery to load all sample documents once more into store.
 			System.out.println("Load collection from files:");
 			final String xq3 = String.format(
-					"bit:load('mydocs.col', io:ls('%s', '\\.xml$'), fn:false())", dirUri.toString());
+					"bit:load('mydocs.col', io:ls('%s', '\\.xml$'), fn:false())", dir.toString());
 			System.out.println(xq3);
 			new XQuery(xq3).evaluate(ctx);
 		}
@@ -263,13 +262,7 @@ public final class XQueryUsage {
 			System.out.println("");
 			System.out.println("Find CAS index for all attribute values.");
 			final QueryContext ctx3 = new QueryContext(store);
-			final DBNode node = (DBNode) new XQuery(new SirixCompileChain(store),
-					"doc('mydocs.col')").execute(ctx3);
-			final Optional<IndexDef> index = node.getTrx().getSession()
-					.getRtxIndexController(node.getTrx().getRevisionNumber()).getIndexes().findCASIndex(Path.parse("//@*"));
-			System.out.println(index);
-			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-cas-index($doc, "
-					+ index.get().getID() + ", 'bar', true(), 0, ())";
+			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-cas-index($doc, sdb:find-cas-index($doc, '//@*'), 'bar', true(), 0, ())";
 			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
 					.execute(ctx3);
 			// final Iter iter = seq.iterate();
