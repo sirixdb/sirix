@@ -58,12 +58,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-//			loadDocumentAndQuery();
-//			System.out.println();
-//			loadDocumentAndUpdate();
-//			System.out.println();
-//			loadCollectionAndQuery();
-//			System.out.println();
+			loadDocumentAndQuery();
+			System.out.println();
+			loadDocumentAndUpdate();
+			System.out.println();
+			loadCollectionAndQuery();
+			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -302,10 +302,6 @@ public final class XQueryUsage {
 					+ "return sdb:scan-path-index($doc, " + index.get().getID() + ", '//log/*')";
 			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
 					.execute(ctx3);
-			// final Iter iter = seq.iterate();
-			// for (Item item = iter.next(); item != null; item = iter.next()) {
-			// System.out.println(item);
-			// }
 			final Comparator<Tuple> comparator = new Comparator<Tuple>() {
 				@Override
 				public int compare(Tuple o1, Tuple o2) {
