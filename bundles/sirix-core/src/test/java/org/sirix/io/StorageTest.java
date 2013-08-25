@@ -40,6 +40,7 @@ import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.file.FileStorage;
+import org.sirix.io.ram.RAMStorage;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.testng.annotations.AfterClass;
@@ -50,7 +51,7 @@ import org.testng.annotations.Test;
 /**
  * Storage test.
  */
-public class StorageTest {
+public final class StorageTest {
 
 	/** {@link ResourceConfiguration} reference. */
 	private ResourceConfiguration mResourceConfig;
@@ -85,8 +86,8 @@ public class StorageTest {
 	 * @throws SirixIOException
 	 */
 	@Test(dataProvider = "instantiateStorages")
-	public void testFirstRef(final Class<Storage> clazz,
-			final Storage[] storages) throws SirixException {
+	public void testFirstRef(final Class<Storage> clazz, final Storage[] storages)
+			throws SirixException {
 		for (final Storage handler : storages) {
 			final PageReference pageRef1 = new PageReference();
 			final UberPage page1 = new UberPage();
@@ -133,7 +134,8 @@ public class StorageTest {
 		Object[][] returnVal = { {
 				Storage.class,
 				new Storage[] { new FileStorage(mResourceConfig),
-						new BerkeleyStorage(mResourceConfig) } } };
+						new BerkeleyStorage(mResourceConfig),
+						new RAMStorage(mResourceConfig) } } };
 		return returnVal;
 	}
 
