@@ -58,12 +58,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-			loadDocumentAndQuery();
-			System.out.println();
-			loadDocumentAndUpdate();
-			System.out.println();
-			loadCollectionAndQuery();
-			System.out.println();
+//			loadDocumentAndQuery();
+//			System.out.println();
+//			loadDocumentAndUpdate();
+//			System.out.println();
+//			loadCollectionAndQuery();
+//			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");
@@ -234,15 +234,14 @@ public final class XQueryUsage {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Create a cas index for all elements and another one for attributes:");
-			final Sequence seq = new XQuery(
+			final XQuery q = new XQuery(
 					new SirixCompileChain(store),
-					"let $doc := sdb:doc('mydocs.col', 'resource1') "
-							+ "let $stats := sdb:create-cas-index($doc, 'xs:string', '//@*') "
-							+ "return sdb:create-cas-index($doc, 'xs:string', '//*')")
-					.execute(ctx3);
-			final Item item = seq.evaluateToItem(ctx3, seq);
-			System.out.println(item);
-			store.commitAll();
+								"let $doc := sdb:doc('mydocs.col', 'resource1') "
+							+ "let $casStats1 := sdb:create-cas-index($doc, 'xs:string', '//@*') "
+							+ "let $casStats2 := sdb:create-cas-index($doc, 'xs:string', '//*') "
+							+ "return <rev>{sdb:commit($doc)}</rev>");
+			q.serialize(ctx3, System.out);
+			System.out.println();
 			System.out.println("CAS index creation done.");
 		}
 
@@ -251,9 +250,12 @@ public final class XQueryUsage {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Create path index for all elements (all paths):");
-			new XQuery(new SirixCompileChain(store),
-							"sdb:create-path-index(sdb:doc('mydocs.col', 'resource1'), '//*')").execute(ctx3);
-			store.commitAll();
+			final XQuery q = new XQuery(new SirixCompileChain(store),
+					    "let $doc := sdb:doc('mydocs.col', 'resource1') "
+						+	"let $stats := sdb:create-path-index($doc, '//*') "
+					  + "return <rev>{sdb:commit($doc)}</rev>");
+			q.serialize(ctx3, System.out);
+			System.out.println();
 			System.out.println("Path index creation done.");
 		}
 

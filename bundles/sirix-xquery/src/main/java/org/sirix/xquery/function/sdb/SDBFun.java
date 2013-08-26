@@ -1,5 +1,6 @@
 package org.sirix.xquery.function.sdb;
 
+import static org.sirix.xquery.function.sdb.Commit.COMMIT;
 import static org.sirix.xquery.function.sdb.Doc.DOC;
 import static org.sirix.xquery.function.sdb.GetMostRecentRevision.MOST_RECENT_REVISION;
 import static org.sirix.xquery.function.sdb.Load.LOAD;
@@ -12,6 +13,7 @@ import static org.sirix.xquery.function.sdb.index.create.CreatePathIndex.CREATE_
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
+import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
@@ -49,13 +51,13 @@ public final class SDBFun {
 		Functions.predefine(new Store(true));
 		Functions.predefine(new Store(STORE, false));
 		Functions.predefine(new Store(STORE, true));
-		
+
 		// load
 		Functions.predefine(new Load(false));
 		Functions.predefine(new Load(true));
 		Functions.predefine(new Load(LOAD, false));
 		Functions.predefine(new Load(LOAD, true));
-		
+
 		// doc
 		Functions.predefine(new Doc(DOC, new Signature(SequenceType.NODE,
 				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
@@ -66,11 +68,17 @@ public final class SDBFun {
 						AtomicType.STR, Cardinality.One))));
 
 		// find-path-index
-		Functions.predefine(new FindPathIndex(FIND_PATH_INDEX, new Signature(SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
-		
+		Functions.predefine(new FindPathIndex(FIND_PATH_INDEX, new Signature(
+				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
+
 		// find-cas-indec
-		Functions.predefine(new FindCASIndex(FIND_CAS_INDEX, new Signature(SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
-		
+		Functions.predefine(new FindCASIndex(FIND_CAS_INDEX, new Signature(
+				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
+
+		// commit
+		Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER,
+				SequenceType.NODE)));
+
 		// get-most-recent-rev
 		Functions.predefine(new GetMostRecentRevision(MOST_RECENT_REVISION,
 				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
