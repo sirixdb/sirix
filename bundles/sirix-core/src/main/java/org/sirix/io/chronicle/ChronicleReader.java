@@ -50,7 +50,7 @@ public final class ChronicleReader implements Reader {
 		final PageReference uberPageReference = new PageReference();
 		// Read primary beacon.
 		final Excerpt excerpt = mChronicle.createExcerpt();
-		final long lastIndex = excerpt.size();
+		final long lastIndex = excerpt.size() - 1;
 		final boolean indexSet = excerpt.index(lastIndex);
 		assert indexSet : "Index couldn't be set to last index!";
 		uberPageReference.setKey(lastIndex);

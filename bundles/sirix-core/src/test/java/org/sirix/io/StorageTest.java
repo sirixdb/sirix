@@ -39,6 +39,7 @@ import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
 import org.sirix.io.bytepipe.ByteHandler;
+import org.sirix.io.chronicle.ChronicleStorage;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.ram.RAMStorage;
 import org.sirix.page.PageReference;
@@ -133,7 +134,8 @@ public final class StorageTest {
 	public Object[][] instantiateStorages() throws SirixIOException {
 		Object[][] returnVal = { {
 				Storage.class,
-				new Storage[] { new FileStorage(mResourceConfig),
+				new Storage[] { new ChronicleStorage(mResourceConfig),
+						new FileStorage(mResourceConfig),
 						new BerkeleyStorage(mResourceConfig),
 						new RAMStorage(mResourceConfig) } } };
 		return returnVal;
