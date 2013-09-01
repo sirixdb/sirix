@@ -77,5 +77,4 @@ public final class PagePersistenter {
 			final Page page) throws IOException {
 		PageKind.getKind(page.getClass()).serializePage(sink, page);
 	}
-
 }

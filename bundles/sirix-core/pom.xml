@@ -74,7 +74,10 @@
 			<type>jar</type>
 			<scope>compile</scope>
 		</dependency>
-		<!-- <dependency> <groupId>vanilla.java</groupId> <artifactId>chronicle</artifactId> 
-			<version>1.0</version> </dependency> -->
+		<dependency>
+			<groupId>com.higherfrequencytrading</groupId>
+			<artifactId>chronicle</artifactId>
+			<version>1.7.2</version>
+		</dependency>
 	</dependencies>
 </project>

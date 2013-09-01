@@ -37,6 +37,7 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 
 import org.sirix.exception.SirixIOException;
+import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandler;
@@ -53,7 +54,7 @@ import com.google.common.io.ByteStreams;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class FileWriter extends AbstractForwardingFileReader implements Writer {
+public final class FileWriter extends AbstractForwardingReader implements Writer {
 
 	/** Random access to work on. */
 	private final RandomAccessFile mFile;
@@ -101,7 +102,7 @@ public final class FileWriter extends AbstractForwardingFileReader implements Wr
 			final DataOutputStream dataOutput = new DataOutputStream(mReader.mByteHandler.serialize(output));
 			PagePersistenter.serializePage(dataOutput, page);
 
-			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
+//			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
 			
 			output.close();
 			dataOutput.close();

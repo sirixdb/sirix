@@ -1,10 +1,9 @@
-package org.sirix.io.file;
+package org.sirix.io;
 
 import javax.annotation.Nullable;
 
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
-import org.sirix.io.Reader;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
 
@@ -16,11 +15,11 @@ import com.google.common.collect.ForwardingObject;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbstractForwardingFileReader extends ForwardingObject
+public abstract class AbstractForwardingReader extends ForwardingObject
 		implements Reader {
 
 	/** Constructor for use by subclasses. */
-	protected AbstractForwardingFileReader() {
+	protected AbstractForwardingReader() {
 	}
 
 	@Override
