@@ -10,6 +10,12 @@ import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
 
+/**
+ * Chronicle storage.
+ * 
+ * @author Johannes Lichtenberger
+ *
+ */
 public final class ChronicleStorage implements Storage {
 
 	/** File name. */
@@ -20,6 +26,12 @@ public final class ChronicleStorage implements Storage {
 
 	/** Byte handler pipeline. */
 	private final ByteHandlePipeline mByteHandler;
+	
+	/** Reading from the storage. */
+	private Reader mReader;
+	
+	/** Writing to the storage. */
+	private Writer mWriter;
 
 	/**
 	 * Constructor.
@@ -37,19 +49,24 @@ public final class ChronicleStorage implements Storage {
 
 	@Override
 	public Reader getReader() throws SirixIOException {
-		return new ChronicleReader(getConcreteStorage(), new ByteHandlePipeline(
+		mReader = new ChronicleReader(getConcreteStorage(), new ByteHandlePipeline(
 				mByteHandler));
+		return mReader;
 	}
 
 	@Override
 	public Writer getWriter() throws SirixIOException {
-		return new ChronicleWriter(getConcreteStorage(), new ByteHandlePipeline(
+		mWriter = new ChronicleWriter(getConcreteStorage(), new ByteHandlePipeline(
 				mByteHandler));
+		return mWriter;
 	}
 
 	@Override
-	public void close() {
-		// not used over here
+	public void close() throws SirixIOException {
+		if (mReader != null)
+			mReader.close();
+		if (mWriter != null)
+			mWriter.close();
 	}
 
 	/**
@@ -73,5 +90,4 @@ public final class ChronicleStorage implements Storage {
 	public ByteHandler getByteHandler() {
 		return mByteHandler;
 	}
-
 }
