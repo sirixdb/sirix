@@ -65,8 +65,9 @@ public final class ChronicleWriter extends AbstractForwardingReader implements W
 			final DataOutputStream dataOutput = new DataOutputStream(mReader.mByteHandler.serialize(output));
 			PagePersistenter.serializePage(dataOutput, page);
 
-			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
+//			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
 			
+			output.flush();
 			output.close();
 			dataOutput.close();
 			

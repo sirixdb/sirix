@@ -150,7 +150,7 @@ public final class ResourceConfiguration {
 
 	// FIXED STANDARD FIELDS
 	/** Standard storage. */
-	public static final StorageType STORAGE = StorageType.FILE;
+	public static final StorageType STORAGE = StorageType.CHRONICLE;
 
 	/** Standard versioning approach. */
 	public static final Versioning VERSIONING = Versioning.DIFFERENTIAL;
