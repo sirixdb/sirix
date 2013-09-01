@@ -21,7 +21,8 @@ import com.higherfrequencytrading.chronicle.Chronicle;
 import com.higherfrequencytrading.chronicle.Excerpt;
 import com.higherfrequencytrading.chronicle.impl.IndexedChronicle;
 
-public final class ChronicleWriter extends AbstractForwardingReader implements Writer {
+public final class ChronicleWriter extends AbstractForwardingReader implements
+		Writer {
 
 	private final ChronicleReader mReader;
 	private final Chronicle mChronicle;
@@ -33,12 +34,12 @@ public final class ChronicleWriter extends AbstractForwardingReader implements W
 	 * @param storage
 	 *          the concrete storage
 	 * @param handler
-	 * 					the byte handler
+	 *          the byte handler
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public ChronicleWriter(final File storage,
-			final ByteHandler handler) throws SirixIOException {
+	public ChronicleWriter(final File storage, final ByteHandler handler)
+			throws SirixIOException {
 		try {
 			mChronicle = new IndexedChronicle(storage.getAbsolutePath());
 		} catch (final IOException e) {
@@ -47,7 +48,7 @@ public final class ChronicleWriter extends AbstractForwardingReader implements W
 		mReader = new ChronicleReader(storage, handler);
 		mExcerpt = mChronicle.createExcerpt();
 	}
-	
+
 	@Override
 	public void close() throws SirixIOException {
 		mReader.close();
@@ -62,29 +63,40 @@ public final class ChronicleWriter extends AbstractForwardingReader implements W
 			final Page page = pageReference.getPage();
 			assert page != null;
 			final ByteArrayOutputStream output = new ByteArrayOutputStream();
-			final DataOutputStream dataOutput = new DataOutputStream(mReader.mByteHandler.serialize(output));
+			final DataOutputStream dataOutput = new DataOutputStream(
+					mReader.mByteHandler.serialize(output));
 			PagePersistenter.serializePage(dataOutput, page);
 
-//			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
-			
+			// ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()),
+			// dataOutput);
+
 			output.flush();
 			output.close();
 			dataOutput.close();
-			
+
 			final byte[] serializedPage = output.toByteArray();
 
-			final byte[] writtenPage = new byte[serializedPage.length
-					+ ChronicleReader.OTHER_BEACON];
-			final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
-			buffer.putInt(serializedPage.length);
-			buffer.put(serializedPage);
-			buffer.position(0);
-			buffer.get(writtenPage, 0, writtenPage.length);
+			// final byte[] writtenPage = new byte[serializedPage.length
+			// + ChronicleReader.OTHER_BEACON];
+			// final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
+			// buffer.putInt(serializedPage.length);
+			// buffer.put(serializedPage);
+			// buffer.position(0);
+			// buffer.get(writtenPage, 0, writtenPage.length);
+			//
+			// // Appending to a new excerpt.
+			// mExcerpt.startExcerpt(writtenPage.length);
+			// mExcerpt.write(writtenPage);
+			// final long index = mExcerpt.index();
+			// assert index != -1 : "Index nr. not valid!";
+			// mExcerpt.finish();
 
-			// Appending to a new excerpt.		
-			mExcerpt.startExcerpt(writtenPage.length);
-			mExcerpt.append(writtenPage);
+			mExcerpt.startExcerpt(serializedPage.length
+					+ ChronicleReader.OTHER_BEACON);
+			mExcerpt.writeInt(serializedPage.length);
+			mExcerpt.write(serializedPage);
 			final long index = mExcerpt.index();
+			assert index != -1 : "Index nr. not valid!";
 			mExcerpt.finish();
 
 			// Remember page coordinates.
