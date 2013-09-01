@@ -99,8 +99,7 @@ public final class FileStorage implements Storage {
 	@Override
 	public boolean exists() throws SirixIOException {
 		final File file = getConcreteStorage();
-		final boolean returnVal = file.length() > 0;
-		return returnVal;
+		return file.exists() && file.length() > 0;
 	}
 
 	@Override

@@ -31,6 +31,7 @@ import java.io.RandomAccessFile;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.berkeley.BerkeleyStorage;
+import org.sirix.io.chronicle.ChronicleStorage;
 import org.sirix.io.file.FileStorage;
 import org.sirix.io.ram.RAMStorage;
 
@@ -49,6 +50,15 @@ public enum StorageType {
 		public Storage getInstance(final ResourceConfiguration resourceConf)
 				throws SirixIOException {
 			return new RAMStorage(resourceConf);
+		}
+	},
+	
+	/** Chronicle backend. */
+	CHRONICLE {
+		@Override
+		public Storage getInstance(final ResourceConfiguration resourceConf)
+				throws SirixIOException {
+			return new ChronicleStorage(resourceConf);
 		}
 	},
 	
