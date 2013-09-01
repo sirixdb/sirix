@@ -66,7 +66,7 @@ public final class ChronicleStorage implements Storage {
 	@Override
 	public boolean exists() throws SirixIOException {
 		final File file = getConcreteStorage();
-		return file.exists() && file.length() > 0;
+		return file.exists();
 	}
 
 	@Override

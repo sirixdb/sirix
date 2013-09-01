@@ -30,6 +30,8 @@ public final class ChronicleReader implements Reader {
 	private final Chronicle mChronicle;
 	final ByteHandler mByteHandler;
 
+	private final Excerpt mExcerpt;
+
 	public ChronicleReader(final File concreteStorage, final ByteHandler handler)
 			throws SirixIOException {
 		try {
@@ -40,6 +42,7 @@ public final class ChronicleReader implements Reader {
 
 			mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
 			mByteHandler = checkNotNull(handler);
+			mExcerpt = mChronicle.createExcerpt();
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
@@ -49,13 +52,9 @@ public final class ChronicleReader implements Reader {
 	public PageReference readFirstReference() throws SirixIOException {
 		final PageReference uberPageReference = new PageReference();
 		// Read primary beacon.
-		final Excerpt excerpt = mChronicle.createExcerpt();
-		final long lastIndex = excerpt.size() - 1;
-		final boolean indexSet = excerpt.index(lastIndex);
-		assert indexSet : "Index couldn't be set to last index!";
+		final long lastIndex = mChronicle.size() - 1;
 		uberPageReference.setKey(lastIndex);
-		excerpt.close();
-		final UberPage page = (UberPage) read(uberPageReference.getKey(), null);
+		final UberPage page = (UberPage) read(lastIndex, null);
 		uberPageReference.setPage(page);
 		return uberPageReference;
 	}
@@ -65,13 +64,12 @@ public final class ChronicleReader implements Reader {
 			throws SirixIOException {
 		try {
 			// Read page from excerpt.
-			final Excerpt excerpt = mChronicle.createExcerpt();
-			final boolean opened = excerpt.index(key);
+			final boolean opened = mExcerpt.index(key);
 			assert opened : "Index couldn't be opened!";
-			final int dataLength = excerpt.readInt();
+			final int dataLength = mExcerpt.readInt();
 			final byte[] page = new byte[dataLength];
-			excerpt.read(page);
-			excerpt.finish();
+			mExcerpt.read(page);
+			mExcerpt.finish();
 
 			// Perform byte operations.
 			final DataInputStream input = new DataInputStream(

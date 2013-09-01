@@ -67,29 +67,11 @@ public final class ChronicleWriter extends AbstractForwardingReader implements
 					mReader.mByteHandler.serialize(output));
 			PagePersistenter.serializePage(dataOutput, page);
 
-			// ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()),
-			// dataOutput);
-
 			output.flush();
 			output.close();
 			dataOutput.close();
 
 			final byte[] serializedPage = output.toByteArray();
-
-			// final byte[] writtenPage = new byte[serializedPage.length
-			// + ChronicleReader.OTHER_BEACON];
-			// final ByteBuffer buffer = ByteBuffer.allocate(writtenPage.length);
-			// buffer.putInt(serializedPage.length);
-			// buffer.put(serializedPage);
-			// buffer.position(0);
-			// buffer.get(writtenPage, 0, writtenPage.length);
-			//
-			// // Appending to a new excerpt.
-			// mExcerpt.startExcerpt(writtenPage.length);
-			// mExcerpt.write(writtenPage);
-			// final long index = mExcerpt.index();
-			// assert index != -1 : "Index nr. not valid!";
-			// mExcerpt.finish();
 
 			mExcerpt.startExcerpt(serializedPage.length
 					+ ChronicleReader.OTHER_BEACON);
