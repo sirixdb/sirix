@@ -103,7 +103,5 @@ public class ConcurrentAxisHelper implements Runnable {
 		} catch (final InterruptedException e) {
 			LOGWRAPPER.error(e.getMessage(), e);
 		}
-
 	}
-
 }
