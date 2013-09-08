@@ -32,12 +32,6 @@ public final class ChronicleStorage implements Storage {
 	/** Byte handler pipeline. */
 	private final ByteHandlePipeline mByteHandler;
 
-	/** Reading from the storage. */
-	private List<Reader> mReaders;
-
-	/** Writing to the storage. */
-	private List<Writer> mWriters;
-
 	/** Chronicle storage. */
 	private IndexedChronicle mChronicle;
 
@@ -64,13 +58,9 @@ public final class ChronicleStorage implements Storage {
 
 			if (!concreteStorage.exists()) {
 				concreteStorage.getParentFile().mkdirs();
-				concreteStorage.createNewFile();
 			}
 
-			if (mReaders == null) {
-				mReaders = new LinkedList<>();
-				mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
-			}
+			mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
@@ -85,12 +75,9 @@ public final class ChronicleStorage implements Storage {
 
 			if (!concreteStorage.exists()) {
 				concreteStorage.getParentFile().mkdirs();
-				concreteStorage.createNewFile();
 			}
-			if (mWriters == null) {
-				mWriters = new LinkedList<>();
-				mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
-			}
+			
+			mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
@@ -100,15 +87,6 @@ public final class ChronicleStorage implements Storage {
 
 	@Override
 	public void close() throws SirixIOException {
-		if (mReaders != null) {
-			for (final Reader reader : mReaders)
-				reader.close();
-		}
-//		if (mWriters != null) 
-//		{
-//			for (final Writer writer : mWriters);
-//				writer.close();
-//		}
 		mChronicle.close();
 	}
 
@@ -118,9 +96,7 @@ public final class ChronicleStorage implements Storage {
 	 * @return the concrete storage for this database
 	 */
 	private File getConcreteStorage() {
-		return new File(mFile, new StringBuilder(ResourceConfiguration.Paths.DATA
-				.getFile().getName()).append(File.separator).append(FILENAME)
-				.toString());
+		return new File(new File(mFile, ResourceConfiguration.Paths.DATA.getFile().getName()), FILENAME);
 	}
 
 	@Override
