@@ -50,7 +50,8 @@ import org.sirix.exception.SirixXPathException;
 import org.sirix.service.xml.shredder.XMLShredder;
 import org.sirix.service.xml.xpath.XPathAxis;
 
-public class ConcurrentAxisTest {
+/** Test {@link ConcurrentAxis}. */
+public final class ConcurrentAxisTest {
 
 	/** XML file name to test. */
 	private static final String XMLFILE = "10mb.xml";
@@ -147,7 +148,7 @@ public class ConcurrentAxisTest {
 	 */
 	// @Bench
 	@Test
-	public final void testConcurrent() throws Exception {
+	public void testConcurrent() throws Exception {
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
 		final NodeReadTrx firstConcurrRtx = holder.getSession().beginNodeReadTrx();
@@ -178,7 +179,7 @@ public class ConcurrentAxisTest {
 	 */
 	// @Bench
 	@Test
-	public final void testPartConcurrentDescAxis1() throws Exception {
+	public void testPartConcurrentDescAxis1() throws Exception {
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
 		final NodeReadTrx firstConcurrRtx = holder.getSession().beginNodeReadTrx();
@@ -204,7 +205,7 @@ public class ConcurrentAxisTest {
 	 */
 	// @Bench
 	@Test
-	public final void testPartConcurrentDescAxis2() throws Exception {
+	public void testPartConcurrentDescAxis2() throws Exception {
 		/* query: //regions/africa//location */
 		final int resultNumber = 55;
 		final NodeReadTrx firstConcurrRtx = holder.getSession().beginNodeReadTrx();
@@ -235,7 +236,7 @@ public class ConcurrentAxisTest {
 	// */
 	// @Bench
 	// @Test
-	// public final void testSeriellNew2() {
+	// public void testSeriellNew2() {
 	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
 	// final int resultNumber = 1;
 	//
@@ -274,7 +275,7 @@ public class ConcurrentAxisTest {
 	// */
 	// @Bench
 	// @Test
-	// public final void testConcurrent2() {
+	// public void testConcurrent2() {
 	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
 	// final int resultNumber = 1;
 	//
@@ -316,7 +317,7 @@ public class ConcurrentAxisTest {
 	// */
 	// @Bench
 	// @Test
-	// public final void testPartConcurrent2() {
+	// public void testPartConcurrent2() {
 	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
 	// final int resultNumber = 1;
 	//
@@ -362,7 +363,7 @@ public class ConcurrentAxisTest {
 	// */
 	// @Bench
 	// @Test
-	// public final void testSeriellNew3() {
+	// public void testSeriellNew3() {
 	// /* query: //regions//item/mailbox/mail */
 	// final int resultNumber = 2139; // 10mb xmark
 	// // final int resultNumber = 20946; // 100mb xmark
@@ -392,7 +393,7 @@ public class ConcurrentAxisTest {
 	// */
 	// @Bench
 	// @Test
-	// public final void testCompleteConcurrent3() {
+	// public void testCompleteConcurrent3() {
 	// /* query: //regions//item/mailbox/mail */
 	// final int resultNumber = 2139; // 10mb xmark
 	// // final int resultNumber = 20946; // 100mb xmark
@@ -424,7 +425,7 @@ public class ConcurrentAxisTest {
 	// */
 	// @Bench
 	// @Test
-	// public final void testPartConcurrent3Axis1() {
+	// public void testPartConcurrent3Axis1() {
 	// /* query: //regions//item/mailbox/mail */
 	// final int resultNumber = 2139; // 10mb xmark
 	// // final int resultNumber = 20946; // 100mb xmark
@@ -454,7 +455,7 @@ public class ConcurrentAxisTest {
 	// */
 	// @Bench
 	// @Test
-	// public final void testPartConcurrent3Axis2() {
+	// public void testPartConcurrent3Axis2() {
 	// /* query: //regions//item/mailbox/mail */
 	// final int resultNumber = 2139; // 10mb xmark
 	// // final int resultNumber = 20946; // 100mb xmark
@@ -485,7 +486,7 @@ public class ConcurrentAxisTest {
 	// */
 	// @Bench
 	// @Test
-	// public final void testPartConcurrent3Axis1and2() {
+	// public void testPartConcurrent3Axis1and2() {
 	// /* query: //regions//item/mailbox/mail */
 	// final int resultNumber = 2139; // 10mb xmark
 	// // final int resultNumber = 20946; // 100mb xmark
@@ -516,7 +517,7 @@ public class ConcurrentAxisTest {
 	// */
 	// @Bench
 	// @Test
-	// public final void testPartConcurrent3Axis1and3() {
+	// public void testPartConcurrent3Axis1and3() {
 	// /* query: //regions//item/mailbox/mail */
 	// final int resultNumber = 2139; // 10mb xmark
 	// // final int resultNumber = 20946; // 100mb xmark
@@ -547,7 +548,7 @@ public class ConcurrentAxisTest {
 	// */
 	// @Bench
 	// @Test
-	// public final void testPartConcurrent3Axis2and4() {
+	// public void testPartConcurrent3Axis2and4() {
 	// /* query: //regions//item/mailbox/mail */
 	// final int resultNumber = 2139; // 10mb xmark
 	// // final int resultNumber = 20946; // 100mb xmark
@@ -586,7 +587,7 @@ public class ConcurrentAxisTest {
 	// @SkipBench
 	// @Ignore
 	// @Test
-	// public final void testSeriellNew4() {
+	// public void testSeriellNew4() {
 	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
 	// final int resultNumber = 22;
 	//
@@ -628,7 +629,7 @@ public class ConcurrentAxisTest {
 	// @SkipBench
 	// @Ignore
 	// @Test
-	// public final void testConcurrent4() {
+	// public void testConcurrent4() {
 	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
 	// final int resultNumber = 22;
 	//
@@ -672,7 +673,7 @@ public class ConcurrentAxisTest {
 	// @SkipBench
 	// @Ignore
 	// @Test
-	// public final void testConcurrent4ChildAxis() {
+	// public void testConcurrent4ChildAxis() {
 	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
 	// final int resultNumber = 22;
 	//
@@ -715,7 +716,7 @@ public class ConcurrentAxisTest {
 	// @SkipBench
 	// @Ignore
 	// @Test
-	// public final void testConcurrent4DescAxis1() {
+	// public void testConcurrent4DescAxis1() {
 	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
 	// final int resultNumber = 22;
 	//
@@ -757,7 +758,7 @@ public class ConcurrentAxisTest {
 	// @SkipBench
 	// @Ignore
 	// @Test
-	// public final void testConcurrent4DescAxis2() {
+	// public void testConcurrent4DescAxis2() {
 	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
 	// final int resultNumber = 22;
 	//
@@ -799,7 +800,7 @@ public class ConcurrentAxisTest {
 	// @SkipBench
 	// @Ignore
 	// @Test
-	// public final void testConcurrent4DescAxises() {
+	// public void testConcurrent4DescAxises() {
 	// /* query: //regions//item/mailbox/mail[date="02/24/2000"] */
 	// final int resultNumber = 22;
 	//
@@ -847,7 +848,7 @@ public class ConcurrentAxisTest {
 	// @Ignore
 	// @SkipBench
 	// @Test
-	// public final void testSeriellNew5() {
+	// public void testSeriellNew5() {
 	// /* query: //description//listitem/text */
 	// final int resultNumber = 5363;
 	//
@@ -876,7 +877,7 @@ public class ConcurrentAxisTest {
 	// @Ignore
 	// @SkipBench
 	// @Test
-	// public final void testConcurrent5() {
+	// public void testConcurrent5() {
 	// /* query: //description//listitem/text */
 	// final int resultNumber = 5363;
 	//
@@ -906,7 +907,7 @@ public class ConcurrentAxisTest {
 	// @Ignore
 	// @SkipBench
 	// @Test
-	// public final void testConcurrentPart5Axis1() {
+	// public void testConcurrentPart5Axis1() {
 	// /* query: //description//listitem/text */
 	// final int resultNumber = 5363;
 	//
@@ -935,7 +936,7 @@ public class ConcurrentAxisTest {
 	// @Ignore
 	// @SkipBench
 	// @Test
-	// public final void testConcurrentPart5Axis2() {
+	// public void testConcurrentPart5Axis2() {
 	// /* query: //description//listitem/text */
 	// final int resultNumber = 5363;
 	//
@@ -971,7 +972,7 @@ public class ConcurrentAxisTest {
 	// @Ignore
 	// @SkipBench
 	// @Test
-	// public final void testSeriellNew6() {
+	// public void testSeriellNew6() {
 	// /* query: //regions//item/mailbox/mail */
 	// // final int resultNumber = 20946; //100mb xmark
 	// final int resultNumber = 544; // 1000mb xmark
@@ -1005,7 +1006,7 @@ public class ConcurrentAxisTest {
 	// @Ignore
 	// @SkipBench
 	// @Test
-	// public final void testConcurrent6() {
+	// public void testConcurrent6() {
 	// /* query: //regions//item/mailbox/mail */
 	// // final int resultNumber = 20946; //100mb xmark
 	// final int resultNumber = 544; // 1000mb xmark
@@ -1041,7 +1042,7 @@ public class ConcurrentAxisTest {
 	// @Ignore
 	// @SkipBench
 	// @Test
-	// public final void testPartConcurrent6Axis1() {
+	// public void testPartConcurrent6Axis1() {
 	// /* query: //regions//item/mailbox/mail */
 	// // final int resultNumber = 20946; //100mb xmark
 	// final int resultNumber = 544; // 1000mb xmark
@@ -1075,7 +1076,7 @@ public class ConcurrentAxisTest {
 	// @Ignore
 	// @SkipBench
 	// @Test
-	// public final void testPartConcurrent6Axis2() {
+	// public void testPartConcurrent6Axis2() {
 	// /* query: //regions//item/mailbox/mail */
 	// // final int resultNumber = 20946; //100mb xmark
 	// final int resultNumber = 544; // 1000mb xmark
@@ -1109,7 +1110,7 @@ public class ConcurrentAxisTest {
 	// @Ignore
 	// @SkipBench
 	// @Test
-	// public final void testPartConcurrent6Axis1and2() {
+	// public void testPartConcurrent6Axis1and2() {
 	// /* query: //regions//item/mailbox/mail */
 	// // final int resultNumber = 20946; //100mb xmark
 	// final int resultNumber = 544; // 1000mb xmark
