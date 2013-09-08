@@ -58,6 +58,7 @@ public final class ChronicleStorage implements Storage {
 
 			if (!concreteStorage.exists()) {
 				concreteStorage.getParentFile().mkdirs();
+				concreteStorage.createNewFile();
 			}
 
 			mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
@@ -75,6 +76,7 @@ public final class ChronicleStorage implements Storage {
 
 			if (!concreteStorage.exists()) {
 				concreteStorage.getParentFile().mkdirs();
+				concreteStorage.createNewFile();
 			}
 			
 			mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
