@@ -37,7 +37,7 @@ import org.sirix.page.PageReference;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public interface Writer extends Reader {
+public interface Writer extends Reader{
 
 	/**
 	 * Writing a page related to the reference.

@@ -1,6 +1,9 @@
 package org.sirix.io.chronicle;
 
 import java.io.File;
+import java.io.IOException;
+import java.util.LinkedList;
+import java.util.List;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
@@ -10,11 +13,13 @@ import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
 
+import com.higherfrequencytrading.chronicle.impl.IndexedChronicle;
+
 /**
  * Chronicle storage.
  * 
  * @author Johannes Lichtenberger
- *
+ * 
  */
 public final class ChronicleStorage implements Storage {
 
@@ -26,12 +31,15 @@ public final class ChronicleStorage implements Storage {
 
 	/** Byte handler pipeline. */
 	private final ByteHandlePipeline mByteHandler;
-	
+
 	/** Reading from the storage. */
-	private Reader mReader;
-	
+	private List<Reader> mReaders;
+
 	/** Writing to the storage. */
-	private Writer mWriter;
+	private List<Writer> mWriters;
+
+	/** Chronicle storage. */
+	private IndexedChronicle mChronicle;
 
 	/**
 	 * Constructor.
@@ -40,8 +48,10 @@ public final class ChronicleStorage implements Storage {
 	 *          the location of the database
 	 * @param byteHandler
 	 *          byte handler pipeline
+	 * @throws SirixIOException
 	 */
-	public ChronicleStorage(final ResourceConfiguration resourceConfig) {
+	public ChronicleStorage(final ResourceConfiguration resourceConfig)
+			throws SirixIOException {
 		assert resourceConfig != null : "resourceConfig must not be null!";
 		mFile = resourceConfig.mPath;
 		mByteHandler = resourceConfig.mByteHandler;
@@ -49,24 +59,57 @@ public final class ChronicleStorage implements Storage {
 
 	@Override
 	public Reader getReader() throws SirixIOException {
-		mReader = new ChronicleReader(getConcreteStorage(), new ByteHandlePipeline(
+		try {
+			final File concreteStorage = getConcreteStorage();
+
+			if (!concreteStorage.exists()) {
+				concreteStorage.getParentFile().mkdirs();
+				concreteStorage.createNewFile();
+			}
+
+			if (mReaders == null) {
+				mReaders = new LinkedList<>();
+				mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
+			}
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
+		return new ChronicleReader(mChronicle, new ByteHandlePipeline(
 				mByteHandler));
-		return mReader;
 	}
 
 	@Override
 	public Writer getWriter() throws SirixIOException {
-		mWriter = new ChronicleWriter(getConcreteStorage(), new ByteHandlePipeline(
+		try {
+			final File concreteStorage = getConcreteStorage();
+
+			if (!concreteStorage.exists()) {
+				concreteStorage.getParentFile().mkdirs();
+				concreteStorage.createNewFile();
+			}
+			if (mWriters == null) {
+				mWriters = new LinkedList<>();
+				mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
+			}
+		} catch (final IOException e) {
+			throw new SirixIOException(e);
+		}
+		return new ChronicleWriter(mChronicle, new ByteHandlePipeline(
 				mByteHandler));
-		return mWriter;
 	}
 
 	@Override
 	public void close() throws SirixIOException {
-		if (mReader != null)
-			mReader.close();
-		if (mWriter != null)
-			mWriter.close();
+		if (mReaders != null) {
+			for (final Reader reader : mReaders)
+				reader.close();
+		}
+//		if (mWriters != null) 
+//		{
+//			for (final Writer writer : mWriters);
+//				writer.close();
+//		}
+		mChronicle.close();
 	}
 
 	/**

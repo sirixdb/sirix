@@ -4,7 +4,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
-import java.io.File;
 import java.io.IOException;
 
 import javax.annotation.Nullable;
@@ -20,7 +19,6 @@ import org.sirix.page.interfaces.Page;
 
 import com.higherfrequencytrading.chronicle.Chronicle;
 import com.higherfrequencytrading.chronicle.Excerpt;
-import com.higherfrequencytrading.chronicle.impl.IndexedChronicle;
 
 public final class ChronicleReader implements Reader {
 
@@ -28,24 +26,16 @@ public final class ChronicleReader implements Reader {
 	final static int OTHER_BEACON = 4;
 
 	private final Chronicle mChronicle;
+	
 	final ByteHandler mByteHandler;
 
 	private final Excerpt mExcerpt;
 
-	public ChronicleReader(final File concreteStorage, final ByteHandler handler)
+	public ChronicleReader(final Chronicle chronicle, final ByteHandler handler)
 			throws SirixIOException {
-		try {
-			if (!concreteStorage.exists()) {
-				concreteStorage.getParentFile().mkdirs();
-				concreteStorage.createNewFile();
-			}
-
-			mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
-			mByteHandler = checkNotNull(handler);
-			mExcerpt = mChronicle.createExcerpt();
-		} catch (final IOException e) {
-			throw new SirixIOException(e);
-		}
+		mChronicle = checkNotNull(chronicle);
+		mByteHandler = checkNotNull(handler);
+		mExcerpt = mChronicle.createExcerpt();
 	}
 
 	@Override
@@ -53,7 +43,6 @@ public final class ChronicleReader implements Reader {
 		final PageReference uberPageReference = new PageReference();
 		// Read primary beacon.
 		final long lastIndex = mExcerpt.size() - 1;
-//		mExcerpt.index(lastIndex);
 		uberPageReference.setKey(lastIndex);
 		final UberPage page = (UberPage) read(lastIndex, null);
 		uberPageReference.setPage(page);
@@ -85,6 +74,7 @@ public final class ChronicleReader implements Reader {
 
 	@Override
 	public void close() throws SirixIOException {
-		mChronicle.close();
+		mExcerpt.close();
+//		mChronicle.close();
 	}
 }
