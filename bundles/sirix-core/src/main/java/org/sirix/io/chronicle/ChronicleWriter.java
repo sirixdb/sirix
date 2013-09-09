@@ -2,6 +2,7 @@ package org.sirix.io.chronicle;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
+import java.io.File;
 import java.io.IOException;
 
 import org.sirix.exception.SirixIOException;
@@ -13,14 +14,15 @@ import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
 
-import com.higherfrequencytrading.chronicle.Chronicle;
 import com.higherfrequencytrading.chronicle.Excerpt;
+import com.higherfrequencytrading.chronicle.impl.IndexedChronicle;
 
 public final class ChronicleWriter extends AbstractForwardingReader implements
 		Writer {
 
 	private final ChronicleReader mReader;
 	private final Excerpt mExcerpt;
+	private final IndexedChronicle mChronicle;
 
 	/**
 	 * Constructor.
@@ -29,16 +31,19 @@ public final class ChronicleWriter extends AbstractForwardingReader implements
 	 *          the concrete storage
 	 * @param handler
 	 *          the byte handler
-	 * @throws SirixIOException
+	 * @throws IOException
 	 *           if an I/O error occurs
 	 */
-	public ChronicleWriter(final Chronicle chronicle, final ByteHandler handler) throws SirixIOException {
-		mReader = new ChronicleReader(chronicle, handler);
-		mExcerpt = chronicle.createExcerpt();
+	public ChronicleWriter(final File file, final ByteHandler handler) throws IOException {
+		mReader = new ChronicleReader(file, handler);
+		mChronicle = new IndexedChronicle(file.getAbsolutePath());
+		mExcerpt = mChronicle.createExcerpt();
 	}
 
 	@Override
 	public void close() throws SirixIOException {
+		mExcerpt.close();
+		mChronicle.close();
 		mReader.close();
 	}
 
