@@ -4,6 +4,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
+import java.io.File;
 import java.io.IOException;
 
 import javax.annotation.Nullable;
@@ -19,6 +20,7 @@ import org.sirix.page.interfaces.Page;
 
 import com.higherfrequencytrading.chronicle.Chronicle;
 import com.higherfrequencytrading.chronicle.Excerpt;
+import com.higherfrequencytrading.chronicle.impl.IndexedChronicle;
 
 public final class ChronicleReader implements Reader {
 
@@ -31,9 +33,9 @@ public final class ChronicleReader implements Reader {
 
 	private final Excerpt mExcerpt;
 
-	public ChronicleReader(final Chronicle chronicle, final ByteHandler handler)
-			throws SirixIOException {
-		mChronicle = checkNotNull(chronicle);
+	public ChronicleReader(final File file, final ByteHandler handler)
+			throws IOException {
+		mChronicle = new IndexedChronicle(file.getAbsolutePath());
 		mByteHandler = checkNotNull(handler);
 		mExcerpt = mChronicle.createExcerpt();
 	}
@@ -75,5 +77,6 @@ public final class ChronicleReader implements Reader {
 	@Override
 	public void close() throws SirixIOException {
 		mExcerpt.close();
+		mChronicle.close();
 	}
 }

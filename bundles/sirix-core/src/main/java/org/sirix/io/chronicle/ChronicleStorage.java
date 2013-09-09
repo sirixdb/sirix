@@ -2,8 +2,6 @@ package org.sirix.io.chronicle;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.LinkedList;
-import java.util.List;
 
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.exception.SirixIOException;
@@ -12,8 +10,6 @@ import org.sirix.io.Storage;
 import org.sirix.io.Writer;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
-
-import com.higherfrequencytrading.chronicle.impl.IndexedChronicle;
 
 /**
  * Chronicle storage.
@@ -31,9 +27,6 @@ public final class ChronicleStorage implements Storage {
 
 	/** Byte handler pipeline. */
 	private final ByteHandlePipeline mByteHandler;
-
-	/** Chronicle storage. */
-	private IndexedChronicle mChronicle;
 
 	/**
 	 * Constructor.
@@ -61,12 +54,11 @@ public final class ChronicleStorage implements Storage {
 				concreteStorage.createNewFile();
 			}
 
-			mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
+			return new ChronicleReader(concreteStorage, new ByteHandlePipeline(
+					mByteHandler));
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
-		return new ChronicleReader(mChronicle, new ByteHandlePipeline(
-				mByteHandler));
 	}
 
 	@Override
@@ -78,18 +70,16 @@ public final class ChronicleStorage implements Storage {
 				concreteStorage.getParentFile().mkdirs();
 				concreteStorage.createNewFile();
 			}
-			
-			mChronicle = new IndexedChronicle(concreteStorage.getAbsolutePath());
+
+			return new ChronicleWriter(concreteStorage, new ByteHandlePipeline(
+					mByteHandler));
 		} catch (final IOException e) {
 			throw new SirixIOException(e);
 		}
-		return new ChronicleWriter(mChronicle, new ByteHandlePipeline(
-				mByteHandler));
 	}
 
 	@Override
 	public void close() throws SirixIOException {
-		mChronicle.close();
 	}
 
 	/**
