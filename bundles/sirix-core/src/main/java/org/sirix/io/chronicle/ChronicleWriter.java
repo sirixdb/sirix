@@ -5,6 +5,9 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 
+import net.openhft.chronicle.ExcerptAppender;
+import net.openhft.chronicle.IndexedChronicle;
+
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.AbstractForwardingReader;
 import org.sirix.io.Reader;
@@ -14,14 +17,11 @@ import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
 
-import com.higherfrequencytrading.chronicle.Excerpt;
-import com.higherfrequencytrading.chronicle.impl.IndexedChronicle;
-
 public final class ChronicleWriter extends AbstractForwardingReader implements
 		Writer {
 
 	private final ChronicleReader mReader;
-	private final Excerpt mExcerpt;
+	private final ExcerptAppender mExcerpt;
 	private final IndexedChronicle mChronicle;
 
 	/**
@@ -37,14 +37,18 @@ public final class ChronicleWriter extends AbstractForwardingReader implements
 	public ChronicleWriter(final File file, final ByteHandler handler) throws IOException {
 		mReader = new ChronicleReader(file, handler);
 		mChronicle = new IndexedChronicle(file.getAbsolutePath());
-		mExcerpt = mChronicle.createExcerpt();
+		mExcerpt = mChronicle.createAppender();
 	}
 
 	@Override
 	public void close() throws SirixIOException {
 		mExcerpt.close();
-		mChronicle.close();
-		mReader.close();
+		try {
+			mChronicle.close();
+			mReader.close();
+		} catch (final IOException e) {
+			throw new SirixIOException(e.getCause());
+		}
 	}
 
 	@Override
@@ -69,9 +73,9 @@ public final class ChronicleWriter extends AbstractForwardingReader implements
 					+ ChronicleReader.OTHER_BEACON);
 			mExcerpt.writeInt(serializedPage.length);
 			mExcerpt.write(serializedPage);
+			mExcerpt.finish();
 			final long index = mExcerpt.index();
 			assert index != -1 : "Index nr. not valid!";
-			mExcerpt.finish();
 
 			// Remember page coordinates.
 			pageReference.setKey(index);
