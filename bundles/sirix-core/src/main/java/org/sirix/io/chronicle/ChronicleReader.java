@@ -9,6 +9,10 @@ import java.io.IOException;
 
 import javax.annotation.Nullable;
 
+import net.openhft.chronicle.Chronicle;
+import net.openhft.chronicle.Excerpt;
+import net.openhft.chronicle.IndexedChronicle;
+
 import org.sirix.api.PageReadTrx;
 import org.sirix.exception.SirixIOException;
 import org.sirix.io.Reader;
@@ -17,10 +21,6 @@ import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.UberPage;
 import org.sirix.page.interfaces.Page;
-
-import com.higherfrequencytrading.chronicle.Chronicle;
-import com.higherfrequencytrading.chronicle.Excerpt;
-import com.higherfrequencytrading.chronicle.impl.IndexedChronicle;
 
 public final class ChronicleReader implements Reader {
 
@@ -44,7 +44,7 @@ public final class ChronicleReader implements Reader {
 	public PageReference readFirstReference() throws SirixIOException {
 		final PageReference uberPageReference = new PageReference();
 		// Read primary beacon.
-		final long lastIndex = mChronicle.size() - 1;
+		final long lastIndex = mExcerpt.size() - 1;
 		uberPageReference.setKey(lastIndex);
 		final UberPage page = (UberPage) read(lastIndex, null);
 		uberPageReference.setPage(page);
@@ -57,6 +57,7 @@ public final class ChronicleReader implements Reader {
 		try {
 			// Read page from excerpt.
 			final boolean opened = mExcerpt.index(key);
+			System.out.println(key);
 			assert opened : "Index couldn't be opened!";
 			final int dataLength = mExcerpt.readInt();
 			final byte[] page = new byte[dataLength];
@@ -77,6 +78,10 @@ public final class ChronicleReader implements Reader {
 	@Override
 	public void close() throws SirixIOException {
 		mExcerpt.close();
-		mChronicle.close();
+		try {
+			mChronicle.close();
+		} catch (final IOException e) {
+			throw new SirixIOException(e.getCause());
+		}
 	}
 }
