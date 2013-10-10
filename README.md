@@ -1,4 +1,4 @@
-#Sirix - a versioned XML storage system
+#Sirix - Beyond Versioning of Persistent Trees
 
 ## Simple Example 
 Test if fragments are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
