@@ -41,7 +41,7 @@ public final class ChronicleReader implements Reader {
 	}
 
 	@Override
-	public PageReference readFirstReference() throws SirixIOException {
+	public PageReference readUberPageReference() throws SirixIOException {
 		final PageReference uberPageReference = new PageReference();
 		// Read primary beacon.
 		final long lastIndex = mExcerpt.size() - 1;

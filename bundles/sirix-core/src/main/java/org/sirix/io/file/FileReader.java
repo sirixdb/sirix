@@ -117,7 +117,7 @@ public final class FileReader implements Reader {
 	}
 
 	@Override
-	public PageReference readFirstReference() throws SirixIOException {
+	public PageReference readUberPageReference() throws SirixIOException {
 		final PageReference uberPageReference = new PageReference();
 		try {
 			// Read primary beacon.

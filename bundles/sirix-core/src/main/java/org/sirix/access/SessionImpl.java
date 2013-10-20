@@ -187,7 +187,7 @@ public final class SessionImpl implements Session {
 		mFac = StorageType.getStorage(mResourceConfig);
 		if (mFac.exists()) {
 			final Reader reader = mFac.getReader();
-			final PageReference firstRef = reader.readFirstReference();
+			final PageReference firstRef = reader.readUberPageReference();
 			if (firstRef.getPage() == null) {
 				mLastCommittedUberPage = new AtomicReference<>((UberPage) reader.read(
 						firstRef.getKey(), null));

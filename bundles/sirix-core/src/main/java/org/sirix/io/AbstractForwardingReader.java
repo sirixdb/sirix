@@ -29,8 +29,8 @@ public abstract class AbstractForwardingReader extends ForwardingObject
 	}
 
 	@Override
-	public PageReference readFirstReference() throws SirixIOException {
-		return delegate().readFirstReference();
+	public PageReference readUberPageReference() throws SirixIOException {
+		return delegate().readUberPageReference();
 	}
 
 	@Override

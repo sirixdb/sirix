@@ -212,9 +212,9 @@ public final class BerkeleyWriter implements Writer {
 	}
 
 	@Override
-	public PageReference readFirstReference()
+	public PageReference readUberPageReference()
 			throws SirixIOException {
-		return mReader.readFirstReference();
+		return mReader.readUberPageReference();
 	}
 
 	@Override

@@ -134,7 +134,7 @@ public final class BerkeleyReader implements Reader {
 	}
 
 	@Override
-	public PageReference readFirstReference() throws SirixIOException {
+	public PageReference readUberPageReference() throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		TupleBinding.getPrimitiveBinding(Long.class).objectToEntry(-1l, keyEntry);
