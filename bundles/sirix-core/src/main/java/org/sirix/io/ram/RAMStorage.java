@@ -95,7 +95,7 @@ public final class RAMStorage implements Storage {
 		}
 
 		@Override
-		public PageReference readFirstReference() {
+		public PageReference readUberPageReference() {
 			final Page page = mResourceStorage.get(new Long(-1));
 			final PageReference uberPageReference = new PageReference();
 			uberPageReference.setKey(-1);

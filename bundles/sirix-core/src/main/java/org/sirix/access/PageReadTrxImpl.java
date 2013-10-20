@@ -177,9 +177,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 	/** Optional {@link PageWriteTrxImpl} needed for very first revision. */
 	private final Optional<PageWriteTrxImpl> mPageWriteTrx;
 
-	/** Caching loaded {@link RevisionRootPage}s. */
-	private final LoadingCache<Integer, RevisionRootPage> mRevisionRootCache;
-
 	/** {@link IndexController} instance. */
 	private final IndexController mIndexController;
 
@@ -396,13 +393,13 @@ final class PageReadTrxImpl implements PageReadTrx {
 				return page;
 			}
 		});
-		mRevisionRootCache = CacheBuilder.newBuilder().build(
-				new CacheLoader<Integer, RevisionRootPage>() {
-					@Override
-					public RevisionRootPage load(final Integer revision) throws Exception {
-						return loadRevRoot(revision);
-					}
-				});
+//		mRevisionRootCache = CacheBuilder.newBuilder().build(
+//				new CacheLoader<Integer, RevisionRootPage>() {
+//					@Override
+//					public RevisionRootPage load(final Integer revision) throws Exception {
+//						return loadRevRoot(revision);
+//					}
+//				});
 
 		// Load revision root.
 		mRootPage = loadRevRoot(revision);
@@ -722,8 +719,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 				if (pageReference.isPresent()) {
 					refToRecordPage = pageReference.get();
 				} else {
+					assert mRootPage.getRevision() == i;
 					final PageReference tmpRef = getPageReference(
-							mRevisionRootCache.get(i), pageKind, index);
+							mRootPage, pageKind, index);
 					refToRecordPage = getPageReferenceForPage(tmpRef, recordPageKey,
 							index, pageKind);
 				}
@@ -732,6 +730,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 						.getPreviousReference();
 				refToRecordPage = reference.isPresent() ? reference.get() : null;
 			}
+			
 			if (refToRecordPage != null
 					&& refToRecordPage.getKey() != Constants.NULL_ID) {
 				// Probably save page.

@@ -51,7 +51,7 @@ public interface Reader extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if something bad happens
 	 */
-	PageReference readFirstReference()
+	PageReference readUberPageReference()
 			throws SirixIOException;
 
 	/**
