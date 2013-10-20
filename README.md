@@ -1,4 +1,4 @@
-#Sirix - a versioned XML storage system
+#Sirix - Beyond Versioning of Persistent Trees
 
 ## Simple Example 
 Test if fragments are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
@@ -37,6 +37,8 @@ doc('mydoc.xml', 2)/log/*[not(past::*)]
 </code></pre>
 
 Further use cases, development news and other stuff related to Sirix: http://sirixdb.tumblr.com
+
+<a href="http://twitter.com/home/?status=Thanks @https%3A%2F%2Ftwitter.com%2Fsirixdb for making Sirix: https%3A%2F%2Fgithub.com%2Fsirixdb%2Fsirix"><img src="https://s3.amazonaws.com/github-thank-you-button/thank-you-button.png" alt="Say Thanks" /></a>
 
 ## Developers
 First of all, I'm searching for interested open source developers which are eager to put forth the idea of a versioned, secure database system especially suitable, but not restricted to rooted trees (serialized form as XML/JSON). The idea is not only to support (and extend querying) as for instance via XQuery efficiently, but also to support other datamining tasks such as the comparison of hierarchical tree-structures.
