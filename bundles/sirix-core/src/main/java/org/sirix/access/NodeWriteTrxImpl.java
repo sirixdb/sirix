@@ -1494,16 +1494,11 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 
 				final long pathNodeKey = mBuildPathSummary ? mPathSummaryWriter
 						.getPathNodeKey(name, Kind.NAMESPACE) : 0;
-				final int uriKey = getPageTransaction().createNameKey(
-						name.getNamespaceURI(), Kind.NAMESPACE);
-				final int prefixKey = name.getPrefix() != null
-						&& !name.getPrefix().isEmpty() ? getPageTransaction()
-						.createNameKey(name.getPrefix(), Kind.NAMESPACE) : -1;
 				final long elementKey = getCurrentNode().getNodeKey();
 
 				final Optional<SirixDeweyID> id = newNamespaceID();
 				final NamespaceNode node = mNodeFactory.createNamespaceNode(elementKey,
-						uriKey, prefixKey, pathNodeKey, id);
+						name, pathNodeKey, id);
 
 				final Node parentNode = (Node) getPageTransaction()
 						.prepareEntryForModification(node.getParentKey(),

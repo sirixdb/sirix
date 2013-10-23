@@ -28,7 +28,6 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.mock;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -36,6 +35,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -81,7 +81,7 @@ public class NamespaceNodeTest {
 				1);
 		
 		// Create empty node.
-		final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, mock(PageReadTrx.class));
+		final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
 
 		// Serialize and deserialize node.
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();

@@ -37,6 +37,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -93,7 +94,7 @@ public final class NodePageTest {
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 5, 6, 7, 1);
 		final ElementNode node1 = new ElementNode(strucDel, nameDel,
 				new ArrayList<Long>(), HashBiMap.<Long, Long> create(),
-				new ArrayList<Long>(), mock(PageReadTrx.class));
+				new ArrayList<Long>(), new QNm("a", "b", "c"));
 		node1.insertAttribute(88L, 100);
 		node1.insertAttribute(87L, 101);
 		node1.insertNamespace(99L);

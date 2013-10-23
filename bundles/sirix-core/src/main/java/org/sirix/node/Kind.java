@@ -110,9 +110,18 @@ public enum Kind implements RecordPersistenter {
 			for (int i = 0; i < nsCount; i++) {
 				namespKeys.add(source.readLong());
 			}
+			
+			final String uri = pageReadTrx.getName(
+					nameDel.getURIKey(), Kind.NAMESPACE);
+			final int prefixKey = nameDel.getPrefixKey();
+			final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(
+					prefixKey, Kind.ELEMENT);
+			final int localNameKey = nameDel.getLocalNameKey();
+			final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(
+					localNameKey, Kind.ELEMENT);
 
 			return new ElementNode(structDel, nameDel, attrKeys, attrs, namespKeys,
-					pageReadTrx);
+					new QNm(uri, prefix, localName));
 		}
 
 		@Override
@@ -156,9 +165,20 @@ public enum Kind implements RecordPersistenter {
 			source.readFully(vals, 0, vals.length);
 			final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, vals,
 					isCompressed);
+			
+			final String uri = pageReadTrx.getName(
+					nameDel.getURIKey(), Kind.NAMESPACE);
+			final int prefixKey = nameDel.getPrefixKey();
+			final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(
+					prefixKey, Kind.ATTRIBUTE);
+			final int localNameKey = nameDel.getLocalNameKey();
+			final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(
+					localNameKey, Kind.ATTRIBUTE);
+			
+			final QNm name = new QNm(uri, prefix, localName);
 
 			// Returning an instance.
-			return new AttributeNode(nodeDel, nameDel, valDel, pageReadTrx);
+			return new AttributeNode(nodeDel, nameDel, valDel, name);
 		}
 
 		@Override
@@ -186,7 +206,18 @@ public enum Kind implements RecordPersistenter {
 			// Name delegate.
 			final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
 
-			return new NamespaceNode(nodeDel, nameDel, pageReadTrx);
+			final String uri = pageReadTrx.getName(
+					nameDel.getURIKey(), Kind.NAMESPACE);
+			final int prefixKey = nameDel.getPrefixKey();
+			final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(
+					prefixKey, Kind.ELEMENT);
+			final int localNameKey = nameDel.getLocalNameKey();
+			final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(
+					localNameKey, Kind.ELEMENT);
+			
+			final QNm name = new QNm(uri, prefix, localName);
+			
+			return new NamespaceNode(nodeDel, nameDel, name);
 		}
 
 		@Override

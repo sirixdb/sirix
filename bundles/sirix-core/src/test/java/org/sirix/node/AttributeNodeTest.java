@@ -28,7 +28,6 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.mock;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -36,6 +35,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -84,7 +84,7 @@ public class AttributeNodeTest {
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
 		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 
-		final AttributeNode node = new AttributeNode(del, nameDel, valDel, mock(PageReadTrx.class));
+		final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm("ns", "a", "p"));
 
 		// Create empty node.
 		check(node);

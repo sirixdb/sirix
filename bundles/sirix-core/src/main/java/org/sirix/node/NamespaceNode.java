@@ -27,13 +27,10 @@
 
 package org.sirix.node;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.PageReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -59,7 +56,8 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 	/** {@link NodeDelegate} reference. */
 	private final NodeDelegate mNodeDel;
 	
-	private final PageReadTrx mPageReadTrx;
+	/** The qualified name. */
+	private final QNm mQNm;
 
 	/**
 	 * Constructor.
@@ -68,12 +66,16 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 	 *          {@link NodeDelegate} reference
 	 * @param nameDel
 	 *          {@link NameNodeDelegate} reference
+	 * @param qNm The qualified name.
 	 */
 	public NamespaceNode(final NodeDelegate nodeDel,
-			final NameNodeDelegate nameDel, final PageReadTrx pageReadTrx) {
-		mNodeDel = checkNotNull(nodeDel);
-		mNameDel = checkNotNull(nameDel);
-		mPageReadTrx = checkNotNull(pageReadTrx);
+			final NameNodeDelegate nameDel, final QNm qNm) {
+		assert nodeDel != null;
+		assert nameDel != null;
+		assert qNm != null;
+		mNodeDel = nodeDel;
+		mNameDel = nameDel;
+		mQNm = qNm;
 	}
 
 	@Override
@@ -161,17 +163,8 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 		return mNodeDel;
 	}
 	
-	// FIXME
 	@Override
 	public QNm getName() {
-		final String uri = mPageReadTrx.getName(
-				mNameDel.getURIKey(), Kind.NAMESPACE);
-		final int prefixKey = mNameDel.getPrefixKey();
-		final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(
-				prefixKey, Kind.ELEMENT);
-		final int localNameKey = mNameDel.getLocalNameKey();
-		final String localName = localNameKey == -1 ? "" : mPageReadTrx.getName(
-				localNameKey, Kind.ELEMENT);
-		return new QNm(uri, prefix, localName);
+		return mQNm;
 	}
 }
