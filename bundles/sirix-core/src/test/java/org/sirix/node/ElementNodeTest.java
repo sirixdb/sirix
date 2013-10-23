@@ -28,7 +28,6 @@
 package org.sirix.node;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.mock;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -37,6 +36,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 
+import org.brackit.xquery.atomic.QNm;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -87,7 +87,7 @@ public class ElementNodeTest {
 
 		final ElementNode node = new ElementNode(strucDel, nameDel,
 				new ArrayList<Long>(), HashBiMap.<Long, Long> create(),
-				new ArrayList<Long>(), mock(PageReadTrx.class));
+				new ArrayList<Long>(), new QNm("ns", "a", "p"));
 
 		// Create empty node.
 		node.insertAttribute(97, 100);

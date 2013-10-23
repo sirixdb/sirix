@@ -89,8 +89,8 @@ public interface NodeFactory {
 	 *          value of the node
 	 * @param isCompressed
 	 *          determines if the value is compressed or not
-	 * @param pSiblingPos
-	 *          sibling position
+	 * @param id
+	 * 					an optional dewey ID
 	 * @return the created node
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
@@ -157,8 +157,8 @@ public interface NodeFactory {
 	 * @param parentKey
 	 *          parent node key
 	 * @param name
-	 *          the {@link QName} of the attribute
-	 * @param pPCR
+	 *          the {@link QNm} of the attribute
+	 * @param pathNodeKey
 	 *          the path class record
 	 * @return the created node
 	 * @throws SirixIOException
@@ -174,10 +174,8 @@ public interface NodeFactory {
 	 * 
 	 * @param parentKey
 	 *          parent node key
-	 * @param uriKey
-	 *          the URI key
-	 * @param prefixKey
-	 *          the prefix key
+	 * @param name
+	 * 					the {@link QNm} of the namespace
 	 * @param pathNodeKey
 	 *          the path class record
 	 * @return the created node
@@ -185,7 +183,6 @@ public interface NodeFactory {
 	 *           if an I/O error occurs
 	 */
 	NamespaceNode createNamespaceNode(final @Nonnegative long parentKey,
-			final int uriKey, final int prefixKey,
-			final @Nonnegative long pathNodeKey,
+			final QNm name,	final @Nonnegative long pathNodeKey,
 			final Optional<SirixDeweyID> id) throws SirixIOException;
 }

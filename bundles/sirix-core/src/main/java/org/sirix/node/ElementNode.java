@@ -34,7 +34,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.PageReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -76,8 +75,8 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	/** {@link StructNodeDelegate} reference. */
 	private final StructNodeDelegate mStructNodeDel;
 	
-	/** {@link PageReadTrx} reference. */
-	private final PageReadTrx mPageReadTrx;
+	/** The qualified name. */
+	private final QNm mQNm;
 
 	/**
 	 * Constructor
@@ -92,13 +91,14 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	 *          attribute nameKey / nodeKey mapping in both directions
 	 * @param namespaceKeys
 	 *          keys of namespaces to be set
+	 * @param 
 	 */
 	public ElementNode(final StructNodeDelegate structDel,
 			final NameNodeDelegate nameDel,
 			final List<Long> attributeKeys,
 			final BiMap<Long, Long> attributes,
 			final List<Long> namespaceKeys,
-			final PageReadTrx pageReadTrx) {
+			final QNm qNm) {
 		assert structDel != null;
 		mStructNodeDel = structDel;
 		assert nameDel != null;
@@ -109,8 +109,8 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 		mAttributes = attributes;
 		assert namespaceKeys != null;
 		mNamespaceKeys = namespaceKeys;
-		assert pageReadTrx != null;
-		mPageReadTrx = pageReadTrx;
+		assert qNm != null;
+		mQNm = qNm;
 	}
 
 	/**
@@ -344,14 +344,6 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	
 	@Override
 	public QNm getName() {
-		final String uri = mPageReadTrx.getName(
-				mNameDel.getURIKey(), Kind.NAMESPACE);
-		final int prefixKey = mNameDel.getPrefixKey();
-		final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(
-				prefixKey, Kind.ELEMENT);
-		final int localNameKey = mNameDel.getLocalNameKey();
-		final String localName = localNameKey == -1 ? "" : mPageReadTrx.getName(
-				localNameKey, Kind.ELEMENT);
-		return new QNm(uri, prefix, localName);
+		return mQNm;
 	}
 }

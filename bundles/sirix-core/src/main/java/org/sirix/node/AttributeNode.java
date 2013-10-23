@@ -31,7 +31,6 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nullable;
 
 import org.brackit.xquery.atomic.QNm;
-import org.sirix.api.PageReadTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.node.delegates.NameNodeDelegate;
@@ -64,8 +63,8 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	/** Node delegate. */
 	private final NodeDelegate mDel;
 
-	/** {@link PageReadTrx} reference. */
-	private final PageReadTrx mPageReadTrx;
+	/** The qualified name. */
+	private final QNm mQNm;
 
 	/**
 	 * Creating an attribute.
@@ -81,15 +80,15 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	public AttributeNode(final NodeDelegate nodeDel,
 			final NameNodeDelegate nameDel,
 			final ValNodeDelegate valDel,
-			final PageReadTrx pageReadTrx) {
+			final QNm qNm) {
 		assert nodeDel != null : "nodeDel must not be null!";
 		mDel = nodeDel;
 		assert nameDel != null : "nameDel must not be null!";
 		mNameDel = nameDel;
 		assert valDel != null : "valDel must not be null!";
 		mValDel = valDel;
-		assert pageReadTrx != null : "pageReadTrx must not be null!";
-		mPageReadTrx = pageReadTrx;
+		assert qNm != null : "qNm must not be null!";
+		mQNm = qNm;
 	}
 
 	@Override
@@ -198,15 +197,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 
 	@Override
 	public QNm getName() {
-		final String uri = mPageReadTrx.getName(
-				mNameDel.getURIKey(), Kind.NAMESPACE);
-		final int prefixKey = mNameDel.getPrefixKey();
-		final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(
-				prefixKey, Kind.ATTRIBUTE);
-		final int localNameKey = mNameDel.getLocalNameKey();
-		final String localName = localNameKey == -1 ? "" : mPageReadTrx.getName(
-				localNameKey, Kind.ATTRIBUTE);
-		return new QNm(uri, prefix, localName);
+		return mQNm;
 	}
 	
 	@Override

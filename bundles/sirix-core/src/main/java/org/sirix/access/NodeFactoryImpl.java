@@ -42,7 +42,7 @@ import com.google.common.collect.HashBiMap;
  * @author Johannes Lichtenberger
  * 
  */
-public class NodeFactoryImpl implements NodeFactory {
+final class NodeFactoryImpl implements NodeFactory {
 
 	/** {@link PageWriteTrx} implementation. */
 	private final PageWriteTrx<Long, Record, UnorderedKeyValuePage> mPageWriteTrx;
@@ -55,7 +55,7 @@ public class NodeFactoryImpl implements NodeFactory {
 	 * @throws SirixIOException
 	 *           if an I/O exception occured due to name key creation
 	 */
-	public NodeFactoryImpl(
+	NodeFactoryImpl(
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx)
 			throws SirixIOException {
 		mPageWriteTrx = checkNotNull(pageWriteTrx);
@@ -91,18 +91,17 @@ public class NodeFactoryImpl implements NodeFactory {
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey,
 				prefixKey, localName, 0);
 
-		return (PathNode) mPageWriteTrx
-				.createEntry(nodeDel.getNodeKey(), new PathNode(nodeDel, structDel,
-						nameDel, kind, 1, level), PageKind.PATHSUMMARYPAGE, 0, Optional
-						.<UnorderedKeyValuePage> absent());
+		return (PathNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
+				new PathNode(nodeDel, structDel, nameDel, kind, 1, level),
+				PageKind.PATHSUMMARYPAGE, 0, Optional.<UnorderedKeyValuePage> absent());
 	}
 
 	@Override
 	public ElementNode createElementNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
 			final long hash, @Nonnull final QNm name,
-			final @Nonnegative long pathNodeKey,
-			final Optional<SirixDeweyID> id) throws SirixIOException {
+			final @Nonnegative long pathNodeKey, final Optional<SirixDeweyID> id)
+			throws SirixIOException {
 		final int uriKey = name.getNamespaceURI() != null
 				&& !name.getNamespaceURI().isEmpty() ? mPageWriteTrx.createNameKey(
 				name.getNamespaceURI(), Kind.NAMESPACE) : -1;
@@ -125,7 +124,7 @@ public class NodeFactoryImpl implements NodeFactory {
 		return (ElementNode) mPageWriteTrx.createEntry(
 				nodeDel.getNodeKey(),
 				new ElementNode(structDel, nameDel, new ArrayList<Long>(), HashBiMap
-						.<Long, Long> create(), new ArrayList<Long>(), mPageWriteTrx),
+						.<Long, Long> create(), new ArrayList<Long>(), name),
 				PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
 	}
 
@@ -154,8 +153,8 @@ public class NodeFactoryImpl implements NodeFactory {
 	@Override
 	public AttributeNode createAttributeNode(final @Nonnegative long parentKey,
 			@Nonnull final QNm name, @Nonnull final byte[] value,
-			final @Nonnegative long pathNodeKey,
-			final Optional<SirixDeweyID> id) throws SirixIOException {
+			final @Nonnegative long pathNodeKey, final Optional<SirixDeweyID> id)
+			throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final int uriKey = mPageWriteTrx.createNameKey(name.getNamespaceURI(),
 				Kind.NAMESPACE);
@@ -173,33 +172,39 @@ public class NodeFactoryImpl implements NodeFactory {
 		final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, value, false);
 
 		return (AttributeNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
-				new AttributeNode(nodeDel, nameDel, valDel, mPageWriteTrx),
-				PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
+				new AttributeNode(nodeDel, nameDel, valDel, name), PageKind.RECORDPAGE,
+				-1, Optional.<UnorderedKeyValuePage> absent());
 	}
 
 	@Override
 	public NamespaceNode createNamespaceNode(final @Nonnegative long parentKey,
-			final int uriKey, final int prefixKey,
-			final @Nonnegative long pathNodeKey,
+			final QNm name, final @Nonnegative long pathNodeKey,
 			final Optional<SirixDeweyID> id) throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 		final NodeDelegate nodeDel = new NodeDelegate(mPageWriteTrx
 				.getActualRevisionRootPage().getMaxNodeKey() + 1, parentKey, 0,
 				revision, id);
+
+		final int uriKey = mPageWriteTrx.createNameKey(name.getNamespaceURI(),
+				Kind.NAMESPACE);
+		final int prefixKey = name.getPrefix() != null
+				&& !name.getPrefix().isEmpty() ? mPageWriteTrx.createNameKey(
+				name.getPrefix(), Kind.NAMESPACE) : -1;
+
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey,
 				prefixKey, -1, pathNodeKey);
 
 		return (NamespaceNode) mPageWriteTrx.createEntry(nodeDel.getNodeKey(),
-				new NamespaceNode(nodeDel, nameDel, mPageWriteTrx), PageKind.RECORDPAGE,
-				-1, Optional.<UnorderedKeyValuePage> absent());
+				new NamespaceNode(nodeDel, nameDel, name), PageKind.RECORDPAGE, -1,
+				Optional.<UnorderedKeyValuePage> absent());
 	}
 
 	@Override
 	public PINode createPINode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final QNm target, final byte[] content,
-			final boolean isCompressed, final @Nonnegative long pathNodeKey,
-			final Optional<SirixDeweyID> id) throws SirixIOException {
+			final QNm target, final byte[] content, final boolean isCompressed,
+			final @Nonnegative long pathNodeKey, final Optional<SirixDeweyID> id)
+			throws SirixIOException {
 		final long revision = mPageWriteTrx.getRevisionNumber();
 
 		final int prefixKey = target.getPrefix() != null

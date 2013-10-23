@@ -393,13 +393,6 @@ final class PageReadTrxImpl implements PageReadTrx {
 				return page;
 			}
 		});
-//		mRevisionRootCache = CacheBuilder.newBuilder().build(
-//				new CacheLoader<Integer, RevisionRootPage>() {
-//					@Override
-//					public RevisionRootPage load(final Integer revision) throws Exception {
-//						return loadRevRoot(revision);
-//					}
-//				});
 
 		// Load revision root.
 		mRootPage = loadRevRoot(revision);
