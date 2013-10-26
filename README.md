@@ -1,5 +1,7 @@
 #Sirix - Beyond Versioning of Persistent Trees
 
+"Don't forget to be awesome." - Esther Gray Earl (http://tswgo.org)
+
 ## Simple Example 
 Test if fragments are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
 <pre><code>(* Loading document: *)
