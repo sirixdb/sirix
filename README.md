@@ -1,5 +1,7 @@
 #Sirix - Beyond Versioning of Persistent Trees
 
+"Remember that you're lucky, even if you don't think you are, because there's always something that you can be thankful for." - Esther Grace Earl (http://tswgo.org)
+
 ## Simple Example 
 Test if fragments are not present in the past. In this example they are appended to a node in the most recent revision and stored in a subsequent revision)
 <pre><code>(* Loading document: *)
@@ -176,6 +178,8 @@ same resource
 * in-memory- or on-disk-storage
 * the page-size isn't padded until a predefined size is reached. Instead only necessary bytes are written.
 
+## Donations
+If you ever think this software does anything good and is of use to you, you might consider donating something to this wonderful "This Star Won't Go Out" Foundation at http://tswgo.org.
 
 ## Future
 A bunch of work includes the current index-structures:
