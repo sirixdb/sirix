@@ -67,10 +67,10 @@ public final class NamePage extends AbstractForwardingPage {
 
 	/** Processing instruction names. */
 	private final Names mPIs;
-	
+
 	/** {@link PageDelegate} instance. */
 	private final PageDelegate mDelegate;
-	
+
 	/** Maximum node keys. */
 	private final Map<Integer, Long> mMaxNodeKeys;
 
@@ -96,7 +96,7 @@ public final class NamePage extends AbstractForwardingPage {
 		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
 		final int size = in.readInt();
 		mMaxNodeKeys = new HashMap<>(size);
-		for (int i = 0; i < size; i ++) {
+		for (int i = 0; i < size; i++) {
 			mMaxNodeKeys.put(i, in.readLong());
 		}
 		mElements = Names.clone(in);
@@ -196,12 +196,11 @@ public final class NamePage extends AbstractForwardingPage {
 	 *          key for given name
 	 * @param name
 	 *          name to create key for
-	 * @param pNodeKind
+	 * @param nodeKind
 	 *          kind of node
 	 */
-	public void setName(final int key, final String name,
-			final Kind pNodeKind) {
-		switch (pNodeKind) {
+	public void setName(final int key, final String name, final Kind nodeKind) {
+		switch (nodeKind) {
 		case ELEMENT:
 			mElements.setName(key, name);
 			break;
@@ -221,12 +220,12 @@ public final class NamePage extends AbstractForwardingPage {
 
 	@Override
 	public void serialize(DataOutputStream out) throws IOException {
-			super.serialize(out);
-			final int size = mMaxNodeKeys.size();
-			out.writeInt(size);
-			for (int i = 0; i < size; i ++) {
-				out.writeLong(mMaxNodeKeys.get(i));
-			}
+		super.serialize(out);
+		final int size = mMaxNodeKeys.size();
+		out.writeInt(size);
+		for (int i = 0; i < size; i++) {
+			out.writeLong(mMaxNodeKeys.get(i));
+		}
 		mElements.serialize(out);
 		mNamespaces.serialize(out);
 		mAttributes.serialize(out);
@@ -264,7 +263,7 @@ public final class NamePage extends AbstractForwardingPage {
 			throw new IllegalStateException("No other node types supported!");
 		}
 	}
-	
+
 	/**
 	 * Initialize name index tree.
 	 * 
@@ -286,6 +285,17 @@ public final class NamePage extends AbstractForwardingPage {
 			}
 		}
 	}
+	
+	/**
+	 * Get indirect page reference.
+	 * 
+	 * @param offset
+	 *          the offset of the indirect page, that is the index number
+	 * @return indirect page reference
+	 */
+	public PageReference getIndirectPageReference(int offset) {
+		return getReference(offset);
+	}
 
 	/**
 	 * Get the maximum node key of the specified index by its index number.
@@ -297,7 +307,7 @@ public final class NamePage extends AbstractForwardingPage {
 	public long getMaxNodeKey(final int indexNo) {
 		return mMaxNodeKeys.get(indexNo);
 	}
-	
+
 	public long incrementAndGetMaxNodeKey(final int indexNo) {
 		final long newMaxNodeKey = mMaxNodeKeys.get(indexNo).longValue() + 1;
 		mMaxNodeKeys.put(indexNo, newMaxNodeKey);
