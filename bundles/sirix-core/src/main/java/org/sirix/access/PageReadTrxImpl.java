@@ -768,6 +768,9 @@ final class PageReadTrxImpl implements PageReadTrx {
 		case PATHPAGE:
 			ref = getPathPage(revisionRoot).getIndirectPageReference(index);
 			break;
+		case NAMEPAGE:
+			ref = getNamePage(revisionRoot).getIndirectPageReference(index);
+			break;
 		case PATHSUMMARYPAGE:
 			ref = getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
 			break;
