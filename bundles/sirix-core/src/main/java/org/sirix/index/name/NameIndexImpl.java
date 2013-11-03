@@ -19,7 +19,7 @@ import org.sirix.settings.Fixed;
 
 import com.google.common.collect.ImmutableSet;
 
-public final class NameIndexImpl implements NameIndex<Integer, References> {
+public final class NameIndexImpl implements NameIndex<QNm, NodeReferences> {
 
 	@Override
 	public NameIndexBuilder createBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,

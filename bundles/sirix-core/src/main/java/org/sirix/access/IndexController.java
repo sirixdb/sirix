@@ -43,6 +43,8 @@ import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.cas.CASFilter;
 import org.sirix.index.cas.CASIndex;
 import org.sirix.index.cas.CASIndexImpl;
+import org.sirix.index.name.NameIndex;
+import org.sirix.index.name.NameIndexImpl;
 import org.sirix.index.path.PathFilter;
 import org.sirix.index.path.PathIndex;
 import org.sirix.index.path.PathIndexImpl;
@@ -77,8 +79,11 @@ public final class IndexController {
 	/** The {@link PathIndex} implementation used to provide path indexes. */
 	private final PathIndex<Long, NodeReferences> mPathIndex;
 
-	/** The {@link CASIndex} implementation used to provide path indexes. */
+	/** The {@link CASIndex} implementation used to provide CAS indexes. */
 	private final CASIndex<CASValue, NodeReferences> mCASIndex;
+
+	/** The {@link NameIndex} implementation used to provide Name indexes. */
+	private final NameIndex<QNm, NodeReferences> mNameIndex;
 
 	/**
 	 * Constructor.
@@ -91,6 +96,7 @@ public final class IndexController {
 		mListeners = new HashSet<>();
 		mPathIndex = new PathIndexImpl();
 		mCASIndex = new CASIndexImpl();
+		mNameIndex = new NameIndexImpl();
 	}
 
 	/**
@@ -267,7 +273,8 @@ public final class IndexController {
 						indexDef));
 				break;
 			case NAME:
-				// TODO:
+				indexBuilders.add(createNameIndexBuilder(
+						nodeWriteTrx.getPageTransaction(), indexDef));
 				break;
 			default:
 				break;
@@ -303,7 +310,8 @@ public final class IndexController {
 						nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
 						indexDef));
 			case NAME:
-				// TODO:
+				mListeners.add(createNameIndexListener(
+						nodeWriteTrx.getPageTransaction(), indexDef));
 				break;
 			default:
 				break;
@@ -324,6 +332,12 @@ public final class IndexController {
 		return mCASIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
 	}
 
+	private ChangeListener createNameIndexListener(
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final IndexDef indexDef) {
+		return mNameIndex.createListener(pageWriteTrx, indexDef);
+	}
+
 	private Visitor createPathIndexBuilder(
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
@@ -335,6 +349,12 @@ public final class IndexController {
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
 		return mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx,
 				pathSummaryReader, indexDef);
+	}
+
+	private Visitor createNameIndexBuilder(
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+			final IndexDef indexDef) {
+		return mNameIndex.createBuilder(pageWriteTrx, indexDef);
 	}
 
 	public PathFilter createPathFilter(final String[] queryString,
