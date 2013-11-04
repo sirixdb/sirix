@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
@@ -43,6 +44,7 @@ import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.cas.CASFilter;
 import org.sirix.index.cas.CASIndex;
 import org.sirix.index.cas.CASIndexImpl;
+import org.sirix.index.name.NameFilter;
 import org.sirix.index.name.NameIndex;
 import org.sirix.index.name.NameIndexImpl;
 import org.sirix.index.path.PathFilter;
@@ -356,6 +358,15 @@ public final class IndexController {
 			final IndexDef indexDef) {
 		return mNameIndex.createBuilder(pageWriteTrx, indexDef);
 	}
+	
+	public NameFilter createNameFilter(final String[] queryString) {
+		final Set<QNm> includes = new HashSet<QNm>(queryString.length);
+		for (final String name : queryString) {
+			// TODO: Prefix/NspURI
+			includes.add(new QNm(name));
+		}
+		return new NameFilter(includes, Collections.<QNm> emptySet());
+	}
 
 	public PathFilter createPathFilter(final String[] queryString,
 			final NodeReadTrx rtx) throws PathException {
@@ -384,6 +395,16 @@ public final class IndexController {
 		}
 
 		return mPathIndex.openIndex(pageRtx, indexDef, filter);
+	}
+	
+	public Iterator<NodeReferences> openNameIndex(final PageReadTrx pageRtx,
+			final IndexDef indexDef, final NameFilter filter) {
+		if (mNameIndex == null) {
+			throw new IllegalStateException(
+					"This document does not support path indexes.");
+		}
+
+		return mNameIndex.openIndex(pageRtx, indexDef, filter);
 	}
 
 	public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx,

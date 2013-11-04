@@ -6,23 +6,27 @@ import static org.sirix.xquery.function.sdb.GetMostRecentRevision.MOST_RECENT_RE
 import static org.sirix.xquery.function.sdb.Load.LOAD;
 import static org.sirix.xquery.function.sdb.Store.STORE;
 import static org.sirix.xquery.function.sdb.index.FindCASIndex.FIND_CAS_INDEX;
+import static org.sirix.xquery.function.sdb.index.FindNameIndex.FIND_NAME_INDEX;
 import static org.sirix.xquery.function.sdb.index.FindPathIndex.FIND_PATH_INDEX;
 import static org.sirix.xquery.function.sdb.index.create.CreateCASIndex.CREATE_CAS_INDEX;
+import static org.sirix.xquery.function.sdb.index.create.CreateNameIndex.CREATE_NAME_INDEX;
 import static org.sirix.xquery.function.sdb.index.create.CreatePathIndex.CREATE_PATH_INDEX;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
 import org.brackit.xquery.module.Namespaces;
-import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.brackit.xquery.xdm.type.AtomicType;
 import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.sdb.index.FindCASIndex;
+import org.sirix.xquery.function.sdb.index.FindNameIndex;
 import org.sirix.xquery.function.sdb.index.FindPathIndex;
 import org.sirix.xquery.function.sdb.index.create.CreateCASIndex;
+import org.sirix.xquery.function.sdb.index.create.CreateNameIndex;
 import org.sirix.xquery.function.sdb.index.create.CreatePathIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanCASIndex;
+import org.sirix.xquery.function.sdb.index.scan.ScanNameIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanPathIndex;
 
 public final class SDBFun {
@@ -67,11 +71,15 @@ public final class SDBFun {
 				new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(
 						AtomicType.STR, Cardinality.One))));
 
+		// find-name-index
+		Functions.predefine(new FindNameIndex(FIND_NAME_INDEX, new Signature(
+				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
+		
 		// find-path-index
 		Functions.predefine(new FindPathIndex(FIND_PATH_INDEX, new Signature(
 				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
 
-		// find-cas-indec
+		// find-cas-index
 		Functions.predefine(new FindCASIndex(FIND_CAS_INDEX, new Signature(
 				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
 
@@ -83,6 +91,13 @@ public final class SDBFun {
 		Functions.predefine(new GetMostRecentRevision(MOST_RECENT_REVISION,
 				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
+		// create-name-index
+		Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(
+				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,
+						Cardinality.ZeroOrMany))));
+		Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(
+				SequenceType.NODE, SequenceType.NODE)));
+		
 		// create-path-index
 		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
 				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,
@@ -101,7 +116,9 @@ public final class SDBFun {
 		Functions.predefine(new CreateCASIndex(CREATE_CAS_INDEX, new Signature(
 				SequenceType.NODE, SequenceType.NODE)));
 
+		// scan indexes
 		Functions.predefine(new ScanPathIndex());
 		Functions.predefine(new ScanCASIndex());
+		Functions.predefine(new ScanNameIndex());
 	}
 }

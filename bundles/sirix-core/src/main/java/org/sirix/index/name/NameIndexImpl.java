@@ -11,7 +11,6 @@ import org.sirix.index.IndexDef;
 import org.sirix.index.IndexFilterAxis;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.AVLTreeReader;
-import org.sirix.index.avltree.interfaces.References;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.node.interfaces.Record;
 import org.sirix.page.UnorderedKeyValuePage;
