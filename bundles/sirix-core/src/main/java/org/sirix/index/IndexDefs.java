@@ -69,4 +69,8 @@ public final class IndexDefs {
 		return new IndexDef(included, ImmutableSet.<QNm> of(), indexDefNo);
 	}
 
+	public static IndexDef createSelectiveFilteredNameIdxDef(final Set<QNm> included,
+			final Set<QNm> excluded, final int indexDefNo) {
+		return new IndexDef(included, excluded, indexDefNo);
+	}
 }

@@ -9,7 +9,7 @@ import org.sirix.index.Filter;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 
-final class NameFilter implements Filter {
+public final class NameFilter implements Filter {
 	
 	private final Set<QNm> mIncludes;
 	private final Set<QNm> mExcludes;

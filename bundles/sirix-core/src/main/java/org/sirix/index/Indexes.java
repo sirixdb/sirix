@@ -171,11 +171,11 @@ public final class Indexes implements Materializable {
 		return Optional.absent();
 	}
 
-	public int getNrOfIndexDefsWithType(final IndexType cas) {
-		checkNotNull(cas);
+	public int getNrOfIndexDefsWithType(final IndexType type) {
+		checkNotNull(type);
 		int nr = 0;
 		for (final IndexDef index : mIndexes) {
-			if (index.getType() == cas) {
+			if (index.getType() == type) {
 				nr++;
 			}
 		}
