@@ -4,6 +4,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import javax.annotation.Nullable;
 
+import org.brackit.xquery.atomic.QNm;
 import org.sirix.api.visitor.VisitResultType;
 import org.sirix.api.visitor.Visitor;
 import org.sirix.index.avltree.interfaces.MutableAVLNode;
@@ -62,6 +63,9 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 		}
 		if (mKey instanceof CASValue) {
 			return Kind.CASAVL;
+		}
+		if (mKey instanceof QNm) {
+			return Kind.NAMEAVL;
 		}
 		return Kind.UNKNOWN;
 	}

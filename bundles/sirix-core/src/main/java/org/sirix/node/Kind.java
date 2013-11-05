@@ -110,9 +110,9 @@ public enum Kind implements RecordPersistenter {
 			for (int i = 0; i < nsCount; i++) {
 				namespKeys.add(source.readLong());
 			}
-			
-			final String uri = pageReadTrx.getName(
-					nameDel.getURIKey(), Kind.NAMESPACE);
+
+			final String uri = pageReadTrx.getName(nameDel.getURIKey(),
+					Kind.NAMESPACE);
 			final int prefixKey = nameDel.getPrefixKey();
 			final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(
 					prefixKey, Kind.ELEMENT);
@@ -165,16 +165,16 @@ public enum Kind implements RecordPersistenter {
 			source.readFully(vals, 0, vals.length);
 			final ValNodeDelegate valDel = new ValNodeDelegate(nodeDel, vals,
 					isCompressed);
-			
-			final String uri = pageReadTrx.getName(
-					nameDel.getURIKey(), Kind.NAMESPACE);
+
+			final String uri = pageReadTrx.getName(nameDel.getURIKey(),
+					Kind.NAMESPACE);
 			final int prefixKey = nameDel.getPrefixKey();
 			final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(
 					prefixKey, Kind.ATTRIBUTE);
 			final int localNameKey = nameDel.getLocalNameKey();
 			final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(
 					localNameKey, Kind.ATTRIBUTE);
-			
+
 			final QNm name = new QNm(uri, prefix, localName);
 
 			// Returning an instance.
@@ -206,17 +206,17 @@ public enum Kind implements RecordPersistenter {
 			// Name delegate.
 			final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
 
-			final String uri = pageReadTrx.getName(
-					nameDel.getURIKey(), Kind.NAMESPACE);
+			final String uri = pageReadTrx.getName(nameDel.getURIKey(),
+					Kind.NAMESPACE);
 			final int prefixKey = nameDel.getPrefixKey();
 			final String prefix = prefixKey == -1 ? "" : pageReadTrx.getName(
 					prefixKey, Kind.ELEMENT);
 			final int localNameKey = nameDel.getLocalNameKey();
 			final String localName = localNameKey == -1 ? "" : pageReadTrx.getName(
 					localNameKey, Kind.ELEMENT);
-			
+
 			final QNm name = new QNm(uri, prefix, localName);
-			
+
 			return new NamespaceNode(nodeDel, nameDel, name);
 		}
 
@@ -556,7 +556,7 @@ public enum Kind implements RecordPersistenter {
 			sink.write(type);
 			final NodeReferences value = node.getValue();
 			final Set<Long> nodeKeys = value.getNodeKeys();
-			
+
 			// Store in a list and sort the list.
 			final List<Long> listNodeKeys = new ArrayList<>(nodeKeys);
 			Collections.sort(listNodeKeys);
@@ -621,6 +621,70 @@ public enum Kind implements RecordPersistenter {
 			@SuppressWarnings("unchecked")
 			final AVLNode<Long, NodeReferences> node = (AVLNode<Long, NodeReferences>) record;
 			putVarLong(sink, node.getKey().longValue());
+			final NodeReferences value = node.getValue();
+			final Set<Long> nodeKeys = value.getNodeKeys();
+			sink.writeInt(nodeKeys.size());
+			for (final long nodeKey : nodeKeys) {
+				sink.writeLong(nodeKey);
+			}
+			final Node nextNode = (Node) nextRecord;
+			serializeDelegate(node.getNodeDelegate(), nextNode, sink, pageReadTrx);
+			putVarLong(sink, node.getLeftChildKey());
+			putVarLong(sink, node.getRightChildKey());
+			sink.writeBoolean(node.isChanged());
+		};
+	},
+
+	/** Node kind is a PATH-AVL node. */
+	NAMEAVL((byte) 19, AVLNode.class) {
+		@Override
+		public Record deserialize(final DataInputStream source,
+				final @Nonnegative long recordID, final PageReadTrx pageReadTrx)
+				throws IOException {
+			final byte[] nspBytes = new byte[source.readInt()];
+			source.read(nspBytes);
+			final byte[] prefixBytes = new byte[source.readInt()];
+			source.read(prefixBytes);
+			final byte[] localNameBytes = new byte[source.readInt()];
+			source.read(localNameBytes);
+			final QNm name = new QNm(
+					new String(nspBytes, Constants.DEFAULT_ENCODING), new String(
+							prefixBytes, Constants.DEFAULT_ENCODING), new String(
+							localNameBytes, Constants.DEFAULT_ENCODING));
+			final int keySize = source.readInt();
+			final Set<Long> nodeKeys = new HashSet<>(keySize);
+			for (int i = 0; i < keySize; i++) {
+				nodeKeys.add(source.readLong());
+			}
+			// Node delegate.
+			final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source,
+					recordID, pageReadTrx);
+			final long leftChild = getVarLong(source);
+			final long rightChild = getVarLong(source);
+			final boolean isChanged = source.readBoolean();
+			final AVLNode<QNm, NodeReferences> node = new AVLNode<>(name,
+					new NodeReferences(nodeKeys), nodeDel);
+			node.setLeftChildKey(leftChild);
+			node.setRightChildKey(rightChild);
+			node.setChanged(isChanged);
+			return node;
+		}
+
+		@Override
+		public void serialize(final DataOutputStream sink, final Record record,
+				final @Nullable Record nextRecord, final PageReadTrx pageReadTrx)
+				throws IOException {
+			@SuppressWarnings("unchecked")
+			final AVLNode<QNm, NodeReferences> node = (AVLNode<QNm, NodeReferences>) record;
+			final byte[] nspBytes = node.getKey().getNamespaceURI().getBytes();
+			sink.writeInt(nspBytes.length);
+			sink.write(nspBytes);
+			final byte[] prefixBytes = node.getKey().getPrefix().getBytes();
+			sink.writeInt(prefixBytes.length);
+			sink.write(prefixBytes);
+			final byte[] localNameBytes = node.getKey().getLocalName().getBytes();
+			sink.writeInt(localNameBytes.length);
+			sink.write(localNameBytes);
 			final NodeReferences value = node.getValue();
 			final Set<Long> nodeKeys = value.getNodeKeys();
 			sink.writeInt(nodeKeys.size());

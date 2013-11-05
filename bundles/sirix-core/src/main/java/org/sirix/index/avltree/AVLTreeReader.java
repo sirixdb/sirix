@@ -97,8 +97,8 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 			mPageKind = PageKind.CASPAGE;
 			break;
 		case NAME:
-			// FIXME
-			throw new UnsupportedOperationException();
+			mPageKind = PageKind.NAMEPAGE;
+			break;
 		default:
 			mPageKind = null;
 			throw new IllegalStateException();

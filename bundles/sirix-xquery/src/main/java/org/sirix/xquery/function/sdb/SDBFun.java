@@ -93,7 +93,7 @@ public final class SDBFun {
 
 		// create-name-index
 		Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(
-				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,
+				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.QNM,
 						Cardinality.ZeroOrMany))));
 		Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(
 				SequenceType.NODE, SequenceType.NODE)));
