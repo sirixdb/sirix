@@ -258,6 +258,20 @@ public final class XQueryUsage {
 			System.out.println();
 			System.out.println("Path index creation done.");
 		}
+		
+		// Create and commit name index on all elements with QName 'src' or 'msg'.
+		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+			final QueryContext ctx3 = new QueryContext(store);
+			System.out.println();
+			System.out.println("Create name index for all elements with name 'src' or 'msg':");
+			final XQuery q = new XQuery(new SirixCompileChain(store),
+					    "let $doc := sdb:doc('mydocs.col', 'resource1') "
+						+	"let $stats := sdb:create-name-index($doc, fn:QName((), 'src')) "
+					  + "return <rev>{sdb:commit($doc)}</rev>");
+			q.serialize(ctx3, System.out);
+			System.out.println();
+			System.out.println("Name index creation done.");
+		}
 
 		// Query CAS index.
 		try (final DBStore store = DBStore.newBuilder().build()) {

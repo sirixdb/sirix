@@ -90,13 +90,13 @@ public final class CreateNameIndex extends AbstractFunction {
 			final Iter it = args[1].iterate();
 			Item next = it.next();
 			while (next != null) {
-				include.add(((QNm) next));
+				include.add((QNm) next);
 				next = it.next();
 			}
 		}
 
 		final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(include, controller
-				.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH));
+				.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
 		try {
 			controller.createIndexes(ImmutableSet.of(idxDef),
 					(NodeWriteTrx) doc.getTrx());

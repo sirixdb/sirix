@@ -305,6 +305,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 					.getPage());
 			recordKey = pathPage.incrementAndGetMaxNodeKey(index);
 			break;
+		case NAMEPAGE:
+			final NamePage namePage = ((NamePage) mNewRoot.getNamePageReference().getPage());
+			recordKey = namePage.incrementAndGetMaxNodeKey(index);
+			break;
 		default:
 			throw new IllegalStateException();
 		}
@@ -386,6 +390,8 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				return mPathLog.get(new IndexLogKey(recordPageKey, index));
 			case CASPAGE:
 				return mCASLog.get(new IndexLogKey(recordPageKey, index));
+			case NAMEPAGE:
+				return mNameLog.get(new IndexLogKey(recordPageKey, index));
 			default:
 				throw new IllegalStateException();
 			}

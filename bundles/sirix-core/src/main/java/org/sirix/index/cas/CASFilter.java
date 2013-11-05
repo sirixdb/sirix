@@ -14,8 +14,6 @@ import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.PathFilter;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 
 /**
  * CASFilter filter.
@@ -24,10 +22,6 @@ import org.slf4j.LoggerFactory;
  * 
  */
 public final class CASFilter implements Filter {
-
-	/** Logger. */
-	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(CASFilter.class));
 
 	/** The paths to filter. */
 	private final Set<Path<QNm>> mPaths;

@@ -224,7 +224,8 @@ public final class NamePage extends AbstractForwardingPage {
 		final int size = mMaxNodeKeys.size();
 		out.writeInt(size);
 		for (int i = 0; i < size; i++) {
-			out.writeLong(mMaxNodeKeys.get(i));
+			final long keys = mMaxNodeKeys.get(i);
+			out.writeLong(keys);
 		}
 		mElements.serialize(out);
 		mNamespaces.serialize(out);
