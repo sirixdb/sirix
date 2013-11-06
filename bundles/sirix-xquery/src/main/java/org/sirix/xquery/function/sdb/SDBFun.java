@@ -73,7 +73,8 @@ public final class SDBFun {
 
 		// find-name-index
 		Functions.predefine(new FindNameIndex(FIND_NAME_INDEX, new Signature(
-				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
+				SequenceType.INTEGER, SequenceType.NODE,  new SequenceType(
+						AtomicType.QNM, Cardinality.One))));
 		
 		// find-path-index
 		Functions.predefine(new FindPathIndex(FIND_PATH_INDEX, new Signature(

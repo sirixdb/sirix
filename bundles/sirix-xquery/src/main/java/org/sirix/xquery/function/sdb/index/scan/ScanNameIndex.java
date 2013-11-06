@@ -49,7 +49,7 @@ public final class ScanNameIndex extends AbstractFunction {
 	public ScanNameIndex() {
 		super(DEFAULT_NAME, new Signature(new SequenceType(AnyNodeType.ANY_NODE,
 				Cardinality.ZeroOrMany), SequenceType.NODE, new SequenceType(
-				AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.STR,
+				AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.QNM,
 				Cardinality.ZeroOrOne)), true);
 	}
 
