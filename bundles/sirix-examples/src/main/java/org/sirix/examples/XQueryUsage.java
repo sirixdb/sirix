@@ -333,6 +333,31 @@ public final class XQueryUsage {
 				System.out.println(item);
 			}
 		}
+		
+		// Query name index.
+		try (final DBStore store = DBStore.newBuilder().build()) {
+			System.out.println("");
+			System.out
+					.println("Find name index.");
+			final QueryContext ctx3 = new QueryContext(store);
+			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-name-index($doc, sdb:find-name-index($doc, fn:QName((), 'src')), fn:QName((), 'src'))";
+			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
+					.execute(ctx3);
+			final Comparator<Tuple> comparator = new Comparator<Tuple>() {
+				@Override
+				public int compare(Tuple o1, Tuple o2) {
+					return ((Node<?>) o1).cmp((Node<?>) o2);
+				}
+			};
+			final Sequence sortedSeq = new SortedNodeSequence(comparator, seq, true);
+			final Iter sortedIter = sortedSeq.iterate();
+
+			System.out.println("Sorted index entries in document order: ");
+			for (Item item = sortedIter.next(); item != null; item = sortedIter
+					.next()) {
+				System.out.println(item);
+			}
+		}
 
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx = new QueryContext(store);

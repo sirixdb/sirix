@@ -22,14 +22,14 @@ import com.google.common.base.Optional;
 
 /**
  * <p>
- * Function for finding an element index. If successful, this
- * function returns the element-index number. Otherwise it returns -1.
+ * Function for finding a name index. If successful, this
+ * function returns the name-index number. Otherwise it returns -1.
  * 
  * Supported signatures are:
  * </p>
  * <ul>
  * <li>
- * <code>sdb:find-name-index($doc as xs:node, $element as xs:string) as xs:int</code>
+ * <code>sdb:find-name-index($doc as xs:node, $name as xs:QName) as xs:int</code>
  * </li>
  * </ul>
  * 

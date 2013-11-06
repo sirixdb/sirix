@@ -53,7 +53,6 @@ final class NameIndexBuilder extends AbstractVisitor {
 			return VisitResultType.CONTINUE;
 		}	
 		
-		
 		final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(name,
 				SearchMode.EQUAL);
 		
