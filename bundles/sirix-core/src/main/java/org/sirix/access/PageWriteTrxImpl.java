@@ -520,66 +520,66 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			// the one from the reference.
 			page = reference.getPage();
 
-			if (page == null) {
-				// Then try to get one from the page transaction log (indirect pages
-				// forming a tree below revision root pages).
-				final long key = reference.getKey();
-				if (key != Constants.NULL_ID
-						&& (getUberPage().getRevision()
-								% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0)
-						&& (mPageRtx.mSession.mResourceConfig.mRevisionKind == Versioning.INCREMENTAL
-						|| mPageRtx.mSession.mResourceConfig.mRevisionKind == Versioning.DIFFERENTIAL)) {
-					/*
-					 * Write the whole indirect page tree if it's a full dump, otherwise
-					 * record pages which have to be emitted might not be addressable (the
-					 * pages from earlier versions would still be reachable).
-					 */
-					page = mPageRtx.getFromPageCache(reference);
-					page.setDirty(true);
-
-					if (page instanceof KeyValuePage) {
-						// If it's a record page, reconstruct it first!
-						@SuppressWarnings("unchecked")
-						final KeyValuePage<Long, Record> recordPage = ((KeyValuePage<Long, Record>) page);
-						final PageKind recordPageKind = recordPage.getPageKind();
-						final long pageKey = recordPage.getPageKey();
-						switch (recordPageKind) {
-						case NAMEPAGE:
-						case CASPAGE:
-						case RECORDPAGE:
-						case PATHSUMMARYPAGE:
-						case PATHPAGE:
-							// Revision to commit is a full dump => get the full page and
-							// dump it (if it is dirty -- checked later).
-							page = mPageRtx
-									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
-											pageKey, index, recordPageKind).getComplete();
-							break;
-						default:
-							throw new IllegalStateException("Page kind not known!");
-						}
-
-						if (page != null && !page.isDirty()) {
-							// Only write dirty pages which have been modified since the
-							// latest full dump (checked in the versioning algorithms
-							// through setting the dirty flag).
-							return;
-						}
-					}
-				}
-			}
+//			if (page == null) {
+//				// Then try to get one from the page transaction log (indirect pages
+//				// forming a tree below revision root pages).
+//				final long key = reference.getKey();
+//				if (key != Constants.NULL_ID
+//						&& (getUberPage().getRevision()
+//								% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0)
+//						&& (mPageRtx.mSession.mResourceConfig.mRevisionKind == Versioning.INCREMENTAL
+//						|| mPageRtx.mSession.mResourceConfig.mRevisionKind == Versioning.DIFFERENTIAL)) {
+//					/*
+//					 * Write the whole indirect page tree if it's a full dump, otherwise
+//					 * record pages which have to be emitted might not be addressable (the
+//					 * pages from earlier versions would still be reachable).
+//					 */
+//					page = mPageRtx.getFromPageCache(reference);
+//					page.setDirty(true);
+//
+//					if (page instanceof KeyValuePage) {
+//						// If it's a record page, reconstruct it first!
+//						@SuppressWarnings("unchecked")
+//						final KeyValuePage<Long, Record> recordPage = ((KeyValuePage<Long, Record>) page);
+//						final PageKind recordPageKind = recordPage.getPageKind();
+//						final long pageKey = recordPage.getPageKey();
+//						switch (recordPageKind) {
+//						case NAMEPAGE:
+//						case CASPAGE:
+//						case RECORDPAGE:
+//						case PATHSUMMARYPAGE:
+//						case PATHPAGE:
+//							// Revision to commit is a full dump => get the full page and
+//							// dump it (if it is dirty -- checked later).
+//							page = mPageRtx
+//									.<Long, Record, UnorderedKeyValuePage> getRecordPageContainer(
+//											pageKey, index, recordPageKind).getComplete();
+//							break;
+//						default:
+//							throw new IllegalStateException("Page kind not known!");
+//						}
+//
+//						if (page != null && !page.isDirty()) {
+//							// Only write dirty pages which have been modified since the
+//							// latest full dump (checked in the versioning algorithms
+//							// through setting the dirty flag).
+//							return;
+//						}
+//					}
+//				}
+//			}
 		}
 
 		if (page == null) {
 			return;
 		}
 
-		// Revision to commit is not a full dump => return immediately.
-		if (!page.isDirty()
-				&& ((getUberPage().getRevision()
-						% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) || mPageRtx.mSession.mResourceConfig.mRevisionKind == Versioning.FULL)) {
-			return;
-		}
+//		// Revision to commit is not a full dump => return immediately.
+//		if (!page.isDirty()
+//				&& ((getUberPage().getRevision()
+//						% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore != 0) || mPageRtx.mSession.mResourceConfig.mRevisionKind == Versioning.FULL)) {
+//			return;
+//		}
 
 		reference.setPage(page);
 
