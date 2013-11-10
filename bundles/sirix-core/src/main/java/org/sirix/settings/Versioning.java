@@ -287,13 +287,13 @@ public enum Versioning {
 				final PageReadTrx pageReadTrx, final PageReference reference) {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
-			final int revision = pageReadTrx.getUberPage().getRevision();
+//			final int revision = pageReadTrx.getUberPage().getRevision();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
-			final boolean isFullDump = revision % revToRestore == 0;
+			final boolean isFullDump = pages.size() == revToRestore;//(revision + 1) % revToRestore == 0;
 
 			boolean filledPage = false;
 			for (final T page : pages) {
@@ -344,15 +344,37 @@ public enum Versioning {
 			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
 		}
 
+//		@Override
+//		public int[] getRevisionRoots(final @Nonnegative int previousRevision,
+//				final @Nonnegative int revsToRestore) {
+//			final int revisionsToRestore = previousRevision % revsToRestore;
+//			final int lastFullDump = previousRevision - revisionsToRestore;
+//			final int[] retVal = new int[lastFullDump == previousRevision ? 1
+//					: revisionsToRestore + 1];
+//			for (int i = previousRevision, j = 0; i >= lastFullDump; j++, i--) {
+//				retVal[j] = i;
+//			}
+//			return retVal;
+//		}
+		
 		@Override
 		public int[] getRevisionRoots(final @Nonnegative int previousRevision,
 				final @Nonnegative int revsToRestore) {
-			final int revisionsToRestore = previousRevision % revsToRestore;
-			final int lastFullDump = previousRevision - revisionsToRestore;
-			final int[] retVal = new int[lastFullDump == previousRevision ? 1
-					: revisionsToRestore + 1];
-			for (int i = previousRevision, j = 0; i >= lastFullDump; j++, i--) {
-				retVal[j] = i;
+			final List<Integer> retVal = new ArrayList<>(revsToRestore);
+			for (int i = previousRevision, until = previousRevision - revsToRestore; i > until
+					&& i >= 0; i--) {
+				retVal.add(i);
+			}
+			assert retVal.size() <= revsToRestore;
+			return convertIntegers(retVal);
+		}
+
+		// Convert integer list to primitive int-array.
+		private int[] convertIntegers(final List<Integer> integers) {
+			final int[] retVal = new int[integers.size()];
+			final Iterator<Integer> iterator = integers.iterator();
+			for (int i = 0; i < retVal.length; i++) {
+				retVal[i] = iterator.next().intValue();
 			}
 			return retVal;
 		}
