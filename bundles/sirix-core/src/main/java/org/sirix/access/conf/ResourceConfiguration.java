@@ -153,7 +153,7 @@ public final class ResourceConfiguration {
 	public static final StorageType STORAGE = StorageType.FILE;
 
 	/** Standard versioning approach. */
-	public static final Versioning VERSIONING = Versioning.INCREMENTAL;
+	public static final Versioning VERSIONING = Versioning.SLIDING_SNAPSHOT;
 
 	/** Type of hashing. */
 	public static final HashKind HASHKIND = HashKind.ROLLING;
