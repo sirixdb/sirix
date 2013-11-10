@@ -3,7 +3,7 @@ package org.sirix.index.name;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -63,7 +63,7 @@ public final class Names {
 	 * @param out
 	 *          the persistent storage
 	 */
-	public void serialize(final DataOutputStream out) throws IOException {
+	public void serialize(final DataOutput out) throws IOException {
 		out.writeInt(mNameMap.size());
 		for (final Entry<Integer, byte[]> entry : mNameMap.entrySet()) {
 			out.writeInt(entry.getKey());

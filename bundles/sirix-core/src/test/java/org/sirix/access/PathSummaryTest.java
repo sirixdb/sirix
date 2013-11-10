@@ -63,7 +63,7 @@ public class PathSummaryTest {
 	@Before
 	public void setUp() throws SirixException {
 		TestHelper.deleteEverything();
-		holder = Holder.generateSession();
+		holder = Holder.generatePathSummarySession();
 		mWtx = holder.getSession().beginNodeWriteTrx();
 		DocumentCreater.create(mWtx);
 	}

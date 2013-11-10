@@ -28,6 +28,7 @@
 package org.sirix.page;
 
 import java.io.DataInputStream;
+import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.HashMap;
@@ -219,7 +220,7 @@ public final class NamePage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(DataOutputStream out) throws IOException {
+	public void serialize(final DataOutput out) throws IOException {
 		super.serialize(out);
 		final int size = mMaxNodeKeys.size();
 		out.writeInt(size);

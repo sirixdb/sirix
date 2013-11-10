@@ -1,6 +1,6 @@
 package org.sirix.index.bplustree;
 
-import java.io.DataOutputStream;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Map;
@@ -23,7 +23,6 @@ import org.sirix.page.interfaces.Page;
 
 import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
-import com.google.common.io.ByteArrayDataOutput;
 
 /**
  * Leaf node key/value page.
@@ -133,7 +132,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	}
 
 	@Override
-	public void serialize(final DataOutputStream out) throws IOException {
+	public void serialize(final DataOutput out) throws IOException {
 		out.writeLong(mRecordPageKey);
 		serializePointer(mLeftPage, out);
 		serializePointer(mRightPage, out);
@@ -146,7 +145,7 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	}
 
 	private void serializePointer(final Optional<PageReference> page,
-			final DataOutputStream out) throws IOException {
+			final DataOutput out) throws IOException {
 		if (page.isPresent()) {
 			out.writeBoolean(page.get().getKey() == org.sirix.settings.Constants.NULL_ID ? false
 					: true);
@@ -254,4 +253,10 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		// TODO Auto-generated method stub
 		return null;
 	}
+
+//	@Override
+//	public boolean isFullDump() {
+//		// TODO Auto-generated method stub
+//		return false;
+//	}
 }

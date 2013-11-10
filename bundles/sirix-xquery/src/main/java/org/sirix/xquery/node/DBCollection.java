@@ -43,7 +43,8 @@ import org.slf4j.LoggerFactory;
  * 
  */
 public final class DBCollection extends
-		AbstractCollection<AbstractTemporalNode<DBNode>> implements TemporalCollection<AbstractTemporalNode<DBNode>>, AutoCloseable {
+		AbstractCollection<AbstractTemporalNode<DBNode>> implements
+		TemporalCollection<AbstractTemporalNode<DBNode>>, AutoCloseable {
 
 	/** Logger. */
 	private static final LogWrapper LOGGER = new LogWrapper(
@@ -117,8 +118,8 @@ public final class DBCollection extends
 	}
 
 	@Override
-	public DBNode getDocument(
-			final @Nonnegative int revision) throws DocumentException {
+	public DBNode getDocument(final @Nonnegative int revision)
+			throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		if (resources.length > 1) {
 			throw new DocumentException("More than one document stored!");
@@ -126,8 +127,8 @@ public final class DBCollection extends
 		try {
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.newBuilder(resources[0]).build());
-			final int version = revision == -1 ? session.getMostRecentRevisionNumber()
-					: revision;
+			final int version = revision == -1 ? session
+					.getMostRecentRevisionNumber() : revision;
 			final NodeReadTrx rtx = mUpdating == Updating.YES ? session
 					.beginNodeWriteTrx() : session.beginNodeReadTrx(version);
 			if (mUpdating == Updating.YES
@@ -147,7 +148,7 @@ public final class DBCollection extends
 					.append(mDatabase.listResources().length + 1).toString();
 			mDatabase.createResource(ResourceConfiguration
 					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs()
-					.build());
+					.useTextCompression().buildPathSummary().build());
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.newBuilder(resource).build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
@@ -171,7 +172,7 @@ public final class DBCollection extends
 			return null;
 		}
 	}
-	
+
 	@Override
 	public DBNode add(SubtreeParser parser)
 			throws OperationNotSupportedException, DocumentException {
@@ -180,7 +181,7 @@ public final class DBCollection extends
 					.append(mDatabase.listResources().length + 1).toString();
 			mDatabase.createResource(ResourceConfiguration
 					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs()
-					.build());
+					.useTextCompression().buildPathSummary().build());
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.newBuilder(resource).build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
@@ -204,7 +205,7 @@ public final class DBCollection extends
 			return null;
 		}
 	}
-	
+
 	public DBNode add(final String resource, final XMLEventReader reader)
 			throws OperationNotSupportedException, DocumentException {
 		try {
@@ -239,8 +240,7 @@ public final class DBCollection extends
 	}
 
 	@Override
-	public Stream<DBNode> getDocuments()
-			throws DocumentException {
+	public Stream<DBNode> getDocuments() throws DocumentException {
 		final String[] resources = mDatabase.listResources();
 		final List<DBNode> documents = new ArrayList<>(resources.length);
 		for (final String resource : resources) {
@@ -259,13 +259,12 @@ public final class DBCollection extends
 	}
 
 	@Override
-	public DBNode getDocument(int revision, String name)
-			throws DocumentException {
+	public DBNode getDocument(int revision, String name) throws DocumentException {
 		try {
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.newBuilder(name).build());
-			final int version = revision == -1 ? session.getMostRecentRevisionNumber()
-					: revision;
+			final int version = revision == -1 ? session
+					.getMostRecentRevisionNumber() : revision;
 			final NodeReadTrx rtx = mUpdating == Updating.YES ? session
 					.beginNodeWriteTrx() : session.beginNodeReadTrx(version);
 			if (mUpdating == Updating.YES

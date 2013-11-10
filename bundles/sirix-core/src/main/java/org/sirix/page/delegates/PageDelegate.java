@@ -30,7 +30,7 @@ package org.sirix.page.delegates;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.DataOutput;
 import java.io.IOException;
 
 import javax.annotation.Nonnegative;
@@ -151,7 +151,7 @@ public class PageDelegate implements Page {
 	 *          output stream
 	 */
 	@Override
-	public void serialize(final DataOutputStream out) throws IOException {
+	public void serialize(final DataOutput out) throws IOException {
 		for (final PageReference reference : mReferences) {
 			out.writeLong(reference.getKey());
 		}
@@ -185,9 +185,20 @@ public class PageDelegate implements Page {
 	}
 
 	@Override
-	public Page setDirty(final boolean pDirty) {
-		mIsDirty = pDirty;
+	public Page setDirty(final boolean isDirty) {
+		mIsDirty = isDirty;
 		return this;
 	}
+	
+//	@Override
+//	public boolean isFullDump() {
+//		return mIsFullDump;
+//	}
+//
+//	@Override
+//	public Page setFullDump(final boolean isFullDump) {
+//		mIsFullDump = isFullDump;
+//		return this;
+//	}
 
 }

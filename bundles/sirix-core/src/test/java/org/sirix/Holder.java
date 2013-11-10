@@ -87,6 +87,31 @@ public class Holder {
 	}
 	
 	/**
+	 * Generate a session with deweyIDs for resources.
+	 * 
+	 * @return this holder instance
+	 * @throws SirixException
+	 *           if an error occurs
+	 */
+	public static Holder generatePathSummarySession() throws SirixException {
+		final File file = PATHS.PATH1.getFile();
+		final DatabaseConfiguration config = new DatabaseConfiguration(file);
+		if (!file.exists()) {
+			Databases.createDatabase(config);
+		}
+		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
+		database.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).buildPathSummary().build());
+		final Session session = database
+				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
+						.build());
+		final Holder holder = new Holder();
+		holder.setDatabase(database);
+		holder.setSession(session);
+		return holder;
+	}
+	
+	/**
 	 * Generate a session.
 	 * 
 	 * @return this holder instance

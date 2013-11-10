@@ -511,7 +511,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			}
 
 			if (cont != null) {
-				page = cont.getModified();
+					page = cont.getModified();
 			}
 		}
 		// If none is in the log.
@@ -527,10 +527,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 				if (key != Constants.NULL_ID
 						&& (getUberPage().getRevision()
 								% mPageRtx.mSession.mResourceConfig.mRevisionsToRestore == 0)
-						&& mPageRtx.mSession.mResourceConfig.mRevisionKind != Versioning.FULL) {
+						&& (mPageRtx.mSession.mResourceConfig.mRevisionKind == Versioning.INCREMENTAL
+						|| mPageRtx.mSession.mResourceConfig.mRevisionKind == Versioning.DIFFERENTIAL)) {
 					/*
 					 * Write the whole indirect page tree if it's a full dump, otherwise
-					 * record pages which have to be emitted might not be adressable (the
+					 * record pages which have to be emitted might not be addressable (the
 					 * pages from earlier versions would still be reachable).
 					 */
 					page = mPageRtx.getFromPageCache(reference);

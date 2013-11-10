@@ -27,7 +27,7 @@ package org.sirix.page;
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -129,7 +129,7 @@ public final class CASPage extends AbstractForwardingPage {
 	}
 	
 	@Override
-	public void serialize(DataOutputStream out) throws IOException {
+	public void serialize(final DataOutput out) throws IOException {
 		super.serialize(out);
 		final int size = mMaxNodeKeys.size();
 		out.writeInt(size);
