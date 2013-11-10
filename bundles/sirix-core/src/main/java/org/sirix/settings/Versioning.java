@@ -429,13 +429,14 @@ public enum Versioning {
 			for (int i = 0; i < pages.size() && !filledPage; i++) {
 				final T page = pages.get(i);
 				assert page.getPageKey() == recordPageKey;
+				
+				final boolean pageToSerialize = (i == pages.size() - 1
+						&& revToRestore == pages.size());
 
 				for (final Entry<K, V> entry : page.entrySet()) {
 					// Caching the complete page.
 					final K key = entry.getKey();
 					assert key != null;
-					final boolean pageToSerialize = (i == pages.size() - 1
-							&& revToRestore == pages.size());
 					if (!pageToSerialize) {
 						reconstructed.setEntry(key, entry.getValue());
 					}
@@ -458,13 +459,16 @@ public enum Versioning {
 						// Caching the complete page.
 						final K key = entry.getKey();
 						assert key != null;
-						if (!(i == pages.size() - 1 && revToRestore == pages.size() - 1)
-								&& returnVal.get(0).getPageReference(key) == null) {
+						
+						if (!pageToSerialize) {
+							reconstructed.setPageReference(key, entry.getValue());
+						}
+						
+						if (returnVal.get(0).getPageReference(key) == null) {
 							returnVal.get(0).setPageReference(key, entry.getValue());
 						}
 
-						if (i == pages.size() - 1 && revToRestore == pages.size() - 1
-								&& returnVal.get(0).getPageReference(key) == null) {
+						if (pageToSerialize && reconstructed.getPageReference(key) == null) {
 							returnVal.get(1).setPageReference(key, entry.getValue());
 						}
 
