@@ -67,8 +67,7 @@ public enum Versioning {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final List<T> pages, final @Nonnegative int revToRestore,
-				final PageReadTrx pageReadTrx,
-				final PageReference reference) {
+				final PageReadTrx pageReadTrx, final PageReference reference) {
 			assert pages.size() == 1;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
@@ -149,8 +148,7 @@ public enum Versioning {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final List<T> pages, final @Nonnegative int revToRestore,
-				final PageReadTrx pageReadTrx,
-				final PageReference reference) {
+				final PageReadTrx pageReadTrx, final PageReference reference) {
 			assert pages.size() <= 2;
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
@@ -184,8 +182,7 @@ public enum Versioning {
 						returnVal.get(0).setEntry(entry.getKey(), entry.getValue());
 					}
 
-					if (isFullDump
-							&& returnVal.get(1).getValue(entry.getKey()) == null) {
+					if (isFullDump && returnVal.get(1).getValue(entry.getKey()) == null) {
 						returnVal.get(1).setEntry(entry.getKey(), entry.getValue());
 					}
 
@@ -287,8 +284,7 @@ public enum Versioning {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final List<T> pages, final int revToRestore,
-				final PageReadTrx pageReadTrx,
-				final PageReference reference) {
+				final PageReadTrx pageReadTrx, final PageReference reference) {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final int revision = pageReadTrx.getUberPage().getRevision();
@@ -313,8 +309,7 @@ public enum Versioning {
 					if (entry != null && returnVal.get(0).getValue(key) == null) {
 						returnVal.get(0).setEntry(key, entry.getValue());
 
-						if (returnVal.get(1).getValue(entry.getKey()) == null
-								&& isFullDump) {
+						if (returnVal.get(1).getValue(entry.getKey()) == null && isFullDump) {
 							returnVal.get(1).setEntry(key, entry.getValue());
 						}
 
@@ -382,8 +377,6 @@ public enum Versioning {
 			}
 
 			boolean filledPage = false;
-//			final int until = pages.size() == revToRestore + 1 ? revToRestore : pages
-//					.size();
 			for (int i = 0; i < pages.size(); i++) {
 				final T page = pages.get(i);
 				assert page.getPageKey() == recordPageKey;
@@ -420,8 +413,7 @@ public enum Versioning {
 		@Override
 		public <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 				final List<T> pages, final int revToRestore,
-				final PageReadTrx pageReadTrx,
-				final PageReference reference) {
+				final PageReadTrx pageReadTrx, final PageReference reference) {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
 			final List<T> returnVal = new ArrayList<>(2);
@@ -429,6 +421,9 @@ public enum Versioning {
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
+			
+			final T reconstructed = firstPage.<T> newInstance(recordPageKey,
+					firstPage.getPageKind(), Optional.of(reference), pageReadTrx);
 
 			boolean filledPage = false;
 			for (int i = 0; i < pages.size() && !filledPage; i++) {
@@ -439,12 +434,17 @@ public enum Versioning {
 					// Caching the complete page.
 					final K key = entry.getKey();
 					assert key != null;
+					final boolean pageToSerialize = (i == pages.size() - 1
+							&& revToRestore == pages.size());
+					if (!pageToSerialize) {
+						reconstructed.setEntry(key, entry.getValue());
+					}
+					
 					if (returnVal.get(0).getValue(key) == null) {
 						returnVal.get(0).setEntry(key, entry.getValue());
 					}
 
-					if (i == pages.size() - 1
-							&& returnVal.get(1).getValue(key) == null) {
+					if (pageToSerialize && reconstructed.getValue(key) == null) {
 						returnVal.get(1).setEntry(key, entry.getValue());
 					}
 
@@ -458,12 +458,13 @@ public enum Versioning {
 						// Caching the complete page.
 						final K key = entry.getKey();
 						assert key != null;
-						if (returnVal.get(0).getPageReference(key) == null) {
+						if (!(i == pages.size() - 1 && revToRestore == pages.size() - 1)
+								&& returnVal.get(0).getPageReference(key) == null) {
 							returnVal.get(0).setPageReference(key, entry.getValue());
 						}
 
-						if (i == pages.size() - 1
-								&& returnVal.get(1).getPageReference(key) == null) {
+						if (i == pages.size() - 1 && revToRestore == pages.size() - 1
+								&& returnVal.get(0).getPageReference(key) == null) {
 							returnVal.get(1).setPageReference(key, entry.getValue());
 						}
 
@@ -482,10 +483,11 @@ public enum Versioning {
 		public int[] getRevisionRoots(final @Nonnegative int previousRevision,
 				final @Nonnegative int revsToRestore) {
 			final List<Integer> retVal = new ArrayList<>(revsToRestore);
-			for (int i = previousRevision, until = previousRevision - revsToRestore; i >= until
+			for (int i = previousRevision, until = previousRevision - revsToRestore; i > until
 					&& i >= 0; i--) {
 				retVal.add(i);
 			}
+			assert retVal.size() <= revsToRestore;
 			return convertIntegers(retVal);
 		}
 
@@ -528,8 +530,7 @@ public enum Versioning {
 	 */
 	public abstract <K extends Comparable<? super K>, V extends Record, T extends KeyValuePage<K, V>> RecordPageContainer<T> combineRecordPagesForModification(
 			final List<T> pages, final @Nonnegative int revsToRestore,
-			final PageReadTrx pageReadTrx,
-			final PageReference reference);
+			final PageReadTrx pageReadTrx, final PageReference reference);
 
 	/**
 	 * Get all revision root page numbers which are needed to restore a

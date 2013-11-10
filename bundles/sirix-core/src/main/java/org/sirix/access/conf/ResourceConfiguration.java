@@ -153,7 +153,7 @@ public final class ResourceConfiguration {
 	public static final StorageType STORAGE = StorageType.FILE;
 
 	/** Standard versioning approach. */
-	public static final Versioning VERSIONING = Versioning.DIFFERENTIAL;
+	public static final Versioning VERSIONING = Versioning.SLIDING_SNAPSHOT;
 
 	/** Type of hashing. */
 	public static final HashKind HASHKIND = HashKind.ROLLING;
@@ -530,7 +530,7 @@ public final class ResourceConfiguration {
 				final DatabaseConfiguration config) {
 			mResource = checkNotNull(resource);
 			mDBConfig = checkNotNull(config);
-			mPathSummary = true;
+			mPathSummary = false;
 			mByteHandler = new ByteHandlePipeline(new DeflateCompressor());
 		}
 

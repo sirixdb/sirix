@@ -32,6 +32,7 @@ import static org.sirix.node.Utils.putVarLong;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -221,7 +222,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	}
 
 	@Override
-	public void serialize(DataOutputStream out) throws IOException {
+	public void serialize(final DataOutput out) throws IOException {
 		if (!mAddedReferences) {
 			addReferences();
 		}

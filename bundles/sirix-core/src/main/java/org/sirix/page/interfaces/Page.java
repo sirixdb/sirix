@@ -26,7 +26,7 @@
  */
 package org.sirix.page.interfaces;
 
-import java.io.DataOutputStream;
+import java.io.DataOutput;
 import java.io.IOException;
 
 import javax.annotation.Nonnegative;
@@ -50,11 +50,11 @@ public interface Page {
 	 * Serialize a page
 	 * 
 	 * @param out
-	 *          {@link DataOutputStream} reference to serialize to
+	 *          {@link DataOutput} to serialize to
 	 * @throws IOException
 	 * 					if serialization fails
 	 */
-	void serialize(final DataOutputStream out) throws IOException;
+	void serialize(final DataOutput out) throws IOException;
 
 	/**
 	 * Get all page references.
@@ -99,4 +99,7 @@ public interface Page {
 	 */
 	Page setDirty(boolean dirty);
 
+//	boolean isFullDump();
+//	
+//	Page setFullDump(boolean isFullDump);
 }

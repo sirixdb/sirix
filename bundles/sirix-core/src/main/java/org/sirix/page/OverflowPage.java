@@ -1,7 +1,7 @@
 package org.sirix.page;
 
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.DataOutput;
 import java.io.IOException;
 
 import org.sirix.api.PageWriteTrx;
@@ -73,7 +73,7 @@ public final class OverflowPage implements Page {
 	}
 
 	@Override
-	public void serialize(final DataOutputStream out) throws IOException {
+	public void serialize(final DataOutput out) throws IOException {
 		out.writeInt(mData.length);
 		out.write(mData);
 	}

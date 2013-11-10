@@ -30,7 +30,7 @@ package org.sirix.page;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.DataOutput;
 import java.io.IOException;
 
 import javax.annotation.Nonnegative;
@@ -222,7 +222,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(DataOutputStream out) throws IOException {
+	public void serialize(final DataOutput out) throws IOException {
 		mRevisionTimestamp = System.currentTimeMillis();
 		mDelegate.serialize(checkNotNull(out));
 		out.writeInt(mRevision);

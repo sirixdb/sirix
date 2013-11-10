@@ -36,6 +36,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.sirix.TestHelper;
 import org.sirix.access.Databases;
+import org.sirix.access.HashKind;
 import org.sirix.access.conf.DatabaseConfiguration;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.access.conf.SessionConfiguration;
@@ -68,8 +69,8 @@ public class VersioningTest {
 	public void testIncremental() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.INCREMENTAL).revisionsToRestore(3)
-				.build());
+				.versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
+				.revisionsToRestore(3).build());
 		test();
 	}
 
@@ -77,17 +78,26 @@ public class VersioningTest {
 	public void testIncremental1() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.INCREMENTAL).revisionsToRestore(3)
-				.build());
+				.versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
+				.revisionsToRestore(3).build());
 		test1();
+	}
+
+	@Test
+	public void testIncremental2() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.versioningApproach(Versioning.INCREMENTAL).hashKind(HashKind.NONE)
+				.revisionsToRestore(3).build());
+		test2();
 	}
 
 	@Test
 	public void testDifferential() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.DIFFERENTIAL).revisionsToRestore(3)
-				.build());
+				.versioningApproach(Versioning.DIFFERENTIAL).hashKind(HashKind.NONE)
+				.revisionsToRestore(3).build());
 		test();
 	}
 
@@ -95,8 +105,8 @@ public class VersioningTest {
 	public void testDifferential1() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.DIFFERENTIAL).revisionsToRestore(3)
-				.build());
+				.versioningApproach(Versioning.DIFFERENTIAL).hashKind(HashKind.NONE)
+				.revisionsToRestore(3).build());
 		test1();
 	}
 
@@ -104,7 +114,8 @@ public class VersioningTest {
 	public void testFull() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.FULL).revisionsToRestore(3).build());
+				.versioningApproach(Versioning.FULL).hashKind(HashKind.NONE)
+				.revisionsToRestore(3).build());
 		test();
 	}
 
@@ -112,27 +123,46 @@ public class VersioningTest {
 	public void testFull1() throws SirixException {
 		mDatabase.createResource(new ResourceConfiguration.Builder(
 				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-				.versioningApproach(Versioning.FULL).revisionsToRestore(3).build());
+				.versioningApproach(Versioning.FULL).hashKind(HashKind.NONE)
+				.revisionsToRestore(3).build());
 		test1();
 	}
 
-//	@Test
-//	public void testSlidingSnapshot() throws SirixException {
-//		mDatabase.createResource(new ResourceConfiguration.Builder(
-//				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-//				.versioningApproach(Versioning.SLIDING_SNAPSHOT).revisionsToRestore(3)
-//				.build());
-//		test();
-//	}
-//
-//	@Test
-//	public void testSlidingSnapshot1() throws SirixException {
-//		mDatabase.createResource(new ResourceConfiguration.Builder(
-//				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
-//				.versioningApproach(Versioning.SLIDING_SNAPSHOT).revisionsToRestore(3)
-//				.build());
-//		test1();
-//	}
+	@Test
+	public void testFull2() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.versioningApproach(Versioning.FULL).hashKind(HashKind.NONE)
+				.revisionsToRestore(3).build());
+		test1();
+	}
+
+	@Test
+	public void testSlidingSnapshot() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.versioningApproach(Versioning.SLIDING_SNAPSHOT)
+				.hashKind(HashKind.NONE).revisionsToRestore(3).build());
+		test();
+	}
+
+	@Test
+	public void testSlidingSnapshot1() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.versioningApproach(Versioning.SLIDING_SNAPSHOT)
+				.hashKind(HashKind.NONE).revisionsToRestore(3).build());
+		test1();
+	}
+
+	@Test
+	public void testSlidingSnapshot2() throws SirixException {
+		mDatabase.createResource(new ResourceConfiguration.Builder(
+				TestHelper.RESOURCE, mDatabase.getDatabaseConfig())
+				.versioningApproach(Versioning.SLIDING_SNAPSHOT)
+				.hashKind(HashKind.NONE).revisionsToRestore(3).build());
+		test2();
+	}
 
 	/**
 	 * Test revisioning.
@@ -145,9 +175,8 @@ public class VersioningTest {
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build())) {
 			try (final NodeWriteTrx wtx = session.beginNodeWriteTrx()) {
-				wtx.insertElementAsFirstChild(new QNm("foo"));
-				for (int i = 0; i < Constants.NDP_NODE_COUNT - 2; i++) {
-					wtx.insertElementAsRightSibling(new QNm("foo"));
+				for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
+					wtx.insertElementAsFirstChild(new QNm("foo"));
 				}
 				wtx.commit();
 				assertTrue(wtx.getNodeKey() == Constants.NDP_NODE_COUNT - 1);
@@ -160,11 +189,14 @@ public class VersioningTest {
 				fillNodePage(wtx);
 				wtx.commit();
 				assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT << 2) - 1);
+				fillNodePage(wtx);
+				wtx.commit();
+				assertTrue(wtx.getNodeKey() == (Constants.NDP_NODE_COUNT * 5) - 1);
 				try (final NodeReadTrx rtx = session.beginNodeReadTrx()) {
-					assertTrue(rtx.moveToFirstChild().hasMoved());
-					for (int i = 0; i < Constants.NDP_NODE_COUNT - 2; i++) {
-						assertTrue(rtx.moveToRightSibling().hasMoved());
+					for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
+						assertTrue(rtx.moveToFirstChild().hasMoved());
 					}
+					move(rtx);
 					move(rtx);
 					move(rtx);
 					move(rtx);
@@ -184,18 +216,14 @@ public class VersioningTest {
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build())) {
 			NodeWriteTrx wtx = session.beginNodeWriteTrx();
-			wtx.insertElementAsFirstChild(new QNm("foo"));
-			for (int i = 0; i < Constants.NDP_NODE_COUNT - 2; i++) {
-				wtx.insertElementAsRightSibling(new QNm("foo"));
+			for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
+				wtx.insertElementAsFirstChild(new QNm("foo"));
 			}
 			wtx.commit();
 			assertTrue(wtx.getNodeKey() == Constants.NDP_NODE_COUNT - 1);
 			wtx.close();
 			wtx = session.beginNodeWriteTrx();
 			setBaaaz(wtx);
-			// wtx.commit();
-			// wtx.close();
-			// wtx = session.beginNodeWriteTrx();
 			setFooBar(wtx);
 			setFoooo(wtx);
 			wtx.moveTo(Constants.NDP_NODE_COUNT - 1);
@@ -220,12 +248,44 @@ public class VersioningTest {
 			try (final NodeReadTrx rtx = session.beginNodeReadTrx()) {
 				assertTrue(rtx.moveToFirstChild().hasMoved());
 				assertEquals(new QNm("foobar"), rtx.getName());
-				assertTrue(rtx.moveToRightSibling().hasMoved());
+				assertTrue(rtx.moveToFirstChild().hasMoved());
 				assertEquals(new QNm("foooo"), rtx.getName());
 				for (int i = 0; i < Constants.NDP_NODE_COUNT - 4; i++) {
-					assertTrue(rtx.moveToRightSibling().hasMoved());
+					assertTrue(rtx.moveToFirstChild().hasMoved());
 				}
 				assertEquals(new QNm("baaaz"), rtx.getName());
+			}
+		}
+	}
+
+	/**
+	 * Test revisioning.
+	 * 
+	 * @throws SirixException
+	 *           if anything in Sirix fails
+	 */
+	public void test2() throws SirixException {
+		try (final Session session = mDatabase
+				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
+						.build())) {
+			NodeWriteTrx wtx = session.beginNodeWriteTrx();
+			wtx.insertElementAsFirstChild(new QNm("foo"));
+			wtx.commit();
+			wtx.insertElementAsFirstChild(new QNm("foo"));
+			wtx.commit();
+			wtx.insertElementAsFirstChild(new QNm("foo"));
+			wtx.commit();
+			wtx.insertElementAsFirstChild(new QNm("foo"));
+			wtx.commit();
+			wtx.insertElementAsFirstChild(new QNm("foo"));
+			wtx.commit();
+			wtx.close();
+			try (final NodeReadTrx rtx = session.beginNodeReadTrx()) {
+				assertTrue(rtx.moveToFirstChild().hasMoved());
+				assertTrue(rtx.moveToFirstChild().hasMoved());
+				assertTrue(rtx.moveToFirstChild().hasMoved());
+				assertTrue(rtx.moveToFirstChild().hasMoved());
+				assertTrue(rtx.moveToFirstChild().hasMoved());
 			}
 		}
 	}
@@ -241,7 +301,7 @@ public class VersioningTest {
 	private void setFoooo(final NodeWriteTrx wtx) throws SirixException {
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
-		wtx.moveToRightSibling();
+		wtx.moveToFirstChild();
 		wtx.setName(new QNm("foooo"));
 	}
 
@@ -271,7 +331,7 @@ public class VersioningTest {
 		wtx.moveToDocumentRoot();
 		wtx.moveToFirstChild();
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 3; i++) {
-			wtx.moveToRightSibling();
+			wtx.moveToFirstChild();
 		}
 		wtx.setName(new QNm("baaaz"));
 	}
@@ -284,10 +344,9 @@ public class VersioningTest {
 	 * @throws SirixException
 	 *           if inserting elements fails
 	 */
-	private void fillNodePage(final NodeWriteTrx wtx)
-			throws SirixException {
+	private void fillNodePage(final NodeWriteTrx wtx) throws SirixException {
 		for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-			wtx.insertElementAsRightSibling(new QNm("foo"));
+			wtx.insertElementAsFirstChild(new QNm("foo"));
 		}
 	}
 
@@ -301,7 +360,7 @@ public class VersioningTest {
 	 */
 	private void move(final NodeReadTrx rtx) throws SirixException {
 		for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-			assertTrue(rtx.moveToRightSibling().hasMoved());
+			assertTrue(rtx.moveToFirstChild().hasMoved());
 		}
 	}
 

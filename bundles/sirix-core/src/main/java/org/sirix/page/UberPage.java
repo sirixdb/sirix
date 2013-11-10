@@ -30,7 +30,7 @@ package org.sirix.page;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.DataOutput;
 import java.io.IOException;
 
 import org.sirix.access.conf.ResourceConfiguration;
@@ -189,7 +189,7 @@ public final class UberPage extends AbstractForwardingPage {
 	}
 
 	@Override
-	public void serialize(DataOutputStream out) throws IOException {
+	public void serialize(final DataOutput out) throws IOException {
 		mBootstrap = false;
 		mDelegate.serialize(checkNotNull(out));
 		out.writeInt(mRevisionCount);
