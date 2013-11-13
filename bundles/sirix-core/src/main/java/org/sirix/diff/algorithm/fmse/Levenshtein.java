@@ -175,9 +175,6 @@ public final class Levenshtein {
 	 * <pre>
 	 * D(i - 1, j - 1) + d(si, tj) // subst/copy D(i,j) = min D(i-1,j)+1 //insert
 	 * 														// D(i,j-1)+1 //delete
-	 * 
-	 * 
-	 * 
 	 * </pre>
 	 * 
 	 * <pre>
@@ -191,7 +188,7 @@ public final class Levenshtein {
 	 * @return the levenstein distance between given strings
 	 */
 	private float getUnNormalisedSimilarity(final String s,
-			@Nonnull final String t) {
+			final String t) {
 		assert s != null;
 		assert t != null;
 		final float[][] d; // matrix
@@ -239,15 +236,15 @@ public final class Levenshtein {
 	/**
 	 * Get the minimum of three numbers.
 	 * 
-	 * @param pX
+	 * @param x
 	 *          first number
-	 * @param pY
+	 * @param y
 	 *          second number
-	 * @param pZ
+	 * @param z
 	 *          third number
 	 * @return the {@code minimum} of the three specified numbers
 	 */
-	private static float min3(final float pX, final float pY, final float pZ) {
-		return Math.min(pX, Math.min(pY, pZ));
+	private static float min3(final float x, final float y, final float z) {
+		return Math.min(x, Math.min(y, z));
 	}
 }
