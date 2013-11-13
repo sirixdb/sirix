@@ -334,7 +334,7 @@ public final class SessionImpl implements Session {
 			// Close all open node transactions.
 			for (NodeReadTrx rtx : mNodeTrxMap.values()) {
 				if (rtx instanceof NodeWriteTrx) {
-					((NodeWriteTrx) rtx).abort();
+					((NodeWriteTrx) rtx).rollback();
 				}
 				rtx.close();
 				rtx = null;

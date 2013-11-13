@@ -69,7 +69,7 @@ public class MultipleCommitTest {
 		assertEquals(2L, holder.getWtx().getRevisionNumber());
 		holder.getWtx().moveTo(1);
 		assertEquals(new QNm("foo"), holder.getWtx().getName());
-		holder.getWtx().abort();
+		holder.getWtx().rollback();
 
 		assertEquals(2L, holder.getWtx().getRevisionNumber());
 	}

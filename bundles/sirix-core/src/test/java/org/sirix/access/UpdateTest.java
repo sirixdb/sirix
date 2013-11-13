@@ -426,7 +426,7 @@ public class UpdateTest {
 		try {
 			wtx.remove();
 		} finally {
-			wtx.abort();
+			wtx.rollback();
 			wtx.close();
 		}
 	}

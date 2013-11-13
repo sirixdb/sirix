@@ -371,7 +371,7 @@ public final class CommandoLineExplorer {
 									" operation: commit succeed. New revision-number is ")
 									.append(wtx.getRevisionNumber());
 						} else if (mParameter.equals("abort")) {
-							wtx.abort();
+							wtx.rollback();
 							builder.append(
 									" operation: abort succeed. Old revision-number is ").append(
 									wtx.getRevisionNumber());

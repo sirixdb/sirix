@@ -628,12 +628,12 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	void commit() throws SirixException;
 
 	/**
-	 * Abort all modifications of the exclusive write transaction.
+	 * Rollback all modifications of the exclusive write transaction.
 	 * 
 	 * @throws SirixException
-	 *           if this revision couldn't be aborted
+	 *           if the changes in this revision couldn't be rollbacked
 	 */
-	void abort() throws SirixException;
+	void rollback() throws SirixException;
 
 	/**
 	 * Reverting all changes to the revision defined. This command has to be

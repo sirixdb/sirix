@@ -124,7 +124,7 @@ public class AttributeAxisTest {
 		Assert.assertEquals(new QNm("foo2"), wtx.getName());
 		Assert.assertEquals("2", wtx.getValue());
 
-		wtx.abort();
+		wtx.rollback();
 		wtx.close();
 	}
 }
