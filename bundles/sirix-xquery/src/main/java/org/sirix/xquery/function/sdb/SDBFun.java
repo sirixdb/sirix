@@ -1,5 +1,6 @@
 package org.sirix.xquery.function.sdb;
 
+import static org.sirix.xquery.function.sdb.Rollback.ROLLBACK;
 import static org.sirix.xquery.function.sdb.Commit.COMMIT;
 import static org.sirix.xquery.function.sdb.Doc.DOC;
 import static org.sirix.xquery.function.sdb.GetMostRecentRevision.MOST_RECENT_REVISION;
@@ -86,6 +87,10 @@ public final class SDBFun {
 
 		// commit
 		Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER,
+				SequenceType.NODE)));
+		
+		// rollback
+		Functions.predefine(new Rollback(ROLLBACK, new Signature(SequenceType.INTEGER,
 				SequenceType.NODE)));
 
 		// get-most-recent-rev

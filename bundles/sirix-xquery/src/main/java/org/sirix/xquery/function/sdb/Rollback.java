@@ -14,21 +14,21 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for commiting a new revision. The result is the new commited
+ * Function for rolling back a new revision. The result is the aborted
  * revision number. Supported signature is:
  * </p>
  * <ul>
  * <li>
- * <code>sdb:commit($doc as xs:node) as xs:int</code></li>
+ * <code>sdb:rollback($doc as xs:node) as xs:int</code></li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
  * 
  */
-public final class Commit extends AbstractFunction {
+public final class Rollback extends AbstractFunction {
 
-	/** Get most recent revision function name. */
-	public final static QNm COMMIT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
+	/** Rollback function name. */
+	public final static QNm ROLLBACK = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
 			"commit");
 
 	/**
@@ -39,7 +39,7 @@ public final class Commit extends AbstractFunction {
 	 * @param signature
 	 *          the signature of the function
 	 */
-	public Commit(QNm name, Signature signature) {
+	public Rollback(QNm name, Signature signature) {
 		super(name, signature, true);
 	}
 
@@ -52,7 +52,7 @@ public final class Commit extends AbstractFunction {
 			final NodeWriteTrx wtx = (NodeWriteTrx) doc.getTrx();
 			final long revision = wtx.getRevisionNumber();
 			try {
-				wtx.abort();
+				wtx.commit();
 			} catch (final SirixException e) {
 				throw new QueryException(new QNm("Couldn't be commited: "
 						+ e.getMessage()), e);
