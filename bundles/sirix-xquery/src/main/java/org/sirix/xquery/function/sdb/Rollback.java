@@ -52,7 +52,7 @@ public final class Rollback extends AbstractFunction {
 			final NodeWriteTrx wtx = (NodeWriteTrx) doc.getTrx();
 			final long revision = wtx.getRevisionNumber();
 			try {
-				wtx.commit();
+				wtx.abort();
 			} catch (final SirixException e) {
 				throw new QueryException(new QNm("Couldn't be commited: "
 						+ e.getMessage()), e);
