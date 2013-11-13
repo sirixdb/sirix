@@ -1865,7 +1865,7 @@ final class NodeWriteTrxImpl extends AbstractForwardingNodeReadTrx implements
 	}
 
 	@Override
-	public void abort() throws SirixException {
+	public void rollback() throws SirixException {
 		acquireLock();
 		try {
 			mNodeRtx.assertNotClosed();
