@@ -235,7 +235,7 @@ public final class WorkerHelper {
 			throws SirixException {
 		synchronized (dbase) {
 			if (abortTransaction) {
-				wtx.abort();
+				wtx.rollback();
 			}
 			dbase.close();
 		}

@@ -25,8 +25,8 @@ public abstract class AbstractForwardingNodeWriteTrx extends
 	protected abstract NodeWriteTrx delegate();
 
 	@Override
-	public void abort() throws SirixException {
-		delegate().abort();
+	public void rollback() throws SirixException {
+		delegate().rollback();
 	}
 
 	@Override

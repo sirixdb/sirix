@@ -116,7 +116,7 @@ public class SessionTest {
 		assertEquals("p:a", new StringBuilder(wtx.getName().getPrefix())
 				.append(":").append(wtx.getName().getLocalName()).toString());
 
-		wtx.abort();
+		wtx.rollback();
 		wtx.close();
 	}
 
@@ -164,7 +164,7 @@ public class SessionTest {
 		assertEquals("bar", rtx1.getValue());
 		assertEquals("bar2", wtx2.getValue());
 		rtx1.close();
-		wtx2.abort();
+		wtx2.rollback();
 		wtx2.close();
 
 		final NodeReadTrx rtx2 = holder.getSession().beginNodeReadTrx();

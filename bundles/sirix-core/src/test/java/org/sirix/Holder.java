@@ -168,7 +168,7 @@ public class Holder {
 			mRtx.close();
 		}
 		if (mWtx != null && !mWtx.isClosed()) {
-			mWtx.abort();
+			mWtx.rollback();
 			mWtx.close();
 		}
 		if (mSession != null && !mSession.isClosed()) {
