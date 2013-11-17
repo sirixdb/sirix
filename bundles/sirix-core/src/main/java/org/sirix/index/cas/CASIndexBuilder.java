@@ -84,6 +84,7 @@ final class CASIndexBuilder extends AbstractVisitor {
 					setNodeReferences(node, new NodeReferences(), value);
 				}
 			}
+			mRtx.moveTo(node.getNodeKey());
 		} catch (final PathException | SirixIOException e) {
 			LOGGER.error(e.getMessage(), e);
 		}

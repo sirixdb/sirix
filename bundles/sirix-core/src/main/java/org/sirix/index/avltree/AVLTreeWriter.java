@@ -80,7 +80,7 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 				// Create CAS index tree if needed.
 				final CASPage casPage = pageWriteTrx.getCASPage(pageWriteTrx
 						.getActualRevisionRootPage());
-				pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.PATHPAGE,
+				pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.CASPAGE,
 						-1, -1, 0), casPage);
 				casPage.createCASIndexTree(pageWriteTrx, index);
 				break;
@@ -88,8 +88,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 				// Create name index tree if needed.
 				final NamePage namePage = pageWriteTrx.getNamePage(pageWriteTrx
 						.getActualRevisionRootPage());
-				pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.PATHPAGE,
-						-1, -1, 0), namePage);
+//				pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.NAMEPAGE,
+//						-1, -1, 0), namePage);
 				namePage.createNameIndexTree(pageWriteTrx, index);
 				break;
 			}

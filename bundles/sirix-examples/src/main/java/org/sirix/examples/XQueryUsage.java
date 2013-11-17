@@ -58,12 +58,12 @@ public final class XQueryUsage {
 	 */
 	public static void main(final String[] args) throws SirixException {
 		try {
-			loadDocumentAndQuery();
-			System.out.println();
-			loadDocumentAndUpdate();
-			System.out.println();
-			loadCollectionAndQuery();
-			System.out.println();
+//			loadDocumentAndQuery();
+//			System.out.println();
+//			loadDocumentAndUpdate();
+//			System.out.println();
+//			loadCollectionAndQuery();
+//			System.out.println();
 			loadDocumentAndQueryTemporal();
 		} catch (IOException e) {
 			System.err.print("I/O error: ");

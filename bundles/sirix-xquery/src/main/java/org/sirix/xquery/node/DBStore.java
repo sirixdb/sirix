@@ -209,7 +209,8 @@ public final class DBStore implements Store, AutoCloseable {
 					: new StringBuilder(3).append("resource")
 							.append(database.listResources().length + 1).toString();
 			database.createResource(ResourceConfiguration.newBuilder(resName, dbConf)
-					.useDeweyIDs().useTextCompression().buildPathSummary().storageType(mStorageType).build());
+					.useDeweyIDs(true).useTextCompression(true).buildPathSummary(true)
+					.storageType(mStorageType).build());
 			final Session session = database
 					.getSession(new SessionConfiguration.Builder(resName).build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
@@ -256,7 +257,8 @@ public final class DBStore implements Store, AutoCloseable {
 							public Void call() throws DocumentException, SirixException {
 								database.createResource(ResourceConfiguration
 										.newBuilder(resource, dbConf).storageType(mStorageType)
-										.useDeweyIDs().useTextCompression().buildPathSummary().build());
+										.useDeweyIDs(true).useTextCompression(true).buildPathSummary(true)
+										.build());
 								final Session session = database
 										.getSession(new SessionConfiguration.Builder(resource)
 												.build());

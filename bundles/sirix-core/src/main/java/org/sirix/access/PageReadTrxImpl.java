@@ -385,10 +385,10 @@ final class PageReadTrxImpl implements PageReadTrx {
 			public Page load(final PageReference reference) throws SirixException {
 				assert reference.getLogKey() != null
 						|| reference.getKey() != Constants.NULL_ID;
-				final Page page = mPageLog.isPresent() ? mPageLog.get().get(
+				Page page = mPageLog.isPresent() ? mPageLog.get().get(
 						reference.getLogKey()) : null;
 				if (page == null) {
-					return mPageReader.read(reference.getKey(), impl).setDirty(true);
+					page = mPageReader.read(reference.getKey(), impl).setDirty(true);
 				}
 				return page;
 			}
@@ -574,13 +574,17 @@ final class PageReadTrxImpl implements PageReadTrx {
 				mUberPage.getIndirectPageReference(), revisionKey, -1,
 				PageKind.UBERPAGE);
 		try {
+			RevisionRootPage page = null;
 			if (mPageWriteTrx.isPresent()) {
-				return (RevisionRootPage) mPageWriteTrx.get().mPageLog.get(reference
+				page = (RevisionRootPage) mPageWriteTrx.get().mPageLog.get(reference
 						.getLogKey());
 			}
-			assert reference.getKey() != Constants.NULL_ID
-					|| reference.getLogKey() != null;
-			return (RevisionRootPage) mPageCache.get(reference);
+			if (page == null) {
+				assert reference.getKey() != Constants.NULL_ID
+						|| reference.getLogKey() != null;
+				page = (RevisionRootPage) mPageCache.get(reference);
+			}
+			return page;
 		} catch (final ExecutionException e) {
 			throw new SirixIOException(e.getCause());
 		}
@@ -631,7 +635,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 		try {
 			Page page = reference.getPage();
 			if (mPageWriteTrx.isPresent() || mPageLog.isPresent()) {
-				reference.setLogKey(new IndirectPageLogKey(pageKind, -1, -1, 0));
+				final IndirectPageLogKey logKey = new IndirectPageLogKey(pageKind, -1, -1, 0);
+				reference.setLogKey(logKey);
 			}
 			if (page == null) {
 				page = mPageCache.get(reference);
@@ -713,8 +718,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 					refToRecordPage = pageReference.get();
 				} else {
 					assert mRootPage.getRevision() == i;
-					final PageReference tmpRef = getPageReference(
-							mRootPage, pageKind, index);
+					final PageReference tmpRef = getPageReference(mRootPage, pageKind,
+							index);
 					refToRecordPage = getPageReferenceForPage(tmpRef, recordPageKey,
 							index, pageKind);
 				}
@@ -723,7 +728,7 @@ final class PageReadTrxImpl implements PageReadTrx {
 						.getPreviousReference();
 				refToRecordPage = reference.isPresent() ? reference.get() : null;
 			}
-			
+
 			if (refToRecordPage != null
 					&& refToRecordPage.getKey() != Constants.NULL_ID) {
 				// Probably save page.
@@ -796,15 +801,17 @@ final class PageReadTrxImpl implements PageReadTrx {
 	final IndirectPage dereferenceIndirectPage(final PageReference reference)
 			throws SirixIOException {
 		try {
+			IndirectPage page = null;
+
 			if (mPageWriteTrx.isPresent()) {
-				return (IndirectPage) mPageWriteTrx.get().mPageLog.get(reference
+				page = (IndirectPage) mPageWriteTrx.get().mPageLog.get(reference
 						.getLogKey());
 			}
-			if (reference.getKey() != Constants.NULL_ID
-					|| reference.getLogKey() != null) {
-				return (IndirectPage) mPageCache.get(reference);
+			if (page == null
+					&& (reference.getKey() != Constants.NULL_ID || reference.getLogKey() != null)) {
+				page = (IndirectPage) mPageCache.get(reference);
 			}
-			return null;
+			return page;
 		} catch (final ExecutionException e) {
 			throw new SirixIOException(e.getCause());
 		}

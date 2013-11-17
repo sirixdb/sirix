@@ -36,9 +36,13 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NoSuchElementException;
@@ -51,6 +55,7 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.node.interfaces.Node;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.page.interfaces.KeyValuePage;
@@ -313,6 +318,20 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	// Add references to OverflowPages.
 	private void addReferences() throws IOException {
+//		// Sort entries which have deweyIDs.
+//		final List<Map.Entry<Long, Record>> entries = new ArrayList<Map.Entry<Long, Record>>(
+//				mRecords.entrySet());
+//		if (mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored) {
+//			Collections.sort(entries, new Comparator<Map.Entry<Long, Record>>() {
+//				public int compare(Map.Entry<Long, Record> a, Map.Entry<Long, Record> b) {
+//					if (a.getValue() instanceof Node && b.getValue() instanceof Node)	{
+//						return ((Node) a.getValue()).getDeweyID().get().compareTo(((Node) b.getValue()).getDeweyID().get());
+//					}
+//					return -1;
+//				}
+//			});
+//		}
+
 		final PeekingIterator<Entry<Long, Record>> it = Iterators
 				.peekingIterator(mRecords.entrySet().iterator());
 		while (it.hasNext()) {
@@ -320,6 +339,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			final Record record = entry.getValue();
 			final long recordID = record.getNodeKey();
 			if (mSlots.get(recordID) == null) {
+				// Must be either a normal record or one which requires an Overflow page.
 				final ByteArrayOutputStream output = new ByteArrayOutputStream();
 				Entry<Long, Record> nextEntry = null;
 				try {
