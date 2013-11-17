@@ -100,7 +100,6 @@ public final class AVLTreeReader<K extends Comparable<? super K>, V extends Refe
 			mPageKind = PageKind.NAMEPAGE;
 			break;
 		default:
-			mPageKind = null;
 			throw new IllegalStateException();
 		}
 		mClosed = false;

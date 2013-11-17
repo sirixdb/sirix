@@ -457,16 +457,10 @@ public final class ResourceConfiguration {
 			builder.byteHandlerPipeline(pipeline).hashKind(hashing)
 					.versioningApproach(revisioning)
 					.revisionsToRestore(revisionToRestore).storageType(storage)
-					.persistenter(persistenter);
-			if (compression) {
-				builder.useTextCompression();
-			}
-			if (pathSummary) {
-				builder.buildPathSummary();
-			}
-			if (deweyIDsStored) {
-				builder.useDeweyIDs();
-			}
+					.persistenter(persistenter)
+				  .useTextCompression(compression)
+				  .buildPathSummary(pathSummary)
+				  .useDeweyIDs(deweyIDsStored);
 
 			// Deserialized instance.
 			final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -530,7 +524,7 @@ public final class ResourceConfiguration {
 				final DatabaseConfiguration config) {
 			mResource = checkNotNull(resource);
 			mDBConfig = checkNotNull(config);
-			mPathSummary = false;
+			mPathSummary = true;
 			mByteHandler = new ByteHandlePipeline(new DeflateCompressor());
 		}
 
@@ -606,8 +600,8 @@ public final class ResourceConfiguration {
 		 * 
 		 * @return reference to the builder object
 		 */
-		public Builder useDeweyIDs() {
-			mUseDeweyIDs = true;
+		public Builder useDeweyIDs(boolean useDeweyIDs) {
+			mUseDeweyIDs = useDeweyIDs;
 			return this;
 		}
 
@@ -618,8 +612,8 @@ public final class ResourceConfiguration {
 		 *          use text compression or not (default: yes)
 		 * @return reference to the builder object
 		 */
-		public Builder useTextCompression() {
-			mCompression = true;
+		public Builder useTextCompression(boolean useTextCompression) {
+			mCompression = useTextCompression;
 			return this;
 		}
 
@@ -628,8 +622,8 @@ public final class ResourceConfiguration {
 		 * 
 		 * @return reference to the builder object
 		 */
-		public Builder buildPathSummary() {
-			mPathSummary = true;
+		public Builder buildPathSummary(boolean buildPathSummary) {
+			mPathSummary = buildPathSummary;
 			return this;
 		}
 

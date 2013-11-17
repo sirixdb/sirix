@@ -1,7 +1,7 @@
 package org.sirix.node;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
 
 import javax.annotation.Nonnegative;
@@ -19,7 +19,7 @@ import org.sirix.node.interfaces.RecordPersistenter;
  */
 public final class NodePersistenter implements RecordPersistenter {
 	@Override
-	public Record deserialize(final DataInputStream source,
+	public Record deserialize(final DataInput source,
 			final @Nonnegative long recordID, final PageReadTrx pageReadTrx) throws IOException {
 		final byte id = source.readByte();
 		final Kind enumKind = Kind.getKind(id);
@@ -27,7 +27,7 @@ public final class NodePersistenter implements RecordPersistenter {
 	}
 
 	@Override
-	public void serialize(final DataOutputStream sink,
+	public void serialize(final DataOutput sink,
 			final Record record, final @Nullable Record nextRecord,
 			final PageReadTrx pageReadTrx) throws IOException {
 		final Kind nodeKind = (Kind) record.getKind();

@@ -147,8 +147,8 @@ public final class DBCollection extends
 			final String resource = new StringBuilder(2).append("resource")
 					.append(mDatabase.listResources().length + 1).toString();
 			mDatabase.createResource(ResourceConfiguration
-					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs()
-					.useTextCompression().buildPathSummary().build());
+					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs(true)
+					.useTextCompression(true).buildPathSummary(true).build());
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.newBuilder(resource).build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
@@ -180,8 +180,8 @@ public final class DBCollection extends
 			final String resource = new StringBuilder(2).append("resource")
 					.append(mDatabase.listResources().length + 1).toString();
 			mDatabase.createResource(ResourceConfiguration
-					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs()
-					.useTextCompression().buildPathSummary().build());
+					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs(true)
+					.useTextCompression(true).buildPathSummary(true).build());
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.newBuilder(resource).build());
 			final NodeWriteTrx wtx = session.beginNodeWriteTrx();
@@ -210,7 +210,7 @@ public final class DBCollection extends
 			throws OperationNotSupportedException, DocumentException {
 		try {
 			mDatabase.createResource(ResourceConfiguration
-					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs()
+					.newBuilder(resource, mDatabase.getDatabaseConfig()).useDeweyIDs(true)
 					.build());
 			final Session session = mDatabase.getSession(SessionConfiguration
 					.newBuilder(resource).build());
