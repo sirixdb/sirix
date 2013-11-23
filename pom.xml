@@ -242,7 +242,7 @@
 		<dependency>
 			<groupId>com.sleepycat</groupId>
 			<artifactId>je</artifactId>
-			<version>5.0.48</version>
+			<version>5.0.97</version>
 		</dependency>
 		<dependency>
 			<groupId>org.aspectj</groupId>
@@ -283,17 +283,17 @@
 		<dependency>
 			<groupId>com.google.code.gson</groupId>
 			<artifactId>gson</artifactId>
-			<version>2.2.2</version>
+			<version>2.2.4</version>
 		</dependency>
 		<dependency>
 			<groupId>com.google.guava</groupId>
 			<artifactId>guava</artifactId>
-			<version>13.0.1</version>
+			<version>15.0</version>
 		</dependency>
 		<dependency>
 			<groupId>com.google.guava</groupId>
 			<artifactId>guava-testlib</artifactId>
-			<version>13.0.1</version>
+			<version>15.0</version>
 		</dependency>
 		<dependency>
 			<groupId>com.google.code.findbugs</groupId>
@@ -339,5 +339,5 @@
 		<module>bundles/sirix-xquery</module>
 		<module>bundles/sirix-examples</module>
 	</modules>
-	<url>https://github.com/JohannesLichtenberger/sirix</url>
+	<url>https://github.com/sirixdb/sirix</url>
 </project>
