@@ -1,4 +1,4 @@
-package org.sirix.xquery.function.sdb;
+package org.sirix.xquery.function.sdb.trx;
 
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;
@@ -10,25 +10,26 @@ import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
 import org.sirix.api.NodeWriteTrx;
 import org.sirix.exception.SirixException;
+import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for rolling back a new revision. The result is the aborted
+ * Function for commiting a new revision. The result is the new commited
  * revision number. Supported signature is:
  * </p>
  * <ul>
  * <li>
- * <code>sdb:rollback($doc as xs:node) as xs:int</code></li>
+ * <code>sdb:commit($doc as xs:node) as xs:int</code></li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
  * 
  */
-public final class Rollback extends AbstractFunction {
+public final class Commit extends AbstractFunction {
 
-	/** Rollback function name. */
-	public final static QNm ROLLBACK = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
+	/** Get most recent revision function name. */
+	public final static QNm COMMIT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
 			"commit");
 
 	/**
@@ -39,7 +40,7 @@ public final class Rollback extends AbstractFunction {
 	 * @param signature
 	 *          the signature of the function
 	 */
-	public Rollback(QNm name, Signature signature) {
+	public Commit(QNm name, Signature signature) {
 		super(name, signature, true);
 	}
 
@@ -52,7 +53,7 @@ public final class Rollback extends AbstractFunction {
 			final NodeWriteTrx wtx = (NodeWriteTrx) doc.getTrx();
 			final long revision = wtx.getRevisionNumber();
 			try {
-				wtx.rollback();
+				wtx.commit();
 			} catch (final SirixException e) {
 				throw new QueryException(new QNm("Couldn't be commited: "
 						+ e.getMessage()), e);
