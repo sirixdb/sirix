@@ -1,4 +1,4 @@
-package org.sirix.xquery.function.sdb;
+package org.sirix.xquery.function.sdb.io;
 
 import java.io.IOException;
 
@@ -27,6 +27,7 @@ import org.brackit.xquery.xdm.type.Cardinality;
 import org.brackit.xquery.xdm.type.ElementType;
 import org.brackit.xquery.xdm.type.SequenceType;
 import org.sirix.xquery.function.FunUtil;
+import org.sirix.xquery.function.sdb.SDBFun;
 import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBStore;
 
