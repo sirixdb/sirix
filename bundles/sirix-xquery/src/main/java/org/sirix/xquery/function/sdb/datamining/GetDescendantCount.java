@@ -17,21 +17,21 @@ import org.sirix.xquery.node.DBNode;
  * </p>
  * <ul>
  * <li>
- * <code>sdb:descendants($doc as xs:node) as xs:int</code></li>
+ * <code>sdb:get-descendant-count($doc as xs:node) as xs:int</code></li>
  * </ul>
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class GetDescendantCount extends AbstractFunction {
 
 	/** Get number of descendants function name. */
-	public final static QNm DESCENDANTS = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"descendants");
+	public final static QNm GET_DESCENDANT_COUNT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
+			"get-descendant-count");
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param name
 	 *          the name of the function
 	 * @param signature
