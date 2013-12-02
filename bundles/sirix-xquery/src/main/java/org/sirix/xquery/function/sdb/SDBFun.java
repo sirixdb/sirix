@@ -1,5 +1,8 @@
 package org.sirix.xquery.function.sdb;
 
+import static org.sirix.xquery.function.sdb.datamining.GetChildCount.GET_CHILD_COUNT;
+import static org.sirix.xquery.function.sdb.datamining.GetDescendantCount.GET_DESCENDANT_COUNT;
+import static org.sirix.xquery.function.sdb.datamining.GetHash.HASH;
 import static org.sirix.xquery.function.sdb.index.FindCASIndex.FIND_CAS_INDEX;
 import static org.sirix.xquery.function.sdb.index.FindNameIndex.FIND_NAME_INDEX;
 import static org.sirix.xquery.function.sdb.index.FindPathIndex.FIND_PATH_INDEX;
@@ -10,11 +13,11 @@ import static org.sirix.xquery.function.sdb.io.Doc.DOC;
 import static org.sirix.xquery.function.sdb.io.Load.LOAD;
 import static org.sirix.xquery.function.sdb.io.Store.STORE;
 import static org.sirix.xquery.function.sdb.trx.Commit.COMMIT;
+import static org.sirix.xquery.function.sdb.trx.GetAttributeCount.GET_ATTRIBUTE_COUNT;
 import static org.sirix.xquery.function.sdb.trx.GetMostRecentRevision.MOST_RECENT_REVISION;
+import static org.sirix.xquery.function.sdb.trx.GetNamespaceCount.GET_NAMESPACE_COUNT;
+import static org.sirix.xquery.function.sdb.trx.GetRevision.REVISION;
 import static org.sirix.xquery.function.sdb.trx.Rollback.ROLLBACK;
-import static org.sirix.xquery.function.sdb.datamining.GetDescendantCount.DESCENDANTS;
-import static org.sirix.xquery.function.sdb.datamining.GetChildCount.CHILDREN;
-import static org.sirix.xquery.function.sdb.datamining.GetHash.HASH;
 
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.module.Functions;
@@ -40,11 +43,21 @@ import org.sirix.xquery.function.sdb.io.Load;
 import org.sirix.xquery.function.sdb.io.Store;
 import org.sirix.xquery.function.sdb.trx.Commit;
 import org.sirix.xquery.function.sdb.trx.GetMostRecentRevision;
+import org.sirix.xquery.function.sdb.trx.GetNamespaceCount;
+import org.sirix.xquery.function.sdb.trx.GetRevision;
 import org.sirix.xquery.function.sdb.trx.Rollback;
 
+/**
+ * Function definitions.
+ *
+ * @author Johannes Lichtenberger
+ *
+ */
 public final class SDBFun {
+	/** Prefix for Sirix functions. */
 	public static final String SDB_PREFIX = "sdb";
 
+	/** Namespace URI for Sirix functions. */
 	public static final String SDB_NSURI = "https://github.com/sirixdb/sirix";
 
 	public static final QNm ERR_INVALID_ARGUMENT = new QNm(SDB_NSURI, SDB_PREFIX,
@@ -64,17 +77,17 @@ public final class SDBFun {
 		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
 
 		// get number of descendants
-		Functions.predefine(new GetDescendantCount(DESCENDANTS, new Signature(SequenceType.INTEGER,
+		Functions.predefine(new GetDescendantCount(GET_DESCENDANT_COUNT, new Signature(SequenceType.INTEGER,
 				SequenceType.NODE)));
-		
+
 		// get number of children
-		Functions.predefine(new GetChildCount(CHILDREN, new Signature(SequenceType.INTEGER,
+		Functions.predefine(new GetChildCount(GET_CHILD_COUNT, new Signature(SequenceType.INTEGER,
 				SequenceType.NODE)));
-		
+
 		// get hash
 		Functions.predefine(new GetHash(HASH, new Signature(SequenceType.STRING,
 				SequenceType.NODE)));
-		
+
 		// store
 		Functions.predefine(new Store(false));
 		Functions.predefine(new Store(true));
@@ -99,20 +112,32 @@ public final class SDBFun {
 		// commit
 		Functions.predefine(new Commit(COMMIT, new Signature(SequenceType.INTEGER,
 				SequenceType.NODE)));
-		
+
 		// rollback
 		Functions.predefine(new Rollback(ROLLBACK, new Signature(SequenceType.INTEGER,
 				SequenceType.NODE)));
 
-		// get-most-recent-rev
+		// revision
+		Functions.predefine(new GetRevision(REVISION,
+				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+
+		// most-recent-revision
 		Functions.predefine(new GetMostRecentRevision(MOST_RECENT_REVISION,
 				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
-		
+
+		// get-namespace-count
+		Functions.predefine(new GetNamespaceCount(GET_NAMESPACE_COUNT,
+				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+
+		// get-attribute-count
+		Functions.predefine(new GetNamespaceCount(GET_ATTRIBUTE_COUNT,
+				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+
 		// find-name-index
 		Functions.predefine(new FindNameIndex(FIND_NAME_INDEX, new Signature(
 				SequenceType.INTEGER, SequenceType.NODE,  new SequenceType(
 						AtomicType.QNM, Cardinality.One))));
-		
+
 		// find-path-index
 		Functions.predefine(new FindPathIndex(FIND_PATH_INDEX, new Signature(
 				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
@@ -127,7 +152,7 @@ public final class SDBFun {
 						Cardinality.ZeroOrMany))));
 		Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(
 				SequenceType.NODE, SequenceType.NODE)));
-		
+
 		// create-path-index
 		Functions.predefine(new CreatePathIndex(CREATE_PATH_INDEX, new Signature(
 				SequenceType.NODE, SequenceType.NODE, new SequenceType(AtomicType.STR,

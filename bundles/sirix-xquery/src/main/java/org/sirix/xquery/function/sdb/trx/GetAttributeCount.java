@@ -13,31 +13,31 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for getting the most recent revision. Supported signature is:
+ * Function for getting the number of attributes of the current node. Supported signature is:
  * </p>
  * <ul>
  * <li>
- * <code>sdb:most-recent-revision($doc as xs:string) as xs:int</code></li>
+ * <code>sdb:get-attribute-count($doc as xs:string) as xs:int</code></li>
  * </ul>
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
-public final class GetMostRecentRevision extends AbstractFunction {
+public final class GetAttributeCount extends AbstractFunction {
 
 	/** Get most recent revision function name. */
-	public final static QNm MOST_RECENT_REVISION = new QNm(SDBFun.SDB_NSURI,
-			SDBFun.SDB_PREFIX, "most-recent-revision");
+	public final static QNm GET_ATTRIBUTE_COUNT = new QNm(SDBFun.SDB_NSURI,
+			SDBFun.SDB_PREFIX, "get-attribute-count");
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param name
 	 *            the name of the function
 	 * @param signature
 	 *            the signature of the function
 	 */
-	public GetMostRecentRevision(QNm name, Signature signature) {
+	public GetAttributeCount(QNm name, Signature signature) {
 		super(name, signature, true);
 	}
 
@@ -46,7 +46,6 @@ public final class GetMostRecentRevision extends AbstractFunction {
 			Sequence[] args) throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 
-		return new Int32(doc.getTrx().getSession()
-				.getMostRecentRevisionNumber());
+		return new Int32(doc.getTrx().getAttributeCount());
 	}
 }

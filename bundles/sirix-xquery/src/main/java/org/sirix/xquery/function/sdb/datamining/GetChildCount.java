@@ -17,21 +17,21 @@ import org.sirix.xquery.node.DBNode;
  * </p>
  * <ul>
  * <li>
- * <code>sdb:children($doc as xs:node) as xs:int</code></li>
+ * <code>sdb:get-child-count($doc as xs:node) as xs:int</code></li>
  * </ul>
- * 
+ *
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public final class GetChildCount extends AbstractFunction {
 
 	/** Get number of children function name. */
-	public final static QNm CHILDREN = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"children");
+	public final static QNm GET_CHILD_COUNT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
+			"get-child-count");
 
 	/**
 	 * Constructor.
-	 * 
+	 *
 	 * @param name
 	 *          the name of the function
 	 * @param signature

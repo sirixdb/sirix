@@ -15,8 +15,8 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for rolling back a new revision. The result is the aborted
- * revision number. Supported signature is:
+ * Function for rolling back a new revision. The result is the aborted revision
+ * number. Supported signature is:
  * </p>
  * <ul>
  * <li>
@@ -29,24 +29,24 @@ import org.sirix.xquery.node.DBNode;
 public final class Rollback extends AbstractFunction {
 
 	/** Rollback function name. */
-	public final static QNm ROLLBACK = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"commit");
+	public final static QNm ROLLBACK = new QNm(SDBFun.SDB_NSURI,
+			SDBFun.SDB_PREFIX, "commit");
 
 	/**
 	 * Constructor.
 	 * 
 	 * @param name
-	 *          the name of the function
+	 *            the name of the function
 	 * @param signature
-	 *          the signature of the function
+	 *            the signature of the function
 	 */
 	public Rollback(QNm name, Signature signature) {
 		super(name, signature, true);
 	}
 
 	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
-			throws QueryException {
+	public Sequence execute(StaticContext sctx, QueryContext ctx,
+			Sequence[] args) throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 
 		if (doc.getTrx() instanceof NodeWriteTrx) {
