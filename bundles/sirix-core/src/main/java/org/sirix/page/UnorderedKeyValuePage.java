@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -31,6 +31,7 @@ import static org.sirix.node.Utils.putVarLong;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
@@ -40,12 +41,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.NoSuchElementException;
 import java.util.Set;
 
 import javax.annotation.Nonnegative;
@@ -55,11 +55,12 @@ import org.sirix.api.PageReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.node.Kind;
 import org.sirix.node.SirixDeweyID;
 import org.sirix.node.interfaces.Node;
+import org.sirix.node.interfaces.NodePersistenter;
 import org.sirix.node.interfaces.Record;
 import org.sirix.node.interfaces.RecordPersistenter;
-import org.sirix.node.interfaces.SimpleDeweyID;
 import org.sirix.page.interfaces.KeyValuePage;
 import org.sirix.page.interfaces.Page;
 import org.sirix.settings.Constants;
@@ -72,7 +73,7 @@ import com.google.common.collect.PeekingIterator;
 
 /**
  * <h1>UnorderedKeyValuePage</h1>
- * 
+ *
  * <p>
  * An UnorderedKeyValuePage stores a set of records, commonly nodes in an
  * unordered datastructure.
@@ -86,6 +87,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	private boolean mAddedReferences;
 
+	/** References to overflow pages. */
 	private final Map<Long, PageReference> mReferences;
 
 	/** Key of record page. This is the base key of all contained nodes. */
@@ -97,7 +99,11 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	 */
 	private final LinkedHashMap<Long, Record> mRecords;
 
+	/** Slots which have to be serialized. */
 	private final Map<Long, byte[]> mSlots;
+
+	/** Dewey IDs which have to be serialized. */
+	private final Map<SirixDeweyID, Long> mDeweyIDs;
 
 	/** Determine if node page has been modified. */
 	private boolean mIsDirty;
@@ -111,51 +117,88 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 	/** Persistenter. */
 	private final RecordPersistenter mPersistenter;
 
+	/** Reference to the previous page if any. */
 	private Optional<PageReference> mPreviousPageReference;
 
 	/**
 	 * Constructor which initializes a new {@link UnorderedKeyValuePage}.
-	 * 
+	 *
 	 * @param recordPageKey
-	 *          base key assigned to this node page
+	 *            base key assigned to this node page
 	 * @param pageKind
-	 *          the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE,
-	 *          TEXTVALUEPAGE, ATTRIBUTEVALUEPAGE)
+	 *            the kind of subtree page (NODEPAGE, PATHSUMMARYPAGE,
+	 *            TEXTVALUEPAGE, ATTRIBUTEVALUEPAGE)
 	 * @param pageReadTrx
-	 *          the page reading transaction
+	 *            the page reading transaction
 	 */
 	public UnorderedKeyValuePage(final @Nonnegative long recordPageKey,
-			final PageKind pageKind, final Optional<PageReference> previousPageRef,
+			final PageKind pageKind,
+			final Optional<PageReference> previousPageRef,
 			final PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
 		assert pageReadTrx != null : "pageReadTrx must not be null!";
-		mReferences = new HashMap<>();
+		assert previousPageRef != null : "optional previous page reference must not be null!";
+		assert pageReadTrx != null : "The page reading trx must not be null!";
+
+		mReferences = new LinkedHashMap<>();
 		mRecordPageKey = recordPageKey;
 		mRecords = new LinkedHashMap<>();
-		mSlots = new HashMap<>();
+		mSlots = new LinkedHashMap<>();
 		mIsDirty = true;
 		mPageReadTrx = pageReadTrx;
 		mPageKind = pageKind;
 		mPersistenter = pageReadTrx.getSession().getResourceConfig().mPersistenter;
 		mPreviousPageReference = previousPageRef;
+
+		if (mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored
+				&& mPersistenter instanceof NodePersistenter) {
+			mDeweyIDs = new LinkedHashMap<>();
+		} else {
+			mDeweyIDs = Collections.emptyMap();
+		}
 	}
 
 	/**
-	 * Constructor which reads the {@link UnorderedKeyValuePage} from the storage.
-	 * 
+	 * Constructor which reads the {@link UnorderedKeyValuePage} from the
+	 * storage.
+	 *
 	 * @param in
-	 *          input bytes to read page from
+	 *            input bytes to read page from
 	 * @param pageReadTrx
-	 *          {@link PageReadTrx} implementation
+	 *            {@link PageReadTrx} implementation
 	 */
-	protected UnorderedKeyValuePage(final DataInputStream in,
+	protected UnorderedKeyValuePage(final DataInput in,
 			final PageReadTrx pageReadTrx) throws IOException {
 		mRecordPageKey = getVarLong(in);
 		mPersistenter = pageReadTrx.getSession().getResourceConfig().mPersistenter;
 		mPageReadTrx = pageReadTrx;
-		mSlots = new HashMap<>();
+		mSlots = new LinkedHashMap<>();
+
+		if (mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored
+				&& mPersistenter instanceof NodePersistenter) {
+			mDeweyIDs = new LinkedHashMap<>();
+		} else {
+			mDeweyIDs = Collections.emptyMap();
+		}
+
+		final Map<SirixDeweyID, Boolean> deweyIDs = new LinkedHashMap<>();
+		if (mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored
+				&& mPersistenter instanceof NodePersistenter) {
+			final NodePersistenter persistenter = (NodePersistenter) mPersistenter;
+			final int deweyIDSize = in.readInt();
+
+			Optional<SirixDeweyID> id = Optional.absent();
+
+			for (int index = 0; index < deweyIDSize; index++) {
+				id = persistenter.deserializeDeweyID(in, id, pageReadTrx);
+
+				if (id.isPresent())
+					deweyIDs.put(id.get(), true);
+			}
+		}
+
 		final int normalEntrySize = in.readInt();
 		mRecords = new LinkedHashMap<>(normalEntrySize);
 		for (int index = 0; index < normalEntrySize; index++) {
@@ -163,12 +206,13 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			final int dataSize = in.readInt();
 			final byte[] data = new byte[dataSize];
 			in.readFully(data);
-			final Record record = mPersistenter.deserialize(new DataInputStream(
-					new ByteArrayInputStream(data)), key, mPageReadTrx);
+			final Record record = mPersistenter.deserialize(
+					new DataInputStream(new ByteArrayInputStream(data)), key,
+					mPageReadTrx);
 			mRecords.put(key, record);
 		}
 		final int overlongEntrySize = in.readInt();
-		mReferences = new HashMap<>(overlongEntrySize);
+		mReferences = new LinkedHashMap<>(overlongEntrySize);
 		for (int index = 0; index < overlongEntrySize; index++) {
 			final long key = in.readLong();
 			final PageReference reference = new PageReference();
@@ -200,7 +244,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			byte[] data = null;
 			try {
 				final PageReference reference = mReferences.get(key);
-				if (reference != null && reference.getKey() != Constants.NULL_ID) {
+				if (reference != null
+						&& reference.getKey() != Constants.NULL_ID) {
 					data = ((OverflowPage) mPageReadTrx.getReader().read(
 							reference.getKey(), mPageReadTrx)).getData();
 				} else {
@@ -211,8 +256,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			}
 			final InputStream in = new ByteArrayInputStream(data);
 			try {
-				record = mPersistenter.deserialize(new DataInputStream(in), key,
-						mPageReadTrx);
+				record = mPersistenter.deserialize(new DataInputStream(in),
+						key, mPageReadTrx);
 			} catch (final IOException e) {
 				return null;
 			}
@@ -233,7 +278,29 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		if (!mAddedReferences) {
 			addReferences();
 		}
+		// Write page key.
 		putVarLong(out, mRecordPageKey);
+		// Write dewey IDs.
+		if (mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored
+				&& mPersistenter instanceof NodePersistenter) {
+			final NodePersistenter persistenter = (NodePersistenter) mPersistenter;
+			out.writeInt(mDeweyIDs.size());
+			final PeekingIterator<SirixDeweyID> iter = Iterators
+					.peekingIterator(mDeweyIDs.keySet().iterator());
+			SirixDeweyID id = null;
+			if (iter.hasNext())
+			{
+				id = iter.next();
+				persistenter.serializeDeweyID(out, Kind.ELEMENT, id,
+						Optional.fromNullable((SirixDeweyID) null), mPageReadTrx);
+			}
+			while (iter.hasNext()) {
+				final SirixDeweyID nextDeweyID = iter.next();
+				persistenter.serializeDeweyID(out, Kind.ELEMENT, id,
+						Optional.of(nextDeweyID), mPageReadTrx);
+				id = nextDeweyID;
+			}
+		}
 		// Write normal entries.
 		out.writeInt(mRecords.size());
 		for (final Entry<Long, byte[]> entry : mSlots.entrySet()) {
@@ -245,7 +312,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 		}
 		// Write overlong entries.
 		out.writeInt(mReferences.size());
-		for (final Map.Entry<Long, PageReference> entry : mReferences.entrySet()) {
+		for (final Map.Entry<Long, PageReference> entry : mReferences
+				.entrySet()) {
 			// Write record ID.
 			out.writeLong(entry.getKey());
 			// Write key in persistent storage.
@@ -262,8 +330,8 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	@Override
 	public String toString() {
-		final ToStringHelper helper = Objects.toStringHelper(this).add("pagekey",
-				mRecordPageKey);
+		final ToStringHelper helper = Objects.toStringHelper(this).add(
+				"pagekey", mRecordPageKey);
 		for (final Record record : mRecords.values()) {
 			helper.add("record", record);
 		}
@@ -320,60 +388,79 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 
 	// Add references to OverflowPages.
 	private void addReferences() throws IOException {
-		// Sort entries which have deweyIDs.
-		final List<Map.Entry<Long, Record>> entries = new ArrayList<Map.Entry<Long, Record>>(
-				mRecords.entrySet());
-		if (mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored) {
-			Collections.sort(entries, new Comparator<Map.Entry<Long, Record>>() {
-				@Override
-				public int compare(Map.Entry<Long, Record> a, Map.Entry<Long, Record> b) {
-					if (a.getValue() instanceof Node && b.getValue() instanceof Node) {
-						final Optional<SirixDeweyID> first = ((Node) a.getValue()).getDeweyID();
-						final Optional<SirixDeweyID> second = ((Node) b.getValue()).getDeweyID();
-						
-						// Document node has no DeweyID.
-						if (!first.isPresent())
-							return 1;
-						
-						if (!second.isPresent())
-							return -1;
-						
-						return first.get().compareTo(second.get());
-					}
-					return -1;
-				}
-			});
-		}
+		final boolean storeDeweyIDs = mPageReadTrx.getSession()
+				.getResourceConfig().mDeweyIDsStored;
 
-		final PeekingIterator<Entry<Long, Record>> it = Iterators
-				.peekingIterator(entries.iterator());
+		final List<Entry<Long, Record>> entries = sort();
+		final Iterator<Entry<Long, Record>> it = entries.iterator();
 		while (it.hasNext()) {
 			final Entry<Long, Record> entry = it.next();
 			final Record record = entry.getValue();
 			final long recordID = record.getNodeKey();
 			if (mSlots.get(recordID) == null) {
-				// Must be either a normal record or one which requires an Overflow page.
+				// Must be either a normal record or one which requires an
+				// Overflow page.
 				final ByteArrayOutputStream output = new ByteArrayOutputStream();
-				Entry<Long, Record> nextEntry = null;
-				try {
-					nextEntry = it.peek();
-				} catch (final NoSuchElementException e) {
-				}
-				final Record nextRecord = nextEntry == null ? null : nextEntry
-						.getValue();
-				mPersistenter.serialize(new DataOutputStream(output), record,
-						nextRecord, mPageReadTrx);
+				final DataOutput out = new DataOutputStream(output);
+				mPersistenter.serialize(out, record, mPageReadTrx);
 				final byte[] data = output.toByteArray();
 				if (data.length > PageConstants.MAX_RECORD_SIZE) {
 					final PageReference reference = new PageReference();
 					reference.setPage(new OverflowPage(data));
 					mReferences.put(recordID, reference);
 				} else {
+					if (storeDeweyIDs
+							&& mPersistenter instanceof NodePersistenter
+							&& record instanceof Node
+							&& ((Node) record).getDeweyID().isPresent()
+							&& record.getNodeKey() != 0)
+						mDeweyIDs.put(((Node) record).getDeweyID().get(),
+								record.getNodeKey());
 					mSlots.put(recordID, data);
 				}
 			}
 		}
+
 		mAddedReferences = true;
+	}
+
+	private List<Entry<Long, Record>> sort() {
+		// Sort entries which have deweyIDs according to their byte-length.
+		final List<Map.Entry<Long, Record>> entries = new ArrayList<Map.Entry<Long, Record>>(
+				mRecords.entrySet());
+		final boolean storeDeweyIDs = mPageReadTrx.getSession()
+				.getResourceConfig().mDeweyIDsStored;
+		if (storeDeweyIDs && mPersistenter instanceof NodePersistenter) {
+			Collections.sort(entries,
+					new Comparator<Map.Entry<Long, Record>>() {
+						@Override
+						public int compare(Map.Entry<Long, Record> a,
+								Map.Entry<Long, Record> b) {
+							if (a.getValue() instanceof Node
+									&& b.getValue() instanceof Node) {
+								final Optional<SirixDeweyID> first = ((Node) a
+										.getValue()).getDeweyID();
+								final Optional<SirixDeweyID> second = ((Node) b
+										.getValue()).getDeweyID();
+
+								// Document node has no DeweyID.
+								if (!first.isPresent())
+									return 1;
+
+								if (!second.isPresent())
+									return -1;
+
+								return first.get().toBytes().length == second
+										.get().toBytes().length ? 0 : first
+										.get().toBytes().length > second.get()
+										.toBytes().length ? 1 : -1;
+							}
+							return -1;
+						}
+					});
+		}
+
+		return entries;
 	}
 
 	@Override
