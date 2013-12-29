@@ -47,7 +47,7 @@ import org.sirix.io.StorageType;
 import org.sirix.io.bytepipe.ByteHandlePipeline;
 import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.io.bytepipe.DeflateCompressor;
-import org.sirix.node.NodePersistenter;
+import org.sirix.node.NodePersistenterImpl;
 import org.sirix.node.interfaces.RecordPersistenter;
 import org.sirix.settings.Versioning;
 
@@ -162,7 +162,7 @@ public final class ResourceConfiguration {
 	public static final int VERSIONSTORESTORE = 3;
 
 	/** Persistenter for records. */
-	public static final RecordPersistenter PERSISTENTER = new NodePersistenter();
+	public static final RecordPersistenter PERSISTENTER = new NodePersistenterImpl();
 	// END FIXED STANDARD FIELDS
 
 	// MEMBERS FOR FIXED FIELDS

@@ -338,6 +338,7 @@
 		<module>bundles/sirix-jax-rx</module>
 		<module>bundles/sirix-xquery</module>
 		<module>bundles/sirix-examples</module>
+		<module>bundles/sirix-cluster</module>
 	</modules>
 	<url>https://github.com/sirixdb/sirix</url>
 </project>

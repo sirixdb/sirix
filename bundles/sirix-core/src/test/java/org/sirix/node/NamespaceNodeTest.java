@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -79,15 +79,15 @@ public class NamespaceNodeTest {
 				Optional.of(SirixDeweyID.newRootID()));
 		final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, 13, 14, 15,
 				1);
-		
+
 		// Create empty node.
 		final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
 
 		// Serialize and deserialize node.
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
-		node.getKind().serialize(new DataOutputStream(out), node, null, mPageReadTrx);
+		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
 		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(new DataInputStream(in), node.getNodeKey(), 
+		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(new DataInputStream(in), node.getNodeKey(),
 				mPageReadTrx);
 		check(node2);
 	}

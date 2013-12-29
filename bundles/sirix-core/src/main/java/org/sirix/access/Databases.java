@@ -15,10 +15,10 @@ import org.sirix.utils.Files;
 
 /**
  * Utility methods for {@link Database} handling.
- * 
+ *
  * @author Johannes Lichtenberger
  * @author Sebastian Graf, University of Konstanz
- * 
+ *
  */
 public final class Databases {
 
@@ -28,7 +28,7 @@ public final class Databases {
 	/**
 	 * Creating a database. This includes loading the database configuration,
 	 * building up the structure and preparing everything for login.
-	 * 
+	 *
 	 * @param dbConfig
 	 *          config which is used for the database, including storage location
 	 * @return true if creation is valid, false otherwise
@@ -81,7 +81,7 @@ public final class Databases {
 	/**
 	 * Truncate a database. This deletes all relevant data. All running sessions
 	 * must be closed beforehand.
-	 * 
+	 *
 	 * @param dbConfig
 	 *          the database at this path should be deleted
 	 * @throws SirixException
@@ -104,7 +104,7 @@ public final class Databases {
 	/**
 	 * Open database. A database can be opened only once (even across JVMs).
 	 * Afterwards a singleton instance bound to the {@link File} is returned.
-	 * 
+	 *
 	 * @param file
 	 *          determines where the database is located sessionConf a
 	 *          {@link SessionConfiguration} object to set up the session
@@ -150,7 +150,7 @@ public final class Databases {
 
 	/**
 	 * Determines if a database already exists.
-	 * 
+	 *
 	 * @param dbConfig
 	 *          database configuration
 	 * @return {@code true}, if database exists, {@code false} otherwise
@@ -164,7 +164,7 @@ public final class Databases {
 
 	/**
 	 * Package private method to get a database for a file.
-	 * 
+	 *
 	 * @param file
 	 *          database file to lookup
 	 * @return the database handle associated with the file or {@code null} if no
@@ -176,7 +176,7 @@ public final class Databases {
 
 	/**
 	 * Package private method to put a file/database into the internal map.
-	 * 
+	 *
 	 * @param file
 	 *          database file to put into the map
 	 * @param database
@@ -190,8 +190,8 @@ public final class Databases {
 	}
 
 	/**
-	 * Package private method to remove a databse.
-	 * 
+	 * Package private method to remove a database.
+	 *
 	 * @param file
 	 *          database file to remove
 	 */
