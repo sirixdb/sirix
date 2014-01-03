@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -35,9 +35,9 @@ import org.sirix.utils.TypedValue;
 
 /**
  * <h1>ValueAxisTest</h1>
- * 
+ *
  * <p>
- * Only match nodes of kind TEXT whoms value matches.
+ * Only match nodes of kind TEXT or ATTRIBUTE whoe's value matches.
  * </p>
  */
 public class ValueFilter extends AbstractFilter {
@@ -47,44 +47,44 @@ public class ValueFilter extends AbstractFilter {
 
 	/**
 	 * Constructor initializing internal state.
-	 * 
-	 * @param pRtx
+	 *
+	 * @param rtx
 	 *          transaction this filter is bound to
-	 * @param pValue
+	 * @param value
 	 *          value to find
 	 */
-	public ValueFilter(final NodeReadTrx pRtx, final byte[] pValue) {
-		super(pRtx);
-		mValue = checkNotNull(pValue);
+	public ValueFilter(final NodeReadTrx rtx, final byte[] value) {
+		super(rtx);
+		mValue = checkNotNull(value);
 	}
 
 	/**
 	 * Constructor initializing internal state.
-	 * 
+	 *
 	 * @param rtx
 	 *          Transaction to bind filter to.
-	 * @param mValue
+	 * @param value
 	 *          Value to find.
 	 */
-	public ValueFilter(final NodeReadTrx rtx, final String mValue) {
-		this(rtx, TypedValue.getBytes(mValue));
+	public ValueFilter(final NodeReadTrx rtx, final String value) {
+		this(rtx, TypedValue.getBytes(value));
 	}
 
 	/**
 	 * Constructor initializing internal state.
-	 * 
+	 *
 	 * @param rtx
 	 *          Transaction to bind filter to.
-	 * @param mValue
+	 * @param value
 	 *          Value to find.
 	 */
-	public ValueFilter(final NodeReadTrx rtx, final int mValue) {
-		this(rtx, TypedValue.getBytes(mValue));
+	public ValueFilter(final NodeReadTrx rtx, final int value) {
+		this(rtx, TypedValue.getBytes(value));
 	}
 
 	/**
 	 * Constructor initializing internal state.
-	 * 
+	 *
 	 * @param rtx
 	 *          Transaction to bind filter to.
 	 * @param mValue

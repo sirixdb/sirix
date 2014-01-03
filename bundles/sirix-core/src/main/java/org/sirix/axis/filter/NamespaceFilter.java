@@ -28,16 +28,15 @@
 package org.sirix.axis.filter;
 
 import org.sirix.api.NodeReadTrx;
-import org.sirix.node.Kind;
 
 /**
- * <h1>AttributeFilter</h1>
+ * <h1>NamespaceFilter</h1>
  *
  * <p>
- * Only match ATTRIBUTE nodes.
+ * Only match NAMESPACE nodes.
  * </p>
  */
-public class AttributeFilter extends AbstractFilter {
+public class NamespaceFilter extends AbstractFilter {
 
 	/**
 	 * Default constructor.
@@ -45,13 +44,13 @@ public class AttributeFilter extends AbstractFilter {
 	 * @param rtx
 	 *          Transaction this filter is bound to.
 	 */
-	public AttributeFilter(final NodeReadTrx rtx) {
+	public NamespaceFilter(final NodeReadTrx rtx) {
 		super(rtx);
 	}
 
 	@Override
 	public final boolean filter() {
-		return getTrx().getKind() == Kind.ATTRIBUTE;
+		return getTrx().isNamespace();
 	}
 
 }

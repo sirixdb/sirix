@@ -56,7 +56,7 @@
 			<!-- the client implementation of JAX-RS for testing purposes -->
 			<groupId>com.sun.jersey</groupId>
 			<artifactId>jersey-client</artifactId>
-			<version>1.4</version>
+			<version>1.18</version>
 		</dependency>
 	</dependencies>
 	<build>
