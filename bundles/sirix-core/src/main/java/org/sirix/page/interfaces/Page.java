@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  * * Redistributions of source code must retain the above copyright
@@ -12,7 +12,7 @@
  * * Neither the name of the University of Konstanz nor the
  * names of its contributors may be used to endorse or promote products
  * derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -39,67 +39,63 @@ import org.sirix.page.PageReference;
 
 /**
  * Page interface all pages have to implement.
- * 
+ *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger
- * 
+ *
  */
 public interface Page {
 
 	/**
 	 * Serialize a page
-	 * 
+	 *
 	 * @param out
-	 *          {@link DataOutput} to serialize to
+	 *            {@link DataOutput} to serialize to
 	 * @throws IOException
-	 * 					if serialization fails
+	 *             if serialization fails
 	 */
 	void serialize(final DataOutput out) throws IOException;
 
 	/**
 	 * Get all page references.
-	 * 
+	 *
 	 * @return all page references
 	 */
 	PageReference[] getReferences();
 
 	/**
 	 * Commit page.
-	 * 
+	 *
 	 * @param pageWriteTrx
-	 *          {@link PageWriteTrx} implementation
+	 *            {@link PageWriteTrx} implementation
 	 * @throws SirixException
-	 *           if something went wrong
+	 *             if something went wrong
 	 */
 	<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
 			@Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException;
 
 	/**
 	 * Get the {@link PageReference} at the specified offset
-	 * 
+	 *
 	 * @param offset
-	 *          the offset
+	 *            the offset
 	 * @return the {@link PageReference} at the specified offset
 	 */
 	PageReference getReference(@Nonnegative int offset);
 
 	/**
 	 * Determines if a page is dirty meaning if it has been changed.
-	 * 
+	 *
 	 * @return {@code true} if it has been changed, {@code false} otherwise
 	 */
 	boolean isDirty();
 
 	/**
 	 * Set dirty flag (if page has been modified).
-	 * 
+	 *
 	 * @param dirty
-	 *          dirty or not
+	 *            dirty or not
 	 * @return the page instance
 	 */
 	Page setDirty(boolean dirty);
-
-//	boolean isFullDump();
-//	
-//	Page setFullDump(boolean isFullDump);
 }
