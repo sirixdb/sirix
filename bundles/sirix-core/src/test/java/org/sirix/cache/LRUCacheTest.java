@@ -47,6 +47,7 @@ public class LRUCacheTest {
 
 	@Before
 	public void setUp() throws SirixException {
+		TestHelper.deleteEverything();
 		TestHelper.createTestDocument();
 		cache = new LRUCache<>();
 		CacheTestHelper.setUp(cache);
@@ -54,7 +55,9 @@ public class LRUCacheTest {
 
 	@After
 	public void tearDown() throws SirixException {
-		cache = null;
+		cache.close();
+		CacheTestHelper.PAGE_READ_TRX.close();
+		TestHelper.closeEverything();
 	}
 
 	@Test
