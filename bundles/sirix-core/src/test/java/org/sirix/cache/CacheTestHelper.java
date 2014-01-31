@@ -46,7 +46,7 @@ import com.google.common.base.Optional;
 public class CacheTestHelper {
 
 	/** Page reading transaction. */
-	private static PageReadTrx PAGE_READ_TRX;
+	public static PageReadTrx PAGE_READ_TRX;
 
 	/** Unordered record pages. */
 	protected static UnorderedKeyValuePage[][] PAGES;

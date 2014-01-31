@@ -68,11 +68,13 @@ public class BerkeleyPersistentCacheTest {
 			final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont.getComplete();
 			assertEquals(CacheTestHelper.PAGES[(int) i][0], current);
 		}
-		cache.clear();
 	}
 
 	@After
 	public void tearDown() throws SirixException {
+		cache.clear();
+		cache.close();
+		CacheTestHelper.PAGE_READ_TRX.close();
 		mPageReadTrx.close();
 		TestHelper.closeEverything();
 	}
