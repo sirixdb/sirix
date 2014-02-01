@@ -334,8 +334,7 @@
 	</distributionManagement>
 	<modules>
 		<module>bundles/sirix-core</module>
-		<module>bundles/sirix-saxon</module>
-		<module>bundles/sirix-jax-rx</module>
+		<!-- <module>bundles/sirix-jax-rx</module> -->
 		<module>bundles/sirix-xquery</module>
 		<module>bundles/sirix-examples</module>
 		<module>bundles/sirix-cluster</module>
