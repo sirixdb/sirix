@@ -27,8 +27,12 @@
 
 package org.sirix.diff;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.sirix.api.NodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 
 /**
@@ -44,48 +48,39 @@ final class FullDiff extends AbstractDiff {
 	 * Constructor.
 	 * 
 	 * @param builder
-	 *          {@link Builder} reference
+	 *            {@link Builder} reference
 	 * @throws SirixException
-	 *           if anything goes wrong while setting up sirix transactions
+	 *             if anything goes wrong while setting up sirix transactions
 	 */
 	FullDiff(final Builder builder) throws SirixException {
 		super(builder);
 	}
 
 	@Override
-	boolean checkNodes(final NodeReadTrx firstRtx,
-			final NodeReadTrx secondRtx) {
-		assert firstRtx != null;
-		assert secondRtx != null;
+	boolean checkNodes(final NodeReadTrx newRtx, final NodeReadTrx oldRtx) {
+		assert newRtx != null;
+		assert oldRtx != null;
 
 		boolean found = false;
-		if (firstRtx.getNodeKey() == secondRtx.getNodeKey()
-				&& firstRtx.getParentKey() == secondRtx.getParentKey()
-				&& firstRtx.getKind() == secondRtx.getKind()) {
-			switch (firstRtx.getKind()) {
+		if (newRtx.getNodeKey() == oldRtx.getNodeKey()
+				&& newRtx.getParentKey() == oldRtx.getParentKey()
+				&& newRtx.getKind() == oldRtx.getKind()) {
+			switch (newRtx.getKind()) {
 			case ELEMENT:
-				if (firstRtx.getPrefixKey() == secondRtx.getPrefixKey()
-						&& firstRtx.getLocalNameKey() == secondRtx.getLocalNameKey()) {
-					if (firstRtx.getNamespaceCount() == 0
-							&& firstRtx.getAttributeCount() == 0
-							&& firstRtx.getAttributeCount() == 0
-							&& firstRtx.getNamespaceCount() == 0) {
-						found = true;
-					} else if (firstRtx.getAttributeKeys().equals(
-							secondRtx.getAttributeKeys())
-							&& secondRtx.getNamespaceKeys().equals(
-									secondRtx.getNamespaceKeys())) {
-						found = true;
-					}
+				if (newRtx.getPrefixKey() == oldRtx.getPrefixKey() 
+				    && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
+				    && newRtx.getAttributeKeys().equals(oldRtx.getAttributeKeys())
+				    && newRtx.getNamespaceKeys().equals(oldRtx.getNamespaceKeys())) {
+					found = true;
 				}
 				break;
 			case PROCESSING_INSTRUCTION:
-				found = firstRtx.getValue().equals(secondRtx.getValue())
-						&& firstRtx.getName().equals(secondRtx.getName());
+				found = newRtx.getValue().equals(oldRtx.getValue())
+						&& newRtx.getName().equals(oldRtx.getName());
 				break;
 			case TEXT:
 			case COMMENT:
-				found = firstRtx.getValue().equals(secondRtx.getValue());
+				found = newRtx.getValue().equals(oldRtx.getValue());
 				break;
 			default:
 				throw new IllegalStateException(
@@ -94,5 +89,46 @@ final class FullDiff extends AbstractDiff {
 		}
 
 		return found;
+	}
+
+	void emitNonStructuralDiff(final NodeReadTrx newRtx, final NodeReadTrx oldRtx, final DiffDepth depth) {
+		if (newRtx.getNodeKey() == oldRtx.getNodeKey())
+		{
+			final List<Long> insertedNamespaces = new ArrayList<>(newRtx.getNamespaceKeys());
+			insertedNamespaces.removeAll(oldRtx.getNamespaceKeys());
+	
+			for (final long nsp : insertedNamespaces) {
+				newRtx.moveTo(nsp);
+				fireDiff(DiffType.INSERTED, newRtx.getNodeKey(),
+						oldRtx.getNodeKey(), depth);
+			}
+	
+			final List<Long> removedNamespaces = new ArrayList<>(oldRtx.getNamespaceKeys());
+			removedNamespaces.removeAll(newRtx.getNamespaceKeys());
+	
+			for (final long nsp : removedNamespaces) {
+				oldRtx.moveTo(nsp);
+				fireDiff(DiffType.DELETED, newRtx.getNodeKey(),
+						oldRtx.getNodeKey(), depth);
+			}
+	
+			final List<Long> insertedAttributes = new ArrayList<>(newRtx.getAttributeKeys());
+			insertedAttributes.removeAll(oldRtx.getAttributeKeys());
+	
+			for (final long attribute : insertedAttributes) {
+				newRtx.moveTo(attribute);
+				fireDiff(DiffType.INSERTED, newRtx.getNodeKey(),
+						oldRtx.getNodeKey(), depth);
+			}
+	
+			final List<Long> removedAttributes = new ArrayList<>(oldRtx.getAttributeKeys());
+			removedAttributes.removeAll(newRtx.getAttributeKeys());
+	
+			for (final long attribute : removedAttributes) {
+				newRtx.moveTo(attribute);
+				fireDiff(DiffType.DELETED, newRtx.getNodeKey(),
+						oldRtx.getNodeKey(), depth);
+			}
+		}
 	}
 }
