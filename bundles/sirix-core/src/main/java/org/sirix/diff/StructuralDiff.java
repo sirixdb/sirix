@@ -82,4 +82,9 @@ final class StructuralDiff extends AbstractDiff {
 		}
 		return found;
 	}
+
+	@Override
+	void emitNonStructuralDiff(NodeReadTrx newRtx, NodeReadTrx oldRtx,
+			DiffDepth depth) {
+	}
 }
