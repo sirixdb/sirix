@@ -29,6 +29,7 @@ package org.sirix.diff;
 
 import org.sirix.api.NodeReadTrx;
 import org.sirix.diff.DiffFactory.Builder;
+import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 
 /**
@@ -85,6 +86,6 @@ final class StructuralDiff extends AbstractDiff {
 
 	@Override
 	void emitNonStructuralDiff(NodeReadTrx newRtx, NodeReadTrx oldRtx,
-			DiffDepth depth) {
+			DiffDepth depth, DiffType diff) {
 	}
 }
