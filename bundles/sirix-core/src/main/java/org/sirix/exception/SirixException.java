@@ -51,6 +51,10 @@ public class SirixException extends Exception {
 	public SirixException(String message, Object... args) {
 		super(String.format(message, args));
 	}
+	
+	public SirixException(String message) {
+		super(message);
+	}
 
 	/**
 	 * Constructor.

@@ -168,18 +168,18 @@ public final class DiffTestHelper {
 
 	static void verifyDiffFirst(final DiffObserver listener) {
 		final InOrder inOrder = inOrder(listener);
-		inOrder.verify(listener, times(1)).diffListener(eq(DiffType.SAME),
+		inOrder.verify(listener, times(3)).diffListener(eq(DiffType.SAME),
 				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
 		inOrder.verify(listener, times(2)).diffListener(eq(DiffType.INSERTED),
 				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
-		inOrder.verify(listener, times(9)).diffListener(eq(DiffType.SAME),
+		inOrder.verify(listener, times(10)).diffListener(eq(DiffType.SAME),
 				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
 		inOrder.verify(listener, times(1)).diffDone();
 	}
 
 	static void verifyOptimizedFirst(final DiffObserver listener) {
 		final InOrder inOrder = inOrder(listener);
-		inOrder.verify(listener, times(1)).diffListener(eq(DiffType.SAME),
+		inOrder.verify(listener, times(3)).diffListener(eq(DiffType.SAME),
 				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
 		inOrder.verify(listener, times(2)).diffListener(eq(DiffType.INSERTED),
 				isA(Long.class), isA(Long.class), isA(DiffDepth.class));

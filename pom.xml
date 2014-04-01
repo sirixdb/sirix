@@ -49,52 +49,19 @@
 		</license>
 	</licenses>
 	<scm>
-		<connection>scm:git:git@github.com:JohannesLichtenberger/sirix.git</connection>
-		<developerConnection>scm:git:git@github.com:JohannesLichtenberger/sirix.git</developerConnection>
-		<url>git@github.com:JohannesLichtenberger/sirix.git</url>
+		<connection>scm:git:git@github.com:sirixdb/sirix.git</connection>
+		<developerConnection>scm:git:git@github.com:sirixdb/sirix.git</developerConnection>
+		<url>git@github.com:sirixdb/sirix.git</url>
 	</scm>
 	<issueManagement>
-		<url>https://github.com/JohannesLichtenberger/sirix/issues</url>
+		<url>https://github.com/sirixdb/sirix/issues</url>
 		<system>GitHub Issues</system>
 	</issueManagement>
 	<ciManagement>
 		<system>Travis CI</system>
-		<url>http://travis-ci.org/#!/JohannesLichtenberger/sirix</url>
+		<url>http://travis-ci.org/#!/sirixdb/sirix</url>
 	</ciManagement>
 	<repositories>
-		<repository>
-			<id>disyInternal</id>
-			<name>Internal Repository for the Distributed System Group</name>
-			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternal</url>
-			<releases>
-				<enabled>true</enabled>
-			</releases>
-			<snapshots>
-				<enabled>false</enabled>
-			</snapshots>
-		</repository>
-		<repository>
-			<id>disyInternalSnapshot</id>
-			<name>Internal Snapshot Repository for the Distributed System Group</name>
-			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyInternalSnapshot</url>
-			<releases>
-				<enabled>true</enabled>
-			</releases>
-			<snapshots>
-				<enabled>true</enabled>
-			</snapshots>
-		</repository>
-		<repository>
-			<id>disyThirdParty</id>
-			<name>Repository for third party jar used by disy</name>
-			<url>http://mavenrepo.disy.inf.uni-konstanz.de/repository/disyThirdParty</url>
-			<releases>
-				<enabled>true</enabled>
-			</releases>
-			<snapshots>
-				<enabled>false</enabled>
-			</snapshots>
-		</repository>
 		<repository>
 			<id>oracleReleases</id>
 			<name>Oracle Released Java Packages</name>
@@ -106,14 +73,14 @@
 			<url>https://oss.sonatype.org/content/repositories/snapshots/</url>
 		</repository>
 		<repository>
-      <id>central</id>
-      <name>Maven Repository Switchboard</name>
-      <layout>default</layout>
-      <url>http://central.maven.org/maven2</url>
-      <snapshots>
-        <enabled>false</enabled>
-      </snapshots>
-    </repository>
+			<id>central</id>
+			<name>Maven Repository Switchboard</name>
+			<layout>default</layout>
+			<url>http://central.maven.org/maven2</url>
+			<snapshots>
+				<enabled>false</enabled>
+			</snapshots>
+		</repository>
 	</repositories>
 	<reporting>
 		<plugins>
@@ -288,12 +255,12 @@
 		<dependency>
 			<groupId>com.google.guava</groupId>
 			<artifactId>guava</artifactId>
-			<version>15.0</version>
+			<version>16.0.1</version>
 		</dependency>
 		<dependency>
 			<groupId>com.google.guava</groupId>
 			<artifactId>guava-testlib</artifactId>
-			<version>15.0</version>
+			<version>16.0.1</version>
 		</dependency>
 		<dependency>
 			<groupId>com.google.code.findbugs</groupId>
@@ -316,8 +283,8 @@
 	</dependencies>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<maven.compiler.source>7</maven.compiler.source>
-		<maven.compiler.target>7</maven.compiler.target>
+		<maven.compiler.source>1.8</maven.compiler.source>
+		<maven.compiler.target>1.8</maven.compiler.target>
 		<slf4j.version>1.6.1</slf4j.version>
 	</properties>
 	<distributionManagement>

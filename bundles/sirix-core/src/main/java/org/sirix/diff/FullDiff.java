@@ -58,19 +58,18 @@ final class FullDiff extends AbstractDiff {
 
 	@Override
 	boolean checkNodes(final NodeReadTrx newRtx, final NodeReadTrx oldRtx) {
-		assert newRtx != null;
-		assert oldRtx != null;
-
 		boolean found = false;
 		if (newRtx.getNodeKey() == oldRtx.getNodeKey()
 				&& newRtx.getParentKey() == oldRtx.getParentKey()
 				&& newRtx.getKind() == oldRtx.getKind()) {
 			switch (newRtx.getKind()) {
 			case ELEMENT:
-				if (newRtx.getPrefixKey() == oldRtx.getPrefixKey() 
-				    && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
-				    && newRtx.getAttributeKeys().equals(oldRtx.getAttributeKeys())
-				    && newRtx.getNamespaceKeys().equals(oldRtx.getNamespaceKeys())) {
+				if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
+						&& newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
+						&& newRtx.getAttributeKeys().equals(
+								oldRtx.getAttributeKeys())
+						&& newRtx.getNamespaceKeys().equals(
+								oldRtx.getNamespaceKeys())) {
 					found = true;
 				}
 				break;
@@ -91,43 +90,104 @@ final class FullDiff extends AbstractDiff {
 		return found;
 	}
 
-	void emitNonStructuralDiff(final NodeReadTrx newRtx, final NodeReadTrx oldRtx, final DiffDepth depth) {
-		if (newRtx.getNodeKey() == oldRtx.getNodeKey())
-		{
-			final List<Long> insertedNamespaces = new ArrayList<>(newRtx.getNamespaceKeys());
-			insertedNamespaces.removeAll(oldRtx.getNamespaceKeys());
-	
-			for (final long nsp : insertedNamespaces) {
-				newRtx.moveTo(nsp);
-				fireDiff(DiffType.INSERTED, newRtx.getNodeKey(),
-						oldRtx.getNodeKey(), depth);
-			}
-	
-			final List<Long> removedNamespaces = new ArrayList<>(oldRtx.getNamespaceKeys());
-			removedNamespaces.removeAll(newRtx.getNamespaceKeys());
-	
-			for (final long nsp : removedNamespaces) {
-				oldRtx.moveTo(nsp);
-				fireDiff(DiffType.DELETED, newRtx.getNodeKey(),
-						oldRtx.getNodeKey(), depth);
-			}
-	
-			final List<Long> insertedAttributes = new ArrayList<>(newRtx.getAttributeKeys());
-			insertedAttributes.removeAll(oldRtx.getAttributeKeys());
-	
-			for (final long attribute : insertedAttributes) {
-				newRtx.moveTo(attribute);
-				fireDiff(DiffType.INSERTED, newRtx.getNodeKey(),
-						oldRtx.getNodeKey(), depth);
-			}
-	
-			final List<Long> removedAttributes = new ArrayList<>(oldRtx.getAttributeKeys());
-			removedAttributes.removeAll(newRtx.getAttributeKeys());
-	
-			for (final long attribute : removedAttributes) {
-				newRtx.moveTo(attribute);
-				fireDiff(DiffType.DELETED, newRtx.getNodeKey(),
-						oldRtx.getNodeKey(), depth);
+	void emitNonStructuralDiff(final NodeReadTrx newRtx,
+			final NodeReadTrx oldRtx, final DiffDepth depth, final DiffType diff) {
+		if (newRtx.isElement() || oldRtx.isElement()) {
+			if (diff == DiffType.SAME || diff == DiffType.SAMEHASH) {
+				for (int i = 0, nspCount = newRtx.getNamespaceCount(); i < nspCount; i++) {
+					newRtx.moveToNamespace(i);
+					oldRtx.moveToNamespace(i);
+
+					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+							depth);
+
+					newRtx.moveToParent();
+					oldRtx.moveToParent();
+				}
+
+				for (int i = 0, attCount = newRtx.getAttributeCount(); i < attCount; i++) {
+					newRtx.moveToAttribute(i);
+					oldRtx.moveToAttribute(i);
+
+					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+							depth);
+
+					newRtx.moveToParent();
+					oldRtx.moveToParent();
+				}
+			} else {
+				// Emit diffing.
+				final long newNodeKey = newRtx.getNodeKey();
+				final long oldNodeKey = oldRtx.getNodeKey();
+
+				final List<Long> insertedNamespaces = new ArrayList<>(
+						newRtx.getNamespaceKeys());
+				insertedNamespaces.removeAll(oldRtx.getNamespaceKeys());
+
+				for (final long nsp : insertedNamespaces) {
+					newRtx.moveTo(nsp);
+					fireDiff(DiffType.INSERTED, newRtx.getNodeKey(),
+							oldRtx.getNodeKey(), depth);
+				}
+
+				final List<Long> removedNamespaces = new ArrayList<>(
+						oldRtx.getNamespaceKeys());
+				removedNamespaces.removeAll(newRtx.getNamespaceKeys());
+
+				for (final long nsp : removedNamespaces) {
+					oldRtx.moveTo(nsp);
+					fireDiff(DiffType.DELETED, newRtx.getNodeKey(),
+							oldRtx.getNodeKey(), depth);
+				}
+
+				final List<Long> insertedAttributes = new ArrayList<>(
+						newRtx.getAttributeKeys());
+				insertedAttributes.removeAll(oldRtx.getAttributeKeys());
+
+				for (final long attribute : insertedAttributes) {
+					newRtx.moveTo(attribute);
+					fireDiff(DiffType.INSERTED, newRtx.getNodeKey(),
+							oldRtx.getNodeKey(), depth);
+				}
+
+				final List<Long> removedAttributes = new ArrayList<>(
+						oldRtx.getAttributeKeys());
+				removedAttributes.removeAll(newRtx.getAttributeKeys());
+
+				for (final long attribute : removedAttributes) {
+					newRtx.moveTo(attribute);
+					fireDiff(DiffType.DELETED, newRtx.getNodeKey(),
+							oldRtx.getNodeKey(), depth);
+				}
+
+				// Emit same.
+				final List<Long> sameNamespaces = new ArrayList<>(
+						newRtx.getNamespaceKeys());
+				sameNamespaces.retainAll(oldRtx.getNamespaceKeys());
+
+				for (final long nsp : sameNamespaces) {
+					newRtx.moveTo(nsp);
+					oldRtx.moveTo(nsp);
+
+					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+							depth);
+				}
+
+				final List<Long> sameAttributes = new ArrayList<>(
+						newRtx.getAttributeKeys());
+				sameAttributes.retainAll(oldRtx.getAttributeKeys());
+
+				for (final long nsp : sameAttributes) {
+					newRtx.moveTo(nsp);
+					oldRtx.moveTo(nsp);
+
+					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+							depth);
+				}
+
+				// Move back to original element nodes.
+				newRtx.moveTo(newNodeKey);
+				oldRtx.moveTo(oldNodeKey);
 			}
 		}
 	}
