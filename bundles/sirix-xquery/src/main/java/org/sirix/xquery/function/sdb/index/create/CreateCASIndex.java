@@ -36,12 +36,9 @@ import com.google.common.collect.ImmutableSet;
  * the document-node. Supported signatures are:
  * </p>
  * <ul>
- * <li>
- * <code>sdb:create-cas-index($doc as node(), $type as xs:string?, $paths as xs:string*) as node()</code></li>
- * <li>
- * <code>sdb:create-cas-index($doc as node(), $type as xs:string?) as node()</code></li>
- * <li>
- * <code>sdb:create-cas-index($doc as node()) as node()</code></li>
+ * <li><code>sdb:create-cas-index($doc as node(), $type as xs:string?, $paths as xs:string*) as node()</code></li>
+ * <li><code>sdb:create-cas-index($doc as node(), $type as xs:string?) as node()</code></li>
+ * <li><code>sdb:create-cas-index($doc as node()) as node()</code></li>
  * </ul>
  * 
  * @author Johannes Lichtenberger

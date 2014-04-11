@@ -136,7 +136,7 @@ public class AddOpAxisTest {
 			assertThat(
 					e.getMessage(),
 					is("err:XPTY0004 The type is not appropriate the expression or the "
-							+ "typedoes not match a required type as specified by the matching rules. "));
+							+ "typedoes not match a required type as specified by the matching rules."));
 		}
 
 		try {
@@ -147,7 +147,7 @@ public class AddOpAxisTest {
 			assertThat(
 					e.getMessage(),
 					is("err:XPTY0004 The type is not appropriate the expression or the "
-							+ "typedoes not match a required type as specified by the matching rules. "));
+							+ "typedoes not match a required type as specified by the matching rules."));
 		}
 
 		try {
@@ -158,7 +158,7 @@ public class AddOpAxisTest {
 			assertThat(
 					e.getMessage(),
 					is("err:XPTY0004 The type is not appropriate the expression or the "
-							+ "typedoes not match a required type as specified by the matching rules. "));
+							+ "typedoes not match a required type as specified by the matching rules."));
 		}
 
 		try {
@@ -170,7 +170,7 @@ public class AddOpAxisTest {
 			assertThat(
 					e.getMessage(),
 					is("err:XPTY0004 The type is not appropriate the expression or the "
-							+ "typedoes not match a required type as specified by the matching rules. "));
+							+ "typedoes not match a required type as specified by the matching rules."));
 		}
 
 	}

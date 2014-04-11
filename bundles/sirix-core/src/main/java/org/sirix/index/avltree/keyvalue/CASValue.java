@@ -7,6 +7,7 @@ import javax.annotation.Nullable;
 
 import org.brackit.xquery.QueryException;
 import org.brackit.xquery.atomic.Atomic;
+import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.exception.SirixException;
 import org.sirix.index.AtomicUtil;
@@ -72,7 +73,12 @@ public final class CASValue implements Comparable<CASValue> {
 	}
 	
 	public Atomic getAtomicValue() {
-		return mValue;
+		try {
+			return mValue.asType(mType);
+		} catch (final QueryException e) {
+			LOGGER.error(e.getMessage(), e);
+			return null;
+		}
 	}
 
 	@Override

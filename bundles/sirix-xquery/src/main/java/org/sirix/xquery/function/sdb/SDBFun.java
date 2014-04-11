@@ -36,6 +36,7 @@ import org.sirix.xquery.function.sdb.index.create.CreateCASIndex;
 import org.sirix.xquery.function.sdb.index.create.CreateNameIndex;
 import org.sirix.xquery.function.sdb.index.create.CreatePathIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanCASIndex;
+import org.sirix.xquery.function.sdb.index.scan.ScanCASIndexRange;
 import org.sirix.xquery.function.sdb.index.scan.ScanNameIndex;
 import org.sirix.xquery.function.sdb.index.scan.ScanPathIndex;
 import org.sirix.xquery.function.sdb.io.Doc;
@@ -144,7 +145,7 @@ public final class SDBFun {
 
 		// find-cas-index
 		Functions.predefine(new FindCASIndex(FIND_CAS_INDEX, new Signature(
-				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING)));
+				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING, SequenceType.STRING)));
 
 		// create-name-index
 		Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(
@@ -174,6 +175,7 @@ public final class SDBFun {
 		// scan indexes
 		Functions.predefine(new ScanPathIndex());
 		Functions.predefine(new ScanCASIndex());
+		Functions.predefine(new ScanCASIndexRange());
 		Functions.predefine(new ScanNameIndex());
 	}
 }

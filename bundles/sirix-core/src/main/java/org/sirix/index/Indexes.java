@@ -15,6 +15,7 @@ import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Node;
 import org.brackit.xquery.xdm.Stream;
+import org.brackit.xquery.xdm.Type;
 
 import com.google.common.base.Optional;
 
@@ -125,12 +126,12 @@ public final class Indexes implements Materializable {
 		}
 	}
 
-	public Optional<IndexDef> findCASIndex(final Path<QNm> path)
+	public Optional<IndexDef> findCASIndex(final Path<QNm> path, final Type type)
 			throws DocumentException {
 		checkNotNull(path);
 		try {
 			for (final IndexDef index : mIndexes) {
-				if (index.isCasIndex()) {
+				if (index.isCasIndex() && index.getContentType().equals(type)) {
 					if (index.getPaths().isEmpty()) {
 						return Optional.of(index);
 					}

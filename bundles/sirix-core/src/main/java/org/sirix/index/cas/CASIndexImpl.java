@@ -46,7 +46,7 @@ public final class CASIndexImpl implements CASIndex<CASValue, NodeReferences> {
 		final Iterator<AVLNode<CASValue, NodeReferences>> iter = reader.new AVLNodeIterator(
 				Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 
-		return null;
+		return new IndexFilterAxis<CASValue>(iter, ImmutableSet.of(filter));
 	}
 
 	@Override

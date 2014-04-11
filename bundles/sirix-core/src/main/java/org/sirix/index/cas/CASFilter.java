@@ -32,8 +32,10 @@ public final class CASFilter implements Filter {
 	/** {@link PathFilter} instance to filter specific paths. */
 	private final PathFilter mPathFilter;
 
+	/** The key to compare. */
 	private final Atomic mKey;
 
+	/** Denotes the search mode. */
 	private final SearchMode mMode;
 
 	/**

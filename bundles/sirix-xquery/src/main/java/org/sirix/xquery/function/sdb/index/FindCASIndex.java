@@ -6,10 +6,12 @@ import org.brackit.xquery.atomic.Int32;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.function.AbstractFunction;
+import org.brackit.xquery.module.Namespaces;
 import org.brackit.xquery.module.StaticContext;
 import org.brackit.xquery.util.path.Path;
 import org.brackit.xquery.xdm.Sequence;
 import org.brackit.xquery.xdm.Signature;
+import org.brackit.xquery.xdm.Type;
 import org.sirix.access.IndexController;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.index.IndexDef;
@@ -27,7 +29,7 @@ import com.google.common.base.Optional;
  * </p>
  * <ul>
  * <li>
- * <code>sdb:find-cas-index($doc as xs:node, $path as xs:string) as xs:int</code>
+ * <code>sdb:find-cas-index($doc as xs:node, $type as xs:string, $path as xs:string) as xs:int</code>
  * </li>
  * </ul>
  * 
@@ -65,8 +67,11 @@ public final class FindCASIndex extends AbstractFunction {
 					+ ((Str) args[1]).stringValue()));
 		}
 		
-		final Path<QNm> path = Path.parse(((Str) args[1]).stringValue());
-		final Optional<IndexDef> indexDef = controller.getIndexes().findCASIndex(path);
+		final QNm name = new QNm(Namespaces.XS_NSURI,
+				((Str) args[1]).stringValue());
+		final Type type = sctx.getTypes().resolveAtomicType(name);
+		final Path<QNm> path = Path.parse(((Str) args[2]).stringValue());
+		final Optional<IndexDef> indexDef = controller.getIndexes().findCASIndex(path, type);
 		
 		if (indexDef.isPresent())
 			return new Int32(indexDef.get().getID());
