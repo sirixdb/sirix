@@ -7,15 +7,13 @@ import java.util.Set;
 import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.util.path.Path;
-import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.index.Filter;
 import org.sirix.index.avltree.AVLNode;
+import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.path.PathFilter;
-import org.sirix.utils.LogWrapper;
-import org.slf4j.LoggerFactory;
 
 /**
  * CASFilter filter.
@@ -24,10 +22,6 @@ import org.slf4j.LoggerFactory;
  * 
  */
 public final class CASFilterRange implements Filter {
-
-	/** Logger. */
-	private static final LogWrapper LOGGER = new LogWrapper(
-			LoggerFactory.getLogger(CASFilterRange.class));
 
 	/** The paths to filter. */
 	private final Set<Path<QNm>> mPaths;
@@ -38,23 +32,33 @@ public final class CASFilterRange implements Filter {
 	/** {@link PathFilter} instance to filter specific paths. */
 	private final PathFilter mPathFilter;
 
+	/** The minimum value. */
 	private final Atomic mMin;
 
+	/** The maximum value. */
 	private final Atomic mMax;
 
+	/** {@code true} if the minimum should be included, {@code false} otherwise */
 	private final boolean mIncMin;
 
+	/** {@code true} if the maximum should be included, {@code false} otherwise */
 	private final boolean mIncMax;
-
-	private final Type mType;
 
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
 	 * @param rtx
-	 *          transaction this filter is bound to
+	 *            transaction this filter is bound to
 	 * @param paths
-	 *          paths to match
+	 *            paths to match
+	 * @param min
+	 *            the minimum value
+	 * @param max
+	 *            the maximum value
+	 * @param incMin
+	 *            include the minimum value
+	 * @param incMax
+	 *            include the maximum value
 	 */
 	public CASFilterRange(final NodeReadTrx rtx, final Set<Path<QNm>> paths,
 			final Atomic min, final Atomic max, final boolean incMin,
@@ -66,31 +70,25 @@ public final class CASFilterRange implements Filter {
 		mMax = checkNotNull(max);
 		mIncMin = incMin;
 		mIncMax = incMax;
-		mType = min.type();
 	}
 
-	/**
-	 * Filter the node.
-	 * 
-	 * @param node
-	 *          node to filter
-	 * @return {@code true} if the node has been filtered, {@code false} otherwise
-	 */
 	@Override
 	public <K extends Comparable<? super K>> boolean filter(
 			final AVLNode<K, NodeReferences> node) {
+		final K key = node.getKey();
+		if (key instanceof CASValue) {
+			final CASValue casValue = (CASValue) key;
+			final boolean filtered = mPathFilter.filter(node);
 
-		final boolean filtered = mPathFilter.filter(node);
-		
-		if (filtered) {
-			
+			if (filtered) {
+				return inRange(casValue.getAtomicValue());
+			}
 		}
-		return true;
+		return false;
 	}
-	
-	private <K extends Comparable<? super K>> boolean inRange(Atomic key) throws DocumentException {
-		final int minKeyCompare = (mMin != null) ? mMin.compareTo(key)
-				: -1;
+
+	private <K extends Comparable<? super K>> boolean inRange(Atomic key) {
+		final int minKeyCompare = (mMin != null) ? mMin.compareTo(key) : -1;
 		final int maxKeyCompare = (mMax != null) ? mMax.compareTo(key) : 1;
 
 		final boolean lowerBoundValid = ((minKeyCompare == 0) && (mIncMin))

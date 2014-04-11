@@ -11,7 +11,9 @@ import org.brackit.xquery.util.path.PathException;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.access.IndexController.ChangeType;
 import org.sirix.api.PageWriteTrx;
+import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.AtomicUtil;
 import org.sirix.index.ChangeListener;
 import org.sirix.index.IndexDef;
 import org.sirix.index.SearchMode;
@@ -73,14 +75,24 @@ public final class CASIndexListener implements ChangeListener {
 	}
 
 	private void insert(final ValueNode node, final long pathNodeKey) throws SirixIOException {
-		final CASValue indexValue = new CASValue(new Str(node.getValue()), mType, pathNodeKey);
-		final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(
-				indexValue, SearchMode.EQUAL);
-		if (textReferences.isPresent()) {
-			setNodeReferences(node, textReferences.get(), indexValue);
-		} else {
-			setNodeReferences(node, new NodeReferences(),
-					indexValue);
+		final Str strValue = new Str(node.getValue());
+		
+		boolean isOfType = false;
+		try {
+			AtomicUtil.toType(strValue, mType);
+			isOfType = true;
+		} catch (final SirixException e) {}
+
+		if (isOfType) {
+			final CASValue indexValue = new CASValue(strValue, mType, pathNodeKey);
+			final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(
+					indexValue, SearchMode.EQUAL);
+			if (textReferences.isPresent()) {
+				setNodeReferences(node, textReferences.get(), indexValue);
+			} else {
+				setNodeReferences(node, new NodeReferences(),
+						indexValue);
+			}
 		}
 	}
 

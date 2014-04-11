@@ -42,6 +42,7 @@ import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
 import org.sirix.index.cas.CASFilter;
+import org.sirix.index.cas.CASFilterRange;
 import org.sirix.index.cas.CASIndex;
 import org.sirix.index.cas.CASIndexImpl;
 import org.sirix.index.name.NameFilter;
@@ -91,7 +92,7 @@ public final class IndexController {
 	 * Constructor.
 	 * 
 	 * @param session
-	 *          the {@link Session} this {@link IndexController} is bound to
+	 *            the {@link Session} this {@link IndexController} is bound to
 	 */
 	public IndexController() {
 		mIndexes = new Indexes();
@@ -105,13 +106,14 @@ public final class IndexController {
 	 * Determines if an index of the specified type is available.
 	 * 
 	 * @param type
-	 *          type of index to lookup
+	 *            type of index to lookup
 	 * @return {@code true} if an index of the specified type exists,
 	 *         {@code false} otherwise
 	 */
 	public boolean containsIndex(final IndexType type) {
 		for (final IndexDef indexDef : mIndexes.getIndexDefs()) {
-			if (indexDef.getType() == type) return true;
+			if (indexDef.getType() == type)
+				return true;
 		}
 		return false;
 	}
@@ -120,21 +122,21 @@ public final class IndexController {
 	 * Determines if an index of the specified type is available.
 	 * 
 	 * @param type
-	 *          type of index to lookup
+	 *            type of index to lookup
 	 * @param session
-	 *          the {@link Session} this index controller is bound to
+	 *            the {@link Session} this index controller is bound to
 	 * @return {@code true} if an index of the specified type exists,
 	 *         {@code false} otherwise
 	 * @throws SirixIOException
-	 *           if an I/O exception occurs while deserializing the index
-	 *           configuration for the specified {@code revision}
+	 *             if an I/O exception occurs while deserializing the index
+	 *             configuration for the specified {@code revision}
 	 */
 	public boolean containsIndex(final IndexType type, final Session session,
 			final int revision) throws SirixIOException {
 		final Indexes indexes = new Indexes();
 		final File indexesFile = new File(session.getResourceConfig().mPath,
-				ResourceConfiguration.Paths.INDEXES.getFile().getPath() + revision
-						+ ".xml");
+				ResourceConfiguration.Paths.INDEXES.getFile().getPath()
+						+ revision + ".xml");
 		if (indexesFile.length() != 0) {
 			try (final InputStream in = new FileInputStream(indexesFile)) {
 				indexes.init(deserialize(in).getFirstChild());
@@ -144,7 +146,8 @@ public final class IndexController {
 			}
 		}
 		for (final IndexDef indexDef : indexes.getIndexDefs()) {
-			if (indexDef.getType() == type) return true;
+			if (indexDef.getType() == type)
+				return true;
 		}
 		return false;
 	}
@@ -162,14 +165,14 @@ public final class IndexController {
 	 * Serialize to an {@link OutputStream}.
 	 * 
 	 * @param out
-	 *          the {@link OutputStream} to serialize to
+	 *            the {@link OutputStream} to serialize to
 	 * @throws SirixException
-	 *           if an exception occurs during serialization
+	 *             if an exception occurs during serialization
 	 */
 	public void serialize(final OutputStream out) throws SirixException {
 		try {
-			final SubtreePrinter serializer = new SubtreePrinter(new PrintStream(
-					checkNotNull(out)));
+			final SubtreePrinter serializer = new SubtreePrinter(
+					new PrintStream(checkNotNull(out)));
 			serializer.print(mIndexes.materialize());
 			serializer.end();
 		} catch (final DocumentException e) {
@@ -181,9 +184,10 @@ public final class IndexController {
 	 * Deserialize from an {@link InputStream}.
 	 * 
 	 * @param out
-	 *          the {@link InputStream} from which to deserialize the XML fragment
+	 *            the {@link InputStream} from which to deserialize the XML
+	 *            fragment
 	 * @throws SirixException
-	 *           if an exception occurs during serialization
+	 *             if an exception occurs during serialization
 	 */
 	public Node<?> deserialize(final InputStream in) throws SirixException {
 		try {
@@ -200,14 +204,14 @@ public final class IndexController {
 	 * Notify the changes to all listening indexes.
 	 * 
 	 * @param type
-	 *          type of change
+	 *            type of change
 	 * @param node
-	 *          the node which has changed (either was inserted or deleted)
+	 *            the node which has changed (either was inserted or deleted)
 	 * @param pathNodeKey
-	 *          the path node key of the node (might also be the path node key of
-	 *          the parent node)
+	 *            the path node key of the node (might also be the path node key
+	 *            of the parent node)
 	 * @throws SirixIOException
-	 *           if an I/O error occurs
+	 *             if an I/O error occurs
 	 */
 	public void notifyChange(ChangeType type, @Nonnull ImmutableNode node,
 			long pathNodeKey) throws SirixIOException {
@@ -220,12 +224,12 @@ public final class IndexController {
 	 * Create new indexes.
 	 * 
 	 * @param indexDefs
-	 *          Set of {@link IndexDef}s
+	 *            Set of {@link IndexDef}s
 	 * @param nodeWriteTrx
-	 *          the {@link NodeWriteTrx} used
+	 *            the {@link NodeWriteTrx} used
 	 * @return this {@link IndexController} instance
 	 * @throws SirixIOException
-	 *           if an I/O exception during index creation occured
+	 *             if an I/O exception during index creation occured
 	 */
 	public IndexController createIndexes(final Set<IndexDef> indexDefs,
 			final NodeWriteTrx nodeWriteTrx) throws SirixIOException {
@@ -252,9 +256,9 @@ public final class IndexController {
 	 * Create index builders.
 	 * 
 	 * @param indexDefs
-	 *          the {@link IndexDef}s
+	 *            the {@link IndexDef}s
 	 * @param nodeWriteTrx
-	 *          the {@link NodeWriteTrx}
+	 *            the {@link NodeWriteTrx}
 	 * 
 	 * @return the created index builder instances
 	 */
@@ -266,13 +270,13 @@ public final class IndexController {
 			switch (indexDef.getType()) {
 			case PATH:
 				indexBuilders.add(createPathIndexBuilder(
-						nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
-						indexDef));
+						nodeWriteTrx.getPageTransaction(),
+						nodeWriteTrx.getPathSummary(), indexDef));
 				break;
 			case CAS:
 				indexBuilders.add(createCASIndexBuilder(nodeWriteTrx,
-						nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
-						indexDef));
+						nodeWriteTrx.getPageTransaction(),
+						nodeWriteTrx.getPathSummary(), indexDef));
 				break;
 			case NAME:
 				indexBuilders.add(createNameIndexBuilder(
@@ -289,9 +293,9 @@ public final class IndexController {
 	 * Create index listeners.
 	 * 
 	 * @param indexDefs
-	 *          the {@link IndexDef}s
+	 *            the {@link IndexDef}s
 	 * @param nodeWriteTrx
-	 *          the {@link NodeWriteTrx}
+	 *            the {@link NodeWriteTrx}
 	 * 
 	 * @return this {@link IndexController} instance
 	 */
@@ -304,13 +308,14 @@ public final class IndexController {
 			switch (indexDef.getType()) {
 			case PATH:
 				mListeners.add(createPathIndexListener(
-						nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
-						indexDef));
+						nodeWriteTrx.getPageTransaction(),
+						nodeWriteTrx.getPathSummary(), indexDef));
 				break;
 			case CAS:
 				mListeners.add(createCASIndexListener(
-						nodeWriteTrx.getPageTransaction(), nodeWriteTrx.getPathSummary(),
-						indexDef));
+						nodeWriteTrx.getPageTransaction(),
+						nodeWriteTrx.getPathSummary(), indexDef));
+				break;
 			case NAME:
 				mListeners.add(createNameIndexListener(
 						nodeWriteTrx.getPageTransaction(), indexDef));
@@ -325,13 +330,15 @@ public final class IndexController {
 	private ChangeListener createPathIndexListener(
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-		return mPathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
+		return mPathIndex.createListener(pageWriteTrx, pathSummaryReader,
+				indexDef);
 	}
 
 	private ChangeListener createCASIndexListener(
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-		return mCASIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
+		return mCASIndex.createListener(pageWriteTrx, pathSummaryReader,
+				indexDef);
 	}
 
 	private ChangeListener createNameIndexListener(
@@ -343,10 +350,12 @@ public final class IndexController {
 	private Visitor createPathIndexBuilder(
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-		return mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
+		return mPathIndex.createBuilder(pageWriteTrx, pathSummaryReader,
+				indexDef);
 	}
 
-	private Visitor createCASIndexBuilder(final NodeReadTrx nodeReadTrx,
+	private Visitor createCASIndexBuilder(
+			final NodeReadTrx nodeReadTrx,
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
 		return mCASIndex.createBuilder(nodeReadTrx, pageWriteTrx,
@@ -358,7 +367,7 @@ public final class IndexController {
 			final IndexDef indexDef) {
 		return mNameIndex.createBuilder(pageWriteTrx, indexDef);
 	}
-	
+
 	public NameFilter createNameFilter(final String[] queryString) {
 		final Set<QNm> includes = new HashSet<QNm>(queryString.length);
 		for (final String name : queryString) {
@@ -376,15 +385,26 @@ public final class IndexController {
 		return new PathFilter(rtx, paths);
 	}
 
-	public CASFilter createCASFilter(final String[] queryString,
+	public CASFilter createCASFilter(final String[] pathArray,
 			final NodeReadTrx rtx, final Atomic key, final SearchMode mode)
 			throws PathException {
-		final Set<Path<QNm>> paths = new HashSet<>(queryString.length);
-		if (queryString.length > 0) {
-			for (final String path : queryString)
+		final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
+		if (pathArray.length > 0) {
+			for (final String path : pathArray)
 				paths.add(Path.parse(path));
 		}
 		return new CASFilter(rtx, paths, key, mode);
+	}
+	
+	public CASFilterRange createCASFilterRange(final String[] pathArray,
+			final NodeReadTrx rtx, final Atomic min, final Atomic max, final boolean incMin, final boolean incMax)
+			throws PathException {
+		final Set<Path<QNm>> paths = new HashSet<>(pathArray.length);
+		if (pathArray.length > 0) {
+			for (final String path : pathArray)
+				paths.add(Path.parse(path));
+		}
+		return new CASFilterRange(rtx, paths, min, max, incMin, incMax);
 	}
 
 	public Iterator<NodeReferences> openPathIndex(final PageReadTrx pageRtx,
@@ -396,7 +416,7 @@ public final class IndexController {
 
 		return mPathIndex.openIndex(pageRtx, indexDef, filter);
 	}
-	
+
 	public Iterator<NodeReferences> openNameIndex(final PageReadTrx pageRtx,
 			final IndexDef indexDef, final NameFilter filter) {
 		if (mNameIndex == null) {
@@ -408,8 +428,8 @@ public final class IndexController {
 	}
 
 	public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx,
-			final IndexDef indexDef, final SearchMode mode, final CASFilter filter,
-			Atomic key, boolean inc) {
+			final IndexDef indexDef, final SearchMode mode,
+			final CASFilter filter, Atomic key, boolean inc) {
 		if (mCASIndex == null) {
 			throw new IllegalStateException(
 					"This document does not support path indexes.");
@@ -419,17 +439,16 @@ public final class IndexController {
 	}
 
 	public Iterator<NodeReferences> openCASIndex(final PageReadTrx pageRtx,
-			final IndexDef indexDef, final SearchMode mode, final CASFilter filter,
-			Atomic low, Atomic max, boolean incLow, boolean incMax) {
+			final IndexDef indexDef, final SearchMode mode,
+			final CASFilterRange filter, Atomic low, Atomic max, boolean incLow,
+			boolean incMax) {
 		if (mCASIndex == null) {
 			throw new IllegalStateException(
 					"This document does not support path indexes.");
 		}
 
-		return null;
-
-		// return mCASIndex.openIndex(pageRtx, indexDef, mode, filter, low, max,
-		// incLow, incMax);
+		return mCASIndex.openIndex(pageRtx, indexDef, mode, filter, low, max,
+				incLow, incMax);
 	}
 
 }

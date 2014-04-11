@@ -165,8 +165,8 @@ public final class DiffTestHelper {
 	static DiffObserver createMock() {
 		return mock(DiffObserver.class);
 	}
-
-	static void verifyDiffFirst(final DiffObserver listener) {
+	
+	static void verifyFullDiffFirst(final DiffObserver listener) {
 		final InOrder inOrder = inOrder(listener);
 		inOrder.verify(listener, times(3)).diffListener(eq(DiffType.SAME),
 				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
@@ -177,9 +177,31 @@ public final class DiffTestHelper {
 		inOrder.verify(listener, times(1)).diffDone();
 	}
 
-	static void verifyOptimizedFirst(final DiffObserver listener) {
+	static void verifyOptimizedFullDiffFirst(final DiffObserver listener) {
 		final InOrder inOrder = inOrder(listener);
 		inOrder.verify(listener, times(3)).diffListener(eq(DiffType.SAME),
+				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
+		inOrder.verify(listener, times(2)).diffListener(eq(DiffType.INSERTED),
+				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
+		inOrder.verify(listener, times(5)).diffListener(eq(DiffType.SAMEHASH),
+				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
+		inOrder.verify(listener, times(1)).diffDone();
+	}
+
+	static void verifyStructuralDiffFirst(final DiffObserver listener) {
+		final InOrder inOrder = inOrder(listener);
+		inOrder.verify(listener, times(1)).diffListener(eq(DiffType.SAME),
+				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
+		inOrder.verify(listener, times(2)).diffListener(eq(DiffType.INSERTED),
+				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
+		inOrder.verify(listener, times(9)).diffListener(eq(DiffType.SAME),
+				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
+		inOrder.verify(listener, times(1)).diffDone();
+	}
+
+	static void verifyOptimizedStructuralDiffFirst(final DiffObserver listener) {
+		final InOrder inOrder = inOrder(listener);
+		inOrder.verify(listener, times(1)).diffListener(eq(DiffType.SAME),
 				isA(Long.class), isA(Long.class), isA(DiffDepth.class));
 		inOrder.verify(listener, times(2)).diffListener(eq(DiffType.INSERTED),
 				isA(Long.class), isA(Long.class), isA(DiffDepth.class));

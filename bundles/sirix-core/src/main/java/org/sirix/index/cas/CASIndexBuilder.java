@@ -14,7 +14,9 @@ import org.sirix.api.NodeReadTrx;
 import org.sirix.api.PageWriteTrx;
 import org.sirix.api.visitor.VisitResult;
 import org.sirix.api.visitor.VisitResultType;
+import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixIOException;
+import org.sirix.index.AtomicUtil;
 import org.sirix.index.IndexDef;
 import org.sirix.index.SearchMode;
 import org.sirix.index.avltree.AVLTreeReader.MoveCursor;
@@ -74,14 +76,24 @@ final class CASIndexBuilder extends AbstractVisitor {
 			final long PCR = mRtx.isDocumentRoot() ? 0 : mRtx.getNameNode()
 					.getPathNodeKey();
 			if (mPaths.isEmpty() || mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
-				final CASValue value = new CASValue(new Str(
-						((ImmutableValueNode) node).getValue()), mType, PCR);
-				final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(
-						value, SearchMode.EQUAL);
-				if (textReferences.isPresent()) {
-					setNodeReferences(node, textReferences.get(), value);
-				} else {
-					setNodeReferences(node, new NodeReferences(), value);
+				final Str strValue = new Str(((ImmutableValueNode) node).getValue());
+			
+				boolean isOfType = false;
+				try {
+					if (mType != Type.STR)
+						AtomicUtil.toType(strValue, mType);
+					isOfType = true;
+				} catch (final SirixException e) {}
+
+				if (isOfType) {
+					final CASValue value = new CASValue(strValue, mType, PCR);
+					final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(
+							value, SearchMode.EQUAL);
+					if (textReferences.isPresent()) {
+						setNodeReferences(node, textReferences.get(), value);
+					} else {
+						setNodeReferences(node, new NodeReferences(), value);
+					}
 				}
 			}
 			mRtx.moveTo(node.getNodeKey());

@@ -70,14 +70,14 @@ public class FullDiffTest {
 	public void testFullDiffFirst() throws SirixException, InterruptedException {
 		DiffTestHelper.setUpFirst(mHolder);
 		DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
-		DiffTestHelper.verifyDiffFirst(mObserver);
+		DiffTestHelper.verifyFullDiffFirst(mObserver);
 	}
 
 	@Test
 	public void testOptimizedFirst() throws InterruptedException, SirixException {
 		DiffTestHelper.setUpFirst(mHolder);
-		DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.NO);
-		DiffTestHelper.verifyDiffFirst(mObserver);
+		DiffTestHelper.checkFullDiff(mHolder, mObserver, DiffOptimized.HASHED);
+		DiffTestHelper.verifyOptimizedFullDiffFirst(mObserver);
 	}
 
 	@Test

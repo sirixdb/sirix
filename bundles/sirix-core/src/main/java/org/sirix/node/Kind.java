@@ -44,12 +44,15 @@ import java.util.Set;
 
 import javax.annotation.Nonnegative;
 
+import org.brackit.xquery.atomic.Atomic;
 import org.brackit.xquery.atomic.QNm;
 import org.brackit.xquery.atomic.Str;
 import org.brackit.xquery.module.Namespaces;
+import org.brackit.xquery.xdm.DocumentException;
 import org.brackit.xquery.xdm.Type;
 import org.sirix.access.conf.ResourceConfiguration;
 import org.sirix.api.PageReadTrx;
+import org.sirix.index.AtomicUtil;
 import org.sirix.index.avltree.AVLNode;
 import org.sirix.index.avltree.keyvalue.CASValue;
 import org.sirix.index.avltree.keyvalue.NodeReferences;
@@ -636,6 +639,9 @@ public enum Kind implements NodePersistenter {
 					nodeKeys.add(key);
 				}
 			}
+			final Type atomicType = resolveType(new String(type,
+					Constants.DEFAULT_ENCODING));
+			
 			// Node delegate.
 			final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(
 					source, recordID, pageReadTrx);
@@ -643,16 +649,21 @@ public enum Kind implements NodePersistenter {
 			final long rightChild = getVarLong(source);
 			final long pathNodeKey = getVarLong(source);
 			final boolean isChanged = source.readBoolean();
-			final AVLNode<CASValue, NodeReferences> node = new AVLNode<CASValue, NodeReferences>(
-					new CASValue(new Str(new String(value,
-							Constants.DEFAULT_ENCODING)),
-							resolveType(new String(type,
-									Constants.DEFAULT_ENCODING)), pathNodeKey),
-					new NodeReferences(nodeKeys), nodeDel);
-			node.setLeftChildKey(leftChild);
-			node.setRightChildKey(rightChild);
-			node.setChanged(isChanged);
-			return node;
+
+			try {
+				final Atomic atomic = AtomicUtil.fromBytes(value, atomicType);
+				AVLNode<CASValue, NodeReferences> node;
+					node = new AVLNode<CASValue, NodeReferences>(
+							new CASValue(atomic, atomicType, pathNodeKey),
+							new NodeReferences(nodeKeys), nodeDel);
+	
+				node.setLeftChildKey(leftChild);
+				node.setRightChildKey(rightChild);
+				node.setChanged(isChanged);
+				return node;		
+			} catch (final DocumentException e) {
+				throw new IOException(e);
+			}
 		}
 
 		@Override

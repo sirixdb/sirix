@@ -93,7 +93,7 @@ final class FullDiff extends AbstractDiff {
 	void emitNonStructuralDiff(final NodeReadTrx newRtx,
 			final NodeReadTrx oldRtx, final DiffDepth depth, final DiffType diff) {
 		if (newRtx.isElement() || oldRtx.isElement()) {
-			if (diff == DiffType.SAME || diff == DiffType.SAMEHASH) {
+			if (diff == DiffType.SAME) {
 				for (int i = 0, nspCount = newRtx.getNamespaceCount(); i < nspCount; i++) {
 					newRtx.moveToNamespace(i);
 					oldRtx.moveToNamespace(i);
@@ -115,7 +115,7 @@ final class FullDiff extends AbstractDiff {
 					newRtx.moveToParent();
 					oldRtx.moveToParent();
 				}
-			} else {
+			} else if (diff != DiffType.SAMEHASH) {
 				// Emit diffing.
 				final long newNodeKey = newRtx.getNodeKey();
 				final long oldNodeKey = oldRtx.getNodeKey();

@@ -58,13 +58,13 @@ import org.sirix.service.xml.shredder.XMLShredder;
  * <code>xml/test.xml</code>). The nodes are described as follows:
  * 
  * <ul>
- * <li><code>EKind.ROOT: doc()</code></li>
- * <li><code>EKind.ELEMENT : &lt;prefix:localPart&gt;</code></li>
- * <li><code>EKind.NAMESPACE: §prefix:namespaceURI</code></li>
- * <li><code>EKind.ATTRIBUTE: &#64;prefix:localPart='value'</code></li>
- * <li><code>EKind.TEXT: #value</code></li>
- * <li><code>EKind.COMMENT: %comment</code></li>
- * <li><code>EKind.PI: &amp;content:target</code></li>
+ * <li><code>Kind.ROOT: doc()</code></li>
+ * <li><code>Kind.ELEMENT : &lt;prefix:localPart&gt;</code></li>
+ * <li><code>Kind.NAMESPACE: §prefix:namespaceURI</code></li>
+ * <li><code>Kind.ATTRIBUTE: &#64;prefix:localPart='value'</code></li>
+ * <li><code>Kind.TEXT: #value</code></li>
+ * <li><code>Kind.COMMENT: %comment</code></li>
+ * <li><code>Kind.PI: &amp;content:target</code></li>
  * </ul>
  * 
  * without processing instruction and comment:

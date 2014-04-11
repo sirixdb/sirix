@@ -221,7 +221,7 @@ public final class XQueryUsage {
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq2 = "insert nodes <a><b/>test</a> into doc('mydocs.col')/log";
+			final String xq2 = "insert nodes <a><b/>test<c/>55<d>22</d></a> into doc('mydocs.col')/log";
 			System.out.println(xq2);
 			final XQuery q = new XQuery(xq2);
 			q.serialize(ctx2, System.out);
@@ -233,12 +233,13 @@ public final class XQueryUsage {
 		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
-			System.out.println("Create a cas index for all elements and another one for attributes:");
+			System.out.println("Create a cas index for all attributes and another one for text-nodes. A third one is created for all integers:");
 			final XQuery q = new XQuery(
 					new SirixCompileChain(store),
 								"let $doc := sdb:doc('mydocs.col', 'resource1') "
 							+ "let $casStats1 := sdb:create-cas-index($doc, 'xs:string', '//@*') "
 							+ "let $casStats2 := sdb:create-cas-index($doc, 'xs:string', '//*') "
+							+ "let $casStats3 := sdb:create-cas-index($doc, 'xs:integer', '//*') "
 							+ "return <rev>{sdb:commit($doc)}</rev>");
 			q.serialize(ctx3, System.out);
 			System.out.println();
@@ -278,7 +279,35 @@ public final class XQueryUsage {
 			System.out.println("");
 			System.out.println("Find CAS index for all attribute values.");
 			final QueryContext ctx3 = new QueryContext(store);
-			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-cas-index($doc, sdb:find-cas-index($doc, '//@*'), 'bar', true(), 0, ())";
+			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-cas-index($doc, sdb:find-cas-index($doc, 'xs:string', '//@*'), 'bar', true(), 0, ())";
+			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
+					.execute(ctx3);
+			// final Iter iter = seq.iterate();
+			// for (Item item = iter.next(); item != null; item = iter.next()) {
+			// System.out.println(item);
+			// }
+			final Comparator<Tuple> comparator = new Comparator<Tuple>() {
+				@Override
+				public int compare(Tuple o1, Tuple o2) {
+					return ((Node<?>) o1).cmp((Node<?>) o2);
+				}
+			};
+			final Sequence sortedSeq = new SortedNodeSequence(comparator, seq, true);
+			final Iter sortedIter = sortedSeq.iterate();
+
+			System.out.println("Sorted index entries in document order: ");
+			for (Item item = sortedIter.next(); item != null; item = sortedIter
+					.next()) {
+				System.out.println(item);
+			}
+		}
+		
+		// Query CAS index.
+		try (final DBStore store = DBStore.newBuilder().build()) {
+			System.out.println("");
+			System.out.println("Find CAS index for all text values which are integers between 10 and 100.");
+			final QueryContext ctx3 = new QueryContext(store);
+			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-cas-index-range($doc, sdb:find-cas-index($doc, 'xs:integer', '//*'), 10, 100, true(), true(), ())";
 			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
 					.execute(ctx3);
 			// final Iter iter = seq.iterate();
@@ -453,6 +482,9 @@ public final class XQueryUsage {
 				sev));
 		out.print(String.format("<src>%s</src>", src));
 		out.print(String.format("<msg>%s</msg>", msg));
+		out.print("oops1");
+		out.print("<b/>");
+		out.print("oops2");
 		out.print("</log>");
 		out.close();
 		return file;

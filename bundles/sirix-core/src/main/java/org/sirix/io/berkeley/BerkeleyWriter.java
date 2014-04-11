@@ -53,7 +53,7 @@ import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.Transaction;
 
 /**
- * This class represents a reading instance of the Sirix-Application
+ * This class represents a write instance of the Sirix-Application
  * implementing the {@link Writer}-interface. It inherits and overrides some
  * reader methods because of the transaction layer.
  * 
