@@ -25,7 +25,7 @@ public final class IndexFilterAxis<K extends Comparable<? super K>> extends
 	@Override
 	protected NodeReferences computeNext() {
 		while (mIter.hasNext()) {
-			final AVLNode<?, NodeReferences> node = mIter.next();
+			final AVLNode<K, NodeReferences> node = mIter.next();
 			boolean filterResult = true;
 			for (final Filter filter : mFilter) {
 				filterResult = filterResult && filter.filter(node);
