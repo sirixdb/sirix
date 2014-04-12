@@ -100,7 +100,7 @@ public class ElementNodeTest {
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
 		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
+		final ElementNode node2 = (ElementNode) Kind.ELEMENT.deserialize(new DataInputStream(in), node.getNodeKey(), node.getDeweyID(), 
 				mPageReadTrx);
 		check(node2);
 	}

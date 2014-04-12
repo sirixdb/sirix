@@ -33,7 +33,6 @@ import org.sirix.xquery.stream.SirixNodeKeyStream;
  * 
  * @author Sebastian Baechle
  * @author Johannes Lichtenberger
- * 
  */
 @FunctionAnnotation(description = "Scans the given name index for matching nodes.", parameters = {
 		"$doc", "$idx-no", "$names" })

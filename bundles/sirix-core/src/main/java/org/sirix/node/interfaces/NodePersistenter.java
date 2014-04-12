@@ -15,6 +15,6 @@ public interface NodePersistenter extends RecordPersistenter {
 			PageReadTrx pageReadTrx) throws IOException;
 
 	void serializeDeweyID(DataOutput sink, Kind nodeKind,
-			SirixDeweyID deweyID, Optional<SirixDeweyID> previousDeweyID,
+			SirixDeweyID deweyID, Optional<SirixDeweyID> nextDeweyID,
 			PageReadTrx pageReadTrx) throws IOException;
 }

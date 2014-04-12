@@ -29,14 +29,14 @@ import org.sirix.index.SearchMode;
 import org.sirix.index.cas.CASFilterRange;
 import org.sirix.xquery.function.FunUtil;
 import org.sirix.xquery.function.sdb.SDBFun;
-import org.sirix.xquery.node.DBCollection;
 import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.stream.SirixNodeKeyStream;
 
 /**
+ * Function for scanning for an index range in a CAS index.
  * 
  * @author Sebastian Baechle
- * 
+ * @author Johannes Lichtenberger
  */
 @FunctionAnnotation(description = "Scans the given CAS index for matching nodes.", parameters = {
 		"$coll", "$document", "$idx-no", "$low-key", "$high-key",

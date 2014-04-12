@@ -93,7 +93,7 @@ public class DocumentRootNodeTest {
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
 		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT.deserialize(new DataInputStream(in), node.getNodeKey(),
+		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT.deserialize(new DataInputStream(in), node.getNodeKey(), node.getDeweyID(), 
 				mPageReadTrx);
 		check(node2);
 	}

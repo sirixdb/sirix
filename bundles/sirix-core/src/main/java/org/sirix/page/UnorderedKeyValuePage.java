@@ -37,6 +37,7 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -70,6 +71,7 @@ import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.base.Optional;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.PeekingIterator;
+import com.google.common.primitives.UnsignedBytes;
 
 /**
  * <h1>UnorderedKeyValuePage</h1>
@@ -183,31 +185,39 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			mDeweyIDs = Collections.emptyMap();
 		}
 
-		final Map<SirixDeweyID, Boolean> deweyIDs = new LinkedHashMap<>();
 		if (mPageReadTrx.getSession().getResourceConfig().mDeweyIDsStored
 				&& mPersistenter instanceof NodePersistenter) {
 			final NodePersistenter persistenter = (NodePersistenter) mPersistenter;
 			final int deweyIDSize = in.readInt();
 
+			mRecords = new LinkedHashMap<>(deweyIDSize);
 			Optional<SirixDeweyID> id = Optional.absent();
 
 			for (int index = 0; index < deweyIDSize; index++) {
 				id = persistenter.deserializeDeweyID(in, id, pageReadTrx);
 
-				if (id.isPresent())
-					deweyIDs.put(id.get(), true);
+				if (id.isPresent()) {
+					final long key = getVarLong(in);
+					final int dataSize = in.readInt();
+					final byte[] data = new byte[dataSize];
+					in.readFully(data);
+					final Record record = mPersistenter.deserialize(
+							new DataInputStream(new ByteArrayInputStream(data)), key, id, mPageReadTrx);
+					mRecords.put(key, record);
+				}
 			}
+		} else {
+			mRecords = new LinkedHashMap<>();
 		}
 
 		final int normalEntrySize = in.readInt();
-		mRecords = new LinkedHashMap<>(normalEntrySize);
 		for (int index = 0; index < normalEntrySize; index++) {
 			final long key = getVarLong(in);
 			final int dataSize = in.readInt();
 			final byte[] data = new byte[dataSize];
 			in.readFully(data);
 			final Record record = mPersistenter.deserialize(
-					new DataInputStream(new ByteArrayInputStream(data)), key,
+					new DataInputStream(new ByteArrayInputStream(data)), key, Optional.absent(),
 					mPageReadTrx);
 			mRecords.put(key, record);
 		}
@@ -256,8 +266,7 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			}
 			final InputStream in = new ByteArrayInputStream(data);
 			try {
-				record = mPersistenter.deserialize(new DataInputStream(in),
-						key, mPageReadTrx);
+				record = mPersistenter.deserialize(new DataInputStream(in), key, Optional.absent(), mPageReadTrx);
 			} catch (final IOException e) {
 				return null;
 			}
@@ -285,24 +294,28 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 				&& mPersistenter instanceof NodePersistenter) {
 			final NodePersistenter persistenter = (NodePersistenter) mPersistenter;
 			out.writeInt(mDeweyIDs.size());
+			final List<SirixDeweyID> ids = new ArrayList<>(mDeweyIDs.keySet());
+			ids.sort((SirixDeweyID first, SirixDeweyID second) -> Integer.valueOf(first.toBytes().length).compareTo(second.toBytes().length));
 			final PeekingIterator<SirixDeweyID> iter = Iterators
-					.peekingIterator(mDeweyIDs.keySet().iterator());
+					.peekingIterator(ids.iterator());
 			SirixDeweyID id = null;
 			if (iter.hasNext())
 			{
 				id = iter.next();
 				persistenter.serializeDeweyID(out, Kind.ELEMENT, id,
-						Optional.fromNullable((SirixDeweyID) null), mPageReadTrx);
+						Optional.absent(), mPageReadTrx);
+				serializeDeweyRecord(id, out);
 			}
 			while (iter.hasNext()) {
 				final SirixDeweyID nextDeweyID = iter.next();
 				persistenter.serializeDeweyID(out, Kind.ELEMENT, id,
 						Optional.of(nextDeweyID), mPageReadTrx);
+				serializeDeweyRecord(nextDeweyID, out);
 				id = nextDeweyID;
 			}
 		}
 		// Write normal entries.
-		out.writeInt(mRecords.size());
+		out.writeInt(mSlots.size());
 		for (final Entry<Long, byte[]> entry : mSlots.entrySet()) {
 			putVarLong(out, entry.getKey());
 			final byte[] data = entry.getValue();
@@ -326,6 +339,16 @@ public final class UnorderedKeyValuePage implements KeyValuePage<Long, Record> {
 			out.writeLong(mPreviousPageReference.get().getKey());
 		}
 		out.writeByte(mPageKind.getID());
+	}
+
+	private void serializeDeweyRecord(SirixDeweyID id, DataOutput out) throws IOException {
+		final long recordKey = mDeweyIDs.get(id);
+		putVarLong(out, recordKey);
+		final byte[] data = mSlots.get(recordKey);
+		final int length = data.length;
+		out.writeInt(length);
+		out.write(data);
+		mSlots.remove(recordKey);
 	}
 
 	@Override

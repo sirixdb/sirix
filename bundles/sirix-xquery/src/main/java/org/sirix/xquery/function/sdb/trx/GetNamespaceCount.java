@@ -17,7 +17,7 @@ import org.sirix.xquery.node.DBNode;
  * </p>
  * <ul>
  * <li>
- * <code>sdb:get-namespace-count($doc as xs:string) as xs:int</code></li>
+ * <code>sdb:get-namespace-count($doc as xs:node) as xs:int</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger

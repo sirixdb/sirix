@@ -21,11 +21,11 @@ import com.google.common.base.Optional;
 public final class NodePersistenterImpl implements NodePersistenter {
 	@Override
 	public Record deserialize(final DataInput source,
-			final @Nonnegative long recordID, final PageReadTrx pageReadTrx)
+			final @Nonnegative long recordID, final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx)
 			throws IOException {
 		final byte id = source.readByte();
 		final Kind enumKind = Kind.getKind(id);
-		return enumKind.deserialize(source, recordID, pageReadTrx);
+		return enumKind.deserialize(source, recordID, deweyID, pageReadTrx);
 	}
 
 	@Override
