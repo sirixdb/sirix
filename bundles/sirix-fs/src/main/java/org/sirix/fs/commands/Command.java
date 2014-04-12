@@ -7,6 +7,6 @@ package org.sirix.fs.commands;
  * 
  */
 public interface Command {
-  /** Execute command. */
-  void execute();
+	/** Execute command. */
+	void execute();
 }

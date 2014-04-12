@@ -170,7 +170,8 @@ public class XMLSerializerTest {
 		assertEquals(result, out.toString());
 		out.reset();
 
-		serializerall = new XMLSerializerBuilder(session, out, 1, 2, 3).emitXMLDeclaration().build();
+		serializerall = new XMLSerializerBuilder(session, out, 1, 2, 3)
+				.emitXMLDeclaration().build();
 		serializerall.call();
 		assertEquals(DocumentCreater.VERSIONEDXML, out.toString());
 		session.close();

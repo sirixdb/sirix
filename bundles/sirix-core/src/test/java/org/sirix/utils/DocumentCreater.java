@@ -218,8 +218,7 @@ public final class DocumentCreater {
 	 * @throws SirixException
 	 *           if anything weird happens
 	 */
-	public static void create(final NodeWriteTrx wtx)
-			throws SirixException {
+	public static void create(final NodeWriteTrx wtx) throws SirixException {
 		assertNotNull(wtx);
 		assertTrue(wtx.moveToDocumentRoot().hasMoved());
 

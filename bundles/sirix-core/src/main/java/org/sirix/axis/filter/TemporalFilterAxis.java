@@ -11,13 +11,13 @@ import org.sirix.axis.AbstractTemporalAxis;
  *
  */
 public final class TemporalFilterAxis extends AbstractTemporalAxis {
-	
+
 	/** Axis to test. */
 	private final AbstractTemporalAxis mAxis;
 
 	/** Test to apply to axis. */
 	private final Filter[] mAxisFilter;
-	
+
 	/**
 	 * Constructor initializing internal state.
 	 * 

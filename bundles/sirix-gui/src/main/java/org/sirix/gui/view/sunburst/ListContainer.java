@@ -6,11 +6,11 @@ import java.util.List;
 
 public final class ListContainer {
 
-  final int mMaxDepth;
-  final List<SunburstItem> mItems;
+	final int mMaxDepth;
+	final List<SunburstItem> mItems;
 
-  public ListContainer(final int pMaxDepth, final List<SunburstItem> pItems) {
-    mMaxDepth = pMaxDepth;
-    mItems = checkNotNull(pItems);
-  }
+	public ListContainer(final int pMaxDepth, final List<SunburstItem> pItems) {
+		mMaxDepth = pMaxDepth;
+		mItems = checkNotNull(pItems);
+	}
 }

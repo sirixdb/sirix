@@ -137,8 +137,8 @@ public final class XMLShredder extends AbstractShredder implements
 		 * @param insert
 		 *          insertion position
 		 */
-		public Builder(final NodeWriteTrx wtx,
-				final XMLEventReader reader, final Insert insert) {
+		public Builder(final NodeWriteTrx wtx, final XMLEventReader reader,
+				final Insert insert) {
 			mWtx = checkNotNull(wtx);
 			mReader = checkNotNull(reader);
 			mInsert = checkNotNull(insert);
@@ -302,8 +302,7 @@ public final class XMLShredder extends AbstractShredder implements
 	 * @throws SirixException
 	 *           if adding {@link ElementNode} fails
 	 */
-	private void addNewElement(final StartElement event)
-			throws SirixException {
+	private void addNewElement(final StartElement event) throws SirixException {
 		assert event != null;
 		final QName qName = event.getName();
 		final QNm name = new QNm(qName.getNamespaceURI(), qName.getPrefix(),
@@ -322,8 +321,9 @@ public final class XMLShredder extends AbstractShredder implements
 		for (final Iterator<?> it = event.getAttributes(); it.hasNext();) {
 			final Attribute attribute = (Attribute) it.next();
 			final QName attName = attribute.getName();
-			mWtx.insertAttribute(new QNm(attName.getNamespaceURI(), attName.getPrefix(),
-					attName.getLocalPart()), attribute.getValue());
+			mWtx.insertAttribute(
+					new QNm(attName.getNamespaceURI(), attName.getPrefix(), attName
+							.getLocalPart()), attribute.getValue());
 			mWtx.moveToParent();
 		}
 	}
@@ -382,8 +382,8 @@ public final class XMLShredder extends AbstractShredder implements
 	 * @throws XMLStreamException
 	 *           if any parsing error occurs
 	 */
-	public static synchronized XMLEventReader createFileReader(
-			final File xmlFile) throws IOException, XMLStreamException {
+	public static synchronized XMLEventReader createFileReader(final File xmlFile)
+			throws IOException, XMLStreamException {
 		checkNotNull(xmlFile);
 		final XMLInputFactory factory = XMLInputFactory.newInstance();
 		factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
@@ -425,8 +425,7 @@ public final class XMLShredder extends AbstractShredder implements
 	 *           if any parsing error occurs
 	 */
 	public static synchronized XMLEventReader createQueueReader(
-			final Queue<XMLEvent> events) throws IOException,
-			XMLStreamException {
+			final Queue<XMLEvent> events) throws IOException, XMLStreamException {
 		return new QueueEventReader(checkNotNull(events));
 	}
 }

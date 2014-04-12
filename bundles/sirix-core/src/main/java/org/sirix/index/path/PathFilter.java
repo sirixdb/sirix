@@ -67,13 +67,14 @@ public final class PathFilter implements Filter {
 	 * @return {@code true} if the node has been filtered, {@code false} otherwise
 	 */
 	@Override
-	public <K extends Comparable<? super K>> boolean filter(final AVLNode<K, NodeReferences> node) {
+	public <K extends Comparable<? super K>> boolean filter(
+			final AVLNode<K, NodeReferences> node) {
 		if (mGenericPath) {
 			return true;
 		}
 
 		final K key = node.getKey();
-		
+
 		long pcr = 0;
 		if (key instanceof Long)
 			pcr = (Long) key;
@@ -81,7 +82,7 @@ public final class PathFilter implements Filter {
 			pcr = ((CASValue) key).getPathNodeKey();
 		else
 			throw new IllegalStateException();
-		
+
 		if (pcr > mMaxKnownPCR) {
 			try (final PathSummaryReader reader = mRtx instanceof NodeWriteTrx ? ((NodeWriteTrx) mRtx)
 					.getPathSummary() : mRtx.getSession().openPathSummary(

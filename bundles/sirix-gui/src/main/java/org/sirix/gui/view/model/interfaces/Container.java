@@ -40,30 +40,31 @@ import org.sirix.gui.view.sunburst.Pruning;
  */
 public interface Container<T> {
 
-  /**
-   * Set start key in old revision.
-   * 
-   * @param pKey
-   *          node key to start from
-   * @return instance
-   */
-  T setOldStartKey(@Nonnegative long pKey);
+	/**
+	 * Set start key in old revision.
+	 * 
+	 * @param pKey
+	 *          node key to start from
+	 * @return instance
+	 */
+	T setOldStartKey(@Nonnegative long pKey);
 
-  /**
-   * Set start key in new revision.
-   * 
-   * @param pKey
-   *          node key to start from
-   * @return instance
-   */
-  T setNewStartKey(@Nonnegative long pKey);
+	/**
+	 * Set start key in new revision.
+	 * 
+	 * @param pKey
+	 *          node key to start from
+	 * @return instance
+	 */
+	T setNewStartKey(@Nonnegative long pKey);
 
-  /**
-   * Determines if tree should be pruned or not.
-   * 
-   * @param pPruning
-   *          {@link Pruning} enum which determines if tree should be pruned or not
-   * @return instance
-   */
-  T setPruning(Pruning pPruning);
+	/**
+	 * Determines if tree should be pruned or not.
+	 * 
+	 * @param pPruning
+	 *          {@link Pruning} enum which determines if tree should be pruned or
+	 *          not
+	 * @return instance
+	 */
+	T setPruning(Pruning pPruning);
 }

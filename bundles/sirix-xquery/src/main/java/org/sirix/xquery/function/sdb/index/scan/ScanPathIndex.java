@@ -57,8 +57,8 @@ public final class ScanPathIndex extends AbstractFunction {
 			throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 		final NodeReadTrx rtx = doc.getTrx();
-		final IndexController controller = rtx.getSession()
-				.getRtxIndexController(rtx.getRevisionNumber());
+		final IndexController controller = rtx.getSession().getRtxIndexController(
+				rtx.getRevisionNumber());
 
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "

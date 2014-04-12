@@ -52,60 +52,54 @@ import java.awt.Color;
  */
 public final class GUIConstants {
 
-  // COLORS ===================================================================
+	// COLORS ===================================================================
 
-  /** Document root color. */
-  public static final Color DOC_COLOR = new Color(128, 0, 0);
+	/** Document root color. */
+	public static final Color DOC_COLOR = new Color(128, 0, 0);
 
-  /** Element color. */
-  public static final Color ELEMENT_COLOR = new Color(0, 0, 128);
+	/** Element color. */
+	public static final Color ELEMENT_COLOR = new Color(0, 0, 128);
 
-  /** Attribute color. */
-  public static final Color ATTRIBUTE_COLOR = new Color(0, 128, 0);
+	/** Attribute color. */
+	public static final Color ATTRIBUTE_COLOR = new Color(0, 128, 0);
 
-  /** Namespace color. */
-  public static final Color NAMESPACE_COLOR = new Color(128, 128, 128);
+	/** Namespace color. */
+	public static final Color NAMESPACE_COLOR = new Color(128, 128, 128);
 
-  /** Text color. */
-  public static final Color TEXT_COLOR = Color.BLACK;
+	/** Text color. */
+	public static final Color TEXT_COLOR = Color.BLACK;
 
-  /** Hover color. */
-  public static final Color HOVER_COLOR = new Color(77, 77, 77);
+	/** Hover color. */
+	public static final Color HOVER_COLOR = new Color(77, 77, 77);
 
-  // OTHER ===================================================================
+	// OTHER ===================================================================
 
-  /** Newline string representation. */
-  public static final String NEWLINE = System.getProperty("line.separator");
+	/** Newline string representation. */
+	public static final String NEWLINE = System.getProperty("line.separator");
 
-  // MENU =====================================================================
+	// MENU =====================================================================
 
-  /** Menu file. */
-  static final String MENUFILE = "File";
+	/** Menu file. */
+	static final String MENUFILE = "File";
 
-  /** Menu views. */
-  static final String MENUVIEWS = "Views";
+	/** Menu views. */
+	static final String MENUVIEWS = "Views";
 
-  // MENUBARS =================================================================
+	// MENUBARS =================================================================
 
-  /** Top menu entries. */
-  static final String[] MENUBAR = {
-    MENUFILE, MENUVIEWS
-  };
+	/** Top menu entries. */
+	static final String[] MENUBAR = { MENUFILE, MENUVIEWS };
 
-  /** Two-dimensional Menu entries, containing the menu item commands. */
-  static final IGUICommand[][] MENUITEMS = {
-    {
-      OPEN, SHREDDER, SHREDDER_UPDATE, SERIALIZE, SEPARATOR, QUIT
-    }, {
-      TREE, TEXT, SMALLMULTIPLES, SUNBURST
-    }
-  };
+	/** Two-dimensional Menu entries, containing the menu item commands. */
+	static final IGUICommand[][] MENUITEMS = {
+			{ OPEN, SHREDDER, SHREDDER_UPDATE, SERIALIZE, SEPARATOR, QUIT },
+			{ TREE, TEXT, SMALLMULTIPLES, SUNBURST } };
 
-  /**
-   * Private constructor.
-   */
-  private GUIConstants() {
-    // No instance allowed.
-    throw new AssertionError("No instance allowed!");
-  }
+	/**
+	 * Private constructor.
+	 */
+	private GUIConstants() {
+		// No instance allowed.
+		throw new AssertionError("No instance allowed!");
+	}
 }

@@ -72,9 +72,9 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>> implements
 	 * @throws SirixIOException
 	 *           if a database error occurs
 	 */
-	public TransactionLogCache(final File file,
-			final @Nonnegative int revision, final String logType,
-			final PageReadTrx pageReadTrx) throws SirixIOException {
+	public TransactionLogCache(final File file, final @Nonnegative int revision,
+			final String logType, final PageReadTrx pageReadTrx)
+			throws SirixIOException {
 		mSecondCache = new BerkeleyPersistenceCache<>(file, revision, logType,
 				pageReadTrx);
 		mFirstCache = new LRUCache<>(mSecondCache);
@@ -118,8 +118,7 @@ public final class TransactionLogCache<T extends KeyValuePage<?, ?>> implements
 	}
 
 	@Override
-	public void put(final Long key,
-			final RecordPageContainer<T> value) {
+	public void put(final Long key, final RecordPageContainer<T> value) {
 		mFirstCache.put(key, value);
 	}
 

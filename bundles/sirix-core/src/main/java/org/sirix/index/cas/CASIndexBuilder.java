@@ -75,15 +75,17 @@ final class CASIndexBuilder extends AbstractVisitor {
 			}
 			final long PCR = mRtx.isDocumentRoot() ? 0 : mRtx.getNameNode()
 					.getPathNodeKey();
-			if (mPaths.isEmpty() || mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
+			if (mPaths.isEmpty()
+					|| mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)) {
 				final Str strValue = new Str(((ImmutableValueNode) node).getValue());
-			
+
 				boolean isOfType = false;
 				try {
 					if (mType != Type.STR)
 						AtomicUtil.toType(strValue, mType);
 					isOfType = true;
-				} catch (final SirixException e) {}
+				} catch (final SirixException e) {
+				}
 
 				if (isOfType) {
 					final CASValue value = new CASValue(strValue, mType, PCR);

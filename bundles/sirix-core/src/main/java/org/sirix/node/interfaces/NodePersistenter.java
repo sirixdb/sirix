@@ -11,10 +11,11 @@ import org.sirix.node.SirixDeweyID;
 import com.google.common.base.Optional;
 
 public interface NodePersistenter extends RecordPersistenter {
-	Optional<SirixDeweyID> deserializeDeweyID(DataInput source, Optional<SirixDeweyID> previousDeweyID,
-			PageReadTrx pageReadTrx) throws IOException;
+	Optional<SirixDeweyID> deserializeDeweyID(DataInput source,
+			Optional<SirixDeweyID> previousDeweyID, PageReadTrx pageReadTrx)
+			throws IOException;
 
-	void serializeDeweyID(DataOutput sink, Kind nodeKind,
-			SirixDeweyID deweyID, Optional<SirixDeweyID> nextDeweyID,
-			PageReadTrx pageReadTrx) throws IOException;
+	void serializeDeweyID(DataOutput sink, Kind nodeKind, SirixDeweyID deweyID,
+			Optional<SirixDeweyID> nextDeweyID, PageReadTrx pageReadTrx)
+			throws IOException;
 }

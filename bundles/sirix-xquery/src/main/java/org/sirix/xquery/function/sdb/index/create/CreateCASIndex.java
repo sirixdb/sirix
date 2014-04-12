@@ -36,8 +36,12 @@ import com.google.common.collect.ImmutableSet;
  * the document-node. Supported signatures are:
  * </p>
  * <ul>
- * <li><code>sdb:create-cas-index($doc as node(), $type as xs:string?, $paths as xs:string*) as node()</code></li>
- * <li><code>sdb:create-cas-index($doc as node(), $type as xs:string?) as node()</code></li>
+ * <li>
+ * <code>sdb:create-cas-index($doc as node(), $type as xs:string?, $paths as xs:string*) as node()</code>
+ * </li>
+ * <li>
+ * <code>sdb:create-cas-index($doc as node(), $type as xs:string?) as node()</code>
+ * </li>
  * <li><code>sdb:create-cas-index($doc as node()) as node()</code></li>
  * </ul>
  * 
@@ -49,7 +53,7 @@ public final class CreateCASIndex extends AbstractFunction {
 	/** CAS index function name. */
 	public final static QNm CREATE_CAS_INDEX = new QNm(SDBFun.SDB_NSURI,
 			SDBFun.SDB_PREFIX, "create-cas-index");
-	
+
 	/**
 	 * Constructor.
 	 * 
@@ -63,8 +67,8 @@ public final class CreateCASIndex extends AbstractFunction {
 	}
 
 	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx,
-			Sequence[] args) throws QueryException {
+	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+			throws QueryException {
 		if (args.length != 2 && args.length != 3) {
 			throw new QueryException(new QNm("No valid arguments specified!"));
 		}
@@ -73,7 +77,7 @@ public final class CreateCASIndex extends AbstractFunction {
 		final NodeReadTrx rtx = doc.getTrx();
 		final IndexController controller = rtx.getSession().getWtxIndexController(
 				rtx.getRevisionNumber() - 1);
-		
+
 		if (!(doc.getTrx() instanceof NodeWriteTrx)) {
 			throw new QueryException(new QNm("Collection must be updatable!"));
 		}

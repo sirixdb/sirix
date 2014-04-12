@@ -224,7 +224,7 @@ public final class NullNode implements StructNode {
 	public int hashCode() {
 		return Objects.hashCode(mNode);
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getDeweyID() {
 		return mNode.getDeweyID();

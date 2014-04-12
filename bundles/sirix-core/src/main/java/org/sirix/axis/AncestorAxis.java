@@ -66,8 +66,7 @@ public final class AncestorAxis extends AbstractAxis {
 	 * @param includeSelf
 	 *          Is self included?
 	 */
-	public AncestorAxis(final NodeReadTrx rtx,
-			final IncludeSelf includeSelf) {
+	public AncestorAxis(final NodeReadTrx rtx, final IncludeSelf includeSelf) {
 		super(rtx, includeSelf);
 	}
 

@@ -865,31 +865,31 @@ public class UpdateTest {
 	public void testFirstMoveSubtreeToRightSibling() throws SirixException {
 		final NodeWriteTrx wtx = holder.getSession().beginNodeWriteTrx();
 		DocumentCreater.create(wtx);
-		
+
 		wtx.moveToDocumentRoot();
 		for (final long nodeKey : new NonStructuralWrapperAxis(new DescendantAxis(
 				wtx, IncludeSelf.YES))) {
 			System.out.println(nodeKey + ": " + wtx.getDeweyID());
 		}
-		
+
 		wtx.moveTo(7);
 		wtx.moveSubtreeToRightSibling(6);
 		testFirstMoveSubtreeToRightSibling(wtx);
-		
+
 		wtx.moveToDocumentRoot();
 		for (final long nodeKey : new NonStructuralWrapperAxis(new DescendantAxis(
 				wtx, IncludeSelf.YES))) {
 			System.out.println(nodeKey + ": " + wtx.getDeweyID());
 		}
-		
+
 		wtx.commit();
-		
+
 		wtx.moveToDocumentRoot();
 		for (final long nodeKey : new NonStructuralWrapperAxis(new DescendantAxis(
 				wtx, IncludeSelf.YES))) {
 			System.out.println(nodeKey + ": " + wtx.getDeweyID());
 		}
-		
+
 		testFirstMoveSubtreeToRightSibling(wtx);
 		wtx.close();
 		final NodeReadTrx rtx = holder.getSession().beginNodeReadTrx();
@@ -940,8 +940,8 @@ public class UpdateTest {
 		DocumentCreater.create(wtx);
 		wtx.moveTo(9);
 		wtx.moveSubtreeToRightSibling(5);
-//		wtx.moveTo(5);
-//		wtx.moveSubtreeToRightSibling(4);
+		// wtx.moveTo(5);
+		// wtx.moveSubtreeToRightSibling(4);
 		testSecondMoveSubtreeToRightSibling(wtx);
 		wtx.commit();
 		testSecondMoveSubtreeToRightSibling(wtx);

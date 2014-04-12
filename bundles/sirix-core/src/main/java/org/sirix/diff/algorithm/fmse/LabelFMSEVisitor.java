@@ -67,8 +67,7 @@ public final class LabelFMSEVisitor extends AbstractVisitor {
 	 * @throws SirixException
 	 *           if setting up sirix fails
 	 */
-	public LabelFMSEVisitor(final NodeReadTrx pReadTrx)
-			throws SirixException {
+	public LabelFMSEVisitor(final NodeReadTrx pReadTrx) throws SirixException {
 		mRtx = checkNotNull(pReadTrx);
 		mLabels = new HashMap<>();
 		mLeafLabels = new HashMap<>();

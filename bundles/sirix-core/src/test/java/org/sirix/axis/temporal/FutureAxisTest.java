@@ -42,15 +42,15 @@ public final class FutureAxisTest {
 		holder.close();
 		TestHelper.closeEverything();
 	}
-	
+
 	@Test
 	public void testFutureOrSelfAxis() throws SirixException {
 		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(1);
 		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx(2);
 		final NodeReadTrx thirdRtx = holder.getRtx();
-		
+
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-				ImmutableList.of(firstRtx,secondRtx, thirdRtx), null) {
+				ImmutableList.of(firstRtx, secondRtx, thirdRtx), null) {
 			{
 				ignoreSunJavaBug6529795();
 			}
@@ -61,13 +61,13 @@ public final class FutureAxisTest {
 			}
 		}.test();
 	}
-	
+
 	@Test
 	public void testFutureAxis() throws SirixException {
 		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(1);
 		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx(2);
 		final NodeReadTrx thirdRtx = holder.getRtx();
-		
+
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(secondRtx, thirdRtx), null) {
 			{

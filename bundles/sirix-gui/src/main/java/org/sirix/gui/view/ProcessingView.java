@@ -43,75 +43,75 @@ import processing.core.PApplet;
  */
 public interface ProcessingView extends MouseListener, KeyListener {
 
-  /** @see */
-  void setup();
+	/** @see */
+	void setup();
 
-  void draw();
+	void draw();
 
-  /**
-   * Get glassPane.
-   * 
-   * @return the glassPane
-   */
-  ProgressGlassPane getGlassPane();
+	/**
+	 * Get glassPane.
+	 * 
+	 * @return the glassPane
+	 */
+	ProgressGlassPane getGlassPane();
 
-  /**
-   * Get Swing view associated with the processing view.
-   * 
-   * @return {@link View} reference
-   */
-  View getView();
+	/**
+	 * Get Swing view associated with the processing view.
+	 * 
+	 * @return {@link View} reference
+	 */
+	View getView();
 
-  /**
-   * Get controller.
-   * 
-   * @return reference of an {@link Control} implementation
-   */
-  Control getController();
+	/**
+	 * Get controller.
+	 * 
+	 * @return reference of an {@link Control} implementation
+	 */
+	Control getController();
 
-  /**
-   * Set visibility.
-   * 
-   * @param paramFlag
-   *          if true, view is visible, if false view is not visible
-   */
-  void setVisible(boolean paramFlag);
+	/**
+	 * Set visibility.
+	 * 
+	 * @param paramFlag
+	 *          if true, view is visible, if false view is not visible
+	 */
+	void setVisible(boolean paramFlag);
 
-  /**
-   * Get GUI.
-   * 
-   * @return GUI which implements the {@link ProcessingGUI} interface
-   */
-  ProcessingGUI getGUI();
+	/**
+	 * Get GUI.
+	 * 
+	 * @return GUI which implements the {@link ProcessingGUI} interface
+	 */
+	ProcessingGUI getGUI();
 
-  /**
-   * Get embedded view.
-   * 
-   * @return {@link ProcessingEmbeddedView} instance
-   */
-  ProcessingEmbeddedView getEmbeddedView();
+	/**
+	 * Get embedded view.
+	 * 
+	 * @return {@link ProcessingEmbeddedView} instance
+	 */
+	ProcessingEmbeddedView getEmbeddedView();
 
-  void setEmbeddedView(final ProcessingEmbeddedView pEmbeddedView);
+	void setEmbeddedView(final ProcessingEmbeddedView pEmbeddedView);
 
-  void dispose();
+	void dispose();
 
-  void stop();
+	void stop();
 
-  void init();
+	void init();
 
-  PApplet getApplet();
+	PApplet getApplet();
 
-  boolean isFocused();
+	boolean isFocused();
 
-  boolean isDone();
+	boolean isDone();
 
-  void update();
+	void update();
 
-  boolean isShowing();
+	boolean isShowing();
 
-  void refreshUpdate();
+	void refreshUpdate();
 
-  void noLoop();
+	void noLoop();
 
-  Model<?, ?> getModel();
+	Model<?, ?> getModel();
 }

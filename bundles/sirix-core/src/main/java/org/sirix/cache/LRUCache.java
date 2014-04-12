@@ -79,8 +79,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 			private static final long serialVersionUID = 1;
 
 			@Override
-			protected boolean removeEldestEntry(
-					@Nullable final Map.Entry<K, V> eldest) {
+			protected boolean removeEldestEntry(@Nullable final Map.Entry<K, V> eldest) {
 				boolean returnVal = false;
 				if (size() > CACHE_CAPACITY) {
 					if (eldest != null) {

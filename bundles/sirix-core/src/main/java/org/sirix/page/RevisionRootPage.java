@@ -62,7 +62,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	/** Offset of path summary page reference. */
 	private static final int PATH_SUMMARY_REFERENCE_OFFSET = 1;
-	
+
 	/** Offset of name page reference. */
 	private static final int NAME_REFERENCE_OFFSET = 2;
 
@@ -92,8 +92,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 		getReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
 		getReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(new PathSummaryPage());
 		getReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
-		getReference(CAS_REFERENCE_OFFSET).setPage(
-				new CASPage());
+		getReference(CAS_REFERENCE_OFFSET).setPage(new CASPage());
 		mRevision = Constants.UBP_ROOT_REVISION_NUMBER;
 		mMaxNodeKey = -1L;
 	}
@@ -119,8 +118,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 	 * @param representRev
 	 *          revision number to use
 	 */
-	public RevisionRootPage(
-			final RevisionRootPage committedRevisionRootPage,
+	public RevisionRootPage(final RevisionRootPage committedRevisionRootPage,
 			final @Nonnegative int representRev) {
 		mDelegate = new PageDelegate(committedRevisionRootPage);
 		mRevision = representRev;
@@ -232,16 +230,13 @@ public final class RevisionRootPage extends AbstractForwardingPage {
 
 	@Override
 	public String toString() {
-		return Objects
-				.toStringHelper(this)
+		return Objects.toStringHelper(this)
 				.add("revisionTimestamp", mRevisionTimestamp)
-				.add("maxNodeKey", mMaxNodeKey)
-				.add("delegate", mDelegate)
+				.add("maxNodeKey", mMaxNodeKey).add("delegate", mDelegate)
 				.add("namePage", getReference(NAME_REFERENCE_OFFSET))
 				.add("pathSummaryPage", getReference(PATH_SUMMARY_REFERENCE_OFFSET))
 				.add("pathPage", getReference(PATH_REFERENCE_OFFSET))
-				.add("CASPage",
-						getReference(CAS_REFERENCE_OFFSET))
+				.add("CASPage", getReference(CAS_REFERENCE_OFFSET))
 				.add("nodePage", getReference(INDIRECT_REFERENCE_OFFSET)).toString();
 	}
 

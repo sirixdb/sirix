@@ -52,15 +52,14 @@ public final class PastAxis extends AbstractTemporalAxis {
 	 * Constructor.
 	 * 
 	 * @param includeSelf
-	 * 					determines if current revision must be included or not
+	 *          determines if current revision must be included or not
 	 */
-	public PastAxis(final NodeReadTrx rtx,
-			final IncludeSelf includeSelf) {
+	public PastAxis(final NodeReadTrx rtx, final IncludeSelf includeSelf) {
 		mSession = checkNotNull(rtx.getSession());
 		mRevision = 0;
 		mNodeKey = rtx.getNodeKey();
-		mRevision = checkNotNull(includeSelf) == IncludeSelf.YES ? rtx.getRevisionNumber()
-				: rtx.getRevisionNumber() - 1;
+		mRevision = checkNotNull(includeSelf) == IncludeSelf.YES ? rtx
+				.getRevisionNumber() : rtx.getRevisionNumber() - 1;
 	}
 
 	@Override
@@ -76,7 +75,7 @@ public final class PastAxis extends AbstractTemporalAxis {
 			return endOfData();
 		}
 	}
-	
+
 	@Override
 	public NodeReadTrx getTrx() {
 		return mRtx;

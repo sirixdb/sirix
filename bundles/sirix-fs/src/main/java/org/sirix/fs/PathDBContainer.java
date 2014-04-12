@@ -12,7 +12,9 @@ import org.sirix.api.Session;
 import com.google.common.base.Objects;
 
 /**
- * Container for {@code {@link Path}/{@link Database} combinations. Note that it may be refined to {@code {
+ * Container for {@code {@link Path}/{@link Database} combinations. Note that
+ * it may be refined to {@code
+ * 
  * @link IDatabase}/{@link Session}/{@link IResource} later on.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -21,39 +23,40 @@ import com.google.common.base.Objects;
 @Nonnull
 public final class PathDBContainer {
 
-  /** {@link Path} to watch for modifications. */
-  final Path mPath;
+	/** {@link Path} to watch for modifications. */
+	final Path mPath;
 
-  /** sirix {@link Database}. */
-  final Database mDatabase;
+	/** sirix {@link Database}. */
+	final Database mDatabase;
 
-  /**
-   * Constructor.
-   * 
-   * @param pPath
-   *          {@link Path} reference
-   * @param pDatabase
-   *          sirix {@link Database} reference
-   */
-  public PathDBContainer(final Path pPath, final Database pDatabase) {
-    mPath = checkNotNull(pPath);
-    mDatabase = checkNotNull(pDatabase);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pPath
+	 *          {@link Path} reference
+	 * @param pDatabase
+	 *          sirix {@link Database} reference
+	 */
+	public PathDBContainer(final Path pPath, final Database pDatabase) {
+		mPath = checkNotNull(pPath);
+		mDatabase = checkNotNull(pDatabase);
+	}
 
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(mPath, mDatabase);
-  }
+	@Override
+	public int hashCode() {
+		return Objects.hashCode(mPath, mDatabase);
+	}
 
-  @Override
-  public boolean equals(final Object pOther) {
-    if (pOther == this) {
-      return true;
-    }
-    if (!(pOther instanceof PathDBContainer)) {
-      return false;
-    }
-    final PathDBContainer container = (PathDBContainer)pOther;
-    return mPath.equals(container.mPath) && mDatabase.equals(container.mDatabase);
-  }
+	@Override
+	public boolean equals(final Object pOther) {
+		if (pOther == this) {
+			return true;
+		}
+		if (!(pOther instanceof PathDBContainer)) {
+			return false;
+		}
+		final PathDBContainer container = (PathDBContainer) pOther;
+		return mPath.equals(container.mPath)
+				&& mDatabase.equals(container.mDatabase);
+	}
 }

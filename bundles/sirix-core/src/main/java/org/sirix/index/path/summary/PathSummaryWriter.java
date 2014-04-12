@@ -163,8 +163,8 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public long getPathNodeKey(final QNm name,
-			final Kind pathKind) throws SirixException {
+	public long getPathNodeKey(final QNm name, final Kind pathKind)
+			throws SirixException {
 		final Kind kind = mNodeRtx.getNode().getKind();
 		int level = 0;
 		if (kind == Kind.DOCUMENT) {
@@ -185,7 +185,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			axis.next();
 			retVal = mPathSummaryReader.getNodeKey();
 			final PathNode pathNode = (PathNode) mPageWriteTrx
-					.prepareEntryForModification(retVal, PageKind.PATHSUMMARYPAGE, 0, 
+					.prepareEntryForModification(retVal, PageKind.PATHSUMMARYPAGE, 0,
 							Optional.<UnorderedKeyValuePage> absent());
 			pathNode.incrementReferenceCount();
 		} else {
@@ -255,9 +255,8 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws SirixIOException
 	 *           if anything weird happens
 	 */
-	private void adaptForInsert(final Node newNode,
-			final InsertPos insertPos, final PageKind pageKind)
-			throws SirixIOException {
+	private void adaptForInsert(final Node newNode, final InsertPos insertPos,
+			final PageKind pageKind) throws SirixIOException {
 		assert newNode != null;
 		assert insertPos != null;
 		assert pageKind != null;
@@ -265,7 +264,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 		if (newNode instanceof StructNode) {
 			final StructNode strucNode = (StructNode) newNode;
 			final StructNode parent = (StructNode) mPageWriteTrx
-					.prepareEntryForModification(newNode.getParentKey(), pageKind, 0, 
+					.prepareEntryForModification(newNode.getParentKey(), pageKind, 0,
 							Optional.<UnorderedKeyValuePage> absent());
 			parent.incrementChildCount();
 			if (insertPos == InsertPos.ASFIRSTCHILD) {
@@ -334,7 +333,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 					mPathSummaryReader.moveTo(oldPathNodeKey);
 					final PathNode pathNode = (PathNode) mPageWriteTrx
 							.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
-									PageKind.PATHSUMMARYPAGE, 0, 
+									PageKind.PATHSUMMARYPAGE, 0,
 									Optional.<UnorderedKeyValuePage> absent());
 					pathNode.setPrefixKey(prefixKey);
 					pathNode.setLocalNameKey(localNameKey);
@@ -475,9 +474,8 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	private void processFoundPathNode(final @Nonnegative long oldPathNodeKey,
 			final @Nonnegative long newPathNodeKey,
 			final @Nonnegative long oldNodeKey, final int uriKey,
-			final int prefixKey, final int localNameKey,
-			final Remove remove, final OPType type)
-			throws SirixException {
+			final int prefixKey, final int localNameKey, final Remove remove,
+			final OPType type) throws SirixException {
 		final PathSummaryReader cloned = PathSummaryReader.getInstance(
 				mPageWriteTrx, mNodeRtx.getSession());
 		boolean moved = cloned.moveTo(oldPathNodeKey).hasMoved();
@@ -487,7 +485,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 		if (type != OPType.MOVEDSAMELEVEL) {
 			final PathNode currNode = (PathNode) mPageWriteTrx
 					.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
-							PageKind.PATHSUMMARYPAGE, 0, 
+							PageKind.PATHSUMMARYPAGE, 0,
 							Optional.<UnorderedKeyValuePage> absent());
 			currNode.setReferenceCount(currNode.getReferences()
 					+ cloned.getReferences());
@@ -517,7 +515,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 				if (type != OPType.MOVEDSAMELEVEL) {
 					final PathNode currNode = (PathNode) mPageWriteTrx
 							.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
-									PageKind.PATHSUMMARYPAGE, 0, 
+									PageKind.PATHSUMMARYPAGE, 0,
 									Optional.<UnorderedKeyValuePage> absent());
 					currNode.setReferenceCount(currNode.getReferences()
 							+ cloned.getReferences());
@@ -530,7 +528,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 				// Set new reference count.
 				final PathNode currNode = (PathNode) mPageWriteTrx
 						.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
-								PageKind.PATHSUMMARYPAGE, 0, 
+								PageKind.PATHSUMMARYPAGE, 0,
 								Optional.<UnorderedKeyValuePage> absent());
 				currNode.setReferenceCount(cloned.getReferences());
 			}
@@ -615,7 +613,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	private void resetPathNodeKey(final @Nonnegative long nodeKey)
 			throws SirixException {
 		final NameNode currNode = (NameNode) mPageWriteTrx
-				.prepareEntryForModification(nodeKey, PageKind.RECORDPAGE, -1, 
+				.prepareEntryForModification(nodeKey, PageKind.RECORDPAGE, -1,
 						Optional.<UnorderedKeyValuePage> absent());
 		currNode.setPathNodeKey(mPathSummaryReader.getNodeKey());
 	}
@@ -626,8 +624,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws SirixException
 	 *           if Sirix fails to remove the path node
 	 */
-	private void removePathSummaryNode(final Remove remove)
-			throws SirixException {
+	private void removePathSummaryNode(final Remove remove) throws SirixException {
 		// Remove all descendant nodes.
 		if (remove == Remove.YES) {
 			for (final Axis axis = new DescendantAxis(mPathSummaryReader); axis
@@ -636,10 +633,9 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 				mPathSummaryReader.removeMapping(mPathSummaryReader.getNodeKey());
 				mPathSummaryReader.removeQNameMapping(mPathSummaryReader.getPathNode(),
 						mPathSummaryReader.getName());
-				mPageWriteTrx
-						.removeEntry(mPathSummaryReader.getNodeKey(),
-								PageKind.PATHSUMMARYPAGE, 0, 
-								Optional.<UnorderedKeyValuePage> absent());
+				mPageWriteTrx.removeEntry(mPathSummaryReader.getNodeKey(),
+						PageKind.PATHSUMMARYPAGE, 0,
+						Optional.<UnorderedKeyValuePage> absent());
 			}
 		}
 
@@ -647,7 +643,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 		if (mPathSummaryReader.hasLeftSibling()) {
 			final StructNode leftSibling = (StructNode) mPageWriteTrx
 					.prepareEntryForModification(mPathSummaryReader.getLeftSiblingKey(),
-							PageKind.PATHSUMMARYPAGE, 0, 
+							PageKind.PATHSUMMARYPAGE, 0,
 							Optional.<UnorderedKeyValuePage> absent());
 			leftSibling.setRightSiblingKey(mPathSummaryReader.getRightSiblingKey());
 		}
@@ -656,14 +652,14 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 		if (mPathSummaryReader.hasRightSibling()) {
 			final StructNode rightSibling = (StructNode) mPageWriteTrx
 					.prepareEntryForModification(mPathSummaryReader.getRightSiblingKey(),
-							PageKind.PATHSUMMARYPAGE, 0, 
+							PageKind.PATHSUMMARYPAGE, 0,
 							Optional.<UnorderedKeyValuePage> absent());
 			rightSibling.setLeftSiblingKey(mPathSummaryReader.getLeftSiblingKey());
 		}
 
 		// Adapt parent. If node has no left sibling it is a first child.
 		StructNode parent = (StructNode) mPageWriteTrx.prepareEntryForModification(
-				mPathSummaryReader.getParentKey(), PageKind.PATHSUMMARYPAGE, 0, 
+				mPathSummaryReader.getParentKey(), PageKind.PATHSUMMARYPAGE, 0,
 				Optional.<UnorderedKeyValuePage> absent());
 		if (!mPathSummaryReader.hasLeftSibling()) {
 			parent.setFirstChildKey(mPathSummaryReader.getRightSiblingKey());
@@ -703,7 +699,8 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			// Set new path node.
 			final NameNode node = (NameNode) mPageWriteTrx
 					.prepareEntryForModification(mNodeRtx.getNodeKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
+							PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> absent());
 			node.setPathNodeKey(mPathSummaryReader.getNodeKey());
 		} else {
 			throw new IllegalStateException();
@@ -727,7 +724,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 			} else {
 				final PathNode pathNode = (PathNode) mPageWriteTrx
 						.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
-								PageKind.PATHSUMMARYPAGE, 0, 
+								PageKind.PATHSUMMARYPAGE, 0,
 								Optional.<UnorderedKeyValuePage> absent());
 				pathNode.decrementReferenceCount();
 			}
@@ -747,9 +744,8 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public void remove(final NameNode node,
-			final Kind nodeKind, final NamePage page)
-			throws SirixException {
+	public void remove(final NameNode node, final Kind nodeKind,
+			final NamePage page) throws SirixException {
 		if (mPathSummaryReader.moveTo(node.getPathNodeKey()).hasMoved()) {
 			if (mPathSummaryReader.getReferences() == 1) {
 				removePathSummaryNode(Remove.YES);
@@ -758,7 +754,7 @@ public final class PathSummaryWriter extends AbstractForwardingNodeReadTrx {
 				if (mPathSummaryReader.getReferences() > 1) {
 					final PathNode pathNode = (PathNode) mPageWriteTrx
 							.prepareEntryForModification(mPathSummaryReader.getNodeKey(),
-									PageKind.PATHSUMMARYPAGE, 0, 
+									PageKind.PATHSUMMARYPAGE, 0,
 									Optional.<UnorderedKeyValuePage> absent());
 					pathNode.decrementReferenceCount();
 				}

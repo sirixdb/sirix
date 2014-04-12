@@ -29,18 +29,19 @@ final class NameIndexBuilder extends AbstractVisitor {
 
 	private static final LogWrapper LOGGER = new LogWrapper(
 			LoggerFactory.getLogger(NameIndexBuilder.class));
-	
+
 	private final Set<QNm> mIncludes;
 	private final Set<QNm> mExcludes;
 	private final AVLTreeWriter<QNm, NodeReferences> mAVLTreeWriter;
 
-	public NameIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+	public NameIndexBuilder(
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final IndexDef indexDefinition) {
 		mIncludes = checkNotNull(indexDefinition.getIncluded());
 		mExcludes = checkNotNull(indexDefinition.getExcluded());
 		assert indexDefinition.getType() == IndexType.NAME;
-		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx, indexDefinition.getType(),
-				indexDefinition.getID());
+		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx,
+				indexDefinition.getType(), indexDefinition.getID());
 	}
 
 	@Override
@@ -48,14 +49,14 @@ final class NameIndexBuilder extends AbstractVisitor {
 		final QNm name = node.getName();
 		final boolean included = (mIncludes.isEmpty() || mIncludes.contains(name));
 		final boolean excluded = (!mExcludes.isEmpty() && mExcludes.contains(name));
-	
+
 		if (!included || excluded) {
 			return VisitResultType.CONTINUE;
-		}	
-		
+		}
+
 		final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(name,
 				SearchMode.EQUAL);
-		
+
 		try {
 			if (textReferences.isPresent()) {
 				setNodeReferences(node, textReferences.get(), name);
@@ -65,15 +66,14 @@ final class NameIndexBuilder extends AbstractVisitor {
 		} catch (final SirixIOException e) {
 			LOGGER.error(e.getMessage(), e);
 		}
-		
+
 		return VisitResultType.CONTINUE;
 	}
-	
+
 	private void setNodeReferences(final ImmutableNode node,
-			final NodeReferences references, final QNm name)
-			throws SirixIOException {
+			final NodeReferences references, final QNm name) throws SirixIOException {
 		mAVLTreeWriter.index(name, references.addNodeKey(node.getNodeKey()),
 				MoveCursor.NO_MOVE);
 	}
-	
+
 }

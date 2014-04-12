@@ -31,7 +31,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * <h1>XMLRecordReader</h1>
  * 
@@ -44,67 +43,68 @@ import org.slf4j.LoggerFactory;
  */
 public final class XMLRecordWriter<K, V> extends RecordWriter<K, V> {
 
-  /** Logger. */
-  private static final Logger LOGGER = LoggerFactory.getLogger(XMLRecordWriter.class);
+	/** Logger. */
+	private static final Logger LOGGER = LoggerFactory
+			.getLogger(XMLRecordWriter.class);
 
-  /**
-   * Log wrapper {@link LogWrapper}.
-   */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LOGGER);
+	/**
+	 * Log wrapper {@link LogWrapper}.
+	 */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(LOGGER);
 
-  /** Writer to write XML events {@link XMLEventWriter}. */
-  private transient XMLEventWriter mWriter;
+	/** Writer to write XML events {@link XMLEventWriter}. */
+	private transient XMLEventWriter mWriter;
 
-  /** Factory to create events {@link XMLEventFactory}. */
-  private transient XMLEventFactory mEventFactory;
+	/** Factory to create events {@link XMLEventFactory}. */
+	private transient XMLEventFactory mEventFactory;
 
-  /** Full qualified name of root element {@link QName}. */
-  private transient StartElement mRootElem;
+	/** Full qualified name of root element {@link QName}. */
+	private transient StartElement mRootElem;
 
-  /**
-   * Constructor.
-   * 
-   * @param paramWriter
-   *          Instance of {@link XMLEventWriter}.
-   * @param paramRootElem
-   *          Root element.
-   * @throws IOException
-   *           In case any I/O operation fails.
-   * @throws XMLStreamException
-   *           In case any error occurs while creating events.
-   */
-  public XMLRecordWriter(final XMLEventWriter paramWriter, final StartElement paramRootElem)
-    throws IOException, XMLStreamException {
-    mWriter = paramWriter;
-    mEventFactory = XMLEventFactory.newInstance();
-    mRootElem = paramRootElem;
-    mWriter.add(mRootElem);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param paramWriter
+	 *          Instance of {@link XMLEventWriter}.
+	 * @param paramRootElem
+	 *          Root element.
+	 * @throws IOException
+	 *           In case any I/O operation fails.
+	 * @throws XMLStreamException
+	 *           In case any error occurs while creating events.
+	 */
+	public XMLRecordWriter(final XMLEventWriter paramWriter,
+			final StartElement paramRootElem) throws IOException, XMLStreamException {
+		mWriter = paramWriter;
+		mEventFactory = XMLEventFactory.newInstance();
+		mRootElem = paramRootElem;
+		mWriter.add(mRootElem);
+	}
 
-  @Override
-  public synchronized void close(final TaskAttemptContext paramContext) throws IOException,
-    InterruptedException {
-    try {
-      mWriter.add(mEventFactory.createEndElement(mRootElem.getName(), null));
-      mWriter.flush();
-    } catch (final XMLStreamException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+	@Override
+	public synchronized void close(final TaskAttemptContext paramContext)
+			throws IOException, InterruptedException {
+		try {
+			mWriter.add(mEventFactory.createEndElement(mRootElem.getName(), null));
+			mWriter.flush();
+		} catch (final XMLStreamException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
 
-  @Override
-  public synchronized void write(final K paramKey, final V paramValue) throws IOException,
-    InterruptedException {
-    if (paramValue instanceof XMLEvent) {
-      final XMLEvent[] events = (XMLEvent[])paramValue;
-      for (final XMLEvent event : events) {
-        try {
-          mWriter.add(event);
-        } catch (final XMLStreamException e) {
-          LOGWRAPPER.error(e.getMessage(), e);
-        }
-      }
-    }
-  }
+	@Override
+	public synchronized void write(final K paramKey, final V paramValue)
+			throws IOException, InterruptedException {
+		if (paramValue instanceof XMLEvent) {
+			final XMLEvent[] events = (XMLEvent[]) paramValue;
+			for (final XMLEvent event : events) {
+				try {
+					mWriter.add(event);
+				} catch (final XMLStreamException e) {
+					LOGWRAPPER.error(e.getMessage(), e);
+				}
+			}
+		}
+	}
 
 }

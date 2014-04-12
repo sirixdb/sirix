@@ -32,65 +32,68 @@ import processing.core.PConstants;
 import processing.core.PGraphics;
 
 /**
- * Determines if a {@link SunburstItem} has to be greyed out or actually blackened.
+ * Determines if a {@link SunburstItem} has to be greyed out or actually
+ * blackened.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public enum EGreyState {
-  /**
-   * Current {@link SunburstItem} doesn't have to be greyed out.
-   */
-  NO {
-    @Override
-    public void setStroke(final PGraphics paramGraphic, final PGraphics paramRecorder, int paramColor,
-      final EHover paramHover) {
-      if (paramRecorder != null) {
-        if (paramHover == EHover.TRUE) {
-          hover(paramRecorder);
-        } else {
-          paramRecorder.stroke(paramColor);
-        }
-      }
-      if (paramHover == EHover.TRUE) {
-        hover(paramGraphic);
-      } else {
-        paramGraphic.stroke(paramColor);
-      }
-    }
+	/**
+	 * Current {@link SunburstItem} doesn't have to be greyed out.
+	 */
+	NO {
+		@Override
+		public void setStroke(final PGraphics paramGraphic,
+				final PGraphics paramRecorder, int paramColor, final EHover paramHover) {
+			if (paramRecorder != null) {
+				if (paramHover == EHover.TRUE) {
+					hover(paramRecorder);
+				} else {
+					paramRecorder.stroke(paramColor);
+				}
+			}
+			if (paramHover == EHover.TRUE) {
+				hover(paramGraphic);
+			} else {
+				paramGraphic.stroke(paramColor);
+			}
+		}
 
-    private void hover(final PGraphics paramGraphic) {
-      paramGraphic.colorMode(PConstants.RGB);
-      paramGraphic.stroke(200, 0, 0);
-      paramGraphic.colorMode(PConstants.HSB);
-    }
-  },
+		private void hover(final PGraphics paramGraphic) {
+			paramGraphic.colorMode(PConstants.RGB);
+			paramGraphic.stroke(200, 0, 0);
+			paramGraphic.colorMode(PConstants.HSB);
+		}
+	},
 
-  /**
-   * Current {@link SunburstItem} has to be greyed out.
-   */
-  YES {
-    @Override
-    public void setStroke(PGraphics paramGraphic, PGraphics paramRecorder, int paramColor, EHover paramHover) {
-      if (paramRecorder != null) {
-        paramGraphic.stroke(0);
-      }
-      paramGraphic.stroke(0);
-    }
-  };
+	/**
+	 * Current {@link SunburstItem} has to be greyed out.
+	 */
+	YES {
+		@Override
+		public void setStroke(PGraphics paramGraphic, PGraphics paramRecorder,
+				int paramColor, EHover paramHover) {
+			if (paramRecorder != null) {
+				paramGraphic.stroke(0);
+			}
+			paramGraphic.stroke(0);
+		}
+	};
 
-  /**
-   * Set stroke.
-   * 
-   * @param paramGraphic
-   *          {@link PGraphics} instance
-   * @param paramRecorder
-   *          {@link PGraphics} instance for recording PDFs
-   * @param paramColor
-   *          the color to use
-   * @param paramHover
-   *          determines if current item should be hovered or not
-   */
-  public abstract void setStroke(final PGraphics paramGraphic, final PGraphics paramRecorder,
-    final int paramColor, final EHover paramHover);
+	/**
+	 * Set stroke.
+	 * 
+	 * @param paramGraphic
+	 *          {@link PGraphics} instance
+	 * @param paramRecorder
+	 *          {@link PGraphics} instance for recording PDFs
+	 * @param paramColor
+	 *          the color to use
+	 * @param paramHover
+	 *          determines if current item should be hovered or not
+	 */
+	public abstract void setStroke(final PGraphics paramGraphic,
+			final PGraphics paramRecorder, final int paramColor,
+			final EHover paramHover);
 }

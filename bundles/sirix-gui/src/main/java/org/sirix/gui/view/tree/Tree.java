@@ -47,81 +47,82 @@ import javax.swing.tree.TreePath;
  */
 public final class Tree extends JTree {
 
-  /** Generated UID. */
-  private static final long serialVersionUID = -4157303763028056619L;
+	/** Generated UID. */
+	private static final long serialVersionUID = -4157303763028056619L;
 
-  /** Color used to highlight selected subtrees. */
-  public static final Color HIGHLIGHT_COLOR = new Color(255, 255, 204);
+	/** Color used to highlight selected subtrees. */
+	public static final Color HIGHLIGHT_COLOR = new Color(255, 255, 204);
 
-  /** Highlight path. */
-  private TreePath mSelectionPath;
+	/** Highlight path. */
+	private TreePath mSelectionPath;
 
-  /**
-   * Default Constructor.
-   */
-  public Tree() {
-  }
+	/**
+	 * Default Constructor.
+	 */
+	public Tree() {
+	}
 
-  /**
-   * Constructor with TreeModel peter.
-   * 
-   * @param model
-   *          TreeModel to use.
-   */
-  public Tree(final TreeModel model) {
-    super(model);
-  }
+	/**
+	 * Constructor with TreeModel peter.
+	 * 
+	 * @param model
+	 *          TreeModel to use.
+	 */
+	public Tree(final TreeModel model) {
+		super(model);
+	}
 
-  /**
-   * Set the selection path.
-   * 
-   * @param pSelectionPath
-   *          Selection path.
-   */
-  @Override
-  public void setSelectionPath(final TreePath pSelectionPath) {
-    mSelectionPath = pSelectionPath;
-    getSelectionModel().setSelectionPath(pSelectionPath);
-    treeDidChange();
-  }
+	/**
+	 * Set the selection path.
+	 * 
+	 * @param pSelectionPath
+	 *          Selection path.
+	 */
+	@Override
+	public void setSelectionPath(final TreePath pSelectionPath) {
+		mSelectionPath = pSelectionPath;
+		getSelectionModel().setSelectionPath(pSelectionPath);
+		treeDidChange();
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public TreePath getSelectionPath() {
-    return mSelectionPath;
-  }
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public TreePath getSelectionPath() {
+		return mSelectionPath;
+	}
 
-  @Override
-  protected void paintComponent(final Graphics pGraphics) {
-    // Paint background ourself.
-    pGraphics.setColor(getBackground());
-    pGraphics.fillRect(0, 0, getWidth(), getHeight());
+	@Override
+	protected void paintComponent(final Graphics pGraphics) {
+		// Paint background ourself.
+		pGraphics.setColor(getBackground());
+		pGraphics.fillRect(0, 0, getWidth(), getHeight());
 
-    // Paint the highlight if any.
-    pGraphics.setColor(HIGHLIGHT_COLOR);
-    final int fromRow = getRowForPath(mSelectionPath);
+		// Paint the highlight if any.
+		pGraphics.setColor(HIGHLIGHT_COLOR);
+		final int fromRow = getRowForPath(mSelectionPath);
 
-    if (fromRow != -1) {
-      int toRow = fromRow;
-      while (toRow < getRowCount()) {
-        final TreePath path = getPathForRow(toRow);
-        if (mSelectionPath.isDescendant(path)) {
-          toRow++;
-        } else {
-          break;
-        }
-      }
+		if (fromRow != -1) {
+			int toRow = fromRow;
+			while (toRow < getRowCount()) {
+				final TreePath path = getPathForRow(toRow);
+				if (mSelectionPath.isDescendant(path)) {
+					toRow++;
+				} else {
+					break;
+				}
+			}
 
-      // Paint a rectangle.
-      final Rectangle fromBounds = getRowBounds(fromRow);
-      final Rectangle toBounds = getRowBounds(toRow - 1);
-      pGraphics.fillRect(0, fromBounds.y, getWidth(), toBounds.y - fromBounds.y + toBounds.height);
-    }
+			// Paint a rectangle.
+			final Rectangle fromBounds = getRowBounds(fromRow);
+			final Rectangle toBounds = getRowBounds(toRow - 1);
+			pGraphics.fillRect(0, fromBounds.y, getWidth(), toBounds.y - fromBounds.y
+					+ toBounds.height);
+		}
 
-    setOpaque(false); // trick not to paint background
-    super.paintComponent(pGraphics);
-    setOpaque(true);
-  }
+		setOpaque(false); // trick not to paint background
+		super.paintComponent(pGraphics);
+		setOpaque(true);
+	}
 }

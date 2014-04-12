@@ -81,13 +81,15 @@ public class NamespaceNodeTest {
 				1);
 
 		// Create empty node.
-		final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm("ns", "a", "p"));
+		final NamespaceNode node = new NamespaceNode(nodeDel, nameDel, new QNm(
+				"ns", "a", "p"));
 
 		// Serialize and deserialize node.
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
 		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(new DataInputStream(in), node.getNodeKey(), node.getDeweyID(), 
+		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(
+				new DataInputStream(in), node.getNodeKey(), node.getDeweyID(),
 				mPageReadTrx);
 		check(node2);
 	}

@@ -29,7 +29,6 @@
  */
 package org.sirix.node.interfaces;
 
-
 /**
  * Interface for nodes which incorporate values.
  * 
@@ -51,6 +50,6 @@ public interface ValueNode extends Node {
 	 *          the value to be set
 	 */
 	void setValue(byte[] value);
-	
+
 	String getValue();
 }

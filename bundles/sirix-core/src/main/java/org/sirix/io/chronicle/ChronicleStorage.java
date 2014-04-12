@@ -88,7 +88,8 @@ public final class ChronicleStorage implements Storage {
 	 * @return the concrete storage for this database
 	 */
 	private File getConcreteStorage() {
-		return new File(new File(mFile, ResourceConfiguration.Paths.DATA.getFile().getName()), FILENAME);
+		return new File(new File(mFile, ResourceConfiguration.Paths.DATA.getFile()
+				.getName()), FILENAME);
 	}
 
 	@Override

@@ -176,73 +176,73 @@ public final class TestHelper {
 		}
 	}
 
-//	@Ignore
-//	public static NodePage getNodePage(final int revision, final int offset,
-//			final int length, final long nodePageKey) {
-//		new ResourceConfiguration.Builder(RESOURCE,
-//				config).build();
-//		final NodePage page = new NodePage(nodePageKey, revision);
-//		NodeDelegate nodeDel;
-//		NameNodeDelegate nameDel;
-//		StructNodeDelegate strucDel;
-//		ValNodeDelegate valDel;
-//		int pathNodeKey = 1;
-//		for (int i = offset; i < length; i++) {
-//			switch (random.nextInt(6)) {
-//			case 0:
-//				nodeDel = new NodeDelegate(random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-//				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-//						random.nextInt(), pathNodeKey++);
-//				valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1, 2, 3, 4 },
-//						false);
-//				page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
-//				break;
-//			case 1:
-//				page.setNode(new DeletedNode(
-//						new NodeDelegate(random.nextInt(10000), random.nextInt(10000),
-//								random.nextInt(10000), random.nextInt(10000))));
-//				break;
-//			case 2:
-//				nodeDel = new NodeDelegate(random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-//				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-//						random.nextInt(), pathNodeKey++);
-//				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000));
-//				page.setNode(new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
-//						HashBiMap.<Integer, Long> create(), new ArrayList<Long>()));
-//				break;
-//			case 3:
-//				nodeDel = new NodeDelegate(random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-//				nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
-//						random.nextInt(), pathNodeKey++);
-//				page.setNode(new NamespaceNode(nodeDel, nameDel));
-//				break;
-//			case 4:
-//				nodeDel = new NodeDelegate(random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-//				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000));
-//				page.setNode(new DocumentRootNode(nodeDel, strucDel));
-//				break;
-//			case 5:
-//				nodeDel = new NodeDelegate(random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
-//				valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1 }, false);
-//				strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000),
-//						random.nextInt(10000), random.nextInt(10000));
-//				page.setNode(new TextNode(valDel, strucDel));
-//				break;
-//			}
-//
-//		}
-//		return page;
-//	}
+	// @Ignore
+	// public static NodePage getNodePage(final int revision, final int offset,
+	// final int length, final long nodePageKey) {
+	// new ResourceConfiguration.Builder(RESOURCE,
+	// config).build();
+	// final NodePage page = new NodePage(nodePageKey, revision);
+	// NodeDelegate nodeDel;
+	// NameNodeDelegate nameDel;
+	// StructNodeDelegate strucDel;
+	// ValNodeDelegate valDel;
+	// int pathNodeKey = 1;
+	// for (int i = offset; i < length; i++) {
+	// switch (random.nextInt(6)) {
+	// case 0:
+	// nodeDel = new NodeDelegate(random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+	// nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+	// random.nextInt(), pathNodeKey++);
+	// valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1, 2, 3, 4 },
+	// false);
+	// page.setNode(new AttributeNode(nodeDel, nameDel, valDel));
+	// break;
+	// case 1:
+	// page.setNode(new DeletedNode(
+	// new NodeDelegate(random.nextInt(10000), random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000))));
+	// break;
+	// case 2:
+	// nodeDel = new NodeDelegate(random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+	// nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+	// random.nextInt(), pathNodeKey++);
+	// strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000));
+	// page.setNode(new ElementNode(strucDel, nameDel, new ArrayList<Long>(),
+	// HashBiMap.<Integer, Long> create(), new ArrayList<Long>()));
+	// break;
+	// case 3:
+	// nodeDel = new NodeDelegate(random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+	// nameDel = new NameNodeDelegate(nodeDel, random.nextInt(),
+	// random.nextInt(), pathNodeKey++);
+	// page.setNode(new NamespaceNode(nodeDel, nameDel));
+	// break;
+	// case 4:
+	// nodeDel = new NodeDelegate(random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+	// strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000));
+	// page.setNode(new DocumentRootNode(nodeDel, strucDel));
+	// break;
+	// case 5:
+	// nodeDel = new NodeDelegate(random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000), random.nextInt(10000));
+	// valDel = new ValNodeDelegate(nodeDel, new byte[] { 0, 1 }, false);
+	// strucDel = new StructNodeDelegate(nodeDel, random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000),
+	// random.nextInt(10000), random.nextInt(10000));
+	// page.setNode(new TextNode(valDel, strucDel));
+	// break;
+	// }
+	//
+	// }
+	// return page;
+	// }
 
 	/**
 	 * Read a file into a StringBuilder.
@@ -320,8 +320,7 @@ public final class TestHelper {
 	 * 
 	 * @return the random bytes
 	 */
-	public static final @Nonnull
-	byte[] generateRandomBytes(final int size) {
+	public static final @Nonnull byte[] generateRandomBytes(final int size) {
 		final byte[] returnVal = new byte[size];
 		random.nextBytes(returnVal);
 		return returnVal;

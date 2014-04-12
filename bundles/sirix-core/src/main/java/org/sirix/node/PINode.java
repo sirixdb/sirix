@@ -52,8 +52,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 	 * 
 	 */
 	public PINode(final StructNodeDelegate structDel,
-			final NameNodeDelegate nameDel,
-			final ValNodeDelegate valDel,
+			final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
 			final PageReadTrx pageReadTrx) {
 		assert structDel != null : "structDel must not be null!";
 		mStructDel = structDel;
@@ -85,7 +84,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 	public int getPrefixKey() {
 		return mNameDel.getPrefixKey();
 	}
-	
+
 	@Override
 	public int getLocalNameKey() {
 		return mNameDel.getLocalNameKey();
@@ -100,7 +99,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 	public void setPrefixKey(final int prefixKey) {
 		mNameDel.setPrefixKey(prefixKey);
 	}
-	
+
 	@Override
 	public void setLocalNameKey(final int localNameKey) {
 		mNameDel.setLocalNameKey(localNameKey);
@@ -173,11 +172,11 @@ public final class PINode extends AbstractStructForwardingNode implements
 	protected StructNodeDelegate structDelegate() {
 		return mStructDel;
 	}
-	
+
 	@Override
 	public QNm getName() {
-		final String uri = mPageReadTrx.getName(
-				mNameDel.getURIKey(), Kind.NAMESPACE);
+		final String uri = mPageReadTrx.getName(mNameDel.getURIKey(),
+				Kind.NAMESPACE);
 		final int prefixKey = mNameDel.getPrefixKey();
 		final String prefix = prefixKey == -1 ? "" : mPageReadTrx.getName(
 				prefixKey, Kind.PROCESSING_INSTRUCTION);
@@ -186,7 +185,7 @@ public final class PINode extends AbstractStructForwardingNode implements
 				localNameKey, Kind.PROCESSING_INSTRUCTION);
 		return new QNm(uri, prefix, localName);
 	}
-	
+
 	@Override
 	public String getValue() {
 		return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);

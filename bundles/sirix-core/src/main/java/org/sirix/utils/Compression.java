@@ -71,8 +71,7 @@ public class Compression {
 	 * @throws NullPointerException
 	 *           if {@code pToCompress} is {@code null}
 	 */
-	public static byte[] compress(final byte[] toCompress,
-			final int pLevel) {
+	public static byte[] compress(final byte[] toCompress, final int pLevel) {
 		checkNotNull(toCompress);
 		checkArgument(pLevel >= -1 && pLevel <= 9,
 				"pLevel must be between 0 and 9!");

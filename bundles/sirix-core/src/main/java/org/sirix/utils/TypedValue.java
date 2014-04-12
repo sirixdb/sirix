@@ -67,10 +67,14 @@ public final class TypedValue {
 					value |= ((mBytes[position++] & 127)) << 21;
 					if ((mBytes[position - 1] & 128) != 0) {
 						value |= ((mBytes[position++] & 255)) << 28;
-					} else if ((mBytes[position - 1] & 64) != 0) value |= 0xF0000000;
-				} else if ((mBytes[position - 1] & 64) != 0) value |= 0xFFF00000;
-			} else if ((mBytes[position - 1] & 64) != 0) value |= 0xFFFFE000;
-		} else if ((mBytes[position - 1] & 64) != 0) value |= 0xFFFFFFC0;
+					} else if ((mBytes[position - 1] & 64) != 0)
+						value |= 0xF0000000;
+				} else if ((mBytes[position - 1] & 64) != 0)
+					value |= 0xFFF00000;
+			} else if ((mBytes[position - 1] & 64) != 0)
+				value |= 0xFFFFE000;
+		} else if ((mBytes[position - 1] & 64) != 0)
+			value |= 0xFFFFFFC0;
 		return value;
 	}
 
@@ -110,7 +114,8 @@ public final class TypedValue {
 					value |= 0xFFFFFFFFFF000000L;
 			} else if ((mBytes[position - 1] & 128) != 0)
 				value |= 0xFFFFFFFFFFFF0000L;
-		} else if ((mBytes[position - 1] & 128) != 0) value |= 0xFFFFFFFFFFFFFF00L;
+		} else if ((mBytes[position - 1] & 128) != 0)
+			value |= 0xFFFFFFFFFFFFFF00L;
 		return value;
 	}
 

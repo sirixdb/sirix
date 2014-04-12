@@ -38,7 +38,8 @@ import org.slf4j.LoggerFactory;
  * <h1>SortWiki</h1>
  * 
  * <p>
- * Sort Wikipedia pages meta history dump according to the timestamps of the revisions.
+ * Sort Wikipedia pages meta history dump according to the timestamps of the
+ * revisions.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -46,78 +47,78 @@ import org.slf4j.LoggerFactory;
  */
 public final class SortWiki extends Configured implements Tool {
 
-  static {
-    System.setProperty("javax.xml.parsers.DocumentBuilderFactory",
-      "com.sun.org.apache.xerces.internal.jaxp.DocumentBuilderFactoryImpl");
-  }
+	static {
+		System.setProperty("javax.xml.parsers.DocumentBuilderFactory",
+				"com.sun.org.apache.xerces.internal.jaxp.DocumentBuilderFactoryImpl");
+	}
 
-  /**
-   * {@link LogWrapper} used for logging.
-   */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
-    .getLogger(DateWritable.class));
+	/**
+	 * {@link LogWrapper} used for logging.
+	 */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(DateWritable.class));
 
-  /**
-   * Main method.
-   * 
-   * @param args
-   *          program arguments
-   * @throws Exception
-   *           if an exception occurs while running Hadoop
-   */
-  public static void main(final String[] args) throws Exception {
-    final long start = System.nanoTime();
-    LOGWRAPPER.info("Running...");
-    final int res = ToolRunner.run(new Configuration(), new SortWiki(), args);
-    LOGWRAPPER.info("Result: " + res);
-    LOGWRAPPER.info("Done in " + (System.nanoTime() - start) / 1_000_000_000
-      + "s");
-  }
+	/**
+	 * Main method.
+	 * 
+	 * @param args
+	 *          program arguments
+	 * @throws Exception
+	 *           if an exception occurs while running Hadoop
+	 */
+	public static void main(final String[] args) throws Exception {
+		final long start = System.nanoTime();
+		LOGWRAPPER.info("Running...");
+		final int res = ToolRunner.run(new Configuration(), new SortWiki(), args);
+		LOGWRAPPER.info("Result: " + res);
+		LOGWRAPPER.info("Done in " + (System.nanoTime() - start) / 1_000_000_000
+				+ "s");
+	}
 
-  @Override
-  public int run(final String[] args) throws IOException,
-    ClassNotFoundException, InterruptedException {
-    final Job job = new Job(getConf());
-    job.setJarByClass(this.getClass());
-    job.setJobName(this.getClass().getName());
+	@Override
+	public int run(final String[] args) throws IOException,
+			ClassNotFoundException, InterruptedException {
+		final Job job = new Job(getConf());
+		job.setJarByClass(this.getClass());
+		job.setJobName(this.getClass().getName());
 
-    // Map output.
-    job.setMapOutputKeyClass(DateWritable.class);
-    job.setMapOutputValueClass(Text.class);
+		// Map output.
+		job.setMapOutputKeyClass(DateWritable.class);
+		job.setMapOutputValueClass(Text.class);
 
-    // Reduce output.
-    job.setOutputKeyClass(DateWritable.class);
-    job.setOutputValueClass(Text.class);
+		// Reduce output.
+		job.setOutputKeyClass(DateWritable.class);
+		job.setOutputValueClass(Text.class);
 
-    job.setMapperClass(XMLMap.class);
-    job.setReducerClass(XMLReduce.class);
+		job.setMapperClass(XMLMap.class);
+		job.setReducerClass(XMLReduce.class);
 
-    job.setInputFormatClass(XMLInputFormat.class);
-    job.setOutputFormatClass(TextOutputFormat.class);
+		job.setInputFormatClass(XMLInputFormat.class);
+		job.setOutputFormatClass(TextOutputFormat.class);
 
-    final Configuration config = job.getConfiguration();
-    config.set("timestamp", "timestamp");
-    config.set("page", "page");
-    config.set("record_element_name", "revision");
-    config.set("namespace_prefix", "");
-    config.set("namespace_URI", "http://www.mediawiki.org/xml/export-0.4/");
-    config.set("root", "mediawiki");
+		final Configuration config = job.getConfiguration();
+		config.set("timestamp", "timestamp");
+		config.set("page", "page");
+		config.set("record_element_name", "revision");
+		config.set("namespace_prefix", "");
+		config.set("namespace_URI", "http://www.mediawiki.org/xml/export-0.4/");
+		config.set("root", "mediawiki");
 
-    // Debug settings.
-    config.set("mapred.job.tracker", "local");
-    config.set("fs.default.name", "local");
+		// Debug settings.
+		config.set("mapred.job.tracker", "local");
+		config.set("fs.default.name", "local");
 
-    // First delete target directory.
-    try {
-      Files.recursiveRemove(new File(args[1]).toPath());
-    } catch (final SirixIOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
+		// First delete target directory.
+		try {
+			Files.recursiveRemove(new File(args[1]).toPath());
+		} catch (final SirixIOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
 
-    FileInputFormat.setInputPaths(job, new Path(args[0]));
-    FileOutputFormat.setOutputPath(job, new Path(args[1]));
+		FileInputFormat.setInputPaths(job, new Path(args[0]));
+		FileOutputFormat.setOutputPath(job, new Path(args[1]));
 
-    final boolean success = job.waitForCompletion(true);
-    return success ? 0 : 1;
-  }
+		final boolean success = job.waitForCompletion(true);
+		return success ? 0 : 1;
+	}
 }

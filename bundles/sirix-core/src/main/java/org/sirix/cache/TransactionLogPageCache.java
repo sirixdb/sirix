@@ -48,7 +48,8 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, Page> {
+public final class TransactionLogPageCache implements
+		Cache<IndirectPageLogKey, Page> {
 
 	/** RAM-Based first cache. */
 	private final LRUCache<IndirectPageLogKey, Page> mFirstCache;
@@ -93,45 +94,45 @@ public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, 
 	public ImmutableMap<IndirectPageLogKey, Page> getAll(
 			final Iterable<? extends IndirectPageLogKey> keys) {
 		final ImmutableMap.Builder<IndirectPageLogKey, Page> builder = new ImmutableMap.Builder<>();
-			for (final IndirectPageLogKey key : keys) {
-				if (mFirstCache.get(key) != null) {
-					builder.put(key, mFirstCache.get(key));
-				}
+		for (final IndirectPageLogKey key : keys) {
+			if (mFirstCache.get(key) != null) {
+				builder.put(key, mFirstCache.get(key));
 			}
+		}
 		return builder.build();
 	}
 
 	@Override
 	public void clear() {
-			mFirstCache.clear();
+		mFirstCache.clear();
 	}
 
 	@Override
 	public Page get(final IndirectPageLogKey key) {
-	  return mFirstCache.get(key);
+		return mFirstCache.get(key);
 	}
 
 	@Override
 	public void put(final IndirectPageLogKey key, final Page value) {
-			mFirstCache.put(key, value);
+		mFirstCache.put(key, value);
 	}
 
 	@Override
 	public void putAll(final Map<? extends IndirectPageLogKey, ? extends Page> map) {
-			mFirstCache.putAll(map);
+		mFirstCache.putAll(map);
 	}
 
 	@Override
 	public void toSecondCache() {
-			mSecondCache.putAll(mFirstCache.getMap());
+		mSecondCache.putAll(mFirstCache.getMap());
 	}
 
 	@Override
 	public void remove(final IndirectPageLogKey key) {
-			mFirstCache.remove(key);
-			if (mSecondCache.get(key) != null) {
-				mSecondCache.remove(key);
-			}
+		mFirstCache.remove(key);
+		if (mSecondCache.get(key) != null) {
+			mSecondCache.remove(key);
+		}
 	}
 
 	/**
@@ -143,4 +144,3 @@ public final class TransactionLogPageCache implements Cache<IndirectPageLogKey, 
 		return mSecondCache.isCreated();
 	}
 }
-

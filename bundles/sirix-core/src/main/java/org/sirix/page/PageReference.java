@@ -57,7 +57,7 @@ public final class PageReference {
 
 	/** Key in persistent storage. */
 	private long mKey = Constants.NULL_ID;
-	
+
 	/**
 	 * Default constructor setting up an uninitialized page reference.
 	 */

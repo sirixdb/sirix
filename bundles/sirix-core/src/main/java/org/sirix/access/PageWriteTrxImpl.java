@@ -102,7 +102,9 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/** Page writer to serialize. */
 	private final Writer mPageWriter;
 
-	/** Persistent BerkeleyDB page log for all page types != UnorderedKeyValuePage. */
+	/**
+	 * Persistent BerkeleyDB page log for all page types != UnorderedKeyValuePage.
+	 */
 	final Cache<IndirectPageLogKey, Page> mPageLog;
 
 	/** Cache to store the data changes in this transaction log. */
@@ -521,10 +523,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			}
 		}
 		// If none is in the log.
-//		if (page == null) {
-//			// Test if one is instantiated, if so, get
-//			// the one from the reference.
-//			page = reference.getPage();
+		// if (page == null) {
+		// // Test if one is instantiated, if so, get
+		// // the one from the reference.
+		// page = reference.getPage();
 		//
 		// if (page == null) {
 		// // Then try to get one from the page transaction log (indirect pages
@@ -841,8 +843,11 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 			final @Nonnegative int baseRevision,
 			final @Nonnegative int representRevision) throws SirixIOException {
 		if (getUberPage().isBootstrap()) {
-			final RevisionRootPage revisionRootPage = mPageRtx.loadRevRoot(baseRevision);
-			mPageLog.put(new IndirectPageLogKey(PageKind.UBERPAGE, -1, Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length, 0), revisionRootPage);
+			final RevisionRootPage revisionRootPage = mPageRtx
+					.loadRevRoot(baseRevision);
+			mPageLog.put(new IndirectPageLogKey(PageKind.UBERPAGE, -1,
+					Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length, 0),
+					revisionRootPage);
 			return revisionRootPage;
 		} else {
 			// Prepare revision root nodePageReference.

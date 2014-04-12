@@ -50,7 +50,7 @@ public final class DescendantAxis extends AbstractAxis {
 
 	/** Determines if it's the first call to hasNext(). */
 	private boolean mFirst;
-	
+
 	/**
 	 * Constructor initializing internal state.
 	 * 
@@ -69,8 +69,7 @@ public final class DescendantAxis extends AbstractAxis {
 	 * @param includeSelf
 	 *          Is self included?
 	 */
-	public DescendantAxis(final NodeReadTrx rtx,
-			final IncludeSelf includeSelf) {
+	public DescendantAxis(final NodeReadTrx rtx, final IncludeSelf includeSelf) {
 		super(rtx, includeSelf);
 	}
 

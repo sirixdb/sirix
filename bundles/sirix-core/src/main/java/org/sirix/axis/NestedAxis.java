@@ -57,8 +57,7 @@ public final class NestedAxis extends AbstractAxis {
 	 * @param childAxis
 	 *          outer nested axis
 	 */
-	public NestedAxis(final Axis parentAxis,
-			final Axis childAxis) {
+	public NestedAxis(final Axis parentAxis, final Axis childAxis) {
 		super(parentAxis.getTrx());
 		mParentAxis = checkNotNull(parentAxis);
 		mChildAxis = checkNotNull(childAxis);

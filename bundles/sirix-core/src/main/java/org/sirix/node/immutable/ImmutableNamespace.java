@@ -96,7 +96,7 @@ public class ImmutableNamespace implements ImmutableNameNode {
 	public int getLocalNameKey() {
 		return mNode.getLocalNameKey();
 	}
-	
+
 	@Override
 	public int getPrefixKey() {
 		return mNode.getPrefixKey();
@@ -116,22 +116,22 @@ public class ImmutableNamespace implements ImmutableNameNode {
 	public Optional<SirixDeweyID> getDeweyID() {
 		return mNode.getDeweyID();
 	}
-	
+
 	@Override
 	public boolean equals(Object obj) {
 		return mNode.equals(obj);
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return mNode.hashCode();
 	}
-	
+
 	@Override
 	public String toString() {
 		return mNode.toString();
 	}
-	
+
 	@Override
 	public QNm getName() {
 		return mNode.getName();

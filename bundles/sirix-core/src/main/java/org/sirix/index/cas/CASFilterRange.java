@@ -48,17 +48,17 @@ public final class CASFilterRange implements Filter {
 	 * Constructor. Initializes the internal state.
 	 * 
 	 * @param rtx
-	 *            transaction this filter is bound to
+	 *          transaction this filter is bound to
 	 * @param paths
-	 *            paths to match
+	 *          paths to match
 	 * @param min
-	 *            the minimum value
+	 *          the minimum value
 	 * @param max
-	 *            the maximum value
+	 *          the maximum value
 	 * @param incMin
-	 *            include the minimum value
+	 *          include the minimum value
 	 * @param incMax
-	 *            include the maximum value
+	 *          include the maximum value
 	 */
 	public CASFilterRange(final NodeReadTrx rtx, final Set<Path<QNm>> paths,
 			final Atomic min, final Atomic max, final boolean incMin,

@@ -156,8 +156,7 @@ public final class StAXDiffSerializer implements XMLEventReader {
 	 * @param pCloseRtx
 	 *          Determines if rtx should be closed afterwards.
 	 */
-	public StAXDiffSerializer(final DiffAxis pItems,
-			final boolean pCloseRtx) {
+	public StAXDiffSerializer(final DiffAxis pItems, final boolean pCloseRtx) {
 		mNextTag = false;
 		mAxis = checkNotNull(pItems);
 		mCloseRtx = pCloseRtx;
@@ -200,7 +199,9 @@ public final class StAXDiffSerializer implements XMLEventReader {
 		case ELEMENT:
 			final long key = pRTX.getNodeKey();
 			final QNm qName = pRTX.getName();
-			mEvent = mFac.createStartElement(new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()), new AttributeIterator(pRTX),
+			mEvent = mFac.createStartElement(
+					new QName(qName.getNamespaceURI(), qName.getLocalName(), qName
+							.getPrefix()), new AttributeIterator(pRTX),
 					new NamespaceIterator(pRTX));
 			pRTX.moveTo(key);
 			break;
@@ -597,7 +598,9 @@ public final class StAXDiffSerializer implements XMLEventReader {
 			final QNm qName = mRTX.getName();
 			final String value = XMLToken.escapeAttribute(mRTX.getValue());
 			mRTX.moveTo(mNodeKey);
-			return mFac.createAttribute(new QName(qName.getNamespaceURI(), qName.getLocalName(), qName.getPrefix()), value);
+			return mFac.createAttribute(
+					new QName(qName.getNamespaceURI(), qName.getLocalName(), qName
+							.getPrefix()), value);
 		}
 
 		@Override

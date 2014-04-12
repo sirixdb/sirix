@@ -829,10 +829,10 @@ public final class TextView extends JScrollPane implements View {
 						pDoc.getLength(),
 						new StringBuilder()
 								.append(
-										ViewUtilities.qNameToString(new QNm(attName.getNamespaceURI(),
-												attName.getPrefix(), attName.getLocalPart()))).append("=\"")
-								.append(att.getValue()).append("\"").toString(), pDoc
-								.getStyle("attributes"));
+										ViewUtilities.qNameToString(new QNm(attName
+												.getNamespaceURI(), attName.getPrefix(), attName
+												.getLocalPart()))).append("=\"").append(att.getValue())
+								.append("\"").toString(), pDoc.getStyle("attributes"));
 
 				if (attributes.hasNext()) {
 					pDoc.insertString(pDoc.getLength(), " ", pDoc.getStyle("elements"));

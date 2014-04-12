@@ -40,13 +40,14 @@ final class PathIndexBuilder extends AbstractVisitor {
 
 	private final AVLTreeWriter<Long, NodeReferences> mAVLTreeWriter;
 
-	PathIndexBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+	PathIndexBuilder(
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
 		mPathSummaryReader = checkNotNull(pathSummaryReader);
 		mPaths = checkNotNull(indexDef.getPaths());
 		assert indexDef.getType() == IndexType.PATH;
-		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx, indexDef.getType(),
-				indexDef.getID());
+		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx,
+				indexDef.getType(), indexDef.getID());
 	}
 
 	@Override
@@ -62,7 +63,8 @@ final class PathIndexBuilder extends AbstractVisitor {
 	private VisitResult process(final ImmutableNameNode node) {
 		try {
 			final long PCR = node.getPathNodeKey();
-			if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR) || mPaths.isEmpty()) {
+			if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(PCR)
+					|| mPaths.isEmpty()) {
 				final Optional<NodeReferences> textReferences = mAVLTreeWriter.get(PCR,
 						SearchMode.EQUAL);
 				if (textReferences.isPresent()) {

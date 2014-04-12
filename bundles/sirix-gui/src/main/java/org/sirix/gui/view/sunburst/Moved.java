@@ -41,142 +41,162 @@ import org.sirix.api.NodeReadTrx;
  */
 public enum Moved {
 
-  /** Start of traversal or cursor moved to a right sibling of a node. */
-  STARTRIGHTSIBL {
-    @Override
-    public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
-      @Nonnull final Deque<Integer> pDescendantsStack) {
-      // Do nothing.
-    }
+	/** Start of traversal or cursor moved to a right sibling of a node. */
+	STARTRIGHTSIBL {
+		@Override
+		public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem,
+				@Nonnull final Deque<Float> pAngleStack,
+				@Nonnull final Deque<Float> pExtensionStack,
+				@Nonnull final Deque<Integer> pParentStack,
+				@Nonnull final Deque<Integer> pDescendantsStack) {
+			// Do nothing.
+		}
 
-    @Override
-    public void processCompareMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendants,
-      @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack) {
-      // Do nothing.
-    }
-  },
+		@Override
+		public void processCompareMove(final NodeReadTrx pRtx,
+				@Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+				@Nonnull final Deque<Float> pExtensionStack,
+				@Nonnull final Deque<Integer> pDescendants,
+				@Nonnull final Deque<Integer> pParentStack,
+				@Nonnull final Deque<Integer> pModificationStack) {
+			// Do nothing.
+		}
+	},
 
-  /** Next node is a child of the current node. */
-  CHILD {
-    @Override
-    public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
-      @Nonnull final Deque<Integer> pDescendantsStack) {
-      assert !pAngleStack.isEmpty();
-      pItem.mAngle = pAngleStack.peek();
-      assert !pExtensionStack.isEmpty();
-      pItem.mExtension = pExtensionStack.peek();
-      assert !pParentStack.isEmpty();
-      pItem.mIndexToParent = pParentStack.peek();
-      assert !pDescendantsStack.isEmpty();
-      pItem.mParentDescendantCount = pDescendantsStack.peek();
-    }
+	/** Next node is a child of the current node. */
+	CHILD {
+		@Override
+		public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem,
+				@Nonnull final Deque<Float> pAngleStack,
+				@Nonnull final Deque<Float> pExtensionStack,
+				@Nonnull final Deque<Integer> pParentStack,
+				@Nonnull final Deque<Integer> pDescendantsStack) {
+			assert !pAngleStack.isEmpty();
+			pItem.mAngle = pAngleStack.peek();
+			assert !pExtensionStack.isEmpty();
+			pItem.mExtension = pExtensionStack.peek();
+			assert !pParentStack.isEmpty();
+			pItem.mIndexToParent = pParentStack.peek();
+			assert !pDescendantsStack.isEmpty();
+			pItem.mParentDescendantCount = pDescendantsStack.peek();
+		}
 
-    @Override
-    public void processCompareMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendantsStack,
-      @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack) {
-      assert !pAngleStack.isEmpty();
-      pItem.mAngle = pAngleStack.peek();
-      assert !pExtensionStack.isEmpty();
-      pItem.mExtension = pExtensionStack.peek();
-      assert !pDescendantsStack.isEmpty();
-      pItem.mParentDescendantCount = pDescendantsStack.peek();
-      assert !pParentStack.isEmpty();
-      pItem.mIndexToParent = pParentStack.peek();
-      assert !pModificationStack.isEmpty();
-      pItem.mParentModificationCount = pModificationStack.peek();
-    }
-  },
+		@Override
+		public void processCompareMove(final NodeReadTrx pRtx,
+				@Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+				@Nonnull final Deque<Float> pExtensionStack,
+				@Nonnull final Deque<Integer> pDescendantsStack,
+				@Nonnull final Deque<Integer> pParentStack,
+				@Nonnull final Deque<Integer> pModificationStack) {
+			assert !pAngleStack.isEmpty();
+			pItem.mAngle = pAngleStack.peek();
+			assert !pExtensionStack.isEmpty();
+			pItem.mExtension = pExtensionStack.peek();
+			assert !pDescendantsStack.isEmpty();
+			pItem.mParentDescendantCount = pDescendantsStack.peek();
+			assert !pParentStack.isEmpty();
+			pItem.mIndexToParent = pParentStack.peek();
+			assert !pModificationStack.isEmpty();
+			pItem.mParentModificationCount = pModificationStack.peek();
+		}
+	},
 
-  /** Next node is the rightsibling of the first anchestor node which has one. */
-  ANCHESTSIBL {
-    @Override
-    public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
-      @Nonnull final Deque<Integer> pDescendantsStack) {
-      assert !pAngleStack.isEmpty();
-      pItem.mAngle = pAngleStack.pop();
-      assert !pExtensionStack.isEmpty();
-      pItem.mAngle += pExtensionStack.pop();
-      assert !pExtensionStack.isEmpty();
-      pItem.mExtension = pExtensionStack.peek();
-      assert !pParentStack.isEmpty();
-      pParentStack.pop();
-      assert !pParentStack.isEmpty();
-      pItem.mIndexToParent = pParentStack.peek();
-      assert !pDescendantsStack.isEmpty();
-      pDescendantsStack.pop();
-      assert !pDescendantsStack.isEmpty();
-      pItem.mParentDescendantCount = pDescendantsStack.peek();
-    }
+	/** Next node is the rightsibling of the first anchestor node which has one. */
+	ANCHESTSIBL {
+		@Override
+		public void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem,
+				@Nonnull final Deque<Float> pAngleStack,
+				@Nonnull final Deque<Float> pExtensionStack,
+				@Nonnull final Deque<Integer> pParentStack,
+				@Nonnull final Deque<Integer> pDescendantsStack) {
+			assert !pAngleStack.isEmpty();
+			pItem.mAngle = pAngleStack.pop();
+			assert !pExtensionStack.isEmpty();
+			pItem.mAngle += pExtensionStack.pop();
+			assert !pExtensionStack.isEmpty();
+			pItem.mExtension = pExtensionStack.peek();
+			assert !pParentStack.isEmpty();
+			pParentStack.pop();
+			assert !pParentStack.isEmpty();
+			pItem.mIndexToParent = pParentStack.peek();
+			assert !pDescendantsStack.isEmpty();
+			pDescendantsStack.pop();
+			assert !pDescendantsStack.isEmpty();
+			pItem.mParentDescendantCount = pDescendantsStack.peek();
+		}
 
-    @Override
-    public void processCompareMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-      @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendantsStack,
-      @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack) {
-      assert !pAngleStack.isEmpty();
-      pItem.mAngle = pAngleStack.pop();
-      assert !pExtensionStack.isEmpty();
-      pItem.mAngle += pExtensionStack.pop();
-      assert !pExtensionStack.isEmpty();
-      pItem.mExtension = pExtensionStack.peek();
-      assert !pParentStack.isEmpty();
-      pParentStack.pop();
-      assert !pParentStack.isEmpty();
-      pItem.mIndexToParent = pParentStack.peek();
-      assert !pDescendantsStack.isEmpty();
-      pDescendantsStack.pop();
-      assert !pDescendantsStack.isEmpty();
-      pItem.mParentDescendantCount = pDescendantsStack.peek();
-      assert !pModificationStack.isEmpty();
-      pModificationStack.pop();
-      assert !pModificationStack.isEmpty();
-      pItem.mParentModificationCount = pModificationStack.peek();
-    }
-  };
+		@Override
+		public void processCompareMove(final NodeReadTrx pRtx,
+				@Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+				@Nonnull final Deque<Float> pExtensionStack,
+				@Nonnull final Deque<Integer> pDescendantsStack,
+				@Nonnull final Deque<Integer> pParentStack,
+				@Nonnull final Deque<Integer> pModificationStack) {
+			assert !pAngleStack.isEmpty();
+			pItem.mAngle = pAngleStack.pop();
+			assert !pExtensionStack.isEmpty();
+			pItem.mAngle += pExtensionStack.pop();
+			assert !pExtensionStack.isEmpty();
+			pItem.mExtension = pExtensionStack.peek();
+			assert !pParentStack.isEmpty();
+			pParentStack.pop();
+			assert !pParentStack.isEmpty();
+			pItem.mIndexToParent = pParentStack.peek();
+			assert !pDescendantsStack.isEmpty();
+			pDescendantsStack.pop();
+			assert !pDescendantsStack.isEmpty();
+			pItem.mParentDescendantCount = pDescendantsStack.peek();
+			assert !pModificationStack.isEmpty();
+			pModificationStack.pop();
+			assert !pModificationStack.isEmpty();
+			pItem.mParentModificationCount = pModificationStack.peek();
+		}
+	};
 
-  /**
-   * Process movement of sirix {@link NodeReadTrx}.
-   * 
-   * @param pRtx
-   *          sirix {@link NodeReadTrx}
-   * @param pItem
-   *          Item which does hold sunburst item angles and extensions
-   * @param pAngleStack
-   *          Deque for angles
-   * @param pExtensionStack
-   *          Deque for extensions
-   * @param pParentStack
-   *          Deque for parent indexes
-   * @param pDescendantsStack
-   *          Deque for descendants
-   */
-  public abstract void processMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-    @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pParentStack,
-    @Nonnull final Deque<Integer> pDescendantsStack);
+	/**
+	 * Process movement of sirix {@link NodeReadTrx}.
+	 * 
+	 * @param pRtx
+	 *          sirix {@link NodeReadTrx}
+	 * @param pItem
+	 *          Item which does hold sunburst item angles and extensions
+	 * @param pAngleStack
+	 *          Deque for angles
+	 * @param pExtensionStack
+	 *          Deque for extensions
+	 * @param pParentStack
+	 *          Deque for parent indexes
+	 * @param pDescendantsStack
+	 *          Deque for descendants
+	 */
+	public abstract void processMove(final NodeReadTrx pRtx,
+			@Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+			@Nonnull final Deque<Float> pExtensionStack,
+			@Nonnull final Deque<Integer> pParentStack,
+			@Nonnull final Deque<Integer> pDescendantsStack);
 
-  /**
-   * Process movement of sirix {@link NodeReadTrx}, while comparing revisions.
-   * 
-   * @param pRtx
-   *          sirix {@link NodeReadTrx}
-   * @param pItem
-   *          Item which does hold sunburst item angles and extensions
-   * @param pAngleStack
-   *          Deque for angles
-   * @param pExtensionStack
-   *          Deque for extensions
-   * @param pDescendantsStack
-   *          Deque for descendants
-   * @param pParentStack
-   *          Deque for parent indexes
-   * @param pModificationStack
-   *          Deque for modifications
-   */
-  public abstract void processCompareMove(final NodeReadTrx pRtx, @Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
-    @Nonnull final Deque<Float> pExtensionStack, @Nonnull final Deque<Integer> pDescendantsStack,
-    @Nonnull final Deque<Integer> pParentStack, @Nonnull final Deque<Integer> pModificationStack);
+	/**
+	 * Process movement of sirix {@link NodeReadTrx}, while comparing revisions.
+	 * 
+	 * @param pRtx
+	 *          sirix {@link NodeReadTrx}
+	 * @param pItem
+	 *          Item which does hold sunburst item angles and extensions
+	 * @param pAngleStack
+	 *          Deque for angles
+	 * @param pExtensionStack
+	 *          Deque for extensions
+	 * @param pDescendantsStack
+	 *          Deque for descendants
+	 * @param pParentStack
+	 *          Deque for parent indexes
+	 * @param pModificationStack
+	 *          Deque for modifications
+	 */
+	public abstract void processCompareMove(final NodeReadTrx pRtx,
+			@Nonnull final Item pItem, @Nonnull final Deque<Float> pAngleStack,
+			@Nonnull final Deque<Float> pExtensionStack,
+			@Nonnull final Deque<Integer> pDescendantsStack,
+			@Nonnull final Deque<Integer> pParentStack,
+			@Nonnull final Deque<Integer> pModificationStack);
 }

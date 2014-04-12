@@ -71,8 +71,8 @@ public final class ConcurrentExceptAxis extends AbstractAxis {
 	 *           if {@code rtx}, {@code operand1} or {@code operand2} is
 	 *           {@code null}
 	 */
-	public ConcurrentExceptAxis(final NodeReadTrx rtx,
-			final Axis operand1, final Axis operand2) {
+	public ConcurrentExceptAxis(final NodeReadTrx rtx, final Axis operand1,
+			final Axis operand2) {
 		super(rtx);
 		mOp1 = new ConcurrentAxis(rtx, operand1);
 		mOp2 = new ConcurrentAxis(rtx, operand2);
@@ -111,7 +111,8 @@ public final class ConcurrentExceptAxis extends AbstractAxis {
 		// returned
 		while (!mOp1.isFinished()) {
 			while (!mOp2.isFinished()) {
-				if (mOp1.isFinished()) break;
+				if (mOp1.isFinished())
+					break;
 
 				while (mCurrentResult1 >= mCurrentResult2 && !mOp1.isFinished()
 						&& !mOp2.isFinished()) {

@@ -21,8 +21,8 @@ import com.google.common.base.Optional;
 public final class NodePersistenterImpl implements NodePersistenter {
 	@Override
 	public Record deserialize(final DataInput source,
-			final @Nonnegative long recordID, final Optional<SirixDeweyID> deweyID, final PageReadTrx pageReadTrx)
-			throws IOException {
+			final @Nonnegative long recordID, final Optional<SirixDeweyID> deweyID,
+			final PageReadTrx pageReadTrx) throws IOException {
 		final byte id = source.readByte();
 		final Kind enumKind = Kind.getKind(id);
 		return enumKind.deserialize(source, recordID, deweyID, pageReadTrx);
@@ -48,8 +48,7 @@ public final class NodePersistenterImpl implements NodePersistenter {
 
 	@Override
 	public void serializeDeweyID(final DataOutput sink, final Kind nodeKind,
-			final SirixDeweyID deweyID,
-			final Optional<SirixDeweyID> previousDeweyID,
+			final SirixDeweyID deweyID, final Optional<SirixDeweyID> previousDeweyID,
 			final PageReadTrx pageReadTrx) throws IOException {
 		final byte id = nodeKind.getId();
 		sink.writeByte(id);

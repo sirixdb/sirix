@@ -118,8 +118,7 @@ public final class TransactionIndexLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void put(final IndexLogKey key,
-			final RecordPageContainer<T> value) {
+	public void put(final IndexLogKey key, final RecordPageContainer<T> value) {
 		mFirstCache.put(key, value);
 	}
 

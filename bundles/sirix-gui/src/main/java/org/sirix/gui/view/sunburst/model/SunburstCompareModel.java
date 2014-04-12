@@ -71,345 +71,354 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SunburstCompareModel extends AbstractModel<SunburstContainer, SunburstItem> implements
-  PropertyChangeListener {
+public final class SunburstCompareModel extends
+		AbstractModel<SunburstContainer, SunburstItem> implements
+		PropertyChangeListener {
 
-  /** {@link LogWrapper}. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
-    .getLogger(SunburstCompareModel.class));
+	/** {@link LogWrapper}. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(SunburstCompareModel.class));
 
-  /** {@link ExecutorService} reference to manage thread pool. */
-  private static final ExecutorService mPool = Executors.newFixedThreadPool(Runtime.getRuntime()
-    .availableProcessors());
+	/** {@link ExecutorService} reference to manage thread pool. */
+	private static final ExecutorService mPool = Executors
+			.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
-  /** {@link BlockingQueue} for the results of a XPath query. */
-//  private BlockingQueue<Long> mQueue;
-  
-  private List<Long> mResult;
-  
-  private CountDownLatch mLatch;
+	/** {@link BlockingQueue} for the results of a XPath query. */
+	// private BlockingQueue<Long> mQueue;
 
-  /** {@link SunburstContainer} with some options for the traversal. */
-  private SunburstContainer mContainer;
+	private List<Long> mResult;
 
-  /**
-   * Constructor.
-   * 
-   * @param pApplet
-   *          the processing {@link PApplet} core library
-   * @param pDb
-   *          {@link ReadDB} reference
-   */
-  public SunburstCompareModel(final PApplet pApplet, final ReadDB pDb) {
-    super(pApplet, pDb);
-  }
+	private CountDownLatch mLatch;
 
-  @Override
-  public synchronized void update(final Container<SunburstContainer> pContainer) {
-    // Cast guaranteed to work.
-    mContainer = (SunburstContainer)checkNotNull(pContainer);
-    mLastItems.push(new ArrayList<SunburstItem>(mItems));
-    mLastDepths.push(mLastMaxDepth);
-    mLastOldDepths.push(mLastOldMaxDepth);
-  }
+	/** {@link SunburstContainer} with some options for the traversal. */
+	private SunburstContainer mContainer;
 
-  @Override
-  public synchronized void traverseTree(final Container<SunburstContainer> pContainer) {
-    // Cast guaranteed to work.
-    mContainer = (SunburstContainer)checkNotNull(pContainer);
-    final SunburstContainer container = (SunburstContainer)pContainer;
-    if (container.getOldRevision() == -1) {
-      container.setOldRevision(getDb().getRevisionNumber());
-    }
-    mPool.submit(new TraverseCompareTree(container));
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pApplet
+	 *          the processing {@link PApplet} core library
+	 * @param pDb
+	 *          {@link ReadDB} reference
+	 */
+	public SunburstCompareModel(final PApplet pApplet, final ReadDB pDb) {
+		super(pApplet, pDb);
+	}
 
-  @Override
-  public synchronized final void evaluateXPath(final String pXPathExpression) {
-    if (!pXPathExpression.isEmpty()) {
-      final ReadDB db = mDb.get();
-      mPool.submit(new TemporalXPathEvaluation(db.getSession(), db.getRevisionNumber(), mContainer
-        .getRevision(), pXPathExpression));
-    }
-  }
+	@Override
+	public synchronized void update(final Container<SunburstContainer> pContainer) {
+		// Cast guaranteed to work.
+		mContainer = (SunburstContainer) checkNotNull(pContainer);
+		mLastItems.push(new ArrayList<SunburstItem>(mItems));
+		mLastDepths.push(mLastMaxDepth);
+		mLastOldDepths.push(mLastOldMaxDepth);
+	}
 
-  @SuppressWarnings("unchecked")
-  @Override
-  public synchronized void propertyChange(final PropertyChangeEvent pEvent) {
-    switch (pEvent.getPropertyName().toLowerCase()) {
-    case "oldrev":
-      firePropertyChange("oldRev", null, (Integer)pEvent.getNewValue());
-      break;
-    case "newrev":
-      firePropertyChange("newRev", null, (Integer)pEvent.getNewValue());
-      break;
-    case "oldmaxdepth":
-      mLastOldMaxDepth = (Integer)pEvent.getNewValue();
-      firePropertyChange("oldMaxDepth", null, mLastOldMaxDepth);
-      break;
-    case "maxdepth":
-      mLastMaxDepth = (Integer)pEvent.getNewValue();
-      firePropertyChange("maxDepth", null, mLastMaxDepth);
-      break;
-    case "done":
-      firePropertyChange("done", null, true);
-      mContainer.getLock().release();
-      break;
-    case "item":
-      firePropertyChange("item", null, pEvent.getNewValue());
-      break;
-    case "items":
-      mItems = (List<SunburstItem>)pEvent.getNewValue();
-      firePropertyChange("items", null, mItems);
-      ((Embedded)mParent).refresh(Optional.of(new VisualItemAxis(mItems)));
-      break;
-    case "progress":
-      firePropertyChange("progress", null, pEvent.getNewValue());
-      break;
-    case "updated":
-      firePropertyChange("updated", null, pEvent.getNewValue());
-      break;
-    }
-  }
+	@Override
+	public synchronized void traverseTree(
+			final Container<SunburstContainer> pContainer) {
+		// Cast guaranteed to work.
+		mContainer = (SunburstContainer) checkNotNull(pContainer);
+		final SunburstContainer container = (SunburstContainer) pContainer;
+		if (container.getOldRevision() == -1) {
+			container.setOldRevision(getDb().getRevisionNumber());
+		}
+		mPool.submit(new TraverseCompareTree(container));
+	}
 
-  /** XPath evaluation on an agglomeration. */
-  private final class TemporalXPathEvaluation implements Callable<Void> {
+	@Override
+	public synchronized final void evaluateXPath(final String pXPathExpression) {
+		if (!pXPathExpression.isEmpty()) {
+			final ReadDB db = mDb.get();
+			mPool.submit(new TemporalXPathEvaluation(db.getSession(), db
+					.getRevisionNumber(), mContainer.getRevision(), pXPathExpression));
+		}
+	}
 
-    /** sirix {@link Session}. */
-    private final Session mSession;
+	@SuppressWarnings("unchecked")
+	@Override
+	public synchronized void propertyChange(final PropertyChangeEvent pEvent) {
+		switch (pEvent.getPropertyName().toLowerCase()) {
+		case "oldrev":
+			firePropertyChange("oldRev", null, (Integer) pEvent.getNewValue());
+			break;
+		case "newrev":
+			firePropertyChange("newRev", null, (Integer) pEvent.getNewValue());
+			break;
+		case "oldmaxdepth":
+			mLastOldMaxDepth = (Integer) pEvent.getNewValue();
+			firePropertyChange("oldMaxDepth", null, mLastOldMaxDepth);
+			break;
+		case "maxdepth":
+			mLastMaxDepth = (Integer) pEvent.getNewValue();
+			firePropertyChange("maxDepth", null, mLastMaxDepth);
+			break;
+		case "done":
+			firePropertyChange("done", null, true);
+			mContainer.getLock().release();
+			break;
+		case "item":
+			firePropertyChange("item", null, pEvent.getNewValue());
+			break;
+		case "items":
+			mItems = (List<SunburstItem>) pEvent.getNewValue();
+			firePropertyChange("items", null, mItems);
+			((Embedded) mParent).refresh(Optional.of(new VisualItemAxis(mItems)));
+			break;
+		case "progress":
+			firePropertyChange("progress", null, pEvent.getNewValue());
+			break;
+		case "updated":
+			firePropertyChange("updated", null, pEvent.getNewValue());
+			break;
+		}
+	}
 
-    /** New revision to open. */
-    private final int mNewRevision;
+	/** XPath evaluation on an agglomeration. */
+	private final class TemporalXPathEvaluation implements Callable<Void> {
 
-    /** Old revision to open. */
-    private final int mOldRevision;
+		/** sirix {@link Session}. */
+		private final Session mSession;
 
-    /** XPath query. */
-    private final String mQuery;
+		/** New revision to open. */
+		private final int mNewRevision;
 
-    /**
-     * Constructor.
-     * 
-     * @param pSession
-     *          sirix {@link Session}
-     * @param pRevision
-     *          start revision to open
-     * @param pKey
-     *          key from which to start traversal
-     * @param pQuery
-     *          the XPath query
-     * @throws AssertionError
-     *           if {@code pSession} is {@code null}, {@code pNewRevision} is {@code less than 0},
-     *           {@code pOldRevision} is {@code less than 0} or {@code pQuery} is {@code null}
-     */
-    private TemporalXPathEvaluation(final Session pSession, final int pNewRevision,
-      final int pOldRevision, final String pQuery) {
-      assert pSession != null;
-      assert pOldRevision >= 0;
-      assert pNewRevision >= 0;
-      assert pQuery != null;
-      mSession = pSession;
-      mNewRevision = pNewRevision;
-      mOldRevision = pOldRevision;
-      mQuery = pQuery;
-      mResult = Collections.synchronizedList(new ArrayList<Long>());//new LinkedBlockingQueue<>();
-      mLatch = new CountDownLatch(3);
-    }
+		/** Old revision to open. */
+		private final int mOldRevision;
 
-    @Override
-    public Void call() throws SirixException {
-      final List<SunburstItem> sortedItems = new ArrayList<>(mItems);
-      final ExecutorService executor = Executors.newFixedThreadPool(3);
-      executor.submit(new XPathEvaluation(mSession, mOldRevision, mQuery));
-      executor.submit(new XPathEvaluation(mSession, mNewRevision, mQuery));
-      executor.submit(new Callable<Void>() {
-        @Override
-        public Void call() throws Exception {
-          Collections.sort(sortedItems);
-          mLatch.countDown();
-          return null;
-        }
-      });
-      executor.shutdown();
-      
-      try {
-        mLatch.await(10, TimeUnit.SECONDS);
-      } catch (final InterruptedException e) {
-        LOGWRAPPER.error(e.getMessage(), e);
-      }
+		/** XPath query. */
+		private final String mQuery;
 
-//      final ExecutorService sameThreadExecutor = MoreExecutors.sameThreadExecutor();
-//      final Future<List<Long>> xpathResultFuture = sameThreadExecutor.submit(new XPathResult());
-//      sameThreadExecutor.shutdown();
-//
-//      int i = 0;
-//      List<Long> xpathResult = null;
-//      try {
-//        xpathResult = new ArrayList<>(xpathResultFuture.get());
-//      } catch (final InterruptedException | ExecutionException e) {
-//        LOGWRAPPER.error(e.getMessage(), e);
-//      }
-      
-      Collections.sort(mResult);
+		/**
+		 * Constructor.
+		 * 
+		 * @param pSession
+		 *          sirix {@link Session}
+		 * @param pRevision
+		 *          start revision to open
+		 * @param pKey
+		 *          key from which to start traversal
+		 * @param pQuery
+		 *          the XPath query
+		 * @throws AssertionError
+		 *           if {@code pSession} is {@code null}, {@code pNewRevision} is
+		 *           {@code less than 0}, {@code pOldRevision} is
+		 *           {@code less than 0} or {@code pQuery} is {@code null}
+		 */
+		private TemporalXPathEvaluation(final Session pSession,
+				final int pNewRevision, final int pOldRevision, final String pQuery) {
+			assert pSession != null;
+			assert pOldRevision >= 0;
+			assert pNewRevision >= 0;
+			assert pQuery != null;
+			mSession = pSession;
+			mNewRevision = pNewRevision;
+			mOldRevision = pOldRevision;
+			mQuery = pQuery;
+			mResult = Collections.synchronizedList(new ArrayList<Long>());// new
+																																		// LinkedBlockingQueue<>();
+			mLatch = new CountDownLatch(3);
+		}
 
-      // Initialize all items to ISNOTFOUND.
-      for (final SunburstItem item : sortedItems) {
-        item.setXPathState(XPathState.ISNOTFOUND);
-      }
-      final Iterator<Long> xpath = mResult.iterator();
-      long nextResult = Integer.MIN_VALUE;
-      if (xpath.hasNext()) {
-        nextResult = xpath.next();
-      }
+		@Override
+		public Void call() throws SirixException {
+			final List<SunburstItem> sortedItems = new ArrayList<>(mItems);
+			final ExecutorService executor = Executors.newFixedThreadPool(3);
+			executor.submit(new XPathEvaluation(mSession, mOldRevision, mQuery));
+			executor.submit(new XPathEvaluation(mSession, mNewRevision, mQuery));
+			executor.submit(new Callable<Void>() {
+				@Override
+				public Void call() throws Exception {
+					Collections.sort(sortedItems);
+					mLatch.countDown();
+					return null;
+				}
+			});
+			executor.shutdown();
 
-      for (int i = 0; i < sortedItems.size() && nextResult != Integer.MIN_VALUE;) {
-        VisualItem item = sortedItems.get(i);
+			try {
+				mLatch.await(10, TimeUnit.SECONDS);
+			} catch (final InterruptedException e) {
+				LOGWRAPPER.error(e.getMessage(), e);
+			}
 
-        if (item.getKey() == nextResult) {
-          i++;
-          item.setXPathState(XPathState.ISFOUND);
-          if (xpath.hasNext()) {
-            item = sortedItems.get(i);
-            if (item.getKey() == nextResult) {
-              item.setXPathState(XPathState.ISFOUND);
-            }
-            nextResult = xpath.next();
-          } else {
-            nextResult = Integer.MIN_VALUE;
-          }
-        } else {
-          if (item.getKey() > nextResult) {
-            if (xpath.hasNext()) {
-              nextResult = xpath.next();
-            } else {
-              nextResult = Integer.MIN_VALUE;
-            }
-          } else {
-            i++;
-          }
-        }
-      }
+			// final ExecutorService sameThreadExecutor =
+			// MoreExecutors.sameThreadExecutor();
+			// final Future<List<Long>> xpathResultFuture =
+			// sameThreadExecutor.submit(new XPathResult());
+			// sameThreadExecutor.shutdown();
+			//
+			// int i = 0;
+			// List<Long> xpathResult = null;
+			// try {
+			// xpathResult = new ArrayList<>(xpathResultFuture.get());
+			// } catch (final InterruptedException | ExecutionException e) {
+			// LOGWRAPPER.error(e.getMessage(), e);
+			// }
 
-      firePropertyChange("done", null, true);
-      return null;
-    }
-  }
+			Collections.sort(mResult);
 
-  /** Evaluate an XPath query on one revision. */
-  private final class XPathEvaluation implements Callable<Void> {
+			// Initialize all items to ISNOTFOUND.
+			for (final SunburstItem item : sortedItems) {
+				item.setXPathState(XPathState.ISNOTFOUND);
+			}
+			final Iterator<Long> xpath = mResult.iterator();
+			long nextResult = Integer.MIN_VALUE;
+			if (xpath.hasNext()) {
+				nextResult = xpath.next();
+			}
 
-    /** sirix {@link Session}. */
-    private final Session mSession;
+			for (int i = 0; i < sortedItems.size() && nextResult != Integer.MIN_VALUE;) {
+				VisualItem item = sortedItems.get(i);
 
-    /** The revision to open. */
-    private final int mRevision;
+				if (item.getKey() == nextResult) {
+					i++;
+					item.setXPathState(XPathState.ISFOUND);
+					if (xpath.hasNext()) {
+						item = sortedItems.get(i);
+						if (item.getKey() == nextResult) {
+							item.setXPathState(XPathState.ISFOUND);
+						}
+						nextResult = xpath.next();
+					} else {
+						nextResult = Integer.MIN_VALUE;
+					}
+				} else {
+					if (item.getKey() > nextResult) {
+						if (xpath.hasNext()) {
+							nextResult = xpath.next();
+						} else {
+							nextResult = Integer.MIN_VALUE;
+						}
+					} else {
+						i++;
+					}
+				}
+			}
 
-    /** XPath query. */
-    private final String mQuery;
+			firePropertyChange("done", null, true);
+			return null;
+		}
+	}
 
-    /**
-     * Constructor.
-     * 
-     * @param pSession
-     *          sirix {@link Session}
-     * @param pRevision
-     *          the revision to open
-     * @param pQuery
-     *          XPath query
-     */
-    private XPathEvaluation(final Session pSession, final int pRevision, final String pQuery) {
-      assert pSession != null;
-      assert pRevision >= 0;
-      assert pQuery != null;
-      mSession = pSession;
-      mRevision = pRevision;
-      mQuery = pQuery;
-    }
+	/** Evaluate an XPath query on one revision. */
+	private final class XPathEvaluation implements Callable<Void> {
 
-    @Override
-    public Void call() throws Exception {
-      // final XPathSelector selector =
-      // new XPathEvaluator.Builder(mQuery, mSession).setRevision(mRevision).build().call();
-      // for (final XdmItem item : selector) {
-      // if (item instanceof XdmNode) {
-      // final XdmNode node = (XdmNode)item;
-      // final NodeWrapper wrapped = (NodeWrapper)node.getUnderlyingValue();
-      // mQueue.put(wrapped.getKey());
-      // }
-      // }
-      final NodeReadTrx rtx = mSession.beginNodeReadTrx(mRevision);
-      final Axis axis = new XPathAxis(rtx, mQuery);
-      for (final long nodeKey : axis) {
-        mResult.add(nodeKey);
-      }
-//      mQueue.put(-1L);
-      mLatch.countDown();
-      rtx.close();
-      return null;
-    }
-  }
+		/** sirix {@link Session}. */
+		private final Session mSession;
 
-//  /** Sort XPath results taken from a {@BlockingQueue}. */
-//  private final class XPathResult implements Callable<List<Long>> {
-//
-//    /** {@link List} of nodeKeys which are the result of the XPath query on two revisions. */
-//    private final List<Long> mXPathResult;
-//
-//    /** Constructor. */
-//    private XPathResult() {
-//      mXPathResult = new ArrayList<>();
-//    }
-//
-//    @Override
-//    public List<Long> call() throws AbsTTException, InterruptedException {
-//      int counter = 0;
-//      while (true) {
-//        final long key = mQueue.take();
-//        if (key == -1L) {
-//          if (++counter == 2) {
-//            break;
-//          }
-//        } else {
-//          mXPathResult.add(key);
-//          if (mXPathResult.size() >= 2) {
-//            // for (int i = 0; i < mXPathResult.size(); i++) {
-//            // if (key > mXPathResult.get(i)) {
-//            int j = mXPathResult.size() - 1;
-//            while (j > 0 && mXPathResult.get(j - 1) > key) {
-//              mXPathResult.set(j, mXPathResult.get(j - 1));
-//              j--;
-//            }
-//            if (!(j > 0 && mXPathResult.get(j - 1) == key)) {
-//              mXPathResult.set(j, key);
-//            }
-//            // }
-//            // }
-//            // insertionSort();
-//          }
-//        }
-//      }
-//
-//      return mXPathResult;
-//    }
-//
-//    // /** Implementation of the InsertionSort algorithm. */
-//    // private void insertionSort() {
-//    // for (int i = 1, j = 1; i < mXPathResult.size(); i++) {
-//    // final long newValue = mXPathResult.get(i);
-//    // j = i;
-//    // while (j > 0 && mXPathResult.get(j - 1) > newValue) {
-//    // mXPathResult.set(j, mXPathResult.get(j - 1));
-//    // j--;
-//    // }
-//    // if (!(j > 0 && mXPathResult.get(j - 1) == newValue)) {
-//    // mXPathResult.set(j, newValue);
-//    // }
-//    // }
-//    // }
-//  }
+		/** The revision to open. */
+		private final int mRevision;
 
-  public Optional<VisualItemAxis> getItems(final int pIndex) {
-    checkArgument(pIndex >= 0, "pIndex must be >= 0!");
-    return Optional.of(new VisualItemAxis(mItems, pIndex - 1));
-  }
+		/** XPath query. */
+		private final String mQuery;
+
+		/**
+		 * Constructor.
+		 * 
+		 * @param pSession
+		 *          sirix {@link Session}
+		 * @param pRevision
+		 *          the revision to open
+		 * @param pQuery
+		 *          XPath query
+		 */
+		private XPathEvaluation(final Session pSession, final int pRevision,
+				final String pQuery) {
+			assert pSession != null;
+			assert pRevision >= 0;
+			assert pQuery != null;
+			mSession = pSession;
+			mRevision = pRevision;
+			mQuery = pQuery;
+		}
+
+		@Override
+		public Void call() throws Exception {
+			// final XPathSelector selector =
+			// new XPathEvaluator.Builder(mQuery,
+			// mSession).setRevision(mRevision).build().call();
+			// for (final XdmItem item : selector) {
+			// if (item instanceof XdmNode) {
+			// final XdmNode node = (XdmNode)item;
+			// final NodeWrapper wrapped = (NodeWrapper)node.getUnderlyingValue();
+			// mQueue.put(wrapped.getKey());
+			// }
+			// }
+			final NodeReadTrx rtx = mSession.beginNodeReadTrx(mRevision);
+			final Axis axis = new XPathAxis(rtx, mQuery);
+			for (final long nodeKey : axis) {
+				mResult.add(nodeKey);
+			}
+			// mQueue.put(-1L);
+			mLatch.countDown();
+			rtx.close();
+			return null;
+		}
+	}
+
+	// /** Sort XPath results taken from a {@BlockingQueue}. */
+	// private final class XPathResult implements Callable<List<Long>> {
+	//
+	// /** {@link List} of nodeKeys which are the result of the XPath query on two
+	// revisions. */
+	// private final List<Long> mXPathResult;
+	//
+	// /** Constructor. */
+	// private XPathResult() {
+	// mXPathResult = new ArrayList<>();
+	// }
+	//
+	// @Override
+	// public List<Long> call() throws AbsTTException, InterruptedException {
+	// int counter = 0;
+	// while (true) {
+	// final long key = mQueue.take();
+	// if (key == -1L) {
+	// if (++counter == 2) {
+	// break;
+	// }
+	// } else {
+	// mXPathResult.add(key);
+	// if (mXPathResult.size() >= 2) {
+	// // for (int i = 0; i < mXPathResult.size(); i++) {
+	// // if (key > mXPathResult.get(i)) {
+	// int j = mXPathResult.size() - 1;
+	// while (j > 0 && mXPathResult.get(j - 1) > key) {
+	// mXPathResult.set(j, mXPathResult.get(j - 1));
+	// j--;
+	// }
+	// if (!(j > 0 && mXPathResult.get(j - 1) == key)) {
+	// mXPathResult.set(j, key);
+	// }
+	// // }
+	// // }
+	// // insertionSort();
+	// }
+	// }
+	// }
+	//
+	// return mXPathResult;
+	// }
+	//
+	// // /** Implementation of the InsertionSort algorithm. */
+	// // private void insertionSort() {
+	// // for (int i = 1, j = 1; i < mXPathResult.size(); i++) {
+	// // final long newValue = mXPathResult.get(i);
+	// // j = i;
+	// // while (j > 0 && mXPathResult.get(j - 1) > newValue) {
+	// // mXPathResult.set(j, mXPathResult.get(j - 1));
+	// // j--;
+	// // }
+	// // if (!(j > 0 && mXPathResult.get(j - 1) == newValue)) {
+	// // mXPathResult.set(j, newValue);
+	// // }
+	// // }
+	// // }
+	// }
+
+	public Optional<VisualItemAxis> getItems(final int pIndex) {
+		checkArgument(pIndex >= 0, "pIndex must be >= 0!");
+		return Optional.of(new VisualItemAxis(mItems, pIndex - 1));
+	}
 }

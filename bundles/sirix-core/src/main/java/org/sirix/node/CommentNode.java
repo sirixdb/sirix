@@ -147,7 +147,7 @@ public class CommentNode extends AbstractStructForwardingNode implements
 	protected StructNodeDelegate structDelegate() {
 		return mStructNodeDel;
 	}
-	
+
 	@Override
 	public String getValue() {
 		return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);

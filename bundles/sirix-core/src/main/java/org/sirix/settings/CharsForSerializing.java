@@ -71,7 +71,7 @@ public enum CharsForSerializing {
 	/** " xmlns=\"". */
 	XMLNS(SPACE.getBytes(), new byte[] { 120, 109, 108, 110, 115 }, EQUAL
 			.getBytes(), QUOTE.getBytes()),
-			
+
 	/** :. */
 	COLON(new byte[] { 58 }),
 

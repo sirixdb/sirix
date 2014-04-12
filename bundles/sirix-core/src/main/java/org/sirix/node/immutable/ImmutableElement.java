@@ -137,7 +137,7 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode 
 	public int getLocalNameKey() {
 		return mNode.getLocalNameKey();
 	}
-	
+
 	@Override
 	public int getPrefixKey() {
 		return mNode.getPrefixKey();
@@ -190,7 +190,7 @@ public class ImmutableElement implements ImmutableNameNode, ImmutableStructNode 
 	public int getAttributeCount() {
 		return mNode.getAttributeCount();
 	}
-	
+
 	@Override
 	public QNm getName() {
 		return mNode.getName();

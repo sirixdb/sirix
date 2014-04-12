@@ -89,12 +89,12 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
 	public boolean isSameItem(final @Nullable Node other) {
 		return delegate().isSameItem(other);
 	}
-	
+
 	@Override
 	public void setDeweyID(Optional<SirixDeweyID> id) {
 		delegate().setDeweyID(id);
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getDeweyID() {
 		return delegate().getDeweyID();

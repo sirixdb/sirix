@@ -34,7 +34,8 @@ public final class ChronicleWriter extends AbstractForwardingReader implements
 	 * @throws IOException
 	 *           if an I/O error occurs
 	 */
-	public ChronicleWriter(final File file, final ByteHandler handler) throws IOException {
+	public ChronicleWriter(final File file, final ByteHandler handler)
+			throws IOException {
 		mReader = new ChronicleReader(file, handler);
 		mChronicle = new IndexedChronicle(file.getAbsolutePath());
 		mExcerpt = mChronicle.createAppender();

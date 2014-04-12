@@ -80,8 +80,8 @@ public class DocumentRootNodeTest {
 		final NodeDelegate nodeDel = new NodeDelegate(
 				Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
-				Fixed.NULL_NODE_KEY.getStandardProperty(), 0,
-				Optional.of(SirixDeweyID.newRootID()));
+				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, Optional.of(SirixDeweyID
+						.newRootID()));
 		final StructNodeDelegate strucDel = new StructNodeDelegate(nodeDel,
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -93,8 +93,9 @@ public class DocumentRootNodeTest {
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
 		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT.deserialize(new DataInputStream(in), node.getNodeKey(), node.getDeweyID(), 
-				mPageReadTrx);
+		final DocumentRootNode node2 = (DocumentRootNode) Kind.DOCUMENT
+				.deserialize(new DataInputStream(in), node.getNodeKey(),
+						node.getDeweyID(), mPageReadTrx);
 		check(node2);
 	}
 

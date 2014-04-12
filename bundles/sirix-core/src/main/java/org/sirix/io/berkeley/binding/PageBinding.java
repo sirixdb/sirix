@@ -110,14 +110,16 @@ public final class PageBinding extends TupleBinding<Page> {
 			LOGGER.error(e.getMessage(), e);
 			return null;
 		}
-	}	
+	}
 
 	@Override
 	public void objectToEntry(final Page page, final TupleOutput output) {
 		try {
-			final DataOutputStream dataOutput = new DataOutputStream(mByteHandler.serialize(output));
+			final DataOutputStream dataOutput = new DataOutputStream(
+					mByteHandler.serialize(output));
 			PagePersistenter.serializePage(dataOutput, page);
-			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
+			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()),
+					dataOutput);
 			dataOutput.close();
 		} catch (final IOException e) {
 			LOGGER.error(e.getMessage(), e);

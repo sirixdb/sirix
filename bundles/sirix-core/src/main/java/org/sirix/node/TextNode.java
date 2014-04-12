@@ -159,8 +159,8 @@ public final class TextNode extends AbstractStructForwardingNode implements
 	public String toString() {
 		return Objects.toStringHelper(this)
 				.add("node delegate", mStructNodeDel.getNodeDelegate())
-				.add("struct delegate", mStructNodeDel)
-				.add("value delegate", mValDel).toString();
+				.add("struct delegate", mStructNodeDel).add("value delegate", mValDel)
+				.toString();
 	}
 
 	public ValNodeDelegate getValNodeDelegate() {
@@ -176,7 +176,7 @@ public final class TextNode extends AbstractStructForwardingNode implements
 	protected StructNodeDelegate structDelegate() {
 		return mStructNodeDel;
 	}
-	
+
 	@Override
 	public String getValue() {
 		return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);

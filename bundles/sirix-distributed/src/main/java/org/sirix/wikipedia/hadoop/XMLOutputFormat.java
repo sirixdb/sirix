@@ -34,7 +34,6 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * <h1>XMLOutputFormat</h1>
  * 
@@ -46,53 +45,54 @@ import org.slf4j.LoggerFactory;
  */
 public class XMLOutputFormat<K, V> extends FileOutputFormat<K, V> {
 
-  /** Logger. */
-  private static final Logger LOGGER = LoggerFactory.getLogger(XMLOutputFormat.class);
+	/** Logger. */
+	private static final Logger LOGGER = LoggerFactory
+			.getLogger(XMLOutputFormat.class);
 
-  /**
-   * Log wrapper {@link LogWrapper}.
-   */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LOGGER);
+	/**
+	 * Log wrapper {@link LogWrapper}.
+	 */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(LOGGER);
 
-  // /** Root element {@link QName}. */
-  // private final transient StartElement mRoot;
-  //
-  // /**
-  // * Empty constructor.
-  // *
-  // * @param paramRootElem
-  // * Root element.
-  // */
-  // public XMLOutputFormat(final StartElement paramRootElem) {
-  // mRoot = paramRootElem;
-  // }
+	// /** Root element {@link QName}. */
+	// private final transient StartElement mRoot;
+	//
+	// /**
+	// * Empty constructor.
+	// *
+	// * @param paramRootElem
+	// * Root element.
+	// */
+	// public XMLOutputFormat(final StartElement paramRootElem) {
+	// mRoot = paramRootElem;
+	// }
 
-  /**
-   * Default constructor.
-   */
-  public XMLOutputFormat() {
-    // To make Checkstyle happy.
-  }
+	/**
+	 * Default constructor.
+	 */
+	public XMLOutputFormat() {
+		// To make Checkstyle happy.
+	}
 
-  @Override
-  public RecordWriter<K, V> getRecordWriter(final TaskAttemptContext paramContext) throws IOException,
-    InterruptedException {
-    final Path file = FileOutputFormat.getOutputPath(paramContext);
-    final FileSystem fs = file.getFileSystem(paramContext.getConfiguration());
-    final FSDataOutputStream out = fs.create(file);
-    final XMLOutputFactory factory = XMLOutputFactory.newInstance();
-    XMLEventWriter writer = null;
-    XMLRecordWriter<K, V> recordWriter = null;
-    final StartElement root =
-      XMLEventFactory.newFactory()
-        .createStartElement(paramContext.getConfiguration().get("root"), null, null);
-    try {
-      writer = factory.createXMLEventWriter(out);
-      recordWriter = new XMLRecordWriter<K, V>(writer, root);
-    } catch (final XMLStreamException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-    return recordWriter;
-  }
+	@Override
+	public RecordWriter<K, V> getRecordWriter(
+			final TaskAttemptContext paramContext) throws IOException,
+			InterruptedException {
+		final Path file = FileOutputFormat.getOutputPath(paramContext);
+		final FileSystem fs = file.getFileSystem(paramContext.getConfiguration());
+		final FSDataOutputStream out = fs.create(file);
+		final XMLOutputFactory factory = XMLOutputFactory.newInstance();
+		XMLEventWriter writer = null;
+		XMLRecordWriter<K, V> recordWriter = null;
+		final StartElement root = XMLEventFactory.newFactory().createStartElement(
+				paramContext.getConfiguration().get("root"), null, null);
+		try {
+			writer = factory.createXMLEventWriter(out);
+			recordWriter = new XMLRecordWriter<K, V>(writer, root);
+		} catch (final XMLStreamException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+		return recordWriter;
+	}
 
 }

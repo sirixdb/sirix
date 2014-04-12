@@ -17,8 +17,8 @@ public final class Utils {
 	 * @param value
 	 *          long value
 	 */
-	public static final void putVarLong(
-			final DataOutput output, long value) throws IOException {
+	public static final void putVarLong(final DataOutput output, long value)
+			throws IOException {
 		while ((value & ~0x7F) != 0) {
 			output.write(((byte) ((value & 0x7f) | 0x80)));
 			value >>>= 7;

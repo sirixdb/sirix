@@ -67,8 +67,8 @@ public class SomeExpr extends AbstractExpression {
 	 *          condition that must be satisfied by at least one item of the
 	 *          variable results in order to evaluate expression to true
 	 */
-	public SomeExpr(final NodeReadTrx pRtx,
-			@Nonnull final List<Axis> pVars, @Nonnull final Axis pSatisfy) {
+	public SomeExpr(final NodeReadTrx pRtx, @Nonnull final List<Axis> pVars,
+			@Nonnull final Axis pSatisfy) {
 		super(pRtx);
 		mVars = checkNotNull(pVars);
 		mSatisfy = checkNotNull(pSatisfy);

@@ -78,8 +78,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	 * 
 	 */
 	public AttributeNode(final NodeDelegate nodeDel,
-			final NameNodeDelegate nameDel,
-			final ValNodeDelegate valDel,
+			final NameNodeDelegate nameDel, final ValNodeDelegate valDel,
 			final QNm qNm) {
 		assert nodeDel != null : "nodeDel must not be null!";
 		mDel = nodeDel;
@@ -111,7 +110,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	public int getPrefixKey() {
 		return mNameDel.getPrefixKey();
 	}
-	
+
 	@Override
 	public int getLocalNameKey() {
 		return mNameDel.getLocalNameKey();
@@ -126,7 +125,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	public void setPrefixKey(final int prefixKey) {
 		mNameDel.setPrefixKey(prefixKey);
 	}
-	
+
 	@Override
 	public void setLocalNameKey(final int localNameKey) {
 		mNameDel.setLocalNameKey(localNameKey);
@@ -199,7 +198,7 @@ public final class AttributeNode extends AbstractForwardingNode implements
 	public QNm getName() {
 		return mQNm;
 	}
-	
+
 	@Override
 	public String getValue() {
 		return new String(mValDel.getRawValue(), Constants.DEFAULT_ENCODING);

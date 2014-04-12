@@ -33,8 +33,8 @@ final class PathIndexListener implements ChangeListener {
 	PathIndexListener(
 			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx, indexDef.getType(),
-				indexDef.getID());
+		mAVLTreeWriter = AVLTreeWriter.getInstance(pageWriteTrx,
+				indexDef.getType(), indexDef.getID());
 		mPathSummaryReader = checkNotNull(pathSummaryReader);
 		mPaths = checkNotNull(indexDef.getPaths());
 	}
@@ -53,8 +53,7 @@ final class PathIndexListener implements ChangeListener {
 						if (textReferences.isPresent()) {
 							setNodeReferences(node, textReferences.get(), pathNodeKey);
 						} else {
-							setNodeReferences(node, new NodeReferences(),
-									pathNodeKey);
+							setNodeReferences(node, new NodeReferences(), pathNodeKey);
 						}
 					}
 					break;

@@ -88,15 +88,16 @@ public class MultiChildStep extends Walker {
 			}
 		}
 		if (len > MIN_CHILD_STEP_LENGTH) {
-			merge(node, node.getChildCount() - len, len - 1, skipDDO,
-					checkInput);
+			merge(node, node.getChildCount() - len, len - 1, skipDDO, checkInput);
 		}
 
 		return node;
 	}
 
-	private void merge(AST node, int start, int len, boolean skipDDO, boolean checkInput) {
-		AST multistep = new AST(XQExt.MultiStepExpr, XQExt.toName(XQExt.MultiStepExpr));
+	private void merge(AST node, int start, int len, boolean skipDDO,
+			boolean checkInput) {
+		AST multistep = new AST(XQExt.MultiStepExpr,
+				XQExt.toName(XQExt.MultiStepExpr));
 		multistep.setProperty("skipDDO", skipDDO);
 		multistep.setProperty("checkInput", checkInput);
 		for (int j = 0; j <= len; j++) {
@@ -109,14 +110,15 @@ public class MultiChildStep extends Walker {
 		node.insertChild(start, multistep);
 		snapshot();
 	}
-	
+
 	public static void main(String[] args) throws Exception {
-		//new XQuery(new DBCompileChain(null, null), "let $a := <x/> return $a/b/c/d//e/x/y/z//u/v/w");
-//		new XQuery(new DBCompileChain(null, null), "let $a := <x/> return $a/b/@aha");
+		// new XQuery(new DBCompileChain(null, null),
+		// "let $a := <x/> return $a/b/c/d//e/x/y/z//u/v/w");
+		// new XQuery(new DBCompileChain(null, null),
+		// "let $a := <x/> return $a/b/@aha");
 	}
 
 	private int getAxis(AST stepExpr) {
 		return stepExpr.getChild(0).getChild(0).getType();
 	}
 }
-

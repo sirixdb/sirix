@@ -33,13 +33,12 @@ import org.apache.hadoop.io.Writable;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * <h1>XMLEventWritable</h1>
  * 
  * <p>
- * Serialize/Deserialize {@link XMLEvent}s. Very inefficient, because fpr deserializing a StAX parser is being
- * created.
+ * Serialize/Deserialize {@link XMLEvent}s. Very inefficient, because fpr
+ * deserializing a StAX parser is being created.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -47,71 +46,72 @@ import org.slf4j.LoggerFactory;
  */
 public final class XMLEventWritable implements Writable {
 
-  /**
-   * {@link LogWrapper} to log messages.
-   */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLReduce.class));
+	/**
+	 * {@link LogWrapper} to log messages.
+	 */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(XMLReduce.class));
 
-  /** The underlying {@link XMLEvent}. */
-  private XMLEvent mEvent;
+	/** The underlying {@link XMLEvent}. */
+	private XMLEvent mEvent;
 
-  /** {@link Writer}. */
-  private Writer mWriter;
+	/** {@link Writer}. */
+	private Writer mWriter;
 
-  /**
-   * Default constructor.
-   */
-  public XMLEventWritable() {
-    mWriter = new StringWriter();
-  }
+	/**
+	 * Default constructor.
+	 */
+	public XMLEventWritable() {
+		mWriter = new StringWriter();
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param paramEvent
-   *          The {@link XMLEvent} to wrap.
-   */
-  public XMLEventWritable(final XMLEvent paramEvent) {
-    mWriter = new StringWriter();
-    mEvent = paramEvent;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param paramEvent
+	 *          The {@link XMLEvent} to wrap.
+	 */
+	public XMLEventWritable(final XMLEvent paramEvent) {
+		mWriter = new StringWriter();
+		mEvent = paramEvent;
+	}
 
-  /**
-   * Set an event.
-   * 
-   * @param paramEvent
-   *          The {@link XMLEvent} to set.
-   */
-  public void setEvent(final XMLEvent paramEvent) {
-    mEvent = paramEvent;
-  }
+	/**
+	 * Set an event.
+	 * 
+	 * @param paramEvent
+	 *          The {@link XMLEvent} to set.
+	 */
+	public void setEvent(final XMLEvent paramEvent) {
+		mEvent = paramEvent;
+	}
 
-  @Override
-  public void readFields(final DataInput paramIn) throws IOException {
-    final String in = paramIn.readUTF();
-    try {
-      final XMLEventReader reader =
-        XMLInputFactory.newFactory().createXMLEventReader(new ByteArrayInputStream(in.getBytes("UTF-8")));
+	@Override
+	public void readFields(final DataInput paramIn) throws IOException {
+		final String in = paramIn.readUTF();
+		try {
+			final XMLEventReader reader = XMLInputFactory.newFactory()
+					.createXMLEventReader(new ByteArrayInputStream(in.getBytes("UTF-8")));
 
-      if (reader.hasNext()) {
-        mEvent = reader.nextEvent();
-      }
-    } catch (final XMLStreamException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    } catch (final FactoryConfigurationError e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+			if (reader.hasNext()) {
+				mEvent = reader.nextEvent();
+			}
+		} catch (final XMLStreamException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		} catch (final FactoryConfigurationError e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
 
-  @Override
-  public void write(final DataOutput paramOut) throws IOException {
-    try {
-      mEvent.writeAsEncodedUnicode(mWriter);
-    } catch (final XMLStreamException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-    mWriter.flush();
-    paramOut.writeUTF(mWriter.toString());
-  }
+	@Override
+	public void write(final DataOutput paramOut) throws IOException {
+		try {
+			mEvent.writeAsEncodedUnicode(mWriter);
+		} catch (final XMLStreamException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+		mWriter.flush();
+		paramOut.writeUTF(mWriter.toString());
+	}
 
 }

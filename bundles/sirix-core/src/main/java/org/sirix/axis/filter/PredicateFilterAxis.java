@@ -60,8 +60,7 @@ public class PredicateFilterAxis extends AbstractAxis {
 	 * @param predicate
 	 *          predicate expression
 	 */
-	public PredicateFilterAxis(final NodeReadTrx rtx,
-			final Axis predicate) {
+	public PredicateFilterAxis(final NodeReadTrx rtx, final Axis predicate) {
 		super(rtx);
 		mIsFirst = true;
 		mPredicate = checkNotNull(predicate);

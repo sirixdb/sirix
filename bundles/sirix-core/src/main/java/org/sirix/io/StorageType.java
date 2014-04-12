@@ -52,7 +52,7 @@ public enum StorageType {
 			return new RAMStorage(resourceConf);
 		}
 	},
-	
+
 	/** Chronicle backend. */
 	CHRONICLE {
 		@Override
@@ -61,7 +61,7 @@ public enum StorageType {
 			return new ChronicleStorage(resourceConf);
 		}
 	},
-	
+
 	/** {@link RandomAccessFile} backend. */
 	FILE {
 		@Override
@@ -90,8 +90,7 @@ public enum StorageType {
 	 * @throws SirixIOException
 	 *           if an IO-error occured
 	 */
-	public abstract Storage getInstance(
-			final ResourceConfiguration resourceConf)
+	public abstract Storage getInstance(final ResourceConfiguration resourceConf)
 			throws SirixIOException;
 
 	/**
@@ -107,8 +106,7 @@ public enum StorageType {
 	 *           if {@code pResourceConf} is {@code null}
 	 */
 	public static final Storage getStorage(
-			final ResourceConfiguration resourceConf)
-			throws SirixIOException {
+			final ResourceConfiguration resourceConf) throws SirixIOException {
 		return resourceConf.mStorage.getInstance(resourceConf);
 	}
 }

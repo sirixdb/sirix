@@ -53,8 +53,7 @@ final class StructuralDiff extends AbstractDiff {
 	}
 
 	@Override
-	boolean checkNodes(final NodeReadTrx newRtx,
-			final NodeReadTrx oldRtx) {
+	boolean checkNodes(final NodeReadTrx newRtx, final NodeReadTrx oldRtx) {
 		boolean found = false;
 		if (newRtx.getNodeKey() == oldRtx.getNodeKey()
 				&& newRtx.getParentKey() == oldRtx.getParentKey()

@@ -109,13 +109,11 @@ public final class OverallTest extends TestCase {
 						holder.getWtx().insertElementAsRightSibling(new QNm(getString()));
 					}
 					if (ran.nextBoolean()) {
-						holder.getWtx()
-								.insertAttribute(new QNm(getString()), getString());
+						holder.getWtx().insertAttribute(new QNm(getString()), getString());
 						holder.getWtx().moveToParent();
 					}
 					if (ran.nextBoolean()) {
-						holder.getWtx()
-								.insertNamespace(new QNm(getString(), getString()));
+						holder.getWtx().insertNamespace(new QNm(getString(), getString()));
 						holder.getWtx().moveToParent();
 					}
 				}

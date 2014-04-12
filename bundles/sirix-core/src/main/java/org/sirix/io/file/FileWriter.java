@@ -54,7 +54,8 @@ import com.google.common.io.ByteStreams;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public final class FileWriter extends AbstractForwardingReader implements Writer {
+public final class FileWriter extends AbstractForwardingReader implements
+		Writer {
 
 	/** Random access to work on. */
 	private final RandomAccessFile mFile;
@@ -68,12 +69,12 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 	 * @param storage
 	 *          the concrete storage
 	 * @param handler
-	 * 					the byte handler
+	 *          the byte handler
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	public FileWriter(final File storage,
-			final ByteHandler handler) throws SirixIOException {
+	public FileWriter(final File storage, final ByteHandler handler)
+			throws SirixIOException {
 		try {
 			mFile = new RandomAccessFile(storage, "rw");
 		} catch (final FileNotFoundException e) {
@@ -91,22 +92,23 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
 	 *           if errors during writing occur
 	 */
 	@Override
-	public void write(final PageReference pageReference)
-			throws SirixIOException {
+	public void write(final PageReference pageReference) throws SirixIOException {
 		// Perform byte operations.
 		try {
 			// Serialize page.
 			final Page page = pageReference.getPage();
 			assert page != null;
 			final ByteArrayOutputStream output = new ByteArrayOutputStream();
-			final DataOutputStream dataOutput = new DataOutputStream(mReader.mByteHandler.serialize(output));
+			final DataOutputStream dataOutput = new DataOutputStream(
+					mReader.mByteHandler.serialize(output));
 			PagePersistenter.serializePage(dataOutput, page);
 
-//			ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()), dataOutput);
-			
+			// ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()),
+			// dataOutput);
+
 			output.close();
 			dataOutput.close();
-			
+
 			final byte[] serializedPage = output.toByteArray();
 
 			final byte[] writtenPage = new byte[serializedPage.length

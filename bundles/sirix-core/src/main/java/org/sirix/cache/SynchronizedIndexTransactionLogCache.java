@@ -51,8 +51,8 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?, ?>> implements
-		Cache<IndexLogKey, RecordPageContainer<T>> {
+public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?, ?>>
+		implements Cache<IndexLogKey, RecordPageContainer<T>> {
 
 	/** RAM-Based first cache. */
 	private final LRUCache<IndexLogKey, RecordPageContainer<T>> mFirstCache;
@@ -89,7 +89,8 @@ public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?
 			final PageReadTrx pageReadTrx) throws SirixIOException {
 		mSecondCache = new BerkeleyIndexPersistenceCache<>(file, revision, logType,
 				pageReadTrx);
-		mFirstCache = new LRUCache<IndexLogKey, RecordPageContainer<T>>(mSecondCache);
+		mFirstCache = new LRUCache<IndexLogKey, RecordPageContainer<T>>(
+				mSecondCache);
 	}
 
 	@Override
@@ -145,8 +146,7 @@ public final class SynchronizedIndexTransactionLogCache<T extends KeyValuePage<?
 	}
 
 	@Override
-	public void put(final IndexLogKey key,
-			final RecordPageContainer<T> value) {
+	public void put(final IndexLogKey key, final RecordPageContainer<T> value) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(key, value);

@@ -140,8 +140,8 @@ public final class BerkeleyPersistenceCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void putPersistent(final Long key,
-			final RecordPageContainer<T> page) throws SirixIOException {
+	public void putPersistent(final Long key, final RecordPageContainer<T> page)
+			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mEntries++;

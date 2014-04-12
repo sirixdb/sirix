@@ -22,8 +22,8 @@ import com.google.common.base.Optional;
 
 /**
  * <p>
- * Function for finding a path index. If successful, this
- * function returns the path-index number. Otherwise it returns -1.
+ * Function for finding a path index. If successful, this function returns the
+ * path-index number. Otherwise it returns -1.
  * 
  * Supported signatures are:
  * </p>
@@ -39,8 +39,8 @@ import com.google.common.base.Optional;
 public final class FindCASIndex extends AbstractFunction {
 
 	/** CAS index function name. */
-	public final static QNm FIND_CAS_INDEX = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"find-cas-index");
+	public final static QNm FIND_CAS_INDEX = new QNm(SDBFun.SDB_NSURI,
+			SDBFun.SDB_PREFIX, "find-cas-index");
 
 	/**
 	 * Constructor.
@@ -59,20 +59,20 @@ public final class FindCASIndex extends AbstractFunction {
 			throws QueryException {
 		final DBNode doc = (DBNode) args[0];
 		final NodeReadTrx rtx = doc.getTrx();
-		final IndexController controller = rtx.getSession()
-				.getRtxIndexController(rtx.getRevisionNumber());
+		final IndexController controller = rtx.getSession().getRtxIndexController(
+				rtx.getRevisionNumber());
 
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "
 					+ ((Str) args[1]).stringValue()));
 		}
-		
-		final QNm name = new QNm(Namespaces.XS_NSURI,
-				((Str) args[1]).stringValue());
+
+		final QNm name = new QNm(Namespaces.XS_NSURI, ((Str) args[1]).stringValue());
 		final Type type = sctx.getTypes().resolveAtomicType(name);
 		final Path<QNm> path = Path.parse(((Str) args[2]).stringValue());
-		final Optional<IndexDef> indexDef = controller.getIndexes().findCASIndex(path, type);
-		
+		final Optional<IndexDef> indexDef = controller.getIndexes().findCASIndex(
+				path, type);
+
 		if (indexDef.isPresent())
 			return new Int32(indexDef.get().getID());
 		return new Int32(-1);

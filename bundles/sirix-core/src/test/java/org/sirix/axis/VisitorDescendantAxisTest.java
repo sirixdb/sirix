@@ -18,7 +18,7 @@ import com.google.common.collect.testing.IteratorFeature;
 import com.google.common.collect.testing.IteratorTester;
 
 public class VisitorDescendantAxisTest {
-	
+
 	private static final int ITERATIONS = 5;
 
 	private Holder holder;
@@ -41,9 +41,8 @@ public class VisitorDescendantAxisTest {
 		final NodeReadTrx rtx = holder.getRtx();
 
 		rtx.moveToDocumentRoot();
-		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.newBuilder(rtx).build(), new long[] { 1L, 4L, 5L,
-						6L, 7L, 8L, 9L, 11L, 12L, 13L });
+		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.newBuilder(rtx)
+				.build(), new long[] { 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
 			{
@@ -59,9 +58,8 @@ public class VisitorDescendantAxisTest {
 		}.test();
 
 		rtx.moveTo(1L);
-		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.newBuilder(rtx).build(), new long[] { 4L, 5L, 6L,
-						7L, 8L, 9L, 11L, 12L, 13L });
+		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.newBuilder(rtx)
+				.build(), new long[] { 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
 			{
@@ -77,8 +75,8 @@ public class VisitorDescendantAxisTest {
 		}.test();
 
 		rtx.moveTo(9L);
-		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.newBuilder(rtx).build(), new long[] { 11L, 12L });
+		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.newBuilder(rtx)
+				.build(), new long[] { 11L, 12L });
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(11L, 12L), null) {
 			{
@@ -94,8 +92,8 @@ public class VisitorDescendantAxisTest {
 		}.test();
 
 		rtx.moveTo(13L);
-		AbsAxisTest.testIAxisConventions(
-				VisitorDescendantAxis.newBuilder(rtx).build(), new long[] {});
+		AbsAxisTest.testIAxisConventions(VisitorDescendantAxis.newBuilder(rtx)
+				.build(), new long[] {});
 		new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				Collections.<Long> emptyList(), null) {
 			{

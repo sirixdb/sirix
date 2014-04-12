@@ -3,7 +3,7 @@ package org.sirix.page;
 import org.sirix.page.interfaces.Page;
 
 /**
- * Page which is a secondary index to map  
+ * Page which is a secondary index to map
  * 
  * @author Johannes Lichtenberger
  *

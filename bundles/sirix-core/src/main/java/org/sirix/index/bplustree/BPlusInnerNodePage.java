@@ -80,7 +80,8 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	 *          determines if it's a leaf or inner node page
 	 */
 	public BPlusInnerNodePage(final @Nonnegative long recordPageKey,
-			final PageKind pageKind, final Optional<PageReference> previousPageRef, final PageReadTrx pageReadTrx) {
+			final PageKind pageKind, final Optional<PageReference> previousPageRef,
+			final PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -105,7 +106,7 @@ public class BPlusInnerNodePage<K extends Comparable<? super K> & Record, V exte
 	protected BPlusInnerNodePage(final ByteArrayDataInput in,
 			final PageReadTrx pageReadTrx) {
 		mDelegate = null;
-//		mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
+		// mDelegate = new PageDelegate(Constants.INP_REFERENCE_COUNT, in);
 		mRecordPageKey = in.readLong();
 		final int size = in.readInt();
 		mRecords = new TreeMap<>();

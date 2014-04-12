@@ -46,7 +46,7 @@ public class BerkeleyPersistentCacheTest {
 	private Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> cache;
 
 	private Holder holder;
-	
+
 	private PageReadTrx mPageReadTrx;
 
 	@Before
@@ -65,7 +65,8 @@ public class BerkeleyPersistentCacheTest {
 	public void test() {
 		for (long i = 0; i < CacheTestHelper.PAGES.length; i++) {
 			final RecordPageContainer<UnorderedKeyValuePage> cont = cache.get(i);
-			final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont.getComplete();
+			final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont
+					.getComplete();
 			assertEquals(CacheTestHelper.PAGES[(int) i][0], current);
 		}
 	}

@@ -24,7 +24,8 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger
  * 
  */
-public final class ImmutableAttribute implements ImmutableValueNode, ImmutableNameNode {
+public final class ImmutableAttribute implements ImmutableValueNode,
+		ImmutableNameNode {
 
 	/** Mutable {@link AttributeNode}. */
 	private final AttributeNode mNode;
@@ -99,7 +100,7 @@ public final class ImmutableAttribute implements ImmutableValueNode, ImmutableNa
 	public int getLocalNameKey() {
 		return mNode.getLocalNameKey();
 	}
-	
+
 	@Override
 	public int getPrefixKey() {
 		return mNode.getPrefixKey();
@@ -119,22 +120,22 @@ public final class ImmutableAttribute implements ImmutableValueNode, ImmutableNa
 	public byte[] getRawValue() {
 		return mNode.getRawValue();
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getDeweyID() {
 		return mNode.getDeweyID();
 	}
-	
+
 	@Override
 	public boolean equals(Object obj) {
 		return mNode.equals(obj);
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return mNode.hashCode();
 	}
-	
+
 	@Override
 	public String toString() {
 		return mNode.toString();
@@ -144,9 +145,10 @@ public final class ImmutableAttribute implements ImmutableValueNode, ImmutableNa
 	public QNm getName() {
 		return mNode.getName();
 	}
-	
+
 	@Override
 	public String getValue() {
-		return new String(((ValueNode) mNode).getRawValue(), Constants.DEFAULT_ENCODING);
+		return new String(((ValueNode) mNode).getRawValue(),
+				Constants.DEFAULT_ENCODING);
 	}
 }

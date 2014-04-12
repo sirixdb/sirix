@@ -22,8 +22,7 @@ public final class IndirectPageLogKeyBinding extends
 	}
 
 	@Override
-	public void objectToEntry(final IndirectPageLogKey key,
-			final TupleOutput out) {
+	public void objectToEntry(final IndirectPageLogKey key, final TupleOutput out) {
 		out.writeByte(key.getPageKind().getID());
 		out.writeInt(key.getIndex());
 		out.writeInt(key.getLevel());

@@ -145,8 +145,7 @@ public final class DiffFactory {
 	 */
 	public static Builder builder(final Session session,
 			final @Nonnegative int newRev, final @Nonnegative int oldRev,
-			final DiffOptimized diffKind,
-			final Set<DiffObserver> observers) {
+			final DiffOptimized diffKind, final Set<DiffObserver> observers) {
 		return new Builder(session, newRev, oldRev, diffKind, observers);
 	}
 
@@ -203,9 +202,8 @@ public final class DiffFactory {
 		 * @param observers
 		 *          {@link Set} of observers
 		 */
-		public Builder(final Session session,
-				final @Nonnegative int newRev, final @Nonnegative int oldRev,
-				final DiffOptimized diffKind,
+		public Builder(final Session session, final @Nonnegative int newRev,
+				final @Nonnegative int oldRev, final DiffOptimized diffKind,
 				final Set<DiffObserver> observers) {
 			mSession = checkNotNull(session);
 			checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
@@ -334,8 +332,8 @@ public final class DiffFactory {
 	 *          {@link Builder} reference
 	 * @throws SirixException
 	 */
-	public static synchronized void invokeStructuralDiff(
-			final Builder builder) throws SirixException {
+	public static synchronized void invokeStructuralDiff(final Builder builder)
+			throws SirixException {
 		DiffAlgorithm.STRUCTURAL.invoke(builder);
 	}
 }

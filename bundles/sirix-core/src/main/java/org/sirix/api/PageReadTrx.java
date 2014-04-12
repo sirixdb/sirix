@@ -58,8 +58,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 *           if an I/O error occured
 	 */
 	Optional<? extends Record> getRecord(final @Nonnegative long key,
-			final PageKind pageKind, final int index)
-			throws SirixIOException;
+			final PageKind pageKind, final int index) throws SirixIOException;
 
 	/**
 	 * Current reference to actual revision-root page.
@@ -198,8 +197,7 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	NamePage getNamePage(RevisionRootPage revisionRoot)
-			throws SirixIOException;
+	NamePage getNamePage(RevisionRootPage revisionRoot) throws SirixIOException;
 
 	/**
 	 * Get the {@link PathPage} associated with the current revision root.
@@ -209,26 +207,25 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if an I/O error occur@Nonnull RevisionRootPage revisionRoots
 	 */
-	PathPage getPathPage(RevisionRootPage revisionRoot)
-			throws SirixIOException;
+	PathPage getPathPage(RevisionRootPage revisionRoot) throws SirixIOException;
 
 	/**
-	 * Get the {@link CASPage} associated with the current revision
-	 * root.
+	 * Get the {@link CASPage} associated with the current revision root.
 	 * 
 	 * @param revisionRoot
 	 *          {@link RevisionRootPage} for which to get the {@link CASPage}
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
-	CASPage getCASPage(
-			@Nonnull RevisionRootPage revisionRoot) throws SirixIOException;
+	CASPage getCASPage(@Nonnull RevisionRootPage revisionRoot)
+			throws SirixIOException;
 
 	/**
 	 * Get the {@link PathSummaryPage} associated with the current revision root.
 	 * 
 	 * @param revisionRoot
-	 *          {@link RevisionRootPage} for which to get the {@link PathSummaryPage}
+	 *          {@link RevisionRootPage} for which to get the
+	 *          {@link PathSummaryPage}
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
 	 */
@@ -244,8 +241,8 @@ public interface PageReadTrx extends AutoCloseable {
 	 * @param pageKey
 	 *          the unique key of the page to search for
 	 * @param index
-	 *          the index number, or {@code -1} if a regular record pages should be
-	 *          retrieved
+	 *          the index number, or {@code -1} if a regular record pages should
+	 *          be retrieved
 	 * @param pageKind
 	 *          the kind of subtree
 	 * @return {@link PageReference} instance pointing to the page denoted by

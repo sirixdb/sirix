@@ -21,7 +21,8 @@ import com.google.common.collect.ImmutableSet;
 public final class NameIndexImpl implements NameIndex<QNm, NodeReferences> {
 
 	@Override
-	public NameIndexBuilder createBuilder(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+	public NameIndexBuilder createBuilder(
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final IndexDef indexDef) {
 		return new NameIndexBuilder(pageWriteTrx, indexDef);
 	}

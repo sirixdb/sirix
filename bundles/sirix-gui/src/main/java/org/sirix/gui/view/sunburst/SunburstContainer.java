@@ -290,8 +290,7 @@ public final class SunburstContainer implements Container<SunburstContainer> {
 	 * 
 	 * @return pruning method
 	 */
-	public @Nonnull
-	Pruning getPruning() {
+	public @Nonnull Pruning getPruning() {
 		return mPruning;
 	}
 

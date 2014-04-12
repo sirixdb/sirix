@@ -5,7 +5,8 @@ import org.sirix.node.interfaces.Node;
 /**
  * Immutable AVLNode.
  */
-public interface ImmutableAVLNode<K extends Comparable<? super K>, V> extends Node {
+public interface ImmutableAVLNode<K extends Comparable<? super K>, V> extends
+		Node {
 
 	/**
 	 * Key to be indexed.
@@ -31,12 +32,14 @@ public interface ImmutableAVLNode<K extends Comparable<? super K>, V> extends No
 
 	/**
 	 * Determines node has a left child.
+	 * 
 	 * @return {@code true}, if it has a left child, {@code false} otherwise
 	 */
 	boolean hasLeftChild();
 
 	/**
 	 * Determines node has a right child.
+	 * 
 	 * @return {@code true}, if it has a left child, {@code false} otherwise
 	 */
 	boolean hasRightChild();

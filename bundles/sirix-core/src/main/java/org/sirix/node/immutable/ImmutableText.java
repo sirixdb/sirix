@@ -135,27 +135,27 @@ public class ImmutableText implements ImmutableValueNode, ImmutableStructNode {
 	public byte[] getRawValue() {
 		return mNode.getRawValue();
 	}
-	
+
 	@Override
 	public String getValue() {
 		return mNode.getValue();
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getDeweyID() {
 		return mNode.getDeweyID();
 	}
-	
+
 	@Override
 	public boolean equals(Object obj) {
 		return mNode.equals(obj);
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return mNode.hashCode();
 	}
-	
+
 	@Override
 	public String toString() {
 		return mNode.toString();

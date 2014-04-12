@@ -55,8 +55,7 @@ public interface VisualItem extends Comparable<VisualItem> {
 	 * @param pGraphics
 	 *          the {@link PGraphics} instance to write to
 	 */
-	void update(Draw pDraw, int pMappingMode,
-			@Nonnull PGraphics pGraphics);
+	void update(Draw pDraw, int pMappingMode, @Nonnull PGraphics pGraphics);
 
 	/**
 	 * Item hovered.

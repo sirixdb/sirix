@@ -88,15 +88,16 @@ public final class Store extends AbstractFunction {
 	}
 
 	@Override
-	public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
-			throws QueryException {
+	public Sequence execute(final StaticContext sctx, final QueryContext ctx,
+			final Sequence[] args) throws QueryException {
 		try {
 			final String collName = FunUtil.getString(args, 0, "collName",
 					"collection", null, true);
 			final Sequence nodes = args[2];
 			if (nodes == null)
 				throw new QueryException(new QNm("No sequence of nodes specified!"));
-			final boolean createNew = args.length == 4 ? args[3].booleanValue() : true;
+			final boolean createNew = args.length == 4 ? args[3].booleanValue()
+					: true;
 			final String resName = FunUtil.getString(args, 1, "resName", "resource",
 					null, createNew ? false : true);
 

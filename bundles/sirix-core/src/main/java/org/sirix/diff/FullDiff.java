@@ -48,9 +48,9 @@ final class FullDiff extends AbstractDiff {
 	 * Constructor.
 	 * 
 	 * @param builder
-	 *            {@link Builder} reference
+	 *          {@link Builder} reference
 	 * @throws SirixException
-	 *             if anything goes wrong while setting up sirix transactions
+	 *           if anything goes wrong while setting up sirix transactions
 	 */
 	FullDiff(final Builder builder) throws SirixException {
 		super(builder);
@@ -66,10 +66,8 @@ final class FullDiff extends AbstractDiff {
 			case ELEMENT:
 				if (newRtx.getPrefixKey() == oldRtx.getPrefixKey()
 						&& newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()
-						&& newRtx.getAttributeKeys().equals(
-								oldRtx.getAttributeKeys())
-						&& newRtx.getNamespaceKeys().equals(
-								oldRtx.getNamespaceKeys())) {
+						&& newRtx.getAttributeKeys().equals(oldRtx.getAttributeKeys())
+						&& newRtx.getNamespaceKeys().equals(oldRtx.getNamespaceKeys())) {
 					found = true;
 				}
 				break;
@@ -98,8 +96,7 @@ final class FullDiff extends AbstractDiff {
 					newRtx.moveToNamespace(i);
 					oldRtx.moveToNamespace(i);
 
-					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(),
-							depth);
+					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
 
 					newRtx.moveToParent();
 					oldRtx.moveToParent();
@@ -109,8 +106,7 @@ final class FullDiff extends AbstractDiff {
 					newRtx.moveToAttribute(i);
 					oldRtx.moveToAttribute(i);
 
-					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(),
-							depth);
+					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
 
 					newRtx.moveToParent();
 					oldRtx.moveToParent();
@@ -126,8 +122,8 @@ final class FullDiff extends AbstractDiff {
 
 				for (final long nsp : insertedNamespaces) {
 					newRtx.moveTo(nsp);
-					fireDiff(DiffType.INSERTED, newRtx.getNodeKey(),
-							oldRtx.getNodeKey(), depth);
+					fireDiff(DiffType.INSERTED, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+							depth);
 				}
 
 				final List<Long> removedNamespaces = new ArrayList<>(
@@ -136,8 +132,8 @@ final class FullDiff extends AbstractDiff {
 
 				for (final long nsp : removedNamespaces) {
 					oldRtx.moveTo(nsp);
-					fireDiff(DiffType.DELETED, newRtx.getNodeKey(),
-							oldRtx.getNodeKey(), depth);
+					fireDiff(DiffType.DELETED, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+							depth);
 				}
 
 				final List<Long> insertedAttributes = new ArrayList<>(
@@ -146,8 +142,8 @@ final class FullDiff extends AbstractDiff {
 
 				for (final long attribute : insertedAttributes) {
 					newRtx.moveTo(attribute);
-					fireDiff(DiffType.INSERTED, newRtx.getNodeKey(),
-							oldRtx.getNodeKey(), depth);
+					fireDiff(DiffType.INSERTED, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+							depth);
 				}
 
 				final List<Long> removedAttributes = new ArrayList<>(
@@ -156,8 +152,8 @@ final class FullDiff extends AbstractDiff {
 
 				for (final long attribute : removedAttributes) {
 					newRtx.moveTo(attribute);
-					fireDiff(DiffType.DELETED, newRtx.getNodeKey(),
-							oldRtx.getNodeKey(), depth);
+					fireDiff(DiffType.DELETED, newRtx.getNodeKey(), oldRtx.getNodeKey(),
+							depth);
 				}
 
 				// Emit same.
@@ -169,8 +165,7 @@ final class FullDiff extends AbstractDiff {
 					newRtx.moveTo(nsp);
 					oldRtx.moveTo(nsp);
 
-					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(),
-							depth);
+					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
 				}
 
 				final List<Long> sameAttributes = new ArrayList<>(
@@ -181,8 +176,7 @@ final class FullDiff extends AbstractDiff {
 					newRtx.moveTo(nsp);
 					oldRtx.moveTo(nsp);
 
-					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(),
-							depth);
+					fireDiff(diff, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
 				}
 
 				// Move back to original element nodes.

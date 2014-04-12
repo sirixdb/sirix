@@ -33,7 +33,8 @@ import org.slf4j.LoggerFactory;
  * <h1>DateWritable</h1>
  * 
  * <p>
- * Simple date wrapper which implements {@link WritableComparable}, so it can be used as a key.
+ * Simple date wrapper which implements {@link WritableComparable}, so it can be
+ * used as a key.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -41,67 +42,69 @@ import org.slf4j.LoggerFactory;
  */
 public final class DateWritable implements WritableComparable<DateWritable> {
 
-  /**
-   * {@link LogWrapper} used for logging.
-   */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(DateWritable.class));
+	/**
+	 * {@link LogWrapper} used for logging.
+	 */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(DateWritable.class));
 
-  /** {@link DateFormat}. */
-  private final DateFormat mFormatter = new SimpleDateFormat("yyyy.MM.dd HH.mm.ss", Locale.ENGLISH);
+	/** {@link DateFormat}. */
+	private final DateFormat mFormatter = new SimpleDateFormat(
+			"yyyy.MM.dd HH.mm.ss", Locale.ENGLISH);
 
-  /** {@link Date} used as the key. */
-  private Date mTimestamp;
+	/** {@link Date} used as the key. */
+	private Date mTimestamp;
 
-  /**
-   * Constructor.
-   */
-  public DateWritable() {
-  }
+	/**
+	 * Constructor.
+	 */
+	public DateWritable() {
+	}
 
-  /**
-   * Constructor.
-   * 
-   * @param paramTimestamp
-   *          The {@link Date} to use as the key.
-   */
-  public DateWritable(final Date paramTimestamp) {
-    mTimestamp = paramTimestamp;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param paramTimestamp
+	 *          The {@link Date} to use as the key.
+	 */
+	public DateWritable(final Date paramTimestamp) {
+		mTimestamp = paramTimestamp;
+	}
 
-  /**
-   * Set timestamp.
-   * 
-   * @param paramTimestamp
-   *          The Timestamp to set.
-   */
-  public void setTimestamp(final Date paramTimestamp) {
-    mTimestamp = paramTimestamp;
-  }
+	/**
+	 * Set timestamp.
+	 * 
+	 * @param paramTimestamp
+	 *          The Timestamp to set.
+	 */
+	public void setTimestamp(final Date paramTimestamp) {
+		mTimestamp = paramTimestamp;
+	}
 
-  @Override
-  public void readFields(final DataInput paramIn) throws IOException {
-    try {
-      mTimestamp = mFormatter.parse(paramIn.readUTF());
-    } catch (final ParseException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+	@Override
+	public void readFields(final DataInput paramIn) throws IOException {
+		try {
+			mTimestamp = mFormatter.parse(paramIn.readUTF());
+		} catch (final ParseException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
 
-  @Override
-  public void write(final DataOutput paramOut) throws IOException {
-    paramOut.writeUTF(mFormatter.format(mTimestamp));
-  }
+	@Override
+	public void write(final DataOutput paramOut) throws IOException {
+		paramOut.writeUTF(mFormatter.format(mTimestamp));
+	}
 
-  @Override
-  public int compareTo(final DateWritable paramDate) {
-    int retVal = 0;
+	@Override
+	public int compareTo(final DateWritable paramDate) {
+		int retVal = 0;
 
-    if (paramDate.mTimestamp.before(this.mTimestamp)) {
-      retVal = 1;
-    } else if (paramDate.mTimestamp.after(this.mTimestamp)) {
-      retVal = -1;
-    }
+		if (paramDate.mTimestamp.before(this.mTimestamp)) {
+			retVal = 1;
+		} else if (paramDate.mTimestamp.after(this.mTimestamp)) {
+			retVal = -1;
+		}
 
-    return retVal;
-  }
+		return retVal;
+	}
 }

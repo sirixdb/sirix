@@ -23,14 +23,14 @@ import com.google.common.base.Optional;
  *
  */
 public final class PageUtils {
-	
+
 	/**
 	 * Private constructor to prevent instantiation.
 	 */
 	private PageUtils() {
 		throw new AssertionError("May never be instantiated!");
 	}
-	
+
 	/**
 	 * Create the initial tree structure.
 	 * 
@@ -51,7 +51,8 @@ public final class PageUtils {
 		// Remaining levels.
 		for (int i = 0, l = levelPageCountExp.length; i < l; i++) {
 			page = new IndirectPage();
-			final IndirectPageLogKey logKey = new IndirectPageLogKey(pageKind, index, i, 0);
+			final IndirectPageLogKey logKey = new IndirectPageLogKey(pageKind, index,
+					i, 0);
 			reference.setLogKey(logKey);
 			pageWriteTrx.putPageIntoCache(logKey, page);
 			reference = page.getReference(0);
@@ -79,7 +80,7 @@ public final class PageUtils {
 				Fixed.NULL_NODE_KEY.getStandardProperty(),
 				Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0);
 		ndp.setEntry(0L, new DocumentRootNode(nodeDel, strucDel));
-		pageWriteTrx.putPageIntoKeyValueCache(pageKind, 0, index, 
+		pageWriteTrx.putPageIntoKeyValueCache(pageKind, 0, index,
 				new RecordPageContainer<UnorderedKeyValuePage>(ndp, ndp));
 	}
 

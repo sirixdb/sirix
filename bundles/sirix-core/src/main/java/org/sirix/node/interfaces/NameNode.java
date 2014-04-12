@@ -28,7 +28,6 @@ package org.sirix.node.interfaces;
 
 import org.sirix.node.interfaces.immutable.ImmutableNameNode;
 
-
 /**
  * Mutable node with a name.
  * 
@@ -42,7 +41,7 @@ public interface NameNode extends ImmutableNameNode {
 	 * @return key of prefix of the qualified name
 	 */
 	int getPrefixKey();
-	
+
 	/**
 	 * Gets key of local name.
 	 * 
@@ -56,14 +55,14 @@ public interface NameNode extends ImmutableNameNode {
 	 * @return URI key
 	 */
 	int getURIKey();
-	
+
 	/**
 	 * Get a path node key.
 	 * 
 	 * @return path node key
 	 */
 	long getPathNodeKey();
-	
+
 	/**
 	 * Setting the prefix key.
 	 * 
@@ -71,7 +70,7 @@ public interface NameNode extends ImmutableNameNode {
 	 *          the prefix key to be set
 	 */
 	void setPrefixKey(int prefixKey);
-	
+
 	/**
 	 * Setting the local name key.
 	 * 

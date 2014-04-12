@@ -122,8 +122,7 @@ public final class Util {
 	 *          second string
 	 * @return similarity of a and b, a value in [0, 1]
 	 */
-	public static float quickRatio(final String first,
-			final String second) {
+	public static float quickRatio(final String first, final String second) {
 		if ((first.isEmpty() && second.isEmpty()) || (first.equals(second))) {
 			return 1;
 		}

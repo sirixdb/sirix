@@ -68,7 +68,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 
 	/** Path node key. */
 	private long mPathNodeKey;
-	
+
 	/**
 	 * Constructor.
 	 * 
@@ -83,8 +83,8 @@ public class NameNodeDelegate extends AbstractForwardingNode implements
 	 * @param pathNodeKey
 	 *          path node key associated with node
 	 */
-	public NameNodeDelegate(final NodeDelegate delegate,
-			final int uriKey, final int prefixKey, final int localNameKey,
+	public NameNodeDelegate(final NodeDelegate delegate, final int uriKey,
+			final int prefixKey, final int localNameKey,
 			final @Nonnegative long pathNodeKey) {
 		assert delegate != null : "delegate must not be null!";
 		mDelegate = delegate;

@@ -28,7 +28,7 @@ public final class OverflowPage implements Page {
 	public OverflowPage() {
 		mData = new byte[0];
 	}
-	
+
 	/**
 	 * Constructor.
 	 * 
@@ -40,7 +40,7 @@ public final class OverflowPage implements Page {
 		mIsDirty = true;
 		mData = data;
 	}
-	
+
 	public OverflowPage(final DataInputStream in) throws IOException {
 		mData = new byte[in.readInt()];
 		in.readFully(mData);

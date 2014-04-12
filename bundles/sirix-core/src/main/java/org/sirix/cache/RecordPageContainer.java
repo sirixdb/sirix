@@ -66,8 +66,9 @@ import com.sleepycat.bind.tuple.TupleOutput;
 public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 
 	/** Logger. */
-	private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(RecordPageContainer.class));
-	
+	private static final LogWrapper LOGGER = new LogWrapper(
+			LoggerFactory.getLogger(RecordPageContainer.class));
+
 	/**
 	 * {@link UnorderedKeyValuePage} reference, which references the complete
 	 * key/value page.
@@ -122,8 +123,7 @@ public final class RecordPageContainer<T extends KeyValuePage<?, ?>> {
 	 * @param modifying
 	 *          to be used as a base for this container
 	 */
-	public RecordPageContainer(final T complete,
-			final T modifying) {
+	public RecordPageContainer(final T complete, final T modifying) {
 		// Assertions as it's not part of the public API.
 		assert complete != null;
 		assert modifying != null;

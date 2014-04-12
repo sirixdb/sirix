@@ -63,8 +63,10 @@ public class LRUCacheTest {
 	@Test
 	public void test() {
 		for (int i = 1; i < CacheTestHelper.PAGES.length; i++) {
-			final RecordPageContainer<UnorderedKeyValuePage> cont = cache.get((long) i);
-			final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont.getComplete();
+			final RecordPageContainer<UnorderedKeyValuePage> cont = cache
+					.get((long) i);
+			final UnorderedKeyValuePage current = (UnorderedKeyValuePage) cont
+					.getComplete();
 			assertEquals(CacheTestHelper.PAGES[i][0], current);
 		}
 

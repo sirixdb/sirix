@@ -51,7 +51,8 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SynchronizedTransactionLogPageCache implements Cache<IndirectPageLogKey, Page> {
+public final class SynchronizedTransactionLogPageCache implements
+		Cache<IndirectPageLogKey, Page> {
 
 	/** RAM-Based first cache. */
 	private final LRUCache<IndirectPageLogKey, Page> mFirstCache;

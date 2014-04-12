@@ -54,11 +54,11 @@ import com.google.common.base.Optional;
  * by it's unique node key. The currently located node is optionally included.
  * Furthermore a {@link Visitor} is usable to guide the traversal and do
  * whatever you like with the node kind, which is selected by the given
- * {@link NodeReadTrx} transaction. 
+ * {@link NodeReadTrx} transaction.
  * </p>
  * <p>
- * Note that it is faster to use the standard
- * {@link DescendantAxis} if no visitor is specified.
+ * Note that it is faster to use the standard {@link DescendantAxis} if no
+ * visitor is specified.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz

@@ -47,11 +47,11 @@ public class SirixException extends Exception {
 	public SirixException(final Throwable throwable) {
 		super(throwable);
 	}
-	
+
 	public SirixException(String message, Object... args) {
 		super(String.format(message, args));
 	}
-	
+
 	public SirixException(String message) {
 		super(message);
 	}

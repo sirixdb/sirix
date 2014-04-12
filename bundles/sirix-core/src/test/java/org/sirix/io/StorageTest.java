@@ -134,9 +134,8 @@ public final class StorageTest {
 	public Object[][] instantiateStorages() throws SirixIOException {
 		Object[][] returnVal = { {
 				Storage.class,
-				new Storage[] { //new ChronicleStorage(mResourceConfig),
-						new FileStorage(mResourceConfig),
-						new BerkeleyStorage(mResourceConfig),
+				new Storage[] { // new ChronicleStorage(mResourceConfig),
+				new FileStorage(mResourceConfig), new BerkeleyStorage(mResourceConfig),
 						new RAMStorage(mResourceConfig) } } };
 		return returnVal;
 	}

@@ -47,30 +47,28 @@ public final class ScanCASIndexRange extends AbstractFunction {
 			SDBFun.SDB_PREFIX, "scan-cas-index-range");
 
 	public ScanCASIndexRange() {
-		super(DEFAULT_NAME, new Signature(new SequenceType(
-				AnyNodeType.ANY_NODE, Cardinality.ZeroOrMany),
-				SequenceType.NODE,
-				new SequenceType(AtomicType.INR, Cardinality.One),
-				new SequenceType(AtomicType.ANA, Cardinality.One),
-				new SequenceType(AtomicType.ANA, Cardinality.One),
-				new SequenceType(AtomicType.BOOL, Cardinality.One),
-				new SequenceType(AtomicType.BOOL, Cardinality.One),
-				new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)), true);
+		super(DEFAULT_NAME, new Signature(new SequenceType(AnyNodeType.ANY_NODE,
+				Cardinality.ZeroOrMany), SequenceType.NODE, new SequenceType(
+				AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.ANA,
+				Cardinality.One), new SequenceType(AtomicType.ANA, Cardinality.One),
+				new SequenceType(AtomicType.BOOL, Cardinality.One), new SequenceType(
+						AtomicType.BOOL, Cardinality.One), new SequenceType(AtomicType.STR,
+						Cardinality.ZeroOrOne)), true);
 	}
 
 	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx,
-			Sequence[] args) throws QueryException {
+	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+			throws QueryException {
 		final DBNode doc = (DBNode) args[0];
 		final NodeReadTrx rtx = doc.getTrx();
 		final IndexController controller = rtx.getSession().getRtxIndexController(
 				rtx.getRevisionNumber());
-		
+
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "
 					+ ((Str) args[1]).stringValue()));
 		}
-		
+
 		final int idx = FunUtil.getInt(args, 1, "$idx-no", -1, null, true);
 
 		final IndexDef indexDef = controller.getIndexes().getIndexDef(idx,
@@ -96,11 +94,12 @@ public final class ScanCASIndexRange extends AbstractFunction {
 				true, true);
 		final boolean incMax = FunUtil.getBoolean(args, 5, "$include-high-key",
 				true, true);
-		final String paths = FunUtil.getString(args, 6, "$paths", null, null,
-				false);
-		final String[] pathArray = paths == null ? new String[] {} : paths.split(";");
-		final CASFilterRange filter = controller.createCASFilterRange(
-				pathArray, doc.getTrx(), min, max, incMin, incMax);
+		final String paths = FunUtil
+				.getString(args, 6, "$paths", null, null, false);
+		final String[] pathArray = paths == null ? new String[] {} : paths
+				.split(";");
+		final CASFilterRange filter = controller.createCASFilterRange(pathArray,
+				doc.getTrx(), min, max, incMin, incMax);
 
 		final IndexController ic = controller;
 		final DBNode node = doc;
@@ -114,10 +113,9 @@ public final class ScanCASIndexRange extends AbstractFunction {
 					@Override
 					public Item next() throws QueryException {
 						if (s == null) {
-							s = new SirixNodeKeyStream(ic.openCASIndex(node
-									.getTrx().getPageTrx(), indexDef,
-									SearchMode.LESS_OR_EQUAL, filter, min, max,
-									incMin, incMax), node.getCollection(),
+							s = new SirixNodeKeyStream(ic.openCASIndex(node.getTrx()
+									.getPageTrx(), indexDef, SearchMode.LESS_OR_EQUAL, filter,
+									min, max, incMin, incMax), node.getCollection(),
 									node.getTrx());
 						}
 						return (Item) s.next();

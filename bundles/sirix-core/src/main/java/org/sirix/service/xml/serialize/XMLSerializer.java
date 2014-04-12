@@ -118,10 +118,9 @@ public final class XMLSerializer extends AbstractSerializer {
 	 * @param revsions
 	 *          further revisions to serialize
 	 */
-	private XMLSerializer(final Session session,
-			final @Nonnegative long nodeKey,
-			final XMLSerializerBuilder builder,
-			final @Nonnegative int revision, final int... revsions) {
+	private XMLSerializer(final Session session, final @Nonnegative long nodeKey,
+			final XMLSerializerBuilder builder, final @Nonnegative int revision,
+			final int... revsions) {
 		super(session, nodeKey, revision, revsions);
 		mOut = new BufferedOutputStream(builder.mStream, 4096);
 		mIndent = builder.mIndent;
@@ -413,8 +412,8 @@ public final class XMLSerializer extends AbstractSerializer {
 				final Session session = db.getSession(new SessionConfiguration.Builder(
 						"shredded").build());
 
-				final XMLSerializer serializer = XMLSerializer.newBuilder(session,
-						outputStream).emitXMLDeclaration().build();
+				final XMLSerializer serializer = XMLSerializer
+						.newBuilder(session, outputStream).emitXMLDeclaration().build();
 				serializer.call();
 			}
 		}
@@ -545,8 +544,7 @@ public final class XMLSerializer extends AbstractSerializer {
 		 */
 		public XMLSerializerBuilder(final Session session,
 				final @Nonnegative long nodeKey, final OutputStream stream,
-				final XMLSerializerProperties properties,
-				final int... revisions) {
+				final XMLSerializerProperties properties, final int... revisions) {
 			checkArgument(nodeKey >= 0, "pNodeKey must be >= 0!");
 			mSession = checkNotNull(session);
 			mNodeKey = nodeKey;
@@ -572,7 +570,8 @@ public final class XMLSerializer extends AbstractSerializer {
 		 * Specify the start node key.
 		 * 
 		 * @param nodeKey
-		 *          node key to start serialization from (the root of the subtree to serialize)
+		 *          node key to start serialization from (the root of the subtree to
+		 *          serialize)
 		 * @return XMLSerializerBuilder reference
 		 */
 		public XMLSerializerBuilder startNodeKey(final long nodeKey) {

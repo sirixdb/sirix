@@ -35,9 +35,10 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * 
 	 * @param indexType
 	 *          the {@link IndexType}
-	 * @return {@code true}, if all transaction logs have been created, {@code false} otherwise
+	 * @return {@code true}, if all transaction logs have been created,
+	 *         {@code false} otherwise
 	 * @throws SirixIOException
-	 * 					if setting up the transaction log fails
+	 *           if setting up the transaction log fails
 	 */
 	boolean setupIndexTransactionLog(IndexType indexType) throws SirixIOException;
 
@@ -63,8 +64,8 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @param pageContainer
 	 *          the pageContainer to put into the cache
 	 */
-	void putPageIntoKeyValueCache(PageKind pageKind,
-			@Nonnegative long key, int index,
+	void putPageIntoKeyValueCache(PageKind pageKind, @Nonnegative long key,
+			int index,
 			@Nonnull RecordPageContainer<UnorderedKeyValuePage> pageContainer);
 
 	/**
@@ -89,8 +90,8 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code record} or {@code page} is {@code null}
 	 */
-	V createEntry(K key, @Nonnull V value, @Nonnull PageKind pageKind,
-			int index, @Nonnull Optional<S> keyValuePage) throws SirixIOException;
+	V createEntry(K key, @Nonnull V value, @Nonnull PageKind pageKind, int index,
+			@Nonnull Optional<S> keyValuePage) throws SirixIOException;
 
 	/**
 	 * Prepare an entry for modification. This is getting the entry from the
@@ -150,8 +151,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code name} or {@code kind} is {@code null}
 	 */
-	int createNameKey(String name, @Nonnull Kind kind)
-			throws SirixIOException;
+	int createNameKey(String name, @Nonnull Kind kind) throws SirixIOException;
 
 	/**
 	 * Commit the transaction, that is persist changes if any and create a new
@@ -162,8 +162,7 @@ public interface PageWriteTrx<K extends Comparable<? super K>, V extends Record,
 	 * @throws NullPointerException
 	 *           if {@code multipleWriteTrx} is {@code null}
 	 */
-	UberPage commit(MultipleWriteTrx multipleWriteTrx)
-			throws SirixException;
+	UberPage commit(MultipleWriteTrx multipleWriteTrx) throws SirixException;
 
 	/**
 	 * Update log.

@@ -23,8 +23,7 @@ public interface Shredder<S, T> {
 	 * @param target
 	 *          the target
 	 */
-	void processPI(S content, S target)
-			throws SirixException;
+	void processPI(S content, S target) throws SirixException;
 
 	/**
 	 * Process a comment.

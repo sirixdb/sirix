@@ -10,7 +10,8 @@ import com.google.common.collect.AbstractIterator;
  * @author Johannes Lichtenberger
  * 
  */
-public abstract class AbstractTemporalAxis extends AbstractIterator<NodeReadTrx> {
+public abstract class AbstractTemporalAxis extends
+		AbstractIterator<NodeReadTrx> {
 
 	/**
 	 * Get the transaction.

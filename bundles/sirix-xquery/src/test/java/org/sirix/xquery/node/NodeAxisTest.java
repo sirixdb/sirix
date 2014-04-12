@@ -16,7 +16,7 @@ public class NodeAxisTest extends AxisTest {
 	protected Store createStore() throws Exception {
 		return DBStore.newBuilder().build();
 	}
-	
+
 	@After
 	public void tearDown() throws DocumentException {
 		((DBStore) store).close();

@@ -103,8 +103,7 @@ public final class SessionConfiguration {
 	 * @param builder
 	 *          {@link Builder} reference
 	 */
-	private SessionConfiguration(
-			final SessionConfiguration.Builder builder) {
+	private SessionConfiguration(final SessionConfiguration.Builder builder) {
 		mWtxAllowed = builder.mWtxAllowed;
 		mRtxAllowed = builder.mRtxAllowed;
 		mCommitThreshold = builder.mCommitThreshold;

@@ -38,32 +38,32 @@ package org.sirix.gui;
  * 
  */
 interface IGUICommand {
-  /**
-   * Invokes a command.
-   * 
-   * @param paramGUI
-   *          Main GUI frame.
-   */
-  void execute(final GUI paramGUI);
+	/**
+	 * Invokes a command.
+	 * 
+	 * @param paramGUI
+	 *          Main GUI frame.
+	 */
+	void execute(final GUI paramGUI);
 
-  /**
-   * Description of the command.
-   * 
-   * @return the description
-   */
-  String desc();
+	/**
+	 * Description of the command.
+	 * 
+	 * @return the description
+	 */
+	String desc();
 
-  /**
-   * Returns the type of menu item.
-   * 
-   * @return type of menu item
-   */
-  Menu type();
+	/**
+	 * Returns the type of menu item.
+	 * 
+	 * @return type of menu item
+	 */
+	Menu type();
 
-  /**
-   * Returns if view is selected.
-   * 
-   * @return true if view is selected, false otherwise
-   */
-  boolean selected();
+	/**
+	 * Returns if view is selected.
+	 * 
+	 * @return true if view is selected, false otherwise
+	 */
+	boolean selected();
 }

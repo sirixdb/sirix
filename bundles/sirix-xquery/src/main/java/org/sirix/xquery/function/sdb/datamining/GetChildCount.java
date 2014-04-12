@@ -13,7 +13,8 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for retrieving the number of children of the current node. Supported signature is:
+ * Function for retrieving the number of children of the current node. Supported
+ * signature is:
  * </p>
  * <ul>
  * <li>
@@ -26,8 +27,8 @@ import org.sirix.xquery.node.DBNode;
 public final class GetChildCount extends AbstractFunction {
 
 	/** Get number of children function name. */
-	public final static QNm GET_CHILD_COUNT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"get-child-count");
+	public final static QNm GET_CHILD_COUNT = new QNm(SDBFun.SDB_NSURI,
+			SDBFun.SDB_PREFIX, "get-child-count");
 
 	/**
 	 * Constructor.

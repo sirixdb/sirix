@@ -79,7 +79,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 	 *          determines if it's a leaf or inner node page
 	 */
 	public BPlusLeafNodePage(final @Nonnegative long recordPageKey,
-			final PageKind pageKind, final Optional<PageReference> previousPageRef, final PageReadTrx pageReadTrx) {
+			final PageKind pageKind, final Optional<PageReference> previousPageRef,
+			final PageReadTrx pageReadTrx) {
 		// Assertions instead of checkNotNull(...) checks as it's part of the
 		// internal flow.
 		assert recordPageKey >= 0 : "recordPageKey must not be negative!";
@@ -211,7 +212,8 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 			final @Nonnegative long recordPageKey, final PageKind pageKind,
 			final Optional<PageReference> previousPageRef,
 			final PageReadTrx pageReadTrx) {
-		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind, previousPageRef, pageReadTrx);
+		return (C) new BPlusLeafNodePage<K, V>(recordPageKey, pageKind,
+				previousPageRef, pageReadTrx);
 	}
 
 	@Override
@@ -254,9 +256,9 @@ public class BPlusLeafNodePage<K extends Comparable<? super K> & Record, V exten
 		return null;
 	}
 
-//	@Override
-//	public boolean isFullDump() {
-//		// TODO Auto-generated method stub
-//		return false;
-//	}
+	// @Override
+	// public boolean isFullDump() {
+	// // TODO Auto-generated method stub
+	// return false;
+	// }
 }

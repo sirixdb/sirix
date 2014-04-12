@@ -74,8 +74,8 @@ public final class FMSEVisitor extends AbstractVisitor {
 	 *           if one of the arguments is {@code null}
 	 */
 	public FMSEVisitor(final NodeReadTrx readTransaction,
-			final Map<Long, Boolean> inOrder,
-			final Map<Long, Long> descendants) throws SirixException {
+			final Map<Long, Boolean> inOrder, final Map<Long, Long> descendants)
+			throws SirixException {
 		mRtx = checkNotNull(readTransaction);
 		mInOrder = checkNotNull(inOrder);
 		mDescendants = checkNotNull(descendants);

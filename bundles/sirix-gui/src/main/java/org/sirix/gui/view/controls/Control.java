@@ -47,243 +47,241 @@ import controlP5.ControlListener;
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface Control extends EventListener, MouseListener, MouseMotionListener, MouseWheelListener,
-  KeyListener, ControlListener {
-  /** Represents the use of the left mouse button */
-  int LEFT_MOUSE_BUTTON = InputEvent.BUTTON1_MASK;
-  /** Represents the use of the middle mouse button */
-  int MIDDLE_MOUSE_BUTTON = InputEvent.BUTTON2_MASK;
-  /** Represents the use of the right mouse button */
-  int RIGHT_MOUSE_BUTTON = InputEvent.BUTTON3_MASK;
+public interface Control extends EventListener, MouseListener,
+		MouseMotionListener, MouseWheelListener, KeyListener, ControlListener {
+	/** Represents the use of the left mouse button */
+	int LEFT_MOUSE_BUTTON = InputEvent.BUTTON1_MASK;
+	/** Represents the use of the middle mouse button */
+	int MIDDLE_MOUSE_BUTTON = InputEvent.BUTTON2_MASK;
+	/** Represents the use of the right mouse button */
+	int RIGHT_MOUSE_BUTTON = InputEvent.BUTTON3_MASK;
 
-  /**
-   * Indicates if this Control is currently enabled.
-   * 
-   * @return true if the control is enabled, false if disabled
-   */
-  boolean isEnabled();
+	/**
+	 * Indicates if this Control is currently enabled.
+	 * 
+	 * @return true if the control is enabled, false if disabled
+	 */
+	boolean isEnabled();
 
-  /**
-   * Sets the enabled status of this control.
-   * 
-   * @param enabled
-   *          true to enable the control, false to disable it
-   */
-  void setEnabled(boolean enabled);
+	/**
+	 * Sets the enabled status of this control.
+	 * 
+	 * @param enabled
+	 *          true to enable the control, false to disable it
+	 */
+	void setEnabled(boolean enabled);
 
-  // -- Actions performed on VisualItems ------------------------------------
+	// -- Actions performed on VisualItems ------------------------------------
 
-  /**
-   * Invoked when a mouse button is pressed on a VisualItem and then dragged.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link MouseEvent} instance
-   */
-  void itemDragged(VisualItem paramItem, MouseEvent paramEvent);
+	/**
+	 * Invoked when a mouse button is pressed on a VisualItem and then dragged.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link MouseEvent} instance
+	 */
+	void itemDragged(VisualItem paramItem, MouseEvent paramEvent);
 
-  /**
-   * Invoked when the mouse cursor has been moved onto a VisualItem but no
-   * buttons have been pushed.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link MouseEvent} instance
-   */
-  void itemMoved(VisualItem paramItem, MouseEvent paramEvent);
+	/**
+	 * Invoked when the mouse cursor has been moved onto a VisualItem but no
+	 * buttons have been pushed.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link MouseEvent} instance
+	 */
+	void itemMoved(VisualItem paramItem, MouseEvent paramEvent);
 
-  /**
-   * Invoked when the mouse wheel is rotated while the mouse is over a
-   * VisualItem.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link MouseWheelEvent} instance
-   */
-  void itemWheelMoved(VisualItem paramItem, MouseWheelEvent paramEvent);
+	/**
+	 * Invoked when the mouse wheel is rotated while the mouse is over a
+	 * VisualItem.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link MouseWheelEvent} instance
+	 */
+	void itemWheelMoved(VisualItem paramItem, MouseWheelEvent paramEvent);
 
-  /**
-   * Invoked when the mouse button has been clicked (pressed and released) on
-   * a VisualItem.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link MouseEvent} instance
-   */
-  void itemClicked(VisualItem paramItem, MouseEvent paramEvent);
+	/**
+	 * Invoked when the mouse button has been clicked (pressed and released) on a
+	 * VisualItem.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link MouseEvent} instance
+	 */
+	void itemClicked(VisualItem paramItem, MouseEvent paramEvent);
 
-  /**
-   * Invoked when a mouse button has been pressed on a VisualItem.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link MouseEvent} instance
-   */
-  void itemPressed(VisualItem paramItem, MouseEvent paramEvent);
+	/**
+	 * Invoked when a mouse button has been pressed on a VisualItem.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link MouseEvent} instance
+	 */
+	void itemPressed(VisualItem paramItem, MouseEvent paramEvent);
 
-  /**
-   * Invoked when a mouse button has been released on a VisualItem.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link MouseEvent} instance
-   */
-  void itemReleased(VisualItem paramItem, MouseEvent paramEvent);
+	/**
+	 * Invoked when a mouse button has been released on a VisualItem.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link MouseEvent} instance
+	 */
+	void itemReleased(VisualItem paramItem, MouseEvent paramEvent);
 
-  /**
-   * Invoked when the mouse enters a VisualItem.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link MouseEvent} instance
-   */
-  void itemEntered(VisualItem paramItem, MouseEvent paramEvent);
+	/**
+	 * Invoked when the mouse enters a VisualItem.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link MouseEvent} instance
+	 */
+	void itemEntered(VisualItem paramItem, MouseEvent paramEvent);
 
-  /**
-   * Invoked when the mouse exits a VisualItem.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link MouseEvent} instance
-   */
-  void itemExited(VisualItem paramItem, MouseEvent paramEvent);
+	/**
+	 * Invoked when the mouse exits a VisualItem.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link MouseEvent} instance
+	 */
+	void itemExited(VisualItem paramItem, MouseEvent paramEvent);
 
-  /**
-   * Invoked when a key has been pressed, while the mouse is over a
-   * VisualItem.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link KeyEvent} instance
-   */
-  void itemKeyPressed(VisualItem paramItem, KeyEvent paramEvent);
+	/**
+	 * Invoked when a key has been pressed, while the mouse is over a VisualItem.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link KeyEvent} instance
+	 */
+	void itemKeyPressed(VisualItem paramItem, KeyEvent paramEvent);
 
-  /**
-   * Invoked when a key has been released, while the mouse is over a
-   * VisualItem.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link KeyEvent} instance
-   */
-  void itemKeyReleased(VisualItem paramItem, KeyEvent paramEvent);
+	/**
+	 * Invoked when a key has been released, while the mouse is over a VisualItem.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link KeyEvent} instance
+	 */
+	void itemKeyReleased(VisualItem paramItem, KeyEvent paramEvent);
 
-  /**
-   * Invoked when a key has been typed, while the mouse is over a VisualItem.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   * @param paramEvent
-   *          {@link KeyEvent} instance
-   */
-  void itemKeyTyped(VisualItem paramItem, KeyEvent paramEvent);
+	/**
+	 * Invoked when a key has been typed, while the mouse is over a VisualItem.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 * @param paramEvent
+	 *          {@link KeyEvent} instance
+	 */
+	void itemKeyTyped(VisualItem paramItem, KeyEvent paramEvent);
 
-  // -- Actions performed on the Display ------------------------------------
+	// -- Actions performed on the Display ------------------------------------
 
-  /**
-   * Invoked when the mouse enters the Display.
-   */
-  @Override
-  void mouseEntered(MouseEvent paramEvent);
+	/**
+	 * Invoked when the mouse enters the Display.
+	 */
+	@Override
+	void mouseEntered(MouseEvent paramEvent);
 
-  /**
-   * Invoked when the mouse exits the Display.
-   */
-  @Override
-  void mouseExited(MouseEvent paramEvent);
+	/**
+	 * Invoked when the mouse exits the Display.
+	 */
+	@Override
+	void mouseExited(MouseEvent paramEvent);
 
-  /**
-   * Invoked when a mouse button has been pressed on the Display but NOT on a
-   * VisualItem.
-   */
-  @Override
-  void mousePressed(MouseEvent paramEvent);
+	/**
+	 * Invoked when a mouse button has been pressed on the Display but NOT on a
+	 * VisualItem.
+	 */
+	@Override
+	void mousePressed(MouseEvent paramEvent);
 
-  /**
-   * Invoked when a mouse button has been released on the Display but NOT on a
-   * VisualItem.
-   */
-  @Override
-  void mouseReleased(MouseEvent paramEvent);
+	/**
+	 * Invoked when a mouse button has been released on the Display but NOT on a
+	 * VisualItem.
+	 */
+	@Override
+	void mouseReleased(MouseEvent paramEvent);
 
-  /**
-   * Invoked when the mouse button has been clicked (pressed and released) on
-   * the Display, but NOT on a VisualItem.
-   */
-  @Override
-  void mouseClicked(MouseEvent paramEvent);
+	/**
+	 * Invoked when the mouse button has been clicked (pressed and released) on
+	 * the Display, but NOT on a VisualItem.
+	 */
+	@Override
+	void mouseClicked(MouseEvent paramEvent);
 
-  /**
-   * Invoked when a mouse button is pressed on the Display (but NOT a
-   * VisualItem) and then dragged.
-   */
-  @Override
-  void mouseDragged(MouseEvent paramEvent);
+	/**
+	 * Invoked when a mouse button is pressed on the Display (but NOT a
+	 * VisualItem) and then dragged.
+	 */
+	@Override
+	void mouseDragged(MouseEvent paramEvent);
 
-  /**
-   * Invoked when the mouse cursor has been moved on the Display (but NOT a
-   * VisualItem) and no buttons have been pushed.
-   */
-  @Override
-  void mouseMoved(MouseEvent paramEvent);
+	/**
+	 * Invoked when the mouse cursor has been moved on the Display (but NOT a
+	 * VisualItem) and no buttons have been pushed.
+	 */
+	@Override
+	void mouseMoved(MouseEvent paramEvent);
 
-  /**
-   * Invoked when the mouse wheel is rotated while the mouse is over the
-   * Display (but NOT a VisualItem).
-   */
-  @Override
-  void mouseWheelMoved(MouseWheelEvent paramEvent);
+	/**
+	 * Invoked when the mouse wheel is rotated while the mouse is over the Display
+	 * (but NOT a VisualItem).
+	 */
+	@Override
+	void mouseWheelMoved(MouseWheelEvent paramEvent);
 
-  /**
-   * Invoked when a key has been pressed, while the mouse is NOT over a
-   * VisualItem.
-   */
-  @Override
-  void keyPressed(KeyEvent paramEvent);
+	/**
+	 * Invoked when a key has been pressed, while the mouse is NOT over a
+	 * VisualItem.
+	 */
+	@Override
+	void keyPressed(KeyEvent paramEvent);
 
-  /**
-   * Invoked when a key has been released, while the mouse is NOT over a
-   * VisualItem.
-   */
-  @Override
-  void keyReleased(KeyEvent paramEvent);
+	/**
+	 * Invoked when a key has been released, while the mouse is NOT over a
+	 * VisualItem.
+	 */
+	@Override
+	void keyReleased(KeyEvent paramEvent);
 
-  /**
-   * Invoked when a key has been pressed (for processing), while the mouse is
-   * NOT over a VisualItem.
-   */
-  void keyPressed();
+	/**
+	 * Invoked when a key has been pressed (for processing), while the mouse is
+	 * NOT over a VisualItem.
+	 */
+	void keyPressed();
 
-  /**
-   * Invoked when a key has been released (for processing), while the mouse is
-   * NOT over a VisualItem.
-   */
-  void keyReleased();
+	/**
+	 * Invoked when a key has been released (for processing), while the mouse is
+	 * NOT over a VisualItem.
+	 */
+	void keyReleased();
 
-  /**
-   * Invoked when a key has been typed, while the mouse is NOT over a
-   * VisualItem.
-   */
-  @Override
-  void keyTyped(KeyEvent paramEvent);
+	/**
+	 * Invoked when a key has been typed, while the mouse is NOT over a
+	 * VisualItem.
+	 */
+	@Override
+	void keyTyped(KeyEvent paramEvent);
 
-  /**
-   * Get model.
-   * 
-   * @return Model associated with the Controller
-   */
-  Model<? extends Container<?>, ? extends VisualItem> getModel();
+	/**
+	 * Get model.
+	 * 
+	 * @return Model associated with the Controller
+	 */
+	Model<? extends Container<?>, ? extends VisualItem> getModel();
 
-  /** Reset the controller. */
-  void resetControl();
+	/** Reset the controller. */
+	void resetControl();
 }

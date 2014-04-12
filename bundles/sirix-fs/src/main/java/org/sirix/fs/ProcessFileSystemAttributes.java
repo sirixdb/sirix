@@ -20,32 +20,32 @@ import com.google.common.base.Optional;
  */
 public class ProcessFileSystemAttributes implements Visitor<NodeWriteTrx> {
 
-  /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory
-    .getLogger(ProcessFileSystemAttributes.class));
+	/** {@link LogWrapper} reference. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(ProcessFileSystemAttributes.class));
 
-  @Override
-  public void processDirectory(final NodeWriteTrx transaction, final Path dir,
-    final Optional<BasicFileAttributes> attrs) {
-  }
+	@Override
+	public void processDirectory(final NodeWriteTrx transaction, final Path dir,
+			final Optional<BasicFileAttributes> attrs) {
+	}
 
-  @Override
-  public void processFile(final NodeWriteTrx trx, Path path,
-    final Optional<BasicFileAttributes> attrs) {
-    if (Files.exists(path)) {
-      final String file = path.getFileName().toString();
-      final int index = file.lastIndexOf('.');
-      if (index > 0) {
-        final String suffix = file.substring(index + 1);
-        if (!suffix.isEmpty()) {
-          try {
-            trx.insertAttribute(new QNm("suffix"), file.substring(index + 1));
-            trx.moveToParent();
-          } catch (SirixException e) {
-            LOGWRAPPER.error(e.getMessage(), e);
-          }
-        }
-      }
-    }
-  }
+	@Override
+	public void processFile(final NodeWriteTrx trx, Path path,
+			final Optional<BasicFileAttributes> attrs) {
+		if (Files.exists(path)) {
+			final String file = path.getFileName().toString();
+			final int index = file.lastIndexOf('.');
+			if (index > 0) {
+				final String suffix = file.substring(index + 1);
+				if (!suffix.isEmpty()) {
+					try {
+						trx.insertAttribute(new QNm("suffix"), file.substring(index + 1));
+						trx.moveToParent();
+					} catch (SirixException e) {
+						LOGWRAPPER.error(e.getMessage(), e);
+					}
+				}
+			}
+		}
+	}
 }

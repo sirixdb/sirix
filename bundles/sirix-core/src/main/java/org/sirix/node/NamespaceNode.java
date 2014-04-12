@@ -55,7 +55,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 
 	/** {@link NodeDelegate} reference. */
 	private final NodeDelegate mNodeDel;
-	
+
 	/** The qualified name. */
 	private final QNm mQNm;
 
@@ -66,7 +66,8 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 	 *          {@link NodeDelegate} reference
 	 * @param nameDel
 	 *          {@link NameNodeDelegate} reference
-	 * @param qNm The qualified name.
+	 * @param qNm
+	 *          The qualified name.
 	 */
 	public NamespaceNode(final NodeDelegate nodeDel,
 			final NameNodeDelegate nameDel, final QNm qNm) {
@@ -87,7 +88,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 	public int getPrefixKey() {
 		return mNameDel.getPrefixKey();
 	}
-	
+
 	@Override
 	public int getLocalNameKey() {
 		return mNameDel.getLocalNameKey();
@@ -102,7 +103,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 	public void setPrefixKey(final int prefixKey) {
 		mNameDel.setPrefixKey(prefixKey);
 	}
-	
+
 	@Override
 	public void setLocalNameKey(final int localNameKey) {
 		mNameDel.setLocalNameKey(localNameKey);
@@ -162,7 +163,7 @@ public final class NamespaceNode extends AbstractForwardingNode implements
 	protected NodeDelegate delegate() {
 		return mNodeDel;
 	}
-	
+
 	@Override
 	public QNm getName() {
 		return mQNm;

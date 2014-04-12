@@ -97,8 +97,7 @@ public abstract class AbstractAxis implements Axis {
 	 * @param pIncludeSelf
 	 *          determines if self is included
 	 */
-	public AbstractAxis(final NodeCursor pRtx,
-			final IncludeSelf pIncludeSelf) {
+	public AbstractAxis(final NodeCursor pRtx, final IncludeSelf pIncludeSelf) {
 		mRtx = checkNotNull(pRtx);
 		mIncludeSelf = checkNotNull(pIncludeSelf);
 		mHasNext = true;

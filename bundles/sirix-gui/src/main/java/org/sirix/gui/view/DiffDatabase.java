@@ -51,108 +51,112 @@ import com.sleepycat.je.EnvironmentConfig;
 /** Database to store generated diffs. */
 public class DiffDatabase implements AutoCloseable {
 
-  /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(DiffDatabase.class));
+	/** {@link LogWrapper} reference. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(DiffDatabase.class));
 
-  /** Class catalog. */
-  private static final String CLASS_CATALOG = "java_class_catalog";
+	/** Class catalog. */
+	private static final String CLASS_CATALOG = "java_class_catalog";
 
-  /** Berkeley {@link Environment} for the database. */
-  private final Environment mEnv;
+	/** Berkeley {@link Environment} for the database. */
+	private final Environment mEnv;
 
-  /** {@link File} where to store the database. */
-  private final File mStorageFile;
+	/** {@link File} where to store the database. */
+	private final File mStorageFile;
 
-  /** Counter to give every instance a different place. */
-  private AtomicInteger mCounter;
+	/** Counter to give every instance a different place. */
+	private AtomicInteger mCounter;
 
-  /** Name for the database. */
-  private static final String NAME = "DiffDatabase";
+	/** Name for the database. */
+	private static final String NAME = "DiffDatabase";
 
-  /** {@link ClassCatalog} reference. */
-  private ClassCatalog mCatalog;
+	/** {@link ClassCatalog} reference. */
+	private ClassCatalog mCatalog;
 
-  /** {@link Database} reference. */
-  private Database mDatabase;
+	/** {@link Database} reference. */
+	private Database mDatabase;
 
-  /** {@link StoredMap} reference. */
-  private StoredMap<Integer, DiffTuple> mMap;
+	/** {@link StoredMap} reference. */
+	private StoredMap<Integer, DiffTuple> mMap;
 
-  /**
-   * Constructor.
-   * 
-   * @param pFile
-   *          {@link File} where the database should be stored
-   * @throws NullPointerException
-   *           if {@code paramFile} is {@code null}
-   */
-  public DiffDatabase(final File pFile) {
-    checkNotNull(pFile);
-    mCounter = new AtomicInteger();
-    mStorageFile =
-      new File(pFile, new StringBuilder(new File("diff").getName()).append(File.separator).append(
-        mCounter.incrementAndGet()).toString());
-    try {
-      if (mStorageFile.exists()) {
-        Files.recursiveRemove(mStorageFile.toPath());
-      }
-    } catch (final SirixIOException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-    if (!mStorageFile.mkdirs()) {
-      throw new IllegalStateException("Couldn't create directory for storage of diffs!");
-    }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pFile
+	 *          {@link File} where the database should be stored
+	 * @throws NullPointerException
+	 *           if {@code paramFile} is {@code null}
+	 */
+	public DiffDatabase(final File pFile) {
+		checkNotNull(pFile);
+		mCounter = new AtomicInteger();
+		mStorageFile = new File(pFile,
+				new StringBuilder(new File("diff").getName()).append(File.separator)
+						.append(mCounter.incrementAndGet()).toString());
+		try {
+			if (mStorageFile.exists()) {
+				Files.recursiveRemove(mStorageFile.toPath());
+			}
+		} catch (final SirixIOException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+		if (!mStorageFile.mkdirs()) {
+			throw new IllegalStateException(
+					"Couldn't create directory for storage of diffs!");
+		}
 
-    // Create environment configuration and environment.
-    final EnvironmentConfig environmentConfig = new EnvironmentConfig();
-    environmentConfig.setAllowCreate(true);
-    environmentConfig.setTransactional(false);
-    mEnv = new Environment(mStorageFile, environmentConfig);
+		// Create environment configuration and environment.
+		final EnvironmentConfig environmentConfig = new EnvironmentConfig();
+		environmentConfig.setAllowCreate(true);
+		environmentConfig.setTransactional(false);
+		mEnv = new Environment(mStorageFile, environmentConfig);
 
-    // Create database configuration.
-    final DatabaseConfig conf = new DatabaseConfig();
-    conf.setAllowCreate(true);
-    conf.setTemporary(true);
+		// Create database configuration.
+		final DatabaseConfig conf = new DatabaseConfig();
+		conf.setAllowCreate(true);
+		conf.setTemporary(true);
 
-    // Catalog is needed for serial bindings (java serialization).
-    final Database catalogDb = mEnv.openDatabase(null, CLASS_CATALOG, conf);
-    mCatalog = new StoredClassCatalog(catalogDb);
+		// Catalog is needed for serial bindings (java serialization).
+		final Database catalogDb = mEnv.openDatabase(null, CLASS_CATALOG, conf);
+		mCatalog = new StoredClassCatalog(catalogDb);
 
-    // Use Integer tuple binding for key entries.
-    final EntryBinding<Integer> keyBinding = TupleBinding.getPrimitiveBinding(Integer.class);
+		// Use Integer tuple binding for key entries.
+		final EntryBinding<Integer> keyBinding = TupleBinding
+				.getPrimitiveBinding(Integer.class);
 
-    // Use Diff serial binding for data entries.
-    final EntryBinding<DiffTuple> dataBinding = new SerialBinding<>(mCatalog, DiffTuple.class);
+		// Use Diff serial binding for data entries.
+		final EntryBinding<DiffTuple> dataBinding = new SerialBinding<>(mCatalog,
+				DiffTuple.class);
 
-    // Create a database.
-    mDatabase = mEnv.openDatabase(null, NAME, conf);
+		// Create a database.
+		mDatabase = mEnv.openDatabase(null, NAME, conf);
 
-    // Create a map view of the database.
-    mMap = new StoredMap<>(mDatabase, keyBinding, dataBinding, true);
-  }
+		// Create a map view of the database.
+		mMap = new StoredMap<>(mDatabase, keyBinding, dataBinding, true);
+	}
 
-  /**
-   * Get a map view.
-   * 
-   * @return the {@link StoredMap} instance
-   */
-  public StoredMap<Integer, DiffTuple> getMap() {
-    return mMap;
-  }
+	/**
+	 * Get a map view.
+	 * 
+	 * @return the {@link StoredMap} instance
+	 */
+	public StoredMap<Integer, DiffTuple> getMap() {
+		return mMap;
+	}
 
-  /**
-   * Get {@link Environment}.
-   * 
-   * @return the {@link Environment} instance
-   */
-  public Environment getEnvironment() {
-    return mEnv;
-  }
+	/**
+	 * Get {@link Environment}.
+	 * 
+	 * @return the {@link Environment} instance
+	 */
+	public Environment getEnvironment() {
+		return mEnv;
+	}
 
-  @Override
-  public void close() {
-    mCatalog.close();
-    mDatabase.close();
-    mEnv.close();
-  }
+	@Override
+	public void close() {
+		mCatalog.close();
+		mDatabase.close();
+		mEnv.close();
+	}
 }

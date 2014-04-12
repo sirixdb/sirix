@@ -165,7 +165,7 @@ public final class DiffTestHelper {
 	static DiffObserver createMock() {
 		return mock(DiffObserver.class);
 	}
-	
+
 	static void verifyFullDiffFirst(final DiffObserver listener) {
 		final InOrder inOrder = inOrder(listener);
 		inOrder.verify(listener, times(3)).diffListener(eq(DiffType.SAME),

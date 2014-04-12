@@ -88,8 +88,9 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 				// Create name index tree if needed.
 				final NamePage namePage = pageWriteTrx.getNamePage(pageWriteTrx
 						.getActualRevisionRootPage());
-//				pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.NAMEPAGE,
-//						-1, -1, 0), namePage);
+				// pageWriteTrx.putPageIntoCache(new
+				// IndirectPageLogKey(PageKind.NAMEPAGE,
+				// -1, -1, 0), namePage);
 				namePage.createNameIndexTree(pageWriteTrx, index);
 				break;
 			}
@@ -134,8 +135,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 	 *           if an I/O error occurs
 	 */
 	@SuppressWarnings("unchecked")
-	public V index(final K key, final V value,
-			final MoveCursor move) throws SirixIOException {
+	public V index(final K key, final V value, final MoveCursor move)
+			throws SirixIOException {
 		if (move == MoveCursor.TO_DOCUMENT_ROOT) {
 			moveToDocumentRoot();
 		}
@@ -215,11 +216,11 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 		}
 	}
 
-	/** 
+	/**
 	 * Get the new maximum node key.
 	 * 
 	 * @param root
-	 * 				the current {@link RevisionRootPage}
+	 *          the current {@link RevisionRootPage}
 	 * @return maximum node key
 	 * @throws SirixIOException
 	 */
@@ -533,7 +534,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 					}
 					setChanged(parent(node), false);
 					setChanged(parent(parent(node)), true);
-					if (parent(parent(node)) != null) rotateRight(parent(parent(node)));
+					if (parent(parent(node)) != null)
+						rotateRight(parent(parent(node)));
 				}
 			} else if (parent(node).equals(right(parent(parent(node))))) {
 				AVLNode<K, V> y = left(parent(parent(node)));
@@ -549,7 +551,8 @@ public final class AVLTreeWriter<K extends Comparable<? super K>, V extends Refe
 					}
 					setChanged(parent(node), false);
 					setChanged(parent(parent(node)), true);
-					if (parent(parent(node)) != null) rotateLeft(parent(parent(node)));
+					if (parent(parent(node)) != null)
+						rotateLeft(parent(parent(node)));
 				}
 			} else {
 				node = null;

@@ -13,7 +13,8 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for getting the number of attributes of the current node. Supported signature is:
+ * Function for getting the number of attributes of the current node. Supported
+ * signature is:
  * </p>
  * <ul>
  * <li>
@@ -33,17 +34,17 @@ public final class GetAttributeCount extends AbstractFunction {
 	 * Constructor.
 	 *
 	 * @param name
-	 *            the name of the function
+	 *          the name of the function
 	 * @param signature
-	 *            the signature of the function
+	 *          the signature of the function
 	 */
 	public GetAttributeCount(QNm name, Signature signature) {
 		super(name, signature, true);
 	}
 
 	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx,
-			Sequence[] args) throws QueryException {
+	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+			throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 
 		return new Int32(doc.getTrx().getAttributeCount());

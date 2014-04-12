@@ -61,8 +61,7 @@ public final class PostOrderAxis extends AbstractAxis {
 	 * @param rtx
 	 *          exclusive (immutable) trx to iterate with
 	 */
-	public PostOrderAxis(final NodeReadTrx rtx,
-			final IncludeSelf includeSelf) {
+	public PostOrderAxis(final NodeReadTrx rtx, final IncludeSelf includeSelf) {
 		super(rtx, includeSelf);
 	}
 

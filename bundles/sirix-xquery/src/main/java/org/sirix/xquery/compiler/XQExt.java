@@ -21,4 +21,3 @@ public class XQExt {
 		return NAMES[key - OFFSET];
 	}
 }
-

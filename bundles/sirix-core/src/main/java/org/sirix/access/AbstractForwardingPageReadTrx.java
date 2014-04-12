@@ -62,8 +62,8 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public CASPage getCASPage(
-			@Nonnull RevisionRootPage revisionRoot) throws SirixIOException {
+	public CASPage getCASPage(@Nonnull RevisionRootPage revisionRoot)
+			throws SirixIOException {
 		return delegate().getCASPage(revisionRoot);
 	}
 
@@ -144,8 +144,7 @@ public abstract class AbstractForwardingPageReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Page getFromPageCache(PageReference reference)
-			throws SirixIOException {
+	public Page getFromPageCache(PageReference reference) throws SirixIOException {
 		return delegate().getFromPageCache(reference);
 	}
 

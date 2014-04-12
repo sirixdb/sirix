@@ -84,7 +84,8 @@ public class AttributeNodeTest {
 		final NameNodeDelegate nameDel = new NameNodeDelegate(del, 13, 14, 15, 1);
 		final ValNodeDelegate valDel = new ValNodeDelegate(del, value, false);
 
-		final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm("ns", "a", "p"));
+		final AttributeNode node = new AttributeNode(del, nameDel, valDel, new QNm(
+				"ns", "a", "p"));
 
 		// Create empty node.
 		check(node);
@@ -93,7 +94,8 @@ public class AttributeNodeTest {
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
 		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(new DataInputStream(in), node.getNodeKey(), node.getDeweyID(),
+		final AttributeNode node2 = (AttributeNode) Kind.ATTRIBUTE.deserialize(
+				new DataInputStream(in), node.getNodeKey(), node.getDeweyID(),
 				mPageReadTrx);
 		check(node2);
 	}

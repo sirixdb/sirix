@@ -22,7 +22,7 @@ public interface Materializable {
 	 * Initializes the materialized locator facet
 	 * 
 	 * @param root
-	 *            root of the materialized facet subtree
+	 *          root of the materialized facet subtree
 	 * @throws DocumentException
 	 */
 	public void init(Node<?> root) throws DocumentException;

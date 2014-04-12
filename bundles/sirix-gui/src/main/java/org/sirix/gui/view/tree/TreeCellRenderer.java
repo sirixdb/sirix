@@ -56,172 +56,174 @@ import org.sirix.node.interfaces.Node;
  */
 public final class TreeCellRenderer extends DefaultTreeCellRenderer {
 
-  /**
-   * Generated UID.
-   */
-  private static final long serialVersionUID = -6242168246410260644L;
+	/**
+	 * Generated UID.
+	 */
+	private static final long serialVersionUID = -6242168246410260644L;
 
-  /** White color. */
-  private static final Color WHITE = new Color(255, 255, 255);
+	/** White color. */
+	private static final Color WHITE = new Color(255, 255, 255);
 
-  /** Treetant reading transaction {@link NodeReadTrx}. */
-  private transient NodeReadTrx mRTX;
+	/** Treetant reading transaction {@link NodeReadTrx}. */
+	private transient NodeReadTrx mRTX;
 
-  /** Path to file. */
-  private final String mPATH;
+	/** Path to file. */
+	private final String mPATH;
 
-  /**
-   * Constructor.
-   * 
-   * @param pReadDB
-   *          {@link ReadDB} instance
-   */
-  TreeCellRenderer(final ReadDB pReadDB) {
-    setOpenIcon(null);
-    setClosedIcon(null);
-    setLeafIcon(null);
-    setBackgroundNonSelectionColor(null);
-    setTextSelectionColor(Color.red);
+	/**
+	 * Constructor.
+	 * 
+	 * @param pReadDB
+	 *          {@link ReadDB} instance
+	 */
+	TreeCellRenderer(final ReadDB pReadDB) {
+		setOpenIcon(null);
+		setClosedIcon(null);
+		setLeafIcon(null);
+		setBackgroundNonSelectionColor(null);
+		setTextSelectionColor(Color.red);
 
-    try {
-      mRTX = pReadDB.getSession().beginNodeReadTrx(pReadDB.getRevisionNumber());
-    } catch (final SirixException exc) {
-      exc.printStackTrace();
-    }
+		try {
+			mRTX = pReadDB.getSession().beginNodeReadTrx(pReadDB.getRevisionNumber());
+		} catch (final SirixException exc) {
+			exc.printStackTrace();
+		}
 
-    mRTX.moveTo(pReadDB.getNodeKey());
-    mPATH = pReadDB.getDatabase().getDatabaseConfig().getFile().getName();
-  }
+		mRTX.moveTo(pReadDB.getNodeKey());
+		mPATH = pReadDB.getDatabase().getDatabaseConfig().getFile().getName();
+	}
 
-  @Override
-  public Component getTreeCellRendererComponent(final JTree pTree, Object pValue, final boolean pSel,
-    final boolean pExpanded, final boolean pLeaf, final int pRow, final boolean pHasFocus)
-    throws IllegalStateException {
-    final Node node = (Node)pValue;
+	@Override
+	public Component getTreeCellRendererComponent(final JTree pTree,
+			Object pValue, final boolean pSel, final boolean pExpanded,
+			final boolean pLeaf, final int pRow, final boolean pHasFocus)
+			throws IllegalStateException {
+		final Node node = (Node) pValue;
 
-    final long key = node.getNodeKey();
+		final long key = node.getNodeKey();
 
-    switch (node.getKind()) {
-    case ELEMENT:
-      mRTX.moveTo(node.getNodeKey());
-      final String prefix = mRTX.getName().getPrefix();
-      final QNm qName = mRTX.getName();
+		switch (node.getKind()) {
+		case ELEMENT:
+			mRTX.moveTo(node.getNodeKey());
+			final String prefix = mRTX.getName().getPrefix();
+			final QNm qName = mRTX.getName();
 
-      if (prefix == null || prefix.equals(XMLConstants.DEFAULT_NS_PREFIX)) {
-        final String localPart = qName.getLocalName();
+			if (prefix == null || prefix.equals(XMLConstants.DEFAULT_NS_PREFIX)) {
+				final String localPart = qName.getLocalName();
 
-        if (mRTX.hasFirstChild()) {
-          pValue = new StringBuilder("<").append(localPart).append(">").toString();
-        } else {
-          pValue = new StringBuilder("<").append(localPart).append("/>").toString();
-        }
-      } else {
-        pValue =
-          new StringBuilder("<").append(prefix).append(":").append(qName.getLocalName()).append(">")
-            .toString();
-      }
+				if (mRTX.hasFirstChild()) {
+					pValue = new StringBuilder("<").append(localPart).append(">")
+							.toString();
+				} else {
+					pValue = new StringBuilder("<").append(localPart).append("/>")
+							.toString();
+				}
+			} else {
+				pValue = new StringBuilder("<").append(prefix).append(":")
+						.append(qName.getLocalName()).append(">").toString();
+			}
 
-      break;
-    case ATTRIBUTE:
-      // Move transaction to parent of the attribute node.
-      mRTX.moveTo(node.getParentKey());
-      final long aNodeKey = node.getNodeKey();
-      for (int i = 0, attsCount = mRTX.getAttributeCount(); i < attsCount; i++) {
-        mRTX.moveToAttribute(i);
-        if (mRTX.getNodeKey() == key) {
-          break;
-        }
-        mRTX.moveTo(aNodeKey);
-      }
+			break;
+		case ATTRIBUTE:
+			// Move transaction to parent of the attribute node.
+			mRTX.moveTo(node.getParentKey());
+			final long aNodeKey = node.getNodeKey();
+			for (int i = 0, attsCount = mRTX.getAttributeCount(); i < attsCount; i++) {
+				mRTX.moveToAttribute(i);
+				if (mRTX.getNodeKey() == key) {
+					break;
+				}
+				mRTX.moveTo(aNodeKey);
+			}
 
-      // Display value.
-      final String attPrefix = mRTX.getName().getPrefix();
-      final QNm attQName = mRTX.getName();
+			// Display value.
+			final String attPrefix = mRTX.getName().getPrefix();
+			final QNm attQName = mRTX.getName();
 
-      if (attPrefix == null || attPrefix.equals("")) {
-        pValue =
-          new StringBuilder("@").append(attQName.getLocalName()).append("='").append(
-            mRTX.getValue()).append("'").toString();
-      } else {
-        pValue =
-          new StringBuilder("@").append(attPrefix).append(":").append(attQName.getLocalName()).append("='")
-            .append(mRTX.getValue()).append("'").toString();
-      }
+			if (attPrefix == null || attPrefix.equals("")) {
+				pValue = new StringBuilder("@").append(attQName.getLocalName())
+						.append("='").append(mRTX.getValue()).append("'").toString();
+			} else {
+				pValue = new StringBuilder("@").append(attPrefix).append(":")
+						.append(attQName.getLocalName()).append("='")
+						.append(mRTX.getValue()).append("'").toString();
+			}
 
-      break;
-    case NAMESPACE:
-      // Move transaction to parent the namespace node.
-      mRTX.moveTo(node.getParentKey());
-      final long nNodeKey = node.getNodeKey();
-      for (int i = 0, namespCount = mRTX.getNamespaceCount(); i < namespCount; i++) {
-        mRTX.moveToNamespace(i);
-        if (mRTX.getNodeKey() == key) {
-          break;
-        }
-        mRTX.moveTo(nNodeKey);
-      }
+			break;
+		case NAMESPACE:
+			// Move transaction to parent the namespace node.
+			mRTX.moveTo(node.getParentKey());
+			final long nNodeKey = node.getNodeKey();
+			for (int i = 0, namespCount = mRTX.getNamespaceCount(); i < namespCount; i++) {
+				mRTX.moveToNamespace(i);
+				if (mRTX.getNodeKey() == key) {
+					break;
+				}
+				mRTX.moveTo(nNodeKey);
+			}
 
-      if (mRTX.nameForKey(mRTX.getPrefixKey()).length() == 0) {
-        pValue =
-          new StringBuilder("xmlns='").append(mRTX.nameForKey(mRTX.getURIKey()))
-            .append("'").toString();
-      } else {
-        pValue =
-          new StringBuilder("xmlns:").append(mRTX.nameForKey(mRTX.getPrefixKey()))
-            .append("='").append(mRTX.nameForKey(mRTX.getURIKey())).append("'")
-            .toString();
-      }
-      break;
-    case TEXT:
-      mRTX.moveTo(node.getNodeKey());
-      pValue = mRTX.getValue();
-      break;
-    case COMMENT:
-      mRTX.moveTo(node.getNodeKey());
-      pValue = new StringBuilder("<!-- ").append(mRTX.getValue()).append(" -->").toString();
-      break;
-    case PROCESSING_INSTRUCTION:
-      mRTX.moveTo(node.getNodeKey());
-      pValue = new StringBuilder("<? ").append(mRTX.getValue()).append(" ?>").toString();
-      break;
-    case DOCUMENT:
-      pValue = "Doc: " + mPATH;
-      break;
-    case WHITESPACE:
-      break;
-    default:
-      throw new IllegalStateException("Node kind not known!");
-    }
+			if (mRTX.nameForKey(mRTX.getPrefixKey()).length() == 0) {
+				pValue = new StringBuilder("xmlns='")
+						.append(mRTX.nameForKey(mRTX.getURIKey())).append("'").toString();
+			} else {
+				pValue = new StringBuilder("xmlns:")
+						.append(mRTX.nameForKey(mRTX.getPrefixKey())).append("='")
+						.append(mRTX.nameForKey(mRTX.getURIKey())).append("'").toString();
+			}
+			break;
+		case TEXT:
+			mRTX.moveTo(node.getNodeKey());
+			pValue = mRTX.getValue();
+			break;
+		case COMMENT:
+			mRTX.moveTo(node.getNodeKey());
+			pValue = new StringBuilder("<!-- ").append(mRTX.getValue())
+					.append(" -->").toString();
+			break;
+		case PROCESSING_INSTRUCTION:
+			mRTX.moveTo(node.getNodeKey());
+			pValue = new StringBuilder("<? ").append(mRTX.getValue()).append(" ?>")
+					.toString();
+			break;
+		case DOCUMENT:
+			pValue = "Doc: " + mPATH;
+			break;
+		case WHITESPACE:
+			break;
+		default:
+			throw new IllegalStateException("Node kind not known!");
+		}
 
-    pValue += new StringBuilder(" [").append(key).append("]").toString();
+		pValue += new StringBuilder(" [").append(key).append("]").toString();
 
-    super.getTreeCellRendererComponent(pTree, pValue, pSel, pExpanded, pLeaf, pRow, pHasFocus);
-    setBackground(null);
-    setBackgroundNonSelectionColor(null);
-    setBackgroundSelectionColor(null);
-    if (!selected) {
-      switch (node.getKind()) {
-      case DOCUMENT:
-        setForeground(DOC_COLOR);
-        break;
-      case ELEMENT:
-        setForeground(ELEMENT_COLOR);
-        break;
-      case ATTRIBUTE:
-        setForeground(ATTRIBUTE_COLOR);
-        break;
-      default:
-        // Do nothing.
-      }
-    } else {
-      setForeground(WHITE);
-    }
+		super.getTreeCellRendererComponent(pTree, pValue, pSel, pExpanded, pLeaf,
+				pRow, pHasFocus);
+		setBackground(null);
+		setBackgroundNonSelectionColor(null);
+		setBackgroundSelectionColor(null);
+		if (!selected) {
+			switch (node.getKind()) {
+			case DOCUMENT:
+				setForeground(DOC_COLOR);
+				break;
+			case ELEMENT:
+				setForeground(ELEMENT_COLOR);
+				break;
+			case ATTRIBUTE:
+				setForeground(ATTRIBUTE_COLOR);
+				break;
+			default:
+				// Do nothing.
+			}
+		} else {
+			setForeground(WHITE);
+		}
 
-    return this;
-  }
+		return this;
+	}
 
-  @Override
-  public Color getBackground() {
-    return null;// new Color(255, 255, 255);
-  }
+	@Override
+	public Color getBackground() {
+		return null;// new Color(255, 255, 255);
+	}
 }

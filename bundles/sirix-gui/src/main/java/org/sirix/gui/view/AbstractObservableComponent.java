@@ -34,55 +34,59 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * Provides methods to add and remove {@link PropertyChangeListener}s as well as firing property changes.
+ * Provides methods to add and remove {@link PropertyChangeListener}s as well as
+ * firing property changes.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public abstract class AbstractObservableComponent {
 
-  /** {@link PropertyChangeSupport} to register listeners. */
-  private final PropertyChangeSupport mPropertyChangeSupport;
+	/** {@link PropertyChangeSupport} to register listeners. */
+	private final PropertyChangeSupport mPropertyChangeSupport;
 
-  /**
-   * Constructor.
-   */
-  public AbstractObservableComponent() {
-    mPropertyChangeSupport = new PropertyChangeSupport(this);
-  }
+	/**
+	 * Constructor.
+	 */
+	public AbstractObservableComponent() {
+		mPropertyChangeSupport = new PropertyChangeSupport(this);
+	}
 
-  /**
-   * Add a {@link PropertyChangeListener}.
-   * 
-   * @param pListener
-   *          the listener to add
-   */
-  public final synchronized void addPropertyChangeListener(final PropertyChangeListener pListener) {
-    mPropertyChangeSupport.addPropertyChangeListener(pListener);
-  }
+	/**
+	 * Add a {@link PropertyChangeListener}.
+	 * 
+	 * @param pListener
+	 *          the listener to add
+	 */
+	public final synchronized void addPropertyChangeListener(
+			final PropertyChangeListener pListener) {
+		mPropertyChangeSupport.addPropertyChangeListener(pListener);
+	}
 
-  /**
-   * Remove a {@link PropertyChangeListener}.
-   * 
-   * @param pListener
-   *          the listener to remove
-   */
-  public final synchronized void removePropertyChangeListener(final PropertyChangeListener pListener) {
-    mPropertyChangeSupport.removePropertyChangeListener(pListener);
-  }
+	/**
+	 * Remove a {@link PropertyChangeListener}.
+	 * 
+	 * @param pListener
+	 *          the listener to remove
+	 */
+	public final synchronized void removePropertyChangeListener(
+			final PropertyChangeListener pListener) {
+		mPropertyChangeSupport.removePropertyChangeListener(pListener);
+	}
 
-  /**
-   * Fire a property change.
-   * 
-   * @param pPropertyName
-   *          name of the property
-   * @param pOldValue
-   *          old value
-   * @param pNewValue
-   *          new value
-   */
-  public final synchronized void firePropertyChange(final String pPropertyName,
-    @Nullable final Object pOldValue, @Nonnull final Object pNewValue) {
-    mPropertyChangeSupport.firePropertyChange(pPropertyName, pOldValue, pNewValue);
-  }
+	/**
+	 * Fire a property change.
+	 * 
+	 * @param pPropertyName
+	 *          name of the property
+	 * @param pOldValue
+	 *          old value
+	 * @param pNewValue
+	 *          new value
+	 */
+	public final synchronized void firePropertyChange(final String pPropertyName,
+			@Nullable final Object pOldValue, @Nonnull final Object pNewValue) {
+		mPropertyChangeSupport.firePropertyChange(pPropertyName, pOldValue,
+				pNewValue);
+	}
 }

@@ -50,9 +50,8 @@ public interface DiffObserver {
 	 * @param depth
 	 *          current {@link DiffDepth} instance
 	 */
-	void diffListener(final DiffType diffType,
-			@Nonnull final long newNodeKey, @Nonnull final long pOldNodeKey,
-			@Nonnull final DiffDepth depth);
+	void diffListener(final DiffType diffType, @Nonnull final long newNodeKey,
+			@Nonnull final long pOldNodeKey, @Nonnull final DiffDepth depth);
 
 	/** Signals that the diff calculation is done. */
 	void diffDone();

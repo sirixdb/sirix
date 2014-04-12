@@ -78,12 +78,12 @@ public final class SDBFun {
 		Namespaces.predefine(SDBFun.SDB_PREFIX, SDBFun.SDB_NSURI);
 
 		// get number of descendants
-		Functions.predefine(new GetDescendantCount(GET_DESCENDANT_COUNT, new Signature(SequenceType.INTEGER,
-				SequenceType.NODE)));
+		Functions.predefine(new GetDescendantCount(GET_DESCENDANT_COUNT,
+				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
 
 		// get number of children
-		Functions.predefine(new GetChildCount(GET_CHILD_COUNT, new Signature(SequenceType.INTEGER,
-				SequenceType.NODE)));
+		Functions.predefine(new GetChildCount(GET_CHILD_COUNT, new Signature(
+				SequenceType.INTEGER, SequenceType.NODE)));
 
 		// get hash
 		Functions.predefine(new GetHash(HASH, new Signature(SequenceType.STRING,
@@ -115,12 +115,12 @@ public final class SDBFun {
 				SequenceType.NODE)));
 
 		// rollback
-		Functions.predefine(new Rollback(ROLLBACK, new Signature(SequenceType.INTEGER,
-				SequenceType.NODE)));
+		Functions.predefine(new Rollback(ROLLBACK, new Signature(
+				SequenceType.INTEGER, SequenceType.NODE)));
 
 		// revision
-		Functions.predefine(new GetRevision(REVISION,
-				new Signature(SequenceType.INTEGER, SequenceType.NODE)));
+		Functions.predefine(new GetRevision(REVISION, new Signature(
+				SequenceType.INTEGER, SequenceType.NODE)));
 
 		// most-recent-revision
 		Functions.predefine(new GetMostRecentRevision(MOST_RECENT_REVISION,
@@ -136,7 +136,7 @@ public final class SDBFun {
 
 		// find-name-index
 		Functions.predefine(new FindNameIndex(FIND_NAME_INDEX, new Signature(
-				SequenceType.INTEGER, SequenceType.NODE,  new SequenceType(
+				SequenceType.INTEGER, SequenceType.NODE, new SequenceType(
 						AtomicType.QNM, Cardinality.One))));
 
 		// find-path-index
@@ -145,7 +145,8 @@ public final class SDBFun {
 
 		// find-cas-index
 		Functions.predefine(new FindCASIndex(FIND_CAS_INDEX, new Signature(
-				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING, SequenceType.STRING)));
+				SequenceType.INTEGER, SequenceType.NODE, SequenceType.STRING,
+				SequenceType.STRING)));
 
 		// create-name-index
 		Functions.predefine(new CreateNameIndex(CREATE_NAME_INDEX, new Signature(

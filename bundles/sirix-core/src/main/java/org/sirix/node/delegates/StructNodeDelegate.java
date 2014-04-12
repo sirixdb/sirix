@@ -89,8 +89,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements
 	 * @param pSiblingPos
 	 *          sibling position
 	 */
-	public StructNodeDelegate(final NodeDelegate del,
-			final long firstChild, final long rightSib, final long leftSib,
+	public StructNodeDelegate(final NodeDelegate del, final long firstChild,
+			final long rightSib, final long leftSib,
 			final @Nonnegative long childCount,
 			final @Nonnegative long descendantCount) {
 		assert childCount >= 0 : "childCount must be >= 0!";

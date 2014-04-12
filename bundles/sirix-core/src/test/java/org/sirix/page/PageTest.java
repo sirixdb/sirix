@@ -61,7 +61,7 @@ public class PageTest {
 		mPageReadTrx.close();
 		mHolder.close();
 	}
-	
+
 	/**
 	 * Test method for {@link org.Page.page.IPage#IPage(long)} and
 	 * {@link org.Page.page.IPage#getByteRepresentation()}.
@@ -70,7 +70,7 @@ public class PageTest {
 	 *          page as class
 	 * @param handlers
 	 *          different pages
-	 * @throws IOException 
+	 * @throws IOException
 	 */
 	@Test(dataProvider = "instantiatePages")
 	public void testByteRepresentation(final Class<Page> clazz,
@@ -82,7 +82,9 @@ public class PageTest {
 
 			final ByteArrayOutputStream serializedOutput = new ByteArrayOutputStream();
 			final Page serializedPage = PageKind.getKind(handler.getClass())
-					.deserializePage(new DataInputStream(new ByteArrayInputStream(pageBytes)), mPageReadTrx);
+					.deserializePage(
+							new DataInputStream(new ByteArrayInputStream(pageBytes)),
+							mPageReadTrx);
 			serializedPage.serialize(new DataOutputStream(serializedOutput));
 			assertTrue(new StringBuilder("Check for ").append(handler.getClass())
 					.append(" failed.").toString(),
@@ -107,7 +109,8 @@ public class PageTest {
 
 		// NodePage setup.
 		final UnorderedKeyValuePage nodePage = new UnorderedKeyValuePage(
-				TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE, Optional.<PageReference> absent(), mPageReadTrx);
+				TestHelper.random.nextInt(Integer.MAX_VALUE), PageKind.RECORDPAGE,
+				Optional.<PageReference> absent(), mPageReadTrx);
 		for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
 			final Record record = TestHelper.generateOne();
 			nodePage.setEntry(record.getNodeKey(), record);

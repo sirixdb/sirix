@@ -59,11 +59,12 @@ public final class IndexDef implements Materializable {
 
 	public IndexDef() {
 	}
-	
+
 	/**
 	 * Name index.
 	 */
-	IndexDef(final Set<QNm> included, final Set<QNm> excluded, final int indexDefNo) {
+	IndexDef(final Set<QNm> included, final Set<QNm> excluded,
+			final int indexDefNo) {
 		mType = IndexType.NAME;
 		mIncluded.addAll(included);
 		mExcluded.addAll(excluded);
@@ -82,7 +83,8 @@ public final class IndexDef implements Materializable {
 	/**
 	 * CAS index.
 	 */
-	IndexDef(final Type contentType, final Set<Path<QNm>> paths, boolean unique, final int indexDefNo) {
+	IndexDef(final Type contentType, final Set<Path<QNm>> paths, boolean unique,
+			final int indexDefNo) {
 		mType = IndexType.CAS;
 		mContentType = checkNotNull(contentType);
 		mPaths.addAll(paths);
@@ -113,7 +115,7 @@ public final class IndexDef implements Materializable {
 				tmp.closeElement();
 			}
 		}
-		
+
 		if (!mExcluded.isEmpty()) {
 			tmp.openElement(EXCLUDING_TAG);
 
@@ -206,7 +208,8 @@ public final class IndexDef implements Materializable {
 					}
 				} else if (childName.equals(EXCLUDING_TAG)) {
 					for (final String s : value.split(",")) {
-						if (s.length() > 0) mExcluded.add(new QNm(s));
+						if (s.length() > 0)
+							mExcluded.add(new QNm(s));
 					}
 				}
 				// }
@@ -277,12 +280,12 @@ public final class IndexDef implements Materializable {
 	public Type getContentType() {
 		return mContentType;
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return Objects.hashCode(mID, mType);
 	}
-	
+
 	@Override
 	public boolean equals(final @Nullable Object obj) {
 		if (obj instanceof IndexDef) {

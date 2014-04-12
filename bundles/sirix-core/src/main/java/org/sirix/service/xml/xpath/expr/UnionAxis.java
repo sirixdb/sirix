@@ -65,8 +65,8 @@ public class UnionAxis extends AbstractAxis {
 	 * @param operand2
 	 *          second operand
 	 */
-	public UnionAxis(final NodeReadTrx rtx,
-			@Nonnull final Axis operand1, @Nonnull final Axis operand2) {
+	public UnionAxis(final NodeReadTrx rtx, @Nonnull final Axis operand1,
+			@Nonnull final Axis operand2) {
 		super(rtx);
 		mOp1 = checkNotNull(operand1);
 		mOp2 = checkNotNull(operand2);

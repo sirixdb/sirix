@@ -114,10 +114,10 @@ public abstract class AbstractSunburstGUI implements ProcessingGUI,
 
 	public enum EResetZoomer {
 		YES,
-		
+
 		NO
 	}
-	
+
 	/** Determines if a line is drawn or not. */
 	public enum EDrawLine {
 		YES {
@@ -600,10 +600,10 @@ public abstract class AbstractSunburstGUI implements ProcessingGUI,
 		mBuffer.rotate(PApplet.radians(mRad));
 		mBuffer.textFont(mFont);
 		mBuffer.noFill();
-		
+
 		// Draw items.
 		drawItems(Draw.UPDATEBUFFER);
-		
+
 		mBuffer.stroke(0);
 		mBuffer.strokeWeight(2f);
 		mBuffer.line(0, 0, mBuffer.width * 0.5f, 0);
@@ -711,7 +711,7 @@ public abstract class AbstractSunburstGUI implements ProcessingGUI,
 			}
 		}
 
-		if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()) {		
+		if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()) {
 			pDraw.drawNewRevision(this);
 			pDraw.drawOldRevision(this);
 
@@ -724,13 +724,14 @@ public abstract class AbstractSunburstGUI implements ProcessingGUI,
 
 			if (mUseMoveDetection) {
 				for (final SunburstItem item : items) {
-					if (item.getDiff() == DiffType.MOVEDFROM && item.getIndexMovedTo() >= 0
+					if (item.getDiff() == DiffType.MOVEDFROM
+							&& item.getIndexMovedTo() >= 0
 							&& item.getIndexMovedTo() < mModel.getItemsSize()) {
 						pDraw.drawMovedRel(item);
 					}
 				}
 			}
-			
+
 			for (final SunburstItem item : items) {
 				pDraw.drawDot(item);
 				if (item.getDepth() < LABELS_DEPTH) {
@@ -1921,13 +1922,13 @@ public abstract class AbstractSunburstGUI implements ProcessingGUI,
 		mDone = false;
 		mLock.acquireUninterruptibly();
 		if (!mImages.isEmpty()) {
-      resetZoom();
-      if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()
-        && mControl.getModel().getItemsSize() < ANIMATION_THRESHOLD) {
-        mInit = true;
-      } else {
-      	mInit = false;
-      }
+			resetZoom();
+			if (mUseDiffView == ViewType.DIFF && ViewType.DIFF.getValue()
+					&& mControl.getModel().getItemsSize() < ANIMATION_THRESHOLD) {
+				mInit = true;
+			} else {
+				mInit = false;
+			}
 			mImg = mImages.pop();
 		}
 		mLock.release();

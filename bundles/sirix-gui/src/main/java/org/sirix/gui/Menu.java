@@ -42,85 +42,88 @@ import javax.swing.JSeparator;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 enum Menu {
-  /** Menu item. */
-  MENU {
-    @Override
-    JComponent construct(final GUI paramGUI, final IGUICommand paramCommand) {
-      assert paramGUI != null;
-      assert paramCommand != null;
-      final JMenuItem item = new JMenuItem(paramCommand.desc());
-      setupItem(item, paramGUI, paramCommand);
-      return item;
-    }
-  },
+	/** Menu item. */
+	MENU {
+		@Override
+		JComponent construct(final GUI paramGUI, final IGUICommand paramCommand) {
+			assert paramGUI != null;
+			assert paramCommand != null;
+			final JMenuItem item = new JMenuItem(paramCommand.desc());
+			setupItem(item, paramGUI, paramCommand);
+			return item;
+		}
+	},
 
-  /** Separator item. */
-  SEPARATOR {
-    @Override
-    JComponent construct(final GUI paramGUI, final IGUICommand paramCommand) {
-      return new JSeparator();
-    }
-  },
+	/** Separator item. */
+	SEPARATOR {
+		@Override
+		JComponent construct(final GUI paramGUI, final IGUICommand paramCommand) {
+			return new JSeparator();
+		}
+	},
 
-  /** Checkbox item. */
-  CHECKBOXITEM {
-    @Override
-    JComponent construct(final GUI paramGUI, final IGUICommand paramCommand) {
-      assert paramGUI != null;
-      assert paramCommand != null;
-      final JCheckBoxMenuItem item = new JCheckBoxMenuItem(paramCommand.desc());
-      setupItem(item, paramGUI, paramCommand);
-      item.setSelected(paramCommand.selected());
-      return item;
-    }
-  },
+	/** Checkbox item. */
+	CHECKBOXITEM {
+		@Override
+		JComponent construct(final GUI paramGUI, final IGUICommand paramCommand) {
+			assert paramGUI != null;
+			assert paramCommand != null;
+			final JCheckBoxMenuItem item = new JCheckBoxMenuItem(paramCommand.desc());
+			setupItem(item, paramGUI, paramCommand);
+			item.setSelected(paramCommand.selected());
+			return item;
+		}
+	},
 
-  /** Radio button item. */
-  RADIOBUTTONITEM {
-    @Override
-    JComponent construct(final GUI paramGUI, final IGUICommand paramCommand) {
-      assert paramGUI != null;
-      assert paramCommand != null;
-      final JRadioButtonMenuItem item = new JRadioButtonMenuItem(paramCommand.desc());
-      setupItem(item, paramGUI, paramCommand);
-      return item;
-    }
-  };
+	/** Radio button item. */
+	RADIOBUTTONITEM {
+		@Override
+		JComponent construct(final GUI paramGUI, final IGUICommand paramCommand) {
+			assert paramGUI != null;
+			assert paramCommand != null;
+			final JRadioButtonMenuItem item = new JRadioButtonMenuItem(
+					paramCommand.desc());
+			setupItem(item, paramGUI, paramCommand);
+			return item;
+		}
+	};
 
-  /**
-   * Construct menu item.
-   * 
-   * @param paramGUI
-   *          reference to main GUI frame
-   * @param paramCommand
-   *          the {@link IGUICommand}
-   * @return component reference
-   * @throws AssertionError
-   *           if {@code paramGUI} or {@code paramCommand} is {@code null}
-   */
-  abstract JComponent construct(final GUI paramGUI, final IGUICommand paramCommand);
+	/**
+	 * Construct menu item.
+	 * 
+	 * @param paramGUI
+	 *          reference to main GUI frame
+	 * @param paramCommand
+	 *          the {@link IGUICommand}
+	 * @return component reference
+	 * @throws AssertionError
+	 *           if {@code paramGUI} or {@code paramCommand} is {@code null}
+	 */
+	abstract JComponent construct(final GUI paramGUI,
+			final IGUICommand paramCommand);
 
-  /**
-   * Setup a menu item.
-   * 
-   * @param paramItem
-   *          the item to set up
-   * @param paramGUI
-   *          reference to main GUI frame
-   * @param paramCommand
-   *          the menu command
-   */
-  void setupItem(final JMenuItem paramItem, final GUI paramGUI, final IGUICommand paramCommand) {
-    assert paramItem != null;
-    assert paramGUI != null;
-    assert paramCommand != null;
-    paramItem.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(final ActionEvent paramEvent) {
-        paramCommand.execute(paramGUI);
-      }
-    });
+	/**
+	 * Setup a menu item.
+	 * 
+	 * @param paramItem
+	 *          the item to set up
+	 * @param paramGUI
+	 *          reference to main GUI frame
+	 * @param paramCommand
+	 *          the menu command
+	 */
+	void setupItem(final JMenuItem paramItem, final GUI paramGUI,
+			final IGUICommand paramCommand) {
+		assert paramItem != null;
+		assert paramGUI != null;
+		assert paramCommand != null;
+		paramItem.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(final ActionEvent paramEvent) {
+				paramCommand.execute(paramGUI);
+			}
+		});
 
-    paramItem.setMnemonic(paramCommand.desc().charAt(0));
-  }
+		paramItem.setMnemonic(paramCommand.desc().charAt(0));
+	}
 }

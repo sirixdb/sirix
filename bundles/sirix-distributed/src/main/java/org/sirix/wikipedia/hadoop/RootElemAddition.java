@@ -12,20 +12,19 @@ import java.io.IOException;
  *
  */
 public final class RootElemAddition {
-	
+
 	/** Wikipedia XML document. */
 	private static final File WIKIPEDIA_DOC = new File(new StringBuilder(
-			System.getProperty("user.home")).append(File.separator)
-			.append("Desktop").append(File.separator)
-			.append("wiki-articles-sorted.xml").toString());
-	
+			System.getProperty("user.home")).append(File.separator).append("Desktop")
+			.append(File.separator).append("wiki-articles-sorted.xml").toString());
+
 	/**
 	 * Main method.
 	 * 
 	 * @param args
 	 *          args[0]: input file
 	 * @throws IOException
-	 * 				if an I/O error occured
+	 *           if an I/O error occured
 	 */
 	public static void main(final String[] args) throws IOException {
 		final FileWriter writer = new FileWriter(WIKIPEDIA_DOC);

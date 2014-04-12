@@ -71,7 +71,7 @@ public final class CASValue implements Comparable<CASValue> {
 		}
 		return retVal;
 	}
-	
+
 	public Atomic getAtomicValue() {
 		try {
 			return mValue.asType(mType);

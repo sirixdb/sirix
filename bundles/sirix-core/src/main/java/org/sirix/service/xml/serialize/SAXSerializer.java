@@ -91,9 +91,8 @@ public final class SAXSerializer extends AbstractSerializer implements
 	 * @param revisions
 	 *          further revisions to serialize
 	 */
-	public SAXSerializer(final Session session,
-			final ContentHandler handler, final @Nonnegative int revision,
-			final int... revisions) {
+	public SAXSerializer(final Session session, final ContentHandler handler,
+			final @Nonnegative int revision, final int... revisions) {
 		super(session, revision, revisions);
 		mContHandler = handler;
 	}
@@ -133,7 +132,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 			LOGGER.error(e.getMessage(), e);
 		}
 	}
-	
+
 	@Override
 	protected void emitStartManualRootElement() {
 		try {
@@ -142,7 +141,7 @@ public final class SAXSerializer extends AbstractSerializer implements
 			LOGGER.error(e.getMessage(), e);
 		}
 	}
-	
+
 	@Override
 	protected void emitEndManualRootElement() {
 		try {
@@ -223,8 +222,8 @@ public final class SAXSerializer extends AbstractSerializer implements
 				if (qName.getPrefix() == null || qName.getPrefix().length() == 0) {
 					atts.addAttribute(mURI, "xmlns", "xmlns", "CDATA", mURI);
 				} else {
-					atts.addAttribute(mURI, "xmlns", "xmlns:"
-							+ rtx.getName().getPrefix(), "CDATA", mURI);
+					atts.addAttribute(mURI, "xmlns",
+							"xmlns:" + rtx.getName().getPrefix(), "CDATA", mURI);
 				}
 				rtx.moveTo(key);
 			}

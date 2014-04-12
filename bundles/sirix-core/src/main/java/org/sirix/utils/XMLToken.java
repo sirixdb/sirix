@@ -111,7 +111,8 @@ public final class XMLToken {
 		final int l = v.length;
 		for (int i = 0; i < l; i += cl(v, i)) {
 			final int c = cp(v, i);
-			if (i == 0 ? !isStartChar(c) : !isChar(c)) return false;
+			if (i == 0 ? !isStartChar(c) : !isChar(c))
+				return false;
 		}
 		return l != 0;
 	}
@@ -126,7 +127,8 @@ public final class XMLToken {
 	public static boolean isNMToken(final byte[] v) {
 		final int l = v.length;
 		for (int i = 0; i < l; i += cl(v, i))
-			if (!isChar(cp(v, i))) return false;
+			if (!isChar(cp(v, i)))
+				return false;
 		return l != 0;
 	}
 
@@ -139,12 +141,16 @@ public final class XMLToken {
 	 */
 	public static boolean isQName(final byte[] val) {
 		final int l = val.length;
-		if (l == 0) return false;
+		if (l == 0)
+			return false;
 		final int i = ncName(val, 0);
-		if (i == l) return true;
-		if (i == 0 || val[i] != ':') return false;
+		if (i == l)
+			return true;
+		if (i == 0 || val[i] != ':')
+			return false;
 		final int j = ncName(val, i + 1);
-		if (j == i + 1 || j != l) return false;
+		if (j == i + 1 || j != l)
+			return false;
 		return true;
 	}
 
@@ -204,12 +210,15 @@ public final class XMLToken {
 	public static int cp(final byte[] token, final int pos) {
 		// 0xxxxxxx
 		final byte v = token[pos];
-		if ((v & 0xFF) < 192) return v & 0xFF;
+		if ((v & 0xFF) < 192)
+			return v & 0xFF;
 		// number of bytes to be read
 		final int vl = cl(v);
-		if (pos + vl > token.length) return 0xFFFD;
+		if (pos + vl > token.length)
+			return 0xFFFD;
 		// 110xxxxx 10xxxxxx
-		if (vl == 2) return (v & 0x1F) << 6 | token[pos + 1] & 0x3F;
+		if (vl == 2)
+			return (v & 0x1F) << 6 | token[pos + 1] & 0x3F;
 		// 1110xxxx 10xxxxxx 10xxxxxx
 		if (vl == 3)
 			return (v & 0x0F) << 12 | (token[pos + 1] & 0x3F) << 6 | token[pos + 2]
@@ -232,7 +241,8 @@ public final class XMLToken {
 		final int l = v.length;
 		for (int i = p; i < l; i += cl(v, i)) {
 			final int c = cp(v, i);
-			if (i == p ? !isNCStartChar(c) : !isNCChar(c)) return i;
+			if (i == p ? !isNCStartChar(c) : !isNCChar(c))
+				return i;
 		}
 		return l;
 	}

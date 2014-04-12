@@ -13,7 +13,8 @@ import org.sirix.xquery.node.DBNode;
 
 /**
  * <p>
- * Function for retrieving the number of descendants of the current node. Supported signature is:
+ * Function for retrieving the number of descendants of the current node.
+ * Supported signature is:
  * </p>
  * <ul>
  * <li>
@@ -26,8 +27,8 @@ import org.sirix.xquery.node.DBNode;
 public final class GetDescendantCount extends AbstractFunction {
 
 	/** Get number of descendants function name. */
-	public final static QNm GET_DESCENDANT_COUNT = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"get-descendant-count");
+	public final static QNm GET_DESCENDANT_COUNT = new QNm(SDBFun.SDB_NSURI,
+			SDBFun.SDB_PREFIX, "get-descendant-count");
 
 	/**
 	 * Constructor.
