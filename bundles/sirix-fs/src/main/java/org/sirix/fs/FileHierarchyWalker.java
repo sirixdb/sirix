@@ -22,8 +22,8 @@ import org.sirix.fs.HierarchyFileVisitor.Builder;
 import com.google.common.base.Optional;
 
 /**
- * Parses a directory in the file system and creates a sirix {@IDatabase} with an initial
- * revision.
+ * Parses a directory in the file system and creates a sirix {@IDatabase
+ * } with an initial revision.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
@@ -31,40 +31,43 @@ import com.google.common.base.Optional;
 @Nonnull
 public class FileHierarchyWalker {
 
-  /**
-   * Parse a directory and create a simple XML representation.
-   * 
-   * @param pPath
-   *          path to directory from which to shredder all content into sirix
-   * @param pDatabase
-   *          sirix {@IDatabase} to shred into
-   * @param pVisitor
-   *          an optional visitor
-   * @throws SirixException
-   *           if any sirix operation fails
-   * @throws IOException
-   *           if an I/O error occurs
-   * @throws NullPointerException
-   *           if one of the arguments is {@code null}
-   */
-  public static Map<Path, org.sirix.fs.Path> parseDir(final Path pPath, final Database pDatabase,
-    Optional<Visitor<NodeWriteTrx>> pVisitor) throws SirixException, IOException {
-    checkNotNull(pVisitor);
-    final Path path = checkNotNull(pPath);
-    final Session session =
-      checkNotNull(pDatabase).getSession(new SessionConfiguration.Builder("shredded").build());
-    final NodeWriteTrx wtx = session.beginNodeWriteTrx();
-    final Builder builder = new Builder(wtx);
-    if (pVisitor.isPresent()) {
-      builder.setVisitor(pVisitor.get());
-    }
-    Map<Path, org.sirix.fs.Path> index = Collections.emptyMap();
-    try (final HierarchyFileVisitor visitor = HierarchyFileVisitor.getInstance(builder)) {
-      Files.walkFileTree(path, EnumSet.of(FileVisitOption.FOLLOW_LINKS), Integer.MAX_VALUE, visitor);
-      index = visitor.getIndex();
-    }
-    wtx.close();
-    session.close();
-    return index;
-  }
+	/**
+	 * Parse a directory and create a simple XML representation.
+	 * 
+	 * @param pPath
+	 *          path to directory from which to shredder all content into sirix
+	 * @param pDatabase
+	 *          sirix {@IDatabase} to shred into
+	 * @param pVisitor
+	 *          an optional visitor
+	 * @throws SirixException
+	 *           if any sirix operation fails
+	 * @throws IOException
+	 *           if an I/O error occurs
+	 * @throws NullPointerException
+	 *           if one of the arguments is {@code null}
+	 */
+	public static Map<Path, org.sirix.fs.Path> parseDir(final Path pPath,
+			final Database pDatabase, Optional<Visitor<NodeWriteTrx>> pVisitor)
+			throws SirixException, IOException {
+		checkNotNull(pVisitor);
+		final Path path = checkNotNull(pPath);
+		final Session session = checkNotNull(pDatabase).getSession(
+				new SessionConfiguration.Builder("shredded").build());
+		final NodeWriteTrx wtx = session.beginNodeWriteTrx();
+		final Builder builder = new Builder(wtx);
+		if (pVisitor.isPresent()) {
+			builder.setVisitor(pVisitor.get());
+		}
+		Map<Path, org.sirix.fs.Path> index = Collections.emptyMap();
+		try (final HierarchyFileVisitor visitor = HierarchyFileVisitor
+				.getInstance(builder)) {
+			Files.walkFileTree(path, EnumSet.of(FileVisitOption.FOLLOW_LINKS),
+					Integer.MAX_VALUE, visitor);
+			index = visitor.getIndex();
+		}
+		wtx.close();
+		session.close();
+		return index;
+	}
 }

@@ -66,289 +66,306 @@ import org.slf4j.LoggerFactory;
  */
 public final class XMLRecordReader extends RecordReader<DateWritable, Text> {
 
-  /**
-   * Log wrapper {@link LogWrapper}.
-   */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLRecordReader.class));
+	/**
+	 * Log wrapper {@link LogWrapper}.
+	 */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(XMLRecordReader.class));
 
-  /** Start of record. */
-  private transient long mStart;
+	/** Start of record. */
+	private transient long mStart;
 
-  /** End of record. */
-  private transient long mEnd;
+	/** End of record. */
+	private transient long mEnd;
 
-  /** Start of record {@link EventFilter}. */
-  private transient EventFilter mBeginFilter;
+	/** Start of record {@link EventFilter}. */
+	private transient EventFilter mBeginFilter;
 
-  /** End of record {@link EventFilter}. */
-  private transient EventFilter mEndFilter;
+	/** End of record {@link EventFilter}. */
+	private transient EventFilter mEndFilter;
 
-  /** StAX parser {@link XMLEventReader}. */
-  private transient XMLEventReader mReader;
+	/** StAX parser {@link XMLEventReader}. */
+	private transient XMLEventReader mReader;
 
-  /** {@link QName} (Date) which determines the key event. */
-  private transient QName mDate;
+	/** {@link QName} (Date) which determines the key event. */
+	private transient QName mDate;
 
-  /** {@link QName} (Page) which determines the page boundaries. */
-  private transient QName mPage;
+	/** {@link QName} (Page) which determines the page boundaries. */
+	private transient QName mPage;
 
-  /** Key is a date (timestamp) {@link Date}. */
-  private DateWritable mKey;
+	/** Key is a date (timestamp) {@link Date}. */
+	private DateWritable mKey;
 
-  /** Value is of type {@link Text}. */
-  private Text mValue;
+	/** Value is of type {@link Text}. */
+	private Text mValue;
 
-  /** Record element identifier {@see StartElement}. */
-  private transient StartElement mRecordElem;
+	/** Record element identifier {@see StartElement}. */
+	private transient StartElement mRecordElem;
 
-  /** {@link XMLEventWriter} for event data. */
-  private transient XMLEventWriter mEventWriter;
+	/** {@link XMLEventWriter} for event data. */
+	private transient XMLEventWriter mEventWriter;
 
-  /** A {@link StringWriter}, where the {@link XMLEventWriter} writes to. */
-  private transient StringWriter mWriter;
+	/** A {@link StringWriter}, where the {@link XMLEventWriter} writes to. */
+	private transient StringWriter mWriter;
 
-  /** Counter which counts parsed {@link XMLEvent}s to track process. */
-  private transient int mCountEvents;
+	/** Counter which counts parsed {@link XMLEvent}s to track process. */
+	private transient int mCountEvents;
 
-  /** {@link List} of page events. */
-  private transient List<XMLEvent> mPageEvents;
+	/** {@link List} of page events. */
+	private transient List<XMLEvent> mPageEvents;
 
-  /** {@link XMLEventFactory} to create end tags. */
-  private transient XMLEventFactory mEventFactory;
+	/** {@link XMLEventFactory} to create end tags. */
+	private transient XMLEventFactory mEventFactory;
 
-  private transient Configuration mConf;
+	private transient Configuration mConf;
 
-  /**
-   * Constructor.
-   */
-  public XMLRecordReader() {
-    // Default constructor.
-  }
+	/**
+	 * Constructor.
+	 */
+	public XMLRecordReader() {
+		// Default constructor.
+	}
 
-  @Override
-  public void initialize(final InputSplit paramGenericSplit, final TaskAttemptContext paramContext)
-    throws IOException {
-    final FileSplit split = (FileSplit)paramGenericSplit;
-    mConf = paramContext.getConfiguration();
+	@Override
+	public void initialize(final InputSplit paramGenericSplit,
+			final TaskAttemptContext paramContext) throws IOException {
+		final FileSplit split = (FileSplit) paramGenericSplit;
+		mConf = paramContext.getConfiguration();
 
-    mEventFactory = XMLEventFactory.newInstance();
-    mPageEvents = new ArrayList<>();
-    mStart = split.getStart();
-    mEnd = mStart + split.getLength();
-    mValue = new Text();
-    mKey = new DateWritable();
-    mWriter = new StringWriter();
-    try {
-      mEventWriter = XMLOutputFactory.newInstance().createXMLEventWriter(mWriter);
-    } catch (final XMLStreamException | FactoryConfigurationError e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
+		mEventFactory = XMLEventFactory.newInstance();
+		mPageEvents = new ArrayList<>();
+		mStart = split.getStart();
+		mEnd = mStart + split.getLength();
+		mValue = new Text();
+		mKey = new DateWritable();
+		mWriter = new StringWriter();
+		try {
+			mEventWriter = XMLOutputFactory.newInstance().createXMLEventWriter(
+					mWriter);
+		} catch (final XMLStreamException | FactoryConfigurationError e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
 
-    final Path file = split.getPath();
+		final Path file = split.getPath();
 
-    // Open the file and seek to the start of the split.
-    final FileSystem fileSys = file.getFileSystem(mConf);
-    final FSDataInputStream fileIn = fileSys.open(split.getPath());
-    fileIn.seek(mStart);
+		// Open the file and seek to the start of the split.
+		final FileSystem fileSys = file.getFileSystem(mConf);
+		final FSDataInputStream fileIn = fileSys.open(split.getPath());
+		fileIn.seek(mStart);
 
-    final CompressionCodecFactory comprCodecs = new CompressionCodecFactory(mConf);
-    final CompressionCodec codec = comprCodecs.getCodec(file);
+		final CompressionCodecFactory comprCodecs = new CompressionCodecFactory(
+				mConf);
+		final CompressionCodec codec = comprCodecs.getCodec(file);
 
-    InputStream input = fileIn;
-    if (codec != null) {
-      input = codec.createInputStream(fileIn);
-      mEnd = Long.MAX_VALUE;
-    }
-    input = new BufferedInputStream(input);
+		InputStream input = fileIn;
+		if (codec != null) {
+			input = codec.createInputStream(fileIn);
+			mEnd = Long.MAX_VALUE;
+		}
+		input = new BufferedInputStream(input);
 
-    final XMLInputFactory xmlif = XMLInputFactory.newInstance();
-    try {
-      mReader = xmlif.createXMLEventReader(input);
-    } catch (final XMLStreamException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
+		final XMLInputFactory xmlif = XMLInputFactory.newInstance();
+		try {
+			mReader = xmlif.createXMLEventReader(input);
+		} catch (final XMLStreamException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
 
-    // Create start/end record filters.
-    final String recordIdentifier = mConf.get("record_element_name");
-    final String recordNsPrefix = mConf.get("namespace_prefix") == null ? "" : mConf.get("namespace_prefix");
-    final String recordNsURI = mConf.get("namespace_URI") == null ? "" : mConf.get("namespace_URI");
+		// Create start/end record filters.
+		final String recordIdentifier = mConf.get("record_element_name");
+		final String recordNsPrefix = mConf.get("namespace_prefix") == null ? ""
+				: mConf.get("namespace_prefix");
+		final String recordNsURI = mConf.get("namespace_URI") == null ? "" : mConf
+				.get("namespace_URI");
 
-    if (recordIdentifier == null) {
-      throw new IllegalStateException("Record identifier must be specified (record_elem_name)!");
-    }
+		if (recordIdentifier == null) {
+			throw new IllegalStateException(
+					"Record identifier must be specified (record_elem_name)!");
+		}
 
-    if (recordNsPrefix == "" && recordNsURI == "") {
-      mRecordElem = mEventFactory.createStartElement(new QName(recordIdentifier), null, null);
-    } else {
-      mRecordElem =
-        mEventFactory
-          .createStartElement(new QName(recordNsURI, recordIdentifier, recordNsPrefix), null, null);
-    }
+		if (recordNsPrefix == "" && recordNsURI == "") {
+			mRecordElem = mEventFactory.createStartElement(
+					new QName(recordIdentifier), null, null);
+		} else {
+			mRecordElem = mEventFactory.createStartElement(new QName(recordNsURI,
+					recordIdentifier, recordNsPrefix), null, null);
+		}
 
-    mBeginFilter = new EventFilter() {
-      @Override
-      public boolean accept(final XMLEvent paramEvent) {
-        return paramEvent.isStartElement()
-          && paramEvent.asStartElement().getName().getLocalPart()
-            .equals(mRecordElem.getName().getLocalPart())
-          && paramEvent.asStartElement().getName().getPrefix().equals(mRecordElem.getName().getPrefix());
-      }
-    };
-    mEndFilter = new EventFilter() {
-      @Override
-      public boolean accept(final XMLEvent paramEvent) {
-        return paramEvent.isEndElement()
-          && paramEvent.asEndElement().getName().getLocalPart().equals(mRecordElem.getName().getLocalPart())
-          && paramEvent.asEndElement().getName().getPrefix().equals(mRecordElem.getName().getPrefix());
-      }
-    };
+		mBeginFilter = new EventFilter() {
+			@Override
+			public boolean accept(final XMLEvent paramEvent) {
+				return paramEvent.isStartElement()
+						&& paramEvent.asStartElement().getName().getLocalPart()
+								.equals(mRecordElem.getName().getLocalPart())
+						&& paramEvent.asStartElement().getName().getPrefix()
+								.equals(mRecordElem.getName().getPrefix());
+			}
+		};
+		mEndFilter = new EventFilter() {
+			@Override
+			public boolean accept(final XMLEvent paramEvent) {
+				return paramEvent.isEndElement()
+						&& paramEvent.asEndElement().getName().getLocalPart()
+								.equals(mRecordElem.getName().getLocalPart())
+						&& paramEvent.asEndElement().getName().getPrefix()
+								.equals(mRecordElem.getName().getPrefix());
+			}
+		};
 
-    mDate = new QName(recordNsURI, mConf.get("timestamp"), recordNsPrefix);
-    mPage = new QName(recordNsURI, mConf.get("page"), recordNsPrefix);
+		mDate = new QName(recordNsURI, mConf.get("timestamp"), recordNsPrefix);
+		mPage = new QName(recordNsURI, mConf.get("page"), recordNsPrefix);
 
-    try {
-      while (mReader.hasNext()
-        && !(mReader.peek().isStartElement() && mReader.peek().asStartElement().getName().equals(mPage))) {
-        mReader.next();
-      }
-    } catch (final XMLStreamException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+		try {
+			while (mReader.hasNext()
+					&& !(mReader.peek().isStartElement() && mReader.peek()
+							.asStartElement().getName().equals(mPage))) {
+				mReader.next();
+			}
+		} catch (final XMLStreamException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
 
-  @Override
-  public DateWritable getCurrentKey() {
-    return mKey;
-  }
+	@Override
+	public DateWritable getCurrentKey() {
+		return mKey;
+	}
 
-  @Override
-  public Text getCurrentValue() {
-    return mValue;
-  }
+	@Override
+	public Text getCurrentValue() {
+		return mValue;
+	}
 
-  @Override
-  public float getProgress() {
-    return mCountEvents;
-  }
+	@Override
+	public float getProgress() {
+		return mCountEvents;
+	}
 
-  @Override
-  public synchronized void close() throws IOException {
-    try {
-      mReader.close();
-    } catch (final XMLStreamException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-  }
+	@Override
+	public synchronized void close() throws IOException {
+		try {
+			mReader.close();
+		} catch (final XMLStreamException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+	}
 
-  @Override
-  public boolean nextKeyValue() throws IOException, InterruptedException {
-    mValue.clear();
-    boolean retVal = false;
+	@Override
+	public boolean nextKeyValue() throws IOException, InterruptedException {
+		mValue.clear();
+		boolean retVal = false;
 
-    try {
-      // Skip whitespace.
-      skipWhitespace();
+		try {
+			// Skip whitespace.
+			skipWhitespace();
 
-      if (mReader.hasNext() && mReader.peek().isStartElement()
-        && mReader.peek().asStartElement().getName().equals(mPage)) {
-        mPageEvents = new ArrayList<>();
-        while (mReader.hasNext() && !mBeginFilter.accept(mReader.peek())) {
-          mPageEvents.add(mReader.nextEvent());
-        }
-      }
+			if (mReader.hasNext() && mReader.peek().isStartElement()
+					&& mReader.peek().asStartElement().getName().equals(mPage)) {
+				mPageEvents = new ArrayList<>();
+				while (mReader.hasNext() && !mBeginFilter.accept(mReader.peek())) {
+					mPageEvents.add(mReader.nextEvent());
+				}
+			}
 
-      for (final XMLEvent event : mPageEvents) {
-        mEventWriter.add(event);
-      }
+			for (final XMLEvent event : mPageEvents) {
+				mEventWriter.add(event);
+			}
 
-      // Moves to start of record.
-      final boolean foundStartEvent = moveToEvent(mReader, mBeginFilter, false);
+			// Moves to start of record.
+			final boolean foundStartEvent = moveToEvent(mReader, mBeginFilter, false);
 
-      if (foundStartEvent) {
-        final boolean foundEndEvent = moveToEvent(mReader, mEndFilter, true);
+			if (foundStartEvent) {
+				final boolean foundEndEvent = moveToEvent(mReader, mEndFilter, true);
 
-        if (foundEndEvent) {
-          // Add last element to the writer.
-          mEventWriter.add(mReader.nextEvent());
-          skipWhitespace();
-          if (mReader.hasNext() && mReader.peek().isEndElement()
-            && mReader.peek().asEndElement().getName().equals(mPage)) {
-            mEventWriter.add(mReader.nextEvent());
-          } else {
-            mEventWriter.add(mEventFactory.createEndElement(mPage, null));
-          }
-          retVal = true;
+				if (foundEndEvent) {
+					// Add last element to the writer.
+					mEventWriter.add(mReader.nextEvent());
+					skipWhitespace();
+					if (mReader.hasNext() && mReader.peek().isEndElement()
+							&& mReader.peek().asEndElement().getName().equals(mPage)) {
+						mEventWriter.add(mReader.nextEvent());
+					} else {
+						mEventWriter.add(mEventFactory.createEndElement(mPage, null));
+					}
+					retVal = true;
 
-          mWriter.flush();
-          mValue.set(mWriter.toString());
-          mWriter.getBuffer().setLength(0);
-        }
-      }
-    } catch (final XMLStreamException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
+					mWriter.flush();
+					mValue.set(mWriter.toString());
+					mWriter.getBuffer().setLength(0);
+				}
+			}
+		} catch (final XMLStreamException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
 
-    return retVal;
-  }
+		return retVal;
+	}
 
-  /**
-   * Skip whitespace events.
-   * 
-   * @throws XMLStreamException
-   *           if any parser error occurs
-   */
-  private void skipWhitespace() throws XMLStreamException {
-    while (mReader.hasNext() && mReader.peek().isCharacters() && mReader.peek().asCharacters().isWhiteSpace()) {
-      mReader.next();
-    }
-  }
+	/**
+	 * Skip whitespace events.
+	 * 
+	 * @throws XMLStreamException
+	 *           if any parser error occurs
+	 */
+	private void skipWhitespace() throws XMLStreamException {
+		while (mReader.hasNext() && mReader.peek().isCharacters()
+				&& mReader.peek().asCharacters().isWhiteSpace()) {
+			mReader.next();
+		}
+	}
 
-  /**
-   * Move to beginning of record.
-   * 
-   * @param paramReader
-   *          XML Reader {@link XMLEventReader}.
-   * @param paramFilter
-   *          XML filter {@link EventFilter}.
-   * @param paramIsRecord
-   *          determines if the parser is inside a record or outside
-   * @return false if event was not found and received end of file
-   * @throws XMLStreamException
-   *           if a parsing error occurs
-   */
-  private boolean moveToEvent(final XMLEventReader paramReader, final EventFilter paramFilter,
-    final boolean paramIsRecord) throws XMLStreamException {
-    boolean isTimestamp = false;
-    final DateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH);
+	/**
+	 * Move to beginning of record.
+	 * 
+	 * @param paramReader
+	 *          XML Reader {@link XMLEventReader}.
+	 * @param paramFilter
+	 *          XML filter {@link EventFilter}.
+	 * @param paramIsRecord
+	 *          determines if the parser is inside a record or outside
+	 * @return false if event was not found and received end of file
+	 * @throws XMLStreamException
+	 *           if a parsing error occurs
+	 */
+	private boolean moveToEvent(final XMLEventReader paramReader,
+			final EventFilter paramFilter, final boolean paramIsRecord)
+			throws XMLStreamException {
+		boolean isTimestamp = false;
+		final DateFormat formatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss",
+				Locale.ENGLISH);
 
-    while (paramReader.hasNext() && !paramFilter.accept(paramReader.peek())) {
-      final XMLEvent event = paramReader.nextEvent();
-      mCountEvents++;
+		while (paramReader.hasNext() && !paramFilter.accept(paramReader.peek())) {
+			final XMLEvent event = paramReader.nextEvent();
+			mCountEvents++;
 
-      if (isTimestamp && event.isCharacters() && !event.asCharacters().isWhiteSpace()) {
-        isTimestamp = false;
-        try {
-          // Parse timestamp.
-          final String text = event.asCharacters().getData();
-          final String[] splitted = text.split("T");
-          final String time = splitted[1].substring(0, splitted[1].length() - 1);
-          mKey.setTimestamp(formatter.parse(splitted[0] + " " + time));
-        } catch (final ParseException e) {
-          LOGWRAPPER.warn(e.getMessage(), e);
-        }
-      }
+			if (isTimestamp && event.isCharacters()
+					&& !event.asCharacters().isWhiteSpace()) {
+				isTimestamp = false;
+				try {
+					// Parse timestamp.
+					final String text = event.asCharacters().getData();
+					final String[] splitted = text.split("T");
+					final String time = splitted[1]
+							.substring(0, splitted[1].length() - 1);
+					mKey.setTimestamp(formatter.parse(splitted[0] + " " + time));
+				} catch (final ParseException e) {
+					LOGWRAPPER.warn(e.getMessage(), e);
+				}
+			}
 
-      if (paramIsRecord) {
-        // Parser currently is located somewhere after the start of a record (inside a record).
-        mEventWriter.add(event);
+			if (paramIsRecord) {
+				// Parser currently is located somewhere after the start of a record
+				// (inside a record).
+				mEventWriter.add(event);
 
-        if (event.isStartElement() && mDate.equals(event.asStartElement().getName())) {
-          isTimestamp = true;
-        }
-      }
-    }
+				if (event.isStartElement()
+						&& mDate.equals(event.asStartElement().getName())) {
+					isTimestamp = true;
+				}
+			}
+		}
 
-    return paramReader.hasNext();
-  }
+		return paramReader.hasNext();
+	}
 
 }

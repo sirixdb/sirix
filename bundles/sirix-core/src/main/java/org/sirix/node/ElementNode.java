@@ -74,7 +74,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 
 	/** {@link StructNodeDelegate} reference. */
 	private final StructNodeDelegate mStructNodeDel;
-	
+
 	/** The qualified name. */
 	private final QNm mQNm;
 
@@ -91,13 +91,11 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	 *          attribute nameKey / nodeKey mapping in both directions
 	 * @param namespaceKeys
 	 *          keys of namespaces to be set
-	 * @param 
+	 * @param
 	 */
 	public ElementNode(final StructNodeDelegate structDel,
-			final NameNodeDelegate nameDel,
-			final List<Long> attributeKeys,
-			final BiMap<Long, Long> attributes,
-			final List<Long> namespaceKeys,
+			final NameNodeDelegate nameDel, final List<Long> attributeKeys,
+			final BiMap<Long, Long> attributes, final List<Long> namespaceKeys,
 			final QNm qNm) {
 		assert structDel != null;
 		mStructNodeDel = structDel;
@@ -149,7 +147,8 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 				.generateHashForString(name.getPrefix()) : -1;
 		final int localNameIndex = NamePageHash.generateHashForString(name
 				.getLocalName());
-		return Optional.fromNullable(mAttributes.get((long)(prefixIndex + localNameIndex)));
+		return Optional.fromNullable(mAttributes
+				.get((long) (prefixIndex + localNameIndex)));
 	}
 
 	/**
@@ -341,7 +340,7 @@ public final class ElementNode extends AbstractStructForwardingNode implements
 	public long getPathNodeKey() {
 		return mNameDel.getPathNodeKey();
 	}
-	
+
 	@Override
 	public QNm getName() {
 		return mQNm;

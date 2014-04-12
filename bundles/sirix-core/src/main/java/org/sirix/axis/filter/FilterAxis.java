@@ -45,7 +45,7 @@ public final class FilterAxis extends AbstractAxis {
 
 	/** Test to apply to axis. */
 	private final Filter[] mAxisFilter;
-	
+
 	/**
 	 * Constructor initializing internal state.
 	 * 
@@ -56,8 +56,8 @@ public final class FilterAxis extends AbstractAxis {
 	 * @param axisTest
 	 *          tests to perform for each node found with axis
 	 */
-	public FilterAxis(final Axis axis,
-			final Filter firstAxisTest, final Filter... axisTest) {
+	public FilterAxis(final Axis axis, final Filter firstAxisTest,
+			final Filter... axisTest) {
 		super(axis.getTrx());
 		mAxis = axis;
 		final int length = axisTest.length == 0 ? 1 : axisTest.length + 1;

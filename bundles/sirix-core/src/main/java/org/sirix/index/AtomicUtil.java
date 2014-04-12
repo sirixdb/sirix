@@ -23,38 +23,37 @@ import org.sirix.utils.Calc;
  */
 public final class AtomicUtil {
 
-//	public static Field map(Type type) throws DocumentException {
-//		if (!type.isBuiltin()) {
-//			throw new DocumentException("%s is not a built-in type", type);
-//		}
-//		if (type.instanceOf(Type.STR)) {
-//			return Field.STRING;
-//		}
-//		if (type.isNumeric()) {
-//			if (type.instanceOf(Type.DBL)) {
-//				return Field.DOUBLE;
-//			}
-//			if (type.instanceOf(Type.FLO)) {
-//				return Field.FLOAT;
-//			}
-//			if (type.instanceOf(Type.INT)) {
-//				return Field.INTEGER;
-//			}
-//			if (type.instanceOf(Type.LON)) {
-//				return Field.LONG;
-//			}
-//			if (type.instanceOf(Type.INR)) {
-//				return Field.BIGDECIMAL;
-//			}
-//			if (type.instanceOf(Type.DEC)) {
-//				return Field.BIGDECIMAL;
-//			}
-//		}
-//		throw new DocumentException("Unsupported type: %s", type);
-//	}
+	// public static Field map(Type type) throws DocumentException {
+	// if (!type.isBuiltin()) {
+	// throw new DocumentException("%s is not a built-in type", type);
+	// }
+	// if (type.instanceOf(Type.STR)) {
+	// return Field.STRING;
+	// }
+	// if (type.isNumeric()) {
+	// if (type.instanceOf(Type.DBL)) {
+	// return Field.DOUBLE;
+	// }
+	// if (type.instanceOf(Type.FLO)) {
+	// return Field.FLOAT;
+	// }
+	// if (type.instanceOf(Type.INT)) {
+	// return Field.INTEGER;
+	// }
+	// if (type.instanceOf(Type.LON)) {
+	// return Field.LONG;
+	// }
+	// if (type.instanceOf(Type.INR)) {
+	// return Field.BIGDECIMAL;
+	// }
+	// if (type.instanceOf(Type.DEC)) {
+	// return Field.BIGDECIMAL;
+	// }
+	// }
+	// throw new DocumentException("Unsupported type: %s", type);
+	// }
 
-	public static byte[] toBytes(Atomic atomic, Type type)
-			throws SirixException {
+	public static byte[] toBytes(Atomic atomic, Type type) throws SirixException {
 		if (atomic == null) {
 			return null;
 		}
@@ -96,8 +95,7 @@ public final class AtomicUtil {
 		throw new SirixException("Unsupported type: %s", type);
 	}
 
-	public static Atomic fromBytes(byte[] b, Type type)
-			throws DocumentException {
+	public static Atomic fromBytes(byte[] b, Type type) throws DocumentException {
 		if (!type.isBuiltin()) {
 			throw new DocumentException("%s is not a built-in type", type);
 		}
@@ -127,8 +125,7 @@ public final class AtomicUtil {
 		throw new DocumentException("Unsupported type: %s", type);
 	}
 
-	public static Atomic toType(Atomic atomic, Type type)
-			throws SirixException {
+	public static Atomic toType(Atomic atomic, Type type) throws SirixException {
 		try {
 			return Cast.cast(null, atomic, type);
 		} catch (final QueryException e) {

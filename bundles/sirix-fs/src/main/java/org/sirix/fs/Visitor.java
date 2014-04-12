@@ -42,28 +42,33 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  * @param <T>
- *          type of the argument to the methods (usually in our case an instance of {@link WriteTransaction}
+ *          type of the argument to the methods (usually in our case an instance
+ *          of {@link WriteTransaction}
  * 
  */
 @Nonnull
 public interface Visitor<T extends NodeReadTrx> {
-  /**
-   * Process a directory.
-   * 
-   * @param pTransaction
-   *          the transaction to use
-   * @throws NullPointerException
-   *           if {@code pTransaction}, {@code pDir} or {@code pAtts} is {@code null}
-   */
-  void processDirectory(T pTransaction, Path pDir, Optional<BasicFileAttributes> pAttrs);
+	/**
+	 * Process a directory.
+	 * 
+	 * @param pTransaction
+	 *          the transaction to use
+	 * @throws NullPointerException
+	 *           if {@code pTransaction}, {@code pDir} or {@code pAtts} is
+	 *           {@code null}
+	 */
+	void processDirectory(T pTransaction, Path pDir,
+			Optional<BasicFileAttributes> pAttrs);
 
-  /**
-   * Process a file.
-   * 
-   * @param pTransaction
-   *          the transaction to use
-   * @throws NullPointerException
-   *           if {@code pTransaction}, {@code pFile} or {@code pAtts} is {@code null}
-   */
-  void processFile(T pTransaction, Path pFile, Optional<BasicFileAttributes> pAttrs);
+	/**
+	 * Process a file.
+	 * 
+	 * @param pTransaction
+	 *          the transaction to use
+	 * @throws NullPointerException
+	 *           if {@code pTransaction}, {@code pFile} or {@code pAtts} is
+	 *           {@code null}
+	 */
+	void processFile(T pTransaction, Path pFile,
+			Optional<BasicFileAttributes> pAttrs);
 }

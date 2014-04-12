@@ -140,8 +140,8 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 	}
 
 	/**
-	 * Get the maximum node key of the specified index by its index number.
-	 * The index number of the PathSummary is 0.
+	 * Get the maximum node key of the specified index by its index number. The
+	 * index number of the PathSummary is 0.
 	 * 
 	 * @param indexNo
 	 *          the index number
@@ -150,7 +150,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
 	public long getMaxNodeKey(final int indexNo) {
 		return mMaxNodeKeys.get(indexNo);
 	}
-	
+
 	public long incrementAndGetMaxNodeKey(final int indexNo) {
 		final long newMaxNodeKey = mMaxNodeKeys.get(indexNo).longValue() + 1;
 		mMaxNodeKeys.put(indexNo, newMaxNodeKey);

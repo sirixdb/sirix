@@ -23,7 +23,8 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger
  * 
  */
-public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, ImmutableStructNode {
+public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode,
+		ImmutableStructNode {
 	/** Mutable {@link PINode}. */
 	private final PINode mNode;
 
@@ -137,7 +138,7 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
 	public int getLocalNameKey() {
 		return mNode.getLocalNameKey();
 	}
-	
+
 	@Override
 	public int getPrefixKey() {
 		return mNode.getPrefixKey();
@@ -162,27 +163,27 @@ public class ImmutablePI implements ImmutableValueNode, ImmutableNameNode, Immut
 	public Optional<SirixDeweyID> getDeweyID() {
 		return mNode.getDeweyID();
 	}
-	
+
 	@Override
 	public boolean equals(Object obj) {
 		return mNode.equals(obj);
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return mNode.hashCode();
 	}
-	
+
 	@Override
 	public String toString() {
 		return mNode.toString();
 	}
-	
+
 	@Override
 	public QNm getName() {
 		return mNode.getName();
 	}
-	
+
 	@Override
 	public String getValue() {
 		return mNode.getValue();

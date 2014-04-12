@@ -37,7 +37,7 @@ import org.sirix.page.PageReference;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public interface Writer extends Reader{
+public interface Writer extends Reader {
 
 	/**
 	 * Writing a page related to the reference.
@@ -47,8 +47,7 @@ public interface Writer extends Reader{
 	 * @throws SirixIOException
 	 *           execption to be thrown if something bad happens
 	 */
-	void write(final PageReference pageReference)
-			throws SirixIOException;
+	void write(final PageReference pageReference) throws SirixIOException;
 
 	/**
 	 * Write beacon for the first reference.

@@ -22,171 +22,173 @@ import com.google.common.base.Optional;
 
 public abstract class AbstractView extends JPanel implements View {
 
-  /** {@link LogWrapper} reference. */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(AbstractView.class));
+	/** {@link LogWrapper} reference. */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(AbstractView.class));
 
-  /**
-   * Default serialVersionUID.
-   */
-  private static final long serialVersionUID = 1L;
+	/**
+	 * Default serialVersionUID.
+	 */
+	private static final long serialVersionUID = 1L;
 
-  /** {@link GUI} reference. */
-  private final GUI mGUI;
+	/** {@link GUI} reference. */
+	private final GUI mGUI;
 
-  /** {@link ViewNotifier} to notify views of changes. */
-  private final ViewNotifier mNotifier;
+	/** {@link ViewNotifier} to notify views of changes. */
+	private final ViewNotifier mNotifier;
 
-  /** Processing {@link PApplet} reference. */
-  private transient ProcessingView mEmbed;
+	/** Processing {@link PApplet} reference. */
+	private transient ProcessingView mEmbed;
 
-  /** {@link ReadDB} instance to interact with sirix. */
-  private transient ReadDB mDB;
+	/** {@link ReadDB} instance to interact with sirix. */
+	private transient ReadDB mDB;
 
-  protected AbstractView(final ViewNotifier pNotifier) {
-    // Add view to notifier.
-    mNotifier = checkNotNull(pNotifier);
-    mNotifier.add(this);
+	protected AbstractView(final ViewNotifier pNotifier) {
+		// Add view to notifier.
+		mNotifier = checkNotNull(pNotifier);
+		mNotifier.add(this);
 
-    setSize(mNotifier.getGUI().getSize());
+		setSize(mNotifier.getGUI().getSize());
 
-    // Main GUI frame.
-    mGUI = mNotifier.getGUI();
+		// Main GUI frame.
+		mGUI = mNotifier.getGUI();
 
-    // Simple scroll mode, because we are adding a heavyweight component (PApplet to the JScrollPane).
-    // getViewport().setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
-    // setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
-    // setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+		// Simple scroll mode, because we are adding a heavyweight component
+		// (PApplet to the JScrollPane).
+		// getViewport().setScrollMode(JViewport.SIMPLE_SCROLL_MODE);
+		// setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+		// setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
-    mGUI.addWindowStateListener(new WindowStateListener() {
-      @Override
-      public void windowStateChanged(WindowEvent e) {
-        updateWindowSize();
-      }
-    });
+		mGUI.addWindowStateListener(new WindowStateListener() {
+			@Override
+			public void windowStateChanged(WindowEvent e) {
+				updateWindowSize();
+			}
+		});
 
-    mGUI.addComponentListener(new ComponentListener() {
-      @Override
-      public void componentResized(final ComponentEvent paramEvt) {
-        updateWindowSize();
-      }
+		mGUI.addComponentListener(new ComponentListener() {
+			@Override
+			public void componentResized(final ComponentEvent paramEvt) {
+				updateWindowSize();
+			}
 
-      @Override
-      public void componentHidden(final ComponentEvent paramEvt) {
+			@Override
+			public void componentHidden(final ComponentEvent paramEvt) {
 
-      }
+			}
 
-      @Override
-      public void componentMoved(final ComponentEvent paramEvt) {
+			@Override
+			public void componentMoved(final ComponentEvent paramEvt) {
 
-      }
+			}
 
-      @Override
-      public void componentShown(final ComponentEvent paramEvt) {
+			@Override
+			public void componentShown(final ComponentEvent paramEvt) {
 
-      }
-    });
-  }
+			}
+		});
+	}
 
-  /** Update window size. */
-  protected void updateWindowSize() {
-    assert mGUI != null;
-    final Dimension dim = mGUI.getSize();
-    setSize(dim.width, dim.height - 42);
-    if (mEmbed != null && mEmbed.isFocused()) {
-      // mEmbed.size(dim.width, dim.height - 42, PConstants.JAVA2D);
+	/** Update window size. */
+	protected void updateWindowSize() {
+		assert mGUI != null;
+		final Dimension dim = mGUI.getSize();
+		setSize(dim.width, dim.height - 42);
+		if (mEmbed != null && mEmbed.isFocused()) {
+			// mEmbed.size(dim.width, dim.height - 42, PConstants.JAVA2D);
 
-      if (mEmbed.isDone()) {
-        mEmbed.update();
-      }
-    }
-  }
+			if (mEmbed.isDone()) {
+				mEmbed.update();
+			}
+		}
+	}
 
-  /**
-   * Get view notifier.
-   * 
-   * @return {@link ViewNotifier} reference
-   */
-  public ViewNotifier getNotifier() {
-    return mNotifier;
-  }
+	/**
+	 * Get view notifier.
+	 * 
+	 * @return {@link ViewNotifier} reference
+	 */
+	public ViewNotifier getNotifier() {
+		return mNotifier;
+	}
 
-  /**
-   * Get main GUI reference.
-   * 
-   * @return {@link GUI} reference
-   */
-  public GUI getGUI() {
-    return mGUI;
-  }
+	/**
+	 * Get main GUI reference.
+	 * 
+	 * @return {@link GUI} reference
+	 */
+	public GUI getGUI() {
+		return mGUI;
+	}
 
-  /**
-   * Get database handle.
-   * 
-   * @return {@link ReadDB} instance
-   */
-  public ReadDB getDB() {
-    return mDB;
-  }
+	/**
+	 * Get database handle.
+	 * 
+	 * @return {@link ReadDB} instance
+	 */
+	public ReadDB getDB() {
+		return mDB;
+	}
 
-  @Override
-  public void resize() {
-    updateWindowSize();
-  }
+	@Override
+	public void resize() {
+		updateWindowSize();
+	}
 
-  @Override
-  public void refreshInit() {
-    mDB = mNotifier.getGUI().getReadDB();
-    boolean firstInit = mEmbed == null ? true : false;
+	@Override
+	public void refreshInit() {
+		mDB = mNotifier.getGUI().getReadDB();
+		boolean firstInit = mEmbed == null ? true : false;
 
-    // Create instance of processing innerclass.
-    if (!firstInit) {
-      mEmbed.getGUI().getApplet().dispose();
-      mEmbed.getGUI().resetGUI();
-      mEmbed.getController().resetControl();
-      mEmbed.getEmbeddedView().resetEmbedded();
-      mEmbed.setEmbeddedView(null);
-      mEmbed.dispose();
-      mEmbed.stop();
-      remove(mEmbed.getApplet());
-      mEmbed = null;
-    }
-    mEmbed = getEmbeddedInstance();
-    final PApplet applet = mEmbed.getApplet();
-    add(applet);
-    /*
-     * Important to call this whenever embedding a PApplet.
-     * It ensures that the animation thread is started and
-     * that other internal variables are properly set.
-     */
-    applet.init();
-  }
+		// Create instance of processing innerclass.
+		if (!firstInit) {
+			mEmbed.getGUI().getApplet().dispose();
+			mEmbed.getGUI().resetGUI();
+			mEmbed.getController().resetControl();
+			mEmbed.getEmbeddedView().resetEmbedded();
+			mEmbed.setEmbeddedView(null);
+			mEmbed.dispose();
+			mEmbed.stop();
+			remove(mEmbed.getApplet());
+			mEmbed = null;
+		}
+		mEmbed = getEmbeddedInstance();
+		final PApplet applet = mEmbed.getApplet();
+		add(applet);
+		/*
+		 * Important to call this whenever embedding a PApplet. It ensures that the
+		 * animation thread is started and that other internal variables are
+		 * properly set.
+		 */
+		applet.init();
+	}
 
-  /** Create a concrete {@link ProcessingView} implementation instance. */
-  protected abstract ProcessingView getEmbeddedInstance();
+	/** Create a concrete {@link ProcessingView} implementation instance. */
+	protected abstract ProcessingView getEmbeddedInstance();
 
-  @Override
-  public void refreshUpdate(final Optional<VisualItemAxis> pAxis) {
-    try {
-      mDB = ViewUtilities.refreshResource(mDB);
-    } catch (final SirixException e) {
-      LOGWRAPPER.error(e.getMessage(), e);
-    }
-    mEmbed.refreshUpdate();
-  }
+	@Override
+	public void refreshUpdate(final Optional<VisualItemAxis> pAxis) {
+		try {
+			mDB = ViewUtilities.refreshResource(mDB);
+		} catch (final SirixException e) {
+			LOGWRAPPER.error(e.getMessage(), e);
+		}
+		mEmbed.refreshUpdate();
+	}
 
-  @Override
-  public void dispose() {
-    if (mEmbed != null) {
-      mEmbed.noLoop();
-      mEmbed.getGUI().getApplet().dispose();
-      mEmbed.getGUI().resetGUI();
-      mEmbed.getController().resetControl();
-      mEmbed.getEmbeddedView().resetEmbedded();
-      mEmbed.setEmbeddedView(null);
-      mEmbed.dispose();
-      mEmbed.stop();
-      remove(mEmbed.getApplet());
-      mEmbed = null;
-    }
-  }
+	@Override
+	public void dispose() {
+		if (mEmbed != null) {
+			mEmbed.noLoop();
+			mEmbed.getGUI().getApplet().dispose();
+			mEmbed.getGUI().resetGUI();
+			mEmbed.getController().resetControl();
+			mEmbed.getEmbeddedView().resetEmbedded();
+			mEmbed.setEmbeddedView(null);
+			mEmbed.dispose();
+			mEmbed.stop();
+			remove(mEmbed.getApplet());
+			mEmbed = null;
+		}
+	}
 }

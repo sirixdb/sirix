@@ -91,7 +91,8 @@ public enum Draw {
 		}
 
 		@Override
-		public void drawLabel(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
+		public void drawLabel(final AbstractSunburstGUI pGUI,
+				final SunburstItem pItem) {
 			if (pGUI.isShowArcs()
 					&& (!pGUI.isShowLines() || pItem.getLineWeight() <= 0.5f)) {
 				if (pGUI.mParent.recorder != null) {
@@ -103,8 +104,9 @@ public enum Draw {
 		}
 
 		@Override
-		public void drawHover(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
-//			if (!pGUI.mInit && pItem.getGreyState() == EGreyState.NO) {
+		public void drawHover(final AbstractSunburstGUI pGUI,
+				final SunburstItem pItem) {
+			// if (!pGUI.mInit && pItem.getGreyState() == EGreyState.NO) {
 			if (pItem.getGreyState() == EGreyState.NO) {
 				if (pGUI.mParent.recorder != null) {
 					pItem.hover(pGUI.mParent.recorder);
@@ -176,7 +178,8 @@ public enum Draw {
 		}
 
 		@Override
-		public void drawHover(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
+		public void drawHover(final AbstractSunburstGUI pGUI,
+				final SunburstItem pItem) {
 			if (pGUI.mParent.recorder != null) {
 				pItem.hover(pGUI.mParent.recorder);
 				drawStaticLabel(pGUI, pGUI.mParent.recorder, pItem, EHovered.YES,
@@ -255,8 +258,8 @@ public enum Draw {
 			final EHovered pHovered, final Draw pDraw) {
 		assert pGUI != null;
 		assert pGraphic != null;
-		final float depth = pDraw == Draw.UPDATEBUFFER || pHovered == EHovered.YES ? pItem.getDepth() : pItem
-				.getTmpDepth();
+		final float depth = pDraw == Draw.UPDATEBUFFER || pHovered == EHovered.YES ? pItem
+				.getDepth() : pItem.getTmpDepth();
 		final float startAngle = pItem.getAngleStart();
 		final float endAngle = pItem.getAngleEnd();
 		final float scale = pItem.getStructKind() == EStructType.ISINNERNODE ? pGUI
@@ -671,7 +674,8 @@ public enum Draw {
 	 * @param pItem
 	 *          {@link SunburstItem} instance
 	 */
-	protected void drawArc(final AbstractSunburstGUI pGUI, final SunburstItem pItem) {
+	protected void drawArc(final AbstractSunburstGUI pGUI,
+			final SunburstItem pItem) {
 		assert pGUI != null;
 		assert pItem != null;
 		if (pGUI.isShowArcs()) {
@@ -813,8 +817,8 @@ public enum Draw {
 		NORMAL {
 			/** {@inheritDoc} */
 			@Override
-			void drawStrategy(final AbstractSunburstGUI pGUI, final SunburstItem pItem,
-					final Draw pDraw) {
+			void drawStrategy(final AbstractSunburstGUI pGUI,
+					final SunburstItem pItem, final Draw pDraw) {
 				pDraw.drawArc(pGUI, pItem);
 				pDraw.drawRelation(pGUI, pItem);
 				pDraw.drawDot(pItem);
@@ -825,8 +829,8 @@ public enum Draw {
 		COMPARE {
 			/** {@inheritDoc} */
 			@Override
-			void drawStrategy(final AbstractSunburstGUI pGUI, final SunburstItem pItem,
-					final Draw pDraw) {
+			void drawStrategy(final AbstractSunburstGUI pGUI,
+					final SunburstItem pItem, final Draw pDraw) {
 				pDraw.drawArc(pGUI, pItem);
 			}
 		};

@@ -35,7 +35,7 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	public ImmutablePathNode(final PathNode node) {
 		mNode = node;
 	}
-	
+
 	/**
 	 * Get an immutable path node instance.
 	 * 
@@ -101,7 +101,7 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	public int getLocalNameKey() {
 		return mNode.getLocalNameKey();
 	}
-	
+
 	@Override
 	public int getPrefixKey() {
 		return mNode.getPrefixKey();
@@ -156,7 +156,7 @@ public class ImmutablePathNode implements ImmutableNameNode,
 	public long getRightSiblingKey() {
 		return mNode.getRightSiblingKey();
 	}
-	
+
 	@Override
 	public QNm getName() {
 		return mNode.getName();

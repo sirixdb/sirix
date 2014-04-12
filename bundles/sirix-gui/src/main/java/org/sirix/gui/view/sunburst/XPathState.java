@@ -33,56 +33,60 @@ import processing.core.PConstants;
 import processing.core.PGraphics;
 
 /**
- * XPath enum to determine if current item is found by an XPath expression or not.
+ * XPath enum to determine if current item is found by an XPath expression or
+ * not.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
 public enum XPathState {
 
-  /** Item is found. */
-  ISFOUND {
-    /** {@inheritDoc} */
-    @Override
-    public void setStroke(final PGraphics paramGraphic, final PGraphics paramRecorder, final int paramColor,
-      final EHover paramHover) {
-      if (paramRecorder != null) {
-        strokeColor(paramRecorder);
-      }
-      strokeColor(paramGraphic);
-    }
+	/** Item is found. */
+	ISFOUND {
+		/** {@inheritDoc} */
+		@Override
+		public void setStroke(final PGraphics paramGraphic,
+				final PGraphics paramRecorder, final int paramColor,
+				final EHover paramHover) {
+			if (paramRecorder != null) {
+				strokeColor(paramRecorder);
+			}
+			strokeColor(paramGraphic);
+		}
 
-    /** Define a strokeColor. */
-    private void strokeColor(final PGraphics paramGraphic) {
-      paramGraphic.colorMode(PConstants.RGB);
-      paramGraphic.stroke(255, 240, 0);
-      paramGraphic.colorMode(PConstants.HSB);
-    }
-  },
+		/** Define a strokeColor. */
+		private void strokeColor(final PGraphics paramGraphic) {
+			paramGraphic.colorMode(PConstants.RGB);
+			paramGraphic.stroke(255, 240, 0);
+			paramGraphic.colorMode(PConstants.HSB);
+		}
+	},
 
-  /** Default: Item is not found. */
-  ISNOTFOUND {
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void setStroke(final PGraphics paramGraphic, final PGraphics paramRecorder, final int paramColor,
-      final EHover paramHover) {
-    }
-  };
+	/** Default: Item is not found. */
+	ISNOTFOUND {
+		/**
+		 * {@inheritDoc}
+		 */
+		@Override
+		public void setStroke(final PGraphics paramGraphic,
+				final PGraphics paramRecorder, final int paramColor,
+				final EHover paramHover) {
+		}
+	};
 
-  /**
-   * Set stroke.
-   * 
-   * @param paramGraphic
-   *          {@link PGraphics} instance
-   * @param paramRecorder
-   *          {@link PGraphics} instance for recording PDFs
-   * @param paramColor
-   *          the color to use
-   * @param paramHover
-   *          determines if current item should be hovered or not
-   */
-  public abstract void setStroke(final PGraphics paramGraphic, final PGraphics paramRecorder,
-    final int paramColor, final EHover paramHover);
+	/**
+	 * Set stroke.
+	 * 
+	 * @param paramGraphic
+	 *          {@link PGraphics} instance
+	 * @param paramRecorder
+	 *          {@link PGraphics} instance for recording PDFs
+	 * @param paramColor
+	 *          the color to use
+	 * @param paramHover
+	 *          determines if current item should be hovered or not
+	 */
+	public abstract void setStroke(final PGraphics paramGraphic,
+			final PGraphics paramRecorder, final int paramColor,
+			final EHover paramHover);
 }

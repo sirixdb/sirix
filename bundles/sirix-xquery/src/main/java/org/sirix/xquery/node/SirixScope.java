@@ -21,7 +21,7 @@ public final class SirixScope implements Scope {
 
 	/** Sirix {@link NodeReadTrx}. */
 	private final NodeReadTrx mRtx;
-	
+
 	/**
 	 * Constructor.
 	 * 

@@ -50,68 +50,72 @@ import com.google.common.collect.Maps;
 @Nonnull
 public final class WatchRecursivelyVisitor extends SimpleFileVisitor<Path> {
 
-  /** {@link WatchService} reference. */
-  private final WatchService mWatcher;
+	/** {@link WatchService} reference. */
+	private final WatchService mWatcher;
 
-  /** Mapping of {@link WatchService} to {@link Path} instances (for deletes). */
-  private final Map<WatchKey, Path> mKeys;
+	/** Mapping of {@link WatchService} to {@link Path} instances (for deletes). */
+	private final Map<WatchKey, Path> mKeys;
 
-  /** Mapping of unique file/directory identifier to {@link Path} instances. */
-  private final Map<Object, List<Path>> mIdentifiers;
+	/** Mapping of unique file/directory identifier to {@link Path} instances. */
+	private final Map<Object, List<Path>> mIdentifiers;
 
-  /**
-   * Private constructor.
-   * 
-   * @param pWatcher
-   *          {@link WatchService} reference where each path is registered
-   */
-  private WatchRecursivelyVisitor(final WatchService pWatcher) {
-    mWatcher = pWatcher;
-    mKeys = Maps.newHashMap();
-    mIdentifiers = Maps.newHashMap();
-  }
+	/**
+	 * Private constructor.
+	 * 
+	 * @param pWatcher
+	 *          {@link WatchService} reference where each path is registered
+	 */
+	private WatchRecursivelyVisitor(final WatchService pWatcher) {
+		mWatcher = pWatcher;
+		mKeys = Maps.newHashMap();
+		mIdentifiers = Maps.newHashMap();
+	}
 
-  /**
-   * Get an instance of {@link WatchRecursivelyVisitor}.
-   * 
-   * @param pWatcher
-   *          {@link WatchService} reference where each path is registered
-   * @return {@link WatchRecursivelyVisitor} reference
-   */
-  public static WatchRecursivelyVisitor getInstance(final WatchService pWatcher) {
-    return new WatchRecursivelyVisitor(checkNotNull(pWatcher));
-  }
+	/**
+	 * Get an instance of {@link WatchRecursivelyVisitor}.
+	 * 
+	 * @param pWatcher
+	 *          {@link WatchService} reference where each path is registered
+	 * @return {@link WatchRecursivelyVisitor} reference
+	 */
+	public static WatchRecursivelyVisitor getInstance(final WatchService pWatcher) {
+		return new WatchRecursivelyVisitor(checkNotNull(pWatcher));
+	}
 
-  /** Each time a directory is going to be visited the directory is registered at the watchservice. */
-  @Override
-  public FileVisitResult preVisitDirectory(final Path pDir, final BasicFileAttributes pAttrs)
-    throws IOException {
-    checkNotNull(pDir);
-    checkNotNull(pAttrs);
-    final WatchKey key = pDir.register(mWatcher, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY);
-    mKeys.put(key, pDir);
-    if (mIdentifiers.get(pAttrs.fileKey()) == null) {
-      mIdentifiers.put(pAttrs.fileKey(), new ArrayList<Path>());
-    }
-    mIdentifiers.get(pAttrs.fileKey()).add(pDir);
-    return FileVisitResult.CONTINUE;
-  }
+	/**
+	 * Each time a directory is going to be visited the directory is registered at
+	 * the watchservice.
+	 */
+	@Override
+	public FileVisitResult preVisitDirectory(final Path pDir,
+			final BasicFileAttributes pAttrs) throws IOException {
+		checkNotNull(pDir);
+		checkNotNull(pAttrs);
+		final WatchKey key = pDir.register(mWatcher, ENTRY_CREATE, ENTRY_DELETE,
+				ENTRY_MODIFY);
+		mKeys.put(key, pDir);
+		if (mIdentifiers.get(pAttrs.fileKey()) == null) {
+			mIdentifiers.put(pAttrs.fileKey(), new ArrayList<Path>());
+		}
+		mIdentifiers.get(pAttrs.fileKey()).add(pDir);
+		return FileVisitResult.CONTINUE;
+	}
 
-  /**
-   * Get mapping of {@link WatchService} to {@link Path} (for deletes).
-   * 
-   * @return map instance
-   */
-  public Map<WatchKey, Path> getKeys() {
-    return mKeys;
-  }
+	/**
+	 * Get mapping of {@link WatchService} to {@link Path} (for deletes).
+	 * 
+	 * @return map instance
+	 */
+	public Map<WatchKey, Path> getKeys() {
+		return mKeys;
+	}
 
-  /**
-   * Get mapping of unique Object to {@link Path}.
-   * 
-   * @return map instance
-   */
-  public Map<Object, List<Path>> getIdentifiers() {
-    return mIdentifiers;
-  }
+	/**
+	 * Get mapping of unique Object to {@link Path}.
+	 * 
+	 * @return map instance
+	 */
+	public Map<Object, List<Path>> getIdentifiers() {
+		return mIdentifiers;
+	}
 }

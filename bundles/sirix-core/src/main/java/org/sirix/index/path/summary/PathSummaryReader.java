@@ -96,8 +96,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 * @param session
 	 *          {@link Session} reference
 	 */
-	private PathSummaryReader(final PageReadTrx pageReadTrx,
-			final Session session) {
+	private PathSummaryReader(final PageReadTrx pageReadTrx, final Session session) {
 		mPathCache = new HashMap<>();
 		mPageReadTrx = pageReadTrx;
 		mClosed = false;
@@ -132,7 +131,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 			}
 		}
 	}
-	
+
 	@Override
 	public PageReadTrx getPageTrx() {
 		return mPageReadTrx;
@@ -154,8 +153,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	// package private, only used in writer to keep the mapping always up-to-date
-	void putMapping(final @Nonnegative long pathNodeKey,
-			final StructNode node) {
+	void putMapping(final @Nonnegative long pathNodeKey, final StructNode node) {
 		mPathNodeMapping.put(pathNodeKey, node);
 	}
 
@@ -173,8 +171,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	}
 
 	// package private, only used in writer to keep the mapping always up-to-date
-	void removeQNameMapping(final @Nonnegative PathNode node,
-			final QNm name) {
+	void removeQNameMapping(final @Nonnegative PathNode node, final QNm name) {
 		final Set<PathNode> pathNodes = mQNmMapping.get(name) == null ? new HashSet<PathNode>()
 				: mQNmMapping.get(name);
 		if (pathNodes.size() == 1) {
@@ -294,8 +291,7 @@ public final class PathSummaryReader implements NodeReadTrx {
 	 * @throws SirixException
 	 *           if anything went wrong
 	 */
-	public Set<Long> getPCRsForPath(final Path<QNm> path)
-			throws PathException {
+	public Set<Long> getPCRsForPath(final Path<QNm> path) throws PathException {
 		Set<Long> pcrSet = mPathCache.get(path);
 
 		if (pcrSet != null) {

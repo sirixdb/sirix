@@ -62,271 +62,273 @@ import com.google.common.base.Optional;
  */
 public class SmallmultipleView extends AbstractView implements View {
 
-  /**
-   * SerialUID.
-   */
-  private static final long serialVersionUID = 1L;
+	/**
+	 * SerialUID.
+	 */
+	private static final long serialVersionUID = 1L;
 
-  // /** {@link LogWrapper}. */
-  // private static final LogWrapper LOGWRAPPER = new LogWrapper(
-  // LoggerFactory.getLogger(SmallMultiplesView.class));
+	// /** {@link LogWrapper}. */
+	// private static final LogWrapper LOGWRAPPER = new LogWrapper(
+	// LoggerFactory.getLogger(SmallMultiplesView.class));
 
-  /** Name of the view. */
-  private static final String NAME = "SmallMultiplesView";
+	/** Name of the view. */
+	private static final String NAME = "SmallMultiplesView";
 
-  /** {@link SunburstView} instance. */
-  private static SmallmultipleView mView;
+	/** {@link SunburstView} instance. */
+	private static SmallmultipleView mView;
 
-  // /** {@link ViewNotifier} to notify views of changes. */
-  // private final ViewNotifier mNotifier;
-  //
-  // /** {@link ReadDB} instance to interact with sirix. */
-  // private transient ReadDB mDB;
-  //
-  // /** {@link GUI} reference. */
-  // private final GUI mGUI;
-  //
-  // /** Embedded processing view. */
-  // private transient Embedded mEmbed;
+	// /** {@link ViewNotifier} to notify views of changes. */
+	// private final ViewNotifier mNotifier;
+	//
+	// /** {@link ReadDB} instance to interact with sirix. */
+	// private transient ReadDB mDB;
+	//
+	// /** {@link GUI} reference. */
+	// private final GUI mGUI;
+	//
+	// /** Embedded processing view. */
+	// private transient Embedded mEmbed;
 
-  /**
-   * Constructor.
-   * 
-   * @param pNotifier
-   *          {@link ViewNotifier} instance.
-   */
-  private SmallmultipleView(final ViewNotifier pNotifier) {
-    super(pNotifier);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pNotifier
+	 *          {@link ViewNotifier} instance.
+	 */
+	private SmallmultipleView(final ViewNotifier pNotifier) {
+		super(pNotifier);
+	}
 
-  /**
-   * Singleton factory method.
-   * 
-   * @param paramNotifier
-   *          {@link ViewNotifier} to notify views of changes etc.pp.
-   * @return {@link SmallmultipleView} instance
-   */
-  public static synchronized SmallmultipleView getInstance(final ViewNotifier paramNotifier) {
-    if (mView == null) {
-      mView = new SmallmultipleView(paramNotifier);
-    }
+	/**
+	 * Singleton factory method.
+	 * 
+	 * @param paramNotifier
+	 *          {@link ViewNotifier} to notify views of changes etc.pp.
+	 * @return {@link SmallmultipleView} instance
+	 */
+	public static synchronized SmallmultipleView getInstance(
+			final ViewNotifier paramNotifier) {
+		if (mView == null) {
+			mView = new SmallmultipleView(paramNotifier);
+		}
 
-    return mView;
-  }
+		return mView;
+	}
 
-  /**
-   * Not supported.
-   * 
-   * @see Object#clone()
-   */
-  @Override
-  public Object clone() throws CloneNotSupportedException {
-    throw new CloneNotSupportedException();
-  }
+	/**
+	 * Not supported.
+	 * 
+	 * @see Object#clone()
+	 */
+	@Override
+	public Object clone() throws CloneNotSupportedException {
+		throw new CloneNotSupportedException();
+	}
 
-  @Override
-  public boolean isVisible() {
-    return GUIProp.EShowViews.SHOWSMALLMULTIPLES.getValue();
-  }
+	@Override
+	public boolean isVisible() {
+		return GUIProp.EShowViews.SHOWSMALLMULTIPLES.getValue();
+	}
 
-  @Override
-  public String name() {
-    return NAME;
-  }
+	@Override
+	public String name() {
+		return NAME;
+	}
 
-  @Override
-  public JComponent component() {
-    return this;
-  }
+	@Override
+	public JComponent component() {
+		return this;
+	}
 
-  @Override
-  public Dimension getPreferredSize() {
-    final Dimension parentFrame = getGUI().getSize();
-    return new Dimension(parentFrame.width, parentFrame.height - 55);
-  }
+	@Override
+	public Dimension getPreferredSize() {
+		final Dimension parentFrame = getGUI().getSize();
+		return new Dimension(parentFrame.width, parentFrame.height - 55);
+	}
 
-  /** Embedded processing view. */
-  final class Embedded extends PApplet implements ProcessingView {
+	/** Embedded processing view. */
+	final class Embedded extends PApplet implements ProcessingView {
 
-    /**
-     * Serial UID.
-     */
-    private static final long serialVersionUID = 1L;
+		/**
+		 * Serial UID.
+		 */
+		private static final long serialVersionUID = 1L;
 
-    /** The sirix {@link SunburstModel}. */
-    private transient SmallmultipleModel mModel;
+		/** The sirix {@link SunburstModel}. */
+		private transient SmallmultipleModel mModel;
 
-    /** {@link ProcessingEmbeddedView} reference. */
-    private transient ProcessingEmbeddedView mEmbeddedView;
+		/** {@link ProcessingEmbeddedView} reference. */
+		private transient ProcessingEmbeddedView mEmbeddedView;
 
-    /** {@link SmallmultipleView} reference. */
-    private final SmallmultipleView mView;
+		/** {@link SmallmultipleView} reference. */
+		private final SmallmultipleView mView;
 
-    /** {@link SmallmultipleControl} reference. */
-    private transient SmallmultipleControl mControl;
+		/** {@link SmallmultipleControl} reference. */
+		private transient SmallmultipleControl mControl;
 
-    /** {@link ProgressGlassPane} reference. */
-    private transient ProgressGlassPane mGlassPane;
+		/** {@link ProgressGlassPane} reference. */
+		private transient ProgressGlassPane mGlassPane;
 
-    /**
-     * Constructor.
-     * 
-     * @param paramView
-     *          the enclosing view
-     */
-    public Embedded(final SmallmultipleView pView) {
-      mView = checkNotNull(pView);
-    }
+		/**
+		 * Constructor.
+		 * 
+		 * @param paramView
+		 *          the enclosing view
+		 */
+		public Embedded(final SmallmultipleView pView) {
+			mView = checkNotNull(pView);
+		}
 
-    @Override
-    public void setup() {
-      size(getNotifier().getGUI().getSize().width - 10, getNotifier().getGUI().getSize().height - 80,
-        PConstants.JAVA2D);
-      refreshInit();
-    }
+		@Override
+		public void setup() {
+			size(getNotifier().getGUI().getSize().width - 10, getNotifier().getGUI()
+					.getSize().height - 80, PConstants.JAVA2D);
+			refreshInit();
+		}
 
-    /** Setup processing view. */
-    public void refreshInit() {
-      // Set glass pane.
-      mView.getGUI().setGlassPane(mGlassPane = new ProgressGlassPane());
-      mGlassPane.setVisible(true);
+		/** Setup processing view. */
+		public void refreshInit() {
+			// Set glass pane.
+			mView.getGUI().setGlassPane(mGlassPane = new ProgressGlassPane());
+			mGlassPane.setVisible(true);
 
-      // Initialization with no draw() loop.
-      noLoop();
+			// Initialization with no draw() loop.
+			noLoop();
 
-      // Frame rate reduced to 30 per sec.
-      frameRate(30);
+			// Frame rate reduced to 30 per sec.
+			frameRate(30);
 
-      // Create Model.
-      mModel = new SmallmultipleModel(this, getDB());
+			// Create Model.
+			mModel = new SmallmultipleModel(this, getDB());
 
-      // Create Controller.
-      mControl = SmallmultipleControl.getInstance(this, mModel, getDB());
-      mControl.refreshIncrementalTraversal();
+			// Create Controller.
+			mControl = SmallmultipleControl.getInstance(this, mModel, getDB());
+			mControl.refreshIncrementalTraversal();
 
-      // Use embedded view.
-      mEmbeddedView =
-        ProcessingEmbeddedView.getInstance(this, mView, mControl.getGUIInstance(), mControl, getNotifier());
-    }
+			// Use embedded view.
+			mEmbeddedView = ProcessingEmbeddedView.getInstance(this, mView,
+					mControl.getGUIInstance(), mControl, getNotifier());
+		}
 
-    @Override
-    public void draw() {
-      if (mEmbeddedView != null) {
-        mEmbeddedView.draw();
-      }
-    }
+		@Override
+		public void draw() {
+			if (mEmbeddedView != null) {
+				mEmbeddedView.draw();
+			}
+		}
 
-    @Override
-    public void mouseEntered(final MouseEvent paramEvent) {
-      if (mEmbeddedView != null) {
-        mEmbeddedView.mouseEntered(paramEvent);
-      }
-    }
+		@Override
+		public void mouseEntered(final MouseEvent paramEvent) {
+			if (mEmbeddedView != null) {
+				mEmbeddedView.mouseEntered(paramEvent);
+			}
+		}
 
-    @Override
-    public void mouseExited(final MouseEvent paramEvent) {
-      if (mEmbeddedView != null) {
-        mEmbeddedView.mouseExited(paramEvent);
-      }
-    }
+		@Override
+		public void mouseExited(final MouseEvent paramEvent) {
+			if (mEmbeddedView != null) {
+				mEmbeddedView.mouseExited(paramEvent);
+			}
+		}
 
-    @Override
-    public void keyReleased() {
-      if (mEmbeddedView != null) {
-        mEmbeddedView.keyReleased();
-      }
-    }
+		@Override
+		public void keyReleased() {
+			if (mEmbeddedView != null) {
+				mEmbeddedView.keyReleased();
+			}
+		}
 
-    @Override
-    public void mousePressed(final MouseEvent paramEvent) {
-      if (mEmbeddedView != null) {
-        mEmbeddedView.mousePressed(paramEvent);
-      }
-    }
+		@Override
+		public void mousePressed(final MouseEvent paramEvent) {
+			if (mEmbeddedView != null) {
+				mEmbeddedView.mousePressed(paramEvent);
+			}
+		}
 
-    @Override
-    public void refreshUpdate() {
-      // mControl.refreshUpdate();
-      mEmbeddedView.handleHLWeight();
-    }
+		@Override
+		public void refreshUpdate() {
+			// mControl.refreshUpdate();
+			mEmbeddedView.handleHLWeight();
+		}
 
-    /** Refresh. Thus sirix storage has been updated to a new revision. */
-    void refresh() {
-      getNotifier().update(mView, Optional.<VisualItemAxis> absent());
-    }
+		/** Refresh. Thus sirix storage has been updated to a new revision. */
+		void refresh() {
+			getNotifier().update(mView, Optional.<VisualItemAxis> absent());
+		}
 
-    /** Update Processing GUI. */
-    @Override
-    public void update() {
-      if (mEmbeddedView != null) {
-        mEmbeddedView.updateGUI();
-      }
-    }
+		/** Update Processing GUI. */
+		@Override
+		public void update() {
+			if (mEmbeddedView != null) {
+				mEmbeddedView.updateGUI();
+			}
+		}
 
-    @Override
-    public SmallmultipleControl getController() {
-      assert mControl != null;
-      return mControl;
-    }
+		@Override
+		public SmallmultipleControl getController() {
+			assert mControl != null;
+			return mControl;
+		}
 
-    @Override
-    public ProgressGlassPane getGlassPane() {
-      assert mGlassPane != null;
-      return mGlassPane;
-    }
+		@Override
+		public ProgressGlassPane getGlassPane() {
+			assert mGlassPane != null;
+			return mGlassPane;
+		}
 
-    @Override
-    public View getView() {
-      assert mView != null;
-      return mView;
-    }
+		@Override
+		public View getView() {
+			assert mView != null;
+			return mView;
+		}
 
-    @Override
-    public AbstractSunburstGUI getGUI() {
-      return mControl.getGUIInstance();
-    }
+		@Override
+		public AbstractSunburstGUI getGUI() {
+			return mControl.getGUIInstance();
+		}
 
-    @Override
-    public ProcessingEmbeddedView getEmbeddedView() {
-      return mEmbeddedView;
-    }
+		@Override
+		public ProcessingEmbeddedView getEmbeddedView() {
+			return mEmbeddedView;
+		}
 
-    @Override
-    public void setEmbeddedView(@Nullable final ProcessingEmbeddedView pEmbeddedView) {
-      mEmbeddedView = pEmbeddedView;
-    }
+		@Override
+		public void setEmbeddedView(
+				@Nullable final ProcessingEmbeddedView pEmbeddedView) {
+			mEmbeddedView = pEmbeddedView;
+		}
 
-    @Override
-    public PApplet getApplet() {
-      return this;
-    }
+		@Override
+		public PApplet getApplet() {
+			return this;
+		}
 
-    @Override
-    public boolean isFocused() {
-      return focused;
-    }
+		@Override
+		public boolean isFocused() {
+			return focused;
+		}
 
-    @Override
-    public boolean isDone() {
-      return mControl.getGUIInstance().isDone();
-    }
+		@Override
+		public boolean isDone() {
+			return mControl.getGUIInstance().isDone();
+		}
 
-    @Override
-    public Model<?, ?> getModel() {
-      return mModel;
-    }
-  }
+		@Override
+		public Model<?, ?> getModel() {
+			return mModel;
+		}
+	}
 
-  @Override
-  public void hover(final VisualItem paramItem) {
-  }
+	@Override
+	public void hover(final VisualItem paramItem) {
+	}
 
-  @Override
-  public void resize() {
-  }
+	@Override
+	public void resize() {
+	}
 
-  @Override
-  protected ProcessingView getEmbeddedInstance() {
-    return new Embedded(this);
-  }
+	@Override
+	protected ProcessingView getEmbeddedInstance() {
+		return new Embedded(this);
+	}
 }

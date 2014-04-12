@@ -226,8 +226,7 @@ public final class ResourceConfiguration {
 	 * @param builder
 	 *          {@link Builder} reference
 	 */
-	private ResourceConfiguration(
-			final ResourceConfiguration.Builder builder) {
+	private ResourceConfiguration(final ResourceConfiguration.Builder builder) {
 		mStorage = builder.mType;
 		mByteHandler = builder.mByteHandler;
 		mRevisionKind = builder.mRevisionKind;
@@ -457,10 +456,8 @@ public final class ResourceConfiguration {
 			builder.byteHandlerPipeline(pipeline).hashKind(hashing)
 					.versioningApproach(revisioning)
 					.revisionsToRestore(revisionToRestore).storageType(storage)
-					.persistenter(persistenter)
-				  .useTextCompression(compression)
-				  .buildPathSummary(pathSummary)
-				  .useDeweyIDs(deweyIDsStored);
+					.persistenter(persistenter).useTextCompression(compression)
+					.buildPathSummary(pathSummary).useDeweyIDs(deweyIDsStored);
 
 			// Deserialized instance.
 			final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -520,8 +517,7 @@ public final class ResourceConfiguration {
 		 * @throws NullPointerException
 		 *           if {@code resource} or {@code config} is {@code null}
 		 */
-		public Builder(final String resource,
-				final DatabaseConfiguration config) {
+		public Builder(final String resource, final DatabaseConfiguration config) {
 			mResource = checkNotNull(resource);
 			mDBConfig = checkNotNull(config);
 			mPathSummary = true;
@@ -576,8 +572,7 @@ public final class ResourceConfiguration {
 		 *          byte handler pipeline
 		 * @return reference to the builder object
 		 */
-		public Builder byteHandlerPipeline(
-				final ByteHandlePipeline byteHandler) {
+		public Builder byteHandlerPipeline(final ByteHandlePipeline byteHandler) {
 			mByteHandler = checkNotNull(byteHandler);
 			return this;
 		}

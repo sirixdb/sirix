@@ -74,8 +74,7 @@ public class TypeFilterTest {
 		xtx.moveToAttribute(0);
 		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:untyped"), true);
 
-		FilterTest
-				.testFilterConventions(new TypeFilter(xtx, "xs:anyType"), false);
+		FilterTest.testFilterConventions(new TypeFilter(xtx, "xs:anyType"), false);
 
 	}
 }

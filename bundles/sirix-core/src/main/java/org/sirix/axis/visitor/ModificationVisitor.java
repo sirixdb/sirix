@@ -140,7 +140,7 @@ public final class ModificationVisitor extends AbstractVisitor {
 		}
 		return VisitResultType.CONTINUE;
 	}
-	
+
 	/** Delete a subtree and determine movement. */
 	private VisitResult delete() throws SirixException {
 		try {

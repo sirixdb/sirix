@@ -33,47 +33,47 @@ package org.sirix.gui.view.smallmultiple;
  * 
  */
 public enum ECompare {
-  /** Incremental comparsion. */
-  INCREMENTAL(false),
+	/** Incremental comparsion. */
+	INCREMENTAL(false),
 
-  /** Differential comparsion. */
-  DIFFERENTIAL(false),
+	/** Differential comparsion. */
+	DIFFERENTIAL(false),
 
-  /** Single differential comparsion (single view). */
-  SINGLEINCREMENTAL(false),
+	/** Single differential comparsion (single view). */
+	SINGLEINCREMENTAL(false),
 
-  /** Hybrid comparsion. */
-  HYBRID(true);
+	/** Hybrid comparsion. */
+	HYBRID(true);
 
-  /** Determines if it's the first run. */
-  private transient boolean mValue;
+	/** Determines if it's the first run. */
+	private transient boolean mValue;
 
-  /**
-   * Constructor.
-   * 
-   * @param paramValue
-   *          value to set
-   */
-  ECompare(final boolean paramValue) {
-    mValue = paramValue;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param paramValue
+	 *          value to set
+	 */
+	ECompare(final boolean paramValue) {
+		mValue = paramValue;
+	}
 
-  /**
-   * Get value.
-   * 
-   * @return value
-   */
-  boolean getValue() {
-    return mValue;
-  }
+	/**
+	 * Get value.
+	 * 
+	 * @return value
+	 */
+	boolean getValue() {
+		return mValue;
+	}
 
-  /**
-   * Set value.
-   * 
-   * @param paramValue
-   *          value to set
-   */
-  void setValue(final boolean paramValue) {
-    mValue = paramValue;
-  }
+	/**
+	 * Set value.
+	 * 
+	 * @param paramValue
+	 *          value to set
+	 */
+	void setValue(final boolean paramValue) {
+		mValue = paramValue;
+	}
 }

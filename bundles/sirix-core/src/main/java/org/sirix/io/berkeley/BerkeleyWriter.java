@@ -53,9 +53,9 @@ import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.Transaction;
 
 /**
- * This class represents a write instance of the Sirix-Application
- * implementing the {@link Writer}-interface. It inherits and overrides some
- * reader methods because of the transaction layer.
+ * This class represents a write instance of the Sirix-Application implementing
+ * the {@link Writer}-interface. It inherits and overrides some reader methods
+ * because of the transaction layer.
  * 
  * @author Sebastian Graf, University of Konstanz
  * 
@@ -73,7 +73,7 @@ public final class BerkeleyWriter implements Writer {
 
 	/** Key of nodepage. */
 	private long mNodepagekey;
-	
+
 	private PageBinding mPageBinding;
 
 	/**
@@ -87,9 +87,8 @@ public final class BerkeleyWriter implements Writer {
 	 * @throws SirixIOException
 	 *           if something odd happens@Nonnull
 	 */
-	public BerkeleyWriter(final Environment env,
-			final Database database, final ByteHandlePipeline byteHandler)
-			throws SirixIOException {
+	public BerkeleyWriter(final Environment env, final Database database,
+			final ByteHandlePipeline byteHandler) throws SirixIOException {
 		try {
 			mTxn = env.beginTransaction(null, null);
 			mDatabase = checkNotNull(database);
@@ -113,8 +112,7 @@ public final class BerkeleyWriter implements Writer {
 	}
 
 	@Override
-	public void write(final PageReference pageReference)
-			throws SirixIOException {
+	public void write(final PageReference pageReference) throws SirixIOException {
 		final Page page = pageReference.getPage();
 
 		final DatabaseEntry valueEntry = new DatabaseEntry();
@@ -134,7 +132,7 @@ public final class BerkeleyWriter implements Writer {
 		}
 
 		pageReference.setKey(mNodepagekey);
-//		return mNodepagekey;
+		// return mNodepagekey;
 	}
 
 	/**
@@ -205,15 +203,13 @@ public final class BerkeleyWriter implements Writer {
 	}
 
 	@Override
-	public Page read(final long key,
-			final PageReadTrx pageReadTrx)
+	public Page read(final long key, final PageReadTrx pageReadTrx)
 			throws SirixIOException {
 		return mReader.read(key, pageReadTrx);
 	}
 
 	@Override
-	public PageReference readUberPageReference()
-			throws SirixIOException {
+	public PageReference readUberPageReference() throws SirixIOException {
 		return mReader.readUberPageReference();
 	}
 

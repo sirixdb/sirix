@@ -139,8 +139,8 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 	private final Semaphore mLock;
 
 	/**
-	 * {@link CountDownLatch} to wait until {@link List} of {@link DiffType}s has been
-	 * created.
+	 * {@link CountDownLatch} to wait until {@link List} of {@link DiffType}s has
+	 * been created.
 	 */
 	private final CountDownLatch mStart;
 
@@ -670,8 +670,7 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 		LOGWRAPPER.debug("next Depth: " + nextDepth);
 		LOGWRAPPER.debug("angle: " + angle);
 
-		if (mPrune == Pruning.ITEMSIZE
-				&& extension < TraverseModel.ANGLE_TO_PRUNE
+		if (mPrune == Pruning.ITEMSIZE && extension < TraverseModel.ANGLE_TO_PRUNE
 				&& modificationCount <= descendantCount) {
 			nodePruned();
 		} else {
@@ -861,8 +860,8 @@ public final class TraverseCompareTree extends AbstractTraverseModel implements
 			final int rootDepth = (diff.getDiff() == DiffType.DELETED
 					|| diff.getDiff() == DiffType.MOVEDFROM || diff.getDiff() == DiffType.REPLACEDOLD) ? diff
 					.getDepth().getOldDepth() : diff.getDepth().getNewDepth();
-			final boolean subtract = (diff.getDiff() != DiffType.SAME && diff.getDiff() != DiffType.SAMEHASH) ? true
-					: false;
+			final boolean subtract = (diff.getDiff() != DiffType.SAME && diff
+					.getDiff() != DiffType.SAMEHASH) ? true : false;
 			boolean first = true;
 			if (diffs.size() == 1) {
 				final Future<Modification> modifications = SAME_THREAD_EXECUTOR

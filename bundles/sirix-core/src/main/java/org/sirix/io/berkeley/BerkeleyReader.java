@@ -70,7 +70,7 @@ public final class BerkeleyReader implements Reader {
 
 	/** {@link PageBinding} reference. */
 	private PageBinding mPageBinding;
-	
+
 	/** {@link ByteHandlePipeline} reference. */
 	private final ByteHandlePipeline mByteHandler;
 
@@ -87,8 +87,8 @@ public final class BerkeleyReader implements Reader {
 	 *           if {@code pDatabase}, {@code pTxn} or {@code pBinding} is
 	 *           {@code null}
 	 */
-	public BerkeleyReader(final Database database,
-			final Transaction trx, final ByteHandlePipeline byteHandler) {
+	public BerkeleyReader(final Database database, final Transaction trx,
+			final ByteHandlePipeline byteHandler) {
 		mTxn = checkNotNull(trx);
 		mDatabase = checkNotNull(database);
 		mByteHandler = byteHandler;
@@ -113,7 +113,8 @@ public final class BerkeleyReader implements Reader {
 	}
 
 	@Override
-	public Page read(final long key, final PageReadTrx pageReadTrx) throws SirixIOException {
+	public Page read(final long key, final PageReadTrx pageReadTrx)
+			throws SirixIOException {
 		mPageBinding = new PageBinding(mByteHandler, pageReadTrx);
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();

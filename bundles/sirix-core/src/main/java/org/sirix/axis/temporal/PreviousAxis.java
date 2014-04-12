@@ -10,7 +10,8 @@ import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 /**
- * Open the previous revision and try to move to the node with the given node key.
+ * Open the previous revision and try to move to the node with the given node
+ * key.
  * 
  * @author Johannes Lichtenberger
  * 
@@ -22,7 +23,7 @@ public final class PreviousAxis extends AbstractTemporalAxis {
 
 	/** Determines if it's the first call. */
 	private boolean mFirst;
-	
+
 	/** The revision number. */
 	private int mRevision;
 

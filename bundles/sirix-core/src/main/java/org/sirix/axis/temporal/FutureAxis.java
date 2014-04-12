@@ -54,14 +54,13 @@ public final class FutureAxis extends AbstractTemporalAxis {
 	 * @param rtx
 	 *          Sirix {@link NodeReadTrx}
 	 * @param includeSelf
-	 * 					determines if current revision must be included or not
+	 *          determines if current revision must be included or not
 	 */
-	public FutureAxis(final NodeReadTrx rtx,
-			final IncludeSelf includeSelf) {
+	public FutureAxis(final NodeReadTrx rtx, final IncludeSelf includeSelf) {
 		mSession = checkNotNull(rtx.getSession());
 		mNodeKey = rtx.getNodeKey();
-		mRevision = checkNotNull(includeSelf) == IncludeSelf.YES ? rtx.getRevisionNumber()
-				: rtx.getRevisionNumber() + 1;
+		mRevision = checkNotNull(includeSelf) == IncludeSelf.YES ? rtx
+				.getRevisionNumber() : rtx.getRevisionNumber() + 1;
 	}
 
 	@Override

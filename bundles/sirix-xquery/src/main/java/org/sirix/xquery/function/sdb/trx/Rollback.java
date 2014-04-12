@@ -36,17 +36,17 @@ public final class Rollback extends AbstractFunction {
 	 * Constructor.
 	 * 
 	 * @param name
-	 *            the name of the function
+	 *          the name of the function
 	 * @param signature
-	 *            the signature of the function
+	 *          the signature of the function
 	 */
 	public Rollback(QNm name, Signature signature) {
 		super(name, signature, true);
 	}
 
 	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx,
-			Sequence[] args) throws QueryException {
+	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+			throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 
 		if (doc.getTrx() instanceof NodeWriteTrx) {

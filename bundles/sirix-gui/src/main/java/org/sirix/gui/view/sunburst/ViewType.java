@@ -10,41 +10,41 @@ package org.sirix.gui.view.sunburst;
  * 
  */
 public enum ViewType {
-  /** Normal diff view. */
-  DIFF(false),
+	/** Normal diff view. */
+	DIFF(false),
 
-  /** View without showing differences. */
-  NODIFF(false);
+	/** View without showing differences. */
+	NODIFF(false);
 
-  /** Determines if for the diff view the */
-  private transient boolean mValue;
+	/** Determines if for the diff view the */
+	private transient boolean mValue;
 
-  /**
-   * Initialization.
-   * 
-   * @param pValue
-   *          value
-   */
-  ViewType(final boolean pValue) {
-    mValue = pValue;
-  }
+	/**
+	 * Initialization.
+	 * 
+	 * @param pValue
+	 *          value
+	 */
+	ViewType(final boolean pValue) {
+		mValue = pValue;
+	}
 
-  /**
-   * Get value.
-   * 
-   * @return value
-   */
-  public boolean getValue() {
-    return mValue;
-  }
+	/**
+	 * Get value.
+	 * 
+	 * @return value
+	 */
+	public boolean getValue() {
+		return mValue;
+	}
 
-  /**
-   * Set value.
-   * 
-   * @param paramValue
-   *          value to set
-   */
-  public void setValue(final boolean paramValue) {
-    mValue = paramValue;
-  }
+	/**
+	 * Set value.
+	 * 
+	 * @param paramValue
+	 *          value to set
+	 */
+	public void setValue(final boolean paramValue) {
+		mValue = paramValue;
+	}
 }

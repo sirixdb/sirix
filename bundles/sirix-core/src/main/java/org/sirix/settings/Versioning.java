@@ -287,13 +287,15 @@ public enum Versioning {
 				final PageReadTrx pageReadTrx, final PageReference reference) {
 			final T firstPage = pages.get(0);
 			final long recordPageKey = firstPage.getPageKey();
-//			final int revision = pageReadTrx.getUberPage().getRevision();
+			// final int revision = pageReadTrx.getUberPage().getRevision();
 			final List<T> returnVal = new ArrayList<>(2);
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
-			final boolean isFullDump = pages.size() == revToRestore;//(revision + 1) % revToRestore == 0;
+			final boolean isFullDump = pages.size() == revToRestore;// (revision + 1)
+																															// % revToRestore
+																															// == 0;
 
 			boolean filledPage = false;
 			for (final T page : pages) {
@@ -344,19 +346,19 @@ public enum Versioning {
 			return new RecordPageContainer<>(returnVal.get(0), returnVal.get(1));
 		}
 
-//		@Override
-//		public int[] getRevisionRoots(final @Nonnegative int previousRevision,
-//				final @Nonnegative int revsToRestore) {
-//			final int revisionsToRestore = previousRevision % revsToRestore;
-//			final int lastFullDump = previousRevision - revisionsToRestore;
-//			final int[] retVal = new int[lastFullDump == previousRevision ? 1
-//					: revisionsToRestore + 1];
-//			for (int i = previousRevision, j = 0; i >= lastFullDump; j++, i--) {
-//				retVal[j] = i;
-//			}
-//			return retVal;
-//		}
-		
+		// @Override
+		// public int[] getRevisionRoots(final @Nonnegative int previousRevision,
+		// final @Nonnegative int revsToRestore) {
+		// final int revisionsToRestore = previousRevision % revsToRestore;
+		// final int lastFullDump = previousRevision - revisionsToRestore;
+		// final int[] retVal = new int[lastFullDump == previousRevision ? 1
+		// : revisionsToRestore + 1];
+		// for (int i = previousRevision, j = 0; i >= lastFullDump; j++, i--) {
+		// retVal[j] = i;
+		// }
+		// return retVal;
+		// }
+
 		@Override
 		public int[] getRevisionRoots(final @Nonnegative int previousRevision,
 				final @Nonnegative int revsToRestore) {
@@ -443,7 +445,7 @@ public enum Versioning {
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
 			returnVal.add(firstPage.<T> newInstance(recordPageKey,
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx));
-			
+
 			final T reconstructed = firstPage.<T> newInstance(recordPageKey,
 					firstPage.getPageKind(), Optional.of(reference), pageReadTrx);
 
@@ -451,9 +453,9 @@ public enum Versioning {
 			for (int i = 0; i < pages.size() && !filledPage; i++) {
 				final T page = pages.get(i);
 				assert page.getPageKey() == recordPageKey;
-				
-				final boolean pageToSerialize = (i == pages.size() - 1
-						&& revToRestore == pages.size());
+
+				final boolean pageToSerialize = (i == pages.size() - 1 && revToRestore == pages
+						.size());
 
 				for (final Entry<K, V> entry : page.entrySet()) {
 					// Caching the complete page.
@@ -462,7 +464,7 @@ public enum Versioning {
 					if (!pageToSerialize) {
 						reconstructed.setEntry(key, entry.getValue());
 					}
-					
+
 					if (returnVal.get(0).getValue(key) == null) {
 						returnVal.get(0).setEntry(key, entry.getValue());
 					}
@@ -481,11 +483,11 @@ public enum Versioning {
 						// Caching the complete page.
 						final K key = entry.getKey();
 						assert key != null;
-						
+
 						if (!pageToSerialize) {
 							reconstructed.setPageReference(key, entry.getValue());
 						}
-						
+
 						if (returnVal.get(0).getPageReference(key) == null) {
 							returnVal.get(0).setPageReference(key, entry.getValue());
 						}

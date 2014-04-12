@@ -50,9 +50,9 @@ public interface Page {
 	 * Serialize a page
 	 *
 	 * @param out
-	 *            {@link DataOutput} to serialize to
+	 *          {@link DataOutput} to serialize to
 	 * @throws IOException
-	 *             if serialization fails
+	 *           if serialization fails
 	 */
 	void serialize(final DataOutput out) throws IOException;
 
@@ -67,9 +67,9 @@ public interface Page {
 	 * Commit page.
 	 *
 	 * @param pageWriteTrx
-	 *            {@link PageWriteTrx} implementation
+	 *          {@link PageWriteTrx} implementation
 	 * @throws SirixException
-	 *             if something went wrong
+	 *           if something went wrong
 	 */
 	<K extends Comparable<? super K>, V extends Record, S extends KeyValuePage<K, V>> void commit(
 			@Nonnull PageWriteTrx<K, V, S> pageWriteTrx) throws SirixException;
@@ -78,7 +78,7 @@ public interface Page {
 	 * Get the {@link PageReference} at the specified offset
 	 *
 	 * @param offset
-	 *            the offset
+	 *          the offset
 	 * @return the {@link PageReference} at the specified offset
 	 */
 	PageReference getReference(@Nonnegative int offset);
@@ -94,7 +94,7 @@ public interface Page {
 	 * Set dirty flag (if page has been modified).
 	 *
 	 * @param dirty
-	 *            dirty or not
+	 *          dirty or not
 	 * @return the page instance
 	 */
 	Page setDirty(boolean dirty);

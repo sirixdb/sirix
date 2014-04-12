@@ -1,7 +1,8 @@
 package org.sirix.node.interfaces.immutable;
 
 /**
- * Immutable structural node (for instance element-, text-, PI-, document-node...).
+ * Immutable structural node (for instance element-, text-, PI-,
+ * document-node...).
  * 
  * @author Johannes Lichtenberger
  *

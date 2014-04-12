@@ -30,8 +30,8 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
  * <h1>InputFormat</h1>
  * 
  * <p>
- * Custom input format, which splits XML files. Key is a date/timestamp, value the according subtree of a
- * matching elemt, which is configurable.
+ * Custom input format, which splits XML files. Key is a date/timestamp, value
+ * the according subtree of a matching elemt, which is configurable.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -39,28 +39,29 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
  */
 public final class XMLInputFormat extends FileInputFormat<DateWritable, Text> {
 
-  static {
-    System.setProperty("javax.xml.parsers.DocumentBuilderFactory",
-      "com.sun.org.apache.xerces.internal.jaxp.DocumentBuilderFactoryImpl");
-  }
+	static {
+		System.setProperty("javax.xml.parsers.DocumentBuilderFactory",
+				"com.sun.org.apache.xerces.internal.jaxp.DocumentBuilderFactoryImpl");
+	}
 
-  /**
-   * Empty constructor.
-   */
-  public XMLInputFormat() {
-    // Default constructor.
-  }
+	/**
+	 * Empty constructor.
+	 */
+	public XMLInputFormat() {
+		// Default constructor.
+	}
 
-  @Override
-  protected boolean isSplitable(final JobContext pContext, final Path pFilename) {
-    return false;
-  }
+	@Override
+	protected boolean isSplitable(final JobContext pContext, final Path pFilename) {
+		return false;
+	}
 
-  @Override
-  public RecordReader<DateWritable, Text> createRecordReader(final InputSplit paramSplit,
-    final TaskAttemptContext paramContext) throws IOException, InterruptedException {
-    final RecordReader<DateWritable, Text> reader = new XMLRecordReader();
-    reader.initialize(paramSplit, paramContext);
-    return reader;
-  }
+	@Override
+	public RecordReader<DateWritable, Text> createRecordReader(
+			final InputSplit paramSplit, final TaskAttemptContext paramContext)
+			throws IOException, InterruptedException {
+		final RecordReader<DateWritable, Text> reader = new XMLRecordReader();
+		reader.initialize(paramSplit, paramContext);
+		return reader;
+	}
 }

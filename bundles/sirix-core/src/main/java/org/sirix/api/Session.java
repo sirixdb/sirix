@@ -160,8 +160,7 @@ public interface Session extends AutoCloseable {
 	 * @return {@link NodeWriteTrx} instance
 	 */
 	NodeWriteTrx beginNodeWriteTrx(final @Nonnegative int maxNodes,
-			final TimeUnit timeUnit, final int maxTime)
-			throws SirixException;
+			final TimeUnit timeUnit, final int maxTime) throws SirixException;
 
 	/**
 	 * Commit all running {@link NodeWriteTrx}s.
@@ -259,7 +258,7 @@ public interface Session extends AutoCloseable {
 	 * @return the {@link IndexController} instance
 	 */
 	IndexController getRtxIndexController(int revision);
-	
+
 	/**
 	 * Get the index controller.
 	 * 

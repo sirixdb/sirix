@@ -41,11 +41,11 @@ public final class FirstAxisTest {
 		holder.close();
 		TestHelper.closeEverything();
 	}
-	
+
 	@Test
 	public void testAxis() throws SirixException {
 		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(1);
-		
+
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(firstRtx), null) {
 			{

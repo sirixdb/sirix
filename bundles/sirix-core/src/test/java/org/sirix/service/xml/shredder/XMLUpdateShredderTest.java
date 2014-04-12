@@ -174,10 +174,10 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 		test(XMLDELETEFOURTH);
 	}
 
-//	@Test
-//	public void testAllFirst() throws Exception {
-//		test(XMLALLFIRST);
-//	}
+	// @Test
+	// public void testAllFirst() throws Exception {
+	// test(XMLALLFIRST);
+	// }
 
 	@Test
 	public void testAllSecond() throws Exception {
@@ -300,7 +300,7 @@ public final class XMLUpdateShredderTest extends XMLTestCase {
 				serializer.call();
 				final StringBuilder sBuilder = TestHelper.readFile(
 						file.getAbsoluteFile(), false);
-				
+
 				final Diff diff = new Diff(sBuilder.toString(), out.toString());
 				final DetailedDiff detDiff = new DetailedDiff(diff);
 				@SuppressWarnings("unchecked")

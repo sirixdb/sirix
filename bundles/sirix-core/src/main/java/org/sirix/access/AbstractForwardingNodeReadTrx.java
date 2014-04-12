@@ -58,7 +58,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public String getNamespaceURI() {
 		return delegate().getNamespaceURI();
 	}
-	
+
 	@Override
 	public PageReadTrx getPageTrx() {
 		return delegate().getPageTrx();
@@ -121,8 +121,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	}
 
 	@Override
-	public Move<? extends NodeReadTrx> moveToAttributeByName(
-			final QNm name) {
+	public Move<? extends NodeReadTrx> moveToAttributeByName(final QNm name) {
 		return delegate().moveToAttributeByName(name);
 	}
 
@@ -165,12 +164,12 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public Move<? extends NodeReadTrx> moveToLastChild() {
 		return delegate().moveToLastChild();
 	}
-	
+
 	@Override
 	public Move<? extends NodeReadTrx> moveToPrevious() {
 		return delegate().moveToPrevious();
 	}
-	
+
 	@Override
 	public Move<? extends NodeReadTrx> moveToNext() {
 		return delegate().moveToNext();
@@ -195,12 +194,12 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public int getNameCount(String name, @Nonnull Kind kind) {
 		return delegate().getNameCount(name, kind);
 	}
-	
+
 	@Override
 	public ImmutableNameNode getNameNode() {
 		return delegate().getNameNode();
 	}
-	
+
 	@Override
 	public ImmutableValueNode getValueNode() {
 		return delegate().getValueNode();
@@ -275,7 +274,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public long getLeftSiblingKey() {
 		return delegate().getLeftSiblingKey();
 	}
-	
+
 	@Override
 	public int getPrefixKey() {
 		return delegate().getPrefixKey();
@@ -330,7 +329,7 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public boolean hasAttributes() {
 		return delegate().hasAttributes();
 	}
-	
+
 	@Override
 	public boolean hasNamespaces() {
 		return delegate().hasNamespaces();
@@ -445,27 +444,27 @@ public abstract class AbstractForwardingNodeReadTrx extends ForwardingObject
 	public boolean isText() {
 		return delegate().isText();
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getDeweyID() {
 		return delegate().getDeweyID();
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getFirstChildDeweyID() {
 		return delegate().getFirstChildDeweyID();
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getLeftSiblingDeweyID() {
 		return delegate().getLeftSiblingDeweyID();
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getParentDeweyID() {
 		return delegate().getParentDeweyID();
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getRightSiblingDeweyID() {
 		return delegate().getRightSiblingDeweyID();

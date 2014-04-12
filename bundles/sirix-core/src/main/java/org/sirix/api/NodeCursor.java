@@ -105,7 +105,7 @@ public interface NodeCursor extends AutoCloseable {
 	 *         {@code NotMoved} instance otherwise
 	 */
 	Move<? extends NodeCursor> moveToPrevious();
-	
+
 	/**
 	 * Move cursor to the next node of the currently selected node in document
 	 * order. Check the postcondition with {@code Moved#hasMoved()} or get the

@@ -56,8 +56,8 @@ public class DeleteFMSEVisitor extends AbstractVisitor {
 	 * @param startKey
 	 *          start key
 	 */
-	public DeleteFMSEVisitor(final NodeWriteTrx wtx,
-			final Matching matching, @Nonnegative final long startKey) {
+	public DeleteFMSEVisitor(final NodeWriteTrx wtx, final Matching matching,
+			@Nonnegative final long startKey) {
 		mWtx = checkNotNull(wtx);
 		mMatching = checkNotNull(matching);
 		checkArgument(startKey >= 0, "start key must be >= 0!");

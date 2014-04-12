@@ -80,9 +80,8 @@ public final class FMSEImport {
 	 * @throws NullPointerException
 	 *           if {@code paramResNewRev} or {@code paramNewRev} is {@code null}
 	 */
-	private void shredder(final File pResNewRev,
-			@Nonnull final File pNewRev) throws SirixException, IOException,
-			XMLStreamException {
+	private void shredder(final File pResNewRev, @Nonnull final File pNewRev)
+			throws SirixException, IOException, XMLStreamException {
 		assert pResNewRev != null;
 		assert pNewRev != null;
 		final DatabaseConfiguration conf = new DatabaseConfiguration(pNewRev);
@@ -111,8 +110,7 @@ public final class FMSEImport {
 	 * @param pResNewRev
 	 *          {@link File} for new revision (XML resource)
 	 */
-	private void dataImport(final File pResOldRev,
-			@Nonnull final File pResNewRev) {
+	private void dataImport(final File pResOldRev, @Nonnull final File pResNewRev) {
 
 		try {
 			final File newRevTarget = new File(new StringBuilder("target")

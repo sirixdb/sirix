@@ -5,7 +5,7 @@ public final class PageConstants {
 	private PageConstants() {
 		throw new AssertionError("May never be instantiated!");
 	}
-	
+
 	// 150 KiB.
 	public static final int MAX_RECORD_SIZE = 150_000;
 

@@ -37,63 +37,65 @@ import org.sirix.gui.view.sunburst.SunburstItem;
 import controlP5.ControlListener;
 
 /**
- * Interface for SunburstControllers which adds specific methods to {@link Control}.
+ * Interface for SunburstControllers which adds specific methods to
+ * {@link Control}.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public interface SunburstControl extends Control, ControlListener, ZoomPanListener {
-  /**
-   * Method to process event for submit-button.
-   * 
-   * @param pValue
-   *          change value
-   * @throws XMLStreamException
-   *           if the XML fragment isn't well formed
-   */
-  void submit(int pValue) throws XMLStreamException;
+public interface SunburstControl extends Control, ControlListener,
+		ZoomPanListener {
+	/**
+	 * Method to process event for submit-button.
+	 * 
+	 * @param pValue
+	 *          change value
+	 * @throws XMLStreamException
+	 *           if the XML fragment isn't well formed
+	 */
+	void submit(int pValue) throws XMLStreamException;
 
-  /**
-   * Method to process event for commit-button.
-   * 
-   * @param pValue
-   *          change value
-   * @throws XMLStreamException
-   *           if the XML fragment isn't well formed
-   */
-  void commit(int pValue) throws XMLStreamException;
+	/**
+	 * Method to process event for commit-button.
+	 * 
+	 * @param pValue
+	 *          change value
+	 * @throws XMLStreamException
+	 *           if the XML fragment isn't well formed
+	 */
+	void commit(int pValue) throws XMLStreamException;
 
-  /**
-   * Method to process event for cancel-button.
-   * 
-   * @param pValue
-   *          change value
-   */
-  void cancel(int pValue);
+	/**
+	 * Method to process event for cancel-button.
+	 * 
+	 * @param pValue
+	 *          change value
+	 */
+	void cancel(int pValue);
 
-  /**
-   * Set items, which usually invokes the same method in the model.
-   * 
-   * @param pItems
-   *          {@link List} of {@link SunburstItems}
-   * @throws NullPointerException
-   *           if {@code pItems} is {@code null}
-   */
-  void setItems(List<SunburstItem> pItems);
+	/**
+	 * Set items, which usually invokes the same method in the model.
+	 * 
+	 * @param pItems
+	 *          {@link List} of {@link SunburstItems}
+	 * @throws NullPointerException
+	 *           if {@code pItems} is {@code null}
+	 */
+	void setItems(List<SunburstItem> pItems);
 
-  /**
-   * Set depth max of outer ring.
-   * 
-   * @param depthMax
-   *          max depth of outer ring
-   */
-  void setNewMaxDepth(int depthMax);
+	/**
+	 * Set depth max of outer ring.
+	 * 
+	 * @param depthMax
+	 *          max depth of outer ring
+	 */
+	void setNewMaxDepth(int depthMax);
 
-  /**
-   * Set depth max of inner ring.
-   * 
-   * @param depthMax
-   *          max depth of inner ring
-   */
-  void setOldMaxDepth(int depthMax);
+	/**
+	 * Set depth max of inner ring.
+	 * 
+	 * @param depthMax
+	 *          max depth of inner ring
+	 */
+	void setOldMaxDepth(int depthMax);
 }

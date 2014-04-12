@@ -52,7 +52,7 @@ public final class CASPage extends AbstractForwardingPage {
 
 	/** {@link PageDelegate} instance. */
 	private final PageDelegate mDelegate;
-	
+
 	/** Maximum node keys. */
 	private final Map<Integer, Long> mMaxNodeKeys;
 
@@ -85,7 +85,7 @@ public final class CASPage extends AbstractForwardingPage {
 		mDelegate = new PageDelegate(PageConstants.MAX_INDEX_NR, in);
 		final int size = in.readInt();
 		mMaxNodeKeys = new HashMap<>(size);
-		for (int i = 0; i < size; i ++) {
+		for (int i = 0; i < size; i++) {
 			mMaxNodeKeys.put(i, in.readLong());
 		}
 	}
@@ -105,7 +105,7 @@ public final class CASPage extends AbstractForwardingPage {
 		mDelegate.setDirty(pDirty);
 		return this;
 	}
-	
+
 	/**
 	 * Initialize CAS index tree.
 	 * 
@@ -127,17 +127,17 @@ public final class CASPage extends AbstractForwardingPage {
 			}
 		}
 	}
-	
+
 	@Override
 	public void serialize(final DataOutput out) throws IOException {
 		super.serialize(out);
 		final int size = mMaxNodeKeys.size();
 		out.writeInt(size);
-		for (int i = 0; i < size; i ++) {
+		for (int i = 0; i < size; i++) {
 			out.writeLong(mMaxNodeKeys.get(i));
 		}
 	}
-	
+
 	/**
 	 * Get the maximum node key of the specified index by its index number.
 	 * 
@@ -148,7 +148,7 @@ public final class CASPage extends AbstractForwardingPage {
 	public long getMaxNodeKey(final int indexNo) {
 		return mMaxNodeKeys.get(indexNo);
 	}
-	
+
 	public long incrementAndGetMaxNodeKey(final int indexNo) {
 		final long newMaxNodeKey = mMaxNodeKeys.get(indexNo).longValue() + 1;
 		mMaxNodeKeys.put(indexNo, newMaxNodeKey);

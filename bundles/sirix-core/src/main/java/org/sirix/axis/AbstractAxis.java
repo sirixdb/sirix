@@ -111,8 +111,7 @@ public abstract class AbstractAxis implements Axis {
 	 * @throws NullPointerException
 	 *           if {@code rtx} or {@code includeSelf} is {@code null}
 	 */
-	public AbstractAxis(final NodeReadTrx rtx,
-			final IncludeSelf includeSelf) {
+	public AbstractAxis(final NodeReadTrx rtx, final IncludeSelf includeSelf) {
 		mRtx = checkNotNull(rtx);
 		mIncludeSelf = checkNotNull(includeSelf);
 		reset(rtx.getNodeKey());
@@ -348,7 +347,7 @@ public abstract class AbstractAxis implements Axis {
 			return retVal;
 		}
 	}
-	
+
 	@Override
 	public String toString() {
 		return Objects.toStringHelper(this).add("trx", mRtx).toString();

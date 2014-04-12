@@ -130,7 +130,7 @@ import com.google.common.base.Optional;
 public interface NodeReadTrx extends NodeCursor {
 
 	PageReadTrx getPageTrx();
-	
+
 	/** String constants used by XPath. */
 	String[] XPATHCONSTANTS = { "xs:anyType", "xs:anySimpleType",
 			"xs:anyAtomicType", "xs:untypedAtomic", "xs:untyped", "xs:string",

@@ -124,29 +124,29 @@ public final class GUI extends JFrame {
 			@Override
 			public void windowOpened(WindowEvent e) {
 			}
-			
+
 			@Override
 			public void windowIconified(WindowEvent e) {
 			}
-			
+
 			@Override
 			public void windowDeiconified(WindowEvent e) {
 			}
-			
+
 			@Override
 			public void windowDeactivated(WindowEvent e) {
 			}
-			
+
 			@Override
 			public void windowClosing(WindowEvent e) {
 				dispose();
 			}
-			
+
 			@Override
 			public void windowClosed(final WindowEvent e) {
 				dispose();
 			}
-			
+
 			@Override
 			public void windowActivated(WindowEvent e) {
 			}
@@ -219,8 +219,7 @@ public final class GUI extends JFrame {
 	 * @param pRevision
 	 *          determines the revision to open
 	 */
-	public void execute(final File pFile,
-			final @Nonnegative int pRevision) {
+	public void execute(final File pFile, final @Nonnegative int pRevision) {
 		if (mReadDB == null
 				|| !pFile.equals(mReadDB.getDatabase().getDatabaseConfig().getFile())
 				|| pRevision != mReadDB.getRevisionNumber()) {

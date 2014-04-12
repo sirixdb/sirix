@@ -27,13 +27,13 @@ import com.google.common.collect.ImmutableSet;
 
 /**
  * Function for creating name indexes on stored documents, optionally restricted
- * to a set of included {@code QNm}s. If successful, this function returns statistics about the
- * newly created index as an XML fragment. Supported signatures are:</br>
+ * to a set of included {@code QNm}s. If successful, this function returns
+ * statistics about the newly created index as an XML fragment. Supported
+ * signatures are:</br>
  * <ul>
  * <li>
  * <code>sdb:create-path-index($doc as node(), $include as xs:QName*) as 
- * node()</code>
- * </li>
+ * node()</code></li>
  * <li>
  * <code>sdb:create-path-index($doc as node()) as node()</code></li>
  * </ul>
@@ -95,8 +95,8 @@ public final class CreateNameIndex extends AbstractFunction {
 			}
 		}
 
-		final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(include, controller
-				.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
+		final IndexDef idxDef = IndexDefs.createSelectiveNameIdxDef(include,
+				controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME));
 		try {
 			controller.createIndexes(ImmutableSet.of(idxDef),
 					(NodeWriteTrx) doc.getTrx());

@@ -23,7 +23,7 @@ import com.google.common.collect.testing.IteratorTester;
  *
  */
 public final class PastAxisTest {
-	
+
 	/** Number of iterations. */
 	private static final int ITERATIONS = 5;
 
@@ -42,13 +42,13 @@ public final class PastAxisTest {
 		holder.close();
 		TestHelper.closeEverything();
 	}
-	
+
 	@Test
 	public void testPastOrSelfAxis() throws SirixException {
 		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(1);
 		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx(2);
 		final NodeReadTrx thirdRtx = holder.getRtx();
-		
+
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(thirdRtx, secondRtx, firstRtx), null) {
 			{
@@ -61,13 +61,13 @@ public final class PastAxisTest {
 			}
 		}.test();
 	}
-	
+
 	@Test
 	public void testPastAxis() throws SirixException {
 		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(1);
 		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx(2);
 		final NodeReadTrx thirdRtx = holder.getRtx();
-		
+
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
 				ImmutableList.of(secondRtx, firstRtx), null) {
 			{
@@ -80,5 +80,5 @@ public final class PastAxisTest {
 			}
 		}.test();
 	}
-	
+
 }

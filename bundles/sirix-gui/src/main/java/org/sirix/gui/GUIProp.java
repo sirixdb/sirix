@@ -38,77 +38,77 @@ package org.sirix.gui;
  * 
  */
 public final class GUIProp {
-  /** Show views enum. */
-  public enum EShowViews {
-    /** Show tree view. */
-    SHOWTREE(false),
+	/** Show views enum. */
+	public enum EShowViews {
+		/** Show tree view. */
+		SHOWTREE(false),
 
-    /** Show text view. */
-    SHOWTEXT(false),
+		/** Show text view. */
+		SHOWTEXT(false),
 
-    /** Show small multiples view. */
-    SHOWSMALLMULTIPLES(false),
+		/** Show small multiples view. */
+		SHOWSMALLMULTIPLES(false),
 
-    /** Show sunburst view. */
-    SHOWSUNBURST(true);
+		/** Show sunburst view. */
+		SHOWSUNBURST(true);
 
-    /** Determines if view should be shown. */
-    private boolean mShow;
+		/** Determines if view should be shown. */
+		private boolean mShow;
 
-    /**
-     * Constructor.
-     * 
-     * @param paramShow
-     *          determines if view should be shown
-     */
-    EShowViews(final boolean paramShow) {
-      mShow = paramShow;
-    }
+		/**
+		 * Constructor.
+		 * 
+		 * @param paramShow
+		 *          determines if view should be shown
+		 */
+		EShowViews(final boolean paramShow) {
+			mShow = paramShow;
+		}
 
-    /**
-     * Invert show value.
-     */
-    public void invert() {
-      mShow = !mShow;
-    }
+		/**
+		 * Invert show value.
+		 */
+		public void invert() {
+			mShow = !mShow;
+		}
 
-    /**
-     * Get show value.
-     * 
-     * @return the show value.
-     */
-    public boolean getValue() {
-      return mShow;
-    }
-  }
+		/**
+		 * Get show value.
+		 * 
+		 * @return the show value.
+		 */
+		public boolean getValue() {
+			return mShow;
+		}
+	}
 
-  /** Indent spaces. */
-  private transient int mIndentSpaces = 2;
+	/** Indent spaces. */
+	private transient int mIndentSpaces = 2;
 
-  /**
-   * Default constructor.
-   */
-  public GUIProp() {
-  }
+	/**
+	 * Default constructor.
+	 */
+	public GUIProp() {
+	}
 
-  // ACCESSORS ==============================================
+	// ACCESSORS ==============================================
 
-  /**
-   * Set how many spaces should be used per level to indent.
-   * 
-   * @param paramIndentSpaces
-   *          spaces to indent
-   */
-  public void setIndentSpaces(final int paramIndentSpaces) {
-    mIndentSpaces = paramIndentSpaces;
-  }
+	/**
+	 * Set how many spaces should be used per level to indent.
+	 * 
+	 * @param paramIndentSpaces
+	 *          spaces to indent
+	 */
+	public void setIndentSpaces(final int paramIndentSpaces) {
+		mIndentSpaces = paramIndentSpaces;
+	}
 
-  /**
-   * Get spaces to indent.
-   * 
-   * @return spaces to indent
-   */
-  public int getIndentSpaces() {
-    return mIndentSpaces;
-  }
+	/**
+	 * Get spaces to indent.
+	 * 
+	 * @return spaces to indent
+	 */
+	public int getIndentSpaces() {
+		return mIndentSpaces;
+	}
 }

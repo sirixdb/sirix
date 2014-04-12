@@ -39,8 +39,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	 * @throws NullPointerException
 	 *           if {@code pWtx} is {@code null}
 	 */
-	public AbstractShredder(final NodeWriteTrx wtx,
-			final Insert insertLocation) {
+	public AbstractShredder(final NodeWriteTrx wtx, final Insert insertLocation) {
 		mWtx = checkNotNull(wtx);
 		mInsertLocation = checkNotNull(insertLocation);
 		mParents = new ArrayDeque<>();
@@ -48,8 +47,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	}
 
 	@Override
-	public void processComment(final String commentValue)
-			throws SirixException {
+	public void processComment(final String commentValue) throws SirixException {
 		final String value = checkNotNull(commentValue);
 		long key;
 		if (!value.isEmpty()) {
@@ -83,8 +81,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	}
 
 	@Override
-	public void processText(final String textValue)
-			throws SirixException {
+	public void processText(final String textValue) throws SirixException {
 		final String text = checkNotNull(textValue);
 		long key;
 		if (!text.isEmpty()) {
@@ -100,8 +97,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	}
 
 	@Override
-	public void processStartTag(final QNm elementName)
-			throws SirixException {
+	public void processStartTag(final QNm elementName) throws SirixException {
 		final QNm name = checkNotNull(elementName);
 		long key = -1;
 		switch (mInsertLocation) {
@@ -146,8 +142,7 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
 	}
 
 	@Override
-	public void processEmptyElement(final QNm elementName)
-			throws SirixException {
+	public void processEmptyElement(final QNm elementName) throws SirixException {
 		processStartTag(elementName);
 		processEndTag(elementName);
 	}

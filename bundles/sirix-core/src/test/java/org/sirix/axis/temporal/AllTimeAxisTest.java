@@ -41,15 +41,15 @@ public final class AllTimeAxisTest {
 		holder.close();
 		TestHelper.closeEverything();
 	}
-	
+
 	@Test
 	public void testAxis() throws SirixException {
 		final NodeReadTrx firstRtx = holder.getSession().beginNodeReadTrx(1);
 		final NodeReadTrx secondRtx = holder.getSession().beginNodeReadTrx(2);
 		final NodeReadTrx thirdRtx = holder.getRtx();
-		
+
 		new IteratorTester<NodeReadTrx>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-				ImmutableList.of(firstRtx,secondRtx, thirdRtx), null) {
+				ImmutableList.of(firstRtx, secondRtx, thirdRtx), null) {
 			{
 				ignoreSunJavaBug6529795();
 			}

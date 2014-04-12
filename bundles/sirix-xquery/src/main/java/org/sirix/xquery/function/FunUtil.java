@@ -49,8 +49,8 @@ public class FunUtil {
 		if (params[pos] == null) {
 			if (required) {
 				throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
-						"Invalid integer parameter %s. Expected %s",
-						parameterName, Arrays.toString(allowedValues));
+						"Invalid integer parameter %s. Expected %s", parameterName,
+						Arrays.toString(allowedValues));
 			}
 
 			return defaultValue;

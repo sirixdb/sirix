@@ -37,7 +37,6 @@ import org.sirix.TestHelper;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * <h1>TestXSLTTransformation</h1>
  * 
@@ -50,52 +49,55 @@ import org.slf4j.LoggerFactory;
  */
 public final class TestXSLTTransformation extends TestCase {
 
-  /**
-   * Log wrapper for better output.
-   */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLReduce.class));
+	/**
+	 * Log wrapper for better output.
+	 */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(XMLReduce.class));
 
-  /** Input XML file. */
-  private static final String INPUT = "src" + File.separator + "test" + File.separator + "resources"
-    + File.separator + "testXSLTInput.xml";
+	/** Input XML file. */
+	private static final String INPUT = "src" + File.separator + "test"
+			+ File.separator + "resources" + File.separator + "testXSLTInput.xml";
 
-  /** Path to stylesheet for XSLT transformation. */
-  private static final String STYLESHEET = "src" + File.separator + "main" + File.separator + "resources"
-    + File.separator + "wikipedia.xsl";
+	/** Path to stylesheet for XSLT transformation. */
+	private static final String STYLESHEET = "src" + File.separator + "main"
+			+ File.separator + "resources" + File.separator + "wikipedia.xsl";
 
-  /** Path to output for XSLT transformation. */
-  private static final String EXPECTED = "src" + File.separator + "test" + File.separator + "resources"
-    + File.separator + "testXSLTOutput.xml";
+	/** Path to output for XSLT transformation. */
+	private static final String EXPECTED = "src" + File.separator + "test"
+			+ File.separator + "resources" + File.separator + "testXSLTOutput.xml";
 
-  /** Default Constructor. */
-  public TestXSLTTransformation() {
-    // To make Checkstyle happy.
-  }
+	/** Default Constructor. */
+	public TestXSLTTransformation() {
+		// To make Checkstyle happy.
+	}
 
-  @Override
-  @Before
-  public void setUp() throws Exception {
-    // XMLUnit.setIgnoreWhitespace(true);
-  }
+	@Override
+	@Before
+	public void setUp() throws Exception {
+		// XMLUnit.setIgnoreWhitespace(true);
+	}
 
-  @Test
-  public void testTransform() throws Exception {
-    final Processor proc = new Processor(false);
-    final XsltCompiler compiler = proc.newXsltCompiler();
-    try {
-      final XsltExecutable exec = compiler.compile(new StreamSource(new File(STYLESHEET)));
-      final XsltTransformer transform = exec.load();
-      transform.setSource(new StreamSource(new FileInputStream(INPUT)));
-      final Serializer serializer = new Serializer();
-      final OutputStream out = new ByteArrayOutputStream();
-      serializer.setOutputStream(out);
-      transform.setDestination(serializer);
-      transform.transform();
-      final StringBuilder expected = TestHelper.readFile(new File(EXPECTED), false);
-      assertEquals("XML files match", expected.toString(), new StringBuilder("<root>").append(out.toString())
-        .append("</root>").toString());
-    } catch (final SaxonApiException e) {
-      LOGWRAPPER.error(e);
-    }
-  }
+	@Test
+	public void testTransform() throws Exception {
+		final Processor proc = new Processor(false);
+		final XsltCompiler compiler = proc.newXsltCompiler();
+		try {
+			final XsltExecutable exec = compiler.compile(new StreamSource(new File(
+					STYLESHEET)));
+			final XsltTransformer transform = exec.load();
+			transform.setSource(new StreamSource(new FileInputStream(INPUT)));
+			final Serializer serializer = new Serializer();
+			final OutputStream out = new ByteArrayOutputStream();
+			serializer.setOutputStream(out);
+			transform.setDestination(serializer);
+			transform.transform();
+			final StringBuilder expected = TestHelper.readFile(new File(EXPECTED),
+					false);
+			assertEquals("XML files match", expected.toString(), new StringBuilder(
+					"<root>").append(out.toString()).append("</root>").toString());
+		} catch (final SaxonApiException e) {
+			LOGWRAPPER.error(e);
+		}
+	}
 }

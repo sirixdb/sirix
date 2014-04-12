@@ -4,6 +4,7 @@ import org.sirix.gui.view.sunburst.SunburstItem;
 
 public interface Function<R> {
 
-  R apply(SunburstItem paramFirst, SunburstItem paramSecond, int paramIndexFirst, int paramIndexSecond);
+	R apply(SunburstItem paramFirst, SunburstItem paramSecond,
+			int paramIndexFirst, int paramIndexSecond);
 
 }

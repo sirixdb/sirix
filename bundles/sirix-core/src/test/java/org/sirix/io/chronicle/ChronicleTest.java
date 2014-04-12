@@ -23,7 +23,7 @@ public class ChronicleTest {
 
 	@Test
 	public void testFirstRef() throws SirixException {
-//		IOTestHelper.testReadWriteFirstRef(resourceConf);
+		// IOTestHelper.testReadWriteFirstRef(resourceConf);
 	}
 
 	@After

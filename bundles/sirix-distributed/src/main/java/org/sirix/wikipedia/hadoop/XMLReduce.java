@@ -35,63 +35,67 @@ import org.apache.hadoop.mapreduce.Reducer;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * <h1>XMLReducer</h1>
  * 
  * <p>
- * After sorting and grouping key's the reducer just emits the results (identity reducer).
+ * After sorting and grouping key's the reducer just emits the results (identity
+ * reducer).
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class XMLReduce extends Reducer<DateWritable, Text, DateWritable, Text> {
+public final class XMLReduce extends
+		Reducer<DateWritable, Text, DateWritable, Text> {
 
-  /**
-   * Log wrapper for better output.
-   */
-  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(XMLReduce.class));
+	/**
+	 * Log wrapper for better output.
+	 */
+	private static final LogWrapper LOGWRAPPER = new LogWrapper(
+			LoggerFactory.getLogger(XMLReduce.class));
 
-  /** Path to stylesheet for XSLT transformation. */
-  private static final String STYLESHEET = "src" + File.separator + "main" + File.separator + "resources"
-    + File.separator + "wikipedia.xsl";
+	/** Path to stylesheet for XSLT transformation. */
+	private static final String STYLESHEET = "src" + File.separator + "main"
+			+ File.separator + "resources" + File.separator + "wikipedia.xsl";
 
-  /**
-   * Empty Constructor.
-   */
-  public XMLReduce() {
-    // To make Checkstyle happy.
-  }
+	/**
+	 * Empty Constructor.
+	 */
+	public XMLReduce() {
+		// To make Checkstyle happy.
+	}
 
-  @Override
-  public void
-    reduce(final DateWritable paramKey, final Iterable<Text> paramValue, final Context paramContext)
-      throws IOException, InterruptedException {
-    final StringBuilder builder = new StringBuilder("<root>");
-    for (final Text event : paramValue) {
-      System.out.println(event.toString());
-      builder.append(event.toString());
-    }
-    builder.append("</root>");
+	@Override
+	public void reduce(final DateWritable paramKey,
+			final Iterable<Text> paramValue, final Context paramContext)
+			throws IOException, InterruptedException {
+		final StringBuilder builder = new StringBuilder("<root>");
+		for (final Text event : paramValue) {
+			System.out.println(event.toString());
+			builder.append(event.toString());
+		}
+		builder.append("</root>");
 
-    // System.out.println(builder.toString());
-    final Processor proc = new Processor(false);
-    final XsltCompiler compiler = proc.newXsltCompiler();
-    try {
-      final XsltExecutable exec = compiler.compile(new StreamSource(new File(STYLESHEET)));
-      final XsltTransformer transform = exec.load();
-      transform.setSource(new StreamSource(new StringReader(builder.toString())));
-      final ByteArrayOutputStream out = new ByteArrayOutputStream();
-      final Serializer serializer = new Serializer();
-      serializer.setOutputStream(out);
-      transform.setDestination(serializer);
-      transform.transform();
-      final String value = out.toString();
-      // System.out.println(value);
-      paramContext.write(null, new Text(value));
-    } catch (final SaxonApiException e) {
-      LOGWRAPPER.error(e);
-    }
-  }
+		// System.out.println(builder.toString());
+		final Processor proc = new Processor(false);
+		final XsltCompiler compiler = proc.newXsltCompiler();
+		try {
+			final XsltExecutable exec = compiler.compile(new StreamSource(new File(
+					STYLESHEET)));
+			final XsltTransformer transform = exec.load();
+			transform
+					.setSource(new StreamSource(new StringReader(builder.toString())));
+			final ByteArrayOutputStream out = new ByteArrayOutputStream();
+			final Serializer serializer = new Serializer();
+			serializer.setOutputStream(out);
+			transform.setDestination(serializer);
+			transform.transform();
+			final String value = out.toString();
+			// System.out.println(value);
+			paramContext.write(null, new Text(value));
+		} catch (final SaxonApiException e) {
+			LOGWRAPPER.error(e);
+		}
+	}
 }

@@ -130,8 +130,7 @@ public final class Levenshtein {
 	 * @throws NullPointerException
 	 *           if {@code pFirst} or {@code pSecond} is {@code null}
 	 */
-	public float getSimilarity(final String pFirst,
-			@Nonnull final String pSecond) {
+	public float getSimilarity(final String pFirst, @Nonnull final String pSecond) {
 		checkNotNull(pFirst);
 		checkNotNull(pSecond);
 		if (pFirst == pSecond || pFirst.equals(pSecond)) {
@@ -187,8 +186,7 @@ public final class Levenshtein {
 	 *          second string to compare
 	 * @return the levenstein distance between given strings
 	 */
-	private float getUnNormalisedSimilarity(final String s,
-			final String t) {
+	private float getUnNormalisedSimilarity(final String s, final String t) {
 		assert s != null;
 		assert t != null;
 		final float[][] d; // matrix

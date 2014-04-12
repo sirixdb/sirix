@@ -74,12 +74,12 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 		mReferences = references;
 		mLevel = level;
 	}
-	
+
 	/**
 	 * Get the path up to the root path node.
 	 * 
 	 * @param reader
-	 * 						 {@link PathSummaryReader} instance
+	 *          {@link PathSummaryReader} instance
 	 * @return path up to the root
 	 */
 	public Path<QNm> getPath(final PathSummaryReader reader) {
@@ -163,7 +163,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	public Kind getKind() {
 		return Kind.PATH;
 	}
-	
+
 	@Override
 	public int getPrefixKey() {
 		return mNameNodeDel.getPrefixKey();
@@ -183,7 +183,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	public void setLocalNameKey(final int nameKey) {
 		mNameNodeDel.setLocalNameKey(nameKey);
 	}
-	
+
 	@Override
 	public void setPrefixKey(final int prefixKey) {
 		mNameNodeDel.setPrefixKey(prefixKey);
@@ -250,7 +250,7 @@ public class PathNode extends AbstractStructForwardingNode implements NameNode {
 	public long getPathNodeKey() {
 		throw new UnsupportedOperationException();
 	}
-	
+
 	@Override
 	public QNm getName() {
 		// FIXME (should be implemented!)

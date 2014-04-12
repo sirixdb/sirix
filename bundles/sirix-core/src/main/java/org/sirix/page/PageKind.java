@@ -53,20 +53,19 @@ public enum PageKind {
 		}
 
 		@Override
-		void serializePage(final DataOutputStream sink,
-				final Page page) throws IOException {
+		void serializePage(final DataOutputStream sink, final Page page)
+				throws IOException {
 			sink.writeByte(RECORDPAGE.mId);
 			page.serialize(sink);
 		}
 
 		@Override
-		public @Nonnull
-		Page getInstance(final Page nodePage,
+		public @Nonnull Page getInstance(final Page nodePage,
 				final PageReadTrx pageReadTrx) {
 			assert nodePage instanceof UnorderedKeyValuePage;
 			final UnorderedKeyValuePage page = (UnorderedKeyValuePage) nodePage;
-			return new UnorderedKeyValuePage(page.getPageKey(), page.getPageKind(), page.getPreviousReference(), 
-					pageReadTrx);
+			return new UnorderedKeyValuePage(page.getPageKey(), page.getPageKind(),
+					page.getPreviousReference(), pageReadTrx);
 		}
 	},
 
@@ -82,15 +81,14 @@ public enum PageKind {
 		}
 
 		@Override
-		void serializePage(final DataOutputStream sink,
-				final Page page) throws IOException {
+		void serializePage(final DataOutputStream sink, final Page page)
+				throws IOException {
 			sink.writeByte(NAMEPAGE.mId);
 			page.serialize(sink);
 		}
 
 		@Override
-		public @Nonnull
-		Page getInstance(final Page page,
+		public @Nonnull Page getInstance(final Page page,
 				final PageReadTrx pageReadTrx) {
 			return new NamePage();
 		}
@@ -108,15 +106,14 @@ public enum PageKind {
 		}
 
 		@Override
-		void serializePage(final DataOutputStream sink,
-				final Page page) throws IOException {
+		void serializePage(final DataOutputStream sink, final Page page)
+				throws IOException {
 			sink.writeByte(UBERPAGE.mId);
 			page.serialize(sink);
 		}
 
 		@Override
-		public @Nonnull
-		Page getInstance(final Page page,
+		public @Nonnull Page getInstance(final Page page,
 				final PageReadTrx pageReadTrx) {
 			return new UberPage();
 		}
@@ -134,15 +131,14 @@ public enum PageKind {
 		}
 
 		@Override
-		void serializePage(final DataOutputStream sink,
-				final Page page) throws IOException {
+		void serializePage(final DataOutputStream sink, final Page page)
+				throws IOException {
 			sink.writeByte(INDIRECTPAGE.mId);
 			page.serialize(sink);
 		}
 
 		@Override
-		public @Nonnull
-		Page getInstance(final Page page,
+		public @Nonnull Page getInstance(final Page page,
 				final PageReadTrx pageReadTrx) {
 			return new IndirectPage();
 		}
@@ -160,15 +156,14 @@ public enum PageKind {
 		}
 
 		@Override
-		void serializePage(final DataOutputStream sink,
-				final Page page) throws IOException {
+		void serializePage(final DataOutputStream sink, final Page page)
+				throws IOException {
 			sink.writeByte(REVISIONROOTPAGE.mId);
 			page.serialize(sink);
 		}
 
 		@Override
-		public @Nonnull
-		Page getInstance(final Page page,
+		public @Nonnull Page getInstance(final Page page,
 				final PageReadTrx pageReadTrx) {
 			return new RevisionRootPage();
 		}
@@ -186,15 +181,14 @@ public enum PageKind {
 		}
 
 		@Override
-		void serializePage(final DataOutputStream sink,
-				final Page page) throws IOException {
+		void serializePage(final DataOutputStream sink, final Page page)
+				throws IOException {
 			sink.writeByte(PATHSUMMARYPAGE.mId);
 			page.serialize(sink);
 		}
 
 		@Override
-		public @Nonnull
-		Page getInstance(final Page page,
+		public @Nonnull Page getInstance(final Page page,
 				final PageReadTrx pageReadTrx) {
 			return new PathSummaryPage();
 		}
@@ -212,15 +206,14 @@ public enum PageKind {
 		}
 
 		@Override
-		void serializePage(final DataOutputStream sink,
-				final Page page) throws IOException {
+		void serializePage(final DataOutputStream sink, final Page page)
+				throws IOException {
 			sink.writeByte(TEXTVALUEPAGE.mId);
 			page.serialize(sink);
 		}
 
 		@Override
-		public @Nonnull
-		Page getInstance(final Page page,
+		public @Nonnull Page getInstance(final Page page,
 				final PageReadTrx pageReadTrx) {
 			return new PathPage();
 		}
@@ -233,25 +226,24 @@ public enum PageKind {
 		@Override
 		@Nonnull
 		Page deserializePage(final DataInputStream source,
-				final PageReadTrx pageReadTrx) throws IOException{
+				final PageReadTrx pageReadTrx) throws IOException {
 			return new CASPage(source);
 		}
 
 		@Override
-		void serializePage(final DataOutputStream sink,
-				final Page page) throws IOException {
+		void serializePage(final DataOutputStream sink, final Page page)
+				throws IOException {
 			sink.writeByte(CASPAGE.mId);
 			page.serialize(sink);
 		}
 
 		@Override
-		public @Nonnull
-		Page getInstance(final Page page,
+		public @Nonnull Page getInstance(final Page page,
 				final PageReadTrx pageReadTrx) {
 			return new CASPage();
 		}
 	},
-	
+
 	/**
 	 * {@link AttributeValuePage}.
 	 */
@@ -264,26 +256,26 @@ public enum PageKind {
 		}
 
 		@Override
-		void serializePage(final DataOutputStream sink,
-				final Page page) throws IOException {
+		void serializePage(final DataOutputStream sink, final Page page)
+				throws IOException {
 			sink.writeByte(OVERFLOWPAGE.mId);
 			page.serialize(sink);
 		}
 
 		@Override
-		public @Nonnull
-		Page getInstance(final Page page,
+		public @Nonnull Page getInstance(final Page page,
 				final PageReadTrx pageReadTrx) {
 			return new OverflowPage();
 		}
-	}, 
-	
+	},
+
 	/**
 	 * {@link PathPage}.
 	 */
 	PATHPAGE((byte) 10, PathPage.class) {
 		@Override
-		void serializePage(DataOutputStream sink, @Nonnull Page page) throws IOException {
+		void serializePage(DataOutputStream sink, @Nonnull Page page)
+				throws IOException {
 			sink.writeByte(PATHPAGE.mId);
 			page.serialize(sink);
 		}
@@ -295,12 +287,10 @@ public enum PageKind {
 		}
 
 		@Override
-		public @Nonnull
-		Page getInstance(Page page, @Nonnull PageReadTrx pageReadTrx) {
+		public @Nonnull Page getInstance(Page page, @Nonnull PageReadTrx pageReadTrx) {
 			return new PathPage();
 		}
 	};
-
 
 	/** Mapping of keys -> page */
 	private static final Map<Byte, PageKind> INSTANCEFORID = new HashMap<>();
@@ -333,7 +323,7 @@ public enum PageKind {
 		mId = pId;
 		mClass = clazz;
 	}
-	
+
 	/**
 	 * Get the unique page ID.
 	 * 
@@ -351,8 +341,8 @@ public enum PageKind {
 	 * @param page
 	 *          {@link Page} implementation
 	 */
-	abstract void serializePage(final DataOutputStream sink,
-			final Page page) throws IOException;
+	abstract void serializePage(final DataOutputStream sink, final Page page)
+			throws IOException;
 
 	/**
 	 * Deserialize page.
@@ -388,8 +378,7 @@ public enum PageKind {
 	 *          the class for the page
 	 * @return the related page
 	 */
-	public static @Nonnull
-	PageKind getKind(final Class<? extends Page> clazz) {
+	public static @Nonnull PageKind getKind(final Class<? extends Page> clazz) {
 		final PageKind page = INSTANCEFORCLASS.get(clazz);
 		if (page == null) {
 			throw new IllegalStateException();
@@ -406,7 +395,6 @@ public enum PageKind {
 	 *          instance of class which implements {@link PageReadTrx}
 	 * @return new page instance
 	 */
-	public abstract @Nonnull
-	Page getInstance(final Page page,
+	public abstract @Nonnull Page getInstance(final Page page,
 			final PageReadTrx pageReadTrx);
 }

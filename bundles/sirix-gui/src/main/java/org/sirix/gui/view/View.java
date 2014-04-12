@@ -42,53 +42,53 @@ import com.google.common.base.Optional;
  * 
  */
 public interface View {
-  /**
-   * Get name of the view.
-   * 
-   * @return name of the view
-   */
-  String name();
+	/**
+	 * Get name of the view.
+	 * 
+	 * @return name of the view
+	 */
+	String name();
 
-  /**
-   * Called when the data reference has changed.
-   */
-  void refreshInit();
+	/**
+	 * Called when the data reference has changed.
+	 */
+	void refreshInit();
 
-  /**
-   * Called when updates have been done regarding the data structure.
-   * 
-   * @param pAxis
-   *          optional diff axis
-   */
-  void refreshUpdate(final Optional<VisualItemAxis> pAxis);
+	/**
+	 * Called when updates have been done regarding the data structure.
+	 * 
+	 * @param pAxis
+	 *          optional diff axis
+	 */
+	void refreshUpdate(final Optional<VisualItemAxis> pAxis);
 
-  /**
-   * {@link VisualItem} is hovered.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} instance
-   */
-  void hover(final VisualItem paramItem);
+	/**
+	 * {@link VisualItem} is hovered.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} instance
+	 */
+	void hover(final VisualItem paramItem);
 
-  /**
-   * Returns if this view is currently visible.
-   * 
-   * @return result of check
-   */
-  boolean isVisible();
+	/**
+	 * Returns if this view is currently visible.
+	 * 
+	 * @return result of check
+	 */
+	boolean isVisible();
 
-  /**
-   * Called when frame is going to dispose.
-   */
-  void dispose();
+	/**
+	 * Called when frame is going to dispose.
+	 */
+	void dispose();
 
-  /**
-   * Get the component.
-   * 
-   * @return the component
-   */
-  JComponent component();
+	/**
+	 * Get the component.
+	 * 
+	 * @return the component
+	 */
+	JComponent component();
 
-  /** Resize view. */
-  void resize();
+	/** Resize view. */
+	void resize();
 }

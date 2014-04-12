@@ -61,8 +61,7 @@ public class VariableAxis extends AbstractAxis {
 	 * @param pInSeq
 	 *          sequence, the variable is bound to
 	 */
-	public VariableAxis(final NodeReadTrx pRtx,
-			@Nonnull final Axis pInSeq) {
+	public VariableAxis(final NodeReadTrx pRtx, @Nonnull final Axis pInSeq) {
 		super(pRtx);
 		mBindingSeq = checkNotNull(pInSeq);
 		mVarRefs = new ArrayList<VarRefExpr>();

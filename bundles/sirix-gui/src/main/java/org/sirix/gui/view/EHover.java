@@ -33,8 +33,8 @@ package org.sirix.gui.view;
  * 
  */
 public enum EHover {
-  /** Yes, it's hovered. */
-  TRUE,
-  /** No, it's not hovered. */
-  FALSE;
+	/** Yes, it's hovered. */
+	TRUE,
+	/** No, it's not hovered. */
+	FALSE;
 }

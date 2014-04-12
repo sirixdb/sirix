@@ -94,9 +94,8 @@ public abstract class AbstractSerializer implements Callable<Void> {
 	 * @param revisions
 	 *          revisions to serialize
 	 */
-	public AbstractSerializer(final Session session,
-			final @Nonnegative long key, final @Nonnegative int revision,
-			final int... revisions) {
+	public AbstractSerializer(final Session session, final @Nonnegative long key,
+			final @Nonnegative int revision, final int... revisions) {
 		mStack = new ArrayDeque<>();
 		mRevisions = revisions == null ? new int[1] : new int[revisions.length + 1];
 		initialize(revision, revisions);

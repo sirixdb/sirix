@@ -49,8 +49,7 @@ public final class AVLNode<K extends Comparable<? super K>, V> extends
 	 * @param pParent
 	 *          id of the parent node
 	 */
-	public AVLNode(final K key, final V value,
-			final NodeDelegate delegate) {
+	public AVLNode(final K key, final V value, final NodeDelegate delegate) {
 		mKey = checkNotNull(key);
 		mValue = checkNotNull(value);
 		mNodeDelegate = checkNotNull(delegate);

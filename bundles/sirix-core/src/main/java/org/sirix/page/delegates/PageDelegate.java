@@ -189,16 +189,16 @@ public class PageDelegate implements Page {
 		mIsDirty = isDirty;
 		return this;
 	}
-	
-//	@Override
-//	public boolean isFullDump() {
-//		return mIsFullDump;
-//	}
-//
-//	@Override
-//	public Page setFullDump(final boolean isFullDump) {
-//		mIsFullDump = isFullDump;
-//		return this;
-//	}
+
+	// @Override
+	// public boolean isFullDump() {
+	// return mIsFullDump;
+	// }
+	//
+	// @Override
+	// public Page setFullDump(final boolean isFullDump) {
+	// mIsFullDump = isFullDump;
+	// return this;
+	// }
 
 }

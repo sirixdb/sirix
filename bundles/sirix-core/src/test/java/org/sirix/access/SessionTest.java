@@ -132,7 +132,8 @@ public class SessionTest {
 		wtx.commit();
 		wtx.close();
 
-		rtx = holder.getSession().beginNodeReadTrx(Constants.UBP_ROOT_REVISION_NUMBER);
+		rtx = holder.getSession().beginNodeReadTrx(
+				Constants.UBP_ROOT_REVISION_NUMBER);
 
 		assertEquals(Constants.UBP_ROOT_REVISION_NUMBER, rtx.getRevisionNumber());
 		rtx.close();

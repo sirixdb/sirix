@@ -62,8 +62,8 @@ public final class CASIndexListener implements ChangeListener {
 					break;
 				case DELETE:
 					if (mPathSummaryReader.getPCRsForPaths(mPaths).contains(pathNodeKey)) {
-						mAVLTreeWriter.remove(new CASValue(new Str(valueNode.getValue()), mType,
-								pathNodeKey), node.getNodeKey());
+						mAVLTreeWriter.remove(new CASValue(new Str(valueNode.getValue()),
+								mType, pathNodeKey), node.getNodeKey());
 					}
 					break;
 				default:
@@ -74,14 +74,16 @@ public final class CASIndexListener implements ChangeListener {
 		}
 	}
 
-	private void insert(final ValueNode node, final long pathNodeKey) throws SirixIOException {
+	private void insert(final ValueNode node, final long pathNodeKey)
+			throws SirixIOException {
 		final Str strValue = new Str(node.getValue());
-		
+
 		boolean isOfType = false;
 		try {
 			AtomicUtil.toType(strValue, mType);
 			isOfType = true;
-		} catch (final SirixException e) {}
+		} catch (final SirixException e) {
+		}
 
 		if (isOfType) {
 			final CASValue indexValue = new CASValue(strValue, mType, pathNodeKey);
@@ -90,8 +92,7 @@ public final class CASIndexListener implements ChangeListener {
 			if (textReferences.isPresent()) {
 				setNodeReferences(node, textReferences.get(), indexValue);
 			} else {
-				setNodeReferences(node, new NodeReferences(),
-						indexValue);
+				setNodeReferences(node, new NodeReferences(), indexValue);
 			}
 		}
 	}
@@ -99,6 +100,7 @@ public final class CASIndexListener implements ChangeListener {
 	private void setNodeReferences(final Node node,
 			final NodeReferences references, final CASValue indexValue)
 			throws SirixIOException {
-		mAVLTreeWriter.index(indexValue, references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+		mAVLTreeWriter.index(indexValue, references.addNodeKey(node.getNodeKey()),
+				MoveCursor.NO_MOVE);
 	}
 }

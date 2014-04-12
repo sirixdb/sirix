@@ -133,8 +133,7 @@ public class SubtreeProcessor<E extends Node<E>> {
 	 * @throws DocumentException
 	 *           if anything went wrong
 	 */
-	public void notifyStartElement(final E node)
-			throws DocumentException {
+	public void notifyStartElement(final E node) throws DocumentException {
 		for (SubtreeListener<? super E> listener : mListeners) {
 			listener.startElement(node);
 		}

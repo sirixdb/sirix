@@ -44,7 +44,7 @@ public interface Node extends ImmutableNode {
 
 	@Override
 	public Kind getKind();
-	
+
 	/**
 	 * Set a new DeweyID (may only be necessary during moves.)
 	 * 
@@ -62,8 +62,8 @@ public interface Node extends ImmutableNode {
 	void setTypeKey(int typeKey);
 
 	/**
-	 * Set the actual hash of the structure. The hash of one node should have
-	 * the entire integrity of the related subtree.
+	 * Set the actual hash of the structure. The hash of one node should have the
+	 * entire integrity of the related subtree.
 	 * 
 	 * @param hash
 	 *          hash for this node

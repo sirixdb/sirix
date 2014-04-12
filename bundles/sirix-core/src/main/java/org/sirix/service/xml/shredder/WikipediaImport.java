@@ -259,7 +259,8 @@ public final class WikipediaImport implements Import<StartElement> {
 							final boolean hasFirstChild = mWtx.hasFirstChild();
 							if (hasFirstChild) {
 								moveToLastPage(page);
-								assert mWtx.getName().getLocalName().equals(page.getName().getLocalPart());
+								assert mWtx.getName().getLocalName()
+										.equals(page.getName().getLocalPart());
 							}
 
 							XMLShredder shredder = null;
@@ -416,7 +417,8 @@ public final class WikipediaImport implements Import<StartElement> {
 				assert resCounter == 1;
 
 				// Make sure the transaction is on the page element found.
-				assert mWtx.getName().getLocalName().equals(wikiPage.getName().getLocalPart());
+				assert mWtx.getName().getLocalName()
+						.equals(wikiPage.getName().getLocalPart());
 				key = mWtx.getNodeKey();
 			}
 			mWtx.moveTo(key);

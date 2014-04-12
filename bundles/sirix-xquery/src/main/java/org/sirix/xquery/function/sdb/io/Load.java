@@ -76,17 +76,15 @@ public final class Load extends AbstractFunction {
 	 *          determines if a new collection has to be created or not
 	 */
 	public Load(final QNm name, final boolean createNew) {
-		super(name, createNew ? 
-				new Signature(
-						new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne), 
+		super(name, createNew ? new Signature(new SequenceType(ElementType.ELEMENT,
+				Cardinality.ZeroOrOne), new SequenceType(AtomicType.STR,
+				Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.One),
+				new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
+				: new Signature(new SequenceType(ElementType.ELEMENT,
+						Cardinality.ZeroOrOne), new SequenceType(AtomicType.STR,
+						Cardinality.One),
 						new SequenceType(AtomicType.STR, Cardinality.One),
-						new SequenceType(AtomicType.STR, Cardinality.One),
-						new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany)) : 
-				new Signature(
-						new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-						new SequenceType(AtomicType.STR, Cardinality.One),
-						new SequenceType(AtomicType.STR, Cardinality.One), 
-						new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany), 
+						new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
 						new SequenceType(AtomicType.BOOL, Cardinality.One)), true);
 	}
 
@@ -99,7 +97,8 @@ public final class Load extends AbstractFunction {
 			final Sequence resources = args[2];
 			if (resources == null)
 				throw new QueryException(new QNm("No sequence of resources specified!"));
-			final boolean createNew = args.length == 4 ? args[3].booleanValue() : true;
+			final boolean createNew = args.length == 4 ? args[3].booleanValue()
+					: true;
 			final String resName = FunUtil.getString(args, 1, "resName", "resource",
 					null, createNew ? false : true);
 
@@ -127,7 +126,8 @@ public final class Load extends AbstractFunction {
 			throws DocumentException, IOException {
 		if (resources instanceof Atomic) {
 			final Atomic res = (Atomic) resources;
-			coll.add(resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())));
+			coll.add(resName,
+					new DocumentParser(URIHandler.getInputStream(res.stringValue())));
 		} else {
 			final ParserStream parsers = new ParserStream(resources);
 			try {
@@ -146,7 +146,8 @@ public final class Load extends AbstractFunction {
 			IOException {
 		if (resources instanceof Atomic) {
 			final Atomic res = (Atomic) resources;
-			store.create(collName, Optional.of(resName), new DocumentParser(URIHandler.getInputStream(res.stringValue())));
+			store.create(collName, Optional.of(resName), new DocumentParser(
+					URIHandler.getInputStream(res.stringValue())));
 		} else {
 			store.create(collName, new ParserStream(resources));
 		}

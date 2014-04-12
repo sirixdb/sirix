@@ -56,8 +56,7 @@ public final class PagePersistenter {
 	 * @throws IOException
 	 *           if an exception during deserialization of a page occurs
 	 */
-	public static @Nonnull
-	Page deserializePage(final DataInputStream source,
+	public static @Nonnull Page deserializePage(final DataInputStream source,
 			final PageReadTrx pageReadTrx) throws IOException {
 		return PageKind.getKind(source.readByte()).deserializePage(source,
 				pageReadTrx);
@@ -73,8 +72,8 @@ public final class PagePersistenter {
 	 * @throws IOException
 	 *           if an exception during serialization of a page occurs
 	 */
-	public static void serializePage(final DataOutputStream sink,
-			final Page page) throws IOException {
+	public static void serializePage(final DataOutputStream sink, final Page page)
+			throws IOException {
 		PageKind.getKind(page.getClass()).serializePage(sink, page);
 	}
 }

@@ -30,7 +30,8 @@ final class NameIndexListener implements ChangeListener {
 	private final Set<QNm> mExcludes;
 	private final AVLTreeWriter<QNm, NodeReferences> mAVLTreeWriter;
 
-	public NameIndexListener(final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
+	public NameIndexListener(
+			final PageWriteTrx<Long, Record, UnorderedKeyValuePage> pageWriteTrx,
 			final IndexDef indexDefinition) {
 		mIncludes = checkNotNull(indexDefinition.getIncluded());
 		mExcludes = checkNotNull(indexDefinition.getExcluded());
@@ -72,10 +73,9 @@ final class NameIndexListener implements ChangeListener {
 	}
 
 	private void setNodeReferences(final ImmutableNode node,
-			final NodeReferences references, final QNm name)
-			throws SirixIOException {
-		mAVLTreeWriter.index(name,
-				references.addNodeKey(node.getNodeKey()), MoveCursor.NO_MOVE);
+			final NodeReferences references, final QNm name) throws SirixIOException {
+		mAVLTreeWriter.index(name, references.addNodeKey(node.getNodeKey()),
+				MoveCursor.NO_MOVE);
 	}
 
 }

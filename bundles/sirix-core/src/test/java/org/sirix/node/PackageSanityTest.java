@@ -1,3 +1,3 @@
 package org.sirix.node;
 
-//public final class PackageSanityTests extends AbstractPackageSanityTests {}
+// public final class PackageSanityTests extends AbstractPackageSanityTests {}

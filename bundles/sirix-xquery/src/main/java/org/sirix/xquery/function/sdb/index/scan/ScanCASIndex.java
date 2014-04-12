@@ -62,7 +62,7 @@ public final class ScanCASIndex extends AbstractFunction {
 		final NodeReadTrx rtx = doc.getTrx();
 		final IndexController controller = rtx.getSession().getRtxIndexController(
 				rtx.getRevisionNumber());
-		
+
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "
 					+ ((Str) args[1]).stringValue()));

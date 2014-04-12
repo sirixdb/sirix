@@ -80,8 +80,8 @@ public final class FileReader implements Reader {
 	 * @throws SirixIOException
 	 *           if something bad happens
 	 */
-	public FileReader(final File concreteStorage,
-			final ByteHandler handler) throws SirixIOException {
+	public FileReader(final File concreteStorage, final ByteHandler handler)
+			throws SirixIOException {
 		try {
 			if (!concreteStorage.exists()) {
 				concreteStorage.getParentFile().mkdirs();
@@ -96,8 +96,8 @@ public final class FileReader implements Reader {
 	}
 
 	@Override
-	public Page read(final @Nonnegative long key, final @Nullable PageReadTrx pageReadTrx)
-			throws SirixIOException {
+	public Page read(final @Nonnegative long key,
+			final @Nullable PageReadTrx pageReadTrx) throws SirixIOException {
 		try {
 			// Read page from file.
 			mFile.seek(key);
@@ -106,8 +106,8 @@ public final class FileReader implements Reader {
 			mFile.read(page);
 
 			// Perform byte operations.
-			final DataInputStream input = new DataInputStream(mByteHandler
-					.deserialize(new ByteArrayInputStream(page)));
+			final DataInputStream input = new DataInputStream(
+					mByteHandler.deserialize(new ByteArrayInputStream(page)));
 
 			// Return reader required to instantiate and deserialize page.
 			return PagePersistenter.deserializePage(input, pageReadTrx);

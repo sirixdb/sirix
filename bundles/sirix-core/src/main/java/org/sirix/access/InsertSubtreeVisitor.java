@@ -78,94 +78,94 @@
 //		mFirst = true;
 //	}
 
-	// @Override
-	// public EVisitResult visit(final ElementNode pNode) {
-	// mRtx.moveTo(pNode.getNodeKey());
-	// try {
-	// mInsert.insertNode(mWtx, mRtx);
-	// mInsert = EInsertPos.ASNONSTRUCTURAL;
-	//
-	// for (int i = 0, nspCount = pNode.getNamespaceCount(); i < nspCount; i++) {
-	// mRtx.moveToNamespace(i);
-	// mInsert.insertNode(mWtx, mRtx);
-	// mRtx.moveToParent();
-	// }
-	//
-	// for (int i = 0, attrCount = pNode.getAttributeCount(); i < attrCount; i++)
-	// {
-	// mRtx.moveToAttribute(i);
-	// mInsert.insertNode(mWtx, mRtx);
-	// mRtx.moveToParent();
-	// }
-	//
-	// if (pNode.hasFirstChild()) {
-	// mFirst = false;
-	// mInsert = EInsertPos.ASFIRSTCHILD;
-	// mRtx.moveToFirstChild();
-	// mDepth++;
-	// } else if (!mFirst && pNode.hasRightSibling()) {
-	// mInsert = EInsertPos.ASRIGHTSIBLING;
-	// mRtx.moveToRightSibling();
-	// } else if (!mFirst) {
-	// if (!moveToNextNode()) {
-	// return EVisitResult.TERMINATE;
-	// }
-	// }
-	// } catch (final SirixException e) {
-	// throw new IllegalStateException(e);
-	// }
-	// if (mFirst) {
-	// return EVisitResult.TERMINATE;
-	// }
-	// return mRtx.acceptVisitor(this);
-	// }
-	//
-	// @Override
-	// public EVisitResult visit(final TextNode pNode) {
-	// mRtx.moveTo(pNode.getNodeKey());
-	// try {
-	// mInsert.insertNode(mWtx, mRtx);
-	//
-	// if (!mFirst && mRtx.hasRightSibling()) {
-	// mRtx.moveToRightSibling();
-	// mInsert = EInsertPos.ASRIGHTSIBLING;
-	// } else if (!mFirst) {
-	// if (!moveToNextNode()) {
-	// return EVisitResult.TERMINATE;
-	// }
-	// }
-	// } catch (final SirixException e) {
-	// throw new IllegalStateException(e);
-	// }
-	// if (mFirst) {
-	// return EVisitResult.TERMINATE;
-	// }
-	// return mRtx.acceptVisitor(this);
-	// }
-	//
-	// /** Insert next node in document order/preorder. */
-	// private boolean moveToNextNode() {
-	// boolean retVal = false;
-	// while (!mRtx.hasRightSibling() && mDepth > 0) {
-	// mRtx.moveToParent();
-	// mWtx.moveToParent();
-	// mDepth--;
-	// }
-	//
-	// if (mDepth > 0) {
-	// mInsert = EInsertPos.ASRIGHTSIBLING;
-	// if (mRtx.hasRightSibling()) {
-	// mRtx.moveToRightSibling();
-	// retVal = true;
-	// }
-	// }
-	// return retVal;
-	// }
-	//
-	// @Override
-	// public EVisitResult visit(CommentNode pNode) {
-	// // FIXME.
-	// return null;
-	// }
+// @Override
+// public EVisitResult visit(final ElementNode pNode) {
+// mRtx.moveTo(pNode.getNodeKey());
+// try {
+// mInsert.insertNode(mWtx, mRtx);
+// mInsert = EInsertPos.ASNONSTRUCTURAL;
 //
-//}
+// for (int i = 0, nspCount = pNode.getNamespaceCount(); i < nspCount; i++) {
+// mRtx.moveToNamespace(i);
+// mInsert.insertNode(mWtx, mRtx);
+// mRtx.moveToParent();
+// }
+//
+// for (int i = 0, attrCount = pNode.getAttributeCount(); i < attrCount; i++)
+// {
+// mRtx.moveToAttribute(i);
+// mInsert.insertNode(mWtx, mRtx);
+// mRtx.moveToParent();
+// }
+//
+// if (pNode.hasFirstChild()) {
+// mFirst = false;
+// mInsert = EInsertPos.ASFIRSTCHILD;
+// mRtx.moveToFirstChild();
+// mDepth++;
+// } else if (!mFirst && pNode.hasRightSibling()) {
+// mInsert = EInsertPos.ASRIGHTSIBLING;
+// mRtx.moveToRightSibling();
+// } else if (!mFirst) {
+// if (!moveToNextNode()) {
+// return EVisitResult.TERMINATE;
+// }
+// }
+// } catch (final SirixException e) {
+// throw new IllegalStateException(e);
+// }
+// if (mFirst) {
+// return EVisitResult.TERMINATE;
+// }
+// return mRtx.acceptVisitor(this);
+// }
+//
+// @Override
+// public EVisitResult visit(final TextNode pNode) {
+// mRtx.moveTo(pNode.getNodeKey());
+// try {
+// mInsert.insertNode(mWtx, mRtx);
+//
+// if (!mFirst && mRtx.hasRightSibling()) {
+// mRtx.moveToRightSibling();
+// mInsert = EInsertPos.ASRIGHTSIBLING;
+// } else if (!mFirst) {
+// if (!moveToNextNode()) {
+// return EVisitResult.TERMINATE;
+// }
+// }
+// } catch (final SirixException e) {
+// throw new IllegalStateException(e);
+// }
+// if (mFirst) {
+// return EVisitResult.TERMINATE;
+// }
+// return mRtx.acceptVisitor(this);
+// }
+//
+// /** Insert next node in document order/preorder. */
+// private boolean moveToNextNode() {
+// boolean retVal = false;
+// while (!mRtx.hasRightSibling() && mDepth > 0) {
+// mRtx.moveToParent();
+// mWtx.moveToParent();
+// mDepth--;
+// }
+//
+// if (mDepth > 0) {
+// mInsert = EInsertPos.ASRIGHTSIBLING;
+// if (mRtx.hasRightSibling()) {
+// mRtx.moveToRightSibling();
+// retVal = true;
+// }
+// }
+// return retVal;
+// }
+//
+// @Override
+// public EVisitResult visit(CommentNode pNode) {
+// // FIXME.
+// return null;
+// }
+//
+// }

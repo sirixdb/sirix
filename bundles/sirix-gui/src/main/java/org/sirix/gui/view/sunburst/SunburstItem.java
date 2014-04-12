@@ -289,8 +289,7 @@ public final class SunburstItem implements VisualItem {
 		 * @param pGUI
 		 *          GUI which extends {@link AbstractSunburstGUI}
 		 */
-		public Builder(final PApplet pApplet,
-				@Nonnegative final float pAngleStart,
+		public Builder(final PApplet pApplet, @Nonnegative final float pAngleStart,
 				@Nonnegative final float pExtension,
 				@Nonnull final NodeRelations pRelations, @Nonnull final ReadDB pReadDB,
 				@Nonnull final AbstractSunburstGUI pGUI) {
@@ -600,8 +599,8 @@ public final class SunburstItem implements VisualItem {
 	 *           if {@code pGraphic} is null
 	 */
 	@Override
-	public void update(final Draw pDraw,
-			@Nonnegative final int pMappingMode, @Nonnull final PGraphics pGraphic) {
+	public void update(final Draw pDraw, @Nonnegative final int pMappingMode,
+			@Nonnull final PGraphics pGraphic) {
 		checkArgument(pMappingMode == 1 || pMappingMode == 2 || pMappingMode == 3);
 		checkNotNull(pGraphic);
 		mGraphic = pGraphic;
@@ -851,8 +850,7 @@ public final class SunburstItem implements VisualItem {
 	 * @param pW
 	 *          width of ellipse
 	 */
-	private void drawArc(final PGraphics pGraphic,
-			@Nonnegative final float pW) {
+	private void drawArc(final PGraphics pGraphic, @Nonnegative final float pW) {
 		assert pGraphic != null;
 		assert pW >= 0f;
 		pGraphic.pushMatrix();
@@ -1857,7 +1855,7 @@ public final class SunburstItem implements VisualItem {
 	 * Set the temporal depth.
 	 * 
 	 * @param pDepth
-	 * 						new depth
+	 *          new depth
 	 */
 	public void setTempDepth(final @Nonnegative int pDepth) {
 		checkArgument(pDepth >= 0, "pDepth must be >= 0!");

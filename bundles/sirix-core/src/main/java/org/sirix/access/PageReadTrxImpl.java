@@ -635,7 +635,8 @@ final class PageReadTrxImpl implements PageReadTrx {
 		try {
 			Page page = reference.getPage();
 			if (mPageWriteTrx.isPresent() || mPageLog.isPresent()) {
-				final IndirectPageLogKey logKey = new IndirectPageLogKey(pageKind, -1, -1, 0);
+				final IndirectPageLogKey logKey = new IndirectPageLogKey(pageKind, -1,
+						-1, 0);
 				reference.setLogKey(logKey);
 			}
 			if (page == null) {

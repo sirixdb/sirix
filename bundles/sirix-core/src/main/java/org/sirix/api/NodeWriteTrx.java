@@ -145,8 +145,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullpointerException
 	 *           if {@code pRtx} is {@code null}
 	 */
-	NodeWriteTrx copySubtreeAsFirstChild(NodeReadTrx rtx)
-			throws SirixException;
+	NodeWriteTrx copySubtreeAsFirstChild(NodeReadTrx rtx) throws SirixException;
 
 	/**
 	 * Copy subtree from another {@code database/resource/revision} (the subtree
@@ -162,8 +161,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullpointerException
 	 *           if {@code pRtx} is {@code null}
 	 */
-	NodeWriteTrx copySubtreeAsLeftSibling(NodeReadTrx rtx)
-			throws SirixException;
+	NodeWriteTrx copySubtreeAsLeftSibling(NodeReadTrx rtx) throws SirixException;
 
 	/**
 	 * Copy subtree from another {@code database/resource/revision} (the subtree
@@ -179,8 +177,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws NullpointerException
 	 *           if {@code pRtx} is {@code null}
 	 */
-	NodeWriteTrx copySubtreeAsRightSibling(NodeReadTrx rtx)
-			throws SirixException;
+	NodeWriteTrx copySubtreeAsRightSibling(NodeReadTrx rtx) throws SirixException;
 
 	/**
 	 * Replace a node with another node or subtree, depending on whether the
@@ -198,8 +195,8 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 * @throws SirixException
 	 *           if anything in Sirix fails
 	 */
-	NodeWriteTrx replaceNode(String xml) throws SirixException,
-			IOException, XMLStreamException;
+	NodeWriteTrx replaceNode(String xml) throws SirixException, IOException,
+			XMLStreamException;
 
 	/**
 	 * Replace a node with another node or subtree (the subtree rooted at the
@@ -286,8 +283,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertCommentAsLeftSibling(String value)
-			throws SirixException;
+	NodeWriteTrx insertCommentAsLeftSibling(String value) throws SirixException;
 
 	/**
 	 * Insert new comment node as right sibling of currently selected node. The
@@ -301,8 +297,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertCommentAsRightSibling(String value)
-			throws SirixException;
+	NodeWriteTrx insertCommentAsRightSibling(String value) throws SirixException;
 
 	/**
 	 * Insert new comment node as first child of currently selected node. The
@@ -316,8 +311,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertCommentAsFirstChild(String value)
-			throws SirixException;
+	NodeWriteTrx insertCommentAsFirstChild(String value) throws SirixException;
 
 	/**
 	 * Insert new Processing Instruction node as left sibling of currently
@@ -333,8 +327,8 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code content} or {@code target} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertPIAsLeftSibling(String content,
-			@Nonnull String target) throws SirixException;
+	NodeWriteTrx insertPIAsLeftSibling(String content, @Nonnull String target)
+			throws SirixException;
 
 	/**
 	 * Insert new Processing Instruction node as right sibling of currently
@@ -350,8 +344,8 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code content} or {@code target} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertPIAsRightSibling(String content,
-			@Nonnull String target) throws SirixException;
+	NodeWriteTrx insertPIAsRightSibling(String content, @Nonnull String target)
+			throws SirixException;
 
 	/**
 	 * Insert new Processing Instruction node as first child of currently selected
@@ -367,8 +361,8 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code content} or {@code target} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertPIAsFirstChild(String content,
-			@Nonnull String target) throws SirixException;
+	NodeWriteTrx insertPIAsFirstChild(String content, @Nonnull String target)
+			throws SirixException;
 
 	/**
 	 * Insert new element node as first child of currently selected node. The
@@ -382,8 +376,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsFirstChild(QNm name)
-			throws SirixException;
+	NodeWriteTrx insertElementAsFirstChild(QNm name) throws SirixException;
 
 	/**
 	 * Insert new element node as left sibling of currently selected node. The
@@ -397,8 +390,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsLeftSibling(QNm name)
-			throws SirixException;
+	NodeWriteTrx insertElementAsLeftSibling(QNm name) throws SirixException;
 
 	/**
 	 * Insert new element node as right sibling of currently selected node. The
@@ -412,8 +404,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code name} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertElementAsRightSibling(QNm name)
-			throws SirixException;
+	NodeWriteTrx insertElementAsRightSibling(QNm name) throws SirixException;
 
 	/**
 	 * Insert new text node as first child of currently selected node. The cursor
@@ -429,8 +420,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertTextAsFirstChild(String value)
-			throws SirixException;
+	NodeWriteTrx insertTextAsFirstChild(String value) throws SirixException;
 
 	/**
 	 * Insert new text node as left sibling of currently selected node. The
@@ -444,8 +434,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertTextAsLeftSibling(String value)
-			throws SirixException;
+	NodeWriteTrx insertTextAsLeftSibling(String value) throws SirixException;
 
 	/**
 	 * Insert new text node as right sibling of currently selected node. The
@@ -459,8 +448,7 @@ public interface NodeWriteTrx extends NodeReadTrx {
 	 *           if {@code value} is {@code null}
 	 * @return the transaction instance
 	 */
-	NodeWriteTrx insertTextAsRightSibling(String value)
-			throws SirixException;
+	NodeWriteTrx insertTextAsRightSibling(String value) throws SirixException;
 
 	/**
 	 * Insert attribute in currently selected node. The cursor is moved to the

@@ -257,8 +257,8 @@ public final class DBStore implements Store, AutoCloseable {
 							public Void call() throws DocumentException, SirixException {
 								database.createResource(ResourceConfiguration
 										.newBuilder(resource, dbConf).storageType(mStorageType)
-										.useDeweyIDs(true).useTextCompression(true).buildPathSummary(true)
-										.build());
+										.useDeweyIDs(true).useTextCompression(true)
+										.buildPathSummary(true).build());
 								final Session session = database
 										.getSession(new SessionConfiguration.Builder(resource)
 												.build());

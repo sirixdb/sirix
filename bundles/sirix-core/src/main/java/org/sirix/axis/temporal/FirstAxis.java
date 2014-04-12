@@ -58,7 +58,7 @@ public final class FirstAxis extends AbstractTemporalAxis {
 			return endOfData();
 		}
 	}
-	
+
 	@Override
 	public NodeReadTrx getTrx() {
 		return mRtx;

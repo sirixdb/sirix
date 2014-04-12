@@ -57,8 +57,8 @@ public final class ScanNameIndex extends AbstractFunction {
 			throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 		final NodeReadTrx rtx = doc.getTrx();
-		final IndexController controller = rtx.getSession()
-				.getRtxIndexController(rtx.getRevisionNumber());
+		final IndexController controller = rtx.getSession().getRtxIndexController(
+				rtx.getRevisionNumber());
 
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "
@@ -81,11 +81,11 @@ public final class ScanNameIndex extends AbstractFunction {
 					idx, doc.getCollection().getName(), doc.getTrx().getSession()
 							.getResourceConfig().getResource().getName());
 		}
-		
+
 		final String names = FunUtil
 				.getString(args, 2, "$names", null, null, false);
-		final NameFilter filter = (names != null) ? controller.createNameFilter(
-				names.split(";")) : null;
+		final NameFilter filter = (names != null) ? controller
+				.createNameFilter(names.split(";")) : null;
 
 		final IndexController ic = controller;
 		final DBNode node = doc;

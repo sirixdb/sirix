@@ -231,8 +231,8 @@ public final class UberPage extends AbstractForwardingPage {
 		// Remaining levels.
 		for (int i = 0, l = Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT.length; i < l; i++) {
 			page = new IndirectPage();
-			pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.UBERPAGE, -1,
-					i, 0), page);
+			pageWriteTrx.putPageIntoCache(new IndirectPageLogKey(PageKind.UBERPAGE,
+					-1, i, 0), page);
 		}
 
 		mRootPage = new RevisionRootPage();

@@ -48,145 +48,151 @@ import processing.core.PApplet;
  */
 public class ProcessingEmbeddedView {
 
-  /** {@link ProcessingGUI} reference. */
-  private final ProcessingGUI mProcessingGUI;
+	/** {@link ProcessingGUI} reference. */
+	private final ProcessingGUI mProcessingGUI;
 
-  /** {@link Control} implementation. */
-  private final Control mControl;
+	/** {@link Control} implementation. */
+	private final Control mControl;
 
-  /** {@link View} implementation. */
-  private final View mView;
+	/** {@link View} implementation. */
+	private final View mView;
 
-  /** Processing view. */
-  private final PApplet mApplet;
+	/** Processing view. */
+	private final PApplet mApplet;
 
-  /** {@link ProcessingEmbeddedView} reference. */
-  private static ProcessingEmbeddedView mEmbeddedView;
+	/** {@link ProcessingEmbeddedView} reference. */
+	private static ProcessingEmbeddedView mEmbeddedView;
 
-  /**
-   * Constructor.
-   * 
-   * @param pProcessingGUI
-   *          {@link ProcessingGUI} implementation
-   * @param pControl
-   *          {@link Control} implementation
-   * @param pViewNotifier
-   *          {@link ViewNotifier} reference
-   */
-  private ProcessingEmbeddedView(final PApplet pApplet, final View pView,
-    final ProcessingGUI pProcessingGUI, final Control pControl, final ViewNotifier pViewNotifier) {
-    mApplet = pApplet;
-    mView = pView;
-    mProcessingGUI = pProcessingGUI;
-    mControl = pControl;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param pProcessingGUI
+	 *          {@link ProcessingGUI} implementation
+	 * @param pControl
+	 *          {@link Control} implementation
+	 * @param pViewNotifier
+	 *          {@link ViewNotifier} reference
+	 */
+	private ProcessingEmbeddedView(final PApplet pApplet, final View pView,
+			final ProcessingGUI pProcessingGUI, final Control pControl,
+			final ViewNotifier pViewNotifier) {
+		mApplet = pApplet;
+		mView = pView;
+		mProcessingGUI = pProcessingGUI;
+		mControl = pControl;
+	}
 
-  /**
-   * Get an instance, usually the same instance until the view resets everything.
-   * 
-   * @param pView
-   *          the implementing {@link View} instance, which embeds the processing view
-   * @param pProcessingGUI
-   *          {@link ProcessingGUI} implementation
-   * @param pControl
-   *          {@link Control} implementation
-   * @param pViewNotifier
-   *          {@link ViewNotifier} reference
-   * @return {@link ProcessingEmbeddedView} singleton
-   */
-  public static synchronized ProcessingEmbeddedView
-    getInstance(final PApplet pApplet, final View pView, final ProcessingGUI pProcessingGUI,
-      final Control pControl, final ViewNotifier pViewNotifier) {
-    checkNotNull(pApplet);
-    checkNotNull(pView);
-    checkNotNull(pProcessingGUI);
-    checkNotNull(pControl);
-    checkNotNull(pViewNotifier);
-    if (mEmbeddedView == null) {
-      mEmbeddedView =
-        new ProcessingEmbeddedView(pApplet, pView, pProcessingGUI, pControl, pViewNotifier);
-    }
-    return mEmbeddedView;
-  }
+	/**
+	 * Get an instance, usually the same instance until the view resets
+	 * everything.
+	 * 
+	 * @param pView
+	 *          the implementing {@link View} instance, which embeds the
+	 *          processing view
+	 * @param pProcessingGUI
+	 *          {@link ProcessingGUI} implementation
+	 * @param pControl
+	 *          {@link Control} implementation
+	 * @param pViewNotifier
+	 *          {@link ViewNotifier} reference
+	 * @return {@link ProcessingEmbeddedView} singleton
+	 */
+	public static synchronized ProcessingEmbeddedView getInstance(
+			final PApplet pApplet, final View pView,
+			final ProcessingGUI pProcessingGUI, final Control pControl,
+			final ViewNotifier pViewNotifier) {
+		checkNotNull(pApplet);
+		checkNotNull(pView);
+		checkNotNull(pProcessingGUI);
+		checkNotNull(pControl);
+		checkNotNull(pViewNotifier);
+		if (mEmbeddedView == null) {
+			mEmbeddedView = new ProcessingEmbeddedView(pApplet, pView,
+					pProcessingGUI, pControl, pViewNotifier);
+		}
+		return mEmbeddedView;
+	}
 
-  /** Reset the view. */
-  public void resetEmbedded() {
-    mEmbeddedView = null;
-  }
+	/** Reset the view. */
+	public void resetEmbedded() {
+		mEmbeddedView = null;
+	}
 
-  /** {@inheritDoc} */
-  public void draw() {
-    if (mProcessingGUI != null) {
-      mProcessingGUI.draw();
-      handleHLWeight();
-    }
-  }
+	/** {@inheritDoc} */
+	public void draw() {
+		if (mProcessingGUI != null) {
+			mProcessingGUI.draw();
+			handleHLWeight();
+		}
+	}
 
-  /** {@inheritDoc} */
-  public void mouseEntered(final MouseEvent pEvent) {
-    if (mControl != null) {
-      mControl.mouseEntered(pEvent);
-      handleHLWeight();
-    }
-  }
+	/** {@inheritDoc} */
+	public void mouseEntered(final MouseEvent pEvent) {
+		if (mControl != null) {
+			mControl.mouseEntered(pEvent);
+			handleHLWeight();
+		}
+	}
 
-  /** {@inheritDoc} */
-  public void mouseExited(final MouseEvent pEvent) {
-    if (mControl != null) {
-      mControl.mouseExited(pEvent);
-      handleHLWeight();
-    }
-  }
+	/** {@inheritDoc} */
+	public void mouseExited(final MouseEvent pEvent) {
+		if (mControl != null) {
+			mControl.mouseExited(pEvent);
+			handleHLWeight();
+		}
+	}
 
-  /** {@inheritDoc} */
-  public void keyReleased() {
-    if (mControl != null) {
-      mControl.keyReleased();
-      handleHLWeight();
-    }
-  }
+	/** {@inheritDoc} */
+	public void keyReleased() {
+		if (mControl != null) {
+			mControl.keyReleased();
+			handleHLWeight();
+		}
+	}
 
-  /** {@inheritDoc} */
-  public void mousePressed(final MouseEvent pEvent) {
-    if (mControl != null) {
-      mControl.mousePressed(pEvent);
-      handleHLWeight();
-    }
-  }
+	/** {@inheritDoc} */
+	public void mousePressed(final MouseEvent pEvent) {
+		if (mControl != null) {
+			mControl.mousePressed(pEvent);
+			handleHLWeight();
+		}
+	}
 
-  /** Update the GUI. */
-  public void updateGUI() {
-    if (mView != null) {
-      final Dimension dim = mView.component().getSize();
-      mApplet.resize(dim.width - 2, dim.height);
-    }
-    if (mProcessingGUI != null) {
-      mProcessingGUI.update(EResetZoomer.YES);
-      mProcessingGUI.relocate();
-    }
-  }
+	/** Update the GUI. */
+	public void updateGUI() {
+		if (mView != null) {
+			final Dimension dim = mView.component().getSize();
+			mApplet.resize(dim.width - 2, dim.height);
+		}
+		if (mProcessingGUI != null) {
+			mProcessingGUI.update(EResetZoomer.YES);
+			mProcessingGUI.relocate();
+		}
+	}
 
-  /**
-   * Handle mix of heavyweight ({@link PApplet}) and leightweight ( {@link JMenuBar}) components.
-   */
-  public void handleHLWeight() {
-    final Container parent = mView.component().getParent();
-    if (parent instanceof JComponent) {
-      ((JComponent)parent).revalidate();
-    }
-//		final Window window = SwingUtilities.getWindowAncestor(this);
-//		if (window != null) {
-//			window.validate();
-//		}
-  }
+	/**
+	 * Handle mix of heavyweight ({@link PApplet}) and leightweight (
+	 * {@link JMenuBar}) components.
+	 */
+	public void handleHLWeight() {
+		final Container parent = mView.component().getParent();
+		if (parent instanceof JComponent) {
+			((JComponent) parent).revalidate();
+		}
+		// final Window window = SwingUtilities.getWindowAncestor(this);
+		// if (window != null) {
+		// window.validate();
+		// }
+	}
 
-  /**
-   * Provide hovering mechanisms for the current {@link VisualItem} implementation.
-   * 
-   * @param pItem
-   *          {@link VisualItem} implementation
-   */
-  public void hover(final VisualItem pItem) {
-    mView.hover(pItem);
-  }
+	/**
+	 * Provide hovering mechanisms for the current {@link VisualItem}
+	 * implementation.
+	 * 
+	 * @param pItem
+	 *          {@link VisualItem} implementation
+	 */
+	public void hover(final VisualItem pItem) {
+		mView.hover(pItem);
+	}
 }

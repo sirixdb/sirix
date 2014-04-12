@@ -25,8 +25,7 @@ public class PathKindFilter extends AbstractFilter {
 	 * @param type
 	 *          type to match
 	 */
-	public PathKindFilter(final NodeReadTrx rtx,
-			final Kind type) {
+	public PathKindFilter(final NodeReadTrx rtx, final Kind type) {
 		super(rtx);
 		checkArgument(rtx instanceof PathSummaryReader);
 		mType = type;

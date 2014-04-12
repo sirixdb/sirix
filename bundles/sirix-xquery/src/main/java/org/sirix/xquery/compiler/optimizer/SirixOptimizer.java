@@ -13,18 +13,17 @@ import org.sirix.xquery.node.DBStore;
 
 public class SirixOptimizer extends TopDownOptimizer {
 
-	public SirixOptimizer(final Map<QNm, Str> options,
-			final DBStore store) {
+	public SirixOptimizer(final Map<QNm, Str> options, final DBStore store) {
 		super(options);
 		// perform index matching as last step
-//		getStages().add(new Stage() {
-//			@Override
-//			public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
-//				ast = new MultiChildStep(sctx).walk(ast);
-//				return ast;
-//			}
-//
-//		});
+		// getStages().add(new Stage() {
+		// @Override
+		// public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
+		// ast = new MultiChildStep(sctx).walk(ast);
+		// return ast;
+		// }
+		//
+		// });
 		getStages().add(new IndexMatching(store));
 	}
 

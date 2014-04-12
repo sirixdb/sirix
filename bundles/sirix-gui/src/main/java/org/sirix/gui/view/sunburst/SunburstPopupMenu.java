@@ -43,78 +43,81 @@ import controlP5.ControlGroup;
  */
 public final class SunburstPopupMenu extends JPopupMenu {
 
-  /**
-   * SerialversionUID.
-   */
-  private static final long serialVersionUID = -3346902332490335444L;
+	/**
+	 * SerialversionUID.
+	 */
+	private static final long serialVersionUID = -3346902332490335444L;
 
-  /** Model which implements {@link Model}. */
-  private final AbstractModel<?, ?> mModel;
+	/** Model which implements {@link Model}. */
+	private final AbstractModel<?, ?> mModel;
 
-  /** sirix {@link NodeWriteTrx}. */
-  private static NodeWriteTrx mWtx;
+	/** sirix {@link NodeWriteTrx}. */
+	private static NodeWriteTrx mWtx;
 
-  /** Textarea for XML fragment input. */
-  private final ControlGroup<?> mCtrl;
+	/** Textarea for XML fragment input. */
+	private final ControlGroup<?> mCtrl;
 
-  /** Instance of this class. */
-  private static SunburstPopupMenu mSunburstPopupMenu;
+	/** Instance of this class. */
+	private static SunburstPopupMenu mSunburstPopupMenu;
 
-  /**
-   * Private constructor.
-   * 
-   * @param paramModel
-   *          model which implements {@link Model}
-   * @param paramWtx
-   *          sirix {@link NodeWriteTrx}
-   * @param paramCtrl
-   *          control group for XML input
-   */
-  private SunburstPopupMenu(final AbstractModel<?, ?> paramModel, final NodeWriteTrx paramWtx,
-    final ControlGroup<?> paramCtrl) {
-    mModel = paramModel;
-    mWtx = paramWtx;
-    mCtrl = paramCtrl;
+	/**
+	 * Private constructor.
+	 * 
+	 * @param paramModel
+	 *          model which implements {@link Model}
+	 * @param paramWtx
+	 *          sirix {@link NodeWriteTrx}
+	 * @param paramCtrl
+	 *          control group for XML input
+	 */
+	private SunburstPopupMenu(final AbstractModel<?, ?> paramModel,
+			final NodeWriteTrx paramWtx, final ControlGroup<?> paramCtrl) {
+		mModel = paramModel;
+		mWtx = paramWtx;
+		mCtrl = paramCtrl;
 
-    switch (mWtx.getKind()) {
-    case ELEMENT:
-      createMenu();
-      break;
-    case TEXT:
-      Menu.INSERT_FRAGMENT_AS_RIGHT_SIBLING.createMenuItem(mModel, this, mWtx, mCtrl);
-      Menu.DELETE.createMenuItem(mModel, this, mWtx, mCtrl);
-      break;
-    }
-  }
+		switch (mWtx.getKind()) {
+		case ELEMENT:
+			createMenu();
+			break;
+		case TEXT:
+			Menu.INSERT_FRAGMENT_AS_RIGHT_SIBLING.createMenuItem(mModel, this, mWtx,
+					mCtrl);
+			Menu.DELETE.createMenuItem(mModel, this, mWtx, mCtrl);
+			break;
+		}
+	}
 
-  /**
-   * Singleton factory.
-   * 
-   * @param paramModel
-   *          the {@link AbstractModel} model
-   * @param paramGUI
-   *          {@link SunburstGUI} instance
-   * @param paramWtx
-   *          sirix {@link NodeWriteTrx}
-   * @param paramCtrl
-   *          control group for XML input
-   * @return singleton {@link SunburstPopupMenu} instance
-   */
-  public static synchronized SunburstPopupMenu getInstance(final AbstractModel<?, ?> paramModel,
-    final NodeWriteTrx paramWtx, final ControlGroup<?> paramCtrl) {
-    if (mSunburstPopupMenu == null || !paramWtx.equals(mWtx)) {
-      mSunburstPopupMenu = new SunburstPopupMenu(paramModel, paramWtx, paramCtrl);
-    }
-    return mSunburstPopupMenu;
-  }
+	/**
+	 * Singleton factory.
+	 * 
+	 * @param paramModel
+	 *          the {@link AbstractModel} model
+	 * @param paramGUI
+	 *          {@link SunburstGUI} instance
+	 * @param paramWtx
+	 *          sirix {@link NodeWriteTrx}
+	 * @param paramCtrl
+	 *          control group for XML input
+	 * @return singleton {@link SunburstPopupMenu} instance
+	 */
+	public static synchronized SunburstPopupMenu getInstance(
+			final AbstractModel<?, ?> paramModel, final NodeWriteTrx paramWtx,
+			final ControlGroup<?> paramCtrl) {
+		if (mSunburstPopupMenu == null || !paramWtx.equals(mWtx)) {
+			mSunburstPopupMenu = new SunburstPopupMenu(paramModel, paramWtx,
+					paramCtrl);
+		}
+		return mSunburstPopupMenu;
+	}
 
-  /**
-   * Create all menu items.
-   */
-  private void createMenu() {
-    for (Menu menu : Menu.values()) {
-      // Create and add a menu item
-      menu.createMenuItem(mModel, this, mWtx, mCtrl);
-    }
-  }
+	/**
+	 * Create all menu items.
+	 */
+	private void createMenu() {
+		for (Menu menu : Menu.values()) {
+			// Create and add a menu item
+			menu.createMenuItem(mModel, this, mWtx, mCtrl);
+		}
+	}
 }

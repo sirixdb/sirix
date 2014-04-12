@@ -88,8 +88,7 @@ public abstract class AbstractForwardingNodeWriteTrx extends
 	}
 
 	@Override
-	public NodeWriteTrx insertElementAsFirstChild(QNm name)
-			throws SirixException {
+	public NodeWriteTrx insertElementAsFirstChild(QNm name) throws SirixException {
 		return delegate().insertElementAsFirstChild(name);
 	}
 

@@ -18,11 +18,12 @@ import com.google.common.base.Objects;
  * @author Johannes Lichtenberger
  * 
  */
-public class TemporalSirixStream implements Stream<AbstractTemporalNode<DBNode>> {
+public class TemporalSirixStream implements
+		Stream<AbstractTemporalNode<DBNode>> {
 
 	/** Temporal axis. */
 	private final AbstractTemporalAxis mAxis;
-	
+
 	/** The {@link DBCollection} reference. */
 	private DBCollection mCollection;
 
@@ -39,7 +40,7 @@ public class TemporalSirixStream implements Stream<AbstractTemporalNode<DBNode>>
 		mAxis = checkNotNull(axis);
 		mCollection = checkNotNull(collection);
 	}
-	
+
 	@Override
 	public AbstractTemporalNode<DBNode> next() throws DocumentException {
 		if (mAxis.hasNext()) {

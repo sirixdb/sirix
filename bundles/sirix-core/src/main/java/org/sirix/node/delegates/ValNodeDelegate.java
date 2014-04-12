@@ -50,7 +50,8 @@ import com.google.common.base.Objects;
  * @author Sebastian Graf, University of Konstanz
  * 
  */
-public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode {
+public class ValNodeDelegate extends AbstractForwardingNode implements
+		ValueNode {
 
 	/** Delegate for common node information. */
 	private NodeDelegate mDelegate;
@@ -71,8 +72,8 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
 	 * @param compressed
 	 *          compress value or not
 	 */
-	public ValNodeDelegate(final NodeDelegate nodeDel,
-			final byte[] val, final boolean compressed) {
+	public ValNodeDelegate(final NodeDelegate nodeDel, final byte[] val,
+			final boolean compressed) {
 		assert nodeDel != null : "nodeDel must not be null!";
 		assert val != null : "val must not be null!";
 		mDelegate = nodeDel;
@@ -89,7 +90,7 @@ public class ValNodeDelegate extends AbstractForwardingNode implements ValueNode
 	public byte[] getRawValue() {
 		return mCompressed ? Compression.decompress(mVal) : mVal;
 	}
-	
+
 	@Override
 	public String getValue() {
 		return new String(getRawValue(), Constants.DEFAULT_ENCODING);

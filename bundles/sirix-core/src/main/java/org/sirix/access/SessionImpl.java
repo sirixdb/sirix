@@ -133,7 +133,7 @@ public final class SessionImpl implements Session {
 
 	/** {@link IndexController}s used for this session. */
 	private final Map<Integer, IndexController> mRtxIndexControllers;
-	
+
 	/** {@link IndexController}s used for this session. */
 	private final Map<Integer, IndexController> mWtxIndexControllers;
 
@@ -684,7 +684,7 @@ public final class SessionImpl implements Session {
 		}
 		return controller;
 	}
-	
+
 	@Override
 	public synchronized IndexController getWtxIndexController(int revision) {
 		IndexController controller = mWtxIndexControllers.get(revision);

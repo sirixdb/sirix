@@ -72,9 +72,9 @@ public interface NodeFactory {
 	 */
 	PINode createPINode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final QNm target, final byte[] content,
-			final boolean isCompressed, final @Nonnegative long pathNodeKey,
-			final Optional<SirixDeweyID> id) throws SirixIOException;
+			final QNm target, final byte[] content, final boolean isCompressed,
+			final @Nonnegative long pathNodeKey, final Optional<SirixDeweyID> id)
+			throws SirixIOException;
 
 	/**
 	 * Create a {@link CommentNode}.
@@ -90,7 +90,7 @@ public interface NodeFactory {
 	 * @param isCompressed
 	 *          determines if the value is compressed or not
 	 * @param id
-	 * 					an optional dewey ID
+	 *          an optional dewey ID
 	 * @return the created node
 	 * @throws SirixIOException
 	 *           if an I/O error occurs
@@ -123,8 +123,7 @@ public interface NodeFactory {
 	 */
 	ElementNode createElementNode(final @Nonnegative long parentKey,
 			final @Nonnegative long leftSibKey, final @Nonnegative long rightSibKey,
-			final long hash, final QNm name,
-			final @Nonnegative long pathNodeKey,
+			final long hash, final QNm name, final @Nonnegative long pathNodeKey,
 			final Optional<SirixDeweyID> id) throws SirixIOException;
 
 	/**
@@ -165,8 +164,7 @@ public interface NodeFactory {
 	 *           if an I/O error occurs
 	 */
 	AttributeNode createAttributeNode(final @Nonnegative long parentKey,
-			final QNm name, final byte[] value,
-			final @Nonnegative long pathNodeKey,
+			final QNm name, final byte[] value, final @Nonnegative long pathNodeKey,
 			final Optional<SirixDeweyID> id) throws SirixIOException;
 
 	/**
@@ -175,7 +173,7 @@ public interface NodeFactory {
 	 * @param parentKey
 	 *          parent node key
 	 * @param name
-	 * 					the {@link QNm} of the namespace
+	 *          the {@link QNm} of the namespace
 	 * @param pathNodeKey
 	 *          the path class record
 	 * @return the created node
@@ -183,6 +181,6 @@ public interface NodeFactory {
 	 *           if an I/O error occurs
 	 */
 	NamespaceNode createNamespaceNode(final @Nonnegative long parentKey,
-			final QNm name,	final @Nonnegative long pathNodeKey,
+			final QNm name, final @Nonnegative long pathNodeKey,
 			final Optional<SirixDeweyID> id) throws SirixIOException;
 }

@@ -50,17 +50,17 @@ public enum InsertPos {
 	/** Insert as first child. */
 	ASFIRSTCHILD {
 		@Override
-		void processMove(final StructNode fromNode,
-				final StructNode toNode, final NodeWriteTrx wtx)
-				throws SirixException {
+		void processMove(final StructNode fromNode, final StructNode toNode,
+				final NodeWriteTrx wtx) throws SirixException {
 			assert fromNode != null;
 			assert toNode != null;
 			assert wtx != null;
 
 			// Adapt childCount of parent where the subtree has to be inserted.
 			StructNode newParent = (StructNode) wtx.getPageTransaction()
-					.prepareEntryForModification(toNode.getNodeKey(), PageKind.RECORDPAGE,
-							-1, Optional.<UnorderedKeyValuePage> absent());
+					.prepareEntryForModification(toNode.getNodeKey(),
+							PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> absent());
 			if (fromNode.getParentKey() != toNode.getNodeKey()) {
 				newParent.incrementChildCount();
 			}
@@ -91,8 +91,9 @@ public enum InsertPos {
 					// Adapt left sibling key of former right sibling of first child.
 					wtx.moveTo(moved.getRightSiblingKey());
 					final StructNode rightSibling = (StructNode) wtx.getPageTransaction()
-							.prepareEntryForModification(wtx.getNodeKey(), PageKind.RECORDPAGE,
-									-1, Optional.<UnorderedKeyValuePage> absent());
+							.prepareEntryForModification(wtx.getNodeKey(),
+									PageKind.RECORDPAGE, -1,
+									Optional.<UnorderedKeyValuePage> absent());
 					rightSibling.setLeftSiblingKey(fromNode.getNodeKey());
 				} else {
 					// Adapt left sibling key of former first child.
@@ -120,21 +121,23 @@ public enum InsertPos {
 
 			// Adapt first child key of parent where the subtree has to be inserted.
 			newParent = (StructNode) wtx.getPageTransaction()
-					.prepareEntryForModification(toNode.getNodeKey(), PageKind.RECORDPAGE,
-							-1, Optional.<UnorderedKeyValuePage> absent());
+					.prepareEntryForModification(toNode.getNodeKey(),
+							PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> absent());
 			newParent.setFirstChildKey(fromNode.getNodeKey());
 
 			// Adapt left sibling key and parent key of moved node.
 			final StructNode moved = (StructNode) wtx.getPageTransaction()
 					.prepareEntryForModification(fromNode.getNodeKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
+							PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> absent());
 			moved.setLeftSiblingKey(Fixed.NULL_NODE_KEY.getStandardProperty());
 			moved.setParentKey(toNode.getNodeKey());
 		}
 
 		@Override
-		void insertNode(final NodeWriteTrx wtx,
-				final NodeReadTrx rtx) throws SirixException {
+		void insertNode(final NodeWriteTrx wtx, final NodeReadTrx rtx)
+				throws SirixException {
 			assert wtx != null;
 			assert rtx != null;
 			assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.DOCUMENT;
@@ -155,9 +158,8 @@ public enum InsertPos {
 	/** Insert as right sibling. */
 	ASRIGHTSIBLING {
 		@Override
-		void processMove(final StructNode fromNode,
-				final StructNode toNode, final NodeWriteTrx wtx)
-				throws SirixException {
+		void processMove(final StructNode fromNode, final StructNode toNode,
+				final NodeWriteTrx wtx) throws SirixException {
 			assert fromNode != null;
 			assert toNode != null;
 			assert wtx != null;
@@ -277,13 +279,14 @@ public enum InsertPos {
 			// Adapt parent key of moved node.
 			final StructNode movedNode = (StructNode) wtx.getPageTransaction()
 					.prepareEntryForModification(fromNode.getNodeKey(),
-							PageKind.RECORDPAGE, -1, Optional.<UnorderedKeyValuePage> absent());
+							PageKind.RECORDPAGE, -1,
+							Optional.<UnorderedKeyValuePage> absent());
 			movedNode.setParentKey(toNode.getParentKey());
 		}
 
 		@Override
-		void insertNode(final NodeWriteTrx wtx,
-				final NodeReadTrx rtx) throws SirixException {
+		void insertNode(final NodeWriteTrx wtx, final NodeReadTrx rtx)
+				throws SirixException {
 			assert wtx != null;
 			assert rtx != null;
 			assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.TEXT;
@@ -302,16 +305,15 @@ public enum InsertPos {
 	/** Insert as a non structural node. */
 	ASNONSTRUCTURAL {
 		@Override
-		void processMove(final StructNode fromNode,
-				final StructNode toNode, final NodeWriteTrx wtx)
-				throws SirixException {
+		void processMove(final StructNode fromNode, final StructNode toNode,
+				final NodeWriteTrx wtx) throws SirixException {
 			// Not allowed.
 			throw new AssertionError("May never be invoked!");
 		}
 
 		@Override
-		void insertNode(final NodeWriteTrx wtx,
-				final NodeReadTrx rtx) throws SirixException {
+		void insertNode(final NodeWriteTrx wtx, final NodeReadTrx rtx)
+				throws SirixException {
 			assert wtx != null;
 			assert rtx != null;
 			assert wtx.getKind() == Kind.ELEMENT;
@@ -335,15 +337,14 @@ public enum InsertPos {
 
 	ASLEFTSIBLING {
 		@Override
-		void processMove(final StructNode pFromNode,
-				final StructNode pToNode, final NodeWriteTrx pWtx)
-				throws SirixException {
+		void processMove(final StructNode pFromNode, final StructNode pToNode,
+				final NodeWriteTrx pWtx) throws SirixException {
 			throw new UnsupportedOperationException();
 		}
 
 		@Override
-		void insertNode(final NodeWriteTrx pWtx,
-				final NodeReadTrx pRtx) throws SirixException {
+		void insertNode(final NodeWriteTrx pWtx, final NodeReadTrx pRtx)
+				throws SirixException {
 			assert pWtx != null;
 			assert pRtx != null;
 			assert pWtx.getKind() == Kind.ELEMENT || pWtx.getKind() == Kind.TEXT;
@@ -373,9 +374,8 @@ public enum InsertPos {
 	 * @throws SirixException
 	 *           if an I/O error occurs
 	 */
-	abstract void processMove(final StructNode fromNode,
-			final StructNode toNode, final NodeWriteTrx wtx)
-			throws SirixException;
+	abstract void processMove(final StructNode fromNode, final StructNode toNode,
+			final NodeWriteTrx wtx) throws SirixException;
 
 	/**
 	 * Insert a node (copy operation).
@@ -389,6 +389,6 @@ public enum InsertPos {
 	 * @throws SirixException
 	 *           if insertion of node fails
 	 */
-	abstract void insertNode(final NodeWriteTrx wtx,
-			final NodeReadTrx rtx) throws SirixException;
+	abstract void insertNode(final NodeWriteTrx wtx, final NodeReadTrx rtx)
+			throws SirixException;
 }

@@ -22,8 +22,8 @@ import com.google.common.base.Optional;
 
 /**
  * <p>
- * Function for finding a name index. If successful, this
- * function returns the name-index number. Otherwise it returns -1.
+ * Function for finding a name index. If successful, this function returns the
+ * name-index number. Otherwise it returns -1.
  * 
  * Supported signatures are:
  * </p>
@@ -39,8 +39,8 @@ import com.google.common.base.Optional;
 public final class FindNameIndex extends AbstractFunction {
 
 	/** CAS index function name. */
-	public final static QNm FIND_NAME_INDEX = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"find-name-index");
+	public final static QNm FIND_NAME_INDEX = new QNm(SDBFun.SDB_NSURI,
+			SDBFun.SDB_PREFIX, "find-name-index");
 
 	/**
 	 * Constructor.
@@ -59,18 +59,18 @@ public final class FindNameIndex extends AbstractFunction {
 			throws QueryException {
 		final DBNode doc = (DBNode) args[0];
 		final NodeReadTrx rtx = doc.getTrx();
-		final IndexController controller = rtx.getSession()
-				.getRtxIndexController(rtx.getRevisionNumber());
+		final IndexController controller = rtx.getSession().getRtxIndexController(
+				rtx.getRevisionNumber());
 
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "
 					+ ((Str) args[1]).stringValue()));
 		}
-		
-		final QNm qnm = (QNm) Cast
-				.cast(sctx, (Atomic) args[1], Type.QNM, false);
-		final Optional<IndexDef> indexDef = controller.getIndexes().findNameIndex(qnm);
-		
+
+		final QNm qnm = (QNm) Cast.cast(sctx, (Atomic) args[1], Type.QNM, false);
+		final Optional<IndexDef> indexDef = controller.getIndexes().findNameIndex(
+				qnm);
+
 		if (indexDef.isPresent())
 			return new Int32(indexDef.get().getID());
 		return new Int32(-1);

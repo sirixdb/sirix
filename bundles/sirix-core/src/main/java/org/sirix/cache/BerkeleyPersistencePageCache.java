@@ -106,14 +106,13 @@ public final class BerkeleyPersistencePageCache extends
 	 * @param logType
 	 *          type of log to append to the path of the log
 	 * @param resourceConfig
-	 * 					{@link ResourceConfiguration} instance
+	 *          {@link ResourceConfiguration} instance
 	 * @throws SirixIOException
 	 *           if an database open exception occurs
 	 */
 	public BerkeleyPersistencePageCache(final File file,
 			final @Nonnegative int revision, final String logType,
-			final PageReadTrx pageReadTrx)
-			throws SirixIOException {
+			final PageReadTrx pageReadTrx) throws SirixIOException {
 		super(checkNotNull(file), revision, logType);
 		try {
 			// Create a new, transactional database environment.
@@ -129,7 +128,7 @@ public final class BerkeleyPersistencePageCache extends
 			if (removeExistingDatabase(NAME, mEnv)) {
 				mEnv = new Environment(mPlace, config);
 			}
-			
+
 			mDatabase = mEnv.openDatabase(null, NAME, dbConfig);
 
 			mKeyBinding = new IndirectPageLogKeyBinding();
@@ -185,7 +184,8 @@ public final class BerkeleyPersistencePageCache extends
 	}
 
 	@Override
-	public Page getPersistent(final IndirectPageLogKey key) throws SirixIOException {
+	public Page getPersistent(final IndirectPageLogKey key)
+			throws SirixIOException {
 		final DatabaseEntry valueEntry = new DatabaseEntry();
 		final DatabaseEntry keyEntry = new DatabaseEntry();
 		mKeyBinding.objectToEntry(checkNotNull(key), keyEntry);
@@ -207,7 +207,8 @@ public final class BerkeleyPersistencePageCache extends
 
 	@Override
 	public void putAll(final Map<? extends IndirectPageLogKey, ? extends Page> map) {
-		for (final Entry<? extends IndirectPageLogKey, ? extends Page> entry : map.entrySet()) {
+		for (final Entry<? extends IndirectPageLogKey, ? extends Page> entry : map
+				.entrySet()) {
 			put(entry.getKey(), entry.getValue());
 		}
 	}

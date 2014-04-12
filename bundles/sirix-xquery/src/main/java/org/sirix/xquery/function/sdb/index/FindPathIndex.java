@@ -20,8 +20,8 @@ import com.google.common.base.Optional;
 
 /**
  * <p>
- * Function for finding a path index. If successful, this
- * function returns the path-index number. Otherwise it returns -1.
+ * Function for finding a path index. If successful, this function returns the
+ * path-index number. Otherwise it returns -1.
  * 
  * Supported signatures are:
  * </p>
@@ -37,8 +37,8 @@ import com.google.common.base.Optional;
 public final class FindPathIndex extends AbstractFunction {
 
 	/** CAS index function name. */
-	public final static QNm FIND_PATH_INDEX = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
-			"find-path-index");
+	public final static QNm FIND_PATH_INDEX = new QNm(SDBFun.SDB_NSURI,
+			SDBFun.SDB_PREFIX, "find-path-index");
 
 	/**
 	 * Constructor.
@@ -57,17 +57,18 @@ public final class FindPathIndex extends AbstractFunction {
 			throws QueryException {
 		final DBNode doc = (DBNode) args[0];
 		final NodeReadTrx rtx = doc.getTrx();
-		final IndexController controller = rtx.getSession()
-				.getRtxIndexController(rtx.getRevisionNumber());
+		final IndexController controller = rtx.getSession().getRtxIndexController(
+				rtx.getRevisionNumber());
 
 		if (controller == null) {
 			throw new QueryException(new QNm("Document not found: "
 					+ ((Str) args[1]).stringValue()));
 		}
-		
+
 		final Path<QNm> path = Path.parse(((Str) args[1]).stringValue());
-		final Optional<IndexDef> indexDef = controller.getIndexes().findPathIndex(path);
-		
+		final Optional<IndexDef> indexDef = controller.getIndexes().findPathIndex(
+				path);
+
 		if (indexDef.isPresent())
 			return new Int32(indexDef.get().getID());
 		return new Int32(-1);

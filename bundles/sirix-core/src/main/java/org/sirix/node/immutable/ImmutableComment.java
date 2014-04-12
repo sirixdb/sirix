@@ -21,7 +21,8 @@ import com.google.common.base.Optional;
  * @author Johannes Lichtenberger
  * 
  */
-public final class ImmutableComment implements ImmutableValueNode, ImmutableStructNode {
+public final class ImmutableComment implements ImmutableValueNode,
+		ImmutableStructNode {
 
 	/** Mutable {@link CommentNode}. */
 	private final CommentNode mNode;
@@ -136,27 +137,27 @@ public final class ImmutableComment implements ImmutableValueNode, ImmutableStru
 	public long getRightSiblingKey() {
 		return mNode.getRightSiblingKey();
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getDeweyID() {
 		return mNode.getDeweyID();
 	}
-	
+
 	@Override
 	public boolean equals(Object obj) {
 		return mNode.equals(obj);
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return mNode.hashCode();
 	}
-	
+
 	@Override
 	public String toString() {
 		return mNode.toString();
 	}
-	
+
 	@Override
 	public String getValue() {
 		return mNode.getValue();

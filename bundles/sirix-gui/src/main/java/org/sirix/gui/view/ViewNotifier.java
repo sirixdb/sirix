@@ -48,105 +48,105 @@ import com.google.common.base.Optional;
  * 
  */
 public final class ViewNotifier implements Serializable {
-  /**
-   * SerialUID.
-   */
-  private static final long serialVersionUID = 1L;
+	/**
+	 * SerialUID.
+	 */
+	private static final long serialVersionUID = 1L;
 
-  /** Reference to main window. */
-  private final GUI mGUI;
+	/** Reference to main window. */
+	private final GUI mGUI;
 
-  /** Attached views. */
-  private final Set<View> mViews;
+	/** Attached views. */
+	private final Set<View> mViews;
 
-  /**
-   * Constructor.
-   * 
-   * @param paramGUI
-   *          Reference to {@link GUI}.
-   */
-  public ViewNotifier(final GUI paramGUI) {
-    mGUI = paramGUI;
-    mViews = new HashSet<View>();
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param paramGUI
+	 *          Reference to {@link GUI}.
+	 */
+	public ViewNotifier(final GUI paramGUI) {
+		mGUI = paramGUI;
+		mViews = new HashSet<View>();
+	}
 
-  /**
-   * Adds a new view.
-   * 
-   * @param paramView
-   *          view to be added
-   */
-  public void add(final View paramView) {
-    mViews.add(paramView);
-  }
+	/**
+	 * Adds a new view.
+	 * 
+	 * @param paramView
+	 *          view to be added
+	 */
+	public void add(final View paramView) {
+		mViews.add(paramView);
+	}
 
-  /**
-   * Notifies all views of a data reference change.
-   * 
-   * @param paramView
-   *          the calling {@link View}
-   */
-  public void init(final View pView) {
-    for (final View view : mViews) {
-      if (view.isVisible()) {
-        if (pView != null) {
-          if (view != pView) {
-            view.refreshInit();
-          }
-        } else {
-          view.refreshInit();
-        }
-      }
-    }
-  }
+	/**
+	 * Notifies all views of a data reference change.
+	 * 
+	 * @param paramView
+	 *          the calling {@link View}
+	 */
+	public void init(final View pView) {
+		for (final View view : mViews) {
+			if (view.isVisible()) {
+				if (pView != null) {
+					if (view != pView) {
+						view.refreshInit();
+					}
+				} else {
+					view.refreshInit();
+				}
+			}
+		}
+	}
 
-  /**
-   * Notifies all views of updates in the data structure.
-   * 
-   * @param paramView
-   *          the calling {@link View}
-   */
-  public void update(final View pView, Optional<VisualItemAxis> pItems) {
-    checkNotNull(pView);
-    checkNotNull(pItems);
-    for (final View view : mViews) {
-      if (view.isVisible() && view != pView) {
-        view.refreshUpdate(pItems);
-      }
-    }
-  }
+	/**
+	 * Notifies all views of updates in the data structure.
+	 * 
+	 * @param paramView
+	 *          the calling {@link View}
+	 */
+	public void update(final View pView, Optional<VisualItemAxis> pItems) {
+		checkNotNull(pView);
+		checkNotNull(pItems);
+		for (final View view : mViews) {
+			if (view.isVisible() && view != pView) {
+				view.refreshUpdate(pItems);
+			}
+		}
+	}
 
-  /**
-   * Dispose all views.
-   */
-  public void dispose() {
-    for (final View view : mViews) {
-      if (view.isVisible()) {
-        view.dispose();
-      }
-    }
-  }
+	/**
+	 * Dispose all views.
+	 */
+	public void dispose() {
+		for (final View view : mViews) {
+			if (view.isVisible()) {
+				view.dispose();
+			}
+		}
+	}
 
-  /**
-   * Get the main {@link GUI} frame.
-   * 
-   * @return the gui
-   */
-  public GUI getGUI() {
-    return mGUI;
-  }
+	/**
+	 * Get the main {@link GUI} frame.
+	 * 
+	 * @return the gui
+	 */
+	public GUI getGUI() {
+		return mGUI;
+	}
 
-  /**
-   * Hover current {@link VisualItem} implementation.
-   * 
-   * @param paramItem
-   *          {@link VisualItem} implementation
-   */
-  public void hover(final VisualItem paramItem) {
-    for (final View view : mViews) {
-      if (view.isVisible()) {
-        view.hover(paramItem);
-      }
-    }
-  }
+	/**
+	 * Hover current {@link VisualItem} implementation.
+	 * 
+	 * @param paramItem
+	 *          {@link VisualItem} implementation
+	 */
+	public void hover(final VisualItem paramItem) {
+		for (final View view : mViews) {
+			if (view.isVisible()) {
+				view.hover(paramItem);
+			}
+		}
+	}
 }

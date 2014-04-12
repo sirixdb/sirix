@@ -101,10 +101,10 @@ public class ConcurrentAxis extends AbstractAxis {
 	 * @param childAxis
 	 *          producer axis
 	 */
-	public ConcurrentAxis(final NodeReadTrx rtx,
-			final Axis childAxis) {
+	public ConcurrentAxis(final NodeReadTrx rtx, final Axis childAxis) {
 		super(rtx);
-		if (rtx.equals(childAxis.getTrx()) && rtx.getTransactionID() == childAxis.getTrx().getTransactionID()) {
+		if (rtx.equals(childAxis.getTrx())
+				&& rtx.getTransactionID() == childAxis.getTrx().getTransactionID()) {
 			throw new IllegalArgumentException(
 					"The filter must be bound to another transaction but on the same revision/node!");
 		}

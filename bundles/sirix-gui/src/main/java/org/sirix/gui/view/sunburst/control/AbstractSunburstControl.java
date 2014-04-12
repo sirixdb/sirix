@@ -55,214 +55,220 @@ import controlP5.Toggle;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public abstract class AbstractSunburstControl extends AbstractControl implements SunburstControl {
+public abstract class AbstractSunburstControl extends AbstractControl implements
+		SunburstControl {
 
-  /** Used for the hybrid comparsion. */
-  private transient CountDownLatch mLatch = new CountDownLatch(1);
+	/** Used for the hybrid comparsion. */
+	private transient CountDownLatch mLatch = new CountDownLatch(1);
 
-  /** {@link Model} implementation. */
-  protected transient Model<SunburstContainer, SunburstItem> mModel;
+	/** {@link Model} implementation. */
+	protected transient Model<SunburstContainer, SunburstItem> mModel;
 
-  /** {@link ReadDB} reference. */
-  protected transient ReadDB mDb;
+	/** {@link ReadDB} reference. */
+	protected transient ReadDB mDb;
 
-  /** The GUI. */
-  protected final AbstractSunburstGUI mGUI;
+	/** The GUI. */
+	protected final AbstractSunburstGUI mGUI;
 
-  /** Processing {@link PApplet}. */
-  protected final PApplet mParent;
+	/** Processing {@link PApplet}. */
+	protected final PApplet mParent;
 
-  /**
-   * Constructor.
-   * 
-   * @param paramParent
-   *          {@link PApplet} reference
-   * @param paramModel
-   *          {@link Model} implementation
-   * @param paramDb
-   *          {@link ReadDB} reference
-   */
-  public AbstractSunburstControl(final PApplet paramParent,
-    final Model<SunburstContainer, SunburstItem> paramModel, final ReadDB paramDb) {
-    mParent = checkNotNull(paramParent);
-    mDb = checkNotNull(paramDb);
-    mModel = checkNotNull(paramModel);
-    mGUI = getGUIInstance();
-    mGUI.getControlP5().addListener(this);
-    mGUI.getParent().addKeyListener(this);
-    mModel.addPropertyChangeListener(mGUI);
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param paramParent
+	 *          {@link PApplet} reference
+	 * @param paramModel
+	 *          {@link Model} implementation
+	 * @param paramDb
+	 *          {@link ReadDB} reference
+	 */
+	public AbstractSunburstControl(final PApplet paramParent,
+			final Model<SunburstContainer, SunburstItem> paramModel,
+			final ReadDB paramDb) {
+		mParent = checkNotNull(paramParent);
+		mDb = checkNotNull(paramDb);
+		mModel = checkNotNull(paramModel);
+		mGUI = getGUIInstance();
+		mGUI.getControlP5().addListener(this);
+		mGUI.getParent().addKeyListener(this);
+		mModel.addPropertyChangeListener(mGUI);
+	}
 
-  /**
-   * Get GUI instance.
-   */
-  protected abstract AbstractSunburstGUI getGUIInstance();
+	/**
+	 * Get GUI instance.
+	 */
+	protected abstract AbstractSunburstGUI getGUIInstance();
 
-  @Override
-  public void zoomEnded() {
-  	mGUI.noAnimation();
-  }
-  
-  @Override
-  public void panEnded() {
-  	mGUI.noAnimation();
-  }
-  
-  /**
-   * Implements processing mousePressed.
-   * 
-   * @param paramEvent
-   *          The {@link MouseEvent}.
-   * 
-   * @see processing.core.PApplet#mousePressed
-   */
-  @Override
-  public void mousePressed(final MouseEvent paramEvent) {
-    mGUI.getControlP5().controlWindow.mouseEvent(paramEvent);
-    mGUI.zoomMouseEvent(paramEvent);
-  }
+	@Override
+	public void zoomEnded() {
+		mGUI.noAnimation();
+	}
 
-  /**
-   * Called on every change of the GUI.
-   * 
-   * @param paramControlEvent
-   *          the {@link ControlEvent}
-   */
-  @Override
-  public void controlEvent(final ControlEvent paramControlEvent) {
-    assert paramControlEvent != null;
-    if (paramControlEvent.isController()) {
-      if (paramControlEvent.getController().getId() == 50) {
-        mModel.evaluateXPath(paramControlEvent.getController().getStringValue());
-      } else {
+	@Override
+	public void panEnded() {
+		mGUI.noAnimation();
+	}
 
-        if (paramControlEvent.getController() instanceof Toggle) {
-          final Toggle toggle = (Toggle)paramControlEvent.getController();
-          switch (paramControlEvent.getController().getId()) {
-          case 0:
-            mGUI.setShowArcs(toggle.getState());
-            break;
-          case 1:
-            mGUI.setShowLines(toggle.getState());
-            break;
-          case 2:
-            mGUI.setUseBezierLine(toggle.getState());
-            break;
-          }
-        } else if (paramControlEvent.getController() instanceof Slider) {
-          switch (paramControlEvent.getController().getId()) {
-          case 0:
-            mGUI.setInnerNodeArcScale(paramControlEvent.getController().getValue());
-            break;
-          case 1:
-            mGUI.setLeafArcScale(paramControlEvent.getController().getValue());
-            break;
-          case 2:
-            mGUI.setModificationWeight(paramControlEvent.getController().getValue());
-            break;
-          case 3:
-            mGUI.setDotSize(paramControlEvent.getController().getValue());
-            break;
-          case 4:
-            mGUI.setDotBrightness(paramControlEvent.getController().getValue());
-            break;
-          case 5:
-            mGUI.setBackgroundBrightness(paramControlEvent.getController().getValue());
-            break;
-          }
-        } else if (paramControlEvent.getController() instanceof Range) {
-          final float[] f = paramControlEvent.getController().getArrayValue();
-          switch (paramControlEvent.getController().getId()) {
-          case 0:
-            mGUI.setHueStart(f[0]);
-            mGUI.setHueEnd(f[1]);
-            break;
-          case 1:
-            mGUI.setSaturationStart(f[0]);
-            mGUI.setSaturationEnd(f[1]);
-            break;
-          case 2:
-            mGUI.setBrightnessStart(f[0]);
-            mGUI.setBrightnessEnd(f[1]);
-            break;
-          case 3:
-            mGUI.setInnerNodeBrightnessStart(f[0]);
-            mGUI.setInnerNodeBrightnessEnd(f[1]);
-            break;
-          case 4:
-            mGUI.setInnerNodeStrokeBrightnessStart(f[0]);
-            mGUI.setInnerNodeStrokeBrightnessEnd(f[1]);
-            break;
-          case 5:
-            mGUI.setStrokeWeightStart(f[0]);
-            mGUI.setStrokeWeightEnd(f[1]);
-            break;
-          }
-        }
+	/**
+	 * Implements processing mousePressed.
+	 * 
+	 * @param paramEvent
+	 *          The {@link MouseEvent}.
+	 * 
+	 * @see processing.core.PApplet#mousePressed
+	 */
+	@Override
+	public void mousePressed(final MouseEvent paramEvent) {
+		mGUI.getControlP5().controlWindow.mouseEvent(paramEvent);
+		mGUI.zoomMouseEvent(paramEvent);
+	}
 
-        mGUI.update(EResetZoomer.YES);
-      }
-    }
-  }
+	/**
+	 * Called on every change of the GUI.
+	 * 
+	 * @param paramControlEvent
+	 *          the {@link ControlEvent}
+	 */
+	@Override
+	public void controlEvent(final ControlEvent paramControlEvent) {
+		assert paramControlEvent != null;
+		if (paramControlEvent.isController()) {
+			if (paramControlEvent.getController().getId() == 50) {
+				mModel
+						.evaluateXPath(paramControlEvent.getController().getStringValue());
+			} else {
 
-  /**
-   * Implements processing mouseEntered.
-   * 
-   * @param paramEvent
-   *          The {@link MouseEvent}.
-   * 
-   * @see processing.core.PApplet#mouseEntered
-   */
-  @Override
-  public void mouseEntered(final MouseEvent paramEvent) {
-    mGUI.getParent().loop();
-  }
+				if (paramControlEvent.getController() instanceof Toggle) {
+					final Toggle toggle = (Toggle) paramControlEvent.getController();
+					switch (paramControlEvent.getController().getId()) {
+					case 0:
+						mGUI.setShowArcs(toggle.getState());
+						break;
+					case 1:
+						mGUI.setShowLines(toggle.getState());
+						break;
+					case 2:
+						mGUI.setUseBezierLine(toggle.getState());
+						break;
+					}
+				} else if (paramControlEvent.getController() instanceof Slider) {
+					switch (paramControlEvent.getController().getId()) {
+					case 0:
+						mGUI.setInnerNodeArcScale(paramControlEvent.getController()
+								.getValue());
+						break;
+					case 1:
+						mGUI.setLeafArcScale(paramControlEvent.getController().getValue());
+						break;
+					case 2:
+						mGUI.setModificationWeight(paramControlEvent.getController()
+								.getValue());
+						break;
+					case 3:
+						mGUI.setDotSize(paramControlEvent.getController().getValue());
+						break;
+					case 4:
+						mGUI.setDotBrightness(paramControlEvent.getController().getValue());
+						break;
+					case 5:
+						mGUI.setBackgroundBrightness(paramControlEvent.getController()
+								.getValue());
+						break;
+					}
+				} else if (paramControlEvent.getController() instanceof Range) {
+					final float[] f = paramControlEvent.getController().getArrayValue();
+					switch (paramControlEvent.getController().getId()) {
+					case 0:
+						mGUI.setHueStart(f[0]);
+						mGUI.setHueEnd(f[1]);
+						break;
+					case 1:
+						mGUI.setSaturationStart(f[0]);
+						mGUI.setSaturationEnd(f[1]);
+						break;
+					case 2:
+						mGUI.setBrightnessStart(f[0]);
+						mGUI.setBrightnessEnd(f[1]);
+						break;
+					case 3:
+						mGUI.setInnerNodeBrightnessStart(f[0]);
+						mGUI.setInnerNodeBrightnessEnd(f[1]);
+						break;
+					case 4:
+						mGUI.setInnerNodeStrokeBrightnessStart(f[0]);
+						mGUI.setInnerNodeStrokeBrightnessEnd(f[1]);
+						break;
+					case 5:
+						mGUI.setStrokeWeightStart(f[0]);
+						mGUI.setStrokeWeightEnd(f[1]);
+						break;
+					}
+				}
 
-  /**
-   * Implements processing mouseExited.
-   * 
-   * @param paramEvent
-   *          The {@link MouseEvent}.
-   * 
-   * @see processing.core.PApplet#mouseExited
-   */
-  @Override
-  public void mouseExited(final MouseEvent paramEvent) {
-    mGUI.getParent().noLoop();
-  }
+				mGUI.update(EResetZoomer.YES);
+			}
+		}
+	}
 
-  @Override
-  public void commit(final int paramValue) throws XMLStreamException {
-  }
+	/**
+	 * Implements processing mouseEntered.
+	 * 
+	 * @param paramEvent
+	 *          The {@link MouseEvent}.
+	 * 
+	 * @see processing.core.PApplet#mouseEntered
+	 */
+	@Override
+	public void mouseEntered(final MouseEvent paramEvent) {
+		mGUI.getParent().loop();
+	}
 
-  @Override
-  public void submit(final int paramValue) throws XMLStreamException {
-  }
+	/**
+	 * Implements processing mouseExited.
+	 * 
+	 * @param paramEvent
+	 *          The {@link MouseEvent}.
+	 * 
+	 * @see processing.core.PApplet#mouseExited
+	 */
+	@Override
+	public void mouseExited(final MouseEvent paramEvent) {
+		mGUI.getParent().noLoop();
+	}
 
-  @Override
-  public void cancel(final int paramValue) {
-  }
+	@Override
+	public void commit(final int paramValue) throws XMLStreamException {
+	}
 
-  @Override
-  public final Model<SunburstContainer, SunburstItem> getModel() {
-    return mModel;
-  }
+	@Override
+	public void submit(final int paramValue) throws XMLStreamException {
+	}
 
-  /**
-   * Get the {@link CountDownLatch} reference
-   * 
-   * @return the {@link CountDownLatch} reference
-   */
-  public CountDownLatch getLatch() {
-    return mLatch;
-  }
+	@Override
+	public void cancel(final int paramValue) {
+	}
 
-  public void setLatch(final CountDownLatch pLatch) {
-    mLatch = checkNotNull(pLatch);
-  }
+	@Override
+	public final Model<SunburstContainer, SunburstItem> getModel() {
+		return mModel;
+	}
 
-  @Override
-  public void setItems(final List<SunburstItem> pItems) {
-    mModel.setItems(checkNotNull(pItems));
-  }
+	/**
+	 * Get the {@link CountDownLatch} reference
+	 * 
+	 * @return the {@link CountDownLatch} reference
+	 */
+	public CountDownLatch getLatch() {
+		return mLatch;
+	}
+
+	public void setLatch(final CountDownLatch pLatch) {
+		mLatch = checkNotNull(pLatch);
+	}
+
+	@Override
+	public void setItems(final List<SunburstItem> pItems) {
+		mModel.setItems(checkNotNull(pItems));
+	}
 }

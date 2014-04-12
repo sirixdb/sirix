@@ -34,7 +34,7 @@ public interface References {
 	 *           if {@code nodeKey} < {@code 0}
 	 */
 	References addNodeKey(@Nonnegative long nodeKey);
-	
+
 	/**
 	 * Determines if the node key is indexed or not.
 	 * 
@@ -55,7 +55,7 @@ public interface References {
 	 *           if {@code nodeKey} < {@code 0}
 	 */
 	boolean isPresent(@Nonnegative long nodeKey);
-	
+
 	/**
 	 * Determines if nodeKeys are stored or not.
 	 * 

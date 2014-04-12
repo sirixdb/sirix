@@ -51,8 +51,7 @@ public interface Reader extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if something bad happens
 	 */
-	PageReference readUberPageReference()
-			throws SirixIOException;
+	PageReference readUberPageReference() throws SirixIOException;
 
 	/**
 	 * Getting a reference for the given pointer.

@@ -35,7 +35,8 @@ import org.sirix.gui.view.AbstractDiffAxis;
  * <h1>AbsSunburstAxis</h1>
  * 
  * <p>
- * Provide standard Java iterator capability compatible with the new enhanced for loop available since Java 5.
+ * Provide standard Java iterator capability compatible with the new enhanced
+ * for loop available since Java 5.
  * </p>
  * 
  * <p>
@@ -44,49 +45,50 @@ import org.sirix.gui.view.AbstractDiffAxis;
  */
 public abstract class AbstractSunburstAxis extends AbstractDiffAxis {
 
-  /**
-   * Bind axis step to transaction.
-   * 
-   * @param pRtx
-   *          transaction to operate with
-   */
-  public AbstractSunburstAxis(final NodeReadTrx pRtx) {
-    super(pRtx);
-  }
+	/**
+	 * Bind axis step to transaction.
+	 * 
+	 * @param pRtx
+	 *          transaction to operate with
+	 */
+	public AbstractSunburstAxis(final NodeReadTrx pRtx) {
+		super(pRtx);
+	}
 
-  /**
-   * Bind axis step to transaction.
-   * 
-   * @param pRtx
-   *          transaction to operate with
-   * @param pIncludeSelf
-   *          determines if self is included
-   */
-  public AbstractSunburstAxis(final NodeReadTrx pRtx, final IncludeSelf pIncludeSelf) {
-    super(pRtx, pIncludeSelf);
-  }
+	/**
+	 * Bind axis step to transaction.
+	 * 
+	 * @param pRtx
+	 *          transaction to operate with
+	 * @param pIncludeSelf
+	 *          determines if self is included
+	 */
+	public AbstractSunburstAxis(final NodeReadTrx pRtx,
+			final IncludeSelf pIncludeSelf) {
+		super(pRtx, pIncludeSelf);
+	}
 
-  /**
-   * Get {@code descendant-or-self} count for current node.
-   * 
-   * @return {@code descendant-or-self} count
-   */
-  public abstract int getDescendantCount();
+	/**
+	 * Get {@code descendant-or-self} count for current node.
+	 * 
+	 * @return {@code descendant-or-self} count
+	 */
+	public abstract int getDescendantCount();
 
-  /**
-   * Get {@code modification + descendant-or-self} count for current node.
-   * 
-   * @return {@code modification + descendant-or-self} count
-   */
-  public abstract int getModificationCount();
+	/**
+	 * Get {@code modification + descendant-or-self} count for current node.
+	 * 
+	 * @return {@code modification + descendant-or-self} count
+	 */
+	public abstract int getModificationCount();
 
-  /**
-   * Get {@code pruned-node} count for current node.
-   * 
-   * @return {@code pruned-node} count
-   */
-  public abstract int getPrunedNodes();
+	/**
+	 * Get {@code pruned-node} count for current node.
+	 * 
+	 * @return {@code pruned-node} count
+	 */
+	public abstract int getPrunedNodes();
 
-  /** Decrement index in the diff-datastructure by one. */
-  public abstract void decrementIndex();
+	/** Decrement index in the diff-datastructure by one. */
+	public abstract void decrementIndex();
 }

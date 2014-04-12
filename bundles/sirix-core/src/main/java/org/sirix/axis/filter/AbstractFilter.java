@@ -62,12 +62,12 @@ public abstract class AbstractFilter implements Filter, Predicate<Long> {
 	public final NodeReadTrx getTrx() {
 		return mRtx;
 	}
-	
+
 	@Override
 	public void setTrx(NodeReadTrx rtx) {
 		mRtx = checkNotNull(rtx);
 	}
-	
+
 	@Override
 	public abstract boolean filter();
 

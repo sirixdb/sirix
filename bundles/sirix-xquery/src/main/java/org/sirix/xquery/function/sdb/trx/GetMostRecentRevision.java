@@ -33,20 +33,19 @@ public final class GetMostRecentRevision extends AbstractFunction {
 	 * Constructor.
 	 * 
 	 * @param name
-	 *            the name of the function
+	 *          the name of the function
 	 * @param signature
-	 *            the signature of the function
+	 *          the signature of the function
 	 */
 	public GetMostRecentRevision(QNm name, Signature signature) {
 		super(name, signature, true);
 	}
 
 	@Override
-	public Sequence execute(StaticContext sctx, QueryContext ctx,
-			Sequence[] args) throws QueryException {
+	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
+			throws QueryException {
 		final DBNode doc = ((DBNode) args[0]);
 
-		return new Int32(doc.getTrx().getSession()
-				.getMostRecentRevisionNumber());
+		return new Int32(doc.getTrx().getSession().getMostRecentRevisionNumber());
 	}
 }

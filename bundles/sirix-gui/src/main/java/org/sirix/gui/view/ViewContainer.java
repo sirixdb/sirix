@@ -53,192 +53,196 @@ import org.sirix.gui.GUI;
  */
 public final class ViewContainer extends JPanel {
 
-  /**
-   * SerialUID.
-   */
-  private static final long serialVersionUID = -9151769742021251809L;
+	/**
+	 * SerialUID.
+	 */
+	private static final long serialVersionUID = -9151769742021251809L;
 
-  /** Container singleton instance. */
-  private static ViewContainer mContainer;
+	/** Container singleton instance. */
+	private static ViewContainer mContainer;
 
-  /** Main {@link GUI} reference. */
-  private final GUI mGUI;
+	/** Main {@link GUI} reference. */
+	private final GUI mGUI;
 
-  /** All implementations of the {@link View} instance. */
-  private final List<View> mViews;
+	/** All implementations of the {@link View} instance. */
+	private final List<View> mViews;
 
-  /**
-   * Private constructor.
-   * 
-   * @param paramGUI
-   *          the main {@link GUI} reference
-   * @param paramView
-   *          first {@link View} implementation
-   * @param paramViews
-   *          {@link View}s to layout
-   */
-  private ViewContainer(final GUI paramGUI, final View paramView, final View... paramViews) {
-    mGUI = paramGUI;
-    mViews = new LinkedList<View>();
-    mViews.add(paramView);
-    mViews.addAll(Arrays.asList(paramViews));
-    setLayout(new BorderLayout());
-  }
+	/**
+	 * Private constructor.
+	 * 
+	 * @param paramGUI
+	 *          the main {@link GUI} reference
+	 * @param paramView
+	 *          first {@link View} implementation
+	 * @param paramViews
+	 *          {@link View}s to layout
+	 */
+	private ViewContainer(final GUI paramGUI, final View paramView,
+			final View... paramViews) {
+		mGUI = paramGUI;
+		mViews = new LinkedList<View>();
+		mViews.add(paramView);
+		mViews.addAll(Arrays.asList(paramViews));
+		setLayout(new BorderLayout());
+	}
 
-  /**
-   * Create a {@link ViewContainer} singleton instance.
-   * 
-   * paramView and paramViews parameters because at least one view must be specified (see Effective Java).
-   * 
-   * @param paramGUI
-   *          the main {@link GUI} reference
-   * @param paramView
-   *          {@link View} implementation
-   * @param paramViews
-   *          {@link View} implementations to layout
-   * @return {@link ViewContainer} singleton instance
-   */
-  public synchronized static ViewContainer getInstance(final GUI paramGUI, final View paramView,
-    final View... paramViews) {
-    if (mContainer == null) {
-      mContainer = new ViewContainer(paramGUI, paramView, paramViews);
-    }
+	/**
+	 * Create a {@link ViewContainer} singleton instance.
+	 * 
+	 * paramView and paramViews parameters because at least one view must be
+	 * specified (see Effective Java).
+	 * 
+	 * @param paramGUI
+	 *          the main {@link GUI} reference
+	 * @param paramView
+	 *          {@link View} implementation
+	 * @param paramViews
+	 *          {@link View} implementations to layout
+	 * @return {@link ViewContainer} singleton instance
+	 */
+	public synchronized static ViewContainer getInstance(final GUI paramGUI,
+			final View paramView, final View... paramViews) {
+		if (mContainer == null) {
+			mContainer = new ViewContainer(paramGUI, paramView, paramViews);
+		}
 
-    return mContainer;
-  }
+		return mContainer;
+	}
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void revalidate() {
-    super.revalidate();
-  }
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void revalidate() {
+		super.revalidate();
+	}
 
-  /** Layout the views. */
-  public void layoutViews() {
-    removeAll();
+	/** Layout the views. */
+	public void layoutViews() {
+		removeAll();
 
-    final List<View> views = visibleViews();
+		final List<View> views = visibleViews();
 
-    for (final View view : views) {
-      if (mGUI.getReadDB() != null) {
-        view.refreshInit();
-      }
-    }
+		for (final View view : views) {
+			if (mGUI.getReadDB() != null) {
+				view.refreshInit();
+			}
+		}
 
-    JComponent tmpView = null;
-    int width = 0;
-    int i = 0;
-    JSplitPane pane;
-    for (final View view : views) {
-      if (views.size() == 1) {
-        add(view.component(), BorderLayout.PAGE_START);
-        tmpView = view.component();
-        break;
-      } else if (i % 2 != 0 && width < mGUI.getSize().width) {
-        assert tmpView != null;
-        pane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        if (tmpView instanceof View) {
-          tmpView = ((View)tmpView).component();
-        }
-        setupPane(pane, tmpView, view.component());
-        add(pane);
-        tmpView = pane;
-      } else if (i > 0) {
-        assert tmpView != null;
-        pane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        setupPane(pane, tmpView, view.component());
-        add(pane);
-        tmpView = view.component();
-      } else {
-        tmpView = view.component();
-      }
+		JComponent tmpView = null;
+		int width = 0;
+		int i = 0;
+		JSplitPane pane;
+		for (final View view : views) {
+			if (views.size() == 1) {
+				add(view.component(), BorderLayout.PAGE_START);
+				tmpView = view.component();
+				break;
+			} else if (i % 2 != 0 && width < mGUI.getSize().width) {
+				assert tmpView != null;
+				pane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+				if (tmpView instanceof View) {
+					tmpView = ((View) tmpView).component();
+				}
+				setupPane(pane, tmpView, view.component());
+				add(pane);
+				tmpView = pane;
+			} else if (i > 0) {
+				assert tmpView != null;
+				pane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+				setupPane(pane, tmpView, view.component());
+				add(pane);
+				tmpView = view.component();
+			} else {
+				tmpView = view.component();
+			}
 
-      i++;
-      width += (mGUI.getWidth() / 2f);
-    }
+			i++;
+			width += (mGUI.getWidth() / 2f);
+		}
 
-    super.revalidate();
-    super.repaint();
-  }
+		super.revalidate();
+		super.repaint();
+	}
 
-  /**
-   * Setup of the {@link JSplitPane} reference.
-   * 
-   * @param paramPane
-   *          {@link JSplitPane} reference
-   * @param paramTmpView
-   *          {@link JComponent} reference to the left
-   * @param paramView
-   *          {@link JComponent} reference to the right
-   */
-  private void
-    setupPane(final JSplitPane paramPane, final JComponent paramTmpView, final JComponent paramView) {
-    assert paramPane != null;
-    assert paramTmpView != null;
-    assert paramView != null;
-    paramPane.setSize(new Dimension(mGUI.getWidth(), mGUI.getHeight()));
-    paramPane.setAlignmentX(mGUI.getWidth() / 2f);
-    paramPane.setAlignmentY(mGUI.getHeight() / 2f);
-    paramPane.setDividerLocation(0.5);
-    paramPane.setContinuousLayout(true);
-    paramPane.setLeftComponent(paramTmpView);
-    paramPane.setRightComponent(paramView);
-    paramPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, new Listener(paramPane));
-    final Container parent = paramPane.getParent();
-    if (parent instanceof JComponent) {
-      ((JComponent)parent).revalidate();
-    }
-    final Window window = SwingUtilities.getWindowAncestor(this);
-    if (window != null) {
-      window.validate();
-    }
-  }
+	/**
+	 * Setup of the {@link JSplitPane} reference.
+	 * 
+	 * @param paramPane
+	 *          {@link JSplitPane} reference
+	 * @param paramTmpView
+	 *          {@link JComponent} reference to the left
+	 * @param paramView
+	 *          {@link JComponent} reference to the right
+	 */
+	private void setupPane(final JSplitPane paramPane,
+			final JComponent paramTmpView, final JComponent paramView) {
+		assert paramPane != null;
+		assert paramTmpView != null;
+		assert paramView != null;
+		paramPane.setSize(new Dimension(mGUI.getWidth(), mGUI.getHeight()));
+		paramPane.setAlignmentX(mGUI.getWidth() / 2f);
+		paramPane.setAlignmentY(mGUI.getHeight() / 2f);
+		paramPane.setDividerLocation(0.5);
+		paramPane.setContinuousLayout(true);
+		paramPane.setLeftComponent(paramTmpView);
+		paramPane.setRightComponent(paramView);
+		paramPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY,
+				new Listener(paramPane));
+		final Container parent = paramPane.getParent();
+		if (parent instanceof JComponent) {
+			((JComponent) parent).revalidate();
+		}
+		final Window window = SwingUtilities.getWindowAncestor(this);
+		if (window != null) {
+			window.validate();
+		}
+	}
 
-  /**
-   * Get list of visible views.
-   * 
-   * @return list of visible views
-   */
-  private List<View> visibleViews() {
-    final List<View> views = new LinkedList<View>();
+	/**
+	 * Get list of visible views.
+	 * 
+	 * @return list of visible views
+	 */
+	private List<View> visibleViews() {
+		final List<View> views = new LinkedList<View>();
 
-    for (final View view : mViews) {
-      if (view.isVisible()) {
-        views.add(view);
-      }
-    }
+		for (final View view : mViews) {
+			if (view.isVisible()) {
+				views.add(view);
+			}
+		}
 
-    return views;
-  }
+		return views;
+	}
 
-  /** Listener for JSplitPane events to resize AWT (Processing) views. */
-  private static class Listener implements PropertyChangeListener {
-    /** {@link JSplitPane} reference. */
-    private JSplitPane mPane;
+	/** Listener for JSplitPane events to resize AWT (Processing) views. */
+	private static class Listener implements PropertyChangeListener {
+		/** {@link JSplitPane} reference. */
+		private JSplitPane mPane;
 
-    /**
-     * Constructor.
-     * 
-     * @param paramPane
-     *          {@link JSplitPane} reference
-     */
-    Listener(final JSplitPane paramPane) {
-      assert paramPane != null;
-      mPane = paramPane;
-    }
+		/**
+		 * Constructor.
+		 * 
+		 * @param paramPane
+		 *          {@link JSplitPane} reference
+		 */
+		Listener(final JSplitPane paramPane) {
+			assert paramPane != null;
+			mPane = paramPane;
+		}
 
-    /** {@inheritDoc} */
-    @Override
-    public void propertyChange(final PropertyChangeEvent paramEvent) {
-      if (JSplitPane.DIVIDER_LOCATION_PROPERTY.equals(paramEvent.getPropertyName())) {
-        for (final Component component : mPane.getComponents()) {
-          if (component instanceof View) {
-            ((View)component).resize();
-          }
-        }
-      }
-    }
-  }
+		/** {@inheritDoc} */
+		@Override
+		public void propertyChange(final PropertyChangeEvent paramEvent) {
+			if (JSplitPane.DIVIDER_LOCATION_PROPERTY.equals(paramEvent
+					.getPropertyName())) {
+				for (final Component component : mPane.getComponents()) {
+					if (component instanceof View) {
+						((View) component).resize();
+					}
+				}
+			}
+		}
+	}
 }

@@ -58,7 +58,7 @@ public class ImmutableDocument implements ImmutableStructNode {
 	public VisitResult acceptVisitor(final Visitor visitor) {
 		return visitor.visit(this);
 	}
-	
+
 	@Override
 	public long getHash() {
 		return mNode.getHash();
@@ -128,22 +128,22 @@ public class ImmutableDocument implements ImmutableStructNode {
 	public long getRightSiblingKey() {
 		return Fixed.NULL_NODE_KEY.getStandardProperty();
 	}
-	
+
 	@Override
 	public Optional<SirixDeweyID> getDeweyID() {
 		return mNode.getDeweyID();
 	}
-	
+
 	@Override
 	public boolean equals(Object obj) {
 		return mNode.equals(obj);
 	}
-	
+
 	@Override
 	public int hashCode() {
 		return mNode.hashCode();
 	}
-	
+
 	@Override
 	public String toString() {
 		return mNode.toString();

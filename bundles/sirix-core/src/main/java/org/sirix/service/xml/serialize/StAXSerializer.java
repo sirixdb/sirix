@@ -604,8 +604,7 @@ public final class StAXSerializer implements XMLEventReader {
 			assert mRtx.getKind() == Kind.NAMESPACE;
 			final QNm qName = mRtx.getName();
 			mRtx.moveTo(mNodeKey);
-			return mFac
-					.createNamespace(qName.getPrefix(), qName.getNamespaceURI());
+			return mFac.createNamespace(qName.getPrefix(), qName.getNamespaceURI());
 		}
 
 		@Override

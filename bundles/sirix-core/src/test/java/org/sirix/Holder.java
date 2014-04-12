@@ -75,8 +75,9 @@ public class Holder {
 			Databases.createDatabase(config);
 		}
 		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
-		database.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
+		database
+				.createResource(new ResourceConfiguration.Builder(TestHelper.RESOURCE,
+						PATHS.PATH1.getConfig()).useDeweyIDs(true).build());
 		final Session session = database
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
@@ -85,7 +86,7 @@ public class Holder {
 		holder.setSession(session);
 		return holder;
 	}
-	
+
 	/**
 	 * Generate a session with deweyIDs for resources.
 	 * 
@@ -101,7 +102,8 @@ public class Holder {
 		}
 		final Database database = Databases.openDatabase(PATHS.PATH1.getFile());
 		database.createResource(new ResourceConfiguration.Builder(
-				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).buildPathSummary(true).build());
+				TestHelper.RESOURCE, PATHS.PATH1.getConfig()).buildPathSummary(true)
+				.build());
 		final Session session = database
 				.getSession(new SessionConfiguration.Builder(TestHelper.RESOURCE)
 						.build());
@@ -110,7 +112,7 @@ public class Holder {
 		holder.setSession(session);
 		return holder;
 	}
-	
+
 	/**
 	 * Generate a session.
 	 * 

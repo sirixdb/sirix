@@ -27,30 +27,29 @@ import javax.swing.filechooser.FileFilter;
  * 
  */
 public final class XMLFileFilter extends FileFilter {
-  /** File extensions which can be shreddered. */
-  private static final String[] ALLOWEDEXTENSIONS = new String[] {
-    "xml", "xhtml", "svg", "txt"
-  };
+	/** File extensions which can be shreddered. */
+	private static final String[] ALLOWEDEXTENSIONS = new String[] { "xml",
+			"xhtml", "svg", "txt" };
 
-  /** {@inheritDoc} */
-  @Override
-  public boolean accept(final File paramFile) {
-    boolean retVal = false;
+	/** {@inheritDoc} */
+	@Override
+	public boolean accept(final File paramFile) {
+		boolean retVal = false;
 
-    for (final String extension : ALLOWEDEXTENSIONS) {
-      final String fileName = paramFile.getName().toLowerCase();
-      if (fileName.endsWith(extension) || fileName.indexOf('.') == -1) {
-        retVal = true;
-        break;
-      }
-    }
+		for (final String extension : ALLOWEDEXTENSIONS) {
+			final String fileName = paramFile.getName().toLowerCase();
+			if (fileName.endsWith(extension) || fileName.indexOf('.') == -1) {
+				retVal = true;
+				break;
+			}
+		}
 
-    return retVal;
-  }
+		return retVal;
+	}
 
-  /** {@inheritDoc} */
-  @Override
-  public String getDescription() {
-    return "XML file filter";
-  }
+	/** {@inheritDoc} */
+	@Override
+	public String getDescription() {
+		return "XML file filter";
+	}
 }

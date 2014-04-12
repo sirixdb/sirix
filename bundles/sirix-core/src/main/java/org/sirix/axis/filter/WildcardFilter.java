@@ -113,7 +113,8 @@ public class WildcardFilter extends AbstractFilter {
 	 * @return {@code true}, if they match, {@code false} otherwise
 	 */
 	private boolean localNameMatch() {
-		final int localnameKey = getTrx().keyForName(getTrx().getName().getLocalName());
+		final int localnameKey = getTrx().keyForName(
+				getTrx().getName().getLocalName());
 		return localnameKey == mKnownPartKey;
 	}
 }

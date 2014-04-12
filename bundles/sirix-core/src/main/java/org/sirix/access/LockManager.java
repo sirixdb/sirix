@@ -27,7 +27,6 @@
 
 package org.sirix.access;
 
-
 /**
  * <h1>LockManager</h1>
  * 

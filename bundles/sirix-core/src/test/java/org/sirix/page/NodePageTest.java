@@ -84,7 +84,8 @@ public final class NodePageTest {
 
 	@Test
 	public void testSerializeDeserialize() throws IOException {
-		final UnorderedKeyValuePage page1 = new UnorderedKeyValuePage(0L, PageKind.RECORDPAGE, Optional.<PageReference> absent(), mPageReadTrx);
+		final UnorderedKeyValuePage page1 = new UnorderedKeyValuePage(0L,
+				PageKind.RECORDPAGE, Optional.<PageReference> absent(), mPageReadTrx);
 		assertEquals(0L, page1.getPageKey());
 
 		final NodeDelegate del = new NodeDelegate(0, 1, 0, 0,
@@ -106,8 +107,8 @@ public final class NodePageTest {
 		final DataOutputStream dataOut = new DataOutputStream(out);
 		PagePersistenter.serializePage(dataOut, page1);
 		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) PagePersistenter.deserializePage(new DataInputStream(in),
-				mPageReadTrx);
+		final UnorderedKeyValuePage page2 = (UnorderedKeyValuePage) PagePersistenter
+				.deserializePage(new DataInputStream(in), mPageReadTrx);
 		// assertEquals(position, out.position());
 		final ElementNode element = (ElementNode) page2.getValue(0l);
 		assertEquals(0L, page2.getValue(0l).getNodeKey());

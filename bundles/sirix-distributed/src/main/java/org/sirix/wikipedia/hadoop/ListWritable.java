@@ -29,7 +29,8 @@ import org.apache.hadoop.io.ArrayWritable;
  * <h1>ListWritable</h1>
  * 
  * <p>
- * Wrapper to wrap a List of {@link XMLEventWritable}s in an {@link ArrayWritable}.
+ * Wrapper to wrap a List of {@link XMLEventWritable}s in an
+ * {@link ArrayWritable}.
  * </p>
  * 
  * @author Johannes Lichtenberger, University of Konstanz
@@ -37,60 +38,61 @@ import org.apache.hadoop.io.ArrayWritable;
  */
 public final class ListWritable extends ArrayWritable {
 
-  /** {@link List} of {@link XMLEventWritable}s. */
-  private List<XMLEventWritable> mList;
+	/** {@link List} of {@link XMLEventWritable}s. */
+	private List<XMLEventWritable> mList;
 
-  /**
-   * Constructor.
-   * 
-   * @param paramList
-   *          List of {@link XMLEvent}s.
-   */
-  public ListWritable(final List<XMLEventWritable> paramList) {
-    super(XMLEventWritable.class, paramList.toArray(new XMLEventWritable[paramList.size()]));
-    mList = paramList;
-  }
+	/**
+	 * Constructor.
+	 * 
+	 * @param paramList
+	 *          List of {@link XMLEvent}s.
+	 */
+	public ListWritable(final List<XMLEventWritable> paramList) {
+		super(XMLEventWritable.class, paramList
+				.toArray(new XMLEventWritable[paramList.size()]));
+		mList = paramList;
+	}
 
-  /**
-   * Get the underlying list of {@link XMLEvent}s.
-   * 
-   * @return the List.
-   */
-  public List<XMLEventWritable> getList() {
-    return mList;
-  }
+	/**
+	 * Get the underlying list of {@link XMLEvent}s.
+	 * 
+	 * @return the List.
+	 */
+	public List<XMLEventWritable> getList() {
+		return mList;
+	}
 
-  /**
-   * Set the underlying list of {@link XMLEvent}s.
-   * 
-   * @param paramList
-   *          The List of {@link XMLEventWritable}s to set.
-   */
-  public void setmList(final List<XMLEventWritable> paramList) {
-    mList = paramList;
-  }
+	/**
+	 * Set the underlying list of {@link XMLEvent}s.
+	 * 
+	 * @param paramList
+	 *          The List of {@link XMLEventWritable}s to set.
+	 */
+	public void setmList(final List<XMLEventWritable> paramList) {
+		mList = paramList;
+	}
 
-  @Override
-  public void readFields(final DataInput paramIn) throws IOException {
-    readFields(paramIn);
-    mList = Arrays.asList((XMLEventWritable[])get());
-  }
+	@Override
+	public void readFields(final DataInput paramIn) throws IOException {
+		readFields(paramIn);
+		mList = Arrays.asList((XMLEventWritable[]) get());
+	}
 
-  /**
-   * Read from {@link DataInput}.
-   * 
-   * @param paramList
-   *          The underlying {@link List}.
-   * @param paramIn
-   *          The {@link DataInput}.
-   * @return a new writable list.
-   * @throws IOException
-   *           In case of any I/O failure.
-   */
-  public static ListWritable read(final List<XMLEventWritable> paramList, final DataInput paramIn)
-    throws IOException {
-    final ListWritable list = new ListWritable(paramList);
-    list.readFields(paramIn);
-    return list;
-  }
+	/**
+	 * Read from {@link DataInput}.
+	 * 
+	 * @param paramList
+	 *          The underlying {@link List}.
+	 * @param paramIn
+	 *          The {@link DataInput}.
+	 * @return a new writable list.
+	 * @throws IOException
+	 *           In case of any I/O failure.
+	 */
+	public static ListWritable read(final List<XMLEventWritable> paramList,
+			final DataInput paramIn) throws IOException {
+		final ListWritable list = new ListWritable(paramList);
+		list.readFields(paramIn);
+		return list;
+	}
 }

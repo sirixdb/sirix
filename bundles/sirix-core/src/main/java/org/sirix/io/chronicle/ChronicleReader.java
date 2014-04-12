@@ -28,7 +28,7 @@ public final class ChronicleReader implements Reader {
 	final static int OTHER_BEACON = 4;
 
 	private final Chronicle mChronicle;
-	
+
 	final ByteHandler mByteHandler;
 
 	private final Excerpt mExcerpt;

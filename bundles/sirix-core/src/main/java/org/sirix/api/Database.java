@@ -66,8 +66,7 @@ public interface Database extends AutoCloseable {
 	 * @throws SirixIOException
 	 *           if anything happens while creating the resource
 	 */
-	boolean createResource(ResourceConfiguration config)
-			throws SirixIOException;
+	boolean createResource(ResourceConfiguration config) throws SirixIOException;
 
 	/**
 	 * Is the resource within this database existing?
@@ -94,8 +93,7 @@ public interface Database extends AutoCloseable {
 	 * @throws SirixException
 	 *           if can't get session
 	 */
-	Session getSession(SessionConfiguration config)
-			throws SirixException;
+	Session getSession(SessionConfiguration config) throws SirixException;
 
 	/**
 	 * Truncating a resource. This includes the removal of all data stored within

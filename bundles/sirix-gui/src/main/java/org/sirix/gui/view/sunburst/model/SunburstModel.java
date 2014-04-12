@@ -123,7 +123,7 @@ public final class SunburstModel extends
 	public void update(final Container<SunburstContainer> pContainer) {
 		mLastItems.push(new ArrayList<>(mItems));
 		mLastDepths.push(mLastMaxDepth);
-//		traverseTree(pContainer);
+		// traverseTree(pContainer);
 	}
 
 	@Override
@@ -143,8 +143,8 @@ public final class SunburstModel extends
 	}
 
 	/** Traverse a tree (single revision). */
-	private static final class TraverseTree extends AbstractTraverseModel implements
-			Callable<Void> {
+	private static final class TraverseTree extends AbstractTraverseModel
+			implements Callable<Void> {
 
 		/** Key from which to start traversal. */
 		private transient long mKey;
@@ -201,7 +201,8 @@ public final class SunburstModel extends
 		 *          GUI which extends the {@link SunburstGUI}
 		 */
 		private TraverseTree(@Nonnegative final long pKey,
-				@Nonnull final Pruning pPruning, @Nonnull final AbstractSunburstGUI pGUI,
+				@Nonnull final Pruning pPruning,
+				@Nonnull final AbstractSunburstGUI pGUI,
 				@Nonnull final SunburstModel pModel) throws SirixException {
 			assert pKey >= 0;
 			assert pModel != null;
@@ -652,7 +653,8 @@ public final class SunburstModel extends
 					final XMLEventReader reader = XMLInputFactory.newInstance()
 							.createXMLEventReader(new ByteArrayInputStream(xml.getBytes()));
 					final ExecutorService service = Executors.newSingleThreadExecutor();
-					service.submit(new XMLShredder.Builder(mWtx, reader, mInsert).build());
+					service
+							.submit(new XMLShredder.Builder(mWtx, reader, mInsert).build());
 					service.shutdown();
 					service.awaitTermination(60, TimeUnit.SECONDS);
 				} else {

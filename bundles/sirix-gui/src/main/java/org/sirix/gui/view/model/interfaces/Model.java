@@ -43,8 +43,9 @@ import org.sirix.service.xml.shredder.Insert;
 /**
  * Interface which models of the {@link SunburstView} have to implement.
  * 
- * All methods should throw {@code NullPointerException}s in case of null values for reference parameters are
- * passed and {@code IllegalArgumentException} in case of any parameter which is invalid.
+ * All methods should throw {@code NullPointerException}s in case of null values
+ * for reference parameters are passed and {@code IllegalArgumentException} in
+ * case of any parameter which is invalid.
  * 
  * @author Johannes Lichtenberger, University of Konstanz
  * @param <S>
@@ -53,146 +54,150 @@ import org.sirix.service.xml.shredder.Insert;
  *          type of items
  * 
  */
-public interface Model<S, T extends VisualItem> extends Iterable<T>, Iterator<T>, PropertyChangeListener {
-  /**
-   * Get the item reference which implements {@link VisualItem} at the specified index in a datastructure.
-   * 
-   * @param pIndex
-   *          the index
-   * @return the {@link SunburstItem} at the specified index
-   * @throws IndexOutOfBoundsException
-   *           if {@code index > mItems.size() - 1 or < 0}
-   */
-  T getItem(@Nonnegative int pIndex) throws IndexOutOfBoundsException;
+public interface Model<S, T extends VisualItem> extends Iterable<T>,
+		Iterator<T>, PropertyChangeListener {
+	/**
+	 * Get the item reference which implements {@link VisualItem} at the specified
+	 * index in a datastructure.
+	 * 
+	 * @param pIndex
+	 *          the index
+	 * @return the {@link SunburstItem} at the specified index
+	 * @throws IndexOutOfBoundsException
+	 *           if {@code index > mItems.size() - 1 or < 0}
+	 */
+	T getItem(@Nonnegative int pIndex) throws IndexOutOfBoundsException;
 
-  /**
-   * Traverse the tree and create a {@link List} of {@link SunburstItem}s.
-   * 
-   * @param pContainer
-   *          {@link Container} implementation with options
-   */
-  void traverseTree(Container<S> pContainer);
+	/**
+	 * Traverse the tree and create a {@link List} of {@link SunburstItem}s.
+	 * 
+	 * @param pContainer
+	 *          {@link Container} implementation with options
+	 */
+	void traverseTree(Container<S> pContainer);
 
-  /** Undo operation. */
-  void undo();
+	/** Undo operation. */
+	void undo();
 
-  /**
-   * Update root of the tree with the node currently clicked.
-   * 
-   * @param pContainer
-   *          {@link Container} reference with options
-   */
-  void update(final Container<S> pContainer);
+	/**
+	 * Update root of the tree with the node currently clicked.
+	 * 
+	 * @param pContainer
+	 *          {@link Container} reference with options
+	 */
+	void update(final Container<S> pContainer);
 
-  /**
-   * XPath evaluation.
-   * 
-   * @param pXPathExpression
-   *          XPath expression to evaluate
-   */
-  void evaluateXPath(String pXPathExpression);
+	/**
+	 * XPath evaluation.
+	 * 
+	 * @param pXPathExpression
+	 *          XPath expression to evaluate
+	 */
+	void evaluateXPath(String pXPathExpression);
 
-  /**
-   * Spefify how to insert an XML fragment.
-   * 
-   * @param paramInsert
-   *          determines how to insert an XMl fragment
-   */
-  void setInsert(Insert pInsert);
+	/**
+	 * Spefify how to insert an XML fragment.
+	 * 
+	 * @param paramInsert
+	 *          determines how to insert an XMl fragment
+	 */
+	void setInsert(Insert pInsert);
 
-  /**
-   * Update {@link ReadDB} instance.
-   * 
-   * @param pDB
-   *          new {@link ReadDB} instance
-   * @param pContainer
-   *          {@link Container} instance
-   */
-  void updateDb(ReadDB pDB, @Nonnull Container<S> pContainer);
+	/**
+	 * Update {@link ReadDB} instance.
+	 * 
+	 * @param pDB
+	 *          new {@link ReadDB} instance
+	 * @param pContainer
+	 *          {@link Container} instance
+	 */
+	void updateDb(ReadDB pDB, @Nonnull Container<S> pContainer);
 
-  /**
-   * Add a {@link PropertyChangeListener}.
-   * 
-   * @param paramListener
-   *          the listener to add
-   */
-  void addPropertyChangeListener(PropertyChangeListener pListener);
+	/**
+	 * Add a {@link PropertyChangeListener}.
+	 * 
+	 * @param paramListener
+	 *          the listener to add
+	 */
+	void addPropertyChangeListener(PropertyChangeListener pListener);
 
-  /**
-   * Remove a {@link PropertyChangeListener}.
-   * 
-   * @param paramListener
-   *          the listener to remove
-   */
-  void removePropertyChangeListener(PropertyChangeListener pListener);
-//
-//  /**
-//   * Fire a property change.
-//   * 
-//   * @param pPropertyName
-//   *          name of the property
-//   * @param pOldValue
-//   *          old value
-//   * @param pNewValue
-//   *          new value
-//   */
-//  void firePropertyChange(String pPropertyName, @Nonnull Object pOldValue, @Nonnull Object pNewValue);
+	/**
+	 * Remove a {@link PropertyChangeListener}.
+	 * 
+	 * @param paramListener
+	 *          the listener to remove
+	 */
+	void removePropertyChangeListener(PropertyChangeListener pListener);
 
-  /**
-   * Get the database handle.
-   * 
-   * @return {@link ReadDB} reference
-   */
-  ReadDB getDb();
+	//
+	// /**
+	// * Fire a property change.
+	// *
+	// * @param pPropertyName
+	// * name of the property
+	// * @param pOldValue
+	// * old value
+	// * @param pNewValue
+	// * new value
+	// */
+	// void firePropertyChange(String pPropertyName, @Nonnull Object pOldValue,
+	// @Nonnull Object pNewValue);
 
-  /**
-   * Set a list of new items.
-   */
-  void setItems(List<T> pItems);
+	/**
+	 * Get the database handle.
+	 * 
+	 * @return {@link ReadDB} reference
+	 */
+	ReadDB getDb();
 
-  /**
-   * Set minimum and maximum text length as well as descendant count.
-   */
-  void setMinMax();
+	/**
+	 * Set a list of new items.
+	 */
+	void setItems(List<T> pItems);
 
-  /**
-   * Get maximum depth.
-   * 
-   * @return maximum depth
-   */
-  int getDepthMax();
+	/**
+	 * Set minimum and maximum text length as well as descendant count.
+	 */
+	void setMinMax();
 
-  /**
-   * Get the size of the item datastructure.
-   * 
-   * @return items size
-   */
-  int getItemsSize();
+	/**
+	 * Get maximum depth.
+	 * 
+	 * @return maximum depth
+	 */
+	int getDepthMax();
 
-  /**
-   * Set the depth max of the outer ring.
-   * 
-   * @param pDepthMax
-   *          the new maximum depth
-   */
-  void setNewDepthMax(@Nonnegative int pDepthMax);
+	/**
+	 * Get the size of the item datastructure.
+	 * 
+	 * @return items size
+	 */
+	int getItemsSize();
 
-  /**
-   * Set the depth max of the inner ring.
-   * 
-   * @param pDepthMax
-   *          the new maximum depth
-   */
-  void setOldDepthMax(@Nonnegative int pOldDepthMax);
+	/**
+	 * Set the depth max of the outer ring.
+	 * 
+	 * @param pDepthMax
+	 *          the new maximum depth
+	 */
+	void setNewDepthMax(@Nonnegative int pDepthMax);
 
-  /**
-   * Get a sublist of items.
-   * 
-   * @param pFromIndex
-   *          the index to start with (inclusive)
-   * @param pToIndex
-   *          the index to end (exlusive)
-   * @return sublist of items
-   */
-  List<T> subList(@Nonnegative int pFromIndex, @Nonnegative int pToIndex);
+	/**
+	 * Set the depth max of the inner ring.
+	 * 
+	 * @param pDepthMax
+	 *          the new maximum depth
+	 */
+	void setOldDepthMax(@Nonnegative int pOldDepthMax);
+
+	/**
+	 * Get a sublist of items.
+	 * 
+	 * @param pFromIndex
+	 *          the index to start with (inclusive)
+	 * @param pToIndex
+	 *          the index to end (exlusive)
+	 * @return sublist of items
+	 */
+	List<T> subList(@Nonnegative int pFromIndex, @Nonnegative int pToIndex);
 }

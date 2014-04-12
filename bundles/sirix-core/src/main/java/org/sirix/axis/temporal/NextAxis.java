@@ -22,7 +22,7 @@ public final class NextAxis extends AbstractTemporalAxis {
 
 	/** Determines if it's the first call. */
 	private boolean mFirst;
-	
+
 	/** The revision number. */
 	private int mRevision;
 
@@ -63,7 +63,7 @@ public final class NextAxis extends AbstractTemporalAxis {
 			return endOfData();
 		}
 	}
-	
+
 	@Override
 	public NodeReadTrx getTrx() {
 		return mRtx;

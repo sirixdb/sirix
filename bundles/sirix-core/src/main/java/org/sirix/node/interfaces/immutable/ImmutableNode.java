@@ -18,10 +18,10 @@ import com.google.common.base.Optional;
  *
  */
 public interface ImmutableNode extends Record {
-	
+
 	@Override
 	Kind getKind();
-	
+
 	/**
 	 * Get the optional dewey ID
 	 * 
@@ -35,7 +35,7 @@ public interface ImmutableNode extends Record {
 	 * @return value type
 	 */
 	int getTypeKey();
-	
+
 	/**
 	 * Determines if {@code pOther} is the same item.
 	 * 
@@ -53,7 +53,7 @@ public interface ImmutableNode extends Record {
 	 * @return the result of a visit
 	 */
 	VisitResult acceptVisitor(Visitor visitor);
-	
+
 	/**
 	 * Getting the persistent stored hash.
 	 * 

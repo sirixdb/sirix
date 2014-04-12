@@ -51,8 +51,8 @@ import com.google.common.collect.ImmutableMap;
  * @author Johannes Lichtenberger, University of Konstanz
  * 
  */
-public final class SynchronizedTransactionLogCache<T extends KeyValuePage<?, ?>> implements
-		Cache<Long, RecordPageContainer<T>> {
+public final class SynchronizedTransactionLogCache<T extends KeyValuePage<?, ?>>
+		implements Cache<Long, RecordPageContainer<T>> {
 
 	/** RAM-Based first cache. */
 	private final LRUCache<Long, RecordPageContainer<T>> mFirstCache;
@@ -145,8 +145,7 @@ public final class SynchronizedTransactionLogCache<T extends KeyValuePage<?, ?>>
 	}
 
 	@Override
-	public void put(final Long key,
-			final RecordPageContainer<T> value) {
+	public void put(final Long key, final RecordPageContainer<T> value) {
 		try {
 			mWriteLock.lock();
 			mFirstCache.put(key, value);

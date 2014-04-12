@@ -323,11 +323,14 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 		assert wtx != null;
 		assert rtx != null;
 		wtx.moveTo(mOldStartKey);
-		for (@SuppressWarnings("unused") final long nodeKey : VisitorDescendantAxis.newBuilder(wtx)
+		for (@SuppressWarnings("unused")
+		final long nodeKey : VisitorDescendantAxis
+				.newBuilder(wtx)
 				.includeSelf()
 				.visitor(
 						Optional.<DeleteFMSEVisitor> of(new DeleteFMSEVisitor(wtx,
-								mTotalMatching, mOldStartKey))).build());
+								mTotalMatching, mOldStartKey))).build())
+			;
 	}
 
 	/**
@@ -497,8 +500,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
 		try {
 			if (pos == 0) {
-				assert wtx.getKind() == Kind.ELEMENT
-						|| wtx.getKind() == Kind.DOCUMENT;
+				assert wtx.getKind() == Kind.ELEMENT || wtx.getKind() == Kind.DOCUMENT;
 				if (wtx.getFirstChildKey() == child) {
 					LOGWRAPPER
 							.error("Something went wrong: First child and child may never be the same!");
@@ -640,7 +642,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 						|| rtx.getKind() == Kind.PROCESSING_INSTRUCTION;
 				wtx.setName(rtx.getName());
 
-				if (wtx.getKind() == Kind.ATTRIBUTE || wtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
+				if (wtx.getKind() == Kind.ATTRIBUTE
+						|| wtx.getKind() == Kind.PROCESSING_INSTRUCTION) {
 					wtx.setValue(rtx.getValue());
 				}
 				break;
@@ -705,7 +708,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 			case NAMESPACE:
 				// Note that the insertion is right (localPart as prefix).
 				try {
-					wtx.insertNamespace(new QNm(rtx.getName().getNamespaceURI(), rtx.getName().getLocalName(), ""));
+					wtx.insertNamespace(new QNm(rtx.getName().getNamespaceURI(), rtx
+							.getName().getLocalName(), ""));
 				} catch (final SirixUsageException e) {
 					mTotalMatching.remove(wtx.getNodeKey());
 				}
@@ -1093,8 +1097,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 * @throws SirixException
 	 *           if anything in sirix fails
 	 */
-	private void init(final NodeReadTrx rtx,
-			final Visitor visitor) {
+	private void init(final NodeReadTrx rtx, final Visitor visitor) {
 		assert visitor != null;
 
 		final long nodeKey = rtx.getNodeKey();
@@ -1119,8 +1122,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 	 * @param visitor
 	 *          {@link LabelFMSEVisitor} used to save node type/list
 	 */
-	private void getLabels(final NodeReadTrx rtx,
-			final LabelFMSEVisitor visitor) {
+	private void getLabels(final NodeReadTrx rtx, final LabelFMSEVisitor visitor) {
 		assert rtx != null;
 		assert visitor != null;
 

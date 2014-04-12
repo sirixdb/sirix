@@ -15,7 +15,7 @@ public interface ImmutableNameNode extends ImmutableNode {
 	 * @return local name key of qualified name
 	 */
 	int getLocalNameKey();
-	
+
 	/**
 	 * Gets prefix key of qualified name.
 	 * 
@@ -29,14 +29,14 @@ public interface ImmutableNameNode extends ImmutableNode {
 	 * @return URI key
 	 */
 	int getURIKey();
-	
+
 	/**
 	 * Get a path node key.
 	 * 
 	 * @return path node key
 	 */
 	long getPathNodeKey();
-	
+
 	/**
 	 * Get the {@link QNm} associated with the node.
 	 * 
