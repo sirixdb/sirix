@@ -102,12 +102,10 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 	/** Page writer to serialize. */
 	private final Writer mPageWriter;
 
-	/**
-	 * Persistent BerkeleyDB page log for all page types != UnorderedKeyValuePage.
-	 */
+	/** Persistent BerkeleyDB page log for all page types != UnorderedKeyValuePage. */
 	final Cache<IndirectPageLogKey, Page> mPageLog;
 
-	/** Cache to store the changes in this transaction log. */
+	/** Cache to store the data changes in this transaction log. */
 	final Cache<Long, RecordPageContainer<UnorderedKeyValuePage>> mNodeLog;
 
 	/** Cache to store path summary changes in this transaction log. */

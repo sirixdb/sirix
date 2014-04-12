@@ -91,7 +91,7 @@ public class TextNodeTest {
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
 		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(new DataInputStream(in), node.getNodeKey(),
+		final TextNode node2 = (TextNode) Kind.TEXT.deserialize(new DataInputStream(in), node.getNodeKey(), node.getDeweyID(),
 				mPageReadTrx);
 		check(node2);
 	}

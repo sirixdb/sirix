@@ -87,7 +87,7 @@ public class NamespaceNodeTest {
 		final ByteArrayOutputStream out = new ByteArrayOutputStream();
 		node.getKind().serialize(new DataOutputStream(out), node, mPageReadTrx);
 		final ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(new DataInputStream(in), node.getNodeKey(),
+		final NamespaceNode node2 = (NamespaceNode) Kind.NAMESPACE.deserialize(new DataInputStream(in), node.getNodeKey(), node.getDeweyID(), 
 				mPageReadTrx);
 		check(node2);
 	}

@@ -46,7 +46,7 @@ import com.google.common.base.Objects;
  * 
  * <p>
  * Holds the {@link Session}-wide settings that can not change within the
- * runtime of a {@link Session}. This included stuff like commit-threshold and
+ * runtime of a {@link Session}. This includes stuff like commit-threshold and
  * number of usable write/read transactions. Each {@link SessionConfiguration}
  * is only bound through the location to a {@link Database} and related
  * resources.

@@ -33,8 +33,10 @@ import org.sirix.xquery.node.DBNode;
 import org.sirix.xquery.stream.SirixNodeKeyStream;
 
 /**
+ * Scan the CAS-index for matching nodes.
  * 
  * @author Sebastian Baechle
+ * @author Johannes Lichtenberger
  * 
  */
 @FunctionAnnotation(description = "Scans the given CAS index for matching nodes.", parameters = {

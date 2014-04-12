@@ -8,7 +8,9 @@ import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
 
 import org.sirix.api.PageReadTrx;
+import org.sirix.node.SirixDeweyID;
 
+import com.google.common.base.Optional;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 
@@ -26,6 +28,8 @@ public interface RecordPersistenter {
 	 *            input source
 	 * @param recordID
 	 *            the unique recordID
+	 * @param deweyID
+	 *            optional deweyID of the record
 	 * @param pageReadTrx
 	 *            {@link PageReadTrx} instance
 	 * @return a {@link Node} instance
@@ -35,7 +39,7 @@ public interface RecordPersistenter {
 	 *             if an I/O error occurs during deserialization
 	 */
 	@Nonnull
-	Record deserialize(DataInput source, @Nonnegative long recordID,
+	Record deserialize(DataInput source, @Nonnegative long recordID, Optional<SirixDeweyID> deweyID,
 			PageReadTrx pageReadTrx) throws IOException;
 
 	/**
