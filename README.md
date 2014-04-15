@@ -118,7 +118,7 @@ Core project:
 Examples:
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-examples&lt;/artifactId&gt;
+  &lt;artifactId&gt;sirix-example&lt;/artifactId&gt;
   &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
 &lt;/dependency&gt;
 </code></pre>
