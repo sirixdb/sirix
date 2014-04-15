@@ -139,14 +139,6 @@ Brackit(.org) interface (use Brackit to query data -- in the future should be pr
 &lt;/dependency>
 </pre></code>
 
-Saxon interface (use Saxon to query data):
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-saxon&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency>
-</pre></code>
-
 
 Other modules are currently not available (namely the GUI, the distributed package) due to dependencies to processing.org which isn't available from a maven repository and other dependencies.
 
