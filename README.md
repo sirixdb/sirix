@@ -139,15 +139,7 @@ Examples:
 &lt;/dependency&gt;
 </code></pre>
 
-JAX-RX interface (RESTful API):
-<pre><code>&lt;dependency&gt;
-  &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
-  &lt;artifactId&gt;sirix-jax-rx&lt;/artifactId&gt;
-  &lt;version&gt;0.1.2-SNAPSHOT&lt;/version&gt;
-&lt;/dependency&gt;
-</code></pre>
-
-Brackit(.org) interface (use Brackit to query data -- in the future should be preferable to Saxon (as we will include index rewriting rules... and it supports many build-in XQuery functions as well as the XQuery Update Facility), however as of now it is our very first (unstable) version):
+Brackit binding:
 <pre><code>&lt;dependency&gt;
   &lt;groupId&gt;com.github.sirixdb.sirix&lt;/groupId&gt;
   &lt;artifactId&gt;sirix-xquery&lt;/artifactId&gt;
@@ -156,7 +148,7 @@ Brackit(.org) interface (use Brackit to query data -- in the future should be pr
 </pre></code>
 
 
-Other modules are currently not available (namely the GUI, the distributed package) due to dependencies to processing.org which isn't available from a maven repository and other dependencies.
+Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
 
 ## Technical details and Features
 
