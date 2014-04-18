@@ -209,7 +209,7 @@
 		<dependency>
 			<groupId>com.sleepycat</groupId>
 			<artifactId>je</artifactId>
-			<version>5.0.97</version>
+			<version>5.0.103</version>
 		</dependency>
 		<dependency>
 			<groupId>org.aspectj</groupId>
