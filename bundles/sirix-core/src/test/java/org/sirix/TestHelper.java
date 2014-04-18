@@ -294,6 +294,7 @@ public final class TestHelper {
 		wtx.commit();
 		wtx.close();
 		session.close();
+		database.close();
 	}
 
 	/**

@@ -37,7 +37,7 @@ import org.sirix.node.Kind;
  * Only select nodes of kind FULLTEXT_LEAF.
  * </p>
  */
-public class TextFilter extends AbstractFilter {
+public final class TextFilter extends AbstractFilter {
 
 	/**
 	 * Default constructor.

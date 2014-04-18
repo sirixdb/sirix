@@ -37,7 +37,7 @@ import org.sirix.node.Kind;
  * Only match process instruction nodes.
  * </p>
  */
-public class PIFilter extends AbstractFilter {
+public final class PIFilter extends AbstractFilter {
 
 	/**
 	 * Default constructor.

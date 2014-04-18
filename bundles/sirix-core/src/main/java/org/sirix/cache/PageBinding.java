@@ -51,6 +51,7 @@ import com.sleepycat.bind.tuple.TupleOutput;
  */
 public final class PageBinding extends TupleBinding<Page> {
 
+	/** Logger instance. */
 	private static final LogWrapper LOGGER = new LogWrapper(
 			LoggerFactory.getLogger(PageBinding.class));
 

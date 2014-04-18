@@ -34,10 +34,10 @@ import org.sirix.node.Kind;
  * <h1>NodeAxisTest</h1>
  * 
  * <p>
- * Only match ELEMENTnodes.
+ * Only match ELEMENT nodes.
  * </p>
  */
-public class ElementFilter extends AbstractFilter {
+public final class ElementFilter extends AbstractFilter {
 
 	/**
 	 * Default constructor.

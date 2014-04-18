@@ -57,7 +57,7 @@ public interface Writer extends Reader {
 	 * @throws SirixIOException
 	 *           if an I/O error occured
 	 */
-	void writeFirstReference(final PageReference pageReference)
+	void writeUberPageReference(final PageReference pageReference)
 			throws SirixIOException;
 
 }

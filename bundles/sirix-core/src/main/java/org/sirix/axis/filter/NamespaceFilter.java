@@ -36,7 +36,7 @@ import org.sirix.api.NodeReadTrx;
  * Only match NAMESPACE nodes.
  * </p>
  */
-public class NamespaceFilter extends AbstractFilter {
+public final class NamespaceFilter extends AbstractFilter {
 
 	/**
 	 * Default constructor.
