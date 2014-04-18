@@ -15,7 +15,7 @@ import org.sirix.index.path.summary.PathSummaryReader;
 public final class PathLevelFilter extends AbstractFilter {
 
 	/** Node level to filter. */
-	private int mLevel;
+	private final int mLevel;
 
 	/** {@link PathSummaryReader} instance. */
 	private final PathSummaryReader mPathSummary;
@@ -23,17 +23,17 @@ public final class PathLevelFilter extends AbstractFilter {
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          transaction this filter is bound to
-	 * @param pLevel
+	 * @param level
 	 *          level of node
 	 */
-	public PathLevelFilter(final PathSummaryReader pRtx,
-			final @Nonnegative int pLevel) {
-		super(pRtx);
-		checkArgument(pLevel >= 0);
-		mPathSummary = pRtx;
-		mLevel = pLevel;
+	public PathLevelFilter(final PathSummaryReader rtx,
+			final @Nonnegative int level) {
+		super(rtx);
+		checkArgument(level >= 0);
+		mPathSummary = rtx;
+		mLevel = level;
 	}
 
 	@Override
