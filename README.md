@@ -55,6 +55,9 @@ doc('mydoc.xml', 2)/log/*[not(past::*)]
 
 Currently we are refactoring a RESTful-API and we'll explore how to efficiently distribute Sirix. Furthermore we aim to support an extended XDM in order to store JSON natively with additional node-types in Sirix. The implementation should be straight forward.
 
+## First steps
+Please have a look into our sirix-example project how to use Sirix. We'll shortly provide a refactored RESTful-API to interact with a Sirix-Server.
+
 ## Developers
 Developers which are eager to put forth the idea of a versioned, secure database system especially suitable, but not restricted to rooted trees (serialized form as XML/JSON) are always welcome. The idea is not only to support (and extend querying) as for instance via XQuery efficiently, but also to support other datamining tasks such as the comparison of hierarchical tree-structures.
 
