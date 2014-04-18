@@ -53,7 +53,7 @@ doc('mydoc.xml', 2)/log/*[not(past::*)]
 - A fast ID-based diff-algorithm which is able to determine differences between any two versions of a resource stored in Sirix optionally taking hashes of a node into account.
 - The number of children of a node, the number of descendants, a hash as well as an ORDPATH / DeweyID label which is compressed on disk to efficiently determine document order as well as to support other nice properties of hierarchical node labels is optionally stored with each node. Currently the number of children is always stored and the number of descendants is stored if hashing is enabled.
 - Flexible backend.
-- Optional encryption and compression of each page.
+- Optional encryption and/or compression of each page on disk.
 
 Currently we are refactoring a RESTful-API and we'll explore how to efficiently distribute Sirix. Furthermore we aim to support an extended XDM in order to store JSON natively with additional node-types in Sirix. The implementation should be straight forward.
 
