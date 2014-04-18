@@ -150,8 +150,6 @@ Brackit binding:
 
 Other modules are currently not available (namely the GUI, the distributed package as well as an outdated Saxon binding as well as a RESTful-API which currently is refactored).
 
-## Technical details and Features
-
 [![Build Status](https://travis-ci.org/sirixdb/sirix.png)](https://travis-ci.org/sirixdb/sirix)
 
 ##GUI
