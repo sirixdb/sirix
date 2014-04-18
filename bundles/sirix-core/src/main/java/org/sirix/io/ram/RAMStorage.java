@@ -112,7 +112,7 @@ public final class RAMStorage implements Storage {
 		}
 
 		@Override
-		public void writeFirstReference(final PageReference pageReference)
+		public void writeUberPageReference(final PageReference pageReference)
 				throws SirixIOException {
 			final Page page = pageReference.getPage();
 			pageReference.setKey(-1);

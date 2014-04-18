@@ -12,7 +12,7 @@ import java.util.Map;
  * 
  * @author Patrick Lang, University of Konstanz
  */
-public class KeyCache {
+public final class KeyCache {
 
 	/**
 	 * Capacity of the cache.

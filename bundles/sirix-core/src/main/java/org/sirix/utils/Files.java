@@ -46,21 +46,21 @@ public final class Files {
 						checkNotNull(options), Integer.MAX_VALUE,
 						new SimpleFileVisitor<Path>() {
 							@Override
-							public FileVisitResult visitFile(final Path pFile,
-									final BasicFileAttributes pAttrs) throws IOException {
-								java.nio.file.Files.delete(pFile);
+							public FileVisitResult visitFile(final Path file,
+									final BasicFileAttributes attrs) throws IOException {
+								java.nio.file.Files.delete(file);
 								return FileVisitResult.CONTINUE;
 							}
 
 							@Override
-							public FileVisitResult postVisitDirectory(final Path pDir,
-									final IOException pExc) throws IOException {
-								if (pExc == null) {
-									java.nio.file.Files.delete(pDir);
+							public FileVisitResult postVisitDirectory(final Path dir,
+									final IOException exc) throws IOException {
+								if (exc == null) {
+									java.nio.file.Files.delete(dir);
 									return FileVisitResult.CONTINUE;
 								} else {
 									// Directory iteration failed.
-									throw pExc;
+									throw exc;
 								}
 							}
 						});

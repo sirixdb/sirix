@@ -6,6 +6,7 @@ package org.sirix.api;
  * @author Johannes Lichtenberger
  * 
  */
+@FunctionalInterface
 public interface PreCommitHook {
 	/**
 	 * Pre commit hook. Called before a revision is commited.

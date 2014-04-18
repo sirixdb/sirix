@@ -37,7 +37,7 @@ import org.sirix.node.Kind;
  * Only match ELEMENT and TEXT nodes.
  * </p>
  */
-public class NodeFilter extends AbstractFilter {
+public final class NodeFilter extends AbstractFilter {
 
 	/**
 	 * Default constructor.

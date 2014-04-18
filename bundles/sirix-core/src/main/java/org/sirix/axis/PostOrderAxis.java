@@ -91,9 +91,9 @@ public final class PostOrderAxis extends AbstractAxis {
 
 		// Move down in the tree if it hasn't moved down before.
 		if ((!mMovedToParent && rtx.hasFirstChild())
-				|| (rtx.hasRightSibling() && (rtx.moveToRightSibling() != null))) {
+				|| (rtx.hasRightSibling() && (rtx.moveToRightSibling().hasMoved()))) {
 			while (rtx.hasFirstChild()) {
-				getTrx().moveTo(rtx.getFirstChildKey());
+				rtx.moveToFirstChild();
 			}
 
 			final long key = rtx.getNodeKey();
@@ -126,7 +126,7 @@ public final class PostOrderAxis extends AbstractAxis {
 		}
 
 		// Move back to current node.
-		getTrx().moveTo(currKey);
+		rtx.moveTo(currKey);
 		return key;
 	}
 }

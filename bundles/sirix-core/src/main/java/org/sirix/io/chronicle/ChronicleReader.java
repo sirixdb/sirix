@@ -57,7 +57,6 @@ public final class ChronicleReader implements Reader {
 		try {
 			// Read page from excerpt.
 			final boolean opened = mExcerpt.index(key);
-			System.out.println(key);
 			assert opened : "Index couldn't be opened!";
 			final int dataLength = mExcerpt.readInt();
 			final byte[] page = new byte[dataLength];
@@ -77,8 +76,8 @@ public final class ChronicleReader implements Reader {
 
 	@Override
 	public void close() throws SirixIOException {
-		mExcerpt.close();
 		try {
+			mExcerpt.close();
 			mChronicle.close();
 		} catch (final IOException e) {
 			throw new SirixIOException(e.getCause());

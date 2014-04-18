@@ -55,7 +55,7 @@ import com.google.common.base.Optional;
  * Atomic types are anyAtomicType and all types derived from it.)
  * </p>
  */
-public class AtomicValue implements Node, ValueNode {
+public final class AtomicValue implements Node, ValueNode {
 
 	/** Value of the item as byte array. */
 	private byte[] mValue;
@@ -72,14 +72,14 @@ public class AtomicValue implements Node, ValueNode {
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param pValue
+	 * @param value
 	 *          the value of the Item
-	 * @param pType
+	 * @param type
 	 *          the item's type
 	 */
-	public AtomicValue(final byte[] pValue, final int pType) {
-		mValue = checkNotNull(pValue);
-		mType = pType;
+	public AtomicValue(final byte[] value, final int type) {
+		mValue = checkNotNull(value);
+		mType = type;
 	}
 
 	/**

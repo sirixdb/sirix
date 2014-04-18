@@ -41,9 +41,9 @@ package org.sirix.api;
  * <p>
  * <ol>
  * <li><strong>Precondition</strong> before each call to
- * <code>IFilter.filter()</code>: <code>NodeReadTrx.getKey() == n</code>.</li>
+ * <code>Filter.filter()</code>: <code>NodeReadTrx.getNodeKey() == n</code>.</li>
  * <li><strong>Postcondition</strong> after each call to
- * <code>IFilter.filter()</code>: <code>NodeReadTrx.getKey() == n</code>.</li>
+ * <code>Filter.filter()</code>: <code>NodeReadTrx.getNodeKey() == n</code>.</li>
  * </ol>
  * </p>
  * 

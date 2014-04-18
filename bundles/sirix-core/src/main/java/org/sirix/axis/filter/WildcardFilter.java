@@ -39,7 +39,7 @@ import org.sirix.node.Kind;
  * namespace prefix, or the local name.
  * </p>
  */
-public class WildcardFilter extends AbstractFilter {
+public final class WildcardFilter extends AbstractFilter {
 
 	/** Type. */
 	public enum EType {

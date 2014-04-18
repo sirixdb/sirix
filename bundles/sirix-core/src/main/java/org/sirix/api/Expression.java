@@ -35,6 +35,7 @@ import org.sirix.exception.SirixXPathException;
  * @author Johannes Lichtenberger
  * 
  */
+@FunctionalInterface
 public interface Expression {
 
 	/**

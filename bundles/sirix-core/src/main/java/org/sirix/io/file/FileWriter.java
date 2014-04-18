@@ -27,7 +27,6 @@
 
 package org.sirix.io.file;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -44,8 +43,6 @@ import org.sirix.io.bytepipe.ByteHandler;
 import org.sirix.page.PagePersistenter;
 import org.sirix.page.PageReference;
 import org.sirix.page.interfaces.Page;
-
-import com.google.common.io.ByteStreams;
 
 /**
  * File Writer for providing read/write access for file as a Sirix backend.
@@ -102,10 +99,6 @@ public final class FileWriter extends AbstractForwardingReader implements
 			final DataOutputStream dataOutput = new DataOutputStream(
 					mReader.mByteHandler.serialize(output));
 			PagePersistenter.serializePage(dataOutput, page);
-
-			// ByteStreams.copy(new ByteArrayInputStream(output.toByteArray()),
-			// dataOutput);
-
 			output.close();
 			dataOutput.close();
 
@@ -148,7 +141,7 @@ public final class FileWriter extends AbstractForwardingReader implements
 	}
 
 	@Override
-	public void writeFirstReference(final PageReference pageReference)
+	public void writeUberPageReference(final PageReference pageReference)
 			throws SirixIOException {
 		try {
 			write(pageReference);

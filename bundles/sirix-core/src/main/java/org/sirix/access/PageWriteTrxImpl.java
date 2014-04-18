@@ -662,7 +662,7 @@ final class PageWriteTrxImpl extends AbstractForwardingPageReadTrx implements
 		uberPage.commit(this);
 
 		uberPageReference.setPage(uberPage);
-		mPageWriter.writeFirstReference(uberPageReference);
+		mPageWriter.writeUberPageReference(uberPageReference);
 		uberPageReference.setPage(null);
 
 		mPageRtx.mSession.waitForFinishedSync(mTransactionID);

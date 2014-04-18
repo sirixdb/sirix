@@ -173,7 +173,7 @@ public final class DatabaseImpl implements Database {
 				DatabaseConfiguration.Paths.DATA.getFile().getName()), name);
 		// Check that database must be closed beforehand.
 		if (!mSessions.containsKey(resourceFile)) {
-			// If file is existing and folder is a tt-dataplace, delete it.
+			// If file is existing and folder is a Sirix-dataplace, delete it.
 			if (resourceFile.exists()
 					&& ResourceConfiguration.Paths.compareStructure(resourceFile) == 0) {
 				// Instantiate the database for deletion.

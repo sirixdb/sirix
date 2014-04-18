@@ -183,7 +183,7 @@ public final class BerkeleyWriter implements Writer {
 	}
 
 	@Override
-	public void writeFirstReference(final PageReference pageReference)
+	public void writeUberPageReference(final PageReference pageReference)
 			throws SirixIOException {
 		write(pageReference);
 

@@ -10,7 +10,7 @@ import com.google.common.base.Objects;
 /**
  * Log key.
  * 
- * @author johannes
+ * @author Johannes Lichtenberger
  * 
  */
 public final class IndirectPageLogKey {

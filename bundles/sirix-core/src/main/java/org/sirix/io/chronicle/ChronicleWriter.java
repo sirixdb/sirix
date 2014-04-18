@@ -43,8 +43,8 @@ public final class ChronicleWriter extends AbstractForwardingReader implements
 
 	@Override
 	public void close() throws SirixIOException {
-		mExcerpt.close();
 		try {
+			mExcerpt.close();
 			mChronicle.close();
 			mReader.close();
 		} catch (final IOException e) {
@@ -63,7 +63,6 @@ public final class ChronicleWriter extends AbstractForwardingReader implements
 			final DataOutputStream dataOutput = new DataOutputStream(
 					mReader.mByteHandler.serialize(output));
 			PagePersistenter.serializePage(dataOutput, page);
-
 			output.flush();
 			output.close();
 			dataOutput.close();
@@ -75,7 +74,7 @@ public final class ChronicleWriter extends AbstractForwardingReader implements
 			mExcerpt.writeInt(serializedPage.length);
 			mExcerpt.write(serializedPage);
 			mExcerpt.finish();
-			final long index = mExcerpt.index();
+			final long index = mExcerpt.index() - 1;
 			assert index != -1 : "Index nr. not valid!";
 
 			// Remember page coordinates.
@@ -86,7 +85,7 @@ public final class ChronicleWriter extends AbstractForwardingReader implements
 	}
 
 	@Override
-	public void writeFirstReference(final PageReference pageReference)
+	public void writeUberPageReference(final PageReference pageReference)
 			throws SirixIOException {
 		write(pageReference);
 	}

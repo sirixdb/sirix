@@ -37,7 +37,7 @@ import org.sirix.node.Kind;
  * Only match ATTRIBUTE nodes.
  * </p>
  */
-public class AttributeFilter extends AbstractFilter {
+public final class AttributeFilter extends AbstractFilter {
 
 	/**
 	 * Default constructor.

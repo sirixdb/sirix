@@ -28,7 +28,6 @@
 package org.sirix.page;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.mock;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -80,6 +79,8 @@ public final class NodePageTest {
 	public void tearDown() throws SirixException {
 		mPageReadTrx.close();
 		mHolder.close();
+		TestHelper.closeEverything();
+		TestHelper.deleteEverything();
 	}
 
 	@Test

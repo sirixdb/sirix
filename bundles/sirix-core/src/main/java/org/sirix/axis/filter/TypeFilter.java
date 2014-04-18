@@ -44,26 +44,26 @@ public class TypeFilter extends AbstractFilter {
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          transaction this filter is bound to
-	 * @param pType
+	 * @param type
 	 *          type to match
 	 */
-	public TypeFilter(final NodeReadTrx pRtx, final int pType) {
-		super(pRtx);
-		mType = pType;
+	public TypeFilter(final NodeReadTrx rtx, final int type) {
+		super(rtx);
+		mType = type;
 	}
 
 	/**
 	 * Constructor. Initializes the internal state.
 	 * 
-	 * @param pRtx
+	 * @param rtx
 	 *          transaction this filter is bound to
-	 * @param pTypeName
+	 * @param typeName
 	 *          name of the type to match
 	 */
-	public TypeFilter(final NodeReadTrx pRtx, final String pTypeName) {
-		this(pRtx, pRtx.keyForName(pTypeName));
+	public TypeFilter(final NodeReadTrx rtx, final String typeName) {
+		this(rtx, rtx.keyForName(typeName));
 	}
 
 	@Override

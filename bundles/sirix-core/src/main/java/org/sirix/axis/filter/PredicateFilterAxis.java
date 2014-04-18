@@ -37,14 +37,14 @@ import org.sirix.axis.AbstractAxis;
  * <h1>PredicateFilterAxis</h1>
  * <p>
  * The PredicateAxis evaluates a predicate (in the form of an axis) and returns
- * true, if the predicates has a value (axis.hasNext == true) and this value if
+ * true, if the predicates has a value (axis.hasNext() == true) and this value if
  * not the boolean value false. Otherwise false is returned. Since a predicate
  * is a kind of filter, the transaction that has been altered by means of the
  * predicate's evaluation has to be reset to the key that it was set to before
  * the evaluation.
  * </p>
  */
-public class PredicateFilterAxis extends AbstractAxis {
+public final class PredicateFilterAxis extends AbstractAxis {
 
 	/** First run. */
 	private boolean mIsFirst;
