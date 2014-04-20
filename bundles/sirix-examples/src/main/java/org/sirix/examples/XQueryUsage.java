@@ -123,13 +123,13 @@ public final class XQueryUsage {
 		doc.deleteOnExit();
 
 		// Initialize query context and store.
-		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx = new QueryContext(store);
 
 			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
 			URI docUri = doc.toURI();
-			final String xq1 = String.format("bit:load('mydoc.xml', '%s')",
+			final String xq1 = String.format("sdb:load('mycol.xml', 'mydoc.xml', '%s')",
 					docUri.toString());
 			System.out.println(xq1);
 			new XQuery(xq1).evaluate(ctx);
@@ -138,7 +138,7 @@ public final class XQueryUsage {
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq2 = "insert nodes <a><b/></a> into doc('mydoc.xml')/log";
+			final String xq2 = "insert nodes <a><b/></a> into sdb:doc('mydoc.xml')/log";
 			System.out.println(xq2);
 			new XQuery(xq2).execute(ctx2);
 			store.commitAll();
@@ -204,44 +204,45 @@ public final class XQueryUsage {
 	private static void loadDocumentAndQueryTemporal() throws QueryException,
 			IOException {
 		// Prepare sample document.
-		File tmpDir = new File(System.getProperty("java.io.tmpdir"));
+		final File tmpDir = new File(System.getProperty("java.io.tmpdir"));
 
 		// Initialize query context and store.
-		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx = new QueryContext(store);
 
-			File doc1 = generateSampleDoc(tmpDir, "sample1");
+			final File doc1 = generateSampleDoc(tmpDir, "sample1");
 			doc1.deleteOnExit();
+			
+			final URI docUri = doc1.toURI();
 
 			// Use XQuery to load sample document into store.
 			System.out.println("Loading document:");
-			URI doc1Uri = doc1.toURI();
-			final String xq1 = String.format("bit:load('mydocs.col', '%s')",
-					doc1Uri.toString());
+			final String xq1 = String.format("sdb:load('mydocs.col', 'resource1', '%s')",
+					docUri.toString());
 			System.out.println(xq1);
-			new XQuery(xq1).evaluate(ctx);
+			new XQuery(new SirixCompileChain(store), xq1).evaluate(ctx);
 
 			// Reuse store and query loaded document.
 			final QueryContext ctx2 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Query loaded document:");
-			final String xq2 = "insert nodes <a><b/>test<c/>55<d>22</d></a> into doc('mydocs.col')/log";
+			final String xq2 = "insert nodes <a><b/>test<c/>55<d>22</d></a> into sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1))/log";
 			System.out.println(xq2);
-			final XQuery q = new XQuery(xq2);
+			final XQuery q = new XQuery(new SirixCompileChain(store), xq2);
 			q.serialize(ctx2, System.out);
 			store.commitAll();
 			System.out.println();
 		}
 
 		// Create and commit CAS indexes on all attribute- and text-nodes.
-		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out
 					.println("Create a cas index for all attributes and another one for text-nodes. A third one is created for all integers:");
 			final XQuery q = new XQuery(
 					new SirixCompileChain(store),
-					"let $doc := sdb:doc('mydocs.col', 'resource1') "
+					"let $doc := sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
 							+ "let $casStats1 := sdb:create-cas-index($doc, 'xs:string', '//@*') "
 							+ "let $casStats2 := sdb:create-cas-index($doc, 'xs:string', '//*') "
 							+ "let $casStats3 := sdb:create-cas-index($doc, 'xs:integer', '//*') "
@@ -252,12 +253,12 @@ public final class XQueryUsage {
 		}
 
 		// Create and commit path index on all elements.
-		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out.println("Create path index for all elements (all paths):");
 			final XQuery q = new XQuery(new SirixCompileChain(store),
-					"let $doc := sdb:doc('mydocs.col', 'resource1') "
+					"let $doc := sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
 							+ "let $stats := sdb:create-path-index($doc, '//*') "
 							+ "return <rev>{sdb:commit($doc)}</rev>");
 			q.serialize(ctx3, System.out);
@@ -266,14 +267,14 @@ public final class XQueryUsage {
 		}
 
 		// Create and commit name index on all elements with QName 'src' or 'msg'.
-		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+		try (final DBStore store = DBStore.newBuilder().build()) {
 			final QueryContext ctx3 = new QueryContext(store);
 			System.out.println();
 			System.out
 					.println("Create name index for all elements with name 'src' or 'msg':");
 			final XQuery q = new XQuery(
 					new SirixCompileChain(store),
-					"let $doc := sdb:doc('mydocs.col', 'resource1') "
+					"let $doc := sdb:doc('mydocs.col', 'resource1', (), fn:boolean(1)) "
 							+ "let $stats := sdb:create-name-index($doc, fn:QName((), 'src')) "
 							+ "return <rev>{sdb:commit($doc)}</rev>");
 			q.serialize(ctx3, System.out);
@@ -375,25 +376,14 @@ public final class XQueryUsage {
 		// Query name index.
 		try (final DBStore store = DBStore.newBuilder().build()) {
 			System.out.println("");
-			System.out.println("Find name index.");
+			System.out.println("Query name index (src-element).");
 			final QueryContext ctx3 = new QueryContext(store);
-			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1') return sdb:scan-name-index($doc, sdb:find-name-index($doc, fn:QName((), 'src')), fn:QName((), 'src'))";
-			final Sequence seq = new XQuery(new SirixCompileChain(store), query)
-					.execute(ctx3);
-			final Comparator<Tuple> comparator = new Comparator<Tuple>() {
-				@Override
-				public int compare(Tuple o1, Tuple o2) {
-					return ((Node<?>) o1).cmp((Node<?>) o2);
-				}
-			};
-			final Sequence sortedSeq = new SortedNodeSequence(comparator, seq, true);
-			final Iter sortedIter = sortedSeq.iterate();
-
-			System.out.println("Sorted index entries in document order: ");
-			for (Item item = sortedIter.next(); item != null; item = sortedIter
-					.next()) {
-				System.out.println(item);
-			}
+			final String query = "let $doc := sdb:doc('mydocs.col', 'resource1')"
+                         + " let $sequence := sdb:scan-name-index($doc, sdb:find-name-index($doc, fn:QName((), 'src')), fn:QName((), 'src'))"
+                         + " return sdb:sort($sequence)";
+			final XQuery q = new XQuery(new SirixCompileChain(store), query);
+			q.prettyPrint();
+			q.serialize(ctx3, System.out);
 		}
 
 		try (final DBStore store = DBStore.newBuilder().build()) {
@@ -432,7 +422,7 @@ public final class XQueryUsage {
 			System.out.println();
 		}
 
-		try (final DBStore store = DBStore.newBuilder().isUpdatable().build()) {
+		try (final DBStore store = DBStore.newBuilder().build()) {
 			final File doc = new File(new StringBuilder("src").append(File.separator)
 					.append("main").append(File.separator).append("resources")
 					.append(File.separator).append("test.xml").toString());

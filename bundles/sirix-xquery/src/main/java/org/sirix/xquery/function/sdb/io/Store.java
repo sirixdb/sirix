@@ -52,7 +52,7 @@ import com.google.common.base.Optional;
 		"$fragments", "$create-new" })
 public final class Store extends AbstractFunction {
 
-	/** CAS index function name. */
+	/** Store function name. */
 	public final static QNm STORE = new QNm(SDBFun.SDB_NSURI, SDBFun.SDB_PREFIX,
 			"store");
 

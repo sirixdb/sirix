@@ -36,12 +36,12 @@ import com.google.common.base.Optional;
 
 /**
  * <p>
- * Function for storing a document in a collection/database. The Supported
+ * Function for loading a document in a collection/database. The Supported
  * signature is:
  * </p>
  * 
  * <pre>
- * <code>sdb:store($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as ()</code>
+ * <code>sdb:load($coll as xs:string, $res as xs:string, $fragment as xs:string, $create-new as xs:boolean?) as ()</code>
  * </pre>
  * 
  * @author Johannes Lichtenberger

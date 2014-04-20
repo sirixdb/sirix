@@ -1,4 +1,4 @@
-package org.sirix.xquery.function.sdb.index;
+package org.sirix.xquery.function.sdb.index.find;
 
 import org.brackit.xquery.QueryContext;
 import org.brackit.xquery.QueryException;

@@ -22,7 +22,11 @@ import org.sirix.xquery.node.DBCollection;
  * <code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?) as node()</code>
  * </li>
  * <li>
- * <code>sdb:doc($coll as xs:string, $res as xs:string) as node()</code></li>
+ * <code>sdb:doc($coll as xs:string, $res as xs:string) as node()</code>
+ * </li>
+ * <li>
+ * <code>sdb:doc($coll as xs:string, $res as xs:string, $revision as xs:int?, $updatable as xs:boolean?) as node()</code>
+ * </li>
  * </ul>
  * 
  * @author Max Bechtold
@@ -50,7 +54,7 @@ public final class Doc extends AbstractFunction {
 	@Override
 	public Sequence execute(StaticContext sctx, QueryContext ctx, Sequence[] args)
 			throws QueryException {
-		if (args.length != 2 && args.length != 3) {
+		if (args.length < 2 || args.length > 4) {
 			throw new QueryException(new QNm("No valid arguments specified!"));
 		}
 		final DBCollection col = (DBCollection) ctx.getStore().lookup(
@@ -61,9 +65,9 @@ public final class Doc extends AbstractFunction {
 		}
 
 		final String expResName = ((Str) args[1]).stringValue();
-
-		final int revision = args.length == 3 ? FunUtil.getInt(args, 2, "revision",
-				-1, null, false) : -1;
-		return col.getDocument(revision, expResName);
+		final int revision = FunUtil.getInt(args, 2, "revision", -1, null, false);
+		final boolean updatable = FunUtil.getBoolean(args, 3, "updatable", false, false);
+		
+		return col.getDocument(revision, expResName, updatable);
 	}
 }
